@@ -344,7 +344,6 @@ export function emitContractCorrupted(
     contractId: ContractId;
     reason: string;
     evidencePath: string;
-    abortVerifierFailed?: string;
   },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCorrupted')) return;
@@ -353,20 +352,33 @@ export function emitContractCorrupted(
     `reason=${opts.reason}`,
     `evidence_path=${opts.evidencePath}`,
   ];
-  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
   audit.write(CONTRACT_AUDIT_EVENTS.CORRUPTED, ...cols);
+}
+
+// ─── VERIFIER_ABORT_FAILED (phase 1862 Step B, CT-D5) ───────────────────────
+// verifier abort 失败是独立执行失败事实：单独事件承载，不并入 terminal 业务事件载荷。
+export function emitVerifierAbortFailed(
+  audit: AuditLog,
+  opts: { contractId: ContractId; reason: string; error: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitVerifierAbortFailed')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED,
+    `contractId=${opts.contractId}`,
+    `reason=${opts.reason}`,
+    `error=${opts.error}`,
+  );
 }
 
 // ─── CANCELLED ──────────────────────────────────────────────────────────────
 export function emitContractCancelled(
   audit: AuditLog,
-  opts: { contractId: ContractId; reason?: string; abortVerifierFailed?: string },
+  opts: { contractId: ContractId; reason?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCancelled')) return;
   // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
   const cols: string[] = [`contractId=${opts.contractId}`];
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
-  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
   audit.write(CONTRACT_AUDIT_EVENTS.CANCELLED, ...cols);
 }
 
@@ -378,7 +390,6 @@ export function emitContractFailed(
     reason: string;
     evidenceRef: string;
     producer: string;
-    abortVerifierFailed?: string;
   },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractFailed')) return;
@@ -388,7 +399,6 @@ export function emitContractFailed(
     `evidence_ref=${opts.evidenceRef}`,
     `producer=${opts.producer}`,
   ];
-  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
   audit.write(CONTRACT_AUDIT_EVENTS.FAILED, ...cols);
 }
 

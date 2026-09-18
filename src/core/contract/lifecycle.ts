@@ -20,6 +20,7 @@ import {
   emitContractCorrupted,
   emitContractFailed,
   emitContractNotifyFailed,
+  emitVerifierAbortFailed,
 } from './audit-emit.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
@@ -88,15 +89,14 @@ export async function cancelContract(
   const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
 
   if (outcome.kind === 'committed') {
-    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, reason);
     } catch (abortErr) {
-      // Abort failure does not undo the terminal commit; record it on the
-      // cancelled audit so the decision chain stays reconstructible.
-      abortVerifierFailed = formatErr(abortErr);
+      // phase 1862 Step B (CT-D5): abort failure is an independent execution-
+      // failure fact; it never rides the cancelled payload.
+      emitVerifierAbortFailed(ctx.audit, { contractId, reason, error: formatErr(abortErr) });
     }
-    emitContractCancelled(ctx.audit, { contractId, reason, abortVerifierFailed });
+    emitContractCancelled(ctx.audit, { contractId, reason });
     safeNotify(ctx, {
       type: 'contract_cancelled',
       contractId,
@@ -240,19 +240,17 @@ export async function markCorrupted(
   const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
 
   if (outcome.kind === 'committed') {
-    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, evidence.reason);
     } catch (abortErr) {
-      // Abort failure does not undo the terminal commit; record it on the
-      // corrupted audit so the decision chain stays reconstructible.
-      abortVerifierFailed = formatErr(abortErr);
+      // phase 1862 Step B (CT-D5): abort failure is an independent execution-
+      // failure fact; it never rides the corrupted payload.
+      emitVerifierAbortFailed(ctx.audit, { contractId, reason: evidence.reason, error: formatErr(abortErr) });
     }
     emitContractCorrupted(ctx.audit, {
       contractId,
       reason: evidence.reason,
       evidencePath: evidence.relativePath,
-      abortVerifierFailed,
     });
     return outcome;
   }
@@ -310,20 +308,18 @@ export async function failContract(
   const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
 
   if (outcome.kind === 'committed') {
-    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, failure.reason);
     } catch (abortErr) {
-      // Abort failure does not undo the terminal commit; record it on the
-      // failed audit so the decision chain stays reconstructible.
-      abortVerifierFailed = formatErr(abortErr);
+      // phase 1862 Step B (CT-D5): abort failure is an independent execution-
+      // failure fact; it never rides the failed payload.
+      emitVerifierAbortFailed(ctx.audit, { contractId, reason: failure.reason, error: formatErr(abortErr) });
     }
     emitContractFailed(ctx.audit, {
       contractId,
       reason: failure.reason,
       evidenceRef: failure.evidenceRef,
       producer: failure.producer,
-      abortVerifierFailed,
     });
     safeNotify(ctx, {
       type: 'contract_failed',

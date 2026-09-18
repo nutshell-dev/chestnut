@@ -143,7 +143,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     )).toBe(true);
   });
 
-  it('Phase 1198 Step E: cancel records verifier abort failure on the cancelled audit', async () => {
+  it('Phase 1198 Step E + phase 1862 Step B (CT-D5): cancel emits verifier abort failure as independent event', async () => {
     const contractId = await manager.create({
       title: 'Cancel Abort Throw',
       goal: 'test',
@@ -162,9 +162,73 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     const cancelledCalls = auditWrite.mock.calls.filter(
       (c: unknown[]) => c[0] === CONTRACT_AUDIT_EVENTS.CANCELLED,
     );
+    // phase 1862 Step B (CT-D5): cancelled 载荷回归纯取消事实，无 abort 失败字段。
     expect(cancelledCalls.some((c: unknown[]) =>
-      c.some(col => String(col).startsWith('abort_verifier_failed=') && String(col).includes('verifier abort boom')),
+      c.some(col => String(col).startsWith('abort_verifier_failed=')),
+    )).toBe(false);
+    // abort 失败事实由独立事件承载。
+    const abortFailedCalls = auditWrite.mock.calls.filter(
+      (c: unknown[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED,
+    );
+    expect(abortFailedCalls).toHaveLength(1);
+    expect(abortFailedCalls[0].some((col: unknown) =>
+      String(col).startsWith('error=') && String(col).includes('verifier abort boom'),
     )).toBe(true);
+  });
+
+  it('phase 1862 Step B (CT-D5): unsafe controller.abort throw emits independent event, not a reason-less cancelled row', async () => {
+    const contractId = await manager.create({
+      title: 'Cancel Unsafe Abort Throw',
+      goal: 'test',
+      subtasks: [{ id: 'task-1', description: 'Task 1' }],
+      verification: [],
+    });
+
+    const failingController = {
+      abort: () => { throw new Error('unsafe abort boom'); },
+    } as unknown as AbortController;
+    (manager as any)._activeContractControllers.set(
+      contractId,
+      new Set([{ controller: failingController, promise: Promise.resolve() }]),
+    );
+
+    const outcome = await manager.cancel(contractId, 'test unsafe abort');
+    expect(outcome.kind).toBe('committed');
+
+    const auditWrite = manager['audit'].write as ReturnType<typeof vi.fn>;
+    // 无 reason 的 cancelled 行不再作为 abort 失败载体（历史混淆源）。
+    const cancelledCalls = auditWrite.mock.calls.filter(
+      (c: unknown[]) => c[0] === CONTRACT_AUDIT_EVENTS.CANCELLED,
+    );
+    expect(cancelledCalls).toHaveLength(1);
+    expect(cancelledCalls[0].some((col: unknown) => String(col).startsWith('reason='))).toBe(true);
+    expect(cancelledCalls[0].some((col: unknown) => String(col).startsWith('abort_verifier_failed='))).toBe(false);
+    // abort 失败事实由独立事件承载。
+    const abortFailedCalls = auditWrite.mock.calls.filter(
+      (c: unknown[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED,
+    );
+    expect(abortFailedCalls).toHaveLength(1);
+    expect(abortFailedCalls[0].some((col: unknown) =>
+      String(col).startsWith('error=') && String(col).includes('unsafe abort boom'),
+    )).toBe(true);
+  });
+
+  it('phase 1862 Step B (CT-D5): successful cancel emits no verifier-abort-failed event', async () => {
+    const contractId = await manager.create({
+      title: 'Cancel Abort Ok',
+      goal: 'test',
+      subtasks: [{ id: 'task-1', description: 'Task 1' }],
+      verification: [],
+    });
+
+    const outcome = await manager.cancel(contractId, 'test');
+    expect(outcome.kind).toBe('committed');
+
+    const auditWrite = manager['audit'].write as ReturnType<typeof vi.fn>;
+    const abortFailedCalls = auditWrite.mock.calls.filter(
+      (c: unknown[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED,
+    );
+    expect(abortFailedCalls).toHaveLength(0);
   });
 
 });
@@ -461,10 +525,15 @@ describe('phase 1121 Step C: markCorrupted', () => {
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
 
-    // Phase 1198 Step E: abort failure is recorded on the corrupted audit, not swallowed.
+    // phase 1862 Step B (CT-D5): corrupted 载荷无 abort 失败字段；失败事实由独立事件承载。
     const corruptedCalls = auditWrites.filter(c => c[0] === CONTRACT_AUDIT_EVENTS.CORRUPTED);
     expect(corruptedCalls.some(c =>
-      c.some(col => String(col).startsWith('abort_verifier_failed=') && String(col).includes('verifier abort boom')),
+      c.some(col => String(col).startsWith('abort_verifier_failed=')),
+    )).toBe(false);
+    const abortFailedCalls = auditWrites.filter(c => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
+    expect(abortFailedCalls).toHaveLength(1);
+    expect(abortFailedCalls[0].some(col =>
+      String(col).startsWith('error=') && String(col).includes('verifier abort boom'),
     )).toBe(true);
 
     abortSpy.mockRestore();

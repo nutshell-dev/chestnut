@@ -375,6 +375,7 @@
       "contract_verification_script_started",
       "contract_verification_started",
       "contract_verification_stuck_in_progress",
+      "contract_verifier_abort_failed",
       "contract_verifier_failed",
       "contract_verifier_passed",
       "contract_verifier_registered",

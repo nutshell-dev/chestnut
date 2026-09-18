@@ -33,7 +33,6 @@ import type { Tool, ToolRegistry } from '../../foundation/tools/index.js';
 
 
 import {
-  emitContractCancelled,
   emitContractCompletedHandlerFailed,
   emitContractNotifyFailed,
   emitContractCreated,
@@ -45,6 +44,7 @@ import {
   emitContractCreationClaimed,
   emitContractCreationInterrupted,
   emitVerificationOutcomeReplay,
+  emitVerifierAbortFailed,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -256,12 +256,15 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       try {
         controller.abort(err);
       } catch (abortErr) {
-        // unsafe abort: 容错防破 cancelContract 主流程
-        emitContractCancelled(
+        // unsafe abort: 容错防破 cancelContract 主流程。
+        // phase 1862 Step B (CT-D5): abort 失败是独立执行失败事实，
+        // 不再以无 reason 的 cancelled 行承载（避免与真实取消请求混淆）。
+        emitVerifierAbortFailed(
           this.audit,
           {
             contractId,
-            abortVerifierFailed: formatErr(abortErr),
+            reason,
+            error: formatErr(abortErr),
           },
         );
       }

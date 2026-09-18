@@ -45,6 +45,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 1121 Step C: deterministic persistent corruption lifecycle.
   CORRUPTED: 'contract_corrupted',
   CORRUPT_PARTIAL_FAILED: 'contract_corrupt_partial_failed',
+  // phase 1862 Step B (CT-D5): verifier abort failure 是独立执行失败事实，
+  // 不与 cancelled/corrupted/failed/completed 业务事件混载。
+  CONTRACT_VERIFIER_ABORT_FAILED: 'contract_verifier_abort_failed',
   COMPLETED: 'contract_completed',
   // Phase 1396 Step D: ContractSystem-owned execution-failure terminal lifecycle.
   FAILED: 'contract_failed',
@@ -208,6 +211,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_cancel_partial_failed: 'audit',
   contract_corrupted: 'audit',
   contract_corrupt_partial_failed: 'audit',
+  contract_verifier_abort_failed: 'audit',
   contract_completed: 'audit',
   contract_failed: 'audit',
   contract_fail_executor_mismatch: 'audit',
