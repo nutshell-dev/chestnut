@@ -13,7 +13,7 @@ import type {
   MigratedExecTaskInfo,
   TaskReadError,
 } from '../../core/async-task-system/index.js';
-import { deriveShortIdFromTaskId, makeShortTaskId } from '../../core/async-task-system/index.js';
+import { deriveShortIdFromTaskId, readShortTaskId, adoptLegacyShortTaskId } from '../../core/async-task-system/index.js';
 
 export async function psCommand(
   deps: {
@@ -39,7 +39,7 @@ export async function psCommand(
         ? `last output ${fmtDuration(t.lastOutputMs)} ago`
         : 'no output yet';
       // Phase 849: taskId is the shortId, but defensively derive in case it carries a full UUID.
-      const shortId = deriveShortIdFromTaskId(makeShortTaskId(t.taskId));
+      const shortId = deriveShortIdFromTaskId(readShortTaskId(t.taskId) ?? adoptLegacyShortTaskId(t.taskId));
       console.log(`  Task ${shortId}  ${elapsed}  ${liveness}  ${shortCmd}`);
     }
   }
@@ -47,7 +47,7 @@ export async function psCommand(
   if (errors.length > 0) {
     console.error(`\n${errors.length} task file(s) could not be read:`);
     for (const err of errors) {
-      const shortId = deriveShortIdFromTaskId(makeShortTaskId(err.taskId));
+      const shortId = deriveShortIdFromTaskId(readShortTaskId(err.taskId) ?? adoptLegacyShortTaskId(err.taskId));
       console.error(`  ${shortId}: ${err.reason}`);
     }
   }

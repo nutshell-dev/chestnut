@@ -114,7 +114,8 @@ async function writeTaskCompletion(motionDir: string, taskId: string, logContent
 describe('runRandomDream', () => {
   let chestnutRoot: string;
   let motionDir: string;
-  const taskId = `task-${randomUUID()}`;
+  // phase 1863 (AT-D11)：scheduler 契约返回 8-hex shortId——mock 返回值须合法
+  const taskId = randomUUID().slice(0, 8);
 
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -637,7 +638,7 @@ insight B
       await createArchiveContract(chestnutRoot, 'claw-b', 'contract-002');
       await createArchiveContract(chestnutRoot, 'claw-c', 'contract-003');
 
-      const taskId = 'captured-task-id';
+      const taskId = 'captured1';
       mockWritePendingSubAgentTask.mockResolvedValue(taskId);
 
       vi.useFakeTimers();

@@ -12,7 +12,7 @@
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
-import { makeFullTaskId, makeShortTaskId } from './types.js';
+import { makeFullTaskId, makeShortTaskId, readShortTaskId, adoptLegacyShortTaskId } from './types.js';
 import { newUuid, uuidToShort } from '../../foundation/node-utils/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -88,7 +88,11 @@ export class InMemoryShortIdIndex implements ShortIdIndex {
     return this.fullToShort.get(fullId);
   }
 
-  deriveShortId(fullId: FullTaskId): ShortTaskId { return makeShortTaskId(uuidToShort(fullId)); }
+  deriveShortId(fullId: FullTaskId): ShortTaskId {
+    // phase 1863 (AT-D11)：合法 UUID → 严格构造；legacy/非标准 fullId（磁盘历史采纳值）→ 宽容采纳（原语义保持）
+    const short = uuidToShort(fullId);
+    return readShortTaskId(short) ?? adoptLegacyShortTaskId(short);
+  }
 
   canonicalShortId(fullId: FullTaskId): ShortTaskId | undefined {
     return this.reverseResolve(fullId); // no fallback derive
@@ -225,9 +229,10 @@ export class PersistentShortIdIndex implements ShortIdIndex {
     return this.fullToShort.get(fullId);
   }
 
-  /** Derive shortId from fullId (first 8 chars). */
+  /** Derive shortId from fullId (first 8 chars). phase 1863 (AT-D11)：宽容读降级同类。 */
   deriveShortId(fullId: FullTaskId): ShortTaskId {
-    return makeShortTaskId(uuidToShort(fullId));
+    const short = uuidToShort(fullId);
+    return readShortTaskId(short) ?? adoptLegacyShortTaskId(short);
   }
 
   canonicalShortId(fullId: FullTaskId): ShortTaskId | undefined {
@@ -266,15 +271,17 @@ export class PersistentShortIdIndex implements ShortIdIndex {
 
           if (storedShortId && storedId.length === 36) {
             // Phase 867+: explicit dual-key — authoritative
+            // phase 1863 (AT-D11)：持久化 shortId 宽容读（既有 SHORT_ID_RE 检查承接 audit+skip）
             fullId = makeFullTaskId(storedId);
-            shortId = makeShortTaskId(storedShortId);
+            shortId = readShortTaskId(storedShortId) ?? adoptLegacyShortTaskId(storedShortId);
           } else if (storedId.length === 36) {
             // Pre-867 UUID task without explicit shortId → derive
             fullId = makeFullTaskId(storedId);
             shortId = this.deriveShortId(fullId);
           } else {
             // Legacy 8-char task — preserve id as shortId, generate fullId
-            shortId = makeShortTaskId(storedId);
+            // phase 1863 (AT-D11)：历史非标准值经宽容采纳（既有 SHORT_ID_RE 检查承接 audit+skip）
+            shortId = adoptLegacyShortTaskId(storedId);
             fullId = makeFullTaskId(newUuid());
           }
 

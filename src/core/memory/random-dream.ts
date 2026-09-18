@@ -10,7 +10,7 @@ import type { SubAgentTaskScheduler } from '../async-task-system/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/index.js';
-import { type TaskId, type FullTaskId, type ShortTaskId, type TaskIdResolver, makeShortTaskId } from '../async-task-system/index.js';
+import { type TaskId, type FullTaskId, type ShortTaskId, type TaskIdResolver } from '../async-task-system/index.js';
 import { queryArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { assertDreamStateShape } from './invariants.js';
@@ -816,7 +816,8 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const subagentTimeoutMs = opts.subagentTimeoutMs ?? DEFAULT_RANDOM_DREAM_TIMEOUT_MS;
   const subagentMaxSteps = opts.subagentMaxSteps ?? DEFAULT_RANDOM_DREAM_MAX_STEPS;
 
-    const taskId = makeShortTaskId(await opts.taskSystem.schedule('subagent', {
+    // phase 1863 (AT-D11)：scheduler 契约返回 ShortTaskId
+    const taskId = await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'standard',
     intent: buildRandomDreamPrompt(weightedContracts),
@@ -826,7 +827,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     originClawId: MOTION_CLAW_ID,
     toolProfile: 'subagent',
     systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,    // phase 546: dead import 活化（同 deep-dream 直 LLMService.call 模板 align）
-  }));
+  });
   const fullTaskId = resolveFullTaskId(taskId, opts.shortIdIndex);
   const taskIdForPaths = fullTaskId ?? taskId;
 

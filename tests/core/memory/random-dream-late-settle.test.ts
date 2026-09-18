@@ -110,7 +110,7 @@ describe('random-dream late-settle (phase 170)', () => {
         path.join(chestnutRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
         { recursive: true }
       );
-      const taskId = 'task-timeout-1';
+      const taskId = 'timeout1';
       mockWritePendingSubAgentTask.mockResolvedValue(taskId);
 
       const taskResultDir = path.join(motionDir, 'tasks', 'queues', 'results', taskId);

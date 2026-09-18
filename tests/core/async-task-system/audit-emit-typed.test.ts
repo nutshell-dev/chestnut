@@ -29,16 +29,16 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitRecovered serialize 含 fullTaskId/shortTaskId= 前缀', () => {
     const audit = makeAudit();
     emitRecovered(audit, {
-      fullTaskId: makeFullTaskId('tk_abc'),
-      shortTaskId: makeShortTaskId('sh_abc'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000abc'),
+      shortTaskId: makeShortTaskId('0000abcd'),
       kind: 'subagent',
       from: 'running',
       to: 'pending',
     });
     expect(audit.write).toHaveBeenCalledWith(
       TASK_AUDIT_EVENTS.RECOVERED,
-      'fullTaskId=tk_abc',
-      'shortTaskId=sh_abc',
+      'fullTaskId=00000000-0000-4000-8000-000000000abc',
+      'shortTaskId=0000abcd',
       'kind=subagent',
       'from=running',
       'to=pending',
@@ -48,8 +48,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitToolAsyncResult 拆 3 关联键 (key fix site tool-executor.ts:63)', () => {
     const audit = makeAudit();
     emitToolAsyncResult(audit, {
-      fullTaskId: makeFullTaskId('tk_abc'),
-      shortTaskId: makeShortTaskId('sh_abc'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000abc'),
+      shortTaskId: makeShortTaskId('0000abcd'),
       toolName: 'read_file',
       toolUseId: 'tu_xyz',
     });
@@ -57,10 +57,10 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
       TASK_AUDIT_EVENTS.TOOL_ASYNC_RESULT,
       'tool_name=read_file',
       'tool_use_id=tu_xyz',
-      'fullTaskId=tk_abc',
-      'shortTaskId=sh_abc',
+      'fullTaskId=00000000-0000-4000-8000-000000000abc',
+      'shortTaskId=0000abcd',
     );
-    // 确认: 无 `task=tk_abc` 重复 col、无 positional task.toolName / task.toolUseId
+    // 确认: 无 `task=00000000-0000-4000-8000-000000000abc` 重复 col、无 positional task.toolName / task.toolUseId
     const callArgs = audit.write.mock.calls[0] as unknown as unknown[];
     const taskKeyCount = callArgs.filter(
       (c) => typeof c === 'string' && c.startsWith('task='),
@@ -71,8 +71,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitTaskScheduled 无 isShadow col（phase 1863 AT-D7：shadow 概念出 ATS 审计面）', () => {
     const audit = makeAudit();
     emitTaskScheduled(audit, {
-      fullTaskId: makeFullTaskId('tk_1'),
-      shortTaskId: makeShortTaskId('sh_1'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000001'),
+      shortTaskId: makeShortTaskId('00000001'),
       kind: 'subagent',
       parent: 'p1',
       tool: 'spawn',
@@ -87,21 +87,21 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitTaskStarted 仅 emit fullTaskId/shortTaskId', () => {
     const audit = makeAudit();
     emitTaskStarted(audit, {
-      fullTaskId: makeFullTaskId('tk_1'),
-      shortTaskId: makeShortTaskId('sh_1'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000001'),
+      shortTaskId: makeShortTaskId('00000001'),
     });
     expect(audit.write).toHaveBeenCalledWith(
       TASK_AUDIT_EVENTS.TASK_STARTED,
-      'fullTaskId=tk_1',
-      'shortTaskId=sh_1',
+      'fullTaskId=00000000-0000-4000-8000-000000000001',
+      'shortTaskId=00000001',
     );
   });
 
   it('emitTaskCompleted 覆盖 ok/err + optional fields', () => {
     const audit = makeAudit();
     emitTaskCompleted(audit, {
-      fullTaskId: makeFullTaskId('tk_1'),
-      shortTaskId: makeShortTaskId('sh_1'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000001'),
+      shortTaskId: makeShortTaskId('00000001'),
       status: 'ok',
       kind: 'tool',
       toolName: 'read',
@@ -110,8 +110,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
     });
     const callArgs = audit.write.mock.calls[0] as unknown as string[];
     expect(callArgs[0]).toBe(TASK_AUDIT_EVENTS.TASK_COMPLETED);
-    expect(callArgs).toContain('fullTaskId=tk_1');
-    expect(callArgs).toContain('shortTaskId=sh_1');
+    expect(callArgs).toContain('fullTaskId=00000000-0000-4000-8000-000000000001');
+    expect(callArgs).toContain('shortTaskId=00000001');
     // phase 706: src raw 'ok' 加 'status=' prefix
     expect(callArgs).toContain('status=ok');
     expect(callArgs).toContain('kind=tool');
@@ -138,15 +138,15 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitMoveFailed 含 fullTaskId/shortTaskId=前缀', () => {
     const audit = makeAudit();
     emitMoveFailed(audit, {
-      fullTaskId: makeFullTaskId('tk_1'),
-      shortTaskId: makeShortTaskId('sh_1'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000001'),
+      shortTaskId: makeShortTaskId('00000001'),
       context: 'move_to_done',
       error: 'disk full',
     });
     expect(audit.write).toHaveBeenCalledWith(
       TASK_AUDIT_EVENTS.MOVE_FAILED,
-      'fullTaskId=tk_1',
-      'shortTaskId=sh_1',
+      'fullTaskId=00000000-0000-4000-8000-000000000001',
+      'shortTaskId=00000001',
       'context=move_to_done',
       'error=disk full',
     );
@@ -172,8 +172,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('反向 1: emit fn 实然调 audit.write', () => {
     const audit = makeAudit();
     emitRecovered(audit, {
-      fullTaskId: makeFullTaskId('x'),
-      shortTaskId: makeShortTaskId('x'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-0000000000ff'),
+      shortTaskId: makeShortTaskId('000000ff'),
     });
     expect(audit.write).toHaveBeenCalled();
   });
@@ -183,7 +183,7 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('反向 2: typed payload key TS enforce', () => {
     const audit = makeAudit();
     // @ts-expect-error: missing required field `fullTaskId`
-    emitRecovered(audit, { shortTaskId: makeShortTaskId('x') });
+    emitRecovered(audit, { shortTaskId: makeShortTaskId('000000ff') });
     expect(audit.write).toHaveBeenCalledTimes(1);
   });
 
@@ -192,8 +192,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('反向 3: tool-executor.ts:63 cascade 后 row 不含 `task=` ad-hoc col', () => {
     const audit = makeAudit();
     emitToolAsyncResult(audit, {
-      fullTaskId: makeFullTaskId('tk_abc'),
-      shortTaskId: makeShortTaskId('sh_abc'),
+      fullTaskId: makeFullTaskId('00000000-0000-4000-8000-000000000abc'),
+      shortTaskId: makeShortTaskId('0000abcd'),
       toolName: 'foo',
       toolUseId: 'tu_x',
     });

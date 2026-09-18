@@ -61,7 +61,7 @@ import { SubAgentTaskSchema } from './task-schemas.js';
 import { taskQueueOverflowBody } from '../../templates/messages/index.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
 import type { TaskExecutor, DeliverySink, TaskDispatchFn } from './types.js';
-import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
+import { type TaskId, makeFullTaskId, readShortTaskId, adoptLegacyShortTaskId, deriveShortIdFromTaskId, taskShortId, adoptLegacyFullTaskId } from './types.js';
 
 
 
@@ -363,8 +363,9 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
 
           if (storedShortId && storedId && storedId.length === 36) {
             // Already Phase 867+ format — just register index, skip rewrite
+            // phase 1863 (AT-D11)：持久化 shortId 宽容读（collision/invalid 由 add 面承接）
             fullId = makeFullTaskId(storedId);
-            shortId = makeShortTaskId(storedShortId);
+            shortId = readShortTaskId(storedShortId) ?? adoptLegacyShortTaskId(storedShortId);
             try {
               this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter, 'migrateLegacyTaskFiles');
             } catch {
@@ -389,7 +390,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
             shortId = this.shortIdIndex.deriveShortId(fullId);
           } else if (storedId && storedId.length === 8) {
             // Legacy 8-char — preserve as shortId, generate fullId
-            shortId = makeShortTaskId(storedId);
+            // phase 1863 (AT-D11)：磁盘历史值宽容（read 优先、非 hex 采纳）
+            shortId = readShortTaskId(storedId) ?? adoptLegacyShortTaskId(storedId);
             const resolvedFullId = this.shortIdIndex.resolve(shortId);
             if (resolvedFullId) {
               fullId = resolvedFullId;
@@ -486,7 +488,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
    * Schedule a new subagent task
    * Returns taskId immediately, task enters pending queue and will be dispatched
    */
-  async scheduleSubAgent(taskData: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>): Promise<string> {
+  async scheduleSubAgent(taskData: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>): Promise<ShortTaskId> {
     return this.schedule('subagent', taskData);
   }
 
@@ -497,7 +499,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   async schedule(
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>,
-  ): Promise<string> {
+  ): Promise<ShortTaskId> {
     // Phase 849: dual-key task IDs. fullId for persistence, shortId for agents/CLI.
     let fullId: FullTaskId;
     let shortId: ShortTaskId;
@@ -772,8 +774,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       } else {
         fullId = this.shortIdIndex.resolve(nameId);
         if (!fullId) {
-          // Fallback: legacy / test fixtures with arbitrary-length IDs.
-          fullId = makeFullTaskId(nameId);
+          // phase 1863 (AT-D11)：磁盘历史/legacy 非 UUID 名 —— 宽容采纳（原语义保持、不拒绝）。
+          fullId = adoptLegacyFullTaskId(nameId);
         }
       }
       if (this.cancellingIds.has(fullId)) continue;

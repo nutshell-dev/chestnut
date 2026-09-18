@@ -9,7 +9,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
-import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
+import { TASKS_QUEUES_RESULTS_DIR, readShortTaskId, adoptLegacyShortTaskId } from '../../core/async-task-system/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 import type { StreamReader } from '../../foundation/stream/index.js';
@@ -20,7 +20,7 @@ import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
-import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/index.js';
+import { type TaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/index.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
 import { prefixLines } from '../utils/string.js';
 import { formatIsoClock } from '../utils/time.js';
@@ -423,7 +423,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         // them in a dedicated viewport area instead.
         if (taskKind === 'exec_migrated') {
           deps.taskStatusBar.addMigratedExec({
-            taskId: makeShortTaskId(taskId),
+            taskId: readShortTaskId(taskId) ?? adoptLegacyShortTaskId(taskId),
             command: event.command ?? 'exec',
             startedAt: event.startedAt ?? Date.now(),
           });
@@ -434,7 +434,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => {
           const tw = deps.taskWatchMap.get(taskId);
           if (tw) tw.lastEventMs = Date.now();
-          deps.mainUI.withScope('task', () => deps.handleTaskEvent(makeShortTaskId(taskId), ev));
+          deps.mainUI.withScope('task', () => deps.handleTaskEvent(readShortTaskId(taskId) ?? adoptLegacyShortTaskId(taskId), ev));
         }, deps.audit, { persistent: true });
         try {
           // phase 1401 Bug A: 从 0 catch-up，避免漏 reader 启动前 shadow 已写的
@@ -456,7 +456,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         };
         deps.taskWatchMap.set(taskId, tw);
         if (!tw.silent) {
-          deps.taskStatusBar.addTrack(makeShortTaskId(taskId), taskKind);
+          deps.taskStatusBar.addTrack(readShortTaskId(taskId) ?? adoptLegacyShortTaskId(taskId), taskKind);
         }
         break;
       }
@@ -467,7 +467,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const taskId = rawTaskId.length === 36
           ? deriveShortIdFromTaskId(makeFullTaskId(rawTaskId))
           : rawTaskId;
-        const shortTaskId = makeShortTaskId(taskId);
+        const shortTaskId = readShortTaskId(taskId) ?? adoptLegacyShortTaskId(taskId);
         deps.taskStatusBar.removeMigratedExec(shortTaskId);
         if (deps.taskWatchMap.has(shortTaskId)) {
           void deps.stopTaskWatch(shortTaskId).catch((err) => {

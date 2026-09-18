@@ -37,7 +37,7 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
   });
 
   it('stream reader start() throw 后不注册 stale TaskWatch', () => {
-    const taskId = 'task-123';
+    const taskId = 'abcdef01';
     const fullTaskId = '550e8400-e29b-41d4-a716-446655440000';
     const startError = new Error('ENOENT: stream file missing');
 

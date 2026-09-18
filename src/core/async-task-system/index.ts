@@ -37,6 +37,8 @@ export type {
   TaskDeliveryRuntime,
 } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
+// phase 1863 (AT-D11)：反序列化入口（宽容读）+ legacy 采纳（读路径专用）
+export { readFullTaskId, readShortTaskId, adoptLegacyFullTaskId, adoptLegacyShortTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
 export type { ProcessedTaskResult } from './result-delivery-types.js';
 

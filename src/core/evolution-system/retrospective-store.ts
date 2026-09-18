@@ -23,7 +23,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ContractId } from '../contract/index.js';
 import { makeContractId } from '../contract/index.js';
 import type { FullTaskId } from '../async-task-system/index.js';
-import { makeFullTaskId } from '../async-task-system/index.js';
+import { makeFullTaskId, adoptLegacyFullTaskId } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
@@ -479,7 +479,7 @@ export class RetrospectiveStore {
       return {
         schema_version: 2,
         contract_id: makeContractId(r.contract_id),
-        task_id: makeFullTaskId(r.task_id),
+        task_id: adoptLegacyFullTaskId(r.task_id), // phase 1863 (AT-D11)：历史 retro 记录 task_id 宽容采纳
         target_executor_id: r.target_executor_id,
         created_at: r.created_at,
       };
@@ -514,7 +514,7 @@ export class RetrospectiveStore {
     return {
       schema_version: 1,
       contract_id: makeContractId(r.contract_id),
-      task_id: makeFullTaskId(r.task_id),
+      task_id: adoptLegacyFullTaskId(r.task_id), // phase 1863 (AT-D11)：历史 retro 记录 task_id 宽容采纳
       target_claw: r.target_claw,
       created_at: r.created_at,
       mode: r.mode === 'mining' || r.mode === 'shadow' ? r.mode : undefined,

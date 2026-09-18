@@ -33,23 +33,73 @@ export type ShortTaskId = string & { readonly [ShortTaskIdBrand]: true };
 /** Union alias for contexts that accept either. */
 export type TaskId = FullTaskId | ShortTaskId;
 
-export function makeFullTaskId(s: string): FullTaskId { return s as FullTaskId; }
-export function makeShortTaskId(s: string): ShortTaskId { return s as ShortTaskId; }
-/** @deprecated Use makeFullTaskId or makeShortTaskId. */
-export function makeTaskId(s: string): TaskId { return s as TaskId; }
+/**
+ * phase 1863 (AT-D11)：id 形态正则（构造入口严、反序列化入口宽容分离）。
+ * full = UUID（randomUUID 产出，36 字符小写）；short = 8 位 hex（uuidToShort 产出）。
+ */
+const FULL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHORT_ID_RE = /^[0-9a-f]{8}$/i;
 
-/** Derive the shortId from any TaskId. For FullTaskId returns first 8 chars; for legacy 8-char ids returns as-is. */
+/** 构造入口（严）：非法格式拒绝，不再 unchecked cast。 */
+export function makeFullTaskId(s: string): FullTaskId {
+  if (!FULL_ID_RE.test(s)) throw new Error(`makeFullTaskId: invalid FullTaskId "${s}" (expected UUID)`);
+  return s as FullTaskId;
+}
+/** 构造入口（严）：非法格式拒绝。 */
+export function makeShortTaskId(s: string): ShortTaskId {
+  if (!SHORT_ID_RE.test(s)) throw new Error(`makeShortTaskId: invalid ShortTaskId "${s}" (expected 8-char hex)`);
+  return s as ShortTaskId;
+}
+/** @deprecated Use makeFullTaskId or makeShortTaskId. 两形态任一合法即通过。 */
+export function makeTaskId(s: string): TaskId {
+  if (FULL_ID_RE.test(s)) return s as FullTaskId;
+  if (SHORT_ID_RE.test(s)) return s as ShortTaskId;
+  throw new Error(`makeTaskId: invalid TaskId "${s}" (expected UUID or 8-char hex)`);
+}
+
+/**
+ * phase 1863 (AT-D11)：反序列化入口（宽容，不抛）——供磁盘/存储读路径。
+ * 非法值经 `onInvalid` 记录（调用方决定 audit/跳过），返回 undefined 由调用方处置。
+ */
+export function readFullTaskId(s: string, onInvalid?: (s: string) => void): FullTaskId | undefined {
+  if (FULL_ID_RE.test(s)) return s as FullTaskId;
+  onInvalid?.(s);
+  return undefined;
+}
+/** phase 1863 (AT-D11)：反序列化入口（宽容，不抛）。 */
+export function readShortTaskId(s: string, onInvalid?: (s: string) => void): ShortTaskId | undefined {
+  if (SHORT_ID_RE.test(s)) return s as ShortTaskId;
+  onInvalid?.(s);
+  return undefined;
+}
+
+/**
+ * phase 1863 (AT-D11)：legacy/历史值的显式采纳（宽容、不校验）——仅限磁盘/存储读路径
+ * 已确认可能含历史非标准 id 的读取点（语义 = 原 unchecked cast 的行为保持）。
+ * 新写入必须经 makeFullTaskId/makeShortTaskId 严格构造。
+ */
+export function adoptLegacyFullTaskId(s: string): FullTaskId { return s as FullTaskId; }
+/** phase 1863 (AT-D11)：legacy shortId 采纳（读路径专用；原序校验由调用方既有检查承担）。 */
+export function adoptLegacyShortTaskId(s: string): ShortTaskId { return s as ShortTaskId; }
+
+/**
+ * Derive the shortId from any TaskId. For FullTaskId returns first 8 chars; for legacy 8-char ids returns as-is.
+ * phase 1863 (AT-D11)：语义保持不动——非 UUID 形态（历史值/fixture）按其原值返回（不拒绝）。
+ */
 export function deriveShortIdFromTaskId(taskId: TaskId): ShortTaskId {
-  return makeShortTaskId(taskId.length === 36 ? uuidToShort(taskId) : taskId);
+  if (taskId.length === 36) return makeShortTaskId(uuidToShort(taskId));
+  return adoptLegacyShortTaskId(taskId);
 }
 
 /**
  * Return the canonical shortId for a task object.
  * Prefers the persisted `shortId` field; falls back to deriving from `id`
  * for pre-migration tasks or test fixtures.
+ * phase 1863 (AT-D11)：持久化的 shortId 经宽容读入口（历史值原样保留、不拒绝）。
  */
 export function taskShortId(task: { id: TaskId; shortId?: ShortTaskId | string }): ShortTaskId {
-  return task.shortId ? makeShortTaskId(task.shortId) : deriveShortIdFromTaskId(task.id);
+  if (!task.shortId) return deriveShortIdFromTaskId(task.id);
+  return readShortTaskId(task.shortId) ?? adoptLegacyShortTaskId(task.shortId);
 }
 
 /**
@@ -256,7 +306,7 @@ export interface SubAgentTaskScheduler {
   schedule(
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>,
-  ): Promise<string>;
+  ): Promise<ShortTaskId>;
 }
 
 /** Consumer capability for idempotent scheduling with caller-prepared identity. */

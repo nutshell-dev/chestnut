@@ -14,7 +14,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { deriveShortIdFromTaskId, makeShortTaskId } from './types.js';
+import { deriveShortIdFromTaskId, adoptLegacyShortTaskId } from './types.js';
 
 export interface QueueSnapshot {
   readonly cancellingIds: ReadonlySet<string>;
@@ -54,9 +54,10 @@ async function listTaskIdsInDir(fs: FileSystem, dir: string): Promise<Set<string
     const nameId = e.name.slice(0, -5);
     // phase 849: filenames may be fullId (36 chars) or legacy shortId (8 chars);
     // canonicalise to shortId for comparison with cancellingIds snapshot.
+    // phase 1863 (AT-D11)：磁盘文件名读取路径——legacy/非标准名宽容采纳（不拒绝）
     const shortId = nameId.length === 36
       ? deriveShortIdFromTaskId(nameId as import('./types.js').FullTaskId)
-      : makeShortTaskId(nameId);
+      : adoptLegacyShortTaskId(nameId);
     ids.add(shortId);
   }
   return ids;

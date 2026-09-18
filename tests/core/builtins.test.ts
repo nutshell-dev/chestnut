@@ -1055,7 +1055,7 @@ describe('Builtin Tools', () => {
     });
 
     it('should pass subagentMaxSteps from deps', async () => {
-      mockSchedule.mockResolvedValue('task-xxx');
+      mockSchedule.mockResolvedValue('taskxxx1');
 
       const ctx = new ExecContextImpl({
         clawsDir: path.join(tempDir, 'claws'),

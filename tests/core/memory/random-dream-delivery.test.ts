@@ -108,7 +108,7 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
 
   it('direct completion: output → state/outbox → send → confirm', async () => {
     await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
-    const taskId = 'direct-1';
+    const taskId = 'd1ea0001';
     mockWritePendingSubAgentTask.mockResolvedValue(taskId);
     const notifyMotion = vi.fn().mockResolvedValue(undefined);
 
@@ -138,7 +138,7 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
 
   it('stage save fails: no send', async () => {
     await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
-    const taskId = 'save-fail-1';
+    const taskId = '5afe0001';
     mockWritePendingSubAgentTask.mockResolvedValue(taskId);
     const notifyMotion = vi.fn().mockResolvedValue(undefined);
     const fileSystem = new NodeFileSystem({ baseDir: chestnutRoot });

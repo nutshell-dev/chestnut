@@ -11,7 +11,6 @@
 
 import { buildShadowPayload } from './payload.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
-import { makeShortTaskId } from '../async-task-system/index.js';
 
 /**
  * Default max steps for shadow subagent execution（agent loop iteration cap）.
@@ -55,5 +54,6 @@ export async function spawnShadowSubagent(
     postProcessor: payload.postProcessor,
   });
 
-  return { taskId: makeShortTaskId(taskId), shadowId: payload.identity.shadowId };
+  // phase 1863 (AT-D11)：scheduler 契约返回 ShortTaskId（brand 经契约传播）
+  return { taskId, shadowId: payload.identity.shadowId };
 }

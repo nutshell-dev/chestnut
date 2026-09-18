@@ -8,7 +8,7 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
-import { makeShortTaskId, type SubAgentTaskScheduler } from '../../async-task-system/index.js';
+import { type SubAgentTaskScheduler } from '../../async-task-system/index.js';
 import { runSpawnSync, type RunSpawnSyncOptions } from '../system.js';
 import {
   resolveSpawnTemplate,
@@ -123,7 +123,8 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
           };
         }
         try {
-          const taskId = makeShortTaskId(await taskSystem.schedule('subagent', {
+          // phase 1863 (AT-D11)：scheduler 契约返回 ShortTaskId（brand 经契约传播、不由调用点重铸）
+          const taskId = await taskSystem.schedule('subagent', {
             kind: 'subagent',
             mode: 'standard',
             intent,
@@ -134,7 +135,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             originClawId: deps.originClawId ?? ctx.clawId,
             correlation: { source: 'spawn_subagent' },
             toolProfile: 'subagent',
-          }));
+          });
 
           return {
             success: true,
