@@ -12,20 +12,27 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { matchArchiveTerminalRecord } from './archive-terminal-event.js';
 import type { ArchiveListEntry } from './locations.js';
 import type { ArchiveQueryIssue, ArchiveTime, ContractId } from './types.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 
 export async function resolveArchiveTime(opts: {
   fs: FileSystem;
   auditPath: string;
   location: ArchiveListEntry;
   contractId: ContractId;
+  /**
+   * phase 1862 Step G (CT-D8)：issue 的最终形状（含 clawId 上下文）在本模块单点
+   * 产出——caller 不再事后 spread 补 clawId。
+   */
+  clawId: ClawId;
 }): Promise<{ time: ArchiveTime; issues: ArchiveQueryIssue[] }> {
-  const { fs, auditPath, location, contractId } = opts;
+  const { fs, auditPath, location, contractId, clawId } = opts;
   const issues: ArchiveQueryIssue[] = [];
 
   if (location.kind === 'legacy') {
     const time: ArchiveTime = { kind: 'unknown', reason: 'legacy_state_unresolved' };
     issues.push({
       code: 'legacy_state_unresolved',
+      clawId,
       contractId,
       detail: `legacy archive at ${location.contractRoot}`,
     });
@@ -37,6 +44,7 @@ export async function resolveArchiveTime(opts: {
     const time: ArchiveTime = { kind: 'unknown', reason: 'terminal_event_unavailable' };
     issues.push({
       code: 'terminal_event_unavailable',
+      clawId,
       contractId,
       detail: 'current archive entry missing state',
     });
@@ -48,6 +56,7 @@ export async function resolveArchiveTime(opts: {
       const time: ArchiveTime = { kind: 'unknown', reason: 'audit_file_missing' };
       issues.push({
         code: 'audit_file_missing',
+        clawId,
         contractId,
         detail: `audit not found: ${auditPath}`,
       });
@@ -57,6 +66,7 @@ export async function resolveArchiveTime(opts: {
     const time: ArchiveTime = { kind: 'unknown', reason: 'audit_read_failed' };
     issues.push({
       code: 'audit_read_failed',
+      clawId,
       contractId,
       detail: 'stat audit failed',
       cause: err,
@@ -83,6 +93,7 @@ export async function resolveArchiveTime(opts: {
       const time: ArchiveTime = { kind: 'unknown', reason: 'invalid_terminal_record' };
       issues.push({
         code: 'invalid_terminal_record',
+        clawId,
         contractId,
         detail: invalidDetails.join('; '),
       });
@@ -93,6 +104,7 @@ export async function resolveArchiveTime(opts: {
       const time: ArchiveTime = { kind: 'unknown', reason: 'terminal_event_unavailable' };
       issues.push({
         code: 'terminal_event_unavailable',
+        clawId,
         contractId,
         detail: `no terminal record for ${contractId} in ${auditPath}`,
       });
@@ -103,6 +115,7 @@ export async function resolveArchiveTime(opts: {
       const time: ArchiveTime = { kind: 'unknown', reason: 'ambiguous_terminal_records' };
       issues.push({
         code: 'ambiguous_terminal_records',
+        clawId,
         contractId,
         detail: matches.map(m => `seq=${m.seq}`).join('; '),
       });
@@ -122,6 +135,7 @@ export async function resolveArchiveTime(opts: {
     const time: ArchiveTime = { kind: 'unknown', reason: 'audit_read_failed' };
     issues.push({
       code: 'audit_read_failed',
+      clawId,
       contractId,
       detail: 'read audit failed',
       cause: err,

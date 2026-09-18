@@ -9,6 +9,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { resolveArchiveTime } from '../../../src/core/contract/archive-time.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import type { ArchiveListEntry, ArchiveState, ContractId } from '../../../src/core/contract/types.js';
+import type { ClawId } from '../../../src/foundation/claw-identity/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 
 let tmpDir: string;
@@ -32,6 +33,7 @@ afterEach(async () => {
 });
 
 const contractId = 'cid-1' as ContractId;
+const CLAW_ID = 'test-claw' as ClawId;
 
 function auditPath(): string {
   return path.join(clawDir, 'audit.tsv');
@@ -80,6 +82,7 @@ describe('resolveArchiveTime', () => {
     await writeAudit([terminalRow('completed', 5)]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -97,6 +100,7 @@ describe('resolveArchiveTime', () => {
     await writeAudit([terminalRow('cancelled', 3)]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('cancelled'),
       contractId,
@@ -110,6 +114,7 @@ describe('resolveArchiveTime', () => {
     await writeAudit([terminalRow('corrupted', 4)]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('corrupted'),
       contractId,
@@ -123,6 +128,7 @@ describe('resolveArchiveTime', () => {
     await writeAudit([terminalRow('completed', 1, 'snake')]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -134,6 +140,7 @@ describe('resolveArchiveTime', () => {
   it('returns audit_file_missing when audit file does not exist', async () => {
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -153,6 +160,7 @@ describe('resolveArchiveTime', () => {
     ]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -168,6 +176,7 @@ describe('resolveArchiveTime', () => {
     await writeAudit([cancelAbortRow(1)]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('cancelled'),
       contractId,
@@ -184,6 +193,7 @@ describe('resolveArchiveTime', () => {
     ]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -200,6 +210,7 @@ describe('resolveArchiveTime', () => {
     await writeAudit([terminalRow('completed', 1, 'camel', 'not-a-date')]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -218,6 +229,7 @@ describe('resolveArchiveTime', () => {
     ]);
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -234,6 +246,7 @@ describe('resolveArchiveTime', () => {
   it('returns legacy_state_unresolved for legacy archive entries', async () => {
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: legacyLocation(),
       contractId,
@@ -254,6 +267,7 @@ describe('resolveArchiveTime', () => {
 
     const result = await resolveArchiveTime({
       fs: failingFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -276,6 +290,7 @@ describe('resolveArchiveTime', () => {
 
     const result = await resolveArchiveTime({
       fs: failingFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -296,6 +311,7 @@ describe('resolveArchiveTime', () => {
 
     const result = await resolveArchiveTime({
       fs: nodeFs,
+      clawId: CLAW_ID,
       auditPath: auditPath(),
       location: currentLocation('completed'),
       contractId,
@@ -305,5 +321,20 @@ describe('resolveArchiveTime', () => {
     if (result.time.kind !== 'known') return;
     expect(result.time.recordedAt).toBe('2026-07-19T10:00:00.000Z');
     expect(result.issues).toHaveLength(0);
+  });
+
+  it('phase 1862 Step G (CT-D8): issues 单点携带 clawId（caller 不再事后 spread）', async () => {
+    const result = await resolveArchiveTime({
+      fs: nodeFs,
+      clawId: CLAW_ID,
+      auditPath: auditPath(),
+      location: currentLocation('completed'),
+      contractId,
+    });
+
+    expect(result.time.kind).toBe('unknown');
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].code).toBe('audit_file_missing');
+    expect(result.issues[0].clawId).toBe(CLAW_ID);
   });
 });

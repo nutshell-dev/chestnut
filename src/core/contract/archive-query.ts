@@ -112,11 +112,14 @@ export async function queryArchiveContracts(opts: {
 
     for (const locationEntry of locations) {
       const contractId = makeContractId(locationEntry.contractId);
+      // phase 1862 Step G (CT-D8)：resolveArchiveTime 单点产出完整 issue（含 clawId），
+      // 此处只做收集，不再跨层 spread 重建。
       const { time, issues: timeIssues } = await resolveArchiveTime({
         fs,
         auditPath,
         location: locationEntry,
         contractId,
+        clawId,
       });
 
       if (!keepEntry(time, filter)) continue;
@@ -130,7 +133,7 @@ export async function queryArchiveContracts(opts: {
       });
 
       if (timeIssues.length > 0) {
-        issues.push(...timeIssues.map(i => ({ ...i, clawId })));
+        issues.push(...timeIssues);
       }
 
       if (time.kind !== 'known' || timeIssues.length > 0) {
