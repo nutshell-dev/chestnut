@@ -3,15 +3,15 @@
  * Stop the Claw daemon process
  */
 
-import { getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop, clearCleanStop } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { getChestnutRoot } from '../../core/claw-topology/index.js';
-import { makeChestnutRoot } from '../../core/claw-topology/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {

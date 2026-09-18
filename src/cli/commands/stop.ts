@@ -5,8 +5,9 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigReader } from '../../assembly/index.js';
-import { getChestnutRoot, getNamedSubrootDir } from '../../core/claw-topology/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
+import { getChestnutRoot, getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
+import { enumerateClaws, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createWorkspaceAudit } from '../../foundation/audit/index.js';
 import { WATCHDOG_FILE_ROUTING, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/index.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';

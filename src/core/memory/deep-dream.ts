@@ -13,7 +13,7 @@ import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/index.js';
+import { CLAWS_DIR } from '../../foundation/claw-identity/index.js';
 
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';

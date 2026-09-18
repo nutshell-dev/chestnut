@@ -7,8 +7,8 @@ import * as path from 'path';
 import {
   enumerateClaws,
   getChestnutRoot,
-  resolveClawDaemonDir,
-} from '../../core/claw-topology/index.js';
+} from '../../foundation/claw-identity/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -23,7 +23,7 @@ import {
 } from '../../core/contract/index.js';
 import { listArchiveContractLocations, archiveContainerDir } from '../../core/contract/index.js';
 import type { ContractSubtaskStats, LegacyPausedContractRef } from '../../core/contract/index.js';
-import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
+import { CONFIG_YAML_FILE } from '../../foundation/claw-identity/index.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';

@@ -14,7 +14,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { getClawConfigPath } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getClawConfigPath } from '../../src/foundation/claw-identity/index.js';
 import {
   createRootConfig,
   resolveLLMConfig,

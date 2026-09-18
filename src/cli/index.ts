@@ -36,13 +36,13 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { createDirContext } from '../foundation/audit/index.js';
-import { getChestnutRoot, getClawDir } from '../core/claw-topology/index.js';
+import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
 import { createRootConfig, createRootConfigLegacyMigration } from '../assembly/index.js';
 import { createSummonVerifyPolicy, createSummonCreationClaimStore } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
-import { resolveChestnutRoot } from '../core/claw-topology/index.js';
+import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import {

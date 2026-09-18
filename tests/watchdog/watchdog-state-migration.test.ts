@@ -15,8 +15,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return { ...actual, getNamedSubrootDir: vi.fn() };
 });
 vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => {
@@ -37,7 +37,7 @@ vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => ({
   readWorkspaceWatchdogConfig: vi.fn(),
 }));
 
-import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
 import {

@@ -25,11 +25,13 @@ import { setTimeout } from 'timers/promises';
 import {
   resolveClawDaemonDir,
   MOTION_CLAW_ID,
+} from '../core/claw-topology/index.js';
+import {
   enumerateClaws,
   getWorkspaceRoot,
   getChestnutRoot,
   getNamedSubrootDir,
-} from '../core/claw-topology/index.js';
+} from '../foundation/claw-identity/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';

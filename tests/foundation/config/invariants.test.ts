@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { getClawDir } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { getClawDir } from '../../../src/foundation/claw-identity/index.js';
 import { viewportConfigSchema, VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../../../src/cli-protocol/index.js';
 import { llmOrchestratorConfigSchema } from '../../../src/foundation/llm-orchestrator/config-schema.js';
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';

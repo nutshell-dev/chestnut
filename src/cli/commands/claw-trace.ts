@@ -10,7 +10,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 import * as yaml from 'js-yaml';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { getContractMetadata, readContractYamlLightweight } from '../../core/contract/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';

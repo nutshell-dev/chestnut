@@ -3,7 +3,7 @@
  */
 
 import { collectContractEvents } from '../../core/contract/index.js';
-import { getClawDir } from '../../core/claw-topology/index.js';
+import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';

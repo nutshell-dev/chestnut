@@ -23,7 +23,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
-import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../core/claw-topology/index.js';
+import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';

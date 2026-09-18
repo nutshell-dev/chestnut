@@ -13,7 +13,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
-import { CLAWS_DIR } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { CLAWS_DIR } from '../../../src/foundation/claw-identity/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 

@@ -11,7 +11,7 @@
  */
 
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
-import { getNamedSubrootDir, getClawDir } from '../claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir, getClawDir } from '../../foundation/claw-identity/index.js';
 
 /**
  * Build a clawId → dir resolver.

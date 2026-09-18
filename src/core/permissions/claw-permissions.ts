@@ -40,7 +40,7 @@ import {
 } from '../async-task-system/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE, CLAW_USER_FILE, CLAW_SOUL_FILE } from '../../foundation/claw-identity/index.js';
-import { CONFIG_YAML_FILE } from '../claw-topology/index.js';
+import { CONFIG_YAML_FILE } from '../../foundation/claw-identity/index.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
 import type { PermissionChecker, GuardedWrite } from '../../foundation/tool-protocol/index.js';
 

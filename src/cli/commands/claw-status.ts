@@ -16,9 +16,9 @@
  * - format 与 agent status tool 输出一致、避免漂移；多 `Claw:` header 标 namespace
  */
 
-import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
+import { resolveChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 // CLAWS_DIR removed: phase 263

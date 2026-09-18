@@ -4,7 +4,7 @@
  */
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';

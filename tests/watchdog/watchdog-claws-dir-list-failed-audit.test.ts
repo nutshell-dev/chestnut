@@ -15,7 +15,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runWatchdogLoop, _resetShutdownGuard } from '../../src/watchdog/watchdog.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
-import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { makeMockAudit } from '../helpers/audit.js';
@@ -26,8 +26,8 @@ import { aliveLiveness } from '../helpers/liveness-fixtures.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getNamedSubrootDir: vi.fn(),
@@ -72,7 +72,7 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
 });
 
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
-import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { getChestnutFs, getWatchdogConfig } from '../../src/watchdog/watchdog-context.js';
 
 describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {

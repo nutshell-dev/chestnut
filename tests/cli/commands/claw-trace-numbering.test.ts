@@ -20,13 +20,13 @@ import { clawTraceCommand } from '../../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getClawConfigPath } from '../../../src/foundation/claw-identity/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getClawDir: vi.fn(),

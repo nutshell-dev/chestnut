@@ -9,7 +9,7 @@
  * - lastCheckTs 写 tickStart 不是 end-of-scan now
  * - notifyMotion throw → state 不更新
  */
-import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
 import { describe, it, expect, vi } from 'vitest';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';

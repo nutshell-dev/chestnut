@@ -8,7 +8,7 @@
  */
 
 import * as path from 'path';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';

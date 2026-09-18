@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 
-import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
+import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';

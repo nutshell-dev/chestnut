@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
-import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { isWatchdogAlive, WatchdogPidForeignWorkspaceError } from '../../src/watchdog/watchdog-pid.js';
 import {
@@ -17,8 +17,8 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getNamedSubrootDir: vi.fn(),

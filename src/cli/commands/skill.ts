@@ -6,11 +6,11 @@
  */
 
 import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
-import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
+import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { SKILLS_DIR_DEFAULT } from '../../foundation/skill-system/index.js';
-import { getClawDir } from '../../core/claw-topology/index.js';
+import { getClawDir } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { CliError } from '../errors.js';

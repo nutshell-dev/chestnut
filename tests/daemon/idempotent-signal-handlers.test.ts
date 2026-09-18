@@ -25,8 +25,8 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
   })),
 }));
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getClawDir: vi.fn(() => '/tmp/test-claw'),

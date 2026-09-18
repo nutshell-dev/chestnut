@@ -13,8 +13,8 @@ import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const mockAuditWrite = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getClawDir: (name: string) => (globalThis as any).__TEST_CLAW_DIR__,

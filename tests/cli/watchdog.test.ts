@@ -21,8 +21,8 @@ import {
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_ALT } from '../helpers/test-pids.js';
 
 // Mock config so getChestnutDir() and getGlobalConfig() return controllable values
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getNamedSubrootDir: vi.fn(),
@@ -101,7 +101,7 @@ import {
 import { writeWatchdogCrash, loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
 import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
 import { startCommand, stopCommand } from '../../src/cli/commands/watchdog-cli.js';
-import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { spawn } from 'child_process';
 import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';

@@ -3,8 +3,8 @@
  * claw steps + step commands for main-agent dialog observation
  */
 
-import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
-import { getClawDir } from '../../core/claw-topology/index.js';
+import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
+import { getClawDir } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';

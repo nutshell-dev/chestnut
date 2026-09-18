@@ -15,7 +15,7 @@
  *  - phase 1834: first push / new-hash push → body has no historical-repeat notice
  */
 
-import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';

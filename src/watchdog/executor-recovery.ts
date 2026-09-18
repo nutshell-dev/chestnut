@@ -30,11 +30,12 @@ import { ProcessSpawnConflictError } from '../foundation/process-manager/index.j
 import { createToolRegistry } from '../foundation/tools/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir, getClawDir, enumerateClaws } from '../core/claw-topology/index.js';
+import { getClawDir, enumerateClaws } from '../foundation/claw-identity/index.js';
+import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import type { ExecutionFailureSink } from '../core/contract/index.js';
 import { createDaemonSpawnOptions } from '../daemon/index.js';
-import { getWorkspaceRoot } from '../core/claw-topology/index.js';
+import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
 import {
   getChestnutFs,
   type MotionRestartState,

@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 import { loadGlobalConfig, saveGlobalConfig, isInitialized, clawExists } from '../../src/assembly/config/config-load.js';
-import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getClawDir } from '../../src/foundation/claw-identity/index.js';
 import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
 import { toProviderConfig } from '../../src/foundation/llm-orchestrator/config-adapter.js';
 import { listCommand } from '../../src/cli/commands/claw.js';

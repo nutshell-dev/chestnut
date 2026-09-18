@@ -15,14 +15,14 @@
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { type DaemonDir, makeDaemonDir } from '../../foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
-import { getNamedSubrootDir, getClawDir } from '../claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir, getClawDir } from '../../foundation/claw-identity/index.js';
 
 /**
  * Resolve daemonDir for one clawId.
  *
  * 返：
  * - motion clawId → `<chestnut-root>/motion/`
- * - others        → `<chestnut-root>/claws/<id>/`（含 path traversal 校验、详 claw-instance-paths.ts assertSafeClawId）
+ * - others        → `<chestnut-root>/claws/<id>/`（含 path traversal 校验、详 claw-identity/instance-paths.ts assertSafeClawId）
  *
  * Throws：clawId 含 path traversal 字符或空（由 getClawDir 内部抛）。
  *

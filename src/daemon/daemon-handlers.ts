@@ -1,7 +1,7 @@
 import { NodeFileSystem } from '../foundation/fs/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
-import { getClawDir, getNamedSubrootDir } from '../core/claw-topology/index.js';
+import { getClawDir, getNamedSubrootDir } from '../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { DAEMON_AUDIT_EVENTS } from './index.js';
 

@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
-import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { setAuditWriter, getAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { ensureAuditWired } from '../../src/watchdog/ensure.js';
@@ -15,8 +15,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
 const mockKill = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getNamedSubrootDir: vi.fn(),

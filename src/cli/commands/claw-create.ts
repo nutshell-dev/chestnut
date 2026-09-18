@@ -2,7 +2,7 @@
  * @module L6.CLI.Claw.Create
  */
 
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { initializeClawLayout } from '../../assembly/index.js';
 // path module intentionally not used in this file after refactor
 import { CliError } from '../errors.js';

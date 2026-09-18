@@ -8,7 +8,7 @@
 
 import * as path from 'path';
 import { resolveWatchdogEntry } from './entry-resolver.js';
-import { getNamedSubrootDir } from '../core/claw-topology/index.js';
+import { getNamedSubrootDir } from '../foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from './workspace-config.js';
 import type { WatchdogConfig } from './config-schema.js';
 import type { FileSystem } from '../foundation/fs/index.js';

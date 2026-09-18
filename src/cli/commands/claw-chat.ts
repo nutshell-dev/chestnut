@@ -2,9 +2,9 @@
  * @module L6.CLI.Claw.Chat
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createViewportAudit } from './viewport-audit-events.js';

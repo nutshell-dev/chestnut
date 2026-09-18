@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { CLAWS_DIR, enumerateClaws } from '../../core/claw-topology/claw-instance-paths.js';
+import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-identity/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { makeClawId, CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';

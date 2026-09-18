@@ -7,8 +7,8 @@
  */
 
 import * as path from 'path';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {

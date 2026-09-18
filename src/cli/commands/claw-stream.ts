@@ -12,7 +12,7 @@
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
-import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
+import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';

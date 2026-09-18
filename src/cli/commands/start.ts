@@ -7,8 +7,8 @@
  * - Partial onboarding: resumes with a reminder
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
-import { makeChestnutRoot } from '../../core/claw-topology/index.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
@@ -19,7 +19,7 @@ import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
 import { ensureWatchdogStateMigrated } from '../watchdog-state-migration.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
+import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { initCommand } from './init.js';
 import {
   initCommand as motionInitCommand,

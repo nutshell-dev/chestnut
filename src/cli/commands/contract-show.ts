@@ -2,10 +2,10 @@
  * Show contract state snapshot for a claw
  */
 
-import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
+import { resolveChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as yaml from 'js-yaml';
 import { ContractSystem, type ContractYaml, type ProgressData } from '../../core/contract/index.js';
-import { getClawDir } from '../../core/claw-topology/index.js';
+import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';

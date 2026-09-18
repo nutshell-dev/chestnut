@@ -5,12 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stopCommand } from '../../src/cli/commands/claw-stop.js';
 import { CliError } from '../../src/cli/errors.js';
-import {
-  getClawConfigPath,
-  getChestnutRoot,
-  makeChestnutRoot,
-  resolveClawDaemonDir,
-} from '../../src/core/claw-topology/index.js';
+import { getClawConfigPath, getChestnutRoot, makeChestnutRoot } from '../../src/foundation/claw-identity/index.js';
+import { resolveClawDaemonDir } from '../../src/core/claw-topology/index.js';
 import { createProcessManagerForCLI, signalCleanStop, clearCleanStop } from '../../src/foundation/process-manager/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
@@ -22,13 +18,21 @@ const fsFactory = (baseDir: string) => ({
   readBytesSync: vi.fn(),
 } as any);
 
-vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
+// phase 1864 Step B：路径群归 foundation/claw-identity（mock 面按 owner 拆两处）。
+vi.mock('../../src/foundation/claw-identity/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/index.js')>();
   return {
     ...actual,
     getClawConfigPath: vi.fn(),
     getChestnutRoot: vi.fn(),
     makeChestnutRoot: vi.fn(),
+  };
+});
+
+vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
+  return {
+    ...actual,
     resolveClawDaemonDir: vi.fn(),
   };
 });

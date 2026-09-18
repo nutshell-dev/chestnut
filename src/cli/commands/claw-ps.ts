@@ -8,7 +8,7 @@
  * Phase 849: display ShortTaskId; MigratedExecTaskInfo carries fullTaskId separately.
  */
 
-import { getClawDir } from '../../core/claw-topology/index.js';
+import { getClawDir } from '../../foundation/claw-identity/index.js';
 import type {
   MigratedExecTaskInfo,
   TaskReadError,

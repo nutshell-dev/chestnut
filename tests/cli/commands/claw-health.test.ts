@@ -10,7 +10,7 @@ import * as path from 'path';
 import { healthCommand } from '../../../src/cli/commands/claw-health.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 // phase 268: hoist 11 dynamic imports of 2 unique modules
-import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getClawConfigPath } from '../../../src/foundation/claw-identity/index.js';
 import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../../src/foundation/process-manager/factories.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
@@ -30,8 +30,8 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getClawDir: vi.fn(),

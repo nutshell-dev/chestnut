@@ -17,7 +17,7 @@
  * - 中断恢复：intent 存在而 outcome 不存在 → pending → 幂等续跑；迁移 id 由
  *   legacy source hash 派生（content-derived），同输入重入收敛到同一 journal。
  */
-import { getChestnutRoot } from '../core/claw-topology/index.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import type { RootConfigLegacyMigration, RootConfigReader } from '../assembly/index.js';
 import {
   loadWorkspaceAuditConfig,

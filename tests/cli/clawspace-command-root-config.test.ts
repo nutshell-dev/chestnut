@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readCommand } from '../../src/cli/commands/claw-read.js';
 import { lsCommand } from '../../src/cli/commands/claw-ls.js';
-import { getClawConfigPath } from '../../src/core/claw-topology/index.js';
+import { getClawConfigPath } from '../../src/foundation/claw-identity/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import {

@@ -3,11 +3,11 @@
  */
 
 import * as path from 'path';
-import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
+import { resolveChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { CONTRACT_YAML_FILE, getContractVerificationDir } from '../../core/contract/index.js';
 import type { ContractSystem } from '../../core/contract/index.js';
 import { ContractCreatePolicyViolationError } from '../../core/contract/index.js';
-import { getClawDir } from '../../core/claw-topology/index.js';
+import { getClawDir } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';

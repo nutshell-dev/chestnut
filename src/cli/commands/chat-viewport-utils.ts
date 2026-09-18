@@ -5,8 +5,8 @@
 
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../../cli-protocol/index.js';
-import { getChestnutRoot } from '../../core/claw-topology/index.js';
-import { makeChestnutRoot } from '../../core/claw-topology/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';

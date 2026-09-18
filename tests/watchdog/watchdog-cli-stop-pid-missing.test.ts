@@ -33,8 +33,9 @@ const mockRemoveWatchdogPid = vi.hoisted(() => vi.fn());
 // ============================================================================
 // Module mocks
 // ============================================================================
-vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
+// phase 1864 Step B：getWorkspaceRoot 归 foundation/claw-identity（mock 目标随 owner 迁移）。
+vi.mock('../../src/foundation/claw-identity/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/index.js')>();
   return {
     ...actual,
     getWorkspaceRoot: vi.fn(() => '/tmp/test'),

@@ -7,9 +7,9 @@
  *  - enable processManager DI for tests (no vi.mock on dynamic await import)
  */
 
-import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
+import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';

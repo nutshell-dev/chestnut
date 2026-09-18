@@ -1,6 +1,6 @@
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
-import { resolveChestnutRoot } from '../core/claw-topology/index.js';
+import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
 import { DISPATCH_SKILLS_PATH } from '../core/evolution-system/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 
@@ -40,7 +40,7 @@ import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/index.js';
-import { CLAWS_DIR } from '../core/claw-topology/index.js';
+import { CLAWS_DIR } from '../foundation/claw-identity/index.js';
 import { createSendTool } from '../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';

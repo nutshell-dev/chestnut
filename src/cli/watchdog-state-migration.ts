@@ -22,7 +22,7 @@
  *   outcome 回读验证后删；logs/watchdog.log 历史日志删除不归档；
  *   watchdog-subscriptions/ 0 生产使用整体清退）——幂等、存在才删。
  */
-import { getChestnutRoot } from '../core/claw-topology/index.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import type { RootConfigReader } from '../assembly/index.js';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';

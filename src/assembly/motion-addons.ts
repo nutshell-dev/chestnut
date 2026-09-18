@@ -6,7 +6,8 @@
  * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
  */
 
-import { resolveChestnutRoot, routeNotifyClaw, routeNotifyClawAsync, getRelativeClawDir } from '../core/claw-topology/index.js';
+import { resolveChestnutRoot, getRelativeClawDir } from '../foundation/claw-identity/index.js';
+import { routeNotifyClaw, routeNotifyClawAsync } from '../core/claw-topology/index.js';
 import { AUDIT_FILE, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../foundation/audit/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import path from 'path';

@@ -4,7 +4,7 @@
  */
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { setTimeout } from 'timers/promises';
-import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
+import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';

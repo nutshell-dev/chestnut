@@ -12,7 +12,7 @@ import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { RootConfigReader } from '../assembly/index.js';
-import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../core/claw-topology/index.js';
+import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';

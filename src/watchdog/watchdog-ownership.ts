@@ -15,7 +15,7 @@
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr, newUuid } from '../foundation/node-utils/index.js';
-import { getWorkspaceRoot } from '../core/claw-topology/index.js';
+import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
 import { getProcessStartTime } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';

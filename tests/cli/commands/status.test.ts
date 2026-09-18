@@ -46,11 +46,19 @@ vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => {
   };
 });
 
+// phase 1864 Step B：路径群归 foundation/claw-identity（mock 面按 owner 拆两处）。
+vi.mock('../../../src/foundation/claw-identity/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/claw-identity/index.js')>();
+  return {
+    ...actual,
+    getNamedSubrootDir: vi.fn(() => '/forum/motion'),
+  };
+});
+
 vi.mock('../../../src/core/claw-topology/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/claw-topology/index.js')>();
   return {
     ...actual,
-    getNamedSubrootDir: vi.fn(() => '/forum/motion'),
     createClawTopology: vi.fn(() => ({
       enumerate: () => [],
       resolve: () => ({ kind: 'local', clawDir: '/forum/claws/test' }),

@@ -54,10 +54,16 @@ const shutdownMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../src/core/claw-topology/index.js', () => ({
+// phase 1864 Step B：路径群归 foundation/claw-identity（mock 面按 owner 拆两处）。
+vi.mock('../../../src/foundation/claw-identity/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/foundation/claw-identity/index.js')>()),
   getRelativeClawDir: vi.fn((name: string) => path.join('claws', name)),
   getClawConfigPath: vi.fn((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml')),
   getChestnutRoot: vi.fn(() => '/tmp/chestnut'),
+}));
+
+vi.mock('../../../src/core/claw-topology/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/core/claw-topology/index.js')>()),
   resolveClawDaemonDir: vi.fn((name: string) => path.join('/tmp/chestnut/claws', name, 'daemon')),
 }));
 

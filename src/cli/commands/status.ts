@@ -12,7 +12,7 @@
 
 import * as path from 'path';
 import type { RootConfigReader } from '../../assembly/index.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
+import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveDaemonEntry } from '../../daemon/index.js';
 import {

@@ -21,3 +21,19 @@ export {
   CLAW_AUTH_POLICY_FILE,
   CLAW_HEARTBEAT_FILE,
 } from './claw-files.js';
+
+// phase 1864 Step B（CT-D1 + CT-D5）：安装路径 API 群迁入（稳定路径 owner）。
+export {
+  CONFIG_YAML_FILE,
+  getWorkspaceRoot,
+  getChestnutRoot,
+  getNamedSubrootDir,
+  getClawDir,
+  getRelativeClawDir,
+  getClawConfigPath,
+  makeChestnutRoot,
+  resolveChestnutRoot,
+  CLAWS_DIR,
+  enumerateClaws,
+} from './instance-paths.js';
+export type { ChestnutRoot } from './instance-paths.js';

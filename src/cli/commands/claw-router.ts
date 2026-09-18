@@ -37,7 +37,7 @@ import {
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 // phase 1324 Step A：RouterDeps 收敛为 Claw 命令族共享 deps 的 type alias
 // （type-only barrel import）；Router 自身不再另行声明窄 RootConfig 形状。
 import type { ClawCreateCommandDeps } from './claw-command-deps.js';

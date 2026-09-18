@@ -6,7 +6,7 @@
  */
 import { setTimeout } from 'timers/promises';
 import { spawnDetached } from '../foundation/process-exec/index.js';
-import { getWorkspaceRoot } from '../core/claw-topology/index.js';
+import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { isWatchdogAlive, getWatchdogPid } from './watchdog-pid.js';
 import type { FileSystem } from '../foundation/fs/index.js';

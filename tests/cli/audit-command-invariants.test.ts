@@ -5,7 +5,7 @@ import { auditLookupCommand as auditLookupCommandImpl } from '../../src/cli/comm
 import { auditQueryCommand as auditQueryCommandImpl } from '../../src/cli/commands/audit-query.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
-import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';  // phase 271: hoist 7 dyn imports
+import { getClawDir } from '../../src/foundation/claw-identity/index.js';  // phase 271: hoist 7 dyn imports
 import * as fsNative from 'fs';  // phase 283: hoist 22 require('fs') calls
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createHash } from 'crypto';  // phase 284
@@ -19,8 +19,8 @@ const auditLookupCommand = (_deps: { fsFactory: typeof fsFactory }, opts: Parame
 const auditQueryCommand = (_deps: { fsFactory: typeof fsFactory }, opts: Parameters<typeof auditQueryCommandImpl>[1]) =>
   auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), opts);
 
-vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
     getClawDir: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}`),
