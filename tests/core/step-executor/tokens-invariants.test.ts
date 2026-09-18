@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleMaxTokensStop } from '../../../src/core/step-executor/stop-handlers.js';
 import type { StepInput, LLMCallInfo } from '../../../src/core/step-executor/types.js';
 import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
+import { makeStepEventSink } from '../../helpers/step-event-sink.js';
 
 describe('max-tokens-prebuilt-only-final', () => {
   function makeInput(): StepInput {
@@ -33,6 +34,8 @@ describe('max-tokens-prebuilt-only-final', () => {
       input.messages = [{ role: 'user', content: 'hello' }];
       const onMaxTokensPrebuiltOnlyFinal = vi.fn();
       input.callbacks = { onMaxTokensPrebuiltOnlyFinal, onUnparseableToolUse: () => {} };
+      // phase 1857 Step I (SE-D9): 裁决事件经单一事件出口（caller adapter 组合展示+持久化）
+      input.eventSink = makeStepEventSink({ callbacks: input.callbacks });
 
       const response: LLMResponse = {
         content: [
@@ -57,6 +60,7 @@ describe('max-tokens-prebuilt-only-final', () => {
       const input = makeInput();
       const onMaxTokensPrebuiltOnlyFinal = vi.fn();
       input.callbacks = { onMaxTokensPrebuiltOnlyFinal, onUnparseableToolUse: () => {} };
+      input.eventSink = makeStepEventSink({ callbacks: input.callbacks });
 
       const response: LLMResponse = {
         content: [
@@ -182,6 +186,7 @@ describe('max-tokens-state-a-orphan-drop', () => {
         onUnparseableToolUse: () => {},
         onMaxTokensStateAOrphanDrop,
       };
+      input.eventSink = makeStepEventSink({ callbacks: input.callbacks });
 
       const response: LLMResponse = {
         content: [

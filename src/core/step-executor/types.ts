@@ -9,7 +9,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
-import type { StepExecutorAuditSink } from './audit-sink.js';
+import type { StepExecutorEventSink } from './audit-sink.js';
 
 export interface LLMCallInfo {
   model: string;
@@ -162,11 +162,12 @@ export interface StepInput {
   maxTokens?: number;
   idleTimeoutMs?: number;
   callbacks?: StepCallbacks;
-  /** phase 732: injected by AgentExecutor for internal audit writes.
-   * phase 1857 Step D (SE-D3): 收窄为最小 sink（write/message/preview），真 AuditLog 结构满足。 */
-  auditWriter?: StepExecutorAuditSink;
-  /** phase 732: contract id for audit context. */
-  currentContractId?: string;
+  /**
+   * phase 1857 Step I (SE-D9): 单一事件出口——裁决事实经结构化 sink 恰好发出一次；
+   * 展示（callbacks）与持久化（audit 行，contract_id/trace_id 绑定）由 caller adapter 组合。
+   * （撤 phase 732 的审计写入注入面与审计专用 contract id 字段——身份绑定归 caller adapter。）
+   */
+  eventSink?: StepExecutorEventSink;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、StepExecutor 不再持 trim 业务。
 }

@@ -8,6 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { executeToolCalls, executeSingleTool } from '../../../src/core/step-executor/tool-execution.js';
 import { StepAbortError } from '../../../src/core/step-executor/index.js';
 import { ToolError, ToolTimeoutError } from '../../../src/foundation/tools/index.js';
+import { makeStepEventSink } from '../../helpers/step-event-sink.js';
 import type { ToolUseBlock } from '../../../src/foundation/llm-provider/types.js';
 import type { ToolResult } from '../../../src/foundation/tool-protocol/types.js';
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/index.js';
@@ -300,12 +301,13 @@ describe('phase 1857 Step H (SE-D8): 只收敛可呈现执行失败（三类矩�
     const onToolExecutionFailed = vi.fn();
     const aw = { write: vi.fn(), message: (s: string) => s, preview: (s: string) => s };
 
+    // phase 1857 Step I: 裁决事件经单一事件出口（adapter 组合展示+持久化）
     const result = await executeSingleTool(
       toolCall,
       makeSingleToolExecutor(new ToolError('presentable-boom')),
       ctx,
       { onToolExecutionFailed } as never,
-      aw as never,
+      makeStepEventSink({ callbacks: { onToolExecutionFailed } as never, audit: aw }),
     );
 
     expect(result.success).toBe(false);

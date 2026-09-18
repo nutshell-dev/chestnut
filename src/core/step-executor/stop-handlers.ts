@@ -9,7 +9,6 @@ import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
 import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults, safeCallback } from './utils.js';
 import { executeToolCalls } from './tool-execution.js';
-import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { throwAbortError } from './abort-helpers.js';
 import { isToolInputParseError, parseToolInputErrorName } from './tool-input-parse-error.js';
 
@@ -29,17 +28,14 @@ export async function handleToolUseStop(
     const text = extractText(response.content);
     appendAssistantMessage(messages, response.content);
     // phase 1857 Step F (SE-D6): [B:safe] 副作用已发生，通知失败不改变 step 终态
-    safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.length), callbacks, input.auditWriter);
-    safeCallback('onUnparseableToolUse', () => callbacks?.onUnparseableToolUse?.(response.stop_reason), callbacks, input.auditWriter);
-    input.auditWriter?.write(
-      STEP_EXECUTOR_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE,
-      `stop_reason=${response.stop_reason}`,
-    );
+    safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.length), callbacks, input.eventSink);
+    // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口（展示+持久化归 caller adapter）
+    input.eventSink?.unparseableToolUse({ stopReason: response.stop_reason });
     return { kind: 'final', stopReason: asFinalStopReason('no_tool'), finalText: text };
   }
   appendAssistantMessage(messages, response.content.filter(b => b.type !== 'tool_result'));
   // phase 1857 Step F (SE-D6): [B:safe]
-  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.filter(b => b.type !== 'tool_result').length), callbacks, input.auditWriter);
+  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.filter(b => b.type !== 'tool_result').length), callbacks, input.eventSink);
 
   let newParseErrorCount = 0;
   const trackingCallbacks: import('./types.js').StepCallbacks = {
@@ -54,12 +50,12 @@ export async function handleToolUseStop(
   const prebuiltIds = new Set(prebuiltResults.map(r => r.tool_use_id));
   const toolCallsToExecute = toolCalls.filter(tc => !prebuiltIds.has(tc.id));
   // abort 期不剥 signal / 工具自治响应 / 已 abort-aware 工具 throw / 不 aware 工具忽略
-  const toolResults = await executeToolCalls(toolCallsToExecute, executor, ctx, registry, trackingCallbacks, input.auditWriter);
+  const toolResults = await executeToolCalls(toolCallsToExecute, executor, ctx, registry, trackingCallbacks, input.eventSink);
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   appendToolResults(messages, [...prebuiltResults, ...toolResults]);
   // phase 1857 Step F (SE-D6): [B:safe]
-  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('user', toolResults.length + prebuiltResults.length), callbacks, input.auditWriter);
+  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('user', toolResults.length + prebuiltResults.length), callbacks, input.eventSink);
 
   const totalToolCallCount = toolCallsToExecute.length + prebuiltResults.length;
   const totalParseErrorCount = prebuiltResults.length + newParseErrorCount;
@@ -103,14 +99,10 @@ export function handleMaxTokensStop(
     if (assistantBlocks.length > 0) {
       appendAssistantMessage(messages, assistantBlocks);
       // phase 1857 Step F (SE-D6): [B:safe]
-      safeCallback('onMessageAppended', () => input.callbacks?.onMessageAppended?.('assistant', assistantBlocks.length), input.callbacks, input.auditWriter);
+      safeCallback('onMessageAppended', () => input.callbacks?.onMessageAppended?.('assistant', assistantBlocks.length), input.callbacks, input.eventSink);
     } else {
-      // phase 1857 Step F (SE-D6): [B:safe]
-      safeCallback('onMaxTokensAssistantEmptySkipped', () => input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo }), input.callbacks, input.auditWriter);
-      input.auditWriter?.write(
-        STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED,
-        `model=${llmInfo.model}`,
-      );
+      // phase 1857 Step I (SE-D9): 单一事件出口（State A 站点有对应审计行；State C 站点无、保持直调）
+      input.eventSink?.maxTokensAssistantEmptySkipped({ llm: llmInfo });
     }
     // phase 1282: prebuilt 已 cover 的 tool_use id 不再 synthesize [TRUNCATED] / 防 duplicate tool_result 同 id
     // 仅透传 stream-side parseError 结果（M#9「不丢弃静默」），historical/orphan tool_result 仍丢弃
@@ -128,25 +120,16 @@ export function handleMaxTokensStop(
       !toolCallIdSet.has(pr.tool_use_id)
     );
     if (orphanPrebuilt.length > 0) {
-      // phase 1857 Step F (SE-D6): [B:safe]
-      safeCallback('onMaxTokensStateAOrphanDrop', () => input.callbacks?.onMaxTokensStateAOrphanDrop!({
+      // phase 1857 Step I (SE-D9): 单一事件出口——一次事件；展示一次 + 按 orphan 逐行持久化归 adapter
+      input.eventSink?.maxTokensStateAOrphanDrop({
         orphans: orphanPrebuilt.map(pr => ({
-          tool_use_id: pr.tool_use_id,
-          // phase 215/218: producer 传全文、消费侧 (runtime audit emit) 末端 .preview 截、字段重命名为 content
+          toolUseId: pr.tool_use_id,
+          isError: pr.is_error === true,
+          // phase 215/218: producer 传全文、消费侧末端 .preview 截（归 adapter）
           content: pr.content,
-          is_error: pr.is_error === true,
         })),
         llm: llmInfo,
-      }), input.callbacks, input.auditWriter);
-      for (const orphan of orphanPrebuilt) {
-        input.auditWriter?.write(
-          STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_STATE_A_ORPHAN_DROP,
-          `tool_use_id=${orphan.tool_use_id}`,
-          `is_error=${orphan.is_error === true}`,
-          `content_preview=${input.auditWriter?.preview(orphan.content) ?? orphan.content}`,
-          `model=${llmInfo.model}`,
-        );
-      }
+      });
     }
 
     const truncatedResults: ToolResultBlock[] = newToolCallIds.map(id => ({
@@ -175,16 +158,11 @@ export function handleMaxTokensStop(
   //        Original code synthesized orphan tool_result + empty content [] → violates DP「no silent drop」
   //        Correct: final wrap-up with warning text
   if (prebuiltResults.length > 0) {
-    // phase 1857 Step F (SE-D6): [B:safe]
-    safeCallback('onMaxTokensPrebuiltOnlyFinal', () => input.callbacks?.onMaxTokensPrebuiltOnlyFinal?.({
+    // phase 1857 Step I (SE-D9): 单一事件出口
+    input.eventSink?.maxTokensPrebuiltOnlyFinal({
       prebuiltCount: prebuiltResults.length,
       llm: llmInfo,
-    }), input.callbacks, input.auditWriter);
-    input.auditWriter?.write(
-      STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_PREBUILT_ONLY_FINAL,
-      `prebuilt_count=${prebuiltResults.length}`,
-      `model=${llmInfo.model}`,
-    );
+    });
     return {
       kind: 'final',
       stopReason: asFinalStopReason('max_tokens_text'),
@@ -200,8 +178,8 @@ export function handleMaxTokensStop(
   if (assistantBlocks.length > 0) {
     appendAssistantMessage(messages, response.content);
   } else {
-    // phase 1857 Step F (SE-D6): [B:safe]
-    safeCallback('onMaxTokensAssistantEmptySkipped', () => input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo }), input.callbacks, input.auditWriter);
+    // phase 1857 Step F/I: State C 无对应审计行——保持直调 display、不经 sink（等价矩阵不新增行）
+    safeCallback('onMaxTokensAssistantEmptySkipped', () => input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo }), input.callbacks, input.eventSink);
   }
   return {
     kind: 'final',

@@ -19,6 +19,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/index.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
+import { createStepExecutorEventSink } from '../step-executor/index.js';
 import type { AgentExecutorEventSink } from './event-sink.js';
 import type { LoopStopRequest } from './loop-stop.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
@@ -52,8 +53,8 @@ interface AgentInput {
    * stepCompleted）。身份绑定与审计行格式化归 caller adapter；本循环只发结构化事实。
    */
   eventSink?: AgentExecutorEventSink;
-  // auditWriter + currentContractId 仅作 executeStep 透传（StepExecutor 内部审计面，
-  // 其 sink 化属 1857 SE-D3 范围）；AgentExecutor 自身事件不再直用。
+  // phase 1857 Step I (SE-D9): auditWriter/currentContractId 不再透传 executeStep——
+  // StepExecutor 单一事件出口（下方 stepEventSink adapter 组合展示+持久化+身份绑定）。
   auditWriter?: AuditLog;
   currentContractId?: string;
   // phase 690: 撤 dialogStore + contextManagerConfig 透传 — proactive trim
@@ -175,8 +176,14 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       maxTokens,
       idleTimeoutMs: input.idleTimeoutMs,
       callbacks,
-      auditWriter,
-      currentContractId,
+      // phase 1857 Step I (SE-D9): StepExecutor 单一事件出口——caller adapter 组合
+      // 展示（callbacks）+ 持久化（audit 行）+ contract_id/trace_id 身份绑定。
+      eventSink: createStepExecutorEventSink({
+        callbacks,
+        auditWriter,
+        contractId: currentContractId,
+        traceId: String(ctx.trace_id ?? ''),
+      }),
     });
 
     if (result.kind === 'final') {

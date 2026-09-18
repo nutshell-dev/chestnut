@@ -8,10 +8,9 @@ import type { ContentBlock } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../foundation/llm-provider/index.js';
-import type { StepExecutorAuditSink } from './audit-sink.js';
+import type { StepExecutorEventSink } from './audit-sink.js';
 import type { StepCallbacks } from './types.js';
-import { safeCallback, parseToolInput, writeAuditGuarded } from './utils.js';
-import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
+import { safeCallback, parseToolInput } from './utils.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
 import { makeToolUseId, LLMTimeoutError } from '../../foundation/llm-provider/index.js';
@@ -72,26 +71,20 @@ export function flushText(state: StreamState, callbacks?: StepCallbacks): void {
   }
 }
 
-export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, auditWriter?: StepExecutorAuditSink): void {
+export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, eventSink?: StepExecutorEventSink): void {
   if (state.currentToolUse) {
     const toolName = state.currentToolUse.name;
     const toolUseId = makeToolUseId(state.currentToolUse.id);
     const rawInput = state.currentToolUse.input;
     const parsed = parseToolInput(rawInput, toolName);
     if (!parsed.ok) {
-      safeCallback(
-        'onToolInputParseError',
-        () => callbacks?.onToolInputParseError?.(toolName, toolUseId, parsed.raw),
-        callbacks,
-        auditWriter,
-      );
-      auditWriter?.write(
-        STEP_EXECUTOR_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
+      // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口一次发出（展示+持久化归 caller adapter）
+      eventSink?.toolInputParseFailed({
         toolName,
         toolUseId,
-        `reason=parse_error`,
-        `summary=${auditWriter?.message(rawInput) ?? rawInput}`,
-      );
+        reason: 'parse_error',
+        summary: rawInput,
+      });
       // phase 1282: emit tool_use 占位块满足 pair invariant（M#9 + M#5 stream 自验合法）
       //            input={} 占位 / 下游 handleToolUseStop + handleMaxTokensStop State A 经 prebuiltIds dedup 不 execute / 不再 synthesize
       state.contentBlocks.push({
@@ -121,7 +114,7 @@ export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, audi
         'onToolUseInput',
         () => callbacks?.onToolUseInput?.(toolName, makeToolUseId(toolId), inputData),
         callbacks,
-        auditWriter,
+        eventSink,
       );
     }
     // phase 688: 与 finalizeContent 对齐，flush 后清 currentToolUse 防 catch 路径 drain 时重复 emit
@@ -140,7 +133,7 @@ function resetState(state: StreamState): void {
   state.startTs = 0;
 }
 
-export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, auditWriter?: StepExecutorAuditSink): void {
+export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, eventSink?: StepExecutorEventSink): void {
   if (state.currentThinking) {
     state.contentBlocks.push({
       type: 'thinking',
@@ -151,7 +144,7 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, a
   if (state.currentText) {
     state.contentBlocks.push({ type: 'text', text: state.currentText });
     // phase 1857 Step F (SE-D6): [B:safe]
-    safeCallback('onTextEnd', () => callbacks?.onTextEnd?.(), callbacks, auditWriter);
+    safeCallback('onTextEnd', () => callbacks?.onTextEnd?.(), callbacks, eventSink);
   }
   if (state.currentToolUse) {
     const toolName = state.currentToolUse.name;
@@ -159,19 +152,13 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, a
     const rawInput = state.currentToolUse.input;
     const parsed = parseToolInput(rawInput, toolName);
     if (!parsed.ok) {
-      safeCallback(
-        'onToolInputParseError',
-        () => callbacks?.onToolInputParseError?.(toolName, toolUseId, parsed.raw),
-        callbacks,
-        auditWriter,
-      );
-      auditWriter?.write(
-        STEP_EXECUTOR_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
+      // phase 1857 Step I (SE-D9): 单一事件出口
+      eventSink?.toolInputParseFailed({
         toolName,
         toolUseId,
-        `reason=parse_error`,
-        `summary=${auditWriter?.message(rawInput) ?? rawInput}`,
-      );
+        reason: 'parse_error',
+        summary: rawInput,
+      });
       // phase 1282: emit tool_use 占位块满足 pair invariant（M#9 + M#5 stream 自验合法）
       state.contentBlocks.push({
         type: 'tool_use',
@@ -200,7 +187,7 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, a
         'onToolUseInput',
         () => callbacks?.onToolUseInput?.(toolName, makeToolUseId(toolId), inputData),
         callbacks,
-        auditWriter,
+        eventSink,
       );
     }
     state.currentToolUse = null;
@@ -211,9 +198,7 @@ export async function collectStreamResponse(
   llm: LLMOrchestrator,
   callOptions: LLMCallOptions,
   callbacks?: StepCallbacks,
-  auditWriter?: StepExecutorAuditSink,
-  currentContractId?: string,
-  traceId?: string,
+  eventSink?: StepExecutorEventSink,
 ): Promise<LLMResponse> {
   const state = createStreamState();
 
@@ -229,7 +214,7 @@ export async function collectStreamResponse(
             const delta = chunk.delta;
             state.currentText += delta;
             // phase 1857 Step F (SE-D6): [B:safe]
-            safeCallback('onTextDelta', () => callbacks?.onTextDelta?.(delta), callbacks, auditWriter);
+            safeCallback('onTextDelta', () => callbacks?.onTextDelta?.(delta), callbacks, eventSink);
           }
           break;
         case 'thinking_delta':
@@ -237,7 +222,7 @@ export async function collectStreamResponse(
             const delta = chunk.delta;
             state.currentThinking += delta;
             // phase 1857 Step F (SE-D6): [B:safe]
-            safeCallback('onThinkingDelta', () => callbacks?.onThinkingDelta?.(delta), callbacks, auditWriter);
+            safeCallback('onThinkingDelta', () => callbacks?.onThinkingDelta?.(delta), callbacks, eventSink);
           }
           break;
         case 'thinking_signature':
@@ -246,7 +231,7 @@ export async function collectStreamResponse(
         case 'tool_use_start':
           flushThinking(state);
           flushText(state, callbacks);
-          flushToolUse(state, callbacks, auditWriter);
+          flushToolUse(state, callbacks, eventSink);
           state.currentToolUse = { id: chunk.toolUse!.id, name: chunk.toolUse!.name, input: '' };
           state.stopReason = 'tool_use';
           // 流式 tool_use_start 来时立即 emit onToolCall（chat-viewport 实时显示 tool icon / 不等 stream end + execute phase）
@@ -254,7 +239,7 @@ export async function collectStreamResponse(
           // 用 safeCallback 守护：callback throw 不中断 stream loop（保 stream chunk 完整收 / tool_use_delta 等不丢）
           {
             const toolUseStart = chunk.toolUse!;
-            safeCallback('onToolCall', () => callbacks?.onToolCall?.(toolUseStart.name, makeToolUseId(toolUseStart.id)), callbacks, auditWriter);
+            safeCallback('onToolCall', () => callbacks?.onToolCall?.(toolUseStart.name, makeToolUseId(toolUseStart.id)), callbacks, eventSink);
           }
           break;
         case 'tool_use_delta':
@@ -270,14 +255,14 @@ export async function collectStreamResponse(
                 chunk.toolUse!.partialInput!,
               ),
               callbacks,
-              auditWriter,
+              eventSink,
             );
           }
           break;
         case 'reset':
           resetState(state);
           // phase 1857 Step F (SE-D6): [B:safe] reset 已发生，通知失败不改变已发生提交
-          safeCallback('onReset', () => callbacks?.onReset?.(chunk.provider ?? 'unknown', chunk.timeoutMs ?? 0), callbacks, auditWriter);
+          safeCallback('onReset', () => callbacks?.onReset?.(chunk.provider ?? 'unknown', chunk.timeoutMs ?? 0), callbacks, eventSink);
           break;
         case 'provider_failed':
           // phase 1857 Step F (SE-D6): [B:safe] provider 失败已发生，通知失败不改变已记录失败
@@ -285,7 +270,7 @@ export async function collectStreamResponse(
             'onProviderFailed',
             () => callbacks?.onProviderFailed?.(chunk.provider ?? 'unknown', chunk.model ?? 'unknown', chunk.error ?? 'unknown error'),
             callbacks,
-            auditWriter,
+            eventSink,
           );
           break;
         case 'done':
@@ -315,47 +300,28 @@ export async function collectStreamResponse(
     // 但 stream.jsonl 已记录每个 tool_use 的完整 input、事后凭 trace_id 可重建调用意图
     try { flushThinking(state); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
     try { flushText(state, callbacks); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
-    try { flushToolUse(state, callbacks, auditWriter); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
+    try { flushToolUse(state, callbacks, eventSink); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
     // phase 688: emit「丢弃 partial assistant content」决策事件（audit 可观测）
     // 决策动作本身的可观测点、与 stream.jsonl 的 tool_use_input 互补。
     if (state.startTs > 0) {
       const toolUseCount = state.contentBlocks.filter(b => b.type === 'tool_use').length;
       const hasText = state.contentBlocks.some(b => b.type === 'text');
       const hasThinking = state.contentBlocks.some(b => b.type === 'thinking');
-      safeCallback(
-        'onPartialAssistantDiscarded',
-        () => callbacks?.onPartialAssistantDiscarded?.({
-          cause: classifyDiscardCause(err),
-          toolUseCount,
-          hasText,
-          hasThinking,
-          startTs: state.startTs,
-          endTs: Date.now(),
-          errMessage: formatErr(err),
-        }),
-        callbacks,
-        auditWriter,
-      );
-      // phase 1857 Step E (SE-D4): guarded 写——审计通道自身失败不得替代原 LLM err
-      if (auditWriter) {
-        writeAuditGuarded(
-          auditWriter,
-          STEP_EXECUTOR_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
-          `cause=${classifyDiscardCause(err)}`,
-          `tool_use_count=${toolUseCount}`,
-          `has_text=${hasText}`,
-          `has_thinking=${hasThinking}`,
-          `ts_range=${state.startTs}-${Date.now()}`,
-          `trace_id=${String(traceId ?? '')}`,
-          `contract_id=${currentContractId ?? ''}`,
-          `err=${auditWriter.message(formatErr(err))}`,
-        );
-      }
+      // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口一次发出；
+      // SE-D4 语义由实现契约承接（sink 不抛——审计失败不改变随后原样抛出的原 err）。
+      eventSink?.partialAssistantDiscarded({
+        cause: classifyDiscardCause(err),
+        toolUseCount,
+        hasText,
+        hasThinking,
+        tsRange: `${state.startTs}-${Date.now()}`,
+        errMessage: formatErr(err),
+      });
     }
     throw err;
   }
 
-  finalizeContent(state, callbacks, auditWriter);
+  finalizeContent(state, callbacks, eventSink);
 
   return {
     content: state.contentBlocks,

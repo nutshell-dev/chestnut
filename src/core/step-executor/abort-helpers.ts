@@ -8,7 +8,7 @@
  * 展示语义各自本地。abort 触发点的 reason 载荷字面（{type, ms}）不变。
  */
 
-import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
+import type { StepExecutorEventSink } from './audit-sink.js';
 
 /** StepExecutor 的最小 abort reason 数据协议（判别联合，数据化）。 */
 export type StepAbortReason =
@@ -56,7 +56,7 @@ export function abortEvidenceAuditCols(err: unknown): string[] {
 
 export function throwAbortError(
   signal: AbortSignal,
-  auditWriter?: { write: (...args: string[]) => void },
+  eventSink?: StepExecutorEventSink,
   evidence?: AbortExecutionEvidence,
 ): never {
   const r = signal.reason as { type?: string; ms?: number } | undefined;
@@ -64,12 +64,12 @@ export function throwAbortError(
   if (r?.type === 'step_yield')   throw new StepAbortError({ kind: 'step_yield' }, evidence);
   if (r?.type === 'user')         throw new StepAbortError({ kind: 'user_interrupt' }, evidence);
   const violationMsg = `Execution aborted (unexpected reason: ${JSON.stringify(r)})`;
-  auditWriter?.write(
-    STEP_EXECUTOR_AUDIT_EVENTS.INVARIANT_VIOLATION,
-    `site=abort-helpers.ts:12`,
-    `kind=unexpected_abort_reason`,
-    `reason=${JSON.stringify(r)}`,
-    `msg=${violationMsg}`,
-  );
+  // phase 1857 Step I (SE-D9): 纯审计行经单一事件出口（audit 行格式化归 caller adapter）
+  eventSink?.invariantViolation({
+    site: 'abort-helpers.ts:12',
+    kind: 'unexpected_abort_reason',
+    reason: JSON.stringify(r),
+    msg: violationMsg,
+  });
   throw new Error(`[INVARIANT VIOLATION] step-executor: ${violationMsg}`);
 }

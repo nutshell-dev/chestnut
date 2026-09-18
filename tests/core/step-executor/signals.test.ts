@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   StepAbortError, isStepAbortError, throwAbortError,
 } from '../../../src/core/step-executor/abort-helpers.js';
+import { makeAuditCollector, makeStepEventSink } from '../../helpers/step-event-sink.js';
 
 function abortWith(reason: unknown): AbortSignal {
   const controller = new AbortController();
@@ -80,17 +81,20 @@ describe('throwAbortError — abort reason 数据协议矩阵', () => {
   });
 
   it('未知载荷 → INVARIANT_VIOLATION 审计 + Error（非 StepAbortError）', () => {
-    const write = vi.fn();
+    const { audit, entries } = makeAuditCollector();
+    const sink = makeStepEventSink({ audit });
     try {
-      throwAbortError(abortWith({ type: 'something_else' }), { write });
+      throwAbortError(abortWith({ type: 'something_else' }), sink);
       expect.unreachable();
     } catch (e) {
       expect(isStepAbortError(e)).toBe(false);
       expect(e).toBeInstanceOf(Error);
       expect((e as Error).message).toContain('[INVARIANT VIOLATION]');
     }
-    expect(write).toHaveBeenCalledTimes(1);
-    expect(write.mock.calls[0][0]).toBe('step_executor_invariant_violation');
+    // phase 1857 Step I: 纯审计行经单一事件出口（adapter 持久化）
+    expect(entries).toHaveLength(1);
+    expect(entries[0]![0]).toBe('step_executor_invariant_violation');
+    expect(String(entries[0]!.some(c => String(c).includes('unexpected_abort_reason')))).toBe('true');
   });
 
   it('无审计 writer 时未知载荷仍抛 invariant Error', () => {

@@ -13,6 +13,7 @@ import type { ExecContext } from '../../src/foundation/tool-protocol/index.js';
 import { makeExecContext } from '../helpers/exec-context.js';
 import type { IToolExecutor } from '../../src/foundation/tools/executor.js';
 import { MaxStepsExceededError } from '../../src/core/agent-executor/errors.js';
+import { ToolError } from '../../src/foundation/tools/index.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
@@ -341,8 +342,9 @@ describe('ReAct Loop', () => {
       .mockResolvedValueOnce(createTextResponse('Tool failed but I continued'));
 
     // Executor throws exception (P0 fix: should be caught, not crash)
+    // phase 1857 Step H (SE-D8): 可呈现执行失败须经公开 ToolError 声明——plain Error 现 rethrow
     (mockExecutor.execute as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('Disk full')
+      new ToolError('Disk full')
     );
 
     const messages: Message[] = [{ role: 'user', content: 'Read file' }];

@@ -15,10 +15,9 @@ import { ToolError } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepInput, StepCallbacks } from './types.js';
-import type { StepExecutorAuditSink } from './audit-sink.js';
+import type { StepExecutorEventSink } from './audit-sink.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError, type AbortExecutionEvidence } from './abort-helpers.js';
-import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 import { makeToolUseId } from '../../foundation/llm-provider/index.js';
 
@@ -56,14 +55,14 @@ function isStepInput(value: StepCallbacks | StepInput): value is StepInput {
   return 'messages' in value;
 }
 
-function resolveCallbacksAndAudit(
+function resolveCallbacksAndSink(
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: StepExecutorAuditSink,
-): { callbacks?: StepCallbacks; auditWriter?: StepExecutorAuditSink } {
+  eventSink?: StepExecutorEventSink,
+): { callbacks?: StepCallbacks; eventSink?: StepExecutorEventSink } {
   if (callbacksOrInput && isStepInput(callbacksOrInput)) {
-    return { callbacks: callbacksOrInput.callbacks, auditWriter: callbacksOrInput.auditWriter ?? auditWriter };
+    return { callbacks: callbacksOrInput.callbacks, eventSink: callbacksOrInput.eventSink ?? eventSink };
   }
-  return { callbacks: callbacksOrInput, auditWriter };
+  return { callbacks: callbacksOrInput, eventSink };
 }
 
 async function executeSequential(
@@ -71,17 +70,17 @@ async function executeSequential(
   executor: IToolExecutor,
   ctx: ExecContext,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: StepExecutorAuditSink,
+  eventSink?: StepExecutorEventSink,
 ): Promise<ToolResultBlock[]> {
-  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
+  const { callbacks, eventSink: sink } = resolveCallbacksAndSink(callbacksOrInput, eventSink);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调（流式提前 emit / 不等 execute）
   const results: ToolResultBlock[] = [];
   // phase 1857 Step G (SE-D7): 批内已完成证据——abort 时随终止载体交付（已执行未提交可证明）
   const completed: AbortExecutionEvidence['completed'] = [];
   for (const call of toolCalls) {
-    if (ctx.signal?.aborted) throwAbortError(ctx.signal, aw, { completed });
-    const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
+    if (ctx.signal?.aborted) throwAbortError(ctx.signal, sink, { completed });
+    const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, eventSink);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, sink);
     results.push(toToolResultBlock(makeToolUseId(call.id), result));
     completed.push({ toolName: call.name, toolUseId: makeToolUseId(call.id), success: result.success });
   }
@@ -94,11 +93,11 @@ async function executeReadonlyParallel(
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: StepExecutorAuditSink,
+  eventSink?: StepExecutorEventSink,
 ): Promise<void> {
   if (group.length === 0) return;
 
-  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
+  const { callbacks, eventSink: sink } = resolveCallbacksAndSink(callbacksOrInput, eventSink);
 
   const batch = group.map(({ call }) => {
     const { async: _, ...toolArgs } = call.input;
@@ -111,12 +110,12 @@ async function executeReadonlyParallel(
     const { call, index } = group[i];
     const result = parallelResults[i];
     if (!result) {
-      const singleResult = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
-      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks, aw);
+      const singleResult = await executeSingleTool(call, executor, ctx, callbacksOrInput, eventSink);
+      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks, sink);
       results.set(index, toToolResultBlock(makeToolUseId(call.id), singleResult));
       continue;
     }
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, sink);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
   }
 }
@@ -127,16 +126,16 @@ async function executeWriteCalls(
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: StepExecutorAuditSink,
+  eventSink?: StepExecutorEventSink,
 ): Promise<void> {
-  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
+  const { callbacks, eventSink: sink } = resolveCallbacksAndSink(callbacksOrInput, eventSink);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
   // phase 1857 Step G (SE-D7): 写组批内已完成证据
   const completed: AbortExecutionEvidence['completed'] = [];
   for (const { call, index } of group) {
-    if (ctx.signal?.aborted) throwAbortError(ctx.signal, aw, { completed });
-    const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
+    if (ctx.signal?.aborted) throwAbortError(ctx.signal, sink, { completed });
+    const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, eventSink);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, sink);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
     completed.push({ toolName: call.name, toolUseId: makeToolUseId(call.id), success: result.success });
   }
@@ -148,28 +147,28 @@ export async function executeToolCalls(
   ctx: ExecContext,
   registry: ToolRegistry | undefined,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: StepExecutorAuditSink,
+  eventSink?: StepExecutorEventSink,
 ): Promise<ToolResultBlock[]> {
-  if (!registry) return executeSequential(toolCalls, executor, ctx, callbacksOrInput, auditWriter);
+  if (!registry) return executeSequential(toolCalls, executor, ctx, callbacksOrInput, eventSink);
 
   const { readonly, write } = categorizeToolCalls(toolCalls, registry);
   const results = new Map<number, ToolResultBlock>();
 
-  await executeReadonlyParallel(readonly, executor, ctx, results, callbacksOrInput, auditWriter);
-  await executeWriteCalls(write, executor, ctx, results, callbacksOrInput, auditWriter);
+  await executeReadonlyParallel(readonly, executor, ctx, results, callbacksOrInput, eventSink);
+  await executeWriteCalls(write, executor, ctx, results, callbacksOrInput, eventSink);
 
   return toolCalls.map((_, i) => {
     const r = results.get(i);
     if (!r) {
       const violationMsg = `Missing result for tool call at index ${i}`;
-      const aw = resolveCallbacksAndAudit(callbacksOrInput, auditWriter).auditWriter;
-      aw?.write(
-        STEP_EXECUTOR_AUDIT_EVENTS.INVARIANT_VIOLATION,
-        `site=tool-execution.ts:164`,
-        `kind=missing_tool_result`,
-        `index=${i}`,
-        `msg=${violationMsg}`,
-      );
+      const sink = resolveCallbacksAndSink(callbacksOrInput, eventSink).eventSink;
+      // phase 1857 Step I (SE-D9): 纯审计行经单一事件出口
+      sink?.invariantViolation({
+        site: 'tool-execution.ts:164',
+        kind: 'missing_tool_result',
+        index: i,
+        msg: violationMsg,
+      });
       throw new Error(`[INVARIANT VIOLATION] step-executor: ${violationMsg}`);
     }
     return r;
@@ -181,9 +180,9 @@ export async function executeSingleTool(
   executor: IToolExecutor,
   ctx: ExecContext,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: StepExecutorAuditSink,
+  eventSink?: StepExecutorEventSink,
 ): Promise<ToolResult> {
-  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
+  const { callbacks, eventSink: sink } = resolveCallbacksAndSink(callbacksOrInput, eventSink);
   // 前置守卫：流中断时 toolCall.input 可能不完整（required 字段缺失）
   // 同步校验，不进入 async execute，避免与 abort 竞态导致 tool_result 丢失
   const schema = executor.getToolSchema?.(toolCall.name);
@@ -191,23 +190,13 @@ export async function executeSingleTool(
     const missing = schema.required.filter(f => !(f in (toolCall.input || {})));
     if (missing.length > 0) {
       const missingMsg = `incomplete tool_use: missing required [${missing.join(', ')}] (stream aborted mid-tool_use)`;
-      safeCallback(
-        'onToolInputParseError',
-        () => callbacks?.onToolInputParseError?.(
-          toolCall.name,
-          makeToolUseId(toolCall.id),
-          missingMsg,
-        ),
-        callbacks,
-        aw,
-      );
-      aw?.write(
-        STEP_EXECUTOR_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
-        toolCall.name,
-        makeToolUseId(toolCall.id),
-        `reason=parse_error`,
-        `summary=${aw?.message(missingMsg) ?? missingMsg}`,
-      );
+      // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口
+      sink?.toolInputParseFailed({
+        toolName: toolCall.name,
+        toolUseId: makeToolUseId(toolCall.id),
+        reason: 'parse_error',
+        summary: missingMsg,
+      });
       return {
         success: false,
         content: `[IncompleteToolUse] 工具调用参数不完整：缺少 ${missing.join(', ')}。可能由流中断导致。`,
@@ -221,7 +210,7 @@ export async function executeSingleTool(
     'onToolCallInput',
     () => callbacks?.onToolCallInput?.(toolCall.name, makeToolUseId(toolCall.id), toolCall.input),
     callbacks,
-    aw,
+    sink,
   );
 
   try {
@@ -242,19 +231,13 @@ export async function executeSingleTool(
     if (!(err instanceof ToolError)) throw err;
     const errorType = err.name;
     const errorMsg = formatErr(err);
-    safeCallback(
-      'onToolExecutionFailed',
-      () => callbacks?.onToolExecutionFailed?.(toolCall.name, makeToolUseId(toolCall.id), errorType, errorMsg),
-      callbacks,
-      aw,
-    );
-    aw?.write(
-      STEP_EXECUTOR_AUDIT_EVENTS.TOOL_EXECUTION_FAILED,
-      toolCall.name,
-      makeToolUseId(toolCall.id),
-      `errorType=${errorType}`,
-      `errorMsg=${aw?.message(errorMsg) ?? errorMsg}`,
-    );
+    // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口
+    sink?.toolExecutionFailed({
+      toolName: toolCall.name,
+      toolUseId: makeToolUseId(toolCall.id),
+      errorType,
+      errorMsg,
+    });
     return {
       success: false,
       content: `[${errorType}] 工具执行失败: ${errorMsg}`,

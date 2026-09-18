@@ -18,6 +18,7 @@ import type { IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { parseToolInput } from '../../../src/core/step-executor/utils.js';
 import { ToolError } from '../../../src/foundation/tools/index.js';
+import { makeStepEventSink } from '../../helpers/step-event-sink.js';
 
 describe('callback-safe-wrap', () => {
   /**
@@ -71,7 +72,11 @@ describe('callback-safe-wrap', () => {
           maxSteps: 10,
         } as ExecContext;
 
-        const result = await executeSingleTool(toolCall as any, executor, ctx, callbacks as any);
+        // phase 1857 Step I: 裁决事件经单一事件出口（adapter 组合展示+持久化）
+        const result = await executeSingleTool(
+          toolCall as any, executor, ctx, callbacks as any,
+          makeStepEventSink({ callbacks: callbacks as any }),
+        );
 
         // 验证 1：structured return 不被 bypass、原 error 信息保留
         expect(result.success).toBe(false);
@@ -389,24 +394,25 @@ describe('phase 1857 Step F (SE-D6): 失败策略声明矩阵', () => {
       } as unknown as IToolExecutor,
       registry: { get: () => ({ readonly: false }) } as unknown as ToolRegistry,
       ctx: makeExecContext(),
-      auditWriter: auditWriter as never,
+      // phase 1857 Step I: 单一事件出口——展示+持久化经 caller adapter
+      eventSink: makeStepEventSink({ callbacks: callbacks as never, audit: auditWriter }),
       callbacks: callbacks as never,
     });
   }
 
   it('[B:safe][提交通知] onMessageAppended throw → step 完成 final + onSafeCallbackError 留证 + audit 行', async () => {
     const onSafeCallbackError = vi.fn();
-    const { sink, entries } = makeSink();
+    const { sink: audit, entries } = makeSink();
 
     const result = await runStep({
       onMessageAppended: vi.fn(() => { throw new Error('append-boom'); }),
       onSafeCallbackError,
-    }, 'end_turn', sink);
+    }, 'end_turn', audit);
 
     expect(result.kind).toBe('final');
     expect(onSafeCallbackError).toHaveBeenCalledWith('onMessageAppended', expect.any(Error));
     expect(entries.some(c => c[0] === 'step_executor_callback_failed' && String(c[1]).includes('onMessageAppended'))).toBe(true);
-    expect(sink).toBeDefined();
+    expect(audit).toBeDefined();
   });
 
   it('[B:safe][stream delivery] onTextDelta throw → step 完成 final（stream loop 不中断）', async () => {
