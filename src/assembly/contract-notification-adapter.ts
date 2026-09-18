@@ -30,6 +30,7 @@ import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
   encodeContractEventsGuidance,
   encodeContractCancelledGuidance,
+  NOTIFICATION_CHANNEL,
   type ContractNotification,
   type ContractNotificationSink,
 } from '../core/contract/index.js';
@@ -57,57 +58,61 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
     const data = toLegacyNotifyData(event);
     deps.streamWriter.write({ ts: Date.now(), type: STREAM_EVENT_NAMES.SYSTEM_NOTIFY, subtype: event.type, ...data });
 
-    // §A.6 双链路：本 daemon 自家 inbox 接契约终态事件（决策点）
-    // subtask_completed / verification_failed 仅 streamWriter（viewport 可见、决策无用）
-    if (event.type === 'contract_completed') {
-      // phase 1261 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
-      // （schema version + refs JSON 两 owner key；不再手写 legacy wire keys）
-      // phase 37: 写 selfInboxDir（本 daemon 自家、详 deps.selfInboxDir doc）
-      //   - motion daemon: 写 motion 自家 inbox
-      //   - worker daemon: 写 worker 自家 inbox
-      //   跨 claw 通知归 contract-observer cron
-      // phase 1832: 完成正文改用 typed event 事实直传纯模板（不再从 legacy 串反解析）；
-      // stream 的 toLegacyNotifyData shape 保持不变。
-      notifyInbox(deps.systemFs, {
-        inboxDir: deps.selfInboxDir,
-        type: 'contract_events',   // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
-        source: 'system',
-        priority: 'high',
-        body: contractCompletedNotificationBody({
-          clawId: deps.clawId,
-          contractId: event.contractId,
-          title: event.title,
-          goal: event.goal,
-          completedAt: event.completedAt,
-          subtaskLines: event.subtasks.map((st) =>
-            contractCompletedSubtaskLine(st.id, st.completedAt, st.forceAccepted),
-          ),
-        }),
-        extraFields: encodeContractEventsGuidance([{
-          clawId: makeClawId(deps.clawId),
-          contractId: event.contractId,
-        }]),
-      }, deps.auditWriter);
-    }
+    // §A.6 双链路：本 daemon 自家 inbox 接契约终态事件（决策点）。
+    // phase 1862 Step I (CT-D10)：通道归属是 owner 声明事实（NOTIFICATION_CHANNEL），
+    // adapter 只消费分类做动作，不自行枚举内部 transition 阶段分流。
+    // subtask_completed / verification_failed 为 viewport_only（仅 stream，决策无用）。
+    if (NOTIFICATION_CHANNEL[event.type] === 'terminal_inbox') {
+      if (event.type === 'contract_completed') {
+        // phase 1261 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
+        // （schema version + refs JSON 两 owner key；不再手写 legacy wire keys）
+        // phase 37: 写 selfInboxDir（本 daemon 自家、详 deps.selfInboxDir doc）
+        //   - motion daemon: 写 motion 自家 inbox
+        //   - worker daemon: 写 worker 自家 inbox
+        //   跨 claw 通知归 contract-observer cron
+        // phase 1832: 完成正文改用 typed event 事实直传纯模板（不再从 legacy 串反解析）；
+        // stream 的 toLegacyNotifyData shape 保持不变。
+        notifyInbox(deps.systemFs, {
+          inboxDir: deps.selfInboxDir,
+          type: 'contract_events',   // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
+          source: 'system',
+          priority: 'high',
+          body: contractCompletedNotificationBody({
+            clawId: deps.clawId,
+            contractId: event.contractId,
+            title: event.title,
+            goal: event.goal,
+            completedAt: event.completedAt,
+            subtaskLines: event.subtasks.map((st) =>
+              contractCompletedSubtaskLine(st.id, st.completedAt, st.forceAccepted),
+            ),
+          }),
+          extraFields: encodeContractEventsGuidance([{
+            clawId: makeClawId(deps.clawId),
+            contractId: event.contractId,
+          }]),
+        }, deps.auditWriter);
+      }
 
-    // phase 63: contract_cancelled NEW
-    if (event.type === 'contract_cancelled') {
-      // phase 1262 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
-      // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys）
-      // phase 1833: 取消正文改用 typed event 整体直传纯模板（typed event 只有契约 ID
-      // 与取消事由两字段，不跨模块补标题/进度）；block 内不出现 owner wire key 同名
-      // 字面（arch ratchet 保持严格）。stream 的 toLegacyNotifyData shape 保持不变。
-      notifyInbox(deps.systemFs, {
-        inboxDir: deps.selfInboxDir,
-        type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
-        source: 'system',
-        priority: 'high',
-        body: contractCancelledNotificationBody(deps.clawId, event),
-        extraFields: encodeContractCancelledGuidance([{
-          clawId: makeClawId(deps.clawId),
-          contractId: event.contractId,
-        }]),
-      }, deps.auditWriter);
+      // phase 63: contract_cancelled NEW
+      if (event.type === 'contract_cancelled') {
+        // phase 1262 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
+        // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys）
+        // phase 1833: 取消正文改用 typed event 整体直传纯模板（typed event 只有契约 ID
+        // 与取消事由两字段，不跨模块补标题/进度）；block 内不出现 owner wire key 同名
+        // 字面（arch ratchet 保持严格）。stream 的 toLegacyNotifyData shape 保持不变。
+        notifyInbox(deps.systemFs, {
+          inboxDir: deps.selfInboxDir,
+          type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
+          source: 'system',
+          priority: 'high',
+          body: contractCancelledNotificationBody(deps.clawId, event),
+          extraFields: encodeContractCancelledGuidance([{
+            clawId: makeClawId(deps.clawId),
+            contractId: event.contractId,
+          }]),
+        }, deps.auditWriter);
+      }
     }
 
   };

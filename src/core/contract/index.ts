@@ -12,6 +12,8 @@ export type {
   ContractNotification,
   ContractNotificationSink,
 } from './notification.js';
+// phase 1862 Step I (CT-D10): 通道归属事实 barrel export（adapter 纯消费）
+export { NOTIFICATION_CHANNEL } from './notification.js';
 
 // phase 1424: contract auditor exports
 export { ContractAuditor } from './contract-auditor.js';

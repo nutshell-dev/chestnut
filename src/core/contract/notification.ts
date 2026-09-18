@@ -82,5 +82,26 @@ export type ContractNotification =
   | SubtaskCompletedNotification
   | VerificationFailedNotification;
 
+/**
+ * phase 1862 Step I (CT-D10)：通道归属事实（owner 声明，adapter 纯消费）。
+ * - 'terminal_inbox'：终态业务事实 → self-inbox 投递 + stream（viewport 可见）
+ * - 'viewport_only'：仅 stream（viewport 可见），无 inbox 决策价值
+ *
+ * 值从 adapter 治理前行为 1:1 提取（contract_failed 仅 stream = viewport_only，
+ * 不写 self-inbox）。adapter 不自行枚举内部 transition 阶段做通道分流。
+ * Record 类型强制穷尽：新增 variant 时编译失败。
+ */
+export const NOTIFICATION_CHANNEL: Record<
+  ContractNotification['type'],
+  'terminal_inbox' | 'viewport_only'
+> = {
+  contract_created: 'viewport_only',
+  contract_completed: 'terminal_inbox',
+  contract_cancelled: 'terminal_inbox',
+  contract_failed: 'viewport_only',
+  subtask_completed: 'viewport_only',
+  verification_failed: 'viewport_only',
+};
+
 /** 唯一 notification sink 类型：接完整 typed event，不再接 (type, data) 二元组。 */
 export type ContractNotificationSink = (event: ContractNotification) => void;
