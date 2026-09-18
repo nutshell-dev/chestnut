@@ -12,5 +12,8 @@ export { stripIncompleteToolUse } from './_helpers.js';
 // phase 1306: 删 dead re-export (buildShadowInstruction / _helpers.ts 已直接 import prompts/)
 // phase 1185: spawnShadowSubagent helper — shadow subagent 装配业务归位
 export { spawnShadowSubagent } from './spawn-shadow-subagent.js';
+// phase 1865 (SH-D1): shadow 执行 payload 契约 + owner 构造器（1863 E 的消费面 import 点）
+export { buildShadowPayload } from './payload.js';
+export type { ShadowExecutorPayload } from './types.js';
 
 

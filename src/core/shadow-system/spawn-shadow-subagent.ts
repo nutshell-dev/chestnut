@@ -9,13 +9,9 @@
  * 真 production 双 push bug 实证、M#11「停下来重构」兑现。
  */
 
-import { newShortUuid } from '../../foundation/node-utils/index.js';
-
-import { synthesizeFormB } from './_helpers.js';
-import { type BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
+import { buildShadowPayload } from './payload.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
 import { makeShortTaskId } from '../async-task-system/index.js';
-import { makeToolUseId } from '../../foundation/llm-provider/index.js';
 
 /**
  * Default max steps for shadow subagent execution（agent loop iteration cap）.
@@ -38,22 +34,8 @@ export async function spawnShadowSubagent(
     };
   }
 
-  const prefix = opts.shadowIdPrefix ?? 'shadow';
-  const shadowId = `${prefix}-${newShortUuid()}`;
-
-  const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
-    shadowId,
-    spawnedAt: new Date().toISOString(),
-    spawnedByClawId: opts.ctx.clawId ?? '',
-    toolUseId: opts.ctx.currentToolUseId
-      ? makeToolUseId(opts.ctx.currentToolUseId)
-      : makeToolUseId(`shadow_${newShortUuid()}`),
-    task: opts.task,
-  };
-  const shadowMessages = synthesizeFormB({
-    mainMessagesBeforeMarker: opts.mainMessages,
-    instructionArgs,
-  });
+  // phase 1865 (SH-D1)：payload 构造归 owner（buildShadowPayload），此处只做 schedule 平铺映射（1:1）。
+  const payload = buildShadowPayload(opts);
 
   // phase 1373 anchor: shadow-mode subagent 不继承 caller signal by-design
   // (shadow 是异步 detach / caller abort 不应级联 abort shadow / 业务语义 mutually exclusive lifecycle)
@@ -61,20 +43,20 @@ export async function spawnShadowSubagent(
   const taskId = await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'shadow',                            // δ discriminated union 新字段
-    shadowMessages,                            // shadow path 真信息源
+    shadowMessages: payload.messages,          // shadow path 真信息源
     intent: opts.task ?? '',                                                    // δ phase 218: 字段重命名 intentPreview → intent (union 合并)、消费时由 audit class 截
-    timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
-    maxSteps: opts.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
+    timeoutMs: payload.budget.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
+    maxSteps: payload.budget.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
     parentClawId: opts.ctx.clawId ?? '',
-    originClawId: opts.originClawId ?? opts.ctx.clawId ?? '',
+    originClawId: payload.identity.originClawId ?? '',
     callerType: 'shadow_subagent',
     toolProfile: 'full',
     isShadow: true,
-    systemPrompt: opts.systemPrompt,
-    shadowSystemPrompt: opts.systemPrompt,
-    shadowToolsForLLM: opts.toolsForLLM,
-    postProcessor: opts.postProcessor,
+    systemPrompt: payload.systemPrompt,
+    shadowSystemPrompt: payload.systemPrompt,
+    shadowToolsForLLM: payload.toolsForLLM,
+    postProcessor: payload.postProcessor,
   });
 
-  return { taskId: makeShortTaskId(taskId), shadowId };
+  return { taskId: makeShortTaskId(taskId), shadowId: payload.identity.shadowId };
 }

@@ -30,3 +30,29 @@ export interface SpawnShadowSubagentOptions {
 export type SpawnShadowSubagentResult =
   | { taskId: TaskId; shadowId: string }
   | { success: false; content: string; error: string };
+
+/**
+ * phase 1865 (SH-D1)：shadow 执行 payload 契约（owner 定义；构造经 {@link buildShadowPayload}）。
+ * ATS 侧 opaque 消费与字段形态迁移归 phase 1863 E。
+ */
+export interface ShadowExecutorPayload {
+  /** shadow 视角完整 system prompt（KV cache 对齐 main）。 */
+  readonly systemPrompt: string;
+  /** shadow 视角消息序列（synthesizeFormB 产物）。 */
+  readonly messages: Message[];
+  /** shadow 继承的工具全集。 */
+  readonly toolsForLLM: ToolDefinition[];
+  /** 身份事实（phase 1865 Step D 的单一身份上下文对齐点）。 */
+  readonly identity: {
+    readonly shadowId: string;
+    readonly originClawId?: string;
+  };
+  /** 执行预算（Assembly/SubAgent 注入面——phase 1865 Step H 对齐）。 */
+  readonly budget: {
+    readonly timeoutMs?: number;
+    readonly maxSteps?: number;
+    readonly idleTimeoutMs?: number;
+  };
+  /** 结果处理（postProcessor 名——business adapter 面）。 */
+  readonly postProcessor?: string;
+}

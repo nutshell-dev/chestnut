@@ -71,6 +71,7 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   'src/core/runtime/create-runtime.ts',
   'src/core/runtime/runtime.ts',
   'src/core/shadow-system/constants.ts',
+  'src/core/shadow-system/payload.ts',
   'src/core/shadow-system/spawn-shadow-subagent.ts',
   'src/core/shadow-system/system.ts',
   'src/core/shadow-system/tools/shadow.ts',
