@@ -21,9 +21,44 @@ export const SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME = 'summon-contract-extra
  */
 const CONTRACT_CREATED_SUMMARY = /^summary=Contract created: ([\w\-]+) for claw ([\w\-]+)/;
 
-interface ContractCreatedEvidence {
+export interface ContractCreatedEvidence {
   contractId: string;
   targetClaw: string;
+}
+
+/**
+ * phase 1866 Step D（SU-D3）：任务域交叉验证结果（纯数据；无判定权）。
+ * `mismatch` = 证据与 claim 不一致或出现第二个不同 contract（invariant 破坏事实）。
+ */
+export interface EvidenceCrossCheck {
+  readonly distinctEvidenceIds: readonly string[];
+  readonly mismatch: boolean;
+}
+
+/**
+ * 任务域纯函数：sub-audit evidence 与 creation claim 的交叉验证。
+ *
+ * 分层显式（CT/SU-D3）：claim 是 authority，evidence **不是**决策输入——
+ * 本函数只回答「证据面是否自洽/是否与 authority 一致」，不产生成功/失败判定。
+ */
+export function evaluateEvidenceCrossCheck(
+  claim: SummonClaimView | undefined,
+  evidence: readonly ContractCreatedEvidence[],
+): EvidenceCrossCheck {
+  const distinctEvidenceIds = [...new Set(evidence.map(e => e.contractId))];
+  const mismatch =
+    distinctEvidenceIds.length > 1 ||
+    (!claim && distinctEvidenceIds.length > 0) ||
+    (claim !== undefined && evidence.some(
+      e => e.contractId !== claim.contractId || e.targetClaw !== claim.targetExecutorId,
+    ));
+  return { distinctEvidenceIds, mismatch };
+}
+
+/** claim 的交叉验证视角（authority 读面的最小投影）。 */
+interface SummonClaimView {
+  readonly contractId: string;
+  readonly targetExecutorId: string;
 }
 
 /**
@@ -174,20 +209,14 @@ export function createSummonContractExtractPostProcessor(
       }
     }
 
-    // 3. 交叉验证 invariant：至多一个 contract，且必须与 claim 一致
-    const distinctEvidenceIds = [...new Set(evidence.map(e => e.contractId))];
-    const mismatch =
-      distinctEvidenceIds.length > 1 ||
-      (!claim && distinctEvidenceIds.length > 0) ||
-      (claim !== undefined && evidence.some(
-        e => e.contractId !== claim.contractId || e.targetClaw !== claim.targetExecutorId,
-      ));
-    if (mismatch) {
+    // 3. 交叉验证 invariant（任务域纯函数）：至多一个 contract，且必须与 claim 一致
+    const crossCheck = evaluateEvidenceCrossCheck(claim, evidence);
+    if (crossCheck.mismatch) {
       audit.write(
         SUMMON_AUDIT_EVENTS.SUMMON_CREATION_EVIDENCE_MISMATCH,
         `taskId=${task.id}`,
         `claimContractId=${claim?.contractId ?? '(none)'}`,
-        `evidenceContractIds=${distinctEvidenceIds.join(',') || '(none)'}`,
+        `evidenceContractIds=${crossCheck.distinctEvidenceIds.join(',') || '(none)'}`,
       );
     }
 
@@ -197,7 +226,9 @@ export function createSummonContractExtractPostProcessor(
       return buildFailureResult('no_contract_created');
     }
 
-    // 5. 有 claim：经 ContractSystem query capability 核实创建事实
+    // 5. 契约域：有 claim 时经 ContractSystem query capability 核实创建事实
+    //    （流序裁定：query 后置于任务域 cross-check——保持既有 audit 面：mismatch 行
+    //     的产出不受关系型 query 结果影响；claim 仍是唯一 authority。）
     const exists = await deps.contractQuery.exists(claim.targetExecutorId, claim.contractId);
     if (!exists) {
       // 创建任务已终止且确认零 contract → summon failed（0/1 不变量失败侧）
