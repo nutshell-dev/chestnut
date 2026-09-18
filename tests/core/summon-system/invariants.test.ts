@@ -769,10 +769,14 @@ describe('phase1396-summon-public-contract', () => {
     expect(src).not.toContain('dispatched to create contract');
   });
 
-  it('summon 最终结果来自 claim authority：成功 Contract created，失败统一 envelope', () => {
+  it('summon 最终结果来自 claim authority：成功 Contract created，失败按 owner 分层 typed', () => {
     const src = fsRead('src/core/summon-system/post-processors/contract-extract.ts');
     expect(src).toContain('Contract created: ');
-    expect(src).toContain('summon_contract_creation_failed');
+    // phase 1866 Step E（SU-D4）：单 reason 压平退役 —— 三层 typed（去 `summon_contract_creation_failed`）
+    expect(src).toContain("kind: 'creation_rejected'");
+    expect(src).toContain("kind: 'execution_failed'");
+    expect(src).toContain('SummonSystemFaultError');
+    expect(src).not.toContain('summon_contract_creation_failed');
     // 不再含 motion 恢复处方教学（mining 重试）；内部 legacy callerType 字面允许保留
     expect(src).not.toContain('mining` 模式重试');
     expect(src).not.toContain('SUMMON_SHADOW_FAILED');

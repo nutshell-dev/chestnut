@@ -109,17 +109,56 @@ export async function scanSubAuditForContracts(
 }
 
 /**
- * Phase 1396 Step C: 统一失败 envelope 标记。
- * summon 失败 = contract 创建未完成（reason 一行、不含内部恢复处方）。
+ * phase 1866 Step E（SU-D4）：summon 失败分层（按 owner 归属，去单 reason 压平）。
+ *
+ * - `creation_rejected`（owner: 创建决策面）：无创建 claim —— 创建未成立
+ *   （策略拒 / 幂等拒 / 候选未提交）。`cause` 为创建面事实，`sourceError` 记录
+ *   子代理终局形态（证据保留，不参与判定）。
+ * - `execution_failed`（owner: 执行面）：claim 成立但契约未提交 —— 创建链路执行未完成。
+ * - system_fault（owner: 系统面）：读/查询故障 → typed throw（{@link SummonSystemFaultError}）
+ *   + `summon_system_fault` audit；不产出 delivered 失败，保 ATS 有界 defer/retry。
  */
-const SUMMON_CONTRACT_CREATION_FAILED_ERROR = 'summon_contract_creation_failed' as const;
+export type SummonCreationFailure =
+  | {
+    readonly kind: 'creation_rejected';
+    readonly cause: 'no_contract_created';
+    readonly sourceError: boolean;
+  }
+  | {
+    readonly kind: 'execution_failed';
+    readonly reason: 'contract_not_committed';
+    readonly sourceError: boolean;
+  };
 
-function buildFailureResult(reason: string): ProcessedTaskResult {
+/** 系统面故障阶段（读/查询面；owner=系统面）。 */
+export type SummonSystemFaultStage = 'claim_read' | 'contract_query';
+
+/**
+ * phase 1866 Step E（SU-D4）：系统面故障 typed error。
+ * 上抛 → ATS 记 `post_processor_threw` 并按有界 defer 重试（瞬态 IO 不产出 delivered 失败）。
+ */
+export class SummonSystemFaultError extends Error {
+  constructor(
+    public readonly stage: SummonSystemFaultStage,
+    public readonly cause?: unknown,
+  ) {
+    super(`summon system fault at stage '${stage}': ${String(cause)}`);
+    this.name = 'SummonSystemFaultError';
+  }
+}
+
+function buildFailureResult(failure: SummonCreationFailure): ProcessedTaskResult {
+  // metadata 是 string map（delivery envelope 契约）——kind 供程序分支、布尔/原因取字符串形态
+  const metadata: Record<string, string> =
+    failure.kind === 'creation_rejected'
+      ? { kind: failure.kind, cause: failure.cause, sourceError: String(failure.sourceError) }
+      : { kind: failure.kind, reason: failure.reason, sourceError: String(failure.sourceError) };
+  const detail = failure.kind === 'creation_rejected' ? failure.cause : failure.reason;
   return {
     schema_version: 1,
-    content: `Summon failed (${SUMMON_CONTRACT_CREATION_FAILED_ERROR}): ${reason}`,
+    content: `Summon failed (${failure.kind}): ${detail}`,
     isError: true,
-    metadata: { reason },
+    metadata,
   };
 }
 
@@ -179,8 +218,9 @@ export interface SummonContractExtractDeps {
  * - phase 1466 user reframe 重写 source / 判 source 改系统真相、保 wrap framing 复用
  * - phase 1206 Step D 改由 factory 注入 registerRetrospective、消除 legacy by-contract 写
  * - phase 1396 Step B 判定 authority 改 creation claim + ContractSystem 核实（0/1 不变量）
- * - phase 1396 Step C 最终结果收缩：成功 = `Contract created: <id>`，失败 = 统一
- *   `summon_contract_creation_failed` envelope；不含 executor/mode/raw 输出
+ * - phase 1396 Step C 最终结果收缩：成功 = `Contract created: <id>`；不含 executor/mode/raw 输出
+ * - phase 1866 Step E（SU-D4）失败分层：creation_rejected / execution_failed 为 delivered
+ *   typed 结果；system_fault 为 typed throw（保 ATS 有界 defer/retry）
  * - phase 1396 Step M 移除 retrospective 注册（创建完成即终止）
  */
 export function createSummonContractExtractPostProcessor(
@@ -190,7 +230,20 @@ export function createSummonContractExtractPostProcessor(
     const subAuditPath = `tasks/queues/results/${task.id}/audit.tsv`;
 
     // 1. claim 是创建事实的恢复锚点（success/error 两条路径都先读）
-    const claim = await deps.claimStore.read(task.id);
+    let claim;
+    try {
+      claim = await deps.claimStore.read(task.id);
+    } catch (err) {
+      // phase 1866 Step E（SU-D4）：读面故障 = system_fault（owner: 系统面）——
+      // 保留 ATS 有界 defer/retry 语义（不压平为 delivered 失败），审计留证据。
+      audit.write(
+        SUMMON_AUDIT_EVENTS.SUMMON_SYSTEM_FAULT,
+        `taskId=${task.id}`,
+        `stage=claim_read`,
+        `error=${formatErr(err)}`,
+      );
+      throw new SummonSystemFaultError('claim_read', err);
+    }
 
     // 2. evidence scan 降级为审计交叉验证（读失败只 audit，不改判定）
     let evidence: ContractCreatedEvidence[] = [];
@@ -223,13 +276,29 @@ export function createSummonContractExtractPostProcessor(
     // 4. 无 claim：无创建事实记录
     if (!claim) {
       audit.write(SUMMON_AUDIT_EVENTS.NO_CONTRACT_CREATED, `taskId=${task.id}`);
-      return buildFailureResult('no_contract_created');
+      return buildFailureResult({
+        kind: 'creation_rejected',
+        cause: 'no_contract_created',
+        sourceError: sourceIsError,
+      });
     }
 
     // 5. 契约域：有 claim 时经 ContractSystem query capability 核实创建事实
     //    （流序裁定：query 后置于任务域 cross-check——保持既有 audit 面：mismatch 行
     //     的产出不受关系型 query 结果影响；claim 仍是唯一 authority。）
-    const exists = await deps.contractQuery.exists(claim.targetExecutorId, claim.contractId);
+    let exists: boolean;
+    try {
+      exists = await deps.contractQuery.exists(claim.targetExecutorId, claim.contractId);
+    } catch (err) {
+      // phase 1866 Step E（SU-D4）：查询面故障 = system_fault（同上，保 defer/retry）。
+      audit.write(
+        SUMMON_AUDIT_EVENTS.SUMMON_SYSTEM_FAULT,
+        `taskId=${task.id}`,
+        `stage=contract_query`,
+        `error=${formatErr(err)}`,
+      );
+      throw new SummonSystemFaultError('contract_query', err);
+    }
     if (!exists) {
       // 创建任务已终止且确认零 contract → summon failed（0/1 不变量失败侧）
       audit.write(
@@ -238,7 +307,11 @@ export function createSummonContractExtractPostProcessor(
         `contractId=${claim.contractId}`,
         `targetExecutorId=${claim.targetExecutorId}`,
       );
-      return buildFailureResult('contract_not_committed');
+      return buildFailureResult({
+        kind: 'execution_failed',
+        reason: 'contract_not_committed',
+        sourceError: sourceIsError,
+      });
     }
 
     // 6. contract 已提交 → 成功事实成立（error envelope 恢复为成功、重建回执）。

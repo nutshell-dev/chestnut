@@ -60,6 +60,12 @@ export const SUMMON_AUDIT_EVENTS = {
   SUMMON_CREATION_RECOVERED: 'summon_creation_recovered',
   SUMMON_CLAIM_CONTRACT_MISSING: 'summon_claim_contract_missing',
   SUMMON_CREATION_EVIDENCE_MISMATCH: 'summon_creation_evidence_mismatch',
+  /**
+   * phase 1866 Step E（SU-D4）：系统面故障（读/查询失败）——owner=系统面。
+   * 与 creation_rejected / execution_failed 分层：本事件伴随 typed
+   * SummonSystemFaultError 上抛（ATS 有界 defer/retry 语义保持），不产出 delivered 失败。
+   */
+  SUMMON_SYSTEM_FAULT: 'summon_system_fault',
 } as const;
 
 export function emitSummonDispatched(audit: AuditLog, opts: {

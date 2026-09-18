@@ -468,7 +468,9 @@ Content.
         sourceIsError: false,
       }, { id: 'task-missing', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(result.content).toContain('summon_contract_creation_failed');
+      // phase 1866 Step E（SU-D4）：失败按 owner 分层——claim 在但未提交 = execution_failed
+      expect(result.content).toBe('Summon failed (execution_failed): contract_not_committed');
+      expect(result.metadata).toMatchObject({ kind: 'execution_failed', reason: 'contract_not_committed' });
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_claim_contract_missing',
         'taskId=task-missing',
@@ -488,7 +490,7 @@ Content.
       }, { id: 'task-missing-err', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('summon_contract_creation_failed');
+      expect(result.metadata).toMatchObject({ kind: 'execution_failed' });
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_claim_contract_missing',
         'taskId=task-missing-err',
@@ -512,7 +514,8 @@ Content.
         'summon_no_contract_created',
         'taskId=task-no-audit',
       );
-      expect(result.content).toContain('summon_contract_creation_failed');
+      expect(result.content).toBe('Summon failed (creation_rejected): no_contract_created');
+      expect(result.metadata).toMatchObject({ kind: 'creation_rejected', cause: 'no_contract_created' });
     });
 
     it('无 claim + error envelope → 稳定失败 envelope（不返回 raw）', async () => {
@@ -524,7 +527,7 @@ Content.
       }, { id: 'task-err', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('summon_contract_creation_failed');
+      expect(result.metadata).toMatchObject({ kind: 'creation_rejected', sourceError: 'true' });
       expect(result.content).not.toContain('some error result');
       expect(existsSpy).not.toHaveBeenCalled();
       expect(auditWriter.write).toHaveBeenCalledWith(
@@ -548,7 +551,7 @@ Content.
         sourceIsError: false,
       }, { id: 'task-no-claim-evidence', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(result.content).toContain('summon_contract_creation_failed');
+      expect(result.metadata).toMatchObject({ kind: 'creation_rejected' });
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
         'taskId=task-no-claim-evidence',

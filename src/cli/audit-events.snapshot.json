@@ -673,6 +673,7 @@
       "summon_rejected_shadow",
       "summon_state_read_failed",
       "summon_sub_audit_read_failed",
+      "summon_system_fault",
       "summon_target_claw_violation",
       "summon_verify_false_violation",
       "summon_v2_executor_context_missing",
