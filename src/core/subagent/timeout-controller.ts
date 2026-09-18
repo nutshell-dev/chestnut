@@ -4,7 +4,7 @@
  *
  * 行为契约（必与原 agent.ts 等价、tests/core/subagent.test.ts + task-subagent.test.ts 守）：
  * - timeoutMs 到点 → AbortController.abort({ type: 'turn_timeout', ms }) → timeoutPromise reject(ToolTimeoutError)
- * - idleTimeoutMs 到点 → onIdleTimeout?.() (silent if throws) → abort({ type: 'idle_timeout', ms })
+ * - idleTimeoutMs 到点 → onIdleTimeout?.() (throw → sink 留证、不阻断) → abort({ type: 'idle_timeout', ms })
  * - externalSignal abort → abort(externalSignal.reason)
  * - timeoutPromise 落地时 auditWriter emit SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION
  * - cleanup() 清两个 timer + remove external signal listener (idempotent)
@@ -60,7 +60,11 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
         idleTimerId = setTimeout(() => {
           try {
             opts.onIdleTimeout?.();
-          } catch { /* silent: callback failure must not block abort */ }
+          } catch (err) {
+            // phase 1858 Step L (SA-D11): callback 故障留证（原静默吞）；写失败由 sink adapter
+            // 守卫走 stderr 最后手段。不 throw、abort 语义逐位保持。
+            opts.sink.idleTimeoutCallbackFailed({ error: formatErr(err) });
+          }
           controller.abort({ type: 'idle_timeout', ms: opts.idleTimeoutMs! } satisfies TurnTimerAbortReason);
         }, opts.idleTimeoutMs!);
       }

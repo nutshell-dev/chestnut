@@ -22,6 +22,8 @@ export const SUBAGENT_AUDIT_EVENTS = {
   RUNREACT_ABORT_STILL_RUNNING: 'subagent_runreact_abort_still_running',
   // phase 1858 Step H (SA-D7): capture 原始值不合 result-tool 协议形状的边界登记
   CAPTURE_PROTOCOL_MALFORMED: 'subagent_capture_protocol_malformed',
+  // phase 1858 Step L (SA-D11): onIdleTimeout callback 故障留证（原静默吞）
+  IDLE_TIMEOUT_CALLBACK_FAILED: 'subagent_idle_timeout_callback_failed',
   // phase 1411 (reframe of phase 1409): generic tool_call index row.
   // name + tool_use_id + step + contract_id + trace_id + args_size；args body 0 入 audit.
   // dialog/current.json 是 tool_use args 全文权威源、CLI 凭 tool_use_id 跨源 join。
@@ -73,6 +75,7 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_timeout_rejection: 'audit',
   subagent_runreact_abort_still_running: 'audit',
   subagent_capture_protocol_malformed: 'audit',
+  subagent_idle_timeout_callback_failed: 'audit',
   tool_call_input: 'audit',
   turn_start: 'audit',
   turn_end: 'audit',

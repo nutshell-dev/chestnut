@@ -155,13 +155,15 @@ describe('phase 1858 Step K: lifecycle sink adapter 等价矩阵（逐列一致�
     ]);
   });
 
-  it('runReactAbortStillRunning / captureProtocolMalformed 逐位一致', () => {
+  it('runReactAbortStillRunning / captureProtocolMalformed / idleTimeoutCallbackFailed 逐位一致', () => {
     const { sink, calls } = makeSink();
     sink.runReactAbortStillRunning({ settleMs: 100 });
     sink.captureProtocolMalformed({ tool: 'custom_result', reason: 'result field must be string, got number' });
+    sink.idleTimeoutCallbackFailed({ error: 'idle boom' });
     expect(calls).toEqual([
       ['subagent_runreact_abort_still_running', `agentId=${AGENT_ID}`, 'settle_ms=100'],
       ['subagent_capture_protocol_malformed', `agentId=${AGENT_ID}`, 'tool=custom_result', 'reason=result field must be string, got number'],
+      ['subagent_idle_timeout_callback_failed', `agentId=${AGENT_ID}`, 'error=idle boom'],
     ]);
   });
 

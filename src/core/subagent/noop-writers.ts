@@ -43,6 +43,7 @@ export class NoopLifecycleSink implements SubAgentLifecycleSink {
   artifactCrossSourceSkipped(_e: { kind: string; reason: string; error: string }): void {}
   runReactAbortStillRunning(_e: { settleMs: number }): void {}
   captureProtocolMalformed(_e: { tool: string; reason: string }): void {}
+  idleTimeoutCallbackFailed(_e: { error: string }): void {}
 }
 
 export class NoopAuditWriter implements AuditLog {

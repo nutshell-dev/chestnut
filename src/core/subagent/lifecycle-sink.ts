@@ -64,6 +64,7 @@ export interface SubAgentLifecycleSink {
   artifactCrossSourceSkipped(e: { kind: string; reason: string; error: string }): void;
   runReactAbortStillRunning(e: { settleMs: number }): void;
   captureProtocolMalformed(e: { tool: string; reason: string }): void;
+  idleTimeoutCallbackFailed(e: { error: string }): void;
 }
 
 /** invariants.ts 的 ISP 收窄消费面（仅需 steps 不变量写点）。 */
@@ -201,6 +202,10 @@ export function createSubAgentLifecycleSink(opts: SubAgentLifecycleSinkOptions):
     captureProtocolMalformed: (e) => write(
       SUBAGENT_AUDIT_EVENTS.CAPTURE_PROTOCOL_MALFORMED,
       `agentId=${agentId}`, `tool=${e.tool}`, `reason=${e.reason}`,
+    ),
+    idleTimeoutCallbackFailed: (e) => write(
+      SUBAGENT_AUDIT_EVENTS.IDLE_TIMEOUT_CALLBACK_FAILED,
+      `agentId=${agentId}`, `error=${e.error}`,
     ),
   };
 }

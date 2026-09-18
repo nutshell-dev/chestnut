@@ -561,6 +561,7 @@
       "subagent_artifact_cross_source_skipped",
       "subagent_capture_protocol_malformed",
       "subagent_done_tool_duplicate_call",
+      "subagent_idle_timeout_callback_failed",
       "subagent_log_append_failed",
       "subagent_persist_failed",
       "subagent_runreact_abort_still_running",
