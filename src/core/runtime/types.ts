@@ -15,8 +15,8 @@ import type { ToolRegistry, ToolRegistryRuntimeCapability } from '../../foundati
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
-import type { ContractRuntimeLifecycle } from '../contract/index.js';
-import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
+import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
@@ -73,6 +73,17 @@ export interface GuidanceEnvelope {
  * phase 1256 Step A: 收窄为单一 envelope 入参（替 positional (type, state)、消除 from 丢失）。
  */
 export type GuidanceCompose = (input: GuidanceEnvelope) => { text: string } | null;
+
+/** phase 1860 (RT-D4)：stop join 结果（typed，不丢）——超时证据经 outcome 交付。 */
+export interface RuntimeStopOutcome {
+  readonly kind: 'converged' | 'timed_out';
+  /** active dialog operation join 结果（'none' = 无在途）。 */
+  readonly dialogJoin: 'none' | 'joined' | 'failed';
+  /** AT-D3 typed 生命周期结果透传（timed_out 时含 pending identity 证据）。 */
+  readonly tasks: TaskLifecycleOutcome;
+  /** contract close outcome（RT-D5/Step E）。 */
+  readonly contractClose: ContractCloseOutcome;
+}
 
 /** 1:1 保 runtime.ts:47-72 body */
 export interface RuntimeDependencies {

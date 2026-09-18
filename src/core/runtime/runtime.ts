@@ -50,6 +50,7 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, ToolRegistryRuntimeCapability, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from './injector.js';
 import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { RuntimeStopOutcome } from './types.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
@@ -121,6 +122,8 @@ export class Runtime {
   protected initialized = false;
   /** phase 522 C2: 防 stop 二次调用重 await 120s task timeout / contract close 二度 */
   private _stopped = false;
+  /** phase 1860 (RT-D4)：stop() 首调缓存的 typed outcome（幂等重入返回同结果）。 */
+  private _stopOutcome?: RuntimeStopOutcome;
   private currentAbortController: AbortController | null = null;
   private turnCount = 0;
   protected auditWriter!: AuditLog;
@@ -428,9 +431,14 @@ export class Runtime {
    * Stop gate prevents new public operations; we abort the current turn,
    * await the active operation settle, then close downstream dependencies.
    */
-  async stop(): Promise<void> {
+  /** phase 1860 (RT-D4)：stop() 返回 typed join outcome（组合 join/close/task 结果）。 */
+  async stop(): Promise<RuntimeStopOutcome> {
     // phase 522 C2: 幂等 guard — disassemble 路径 + 测试/异常路径可能重入
-    if (this._stopped) return;
+    if (this._stopped) {
+      // phase 1860 (RT-D4)：重入返回首调缓存的 typed outcome（首调在 llm.close 前已赋值，
+      // 故首调因 llm.close 抛出而 reject 时、重入仍拿到 typed 结果）。
+      return this._stopOutcome as RuntimeStopOutcome;
+    }
     this._stopped = true;
     // Phase 1218 Step A: reject new public operations and abort current turn
     this.stopping = true;
@@ -441,10 +449,13 @@ export class Runtime {
     // join here is only for shutdown barrier. Failure to join is audited but does
     // not block closing downstream resources (best-effort barrier).
     const active = this.activeDialogOperation;
+    let dialogJoin: RuntimeStopOutcome['dialogJoin'] = 'none';
     if (active) {
       try {
         await active;
+        dialogJoin = 'joined';
       } catch (e) {
+        dialogJoin = 'failed';
         this.auditWriter.write(
           RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_JOIN_FAILED,
           `reason=${formatErr(e)}`,
@@ -476,7 +487,17 @@ export class Runtime {
     // phase 1860 (RT-D5)：close 失败不吞——typed outcome 承载证据（barrier 语义不变）。
     this._contractCloseOutcome = await this.contractManager.close()
       .catch((e): ContractCloseOutcome => ({ alreadyClosed: false, failures: [formatErr(e)] }));
+    // phase 1860 (RT-D4)：组装 typed stop outcome 并缓存（llm.close 前赋值——llm.close
+    // 失败仍抛出使 stop reject（现行为），但重入幂等返回已缓存 outcome）。
+    const stopOutcome: RuntimeStopOutcome = {
+      kind: shutdownOutcome.kind === 'timed_out' ? 'timed_out' : 'converged',
+      dialogJoin,
+      tasks: shutdownOutcome,
+      contractClose: this._contractCloseOutcome,
+    };
+    this._stopOutcome = stopOutcome;
     await this.llm.close();
+    return stopOutcome;
   }
 
   /**

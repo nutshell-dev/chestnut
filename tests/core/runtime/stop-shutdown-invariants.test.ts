@@ -64,7 +64,7 @@ describe('stop-flush-barrier', () => {
           } as any,
           toolRegistry: {} as any,
           toolExecutor: {} as any,
-          contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
+          contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }) } as any,
           taskSystem: {
             shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
           } as any,
@@ -85,7 +85,7 @@ describe('stop-flush-barrier', () => {
       };
       (runtime as any).sessionManager = mockDialogStore;
       // phase 324 H5: Runtime.stop 现 await contractManager.close()，测试需注入 mock
-      (runtime as any).contractManager = { close: vi.fn().mockResolvedValue(undefined) };
+      (runtime as any).contractManager = { close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }) };
 
       return runtime;
     }
@@ -133,8 +133,103 @@ describe('stop-flush-barrier', () => {
       // Simulate a rejecting active operation.
       (runtime as any).activeDialogOperation = Promise.reject(new Error('disk full'));
 
-      await expect(runtime.stop()).resolves.toBeUndefined();
+      const outcome = await runtime.stop();
       expect(llmCloseCalled).toBe(true);
+      // phase 1860 (RT-D4)：typed stop outcome——join 失败证据经 outcome 交付（audit 保持原样）。
+      expect(outcome.kind).toBe('converged');
+      expect(outcome.dialogJoin).toBe('failed');
+      expect(outcome.tasks).toEqual({ kind: 'converged', aborted: 0, terminal: [] });
+      expect(outcome.contractClose).toEqual({ alreadyClosed: false, failures: [] });
+    });
+
+    it('stop() 幂等重入返回首调缓存的同一份 typed outcome (phase 1860 RT-D4)', async () => {
+      const mockDialogStore = {
+        load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
+        save: vi.fn().mockResolvedValue(undefined),
+        archive: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DialogStore;
+
+      const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+
+      const first = await runtime.stop();
+      const second = await runtime.stop();
+      expect(second).toBe(first);
+      expect(second.kind).toBe('converged');
+      expect(second.dialogJoin).toBe('none');
+    });
+
+    it('timed_out 场景 outcome.kind=timed_out 且 tasks.pending 保留 identity 证据 (phase 1860 RT-D4)', async () => {
+      const mockDialogStore = {
+        load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
+        save: vi.fn().mockResolvedValue(undefined),
+        archive: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DialogStore;
+
+      const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+      (runtime as any).taskSystem = {
+        shutdown: vi.fn().mockResolvedValue({ kind: 'timed_out', pending: ['claw:task-1'], terminal: [] }),
+        abort: vi.fn(),
+      };
+
+      const outcome = await runtime.stop();
+      expect(outcome.kind).toBe('timed_out');
+      expect(outcome.tasks).toEqual({ kind: 'timed_out', pending: ['claw:task-1'], terminal: [] });
+      expect(outcome.tasks.kind === 'timed_out' && outcome.tasks.pending).toContain('claw:task-1');
+      expect(llmCloseCalled).toBe(true);
+    });
+
+    it('contract close 失败证据经 outcome.contractClose.failures 交付（不吞）', async () => {
+      const mockDialogStore = {
+        load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
+        save: vi.fn().mockResolvedValue(undefined),
+        archive: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DialogStore;
+
+      const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+      (runtime as any).contractManager = {
+        close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: ['auditor boom'] }),
+      };
+
+      const outcome = await runtime.stop();
+      expect(outcome.contractClose.failures).toContain('auditor boom');
+    });
+
+    it('contract close 抛出时 catch 转为 outcome（failures 承载），stop 不 reject', async () => {
+      const mockDialogStore = {
+        load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
+        save: vi.fn().mockResolvedValue(undefined),
+        archive: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DialogStore;
+
+      const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+      (runtime as any).contractManager = {
+        close: vi.fn().mockRejectedValue(new Error('close crashed')),
+      };
+
+      const outcome = await runtime.stop();
+      expect(outcome.contractClose.alreadyClosed).toBe(false);
+      expect(outcome.contractClose.failures[0]).toContain('close crashed');
+    });
+
+    it('llm.close 失败仍使 stop reject（现行为），重入幂等返回已缓存 typed outcome', async () => {
+      const mockDialogStore = {
+        load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
+        save: vi.fn().mockResolvedValue(undefined),
+        archive: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DialogStore;
+
+      const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+      (runtime as any).llm = { close: vi.fn().mockRejectedValue(new Error('llm boom')) };
+
+      await expect(runtime.stop()).rejects.toThrow('llm boom');
+      const outcome = await runtime.stop();
+      expect(outcome.kind).toBe('converged');
+      expect(outcome.dialogJoin).toBe('none');
     });
   });
 });
@@ -308,7 +403,7 @@ describe('shutdown-timeout', () => {
           llm: { close: vi.fn().mockResolvedValue(undefined) } as any,
           toolRegistry: {} as any,
           toolExecutor: {} as any,
-          contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
+          contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }) } as any,
           taskSystem: {
             shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
             abort: deps.abortImpl ?? vi.fn(),
@@ -328,7 +423,7 @@ describe('shutdown-timeout', () => {
       (runtime as any).sessionManager = mockDialogStore;
       (runtime as any).auditWriter = auditWriter;
       // phase 324 H5: Runtime.stop 现 await contractManager.close()，测试需注入 mock
-      (runtime as any).contractManager = { close: vi.fn().mockResolvedValue(undefined) };
+      (runtime as any).contractManager = { close: vi.fn().mockResolvedValue({ alreadyClosed: false, failures: [] }) };
 
       return { runtime, auditEvents };
     }
