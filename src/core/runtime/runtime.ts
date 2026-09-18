@@ -62,11 +62,14 @@ import {
 } from './types.js';
 import {
   maybeTrimProactive,
+  CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_PREVIEW_BYTES,
+  CONTEXT_TRIM_TARGET_RATIO,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
   buildReactiveTrimPolicy,
   type ContextTrimOutcome,
+  type TrimRuntimePolicy,
 } from '../context_manager/index.js';
 import { trimAndPersist } from '../context_manager/index.js';
 
@@ -234,6 +237,8 @@ export class Runtime {
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
   // phase 1190：上下文管理器运行时配置（filterSubtypes 已移除）
   private contextTrimmingEnabled: boolean;
+  /** phase 1861 (CM-D1)：裁剪规则边界值（options.contextTrimPolicy 覆盖、缺省回落模块常量）。 */
+  private contextTrimPolicy: TrimRuntimePolicy;
   /** Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。 */
   private appliedConfigRevision?: string;
   /**
@@ -255,6 +260,13 @@ export class Runtime {
     this.formatterRegistry = deps.formatterRegistry;   // phase 1414: ctor-time bind（formatInboxMessage 可在 initialize 前调）
     this.guidanceCompose = deps.guidanceCompose;        // phase 27 Step D P5: callback hook
     this.contextTrimmingEnabled = options.contextTrimmingEnabled ?? false;
+    // phase 1861 (CM-D1)：规则注入面——算法只消费此处解析后的边界值。
+    this.contextTrimPolicy = {
+      recentWindowMs: options.contextTrimPolicy?.recentWindowMs ?? CONTEXT_TRIM_RECENT_WINDOW_MS,
+      previewBytes: options.contextTrimPolicy?.previewBytes ?? CONTEXT_TRIM_PREVIEW_BYTES,
+      targetRatio: options.contextTrimPolicy?.targetRatio ?? CONTEXT_TRIM_TARGET_RATIO,
+      floorRatio: options.contextTrimPolicy?.floorRatio ?? REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+    };
   }
 
   /** phase 1343 α-6: set/clear turn-level trace id on audit writer */
@@ -1446,9 +1458,9 @@ export class Runtime {
         explicitMaxTokens: primary.maxTokens ?? 0,
       },
       trimPolicy: {
-        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-        retentionFloorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
-        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+        recentWindowMs: this.contextTrimPolicy.recentWindowMs,
+        retentionFloorRatio: this.contextTrimPolicy.floorRatio,
+        previewBytes: this.contextTrimPolicy.previewBytes,
       },
     };
     return sha256Hex(canonicalJson(facts));
@@ -1481,12 +1493,17 @@ export class Runtime {
     }
     const providerInfo = this.llm.getProviderInfo?.();
     const contextWindow = resolveContextWindow(providerInfo?.model);
+    // phase 1861 (CM-D2+D8)：缓存失效判据归 caller——TTL 比较与「非首次」在此计算注入。
+    const now = Date.now();
     const trimResult = await maybeTrimProactive({
       messages,
       systemPrompt,
       toolsForLLM,
       contextWindow,
-      lastLLMCallAt: this.lastLLMCallAt,
+      now,
+      cacheExpired:
+        this.lastLLMCallAt !== 0 && now - this.lastLLMCallAt > CACHE_TTL_MS,
+      policy: this.contextTrimPolicy,
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
     });
@@ -1533,14 +1550,16 @@ export class Runtime {
       systemPrompt: session.systemPrompt,
       toolsForLLM: tools,
       contextWindow,
-      recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-      previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+      recentWindowMs: this.contextTrimPolicy.recentWindowMs,
+      previewBytes: this.contextTrimPolicy.previewBytes,
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
       triggerKind: 'reactive_overflow',
       policy: buildReactiveTrimPolicy({
         contextWindow,
         explicitMaxTokens: this.options.llmConfig.primary.maxTokens,
+      }, {
+        floorRatio: this.contextTrimPolicy.floorRatio,
       }),
     });
     if (outcome.status === 'no_progress' || outcome.status === 'policy_conflict') {

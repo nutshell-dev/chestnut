@@ -37,7 +37,7 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
     const primary = createMockProvider('primary');
     const fallback = createMockProvider('fallback');
 
-    primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted'));
+    primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted', { budget: 0 }));
     fallback.call.mockResolvedValue({
       content: [{ type: 'text', text: 'fallback response' }],
       stop_reason: 'end_turn',
@@ -75,7 +75,7 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
 
     const primary = createMockProvider('primary');
 
-    primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted'));
+    primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted', { budget: 0 }));
 
     const orchestrator = new LLMOrchestratorImpl({
       primary: createProviderConfig('primary', 'key-p'),

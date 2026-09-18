@@ -5,6 +5,11 @@
 
 import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
+import {
+  classifyMessage,
+  buildContextTrimSummaryMessage,
+  type ContextTrimSummaryStats,
+} from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import {
@@ -64,7 +69,8 @@ export interface TrimV2Options {
   fixedTokens: number;
   policy: TrimPolicy;
   now: number;
-  audit?: AuditWriter;
+  /** phase 1861 (CM-D3)：audit sink 必填——trim 事实不允许静默。 */
+  audit: AuditWriter;
 }
 
 interface TrimV2Result {
@@ -93,35 +99,39 @@ interface CompressResult {
   boundaryIndex: number;
 }
 
-interface SubtypeStat {
-  preserved: Record<string, number>;
-}
-
-interface ToolStat {
-  total: number;
-  byTool: Record<string, number>;
-}
+type SubtypeStat = ContextTrimSummaryStats['subtypeStat'];
+type ToolStat = ContextTrimSummaryStats['toolStat'];
 
 /** 构造 reactive 裁剪策略：完整 prompt 必须落在 [floor, ceiling]。 */
-export function buildReactiveTrimPolicy(input: {
-  contextWindow: number;
-  explicitMaxTokens: number | undefined;
-}): Extract<TrimPolicy, { kind: 'reactive' }> {
+export function buildReactiveTrimPolicy(
+  input: {
+    contextWindow: number;
+    explicitMaxTokens: number | undefined;
+  },
+  opts?: { floorRatio?: number },
+): Extract<TrimPolicy, { kind: 'reactive' }> {
   const reserveOutputTokens = input.explicitMaxTokens ?? 0;
+  // phase 1861 (CM-D1)：floor ratio 经注入面传入，常量仅为默认值。
+  const floorRatio = opts?.floorRatio ?? REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO;
   return {
     kind: 'reactive',
     completeFloorTokens: Math.floor(
-      input.contextWindow * REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+      input.contextWindow * floorRatio,
     ),
     completeCeilingTokens: input.contextWindow - reserveOutputTokens,
   };
 }
 
 /** 构造 proactive 顺手裁策略：消息历史目标上限。 */
-export function buildProactiveTrimPolicy(contextWindow: number): Extract<TrimPolicy, { kind: 'proactive' }> {
+export function buildProactiveTrimPolicy(
+  contextWindow: number,
+  opts?: { targetRatio?: number },
+): Extract<TrimPolicy, { kind: 'proactive' }> {
+  // phase 1861 (CM-D1)：target ratio 经注入面传入，常量仅为默认值。
+  const targetRatio = opts?.targetRatio ?? CONTEXT_TRIM_TARGET_RATIO;
   return {
     kind: 'proactive',
-    targetCompleteTokens: Math.floor(contextWindow * CONTEXT_TRIM_TARGET_RATIO),
+    targetCompleteTokens: Math.floor(contextWindow * targetRatio),
   };
 }
 
@@ -140,7 +150,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     opts.policy.kind === 'proactive'
       ? `target=${opts.policy.targetCompleteTokens}`
       : `floor=${opts.policy.completeFloorTokens},ceiling=${opts.policy.completeCeilingTokens}`;
-  opts.audit?.write(CONTEXT_TRIM_STARTED, `before=${before}`, `fixed=${opts.fixedTokens}`, targetLabel);
+  opts.audit.write(CONTEXT_TRIM_STARTED, `before=${before}`, `fixed=${opts.fixedTokens}`, targetLabel);
 
   let result: TrimV2Result;
 
@@ -239,7 +249,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 
   // Emit COMPLETED audit
   if (result.outcome.status === 'target_reached' || result.outcome.status === 'progress') {
-    opts.audit?.write(
+    opts.audit.write(
       CONTEXT_TRIM_COMPLETED,
       `before=${before}`,
       `after=${result.outcome.after}`,
@@ -258,7 +268,12 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 /** 在 24h 边界处注入摘要消息（顺手裁用：摘要放在 Tier 3 和 Tier 2 之间） */
 function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message[] {
   const processedCount = Math.max(0, result.boundaryIndex);
-  const summary = buildSummaryMessage(processedCount, result.subtypeStat, result.toolStat, nowMs);
+  const summary = buildContextTrimSummaryMessage({
+    processedCount,
+    subtypeStat: result.subtypeStat,
+    toolStat: result.toolStat,
+    nowMs,
+  });
 
   const insertAt = result.boundaryIndex;
   const newMessages = [...result.messages];
@@ -269,7 +284,12 @@ function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message
 /** 在消息列表末尾注入摘要消息（触底裁用：全部消息都参与了压缩） */
 function injectSummaryAtEnd(result: CompressResult, nowMs: number): Message[] {
   const processedCount = result.messages.length;
-  const summary = buildSummaryMessage(processedCount, result.subtypeStat, result.toolStat, nowMs);
+  const summary = buildContextTrimSummaryMessage({
+    processedCount,
+    subtypeStat: result.subtypeStat,
+    toolStat: result.toolStat,
+    nowMs,
+  });
   return [...result.messages, summary];
 }
 
@@ -349,7 +369,8 @@ function completeTurnSegments(messages: readonly Message[]): MessageSegment[] {
   const starts: number[] = [0];
   for (let i = 1; i < messages.length; i++) {
     const m = messages[i];
-    if (m.role === 'user' && m.origin === 'user') {
+    const { origin } = classifyMessage(m);
+    if (m.role === 'user' && origin === 'user') {
       starts.push(i);
     }
   }
@@ -372,7 +393,10 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
     return m.content.some(b => b.type === 'tool_use' && (b as ToolUseBlock).name === 'send');
   });
 
-  const hasUserMessage = turnMessages.some(m => m.role === 'user' && m.origin === 'user');
+  const hasUserMessage = turnMessages.some(m => {
+    const { origin } = classifyMessage(m);
+    return m.role === 'user' && origin === 'user';
+  });
 
   // 纯噪音 turn（无用户消息且无 send）→ 整 turn 丢弃
   if (!hasUserMessage && !hasSend) {
@@ -394,14 +418,15 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
   const dropped: Message[] = [];
 
   for (const m of turnMessages) {
+    const { origin } = classifyMessage(m);
     // 系统消息 → 丢弃
-    if (m.role === 'user' && m.origin === 'system') {
+    if (m.role === 'user' && origin === 'system') {
       dropped.push(m);
       continue;
     }
 
     // Tier 1：用户消息 → 保留
-    if (m.role === 'user' && m.origin === 'user') {
+    if (m.role === 'user' && origin === 'user') {
       kept.push(m);
       continue;
     }
@@ -449,9 +474,12 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
 
   // API validity：若保留后只剩 1 条孤立的 user 消息（无后续 assistant），
   // 则这条 user 消息也会造成 user→user 或 user→EOF 违规 → 一并丢弃
-  if (kept.length === 1 && kept[0].role === 'user' && (kept[0] as Message).origin === 'user') {
-    dropped.push(kept[0]);
-    return { kept: [], dropped, modified: true };
+  if (kept.length === 1 && kept[0].role === 'user') {
+    const { origin } = classifyMessage(kept[0]);
+    if (origin === 'user') {
+      dropped.push(kept[0]);
+      return { kept: [], dropped, modified: true };
+    }
   }
 
   const modified = dropped.length > 0 || kept.some((m, i) => m !== turnMessages[i]);
@@ -669,8 +697,9 @@ function compressMessages(
     }
 
     // origin='system' → 统一压缩预览（不再按 filterSubtypes 分流删除）
-    if (m.role === 'user' && m.origin === 'system') {
-      const subtype = m.systemSubtype ?? 'unknown';
+    const { origin, systemSubtype } = classifyMessage(m);
+    if (m.role === 'user' && origin === 'system') {
+      const subtype = systemSubtype ?? 'unknown';
       const collapsed = collapseSystemMessage(m, opts.previewBytes, opts.now);
       subtypeStat.preserved[subtype] = (subtypeStat.preserved[subtype] ?? 0) + 1;
       if (collapsed !== null) {
@@ -920,29 +949,6 @@ function collapseAssistantMessage(
     toolNames,
     collapsedText,
     collapsedThinking,
-  };
-}
-
-function buildSummaryMessage(
-  processedCount: number,
-  subtypeStat: SubtypeStat,
-  toolStat: ToolStat,
-  nowMs: number,
-): Message {
-  const nowIso = new Date(nowMs).toISOString();
-  const preservedStr = Object.entries(subtypeStat.preserved)
-    .map(([k, v]) => `${k} × ${v}`)
-    .join('、') || '无';
-  const toolStr = Object.entries(toolStat.byTool)
-    .map(([k, v]) => `${k} ${v}`)
-    .join('、') || '无';
-  const content = `[context-trim summary] 以下为裁剪边界（裁剪时间：${nowIso}）。前 ${processedCount} 条消息已处理：系统通知（保留预览）：${preservedStr}；工具调用：${toolStat.total} 次（${toolStr}）。查回原文：dialog 归档 archive/<ts>_<uuid>.json`;
-  return {
-    role: 'user',
-    content,
-    origin: 'system',
-    systemSubtype: 'context_trim_summary',
-    addedAt: nowIso,
   };
 }
 

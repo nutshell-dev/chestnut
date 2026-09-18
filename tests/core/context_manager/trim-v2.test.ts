@@ -42,6 +42,8 @@ function baseOpts(overrides?: Partial<TrimV2Options>): TrimV2Options {
     fixedTokens: 0,
     policy: buildProactiveTrimPolicy(10_000),
     now: NOW,
+    // phase 1861 (CM-D3)：audit sink 必填（trim 事实不静默）。
+    audit: { write: vi.fn() },
     ...overrides,
   };
 }
@@ -692,5 +694,41 @@ describe('trimV2 UTF-8 preview safety', () => {
     expect(Buffer.byteLength(trimmed, 'utf8')).toBeLessThanOrEqual(PREVIEW_BYTES + 90); // prefix + suffix overhead
     expect(trimmed.startsWith('测'.repeat(33))).toBe(true);
     expect(trimmed).toContain('<...>');
+  });
+});
+
+describe('trim policy builders — injected ratio boundary values (phase 1861, CM-D1)', () => {
+  it('buildProactiveTrimPolicy defaults to CONTEXT_TRIM_TARGET_RATIO', () => {
+    expect(buildProactiveTrimPolicy(2_000)).toEqual({
+      kind: 'proactive',
+      targetCompleteTokens: 1_500,
+    });
+  });
+
+  it('buildProactiveTrimPolicy honours injected targetRatio', () => {
+    expect(buildProactiveTrimPolicy(2_000, { targetRatio: 0.5 })).toEqual({
+      kind: 'proactive',
+      targetCompleteTokens: 1_000,
+    });
+  });
+
+  it('buildReactiveTrimPolicy defaults to REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO', () => {
+    expect(
+      buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: 100 }),
+    ).toEqual({
+      kind: 'reactive',
+      completeFloorTokens: 1_500,
+      completeCeilingTokens: 1_900,
+    });
+  });
+
+  it('buildReactiveTrimPolicy honours injected floorRatio', () => {
+    expect(
+      buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: 100 }, { floorRatio: 0.5 }),
+    ).toEqual({
+      kind: 'reactive',
+      completeFloorTokens: 1_000,
+      completeCeilingTokens: 1_900,
+    });
   });
 });

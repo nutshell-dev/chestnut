@@ -9,6 +9,13 @@
 export { DialogStore } from './store.js';
 // phase 1800: canonical dialog message（业务元数据 owner，自 llm-provider 迁入）
 export type { Message } from './canonical-message.js';
+// phase 1861 (CM-D4/CM-D10): message fact classification view — owner-provided.
+export { classifyMessage, type MessageClassifyView } from './classify.js';
+// phase 1861 (CM-D5): context trim summary message construction — message shape owner.
+export {
+  buildContextTrimSummaryMessage,
+  type ContextTrimSummaryStats,
+} from './summaries.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 // phase 1850 Step F: 单一公开校验入口 + 结果协议类型

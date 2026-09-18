@@ -12,7 +12,9 @@ import {
   estimateToolsTokens,
 } from '../../foundation/llm-provider/index.js';
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
-import { CONTEXT_TRIM_ARCHIVED } from './audit-events.js';
+import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from './audit-events.js';
+import { ContextTrimPersistError } from './errors.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 export type TriggerKind = 'reactive_overflow' | 'proactive_cache_idle';
 
@@ -33,7 +35,7 @@ export interface DialogStoreMutationCapability {
   }): Promise<DialogSaveResult>;
 }
 
-interface TrimAndPersistInputs {
+export interface TrimAndPersistInputs {
   messages: Message[];
   systemPrompt: string;
   toolsForLLM: ToolDefinition[];
@@ -58,8 +60,9 @@ interface TrimAndPersistInputs {
  * 5. 返回 outcome + archived=true
  *
  * 异常路径：
- * - archive 失败 → 不调 save、上抛错（caller decide failover）
- * - save 失败 → 上抛错、archive 已生效但 current.json 内容仍是旧版本（下次 load 走 archive fallback）
+ * - invalid progress → ContextTrimPersistError('invalid_progress')（phase 1861 CM-D7）
+ * - archive 失败 → ContextTrimPersistError('archive')、不调 save、上抛（caller decide failover）
+ * - save 失败 → ContextTrimPersistError('save')、archive 已生效但 current.json 内容仍是旧版本（下次 load 走 archive fallback）
  */
 export async function trimAndPersist(
   inputs: TrimAndPersistInputs,
@@ -85,20 +88,50 @@ export async function trimAndPersist(
   }
 
   if (outcome.after >= outcome.before) {
-    throw new Error(`invalid trim progress: ${outcome.after} >= ${outcome.before}`);
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=invalid_progress`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=invalid trim progress: ${outcome.after} >= ${outcome.before}`,
+    );
+    throw new ContextTrimPersistError(
+      'invalid_progress',
+      `invalid trim progress: ${outcome.after} >= ${outcome.before}`,
+    );
   }
 
-  await inputs.dialogStore.archive();
+  try {
+    await inputs.dialogStore.archive();
+  } catch (e) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=archive`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=${formatErr(e)}`,
+    );
+    throw new ContextTrimPersistError('archive', 'trim archive failed', { cause: e });
+  }
   inputs.audit.write(
     CONTEXT_TRIM_ARCHIVED,
     `trigger_kind=${inputs.triggerKind}`,
   );
 
-  const saved = await inputs.dialogStore.save({
-    systemPrompt: inputs.systemPrompt,
-    messages: outcome.newMessages,
-    toolsForLLM: inputs.toolsForLLM,
-  });
+  let saved;
+  try {
+    saved = await inputs.dialogStore.save({
+      systemPrompt: inputs.systemPrompt,
+      messages: outcome.newMessages,
+      toolsForLLM: inputs.toolsForLLM,
+    });
+  } catch (e) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=save`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=${formatErr(e)}`,
+    );
+    throw new ContextTrimPersistError('save', 'trim save failed', { cause: e });
+  }
   // phase 1850 Step C: 显式回传 blockId 到 outcome.newMessages（该数组被上层继续持有）
   applyBlockIdAssignments(outcome.newMessages, saved.assignedBlockIds);
 

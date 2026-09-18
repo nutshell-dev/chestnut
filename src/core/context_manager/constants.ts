@@ -2,6 +2,7 @@
  * @module L4.ContextManager.Constants
  * phase 440 立（phase 421 ratify）：上下文裁剪 3 业务常量。
  * `CACHE_TTL_MS` 顺手裁专用、留 phase D 立。
+ * phase 1861 (CM-D2)：TTL 判据归 caller（Runtime）——本常量降级为 caller 侧默认值来源。
  */
 
 /** 24h（86_400_000ms）—— 用户无感边界、24h 内消息全保 */
@@ -18,7 +19,22 @@ export const CONTEXT_TRIM_PREVIEW_BYTES = 100;
 
 /**
  * 提示词缓存 TTL（Anthropic ephemeral 5 分钟）。
- * 顺手裁触发判据：idle > CACHE_TTL_MS 时认为缓存已失效、裁不额外丢命中。
+ * caller（Runtime）默认值：cacheExpired = lastLLMCallAt !== 0 && now - lastLLMCallAt > CACHE_TTL_MS。
  * 不预判（在「即将失效」时裁等于主动放弃 cache）、不延后（cache TTL 是 hard limit）。
  */
 export const CACHE_TTL_MS = 300_000;
+
+/**
+ * phase 1861 (CM-D1)：裁剪规则运行时 policy——规则值经注入链（Assembly/Runtime → CM 入口）传入，
+ * 算法只消费边界值；上方常量降级为默认值来源。
+ */
+export interface TrimRuntimePolicy {
+  /** 24h 保护窗口（用户无感边界）。 */
+  recentWindowMs: number;
+  /** 头部预览字节数（折叠时保头）。 */
+  previewBytes: number;
+  /** proactive 目标占用率（整 prompt 上限 = 上下文窗口 × 此值）。 */
+  targetRatio: number;
+  /** reactive 上下文保留下限比率。 */
+  floorRatio: number;
+}

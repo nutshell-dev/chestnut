@@ -9,6 +9,7 @@ import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
+import { CACHE_TTL_MS } from '../../../src/core/context_manager/constants.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
@@ -75,7 +76,10 @@ describe('runtime proactive trim integration', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  async function makeRuntime(contextTrimmingEnabled?: boolean) {
+  async function makeRuntime(
+    contextTrimmingEnabled?: boolean,
+    contextTrimPolicy?: Record<string, number>,
+  ) {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
     const runtime = new ProactiveTrimTestRuntime({
       clawId: 'test-claw',
@@ -84,13 +88,14 @@ describe('runtime proactive trim integration', () => {
       dependencies: deps,
       idleTimeoutMs: 0,
       ...(contextTrimmingEnabled === undefined ? {} : { contextTrimmingEnabled }),
+      ...(contextTrimPolicy === undefined ? {} : { contextTrimPolicy }),
     });
     runtimes.push(runtime);
     await runtime.initialize();
     return runtime as ProactiveTrimTestRuntime;
   }
 
-  it('1. first turn calls maybeTrimProactive with lastLLMCallAt = 0', async () => {
+  it('1. first turn calls maybeTrimProactive with cacheExpired = false', async () => {
     const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runtime = await makeRuntime(true);
     const msg = { role: 'user', content: 'hi' } as Message;
@@ -99,8 +104,33 @@ describe('runtime proactive trim integration', () => {
     await runLegacyBatch(runtime);
 
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lastLLMCallAt: 0 }));
+    // phase 1861 (CM-D2)：首 turn（lastLLMCallAt = 0）由 caller 判 cacheExpired = false
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ cacheExpired: false }));
     expect(runtime.runReactMessages).toEqual([msg]);
+  });
+
+  it('1b. idle ≤ CACHE_TTL_MS → cacheExpired = false（caller 判据）', async () => {
+    const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const runtime = await makeRuntime(true);
+    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+    (runtime as any).lastLLMCallAt = Date.now() - CACHE_TTL_MS + 60_000;
+
+    await runLegacyBatch(runtime);
+
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ cacheExpired: false }));
+  });
+
+  it('1c. idle > CACHE_TTL_MS → cacheExpired = true（caller 判据）', async () => {
+    const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const runtime = await makeRuntime(true);
+    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+    (runtime as any).lastLLMCallAt = Date.now() - CACHE_TTL_MS - 60_000;
+
+    await runLegacyBatch(runtime);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ cacheExpired: true, now: expect.any(Number) }),
+    );
   });
 
   it('2. processBatch replaces messages when maybeTrimProactive returns result', async () => {
@@ -158,5 +188,29 @@ describe('runtime proactive trim integration', () => {
     await runLegacyBatch(runtime);
 
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('6. contextTrimPolicy injection flows into maybeTrimProactive inputs (CM-D1)', async () => {
+    const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const runtime = await makeRuntime(true, {
+      targetRatio: 0.5,
+      recentWindowMs: 1_234,
+      previewBytes: 56,
+      floorRatio: 0.6,
+    });
+    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+
+    await runLegacyBatch(runtime);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policy: expect.objectContaining({
+          targetRatio: 0.5,
+          recentWindowMs: 1_234,
+          previewBytes: 56,
+          floorRatio: 0.6,
+        }),
+      }),
+    );
   });
 });

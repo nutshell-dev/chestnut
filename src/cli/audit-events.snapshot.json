@@ -280,6 +280,7 @@
     "core_context_manager_audit-events": [
       "context_trim_archived",
       "context_trim_completed",
+      "context_trim_failed",
       "context_trim_started"
     ],
     "core_contract_audit-events": [

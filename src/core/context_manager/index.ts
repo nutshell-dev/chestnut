@@ -12,16 +12,34 @@ export {
   maybeTrimProactive,
 
 } from './maybe-trim-proactive.js';
+// phase 1861 (CM-D9): contract input types — explicit barrel surface (types only).
+export type { MaybeTrimProactiveInputs } from './maybe-trim-proactive.js';
 export {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
+  CONTEXT_TRIM_TARGET_RATIO,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
+  CACHE_TTL_MS,
 } from './constants.js';
+export type { TrimRuntimePolicy } from './constants.js';
 export {
   buildReactiveTrimPolicy,
 
   type ContextTrimOutcome,
+  type TrimPolicy,
+  type TrimV2Options,
+  type AuditWriter,
 } from './trim-v2.js';
 
-export { trimAndPersist } from './trim-and-persist.js';
-export { ContextTrimExhaustedError } from './errors.js';
+export {
+  trimAndPersist,
+  type TrimAndPersistInputs,
+  type DialogStoreMutationCapability,
+  type TriggerKind,
+} from './trim-and-persist.js';
+export {
+  ContextTrimExhaustedError,
+  ContextTrimPersistError,
+  type ContextTrimExhaustedEvidence,
+  type ContextTrimPersistStage,
+} from './errors.js';

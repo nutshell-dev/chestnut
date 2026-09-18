@@ -16,6 +16,7 @@ import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
 import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { TrimRuntimePolicy } from '../context_manager/index.js';
 import type { AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
@@ -175,6 +176,9 @@ export interface RuntimeOptions {
   /** phase 1190：上下文管理器运行时配置（filterSubtypes 已移除） */
   /** Explicit Runtime-owned trim enablement; omitted/false disables trimming. */
   contextTrimmingEnabled?: boolean;
+
+  /** phase 1861 (CM-D1)：裁剪规则注入面——缺省项回落模块常量默认值。 */
+  contextTrimPolicy?: Partial<TrimRuntimePolicy>;
 }
 
 export interface TurnResult {
