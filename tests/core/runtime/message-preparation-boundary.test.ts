@@ -82,7 +82,7 @@ const tempDirs: string[] = [];
 const runtimesToStop: Runtime[] = [];
 
 afterEach(async () => {
-  for (const r of runtimesToStop.splice(0)) await r.stop().catch(() => {});
+  for (const r of runtimesToStop.splice(0)) await r.stop().catch(() => { /* silent: cleanup */ });
   for (const d of tempDirs.splice(0)) await cleanupTempDir(d);
 });
 

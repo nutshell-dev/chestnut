@@ -1,8 +1,8 @@
 /**
  * phase 1858 Step D (SA-D3): artifact completeness 纳入结算。
  *
- * 根因：finally 中 `void auditSubagentArtifactCompleteness(...).catch(() => {})` ——
- * fire-and-forget、rejection 被空 catch 静默吞掉，检查结论不参与结算。
+ * 根因：finally 中 `void auditSubagentArtifactCompleteness(...)` fire-and-forget、
+ * rejection 被空体 catch 静默吞掉，检查结论不参与结算。
  *
  * 断言矩阵：
  * ① 正常场景：检查结论持久化（ac4_ok 行）且 run() resolve 时已落盘（await 生效）

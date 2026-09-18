@@ -210,6 +210,12 @@ const VI_MOCK_FILES = [
   'tests/cli/watchdog.test.ts',
   'tests/core/contract_manager_llm.test.ts',
   'tests/core/subagent/agent-tool-call-input-audit.test.ts',
+  // phase 1858 (SA-D3/D5/D7/G): subagent 结算/捕获协议/降级证据 vi.mock 补登记（phase 316 invariant）
+  'tests/core/subagent/agent-completeness-settlement.test.ts',
+  'tests/core/subagent/capture-protocol.test.ts',
+  'tests/core/subagent/run-capture-isolation.test.ts',
+  'tests/core/subagent/run-degraded-outcome.test.ts',
+  'tests/core/agent-executor/max-tokens-orphan-drop-passthrough.test.ts',
   'tests/daemon/idempotent-signal-handlers.test.ts',
   'tests/daemon/startup-check-delivery.test.ts',  // phase 1794 Step B: vi.mock startup-check/messaging（补登记，phase 316 invariant）
   'tests/foundation/async-task-system/cancel-notification-failure.test.ts',  // phase 1806 Step B: vi.mock result-delivery（补登记，phase 316 invariant）
