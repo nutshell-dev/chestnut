@@ -121,12 +121,12 @@ describe('ContractSystem', () => {
 
     const contractId = await manager.create(contractYaml);
     const first = await manager.cancel(contractId, 'Cancel');
-    expect(first.kind).toBe('committed');
+    expect(first.commit.kind).toBe('committed');
 
     // Phase 1198 Step C: idempotent retry returns already_committed, not an error.
     const second = await manager.cancel(contractId, 'Cancel again');
-    expect(second.kind).toBe('already_committed');
-    expect(second.state).toBe('cancelled');
+    expect(second.commit.kind).toBe('already_committed');
+    expect(second.commit.state).toBe('cancelled');
   });
 
   // === Phase 1194 Step B: multiple active create ===
@@ -298,8 +298,8 @@ describe('ContractSystem', () => {
     // Phase 1198 Step C: idempotent retry returns already_committed, not an error.
     await manager.cancel(contractId, 'Cancelled');
     const outcome = await manager.cancel(contractId, 'Try cancel again');
-    expect(outcome.kind).toBe('already_committed');
-    expect(outcome.state).toBe('cancelled');
+    expect(outcome.commit.kind).toBe('already_committed');
+    expect(outcome.commit.state).toBe('cancelled');
   });
 
   // === 新增测试：损坏 progress.json 抛出 ToolError ===
