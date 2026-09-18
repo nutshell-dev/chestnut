@@ -42,6 +42,8 @@ function baseOpts(overrides?: Partial<TrimV2Options>): TrimV2Options {
     fixedTokens: 0,
     policy: buildProactiveTrimPolicy(10_000),
     now: NOW,
+    // phase 1861 (CM-D3)：audit sink 必填（trim 事实不静默）。
+    audit: { write: vi.fn() },
     ...overrides,
   };
 }

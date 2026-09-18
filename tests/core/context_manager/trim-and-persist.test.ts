@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { trimAndPersist, type TriggerKind } from '../../../src/core/context_manager/trim-and-persist.js';
-import { CONTEXT_TRIM_ARCHIVED } from '../../../src/core/context_manager/audit-events.js';
+import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from '../../../src/core/context_manager/audit-events.js';
 import { ContextTrimPersistError } from '../../../src/core/context_manager/errors.js';
 import {
   buildProactiveTrimPolicy,
@@ -85,13 +85,15 @@ describe('trimAndPersist', () => {
     expect(result.status).toBe('policy_conflict');
   });
 
-  it('3. archive 失败 → save 不调、错上抛', async () => {
+  it('3. archive 失败 → save 不调、错上抛、emit FAILED(stage=archive)', async () => {
     const archiveErr = new Error('disk full');
+    const audit = makeAudit();
     const store = makeDialogStore({
       archive: async () => { throw archiveErr; },
     });
     const inputs = baseInputs({
       dialogStore: store,
+      audit,
       contextWindow: 1_000,
       policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
@@ -106,15 +108,22 @@ describe('trimAndPersist', () => {
     });
     await expect(trimAndPersist(inputs)).rejects.toBeInstanceOf(ContextTrimPersistError);
     expect(store.save).not.toHaveBeenCalled();
+    const failed = audit.events.find(e => e[0] === CONTEXT_TRIM_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('stage=archive');
+    expect(failed).toContain('trigger_kind=reactive_overflow');
+    expect(failed?.join(' ')).toContain('disk full');
   });
 
-  it('4. save 失败 → 错上抛（archive 已生效）', async () => {
+  it('4. save 失败 → 错上抛（archive 已生效）、emit FAILED(stage=save)', async () => {
     const saveErr = new Error('write failed');
+    const audit = makeAudit();
     const store = makeDialogStore({
       save: async () => { throw saveErr; },
     });
     const inputs = baseInputs({
       dialogStore: store,
+      audit,
       contextWindow: 1_000,
       policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
@@ -128,9 +137,13 @@ describe('trimAndPersist', () => {
       cause: saveErr,
     });
     expect(store.archive).toHaveBeenCalledTimes(1);
+    const failed = audit.events.find(e => e[0] === CONTEXT_TRIM_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('stage=save');
+    expect(failed?.join(' ')).toContain('write failed');
   });
 
-  it('6. invalid progress → ContextTrimPersistError stage=invalid_progress（CM-D7）', async () => {
+  it('6. invalid progress → ContextTrimPersistError stage=invalid_progress（CM-D7）、emit FAILED(stage=invalid_progress)', async () => {
     vi.spyOn(trimV2Module, 'trimV2').mockReturnValue({
       outcome: { status: 'target_reached', before: 10, after: 20, newMessages: [] },
       droppedMessages: [],
@@ -145,8 +158,9 @@ describe('trimAndPersist', () => {
         summaryMessageInjected: false,
       },
     } as unknown as ReturnType<typeof trimV2>);
+    const audit = makeAudit();
     const store = makeDialogStore();
-    const inputs = baseInputs({ dialogStore: store });
+    const inputs = baseInputs({ dialogStore: store, audit });
 
     await expect(trimAndPersist(inputs)).rejects.toMatchObject({
       name: 'ContextTrimPersistError',
@@ -154,6 +168,9 @@ describe('trimAndPersist', () => {
     });
     expect(store.archive).not.toHaveBeenCalled();
     expect(store.save).not.toHaveBeenCalled();
+    const failed = audit.events.find(e => e[0] === CONTEXT_TRIM_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('stage=invalid_progress');
     vi.restoreAllMocks();
   });
 

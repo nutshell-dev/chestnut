@@ -12,8 +12,9 @@ import {
   estimateToolsTokens,
 } from '../../foundation/llm-provider/index.js';
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
-import { CONTEXT_TRIM_ARCHIVED } from './audit-events.js';
+import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from './audit-events.js';
 import { ContextTrimPersistError } from './errors.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 export type TriggerKind = 'reactive_overflow' | 'proactive_cache_idle';
 
@@ -87,6 +88,12 @@ export async function trimAndPersist(
   }
 
   if (outcome.after >= outcome.before) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=invalid_progress`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=invalid trim progress: ${outcome.after} >= ${outcome.before}`,
+    );
     throw new ContextTrimPersistError(
       'invalid_progress',
       `invalid trim progress: ${outcome.after} >= ${outcome.before}`,
@@ -96,6 +103,12 @@ export async function trimAndPersist(
   try {
     await inputs.dialogStore.archive();
   } catch (e) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=archive`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=${formatErr(e)}`,
+    );
     throw new ContextTrimPersistError('archive', 'trim archive failed', { cause: e });
   }
   inputs.audit.write(
@@ -111,6 +124,12 @@ export async function trimAndPersist(
       toolsForLLM: inputs.toolsForLLM,
     });
   } catch (e) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=save`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=${formatErr(e)}`,
+    );
     throw new ContextTrimPersistError('save', 'trim save failed', { cause: e });
   }
   // phase 1850 Step C: 显式回传 blockId 到 outcome.newMessages（该数组被上层继续持有）

@@ -69,7 +69,8 @@ export interface TrimV2Options {
   fixedTokens: number;
   policy: TrimPolicy;
   now: number;
-  audit?: AuditWriter;
+  /** phase 1861 (CM-D3)：audit sink 必填——trim 事实不允许静默。 */
+  audit: AuditWriter;
 }
 
 interface TrimV2Result {
@@ -149,7 +150,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     opts.policy.kind === 'proactive'
       ? `target=${opts.policy.targetCompleteTokens}`
       : `floor=${opts.policy.completeFloorTokens},ceiling=${opts.policy.completeCeilingTokens}`;
-  opts.audit?.write(CONTEXT_TRIM_STARTED, `before=${before}`, `fixed=${opts.fixedTokens}`, targetLabel);
+  opts.audit.write(CONTEXT_TRIM_STARTED, `before=${before}`, `fixed=${opts.fixedTokens}`, targetLabel);
 
   let result: TrimV2Result;
 
@@ -248,7 +249,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 
   // Emit COMPLETED audit
   if (result.outcome.status === 'target_reached' || result.outcome.status === 'progress') {
-    opts.audit?.write(
+    opts.audit.write(
       CONTEXT_TRIM_COMPLETED,
       `before=${before}`,
       `after=${result.outcome.after}`,
