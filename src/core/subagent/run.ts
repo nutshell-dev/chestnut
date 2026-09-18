@@ -85,6 +85,22 @@ export interface RunSubagentResult {
   capturedResult?: unknown;
 }
 
+/**
+ * phase 1858 Step E (SA-D4): terminal outcome 前无法可靠 join 时的「已收敛 / 仍运行」typed 证据。
+ *
+ * race 失败（timeout/abort 胜出）→ agent.run() 有界等待 runReact settle：
+ * 窗口内收敛 → `subagentStillRunning: false`；超窗仍未收敛 → `true`（仍可能继续产生
+ * 工具副作用）+ audit 留证。证据随上抛错误对象移交 owner（ATS/verifier/shadow）处置。
+ */
+export interface SubagentStillRunningEvidence {
+  subagentStillRunning: boolean;
+}
+
+export function getSubagentStillRunning(err: unknown): boolean {
+  return typeof err === 'object' && err !== null
+    && (err as Partial<SubagentStillRunningEvidence>).subagentStillRunning === true;
+}
+
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
   await opts.fs.ensureDir(opts.resultDir);
 

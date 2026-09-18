@@ -19,6 +19,8 @@ export const SUBAGENT_AUDIT_EVENTS = {
   // STREAM_APPEND_FAILED removed (phase 1152 G.1): PerResourceStreamWriter internally emits
   // STREAM_AUDIT_EVENTS.APPEND_FAILED with full path context; caller-side duplicate emit eliminated.
   TIMEOUT_REJECTION: 'subagent_timeout_rejection',
+  // phase 1858 Step E (SA-D4): race 失败后 settle 超窗、runReact 仍未收敛的显式留证
+  RUNREACT_ABORT_STILL_RUNNING: 'subagent_runreact_abort_still_running',
   // phase 1411 (reframe of phase 1409): generic tool_call index row.
   // name + tool_use_id + step + contract_id + trace_id + args_size；args body 0 入 audit.
   // dialog/current.json 是 tool_use args 全文权威源、CLI 凭 tool_use_id 跨源 join。
@@ -113,6 +115,7 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_log_append_failed: 'audit',
   ghost_callback_after_turn_end: 'audit',
   subagent_timeout_rejection: 'audit',
+  subagent_runreact_abort_still_running: 'audit',
   tool_call_input: 'audit',
   turn_start: 'audit',
   turn_end: 'audit',

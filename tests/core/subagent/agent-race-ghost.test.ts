@@ -11,6 +11,8 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
+// phase 1858 Step E (SA-D4): typed 仍运行证据经 barrel 消费
+import { getSubagentStillRunning } from '../../../src/core/subagent/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 
 /**
@@ -20,9 +22,10 @@ import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 let runReactRelease: (() => void) | undefined;
 
 // phase 1489: ToolExecutor 注入 SubAgentOptions / 不再 vi.mock executor.js
+// phase 1858 Step E: overrides 透传（测试需在 mock runReact 内观测 abort signal）
 function makeMockToolExecutor(): ToolExecutor {
   return {
-    getExecContext: vi.fn().mockReturnValue({
+    getExecContext: vi.fn((_profile: string, overrides?: Record<string, unknown>) => ({
       clawId: 'test-agent',
       clawDir: '/tmp/test',
       workspaceDir: path.join('/tmp/test', 'clawspace'),
@@ -32,7 +35,8 @@ function makeMockToolExecutor(): ToolExecutor {
       maxSteps: 20,
       getElapsedMs: () => 0,
       incrementStep: vi.fn(),
-    }),
+      ...(overrides ?? {}),
+    })),
   } as unknown as ToolExecutor;
 }
 
@@ -181,5 +185,61 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
 
     const turnEnds = sw.events.filter((e) => e.type === 'turn_end');
     expect(turnEnds.length).toBe(1);
+  });
+});
+
+describe('phase 1858 Step E (SA-D4): terminal outcome 前可靠 join / typed 仍运行证据', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('① 合作执行：race 失败后 settle 窗口内收敛 → subagentStillRunning=false、无留证行', async () => {
+    const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
+
+    // 合作 mock：signal abort（turn_timeout）后立即收敛
+    runReact.mockImplementation(async (opts: { ctx: { signal: AbortSignal } }) => {
+      await new Promise<never>((_, reject) => {
+        if (opts.ctx.signal.aborted) {
+          reject(new Error('aborted cooperatively'));
+          return;
+        }
+        opts.ctx.signal.addEventListener('abort', () => reject(new Error('aborted cooperatively')), { once: true });
+      });
+    });
+
+    const err = await agent.run().catch((e) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(getSubagentStillRunning(err)).toBe(false);
+    expect((err as { subagentStillRunning?: boolean }).subagentStillRunning).toBe(false);
+
+    const rows = mockAuditWriter.write.mock.calls.filter(
+      (call: unknown[]) => call[0] === SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('② 非合作执行：超窗仍未收敛 → typed stillRunning=true + audit 留证（settle_ms 与常量一致）', async () => {
+    const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
+
+    let release!: () => void;
+    runReact.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return { finalText: 'late', stopReason: 'end_turn' };
+    });
+
+    const err = await agent.run().catch((e) => e);
+
+    expect(getSubagentStillRunning(err)).toBe(true);
+    expect((err as { subagentStillRunning?: boolean }).subagentStillRunning).toBe(true);
+
+    const rows = mockAuditWriter.write.mock.calls.filter(
+      (call: unknown[]) => call[0] === SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain('agentId=test-agent');
+    expect(rows[0]).toContain('settle_ms=100');
+
+    release();
   });
 });

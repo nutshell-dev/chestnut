@@ -562,6 +562,7 @@
       "subagent_done_tool_duplicate_call",
       "subagent_log_append_failed",
       "subagent_persist_failed",
+      "subagent_runreact_abort_still_running",
       "subagent_step_complete_failed",
       "subagent_steps_invariant_violated",
       "subagent_timeout_rejection",

@@ -335,13 +335,25 @@ export class SubAgent {
         // phase 337 M6: timeout / abort 赢了 race。有界等待 runReact 自然 settle
         // （signal 已 abort、合作的 runReact 会立即抛出）、让 in-flight tool / disk
         // write 收尾。上限 RUNREACT_ABORT_SETTLE_MS 防非合作 runReact 无限阻塞
-        // subagent shutdown；超 cap 则交给 phase 538 ghost-callback 机制兜底。
+        // subagent shutdown。
+        // phase 1858 Step E (SA-D4): 超窗未收敛不再静默「交给 ghost 兜底」——
+        // 留证 + 以 typed 字段随错误移交 owner（可证明分类：已收敛 / 仍运行）。
         const RUNREACT_ABORT_SETTLE_MS = 100;
-        await Promise.race([
-          runReactPromise.catch(() => { /* silent: runReact 多半会因 signal abort 拒绝、err 已通过 raceErr 反映上抛 */ }),
-          new Promise<void>((resolve) => setTimeout(resolve, RUNREACT_ABORT_SETTLE_MS)),
+        const settled = await Promise.race([
+          runReactPromise.then(() => true, () => true),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), RUNREACT_ABORT_SETTLE_MS)),
         ]);
-        throw raceErr;
+        if (!settled) {
+          this.auditWriter.write(
+            SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
+            `agentId=${this.agentId}`,
+            `settle_ms=${RUNREACT_ABORT_SETTLE_MS}`,
+          );
+        }
+        const carrier = typeof raceErr === 'object' && raceErr !== null
+          ? raceErr
+          : new Error(formatErr(raceErr));
+        throw Object.assign(carrier, { subagentStillRunning: !settled });
       }
 
       // Log completion
