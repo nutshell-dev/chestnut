@@ -11,7 +11,7 @@ import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { DialogSessionLifecycle } from '../../foundation/dialog-store/index.js';
 import type { InboxDeliverySession, InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';
 
-import type { ToolRegistry } from '../../foundation/tools/index.js';
+import type { ToolRegistry, ToolRegistryRuntimeCapability } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
@@ -93,7 +93,8 @@ export interface RuntimeDependencies {
    * Runtime 不消费、仅传递（Assembly 注入同一对象）。
    */
   readonly llmOrchestrator: LLMOrchestrator;
-  readonly toolRegistry: ToolRegistry;
+  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getForProfile/formatForLLM 2 方法。 */
+  readonly toolRegistry: ToolRegistryRuntimeCapability;
   readonly toolExecutor: IToolExecutor;
   /** Phase 773: base registry with plain sync exec for subagent spawn paths. */
   readonly baseToolRegistry?: ToolRegistry;

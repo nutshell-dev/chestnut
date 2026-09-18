@@ -4,7 +4,7 @@
  * Implements ToolRegistry interface
  */
 
-import type { Tool } from './types.js';
+import type { Tool, ToolRegistryRuntimeCapability } from './types.js';
 import type { ToolRegistry } from './executor.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 
@@ -12,7 +12,7 @@ import type { ToolProfile } from '../tool-protocol/index.js';
 /**
  * Tool registry implementation
  */
-export class ToolRegistryImpl implements ToolRegistry {
+export class ToolRegistryImpl implements ToolRegistry, ToolRegistryRuntimeCapability {
   private tools: Map<string, Tool> = new Map();
 
   /**

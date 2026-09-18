@@ -232,6 +232,20 @@ export interface ToolRegistry {
 }
 
 /**
+ * phase 1860 (RT-D1)：Runtime 私有消费面——仅 Runtime 实际调用集 getForProfile/formatForLLM
+ * （M#7 最小）。签名 1:1 取自 ToolRegistry；ExecContext/runReact/identityToolFilter 的宽面
+ * 转发消费不经本 capability（归 tools 模块治理，见 phase1860 Step C §5）。
+ */
+export interface ToolRegistryRuntimeCapability {
+  getForProfile(profile: ToolProfile): Tool[];
+  formatForLLM(tools: Tool[]): Array<{
+    name: string;
+    description: string;
+    input_schema: JSONSchema7;
+  }>;
+}
+
+/**
  * Tool execution options
  */
 export interface ExecuteOptions {

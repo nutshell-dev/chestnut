@@ -47,7 +47,7 @@ import type { InboxDeliveryBatch, InboxDeliverySession, InboxEntry, InboxHandle 
 import { ExecContextImpl } from '../../foundation/tools/index.js';
 import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
-import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
+import type { ToolRegistry, ToolRegistryRuntimeCapability, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from './injector.js';
 import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
@@ -181,7 +181,30 @@ export class Runtime {
    * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; treat as read-only — no injector state mutation)
    */
   protected contextInjector!: ContextInjector;
-  protected toolRegistry!: ToolRegistry;
+  /**
+   * phase 1860 (RT-D1)：toolRegistry 单一存储。deps.toolRegistry 窄类型声明 Runtime 私有
+   * 消费面；Assembly 契约注入对象为完整 ToolRegistry（ExecContext/runReact/identityToolFilter
+   * 转发消费宽面），存储保持宽类型。
+   */
+  private _toolRegistryImpl!: ToolRegistry;
+  /**
+   * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
+   * getForProfile / formatForLLM 2 方法可编译调用。
+   */
+  protected get toolRegistry(): ToolRegistryRuntimeCapability {
+    return this._toolRegistryImpl;
+  }
+  protected set toolRegistry(value: ToolRegistryRuntimeCapability) {
+    // Assembly 契约：注入对象为完整 ToolRegistry；窄类型为消费面纪律（M#7）。
+    this._toolRegistryImpl = value as ToolRegistry;
+  }
+  /**
+   * phase 1860 (RT-D1)：toolRegistry 转发面视图——ExecContext 构造、runReact 与
+   * identityToolFilter 消费的完整注册表；Runtime 不消费、仅传递；与 this.toolRegistry 同一底层对象。
+   */
+  protected get toolRegistryForwarding(): ToolRegistry {
+    return this._toolRegistryImpl;
+  }
   private taskSystem!: AsyncTaskRuntimeLifecycle;
   private contractManager!: ContractRuntimeLifecycle;
   protected execContext!: ExecContext;
@@ -302,7 +325,7 @@ export class Runtime {
           messages: session.messages,
         };
       },
-      registry: this.toolRegistry,
+      registry: this.toolRegistryForwarding,   // phase 1860 (RT-D1)：转发面（工具执行消费宽面）
       baseRegistry: deps.baseToolRegistry,
     });
 
@@ -330,7 +353,7 @@ export class Runtime {
     // （assemble.ts:251 toolRegistry.register(new SummonTool())）。
     // Runtime 不再反向 import 此 L4 Tool 类，G→F 单向依赖恢复。
     if (this.options.identityToolFilter) {
-      this.options.identityToolFilter(this.toolRegistry);
+      this.options.identityToolFilter(this.toolRegistryForwarding);
     }
 
     // phase 1443: load readFileState from disk to survive daemon restart
@@ -960,7 +983,7 @@ export class Runtime {
         executor: this.toolExecutor,
         ctx: this.execContext,
         tools,
-        registry: this.toolRegistry,  // Enable parallel execution for readonly tools
+        registry: this.toolRegistryForwarding,  // phase 1860 (RT-D1)：转发面（parallel readonly 执行消费）
         maxSteps: this.options.maxSteps,
         maxConsecutiveParseErrors: this.options.maxConsecutiveParseErrors,
         maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,

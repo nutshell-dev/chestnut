@@ -43,7 +43,7 @@ export class TestRuntime extends Runtime {
 
   /** Get toolRegistry — for tool name inspection in motion tests. */
   testGetToolRegistry(): ToolRegistry {
-    return this.toolRegistry;
+    return this.toolRegistryForwarding;
   }
 
   /** Get execContext — for regime switch post-commit cleanup observation (phase 1850 Step D). */
