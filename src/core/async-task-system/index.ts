@@ -43,16 +43,13 @@ export { readFullTaskId, readShortTaskId, adoptLegacyFullTaskId, adoptLegacyShor
 export type { PostProcessor } from './post-processors/types.js';
 export type { ProcessedTaskResult } from './result-delivery-types.js';
 
-// Phase 1396 Step L: single authoritative processed-result envelope store
-export {
-  createProcessedResultStore,
-  ProcessedTaskResultSchema,
-  ProcessedResultReadError,
-  ProcessedResultCorruptError,
-  ProcessedResultUnsupportedVersionError,
-} from './processed-result-store.js';
-export type { ProcessedResultStore } from './processed-result-store.js';
+// phase 1863 (AT-D10) 收口：processed-result-store 机制面内化（barrel 撤出）——
+// ProcessedResultStore/createProcessedResultStore/ProcessedTaskResultSchema/3 错误类
+// 由模块内与测试经深链消费（无 barrel 消费方）；需要时经 owner 面再开。
 
+// phase 1863 (AT-D10) 收口：envelope 文件名机制面内化（POST_PROCESS_INPUT_FILE/
+// RESULT_META_FILE/RESULT_ENVELOPE_FILE 由深链消费）；
+// TASKS_QUEUES_* 保留（装配布局/权限/CLI 读路径依赖；收窄候选登记于 barrel 锁注释）。
 export {
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
@@ -60,9 +57,6 @@ export {
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
   TASK_SNAPSHOT_IGNORE,  // phase 693 Step B
-  POST_PROCESS_INPUT_FILE,
-  RESULT_META_FILE,
-  RESULT_ENVELOPE_FILE,
 } from './dirs.js';
 
 export { classifyTaskError } from './_helpers.js';
@@ -74,10 +68,8 @@ export { taskShortId } from './types.js';
 // phase 481: TASK_AUDIT_EVENTS barrel re-export
 export { TASK_AUDIT_EVENTS } from './audit-events.js';
 // phase 485: task-schemas type barrel re-export
-export type {
-  SummonDecisionMetadata,
-  LegacySummonDecisionV1,
-} from './task-schemas.js';
+// phase 1863 (AT-D10) 收口：SummonDecisionMetadata 内化（零外部消费；1866 summon 面需要时再开）
+export type { LegacySummonDecisionV1 } from './task-schemas.js';
 
 // phase 1130: typed audit emit functions
 // phase 1302: 32 个 emit* 符号在 src + tests 中经 barrel 消费全为 0；撤销 phase 132 wildcard。
