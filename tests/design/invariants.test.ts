@@ -30,10 +30,12 @@ describe('shadow-signal-omit-anchor', () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const filePath = path.resolve(__dirname, '../../src/core/shadow-system/spawn-shadow-subagent.ts');
 
-  describe('shadow signal omit anchor lint (phase 1373 sub-4)', () => {
-    it('spawn-shadow-subagent.ts 应包含 phase 1373 anchor comment', () => {
+  describe('shadow signal omit anchor lint (phase 1373 sub-4 → 1865 SH-D4 契约化)', () => {
+    it('spawn-shadow-subagent.ts 应包含 1373 anchor 注释与 1865 SH-D4 契约引用', () => {
       const content = fsSync.readFileSync(filePath, 'utf-8');
+      // phase 1867 Step B: anchor 字面与契约引用并存（9bb1a9103 恢复 anchor；1865 Step E 契约化），两者同锁。
       expect(content).toContain('phase 1373 anchor: shadow-mode subagent 不继承 caller signal by-design');
+      expect(content).toContain('phase 1865 (SH-D4)');
     });
   });
 });
