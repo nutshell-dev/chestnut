@@ -405,7 +405,7 @@ export function emitContractFailed(
 // ─── COMPLETED ──────────────────────────────────────────────────────────────
 export function emitContractCompleted(
   audit: AuditLog,
-  opts: { contractId: ContractId; title: string; claw: string; abortVerifierFailed?: string },
+  opts: { contractId: ContractId; title: string; claw: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompleted')) return;
   // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
@@ -414,7 +414,6 @@ export function emitContractCompleted(
     `title=${opts.title}`,
     `claw=${opts.claw}`,
   ];
-  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
   audit.write(CONTRACT_AUDIT_EVENTS.COMPLETED, ...cols);
 }
 

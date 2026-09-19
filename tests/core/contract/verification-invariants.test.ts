@@ -231,10 +231,12 @@ describe('archiveAndEmit (phase 951)', () => {
     expect(ctx.emitContractCompleted).toHaveBeenCalledWith(contractId);
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.COMPLETED)).toBe(true);
+    // phase 1867 Step A: successful abort emits no abort-failed event.
+    expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED)).toBe(false);
     expect(ctx.onNotify).toHaveBeenCalled();
   });
 
-  it('records verifier abort failure on the completed audit without breaking side effects', async () => {
+  it('records verifier abort failure as independent event without breaking side effects (phase 1867 Step A)', async () => {
     const fs = createMockFs();
     const contractId = makeContractId('c-abort-throw');
     const activeRoot = `/tmp/claw/contract/active/${contractId}`;
@@ -255,11 +257,20 @@ describe('archiveAndEmit (phase 951)', () => {
     // Commit stands; the remaining success side effects still fire exactly once.
     expect(ctx.emitContractCompleted).toHaveBeenCalledTimes(1);
     expect(ctx.onNotify).toHaveBeenCalled();
-    // The abort failure is recorded on the completed audit, not swallowed.
+    // phase 1867 Step A (CT-D5 form): completed payload is a pure completion fact;
+    // the abort failure rides an independent event.
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     const completedCalls = auditWrites.filter(c => c[0] === CONTRACT_AUDIT_EVENTS.COMPLETED);
     expect(completedCalls.some(c =>
-      c.some(col => String(col).startsWith('abort_verifier_failed=') && String(col).includes('abort boom')),
+      c.some(col => String(col).startsWith('abort_verifier_failed=')),
+    )).toBe(false);
+    const abortFailedCalls = auditWrites.filter(c => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
+    expect(abortFailedCalls).toHaveLength(1);
+    expect(abortFailedCalls[0].some(col =>
+      String(col).startsWith('reason=') && String(col).includes('contract completed'),
+    )).toBe(true);
+    expect(abortFailedCalls[0].some(col =>
+      String(col).startsWith('error=') && String(col).includes('abort boom'),
     )).toBe(true);
   });
 

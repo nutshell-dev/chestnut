@@ -90,8 +90,7 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     persistVerificationOutcome: (outcome) => self._persistVerificationOutcome(outcome),
     checkAllSubtasksCompleted: (id, p) => self.checkAllCompleted(id, p),
     // Mirror manager._verificationCtx(): without this the abort throws TypeError
-    // inside archiveAndEmit and pollutes the completed audit with a spurious
-    // abort_verifier_failed column.
+    // inside archiveAndEmit and emits a spurious abort-failed event.
     abortContractVerifiers: (id, reason) => self._abortContractVerifiers(id, reason),
     baseDir: self.clawDir,
     activeDir: self.activeDir,

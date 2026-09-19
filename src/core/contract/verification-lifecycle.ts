@@ -33,6 +33,7 @@ import {
   emitContractProgressCorrupted,
   emitContractSubtaskDuplicateDone,
   emitContractSubtaskAlreadyCompleted,
+  emitVerifierAbortFailed,
 } from './audit-emit.js';
 
 export async function archiveAndEmit(
@@ -111,13 +112,12 @@ export async function archiveAndEmit(
 
   // Side effects (abort, handler, audit, notify) belong ONLY to this committed request.
   if (outcome.kind === 'committed') {
-    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, 'contract completed');
     } catch (abortErr) {
-      // Abort failure does not undo the terminal commit; record it on the
-      // completed audit so the decision chain stays reconstructible.
-      abortVerifierFailed = formatErr(abortErr);
+      // phase 1867 (Step A): abort failure is an independent execution-failure
+      // fact (CT-D5 form); it never rides the completed payload.
+      emitVerifierAbortFailed(ctx.audit, { contractId, reason: 'contract completed', error: formatErr(abortErr) });
     }
     try {
       await ctx.emitContractCompleted(contractId);
@@ -128,7 +128,7 @@ export async function archiveAndEmit(
     try {
       emitContractCompleted(
         ctx.audit,
-        { contractId, title: contractYaml.title, claw: ctx.clawId, abortVerifierFailed },
+        { contractId, title: contractYaml.title, claw: ctx.clawId },
       );
     } catch {
       // silent: audit failure should not affect downstream side effects
