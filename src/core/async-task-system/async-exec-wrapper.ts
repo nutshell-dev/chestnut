@@ -12,7 +12,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle, ExecutionIdentity } from '../../foundation/process-exec/index.js';
 import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
-import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
+import type { ExecWithHandleArgs, AsyncMigrationPolicy } from '../../foundation/command-tool/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
@@ -32,6 +32,12 @@ export interface AsyncExecWrapperParams {
   softTimeoutMs?: number;
   /** Optional override for the migrated hard timeout (ms). Primarily for tests. */
   migratedHardTimeoutMs?: number;
+  /**
+   * phase 1863 (AT-D9/H1)：命令侧执行形态声明（owner: command-tool；Assembly 接线）。
+   * 缺省（undefined）= 可迁移（现状行为零漂移）；migratable:false 时 soft 超时走终止路径
+   * （复用显式 timeout 语义——不建迁移任务、不写 TASK_MIGRATED_* 事件族）。
+   */
+  migrationPolicy?: AsyncMigrationPolicy;
 }
 
 interface AsyncExecWrapperDeps {
@@ -188,6 +194,36 @@ export function createAsyncExecWrapper(
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
+
+      // --- phase 1863 (AT-D9/H1): 命令侧声明不可迁移 → 超时即终止 ----------------
+      // 复用显式 timeout 语义：以声明/装配预算为命令时限，超时由 L1 终止并归类为
+      // ProcessExecError（不建迁移任务、无 TASK_MIGRATED_* 留痕）。
+      if (args.timeoutMs === undefined && params.migrationPolicy?.migratable === false) {
+        const effectiveTimeoutMs = params.migrationPolicy.softTimeoutMs ?? timeout;
+        try {
+          const handle = await execWithHandle(
+            {
+              command,
+              cwd: args.cwd as string | undefined,
+              timeoutMs: effectiveTimeoutMs,
+              stdin: args.stdin as string | undefined,
+            },
+            ctx,
+          );
+
+          const result = await handle.promise;
+          const content = await formatExecOutputForToolResult(ctx, result.output);
+          return {
+            success: true,
+            content: content || `(no output)\n[command]: ${command}`,
+          };
+        } catch (err) {
+          if (err instanceof ProcessExecError) {
+            return processExecErrorToToolResult(err, command);
+          }
+          throw err;
+        }
+      }
 
       // --- pure sync mode: caller set an explicit timeout --------------------
       if (args.timeoutMs !== undefined) {

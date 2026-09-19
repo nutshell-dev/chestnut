@@ -28,7 +28,7 @@ import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool, SHADOW_DEFAULT_TIMEOUT_MS } from '../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { AssembleConfig } from './types.js';
-import { createExecWithHandle, EXEC_TOOL_NAME } from '../foundation/command-tool/index.js';
+import { createExecWithHandle, EXEC_TOOL_NAME, EXEC_ASYNC_MIGRATION } from '../foundation/command-tool/index.js';
 import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
 import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
@@ -135,6 +135,8 @@ export async function createRuntimeAssembly(
       const asyncExecTool = taskSystem.createAsyncExecWrapper({
         execWithHandle: (args, ctx) => execWithHandle(args, ctx),
         softTimeoutMs: ASYNC_EXEC_SOFT_TIMEOUT_MS,
+        // phase 1863 (AT-D9/H1)：命令侧执行形态声明（owner: command-tool；缺省可迁移=零漂移）
+        migrationPolicy: EXEC_ASYNC_MIGRATION,
       });
       mainRegistry.register(asyncExecTool);
       mainToolExecutor = createToolExecutor(mainRegistry, toolTimeoutMs);

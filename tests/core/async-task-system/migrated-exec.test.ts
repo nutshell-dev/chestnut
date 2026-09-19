@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { SUBAGENT_WAIT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { executeToolTask } from '../../../src/core/async-task-system/tool-executor.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
@@ -280,6 +281,48 @@ describe('createAsyncExecWrapper', () => {
 
     const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
+  });
+
+  it('phase 1863 (AT-D9/H1): migratable=false 声明 → soft 超时即终止（不建迁移任务）', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+      migrationPolicy: { migratable: false },
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 5' }, ctx);
+
+    // 终止语义 = 显式 timeout 语义（复用既有路径）：超时被 L1 终止 → ProcessExecError 归类
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('[command]: sleep 5');
+
+    // 不建迁移任务：无 TASK_MIGRATED_* 事件族、无 running/ 文件、无 done/ 文件
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED)).toBe(false);
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.EXEC_IDENTITY_CHECKPOINTED)).toBe(false);
+    const runningEntries = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR)).catch(() => []);
+    expect(runningEntries.filter(n => n.endsWith('.json'))).toHaveLength(0);
+    const doneEntries = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_DONE_DIR)).catch(() => []);
+    expect(doneEntries.filter(n => n.endsWith('.json'))).toHaveLength(0);
+  });
+
+  it('phase 1863 (AT-D9/H1): migratable=false + softTimeoutMs 覆盖生效（声明预算为命令时限）', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 60_000,          // 装配级预算：足够长，不应生效
+      migrationPolicy: { migratable: false, softTimeoutMs: 100 },   // 声明覆盖：100ms 即终止
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const started = Date.now();
+    const result = await tool.execute({ command: 'sleep 5' }, ctx);
+    const elapsed = Date.now() - started;
+
+    expect(result.success).toBe(false);
+    // 由声明预算（100ms）终止、而非装配预算（60s）：上界取命名常量（含 L1 终止 grace 成本）
+    expect(elapsed).toBeLessThan(SUBAGENT_WAIT_TIMEOUT_MS);
   });
 
   it('should deliver full output after migration', async () => {

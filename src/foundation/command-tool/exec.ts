@@ -38,6 +38,22 @@ export interface PreExecGuard {
 }
 
 /**
+ * phase 1863 (AT-D9/H1)：命令侧执行形态声明（owner：命令/工具侧）。
+ * ATS 的 async exec wrapper 消费本声明决定「超过 soft timeout 之后的去向」：
+ * - migratable: true（缺省）：迁移为后台持久任务（现状行为）；
+ * - migratable: false：超时即终止（复用显式 timeout 语义；不建迁移任务、不写 TASK_MIGRATED_*）。
+ * 声明归命令侧所有、经 Assembly 接线传入 wrapper（不扩 Tool 协议面）。
+ */
+export interface AsyncMigrationPolicy {
+  readonly migratable: boolean;
+  /** 覆盖装配级 soft timeout（ms）；缺省用接线注入值。 */
+  readonly softTimeoutMs?: number;
+}
+
+/** exec 命令的声明：可迁移（现状行为 = 零漂移基线）。 */
+export const EXEC_ASYNC_MIGRATION: AsyncMigrationPolicy = { migratable: true };
+
+/**
  * Low-level exec handle args (phase 1272 Step C): the timeout strategy is
  * mutually exclusive at the type level — relative `timeoutMs` (business
  * budget, clamped by L1) or absolute `deadlineAtMs` (neutral epoch fact,
