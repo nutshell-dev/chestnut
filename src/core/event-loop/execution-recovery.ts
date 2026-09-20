@@ -25,6 +25,13 @@
  * 同契约 execution_recovery 消息，则不登记新义务、不增加调度次数；读取未知
  * 同样停止本次新增并显式审计。已持久 pending 义务仍按 1842 稳定身份恢复，
  * 不经此检查。
+ * Phase 1869 (Step F): 变迁证据链 write-ahead —— 每类状态变迁（epoch reset /
+ * 新登记 / 交付确认）的审计事件先于状态覆盖写落盘，载荷自含将写入的完整
+ * record（next_record；reset 另含 previous_record 全量）；崩溃窗口方向 =
+ * 「审计有、状态未前移」，重启以状态文件为权威、下一 tick 重推同变迁收敛到
+ * 唯一当前态（收敛由 record 权威性保证，不做审计尾部扫描探测）。supersede
+ * 为交付级独立变迁，由独立事件承载。完整性边界：状态变迁级可重建（不含消息级
+ * 重建）；文件系统级事务 / 重放级 journal 不在本协议，如需 → 升档独立 phase。
  * Phase 1844: 新登记前只读 inspect LLM owner 公开恢复安排——尚未到时的 at
  * 说明 owner 已安排未来重试，本次不登记新提醒、不增加 attempt、不修改 owner
  * 安排（不另持有等待状态或 timer）；inspect 读取失败/非法 resumeAt 同样停止
@@ -529,17 +536,22 @@ export function createExecutionRecoveryController(
       return;
     }
     const confirmedAt = now();
-    store.save({
+    const next: ExecutionRecoveryRecord = {
       ...record,
       delivery: { ...delivery, kind: 'confirmed', confirmedAt },
-    });
+    };
+    // Phase 1869 (Step F): write-ahead —— 确认证据先于状态覆盖写；载荷含将写入
+    // 全量 record。崩溃窗口方向 = 「审计有（confirmed 意图）、状态未前移」，重启
+    // 以状态为准（仍 pending）→ 预查询命中原消息 → 再确认，收敛到唯一当前态。
     audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
       `context=executionRecoveryDeliveryConfirmed`,
       `contract=${contractId}`,
       `delivery_id=${delivery.id}`,
       `confirmed_at=${confirmedAt}`,
+      `next_record=${JSON.stringify(next)}`,
     );
+    store.save(next);
   };
 
   return {
@@ -564,15 +576,16 @@ export function createExecutionRecoveryController(
       // 后续新 pending 之间可崩溃；重启按保存状态继续。
       if (record && snapshot.lastActivityAt > record.observedActivityAt) {
         const previous = record;
+        const pendingDelivery = previous.delivery?.kind === 'pending' ? previous.delivery : undefined;
         record = {
           ...record,
           observedActivityAt: snapshot.lastActivityAt,
           attempts: 0,
           lastAttemptAt: 0,
-          ...(record.delivery?.kind === 'pending'
+          ...(pendingDelivery
             ? {
                 delivery: {
-                  ...record.delivery,
+                  ...pendingDelivery,
                   kind: 'superseded' as const,
                   supersededAt: now(),
                   reason: 'activity_progressed' as const,
@@ -580,13 +593,27 @@ export function createExecutionRecoveryController(
               }
             : {}),
         };
-        store.save(record);
+        // Phase 1869 (Step F): write-ahead —— 事件先于状态覆盖写，载荷自含
+        // previous/next 全量记录（崩溃窗口方向 = 「审计有、状态未前移」，重启以
+        // 状态为准、下 tick 重推同变迁收敛）。
         audit.write(
           EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
           `contract=${contractId}`,
           `reason=activity_progressed`,
           `previous_record=${JSON.stringify(previous)}`,
+          `next_record=${JSON.stringify(record)}`,
         );
+        // Phase 1869 (Step F): supersede 是交付级独立变迁——独立事件承载
+        // （此前仅内嵌于 reset 载荷的 previous_record，交付链不可独立重建）。
+        if (pendingDelivery) {
+          audit.write(
+            EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_SUPERSEDED,
+            `contract=${contractId}`,
+            `delivery_id=${pendingDelivery.id}`,
+            `reason=activity_progressed`,
+          );
+        }
+        store.save(record);
       }
 
       // Phase 1842: 已有 pending 义务 → 直接交付该义务（同一冻结身份/正文），
@@ -693,10 +720,12 @@ export function createExecutionRecoveryController(
 
       // Phase 1840: 提醒没有次数上限——到期窗口无条件登记下一次 attempt；
       // attempts 不再携带终态含义。Phase 1842: 新义务冻结稳定 id/attempt/
-      // scheduledAt/body（模板一次渲染），先 save 完整新 record（重启可按原样
-      // 恢复义务），再 RESUME 审计，再交付。audit 的 RESUME 表示一次已登记的
-      // 调度尝试与 pending 义务落盘，不表示 owner 已确认消息存在。save 抛错
-      // 不调用适配器；审计与 save 不构成完整事务日志，历史 gap 保持。
+      // scheduledAt/body（模板一次渲染）。Phase 1869 (Step F): write-ahead ——
+      // RESUME 审计先于 save，载荷含将写入全量 record + previous_delivery 留证；
+      // 崩溃窗口方向 = 「审计有（登记意图）、状态未前移」，重启以状态为准、
+      // 下 tick 重登记收敛（孤儿行含未落盘 delivery_id，不产生物理写）。
+      // audit 的 RESUME 表示一次登记意图与 pending 义务证据，不表示 owner 已确认
+      // 消息存在。save 抛错不调用适配器（审计意图行保留、可发现）。
       const delivery: Extract<ExecutionRecoveryDelivery, { kind: 'pending' }> = {
         kind: 'pending',
         id: `${DELIVERY_ID_PREFIX}${newUuid()}`,
@@ -710,7 +739,6 @@ export function createExecutionRecoveryController(
         lastAttemptAt: currentMs,
         delivery,
       };
-      store.save(next);
       audit.write(
         EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME,
         `contract=${contractId}`,
@@ -718,9 +746,11 @@ export function createExecutionRecoveryController(
         `interval_ms=${deps.timeoutMs}`,
         `delivery_id=${delivery.id}`,
         `delivery_state=pending`,
+        `next_record=${JSON.stringify(next)}`,
         // 覆盖上一 delivery 前留证（没有则不加本列）。
         ...(record.delivery ? [`previous_delivery=${JSON.stringify(record.delivery)}`] : []),
       );
+      store.save(next);
       await deliverObligation(contractId, next, delivery);
     },
   };

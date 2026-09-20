@@ -40,6 +40,9 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   /** Phase 1869 (Step C): drain 后同契约重复提醒系统侧合并——同一消费点同契约
    *  至多交付一条，其余 ack 到 done/（正文保留）。merged_id/kept_id/location 留证。 */
   EXECUTION_RECOVERY_DUPLICATE_MERGED: 'eventloop_execution_recovery_duplicate_merged',
+  /** Phase 1869 (Step F): pending 交付义务被新 activity supersede 的独立变迁事件
+   *  （交付级证据；此前仅内嵌于 reset 载荷的 previous_record，无独立行）。 */
+  EXECUTION_RECOVERY_DELIVERY_SUPERSEDED: 'eventloop_execution_recovery_delivery_superseded',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {
