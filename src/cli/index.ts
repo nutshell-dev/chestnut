@@ -42,7 +42,7 @@ import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.j
 import { createRootConfig, createRootConfigLegacyMigration, createContractActionContext } from '../assembly/index.js';
 import { AUDIT_FILE_STEM } from '../foundation/audit/index.js';
 // phase 1874 Step L: motion 族命令形状经 CLIProtocol catalog 投影（summary/options 单源）
-import { getMotionCommandSpec, getContractCommandSpec, getMiscCommandSpec, applyCommandOptions, type MotionCommandId, type ContractCommandId, type MiscCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
+import { getMotionCommandSpec, getContractCommandSpec, getMiscCommandSpec, getRootCommandSpec, applyCommandOptions, type MotionCommandId, type ContractCommandId, type MiscCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
 // CLAWS_DIR removed: phase 263
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
@@ -94,26 +94,20 @@ program
 program.addCommand(createConfigCommand({ fsFactory, rootConfig, rootConfigLegacy }));
 
 // stop command
-program
-  .command('stop')
-  .description('Stop all chestnut processes (watchdog → motion → claws)')
+rootShape(program.command('stop'), 'stop')
   .action(action('disabled', async () => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await stopAllCommand({ fsFactory, rootConfig }, { audit });
   }));
 
 // status command
-program
-  .command('status')
-  .description('Show status of all chestnut processes')
+rootShape(program.command('status'), 'status')
   .action(action('observe_only', async () => {
     await statusCommand({ fsFactory, rootConfig });
   }));
 
 // start command
-program
-  .command('start')
-  .description('Start the system (initializes if needed) and open Motion chat')
+rootShape(program.command('start'), 'start')
   .action(deferredRequiredAction(async (ensureSupervision) => {
     const { startCommand } = await import('./commands/start.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
@@ -121,9 +115,7 @@ program
   }));
 
 // init command
-program
-  .command('init')
-  .description('Initialize chestnut workspace')
+rootShape(program.command('init'), 'init')
   .action(action('disabled', async () => {
     const { initCommand } = await import('./commands/init.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
@@ -183,6 +175,9 @@ function miscShape<T extends { description(desc: string): unknown } & CommandSha
   literals?: Readonly<Record<string, (registrar: T) => void>>,
 ): T {
   return shapeCmd(cmd, getMiscCommandSpec(id), id, literals);
+}
+function rootShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: 'stop' | 'status' | 'start' | 'init'): T {
+  return shapeCmd(cmd, getRootCommandSpec(id), id);
 }
 
 const motionCmd = program

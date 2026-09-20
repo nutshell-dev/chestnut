@@ -69,3 +69,5 @@ export { SUBAGENT_COMMAND_CATALOG, getSubagentCommandSpec } from './subagent-com
 export type { SubagentCommandId } from './subagent-command-catalog.js';
 export { CONFIG_COMMAND_CATALOG, getConfigCommandSpec } from './config-command-catalog.js';
 export type { ConfigCommandId } from './config-command-catalog.js';
+export { ROOT_COMMAND_CATALOG, getRootCommandSpec } from './root-command-catalog.js';
+export type { RootCommandId } from './root-command-catalog.js';
