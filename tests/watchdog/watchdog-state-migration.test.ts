@@ -288,6 +288,76 @@ describe('watchdog-state migration + schema invariants (Phase 1396 Step H)', () 
     expect(audit.write).not.toHaveBeenCalled();
   });
 
+  it('phase 1878 Step G: 无效 executor 条目 → audit（key + 原因）+ 原文隔离；有效条目零漂移', () => {
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 3,
+      executorRestart: {
+        good: { status: 'closed', consecutiveAttempts: 0 },
+        'bad-status': { status: 'weird', consecutiveAttempts: 1 },
+        'bad-shape': { status: 'retrying', consecutiveAttempts: -1 },
+        'not-object': 'garbage',
+      },
+    }));
+    const audit = makeAudit();
+    setAuditWriter(audit);
+
+    expect(() => loadWatchdogState(fsFactory)).not.toThrow();
+
+    // 有效条目零漂移（跳过语义不变：无效条目不载入）
+    expect(executorRestartStateAPI.snapshot()).toEqual({
+      good: { status: 'closed', consecutiveAttempts: 0 },
+    });
+
+    // 每条无效条目 audit 留证（key + 具体原因 + 隔离位置）
+    const invalidCalls = audit.write.mock.calls.filter(
+      (c) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_EXECUTOR_ENTRY_INVALID,
+    );
+    expect(invalidCalls).toHaveLength(3);
+    const byKey = new Map(invalidCalls.map((c) => [String(c[1]).slice('key='.length), c]));
+    expect(byKey.get('bad-status')!.some((col) => String(col) === 'reason=unknown_status:weird')).toBe(true);
+    expect(byKey.get('bad-shape')!.some((col) => String(col) === 'reason=invalid_retrying_shape')).toBe(true);
+    expect(byKey.get('not-object')!.some((col) => String(col) === 'reason=not_an_object')).toBe(true);
+    for (const c of invalidCalls) {
+      expect(c.some((col) => String(col).startsWith('quarantine='))).toBe(true);
+      expect(c.some((col) => String(col) === 'quarantine_ok=true')).toBe(true);
+    }
+
+    // 原文隔离保存（DP 不丢：raw 原文可从 quarantine 重建）
+    const quarantineDir = path.join(chestnutDir, 'watchdog', 'quarantine');
+    const quarantineFiles = fs.readdirSync(quarantineDir)
+      .filter((f) => f.startsWith('executor-restart-invalid-entries-'));
+    expect(quarantineFiles).toHaveLength(1);
+    const quarantined = JSON.parse(fs.readFileSync(path.join(quarantineDir, quarantineFiles[0]), 'utf-8'));
+    expect(quarantined.entries).toEqual({
+      'bad-status': { status: 'weird', consecutiveAttempts: 1 },
+      'bad-shape': { status: 'retrying', consecutiveAttempts: -1 },
+      'not-object': 'garbage',
+    });
+  });
+
+  it('phase 1878 Step G: 全有效条目 → 无 invalid audit、无 quarantine（零漂移）', () => {
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 3,
+      executorRestart: {
+        a: { status: 'open', consecutiveAttempts: 2, openedAt: 123456, sinkDelivered: true },
+        b: { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: 123999, awaitingStability: false },
+      },
+    }));
+    const audit = makeAudit();
+    setAuditWriter(audit);
+
+    loadWatchdogState(fsFactory);
+
+    expect(executorRestartStateAPI.snapshot()).toEqual({
+      a: { status: 'open', consecutiveAttempts: 2, openedAt: 123456, sinkDelivered: true },
+      b: { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: 123999, awaitingStability: false },
+    });
+    expect(audit.write.mock.calls.filter(
+      (c) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_EXECUTOR_ENTRY_INVALID,
+    )).toHaveLength(0);
+    expect(fs.existsSync(path.join(chestnutDir, 'watchdog', 'quarantine'))).toBe(false);
+  });
+
   it('corrupt JSON emits STATE_LOAD_FAILED and quarantines the file', () => {
     fs.writeFileSync(stateFile, 'NOT_JSON{{{');
     const audit = makeAudit();

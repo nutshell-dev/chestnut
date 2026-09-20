@@ -89,52 +89,68 @@ function normalizeMotionRestartState(value: unknown): MotionRestartState {
   throw new Error('watchdog-state.json invalid motionRestart');
 }
 
-function normalizeExecutorRestartMap(value: unknown): ExecutorRestartMap {
+/** 无效条目原因分类（判定标准保持现状：closed/retrying/open 两态 schema，只加可观察性）。 */
+function classifyInvalidExecutorEntry(rawState: unknown): string {
+  if (typeof rawState !== 'object' || rawState === null) return 'not_an_object';
+  const s = rawState as Record<string, unknown>;
+  if (s.status !== 'closed' && s.status !== 'retrying' && s.status !== 'open') {
+    return `unknown_status:${String(s.status)}`;
+  }
+  return `invalid_${String(s.status)}_shape`;
+}
+
+function normalizeExecutorRestartMap(
+  value: unknown,
+  onInvalidEntry?: (key: string, reason: string, raw: unknown) => void,
+): ExecutorRestartMap {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return {};
   }
   const raw = value as Record<string, unknown>;
   const out: ExecutorRestartMap = {};
   for (const [key, rawState] of Object.entries(raw)) {
-    if (typeof rawState !== 'object' || rawState === null) continue;
-    const s = rawState as Record<string, unknown>;
-    if (s.status === 'closed' && s.consecutiveAttempts === 0) {
-      out[key] = { status: 'closed', consecutiveAttempts: 0 };
-      continue;
+    if (typeof rawState === 'object' && rawState !== null) {
+      const s = rawState as Record<string, unknown>;
+      if (s.status === 'closed' && s.consecutiveAttempts === 0) {
+        out[key] = { status: 'closed', consecutiveAttempts: 0 };
+        continue;
+      }
+      if (
+        s.status === 'retrying'
+        && Number.isInteger(s.consecutiveAttempts)
+        && (s.consecutiveAttempts as number) > 0
+        && typeof s.nextAttemptAt === 'number'
+        && Number.isFinite(s.nextAttemptAt)
+        && typeof s.awaitingStability === 'boolean'
+      ) {
+        out[key] = {
+          status: 'retrying',
+          consecutiveAttempts: s.consecutiveAttempts as number,
+          nextAttemptAt: s.nextAttemptAt,
+          awaitingStability: s.awaitingStability,
+        };
+        continue;
+      }
+      if (
+        s.status === 'open'
+        && Number.isInteger(s.consecutiveAttempts)
+        && (s.consecutiveAttempts as number) > 0
+        && typeof s.openedAt === 'number'
+        && Number.isFinite(s.openedAt)
+      ) {
+        const open: ExecutorRestartState = {
+          status: 'open',
+          consecutiveAttempts: s.consecutiveAttempts as number,
+          openedAt: s.openedAt,
+        };
+        if (s.sinkDelivered === true) open.sinkDelivered = true;
+        out[key] = open;
+        continue;
+      }
     }
-    if (
-      s.status === 'retrying'
-      && Number.isInteger(s.consecutiveAttempts)
-      && (s.consecutiveAttempts as number) > 0
-      && typeof s.nextAttemptAt === 'number'
-      && Number.isFinite(s.nextAttemptAt)
-      && typeof s.awaitingStability === 'boolean'
-    ) {
-      out[key] = {
-        status: 'retrying',
-        consecutiveAttempts: s.consecutiveAttempts as number,
-        nextAttemptAt: s.nextAttemptAt,
-        awaitingStability: s.awaitingStability,
-      };
-      continue;
-    }
-    if (
-      s.status === 'open'
-      && Number.isInteger(s.consecutiveAttempts)
-      && (s.consecutiveAttempts as number) > 0
-      && typeof s.openedAt === 'number'
-      && Number.isFinite(s.openedAt)
-    ) {
-      const open: ExecutorRestartState = {
-        status: 'open',
-        consecutiveAttempts: s.consecutiveAttempts as number,
-        openedAt: s.openedAt,
-      };
-      if (s.sinkDelivered === true) open.sinkDelivered = true;
-      out[key] = open;
-      continue;
-    }
-    // Invalid per-claw state: skip silently rather than failing the whole map.
+    // Phase 1878 Step G: 无效条目不再静默跳过——caller 审计留证 + 原文隔离；
+    // 载入语义不变（跳过 = 视为无该条目，但显式可观察、原文不丢）。
+    onInvalidEntry?.(key, classifyInvalidExecutorEntry(rawState), rawState);
   }
   return out;
 }
@@ -255,7 +271,44 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
 
     const motionRestart = normalizeMotionRestartState(state.motionRestart);
     motionRestartStateAPI.replace(motionRestart);
-    executorRestartStateAPI.replace(normalizeExecutorRestartMap(state.executorRestart));
+
+    // Phase 1878 Step G: 无效 executor 条目显式处置——audit（key + 原因）+ 原文
+    // 隔离保存（防静默归零导致的重启风暴/重复交付；载入跳过语义不变）。
+    const invalidEntries: { key: string; reason: string; raw: unknown }[] = [];
+    executorRestartStateAPI.replace(
+      normalizeExecutorRestartMap(state.executorRestart, (key, reason, rawEntry) => {
+        invalidEntries.push({ key, reason, raw: rawEntry });
+      }),
+    );
+    if (invalidEntries.length > 0) {
+      const quarantinePath = `${WATCHDOG_PATHS.quarantine}/executor-restart-invalid-entries-${Date.now()}.json`;
+      let quarantineOk = true;
+      let quarantineErr: string | undefined;
+      try {
+        fs.writeAtomicSync(quarantinePath, JSON.stringify({
+          schema_version: 1,
+          retired_at: new Date().toISOString(),
+          source: statePath,
+          entries: Object.fromEntries(invalidEntries.map((e) => [e.key, e.raw])),
+        }, null, 2));
+      } catch (qErr) {
+        quarantineOk = false;
+        quarantineErr = formatErr(qErr);
+      }
+      const entryAudit = getAuditWriter();
+      for (const entry of invalidEntries) {
+        entryAudit?.write(
+          WATCHDOG_AUDIT_EVENTS.STATE_EXECUTOR_ENTRY_INVALID,
+          `key=${entry.key}`,
+          `reason=${entry.reason}`,
+          `quarantine=${quarantinePath}`,
+          `quarantine_ok=${quarantineOk}`,
+          ...(quarantineErr !== undefined
+            ? [`quarantine_error=${entryAudit?.message(quarantineErr) ?? quarantineErr}`]
+            : []),
+        );
+      }
+    }
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
