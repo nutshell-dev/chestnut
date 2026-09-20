@@ -96,7 +96,10 @@ vi.mock('../../src/core/contract/manager.js', () => {
   };
 });
 
-vi.mock('../../src/foundation/audit/index.js', () => ({
+vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
+  // phase 1873 Step K: 部分 mock——barrel 其他导出（AUDIT_SNAPSHOT_IGNORE /
+  // readLastAuditEvent）经 daemon 模块图被消费。
+  ...(await importOriginal<typeof import('../../src/foundation/audit/index.js')>()),
   AUDIT_FILE: 'audit.tsv',
   createSystemAudit: vi.fn(() => ({
     write: mockState.mockAuditWrite,

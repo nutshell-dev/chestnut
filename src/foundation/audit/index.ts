@@ -106,3 +106,7 @@ export type {
   ReadOptions,
   AuditFileInfo,
 } from './reader.js';
+
+// phase 1873 Step K: audit 尾部事件稳定读取 query（tsv 物理格式收口在 owner）
+export { readLastAuditEvent } from './last-event.js';
+export type { AuditEventRecord, LastAuditEventResult } from './last-event.js';

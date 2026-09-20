@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
-import { summarizeLastExit, readLastExitEvent } from '../../src/daemon/last-exit-summary.js';
+import { summarizeLastExit } from '../../src/daemon/last-exit-summary.js';
+// phase 1873 Step K: 尾部读取归 AuditLog owner（readLastAuditEvent typed 事实）
+import { readLastAuditEvent } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 
@@ -133,32 +135,47 @@ describe('summarizeLastExit', () => {
   });
 });
 
-describe('readLastExitEvent', () => {
-  // 基础 reader 行为已被 summarizeLastExit 间接覆盖；
-  // 这里补一个直接测试，验证返回结构
-  it('returns parsed event structure', async () => {
+describe('readLastAuditEvent（AuditLog owner query, phase 1873 Step K）', () => {
+  it('returns typed found fact with parsed cols', async () => {
     const tmpDir = await createTrackedTempDir('last-exit-test-');
     const auditPath = path.join(tmpDir, 'audit.tsv');
     fs.writeFileSync(auditPath, '2026-04-16T10:00:00.000Z\tdaemon_stop\treason=sigterm\textra=col\n');
     const innerFs = new NodeFileSystem({ baseDir: tmpDir });
     try {
-      const ev = readLastExitEvent(innerFs, 'audit.tsv');
-      expect(ev).not.toBeNull();
-      expect(ev!.ts).toBe('2026-04-16T10:00:00.000Z');
-      expect(ev!.type).toBe('daemon_stop');
-      expect(ev!.cols).toEqual(['reason=sigterm', 'extra=col']);
+      const result = readLastAuditEvent(innerFs, 'audit.tsv');
+      expect(result.kind).toBe('found');
+      if (result.kind !== 'found') throw new Error('unexpected');
+      expect(result.event.ts).toBe('2026-04-16T10:00:00.000Z');
+      expect(result.event.type).toBe('daemon_stop');
+      expect(result.event.cols).toEqual(['reason=sigterm', 'extra=col']);
     } finally {
       await cleanupTempDir(tmpDir);
     }
   });
 
-  it('reports unexpected I/O failure through the caller-owned observer', () => {
+  it('missing file / empty file → none（无退出记录，非错误）', async () => {
+    const tmpDir = await createTrackedTempDir('last-exit-test-');
+    const innerFs = new NodeFileSystem({ baseDir: tmpDir });
+    try {
+      expect(readLastAuditEvent(innerFs, 'audit.tsv').kind).toBe('none');
+      fs.writeFileSync(path.join(tmpDir, 'audit.tsv'), '');
+      expect(readLastAuditEvent(innerFs, 'audit.tsv').kind).toBe('none');
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  });
+
+  it('unexpected I/O failure → io_error 原样携带（不折 none）；summarize 经 observer 留证', () => {
     const onReadError = vi.fn();
     const brokenFs = {
       existsSync: () => { throw new Error('EACCES'); },
     } as unknown as FileSystem;
 
-    expect(readLastExitEvent(brokenFs, 'audit.tsv', onReadError)).toBeNull();
+    const result = readLastAuditEvent(brokenFs, 'audit.tsv');
+    expect(result.kind).toBe('io_error');
+    expect(result.kind === 'io_error' && (result.error as Error).message).toBe('EACCES');
+
+    expect(summarizeLastExit(brokenFs, 'audit.tsv', onReadError)).toBeNull();
     expect(onReadError).toHaveBeenCalledWith(expect.objectContaining({ message: 'EACCES' }));
   });
 });

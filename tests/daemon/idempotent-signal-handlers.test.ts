@@ -15,7 +15,10 @@ vi.mock('../../src/daemon/daemon-loop.js', () => ({
   }),
 }));
 
-vi.mock('../../src/foundation/audit/index.js', () => ({
+vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
+  // phase 1873 Step K: 部分 mock——barrel 其他导出（AUDIT_SNAPSHOT_IGNORE /
+  // readLastAuditEvent 等）经模块图（last-exit-summary / snapshot-patterns）被消费。
+  ...(await importOriginal<typeof import('../../src/foundation/audit/index.js')>()),
   AUDIT_FILE: 'audit.tsv',
   createSystemAudit: vi.fn(() => ({
     write: vi.fn(),
