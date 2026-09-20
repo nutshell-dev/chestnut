@@ -70,7 +70,9 @@ export function createMockWatcherFactory(fs: FileSystem): { factory: WatcherFact
     if (!originalWriteAtomic) {
       originalWriteAtomic = fs.writeAtomic.bind(fs);
       fs.writeAtomic = (async (p: string, content: string) => {
-        await originalWriteAtomic!(p, content);
+        // Phase 1869 (Step E 随改): 透传 AtomicWriteResult —— 原先吞掉返回值
+        // 违反 FileSystem 契约，破坏消费写入结果的写入方（inbox-writer 耐久性三态消费）。
+        const result = await originalWriteAtomic!(p, content);
         const resolved = fs.resolve(p);
         for (const w of activeWatchers) {
           if (!w.active) continue;
@@ -78,6 +80,7 @@ export function createMockWatcherFactory(fs: FileSystem): { factory: WatcherFact
             queueMicrotask(() => w.callback({ type: 'add', path: resolved }));
           }
         }
+        return result;
       }) as FileSystem['writeAtomic'];
     }
     const entry = { watchPath, callback, active: true };
