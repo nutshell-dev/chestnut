@@ -29,7 +29,7 @@ vi.mock('../../../src/foundation/claw-identity/instance-paths.js', async (import
     getClawConfigPath: vi.fn(),
   };
 });
-function makeAudit(): AuditLog & { events: [string, ...(string | number)[]][] } {
+function makeAudit(): AuditLog & { events: [string, ...(string | number)[]][]; dispose: ReturnType<typeof vi.fn> } {
   const events: [string, ...(string | number)[]][] = [];
   return {
     __brand: 'AuditLog',
@@ -45,9 +45,10 @@ function makeAudit(): AuditLog & { events: [string, ...(string | number)[]][] } 
     summary(s: string) {
       return s;
     },
-    dispose() {},
+    // phase 1879 Step B: action context dispose 对称断言面（原 dispose() {} 空实现）
+    dispose: vi.fn(),
     events,
-  } as unknown as AuditLog & { events: [string, ...(string | number)[]][] };
+  } as unknown as AuditLog & { events: [string, ...(string | number)[]][]; dispose: ReturnType<typeof vi.fn> };
 }
 
 let currentAudit: ReturnType<typeof makeAudit>;
@@ -174,5 +175,12 @@ describe('claw-status (phase 1472 Step C)', () => {
     );
     expect(runningErrors.length).toBe(1);
     expect(runningErrors[0][1]).toMatch(/^error=/);
+    // phase 1879 Step B: 错误审计写路径同样终态 dispose（资源对称）
+    expect(currentAudit.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('phase 1879 Step B: 成功路径 dispose action audit 恰好一次', async () => {
+    await clawStatusCommand(commandDeps, 'foo', {});
+    expect(currentAudit.dispose).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,7 +17,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
-import { getClawDir, makeClawId, resolveChestnutRoot } from '../foundation/claw-identity/index.js';
+import { getClawDir, getNamedSubrootDir, makeClawId, resolveChestnutRoot } from '../foundation/claw-identity/index.js';
 import { createClawNotifier } from '../foundation/messaging/index.js';
 import { makeClawNotifyTargetResolver, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createContractSystem, type ContractSystem } from '../core/contract/index.js';
@@ -52,6 +52,14 @@ export interface ContractActionContext extends ClawActionAudit {
   system: ContractSystem;
 }
 
+/** 装配目标：普通 claw（.chestnut/claws/<id>）或 motion（.chestnut/motion）。 */
+interface ContractActionTarget {
+  clawDir: string;
+  clawId: string;
+  /** chestnutRoot 反推层级：motion 一层 up / 普通 claw 两层 up。 */
+  isMotion: boolean;
+}
+
 /**
  * 完整入口：为一次 contract create/cancel/show 动作装配 ContractSystem。
  *
@@ -64,9 +72,39 @@ export async function createContractActionContext(
   clawId: string,
   opts: { withSummonVerifyPolicy?: boolean } = {},
 ): Promise<ContractActionContext> {
-  const clawDir = getClawDir(clawId);
+  return buildContractActionContext(
+    deps,
+    { clawDir: getClawDir(clawId), clawId, isMotion: false },
+    opts,
+  );
+}
+
+/**
+ * motion 变体（phase 1879 Step B，cli-contract-action-residual-overassembly 收口）：
+ * `start` 命令 onboarding contract 的一次性 create 动作——目标是 motion 目录
+ * （getNamedSubrootDir(MOTION_CLAW_ID)，非 getClawDir），chestnutRoot 反推 isMotion=true。
+ * 除目标解析外与 createContractActionContext 逐位同构；默认不装 summon verify policy
+ * （与迁移前 start.ts 内联裸 createToolRegistry() 形态等价，零行为漂移）。
+ */
+export async function createMotionContractActionContext(
+  deps: ContractActionFsDeps,
+  opts: { withSummonVerifyPolicy?: boolean } = {},
+): Promise<ContractActionContext> {
+  return buildContractActionContext(
+    deps,
+    { clawDir: getNamedSubrootDir(MOTION_CLAW_ID), clawId: MOTION_CLAW_ID, isMotion: true },
+    opts,
+  );
+}
+
+async function buildContractActionContext(
+  deps: ContractActionFsDeps,
+  target: ContractActionTarget,
+  opts: { withSummonVerifyPolicy?: boolean },
+): Promise<ContractActionContext> {
+  const { clawDir, clawId, isMotion } = target;
   const clawFs = deps.fsFactory(clawDir);
-  const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
+  const chestnutRoot = resolveChestnutRoot(clawDir, isMotion);
   const audit = createSystemAudit(clawFs, clawDir);
   const toolRegistry = createToolRegistry();
 
@@ -88,7 +126,7 @@ export async function createContractActionContext(
       chestnutRoot,
       audit,
       toolRegistry,
-      isMotion: false,
+      isMotion,
       // phase 1864 Step G（CT-D10）：跨目标 capability 装配期授予。
       crossTargetAccess: createCrossTargetAccess({
         grantedBy: 'claw-cross-target',

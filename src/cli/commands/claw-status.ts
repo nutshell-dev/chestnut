@@ -16,17 +16,13 @@
  * - format 与 agent status tool 输出一致、避免漂移；多 `Claw:` header 标 namespace
  */
 
-import { resolveChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
 // CLAWS_DIR removed: phase 263
-import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
-import { createClawNotifier } from '../../foundation/messaging/index.js';
-import { ContractSystem } from '../../core/contract/index.js';
-import { createToolRegistry } from '../../foundation/tools/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
+// phase 1879 Step B: ContractSystem 装配归 Assembly 窄 action context（1874 Step F 形态）——
+// CLI 不再直构造 ContractSystem/ToolRegistry/AuditLog；audit 由 context own、动作终态 dispose。
+import { createContractActionContext } from '../../assembly/index.js';
 import {
   computeContractView,
   computeTaskView,
@@ -56,66 +52,53 @@ export async function clawStatusCommand(
 
   const clawDir = getClawDir(name);
   const clawFs = deps.fsFactory(clawDir);
-  const clawId = makeClawId(name);
-  const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
 
-  const audit = createSystemAudit(clawFs, clawDir);
-  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
-  const clawNotifier = createClawNotifier({
-    fs: clawFs,
-    audit,
-    resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
-  });
-  const contractSystem = new ContractSystem({
-    clawDir,
-    clawId,
-    fs: clawFs,
-    audit,
-    toolRegistry: createToolRegistry(),
-    fsFactory: deps.fsFactory,
-    // clawsDir removed: phase 263
-    notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
-  });
+  const action = await createContractActionContext(deps, name);
+  try {
+    const audit = action.audit;
 
-  const [contractView, taskView, storageView] = await Promise.all([
-    computeContractView(contractSystem),
-    computeTaskView(clawFs),
-    computeStorageView(clawFs),
-  ]);
+    const [contractView, taskView, storageView] = await Promise.all([
+      computeContractView(action.system),
+      computeTaskView(clawFs),
+      computeStorageView(clawFs),
+    ]);
 
-  if (contractView.type === 'error') {
-    audit.write(STATUS_AUDIT_EVENTS.CONTRACT_ERROR, `error=${contractView.message}`);
+    if (contractView.type === 'error') {
+      audit.write(STATUS_AUDIT_EVENTS.CONTRACT_ERROR, `error=${contractView.message}`);
+    }
+    if (taskView.type === 'counts' && taskView.pendingError) {
+      audit.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${taskView.pendingError}`);
+    }
+    if (taskView.type === 'counts' && taskView.runningError) {
+      audit.write(STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR, `error=${taskView.runningError}`);
+    }
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            claw: name,
+            clawDir: path.resolve(clawDir),
+            contract: contractView,
+            tasks: taskView,
+            storage: storageView,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    const lines: string[] = [];
+    lines.push(`Claw: ${name}`);
+    // phase 369 §4 (review-2026-06-13): 'string:' 是 typeof 泄漏、不是字段语义；改 'Dir:'
+    lines.push(`Dir: ${path.resolve(clawDir)}`);
+    lines.push(formatContractView(contractView));
+    lines.push(formatTaskView(taskView));
+    lines.push(...formatStorageView(storageView));
+    console.log(lines.join('\n'));
+  } finally {
+    action.dispose();
   }
-  if (taskView.type === 'counts' && taskView.pendingError) {
-    audit.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${taskView.pendingError}`);
-  }
-  if (taskView.type === 'counts' && taskView.runningError) {
-    audit.write(STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR, `error=${taskView.runningError}`);
-  }
-
-  if (opts.json) {
-    console.log(
-      JSON.stringify(
-        {
-          claw: name,
-          clawDir: path.resolve(clawDir),
-          contract: contractView,
-          tasks: taskView,
-          storage: storageView,
-        },
-        null,
-        2,
-      ),
-    );
-    return;
-  }
-
-  const lines: string[] = [];
-  lines.push(`Claw: ${name}`);
-  // phase 369 §4 (review-2026-06-13): 'string:' 是 typeof 泄漏、不是字段语义；改 'Dir:'
-  lines.push(`Dir: ${path.resolve(clawDir)}`);
-  lines.push(formatContractView(contractView));
-  lines.push(formatTaskView(taskView));
-  lines.push(...formatStorageView(storageView));
-  console.log(lines.join('\n'));
 }

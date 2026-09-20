@@ -64,12 +64,15 @@ vi.mock('../../src/core/contract/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/contract/index.js')>();
   return {
     ...actual,
-    ContractSystem: class {
-      async create(): Promise<string> {
+    // phase 1879 Step B: start 的 ContractSystem 装配归 Assembly 窄 action context
+    // （createMotionContractActionContext 内经 createContractSystem 工厂构造）——
+    // mock 目标随装配收口从 ContractSystem 类迁到 createContractSystem 工厂。
+    createContractSystem: vi.fn(async () => ({
+      create: async (): Promise<string> => {
         h.order.push('contract-create');
         return 'onboarding-test';
-      }
-    },
+      },
+    })),
   };
 });
 

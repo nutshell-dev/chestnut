@@ -35,6 +35,6 @@ export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
 export type { ClawGlobalConfig } from './config/compose-config.js';
 export { wireClawTopology } from './wire-claw-topology.js';
 // phase 1874 Step F: contract CLI action 窄装配入口（装配语义归 Assembly）
-export { createContractActionContext, createClawContractAudit } from './contract-action.js';
+export { createContractActionContext, createMotionContractActionContext, createClawContractAudit } from './contract-action.js';
 export type { ContractActionContext, ClawActionAudit, ContractActionFsDeps } from './contract-action.js';
 export { createCrossTargetAccess } from './cross-target-access.js';

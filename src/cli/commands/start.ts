@@ -27,8 +27,7 @@ import {
 } from './motion.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 
-import { ContractSystem } from '../../core/contract/index.js';
-import { createToolRegistry } from '../../foundation/tools/index.js';
+import { createMotionContractActionContext } from '../../assembly/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
@@ -218,14 +217,21 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
     const language = await pickLanguage();
     await daemonReady;
 
-    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message) });
-    const contractId = await manager.create({
-      schema_version: 1,
-      title: 'Onboarding',
-      goal: 'Get to know the user and establish your identity before anything else. No interrogation — just talk.',
-      subtasks: buildOnboardingSubtasks(language),
-      verification: [],
-    });
+    // phase 1879 Step B: onboarding contract 的一次性 ContractSystem 装配归 Assembly
+    // 窄 action context（motion 变体）——CLI 不再直构造；audit 由 context own、终态 dispose。
+    const action = await createMotionContractActionContext(deps);
+    let contractId: string;
+    try {
+      contractId = await action.system.create({
+        schema_version: 1,
+        title: 'Onboarding',
+        goal: 'Get to know the user and establish your identity before anything else. No interrogation — just talk.',
+        subtasks: buildOnboardingSubtasks(language),
+        verification: [],
+      });
+    } finally {
+      action.dispose();
+    }
 
     
     clawNotifier.notify(MOTION_CLAW_ID, {
@@ -240,14 +246,19 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
     // 非首次但 not_found（极少），或 in_progress
     await daemonReady;
     if (onboarding.state === 'not_found') {
-      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message) });
-      const contractId = await manager.create({
-        schema_version: 1,
-        title: 'Onboarding',
-        goal: 'Get to know the user and establish your identity before anything else.',
-        subtasks: buildOnboardingSubtasks('auto'),
-        verification: [],
-      });
+      const action = await createMotionContractActionContext(deps);
+      let contractId: string;
+      try {
+        contractId = await action.system.create({
+          schema_version: 1,
+          title: 'Onboarding',
+          goal: 'Get to know the user and establish your identity before anything else.',
+          subtasks: buildOnboardingSubtasks('auto'),
+          verification: [],
+        });
+      } finally {
+        action.dispose();
+      }
       clawNotifier.notify(MOTION_CLAW_ID, {
         type: 'contract_created', source: 'system', priority: 'high',
         body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
