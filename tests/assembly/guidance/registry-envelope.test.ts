@@ -11,7 +11,11 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createMotionGuidanceRegistry, NO_GUIDANCE } from '../../../src/assembly/guidance/index.js';
+import {
+  createMotionGuidanceRegistry,
+  GuidanceRegistryConflictError,
+  NO_GUIDANCE,
+} from '../../../src/assembly/guidance/index.js';
 import type { GuidanceEnvelope } from '../../../src/core/runtime/index.js';
 
 describe('phase 1256 Step B: registry compose envelope fidelity', () => {
@@ -35,7 +39,7 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
     expect(spy.mock.calls[0][0].meta).toBe(input.meta);
   });
 
-  it('unknown type → null（last-win/unknown-null 行为不变）', () => {
+  it('unknown type → null（未注册回退行为不变）', () => {
     const registry = createMotionGuidanceRegistry();
     expect(
       registry.compose({ type: 'never_registered', from: 'x', meta: {} }),
@@ -48,5 +52,21 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
     expect(
       registry.compose({ type: 'verification_result', from: 'worker-1', meta: { contract_id: 'c1' } }),
     ).toBeNull();
+  });
+
+  it('phase 1877 Step E: 重复 type 注册 fail-loud（含冲突 type、既有 composer 不被覆盖）', () => {
+    const registry = createMotionGuidanceRegistry();
+    const first = vi.fn().mockReturnValue({ text: 'first' });
+    registry.register('dup_type', first);
+    expect(registry.has('dup_type')).toBe(true);
+    expect(registry.has('never_registered')).toBe(false);
+    // Map.set last-win 静默覆盖路径已消除：typed/generic 同 namespace 门禁
+    expect(() => registry.register('dup_type', NO_GUIDANCE))
+      .toThrowError(GuidanceRegistryConflictError);
+    expect(() => registry.register('dup_type', NO_GUIDANCE))
+      .toThrowError(/dup_type/);
+    // 既有 composer 保持、无部分覆盖
+    expect(registry.compose({ type: 'dup_type', from: 'x', meta: {} })).toEqual({ text: 'first' });
+    expect(first).toHaveBeenCalledTimes(1);
   });
 });

@@ -31,8 +31,15 @@ export interface MotionGuidanceRegistry {
   /**
    * 业主装配期显式 register 自家 type 的 composer（含 NO_GUIDANCE sentinel 表态 P3 类无 guidance）。
    * 装配期一次性调用、运行期不再改。
+   * phase 1877 Step E（cli-protocol-registrar-duplicate-gap 收口）：重复 type fail-loud
+   * （throw、含冲突 type），不再 `Map.set` last-win 静默覆盖；既有 composer 保持不变。
    */
   register<S = Readonly<Record<string, string>>>(type: string, composer: GuidanceComposer<S>): void;
+  /**
+   * 查询 type 是否已注册（phase 1877 Step E：CLIProtocol `CliGuidanceRegistrar` 跨批
+   * 重复门禁的结构适配面；typed binding 与 generic composer 同一命名空间）。
+   */
+  has(type: string): boolean;
   /**
    * Runtime motion-side append 时调、按 envelope.type lookup composer 并原样传 envelope。
    * 未 register 返 null（Runtime fallback 仅 base body / 不 append guidance）。

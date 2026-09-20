@@ -314,6 +314,9 @@ function createFakeRegistrar() {
       calls.push(type);
       composers.set(type, composer);
     },
+    has(type) {
+      return composers.has(type);
+    },
   };
   return { registrar, calls, composers };
 }
@@ -467,6 +470,25 @@ describe('phase 1263 Step B: registerCliGuidance', () => {
     expect(() => registerCliGuidance(registrar, [first, second, third]))
       .toThrowError(/duplicate cli guidance binding type: fake_type/);
     expect(calls).toEqual([]); // 不能注册一半才发现冲突
+  });
+
+  it('phase 1877 Step E: 跨批重复 type（registrar 已有注册）→ preflight fail-fast、整批零注册', () => {
+    const { registrar, calls } = createFakeRegistrar();
+    registerCliGuidance(registrar, [fakeBinding()]);
+    expect(calls).toEqual(['fake_type']);
+    const dup = defineCliGuidanceBinding({
+      type: 'fake_type',
+      decode: () => ({ clawId: 'clawB', count: 1 }),
+      toDocument: () => null,
+    });
+    const fresh = defineCliGuidanceBinding({
+      type: 'fake_fresh',
+      decode: () => ({ clawId: 'clawC', count: 1 }),
+      toDocument: () => null,
+    });
+    expect(() => registerCliGuidance(registrar, [dup, fresh]))
+      .toThrowError(/cli guidance binding type already registered: fake_type/);
+    expect(calls).toEqual(['fake_type']); // 整批无部分提交
   });
 
   it('空 bindings 合法 no-op（零注册）', () => {

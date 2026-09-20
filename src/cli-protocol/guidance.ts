@@ -27,6 +27,9 @@
  * - `registerCliGuidance` 发起 decode→adapt→render→register；duplicate type 在调
  *   registrar 前完整 preflight fail-fast（不能注册一半才发现冲突）；decoder/adapter/
  *   renderer error 原样传播（不 catch、不包装成 null，Runtime 现有 audit 边界处理）。
+ *   phase 1877 Step E（cli-protocol-registrar-duplicate-gap 收口）：registrar 暴露
+ *   既有 type 查询（`has`），preflight 同时拒绝跨批重复 type——不再依赖调用方
+ *   自觉、registry 层 `Map.set` last-win 静默覆盖路径消除。
  */
 
 import { renderClawInvocation, CONTRACT_COMMANDS } from './invocation.js';
@@ -285,14 +288,18 @@ export interface CliGuidanceInput {
 }
 
 /**
- * 最小 registrar port — Assembly registry 的结构适配面。只暴露 register；
- * CLIProtocol 不接管 registry resource、不认识 generic guidance / NO_GUIDANCE。
+ * 最小 registrar port — Assembly registry 的结构适配面。register + 既有 type
+ * 查询（phase 1877 Step E：跨批重复 type 由 registrar 层门禁 fail-loud，
+ * 不依赖调用方 preflight）；CLIProtocol 不接管 registry resource、不认识
+ * generic guidance / NO_GUIDANCE。
  */
 export interface CliGuidanceRegistrar {
   register(
     type: string,
     composer: (input: CliGuidanceInput) => { text: string } | null,
   ): void;
+  /** 查询 type 是否已有注册（含 typed binding 与 generic composer）。 */
+  has(type: string): boolean;
 }
 
 /**
@@ -322,8 +329,10 @@ export function defineCliGuidanceBinding<State>(
  * `input → decode（throw 原样传播）→ toDocument（null = 合法显式无 affordance）
  * → renderCliGuidanceDocument → { text }`。
  *
- * duplicate type 在调用 registrar 前完整 preflight fail-fast（避免 registrar 的
- * last-win 静默覆盖 / 注册一半才发现冲突）；bindings 顺序不改变；空列表合法 no-op。
+ * duplicate type 在调用 registrar 前完整 preflight fail-fast：批内重复（bindings
+ * 自相冲突）与跨批重复（registrar 已有同 type 注册，phase 1877 Step E）都拒绝，
+ * 避免 registrar 的 last-win 静默覆盖 / 注册一半才发现冲突（整批无部分提交）；
+ * bindings 顺序不改变；空列表合法 no-op。
  * 不 catch decoder/adapter/renderer error — Runtime 现有 audit 边界处理。
  */
 export function registerCliGuidance(
@@ -334,6 +343,9 @@ export function registerCliGuidance(
   for (const binding of bindings) {
     if (seen.has(binding.type)) {
       throw new CliGuidanceRenderError(`duplicate cli guidance binding type: ${binding.type}`);
+    }
+    if (registrar.has(binding.type)) {
+      throw new CliGuidanceRenderError(`cli guidance binding type already registered: ${binding.type}`);
     }
     seen.add(binding.type);
   }

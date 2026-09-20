@@ -7,5 +7,5 @@
 
 export type { GuidanceEntry, GuidanceComposer, MotionGuidanceRegistry } from './types.js';
 export { NO_GUIDANCE } from './types.js';
-export { createMotionGuidanceRegistry } from './registry.js';
+export { createMotionGuidanceRegistry, GuidanceRegistryConflictError } from './registry.js';
 export { registerAllMotionGuidance } from './composers/index.js';

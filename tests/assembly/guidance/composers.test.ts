@@ -105,7 +105,7 @@ describe('claw-outbox-summary typed binding (phase 1265 Step A)', () => {
   /** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
   function composeOutboxSummary(meta: Record<string, string>, from: string): { text: string } | null {
     const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
-    registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [clawOutboxSummaryGuidanceBinding]);
+    registerCliGuidance({ register: (type, composer) => composers.set(type, composer), has: (type) => composers.has(type) }, [clawOutboxSummaryGuidanceBinding]);
     const composer = composers.get('claw_outbox_summary');
     if (!composer) throw new Error('claw_outbox_summary binding was not registered');
     return composer(env('claw_outbox_summary', meta, from));
@@ -217,7 +217,7 @@ describe('phase 63+190+198 + phase 1262 + phase 1267: contract_cancelled typed b
   /** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
   function composeContractCancelled(meta: Record<string, string>, from: string): { text: string } | null {
     const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
-    registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [contractCancelledGuidanceBinding]);
+    registerCliGuidance({ register: (type, composer) => composers.set(type, composer), has: (type) => composers.has(type) }, [contractCancelledGuidanceBinding]);
     const composer = composers.get('contract_cancelled');
     if (!composer) throw new Error('contract_cancelled binding was not registered');
     return composer(env('contract_cancelled', meta, from));
@@ -399,7 +399,7 @@ describe('phase 205 + phase 1261 + phase 1266: contract-events typed binding', (
   /** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
   function composeContractEvents(meta: Record<string, string>, from: string): { text: string } | null {
     const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
-    registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [contractEventsGuidanceBinding]);
+    registerCliGuidance({ register: (type, composer) => composers.set(type, composer), has: (type) => composers.has(type) }, [contractEventsGuidanceBinding]);
     const composer = composers.get('contract_events');
     if (!composer) throw new Error('contract_events binding was not registered');
     return composer(env('contract_events', meta, from));
