@@ -103,15 +103,32 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // generation identity 在 Assembly 成功后激活 generation。）
     let instances: Instances;
     try {
-      instances = await deps.assemble({
-        identity: isMotion ? 'motion' : 'claw', // identity='motion' literal
-        clawId: clawId,
-        clawDir: dir,
-        globalConfig,
-        // phase 386: AssembleConfig.clawConfig 是 `ClawConfig | null`、loadClawConfig 返 `... | undefined` → coalesce null
-        clawConfig: clawConfig ?? null,
-        processGenerationId,
-      });
+      // phase 1872 Step B: AssembleConfig 判别联合——claw 分支 clawConfig 必填。
+      // loadClaw 数据缺失（文件不存在/未建）是运行期数据条件（非静态非法输入），
+      // 保留原 assemble 运行时校验的失败面：同一 reason 文案 + 同一审计/退出路径。
+      let assembleConfig: AssembleConfig;
+      if (isMotion) {
+        assembleConfig = {
+          identity: 'motion', // identity='motion' literal（行注释 allowlist）
+          clawId: clawId,
+          clawDir: dir,
+          globalConfig,
+          processGenerationId,
+        };
+      } else {
+        if (!clawConfig) {
+          throw new Error('clawConfig is required when identity=claw');
+        }
+        assembleConfig = {
+          identity: 'claw',
+          clawId: clawId,
+          clawDir: dir,
+          globalConfig,
+          clawConfig,
+          processGenerationId,
+        };
+      }
+      instances = await deps.assemble(assembleConfig);
     } catch (e) {
       const reason = formatErr(e);
       preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=pre_assemble', 'phase=preconstruct', `reason=${reason}`);

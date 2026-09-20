@@ -354,7 +354,6 @@ describe('assemble', () => {
       },
       tool_timeout_ms: 30000,
     }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 
   beforeEach(() => {

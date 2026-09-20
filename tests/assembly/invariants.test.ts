@@ -372,7 +372,6 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
       },
       tool_timeout_ms: 30000,
     }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 
   beforeEach(() => {
@@ -448,7 +447,6 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
       },
       tool_timeout_ms: 30000,
     }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 
   beforeEach(() => {
@@ -516,7 +514,6 @@ describe('contract observer bridge → evolution guard (phase 620 / phase 1396 S
       },
       tool_timeout_ms: 30000,
     }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 
   beforeEach(() => {
@@ -625,7 +622,6 @@ describe('assemble-evolution-stepE-boundaries', () => {
       },
       tool_timeout_ms: 30000,
     }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 
   const clawBaseConfig = {
@@ -755,7 +751,6 @@ describe('phase1396-execution-recovery-wiring', () => {
       },
       tool_timeout_ms: 30000,
     }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 
   beforeEach(() => {

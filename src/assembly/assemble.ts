@@ -82,9 +82,8 @@ export async function assemble(
 ): Promise<Instances> {
   const startTime = Date.now();
   const { identity, clawId, clawDir } = config;
-  if (identity === 'claw' && !config.clawConfig) {
-    throw new Error('clawConfig is required when identity=claw');
-  }
+  // phase 1872 Step B: 非法输入（claw 缺 clawConfig / motion 带 clawConfig）由
+  // AssembleConfig 判别联合编译期拒绝，运行时检查退役。
   const isMotion = identity === 'motion';
 
   let core: CoreInfraOutput | undefined;

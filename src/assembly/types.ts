@@ -25,15 +25,24 @@ export interface AssemblyContributions {
   readonly inboxMessageTypes?: readonly InboxMessageTypeDeclaration[];
 }
 
-export interface AssembleConfig {
-  readonly identity: Identity;
+interface AssembleConfigBase {
   readonly clawId: string;
   readonly clawDir: string;
   readonly globalConfig: ClawGlobalConfig;
-  readonly clawConfig: ClawConfig | null;  // identity='claw' 必填；'motion' 为 null
   /** Phase 1204 Step C: parent 传入的 spawn generation identity（env CHESTNUT_PROCESS_GENERATION）。 */
   readonly processGenerationId?: string;
 }
+
+/**
+ * phase 1872 Step B: 判别联合表达分支契约（此前 clawConfig 可空 + assemble 内
+ * 运行时 throw 拦截）：
+ * - identity='motion'：无 clawConfig（`never` 兜住结构性赋值绕过）；
+ * - identity='claw'：clawConfig 必填。
+ * 非法装配输入编译期拒绝，运行时检查退役。
+ */
+export type AssembleConfig =
+  | (AssembleConfigBase & { readonly identity: 'motion'; readonly clawConfig?: never })
+  | (AssembleConfigBase & { readonly identity: 'claw'; readonly clawConfig: ClawConfig });
 
 export interface Instances {
   readonly runtime: Runtime;
