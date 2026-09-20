@@ -21,7 +21,7 @@ import { DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE } from './constants.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox, createInboxReader } from '../foundation/messaging/index.js';
-import { shouldEmitStartupCheck } from './startup-check.js';
+import { classifyStartupCheckCooldown, startupCheckEnvironmentEligible } from './startup-check.js';
 import { startupCheckMessage } from '../templates/messages/index.js';
 import {
   INTERRUPT_POLL_MAX_ERRORS,
@@ -101,16 +101,33 @@ export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
   const deliver = async (): Promise<StartupCheckOutcome> => {
     if (firedOutcome !== null) return firedOutcome;
     if (tsCommittedMs === null) {
-      if (!shouldEmitStartupCheck(agentFs, audit)) return { kind: 'not_eligible' };
-      const tsMs = Date.now();
-      try {
-        // phase 1873 Step G: 状态归 daemon-owned 路径（原写 PM status/）。
-        agentFs.ensureDirSync(DAEMON_STATE_DIR);
-        agentFs.writeAtomicSync(path.join(DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE), String(tsMs));
-      } catch (err) {
-        return { kind: 'pending_retry', stage: 'timestamp', error: formatErr(err) };
+      if (!startupCheckEnvironmentEligible(agentFs, audit)) return { kind: 'not_eligible' };
+      const cooldown = classifyStartupCheckCooldown(agentFs, audit);
+      if (cooldown.kind === 'fresh') {
+        // phase 1873 Step H（daemon-startup-check-nonatomic-delivery）：fresh ts 须经
+        // 消息证据调和——上一进程若崩溃于「ts 已提交、消息未投递」，重启不得被 cooldown
+        // 静默压制。证据存在 → 正常压制（已投递）；缺失 → 视为未完成投递 → 重投递。
+        const evidence = await lookup(cooldown.ts);
+        if (evidence.kind === 'unknown') return retry('cooldown-evidence', cooldown.ts, evidence.error);
+        if (evidence.kind === 'present') return { kind: 'not_eligible' };
+        audit.write(
+          DAEMON_AUDIT_EVENTS.STARTUP_CHECK_TS_WITHOUT_DELIVERY,
+          `startup_check_ts=${cooldown.ts}`,
+          `reason=timestamp_without_delivery`,
+        );
+        // 复用既有 ts 作关联身份 → 后续 pre/post 查询与投递确认幂等（不重复写消息）。
+        tsCommittedMs = cooldown.ts;
+      } else {
+        const tsMs = Date.now();
+        try {
+          // phase 1873 Step G: 状态归 daemon-owned 路径（原写 PM status/）。
+          agentFs.ensureDirSync(DAEMON_STATE_DIR);
+          agentFs.writeAtomicSync(path.join(DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE), String(tsMs));
+        } catch (err) {
+          return { kind: 'pending_retry', stage: 'timestamp', error: formatErr(err) };
+        }
+        tsCommittedMs = tsMs;
       }
-      tsCommittedMs = tsMs;
     }
     const ts = tsCommittedMs;
 

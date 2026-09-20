@@ -15,7 +15,7 @@ import * as path from 'path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createStartupCheckDelivery, type StartupCheckOutcome } from '../../src/daemon/daemon-loop.js';
-import { createInboxReader, notifyInbox } from '../../src/foundation/messaging/index.js';
+import { createInboxReader, notifyInbox, writeInboxAsync } from '../../src/foundation/messaging/index.js';
 import { decodeInbox } from '../../src/foundation/messaging/codec-inbox.js';
 import { startupCheckMessage } from '../../src/templates/messages/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -328,6 +328,28 @@ describe('phase 1838: startup check 真实投递确认链', () => {
     expect(messages.filter(m => m.metadata?.startup_check_ts === '999999').length).toBe(1);
   });
 
+  it('phase 1873 Step H (10). 崩溃窗口：fresh ts 无消息证据 → 重启重投递 + audit + 复用同 ts 幂等', async () => {
+    // 模拟上一进程「ts 已提交、notifyInbox 未执行」：只留 ts、无消息。
+    const ts = Date.now();
+    await fs.mkdir(path.join(agentDir, 'daemon'), { recursive: true });
+    await fs.writeFile(statusFile, String(ts));
+    expect((await pendingMessages()).length).toBe(0);
+
+    const first = await makeDelivery().deliver();
+    expect(first).toEqual({ kind: 'fired', timestampMs: ts });   // 复用既有 ts 作身份
+    expect(auditCtx.events.some(e =>
+      e[0] === 'daemon_startup_check_ts_without_delivery' &&
+      e.some(c => String(c) === `startup_check_ts=${ts}`))).toBe(true);
+    const after = await pendingMessages();
+    expect(after.length).toBe(1);
+    expect(after[0]!.metadata?.startup_check_ts).toBe(String(ts));
+
+    // 再重启（新 delivery 实例）：消息证据已存在 → 冷却正常压制、不重复投递
+    const second = await makeDelivery().deliver();
+    expect(second.kind).toBe('not_eligible');
+    expect((await pendingMessages()).length).toBe(1);
+  });
+
   it('8. 未确认消息移入 failed 不作为成功证据：允许重发、保留 failed 记录', async () => {
     const { delivery } = await makeUnconfirmedWithRealMessage();
     const reader = createInboxReader(realAgentFs, auditCtx.audit, 'inbox');
@@ -370,9 +392,28 @@ describe('phase 1838: startup check 真实投递确认链', () => {
       cases.push({
         name: 'fresh-cooldown',
         dir: await freshDir(async dir => {
+          // phase 1873 Step H：fresh cooldown 的压制以「消息已投递」为据——
+          // 预置 ts + 一条同 ts 的已 ack（done/）消息 = 正常冷却压制（1838 语义保持）。
+          const ts = Date.now();
           await fs.mkdir(path.join(dir, 'contract', 'active', 'c-live'), { recursive: true });
           await fs.mkdir(path.join(dir, 'daemon'), { recursive: true });
-          await fs.writeFile(path.join(dir, 'daemon', 'startup_check_ts'), String(Date.now()));
+          await fs.writeFile(path.join(dir, 'daemon', 'startup_check_ts'), String(ts));
+          const seededFs = new NodeFileSystem({ baseDir: dir });
+          await writeInboxAsync(seededFs, path.join(dir, 'inbox', 'pending'), {
+            id: 'seed-startup-check',
+            type: 'startup_check',
+            from: 'daemon',
+            to: '',
+            priority: 'high',
+            content: 'seeded',
+            timestamp: new Date(ts).toISOString(),
+            metadata: { startup_check_ts: String(ts) },
+          }, auditCtx.audit);
+          const reader = createInboxReader(seededFs, auditCtx.audit, 'inbox');
+          const batch = await reader.drainAndDeliver();
+          if (batch.kind === 'complete') {
+            for (const h of batch.handles) await reader.ack(h);
+          }
         }),
       });
 

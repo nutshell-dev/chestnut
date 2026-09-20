@@ -715,6 +715,7 @@
       "daemon_shutdown_reentry_suppressed",
       "daemon_startup_check_io_error",
       "daemon_startup_check_retry",
+      "daemon_startup_check_ts_without_delivery",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
       "snapshot_commit_failed",

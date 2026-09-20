@@ -6,8 +6,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   isInboxEmpty,
-  shouldEmitStartupCheck,
+  startupCheckEnvironmentEligible,
+  classifyStartupCheckCooldown,
 } from '../../src/daemon/startup-check.js';
+
+// phase 1873 Step H: gate 拆为 env 前置 + cooldown 分类（fresh 由 daemon-loop 做
+// 证据调和）；本文件矩阵语义 = env 合格且 cooldown 非 fresh。
+function shouldEmitStartupCheck(fs: FileSystem, audit: unknown): boolean {
+  return startupCheckEnvironmentEligible(fs, audit as never)
+    && classifyStartupCheckCooldown(fs, audit as never).kind !== 'fresh';
+}
 import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 

@@ -12,7 +12,10 @@ import * as fs from 'fs/promises';
 import * as fsNative from 'fs';
 import * as path from 'path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { shouldEmitStartupCheck } from '../../src/daemon/startup-check.js';
+import {
+  startupCheckEnvironmentEligible,
+  classifyStartupCheckCooldown,
+} from '../../src/daemon/startup-check.js';
 import { makeAudit } from '../helpers/audit.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { STARTUP_CHECK_COOLDOWN_MS } from '../../src/daemon/constants.js';
@@ -41,7 +44,10 @@ describe('phase 1873 Step G: startup-check 状态路径（daemon-owned + legacy 
   }
 
   function eligible(): boolean {
-    return shouldEmitStartupCheck(new NodeFileSystem({ baseDir: dir }), audit);
+    const fsImpl = new NodeFileSystem({ baseDir: dir });
+    // phase 1873 Step H: fresh 由 daemon-loop 做证据调和；此处只验 gate 两段语义。
+    return startupCheckEnvironmentEligible(fsImpl, audit)
+      && classifyStartupCheckCooldown(fsImpl, audit).kind !== 'fresh';
   }
 
   const NEW = path.join('daemon', 'startup_check_ts');

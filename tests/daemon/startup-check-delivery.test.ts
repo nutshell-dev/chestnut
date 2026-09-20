@@ -13,9 +13,13 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// phase 1873 Step H: gate 拆为 env 前置（同步）+ cooldown 分类（fresh 由 daemon-loop
+// 经消息证据调和）；本文件 mock 两者、默认走「无 cooldown」路径。
 const mockShouldEmit = vi.hoisted(() => vi.fn());
+const mockCooldown = vi.hoisted(() => vi.fn());
 vi.mock('../../src/daemon/startup-check.js', () => ({
-  shouldEmitStartupCheck: mockShouldEmit,
+  startupCheckEnvironmentEligible: mockShouldEmit,
+  classifyStartupCheckCooldown: mockCooldown,
 }));
 
 const mockNotifyInbox = vi.hoisted(() => vi.fn());
@@ -57,6 +61,7 @@ describe('startup-check delivery — phase 1838 real-record confirmation', () =>
   beforeEach(() => {
     vi.clearAllMocks();
     mockShouldEmit.mockReturnValue(true);
+    mockCooldown.mockReturnValue({ kind: 'none' });
     mockFindByExtraMeta.mockResolvedValue(null); // 默认 absent
   });
 

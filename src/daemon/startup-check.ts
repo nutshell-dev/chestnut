@@ -50,14 +50,24 @@ function hasActiveContracts(fs: FileSystem, audit: AuditLog): boolean {
 }
 
 /**
- * startup_check_ts 是否过 cooldown。读失败 / 解析失败 / 负值 → 默 true（无 cooldown）。
+ * startup cooldown 分类（phase 1873 Step H：cooldown 判定与「证据调和」拆开——
+ * fresh 态由 caller（daemon-loop）经消息证据调和，避免「提交后崩溃未投递」被静默压制）。
+ *
+ * - none：无 ts 文件（首次 / corrupt 已清 / 非 ENOENT 读取失败按无冷却处理）；
+ * - cooled：ts 已过 cooldown；
+ * - fresh：ts 在 cooldown 内——caller 需核对消息证据决定压制或重投递。
  *
  * phase 1873 Step G：状态归 daemon-owned 路径（`daemon/startup_check_ts`）。
  * legacy 兼容（迁移期显式）：新路径缺失时读旧 `status/startup_check_ts`（PM 目录）——
  * 读到旧值则以旧值为准判定 + 迁移写新路径；旧文件不主动删除（避免跨版本双跑丢状态；
  * 退役条件：无旧版本进程写 legacy 路径后另行清理）。
  */
-function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
+export type StartupCheckCooldown =
+  | { kind: 'none' }
+  | { kind: 'cooled' }
+  | { kind: 'fresh'; ts: number };
+
+export function classifyStartupCheckCooldown(fs: FileSystem, audit: AuditLog): StartupCheckCooldown {
   const newRel = path.join(DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE);
   const legacyRel = path.join(STATUS_SUBDIR, STARTUP_CHECK_TS_FILE);
 
@@ -70,10 +80,10 @@ function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
       // phase 851: I/O 错误不再静默吞没，emit audit 保持可观察
       audit.write(
         DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
-        `fn=isStartupCheckCooledDown`,
+        `fn=classifyStartupCheckCooldown`,
         `reason=${formatErr(err)}`,
       );
-      return true;
+      return { kind: 'none' };
     }
     // 新路径缺失 → legacy 兼容读
     try {
@@ -83,19 +93,19 @@ function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
       if (!isFileNotFound(legacyErr)) {
         audit.write(
           DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
-          `fn=isStartupCheckCooledDown(legacy)`,
+          `fn=classifyStartupCheckCooldown(legacy)`,
           `reason=${formatErr(legacyErr)}`,
         );
       }
-      return true;
+      return { kind: 'none' };
     }
   }
 
   const ts = parseInt(raw, 10);
   if (isNaN(ts) || ts < 0) {
-    // corrupt — treat as cooled down (remove 读取来源文件；无状态可失)
+    // corrupt — 视为无 cooldown（remove 读取来源文件；无状态可失）
     fs.deleteSync(readFrom === 'legacy' ? legacyRel : newRel);
-    return true;
+    return { kind: 'none' };
   }
   if (readFrom === 'legacy') {
     // 迁移写：旧值继续生效的同时落新路径（后续启动读新路径）；失败 audit、不阻断本次判定。
@@ -105,23 +115,19 @@ function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
     } catch (migrateErr) {
       audit.write(
         DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
-        `fn=isStartupCheckCooledDown(migrate)`,
+        `fn=classifyStartupCheckCooldown(migrate)`,
         `reason=${formatErr(migrateErr)}`,
       );
     }
   }
-  return Date.now() - ts >= STARTUP_CHECK_COOLDOWN_MS;
+  return Date.now() - ts >= STARTUP_CHECK_COOLDOWN_MS ? { kind: 'cooled' } : { kind: 'fresh', ts };
 }
 
 /**
- * 决策是否 emit startup_check inbox 消息。
- * 3 条件全 true 才 emit：inbox empty + has active + cooldown 过。
+ * evidence 无关的同步前置：inbox empty + 有 active contract。
  * （inbox empty 已覆盖一切 pending 消息；本条目不负责单次投递去重——见模块头。）
+ * cooldown 与证据调和见 classifyStartupCheckCooldown + daemon-loop 的 H 步逻辑。
  */
-export function shouldEmitStartupCheck(fs: FileSystem, audit: AuditLog): boolean {
-  return (
-    isInboxEmpty(fs, audit) &&
-    hasActiveContracts(fs, audit) &&
-    isStartupCheckCooledDown(fs, audit)
-  );
+export function startupCheckEnvironmentEligible(fs: FileSystem, audit: AuditLog): boolean {
+  return isInboxEmpty(fs, audit) && hasActiveContracts(fs, audit);
 }
