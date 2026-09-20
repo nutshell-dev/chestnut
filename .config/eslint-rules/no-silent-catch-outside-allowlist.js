@@ -46,6 +46,9 @@ const ALLOWLIST_BASENAMES = new Set([
   // cleanup failure does not affect correctness (CliError is still thrown) and any residual
   // marker only causes a spurious ungraceful warning on the next boot.
   'claw-stop.ts',
+  // phase 1874 Step F: contract action context 的 dispose 为 by-design best-effort——
+  // dispose/flush 失败不改变动作结果（幂等、仅资源释放），不应 throw 覆盖业务终态。
+  'contract-action.ts',
   // phase 1874 Step D: 宿主输入分类旁路（诊断证据面）为 by-design fail-soft——
   // 证据收集为 best-effort，其失败不得注入 pi-tui 输入处理路径（证据不改变交互语义）。
   'chat-viewport-terminal.ts',

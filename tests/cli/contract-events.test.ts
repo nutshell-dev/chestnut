@@ -31,12 +31,14 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   buildLLMConfig: vi.fn(),
 }));
 
-vi.mock('../../src/foundation/audit/index.js', () => ({
+vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/foundation/audit/index.js')>()),
   createSystemAudit: vi.fn(() => ({
     write: mockAuditWrite,
     preview: vi.fn((s: string) => s),
     message: vi.fn((s: string) => s),
     summary: vi.fn((s: string) => s),
+    dispose: vi.fn(),
   })),
 }));
 

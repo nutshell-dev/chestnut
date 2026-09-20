@@ -15,10 +15,9 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
   })),
 }));
 
-vi.mock('../../src/foundation/messaging/index.js', () => ({
+vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/foundation/messaging/index.js')>()),
   notifyClaw: vi.fn(),
-  INBOX_PENDING_DIR: 'inbox/pending',
-  resolveDlqDir: (inboxDir: string) => `${inboxDir}/dead-letter`,
   // phase 1864 Step C（CT-D2）：inbox 投递归 Messaging notifier（本 test 只锁 stream 面）。
   createClawNotifier: vi.fn(() => ({
     notify: vi.fn(),

@@ -39,21 +39,9 @@ import { createDirContext } from '../foundation/audit/index.js';
 import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
-import { createRootConfig, createRootConfigLegacyMigration } from '../assembly/index.js';
-import { createSummonVerifyPolicy, createSummonCreationClaimStore } from '../core/summon-system/index.js';
-import { createContractSystem } from '../core/contract/index.js';
-import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
-import * as path from 'path';
-// phase 1874 Step E: task 事实读取归 AsyncTaskSystem owner 窄查询（shape/目录布局内部化）
-import { loadSubAgentTask } from '../core/async-task-system/index.js';
+import { createRootConfig, createRootConfigLegacyMigration, createContractActionContext } from '../assembly/index.js';
+import { AUDIT_FILE_STEM } from '../foundation/audit/index.js';
 // CLAWS_DIR removed: phase 263
-import { AUDIT_FILE_STEM, createSystemAudit } from '../foundation/audit/index.js';
-import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
-import { createClawNotifier } from '../foundation/messaging/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { createToolRegistry } from '../foundation/tools/index.js';
-import { createFileTools } from '../foundation/file-tool/index.js';
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
 
@@ -266,59 +254,18 @@ contractCmd
     } else if (opts.file) {
       await contractCreateCommand({ fsFactory }, opts.claw, opts.file, { audit });
     } else if (opts.dir) {
-      // Phase 230 / phase 281 Step B: create ContractSystem + wire SummonVerifyPolicy
-      const clawDir = getClawDir(opts.claw);
-      const clawFs = fsFactory(clawDir);
-      const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
-      const clawAudit = createSystemAudit(clawFs, clawDir);
-      // Phase 1396 Step B / phase 1874 Step E: summon task 实然由 motion AsyncTaskSystem
-      // 持有——task 事实读取经 owner 窄查询 loadSubAgentTask（目录布局/shape 校验归 owner，
-      // 与 assembly 侧同一查询、同 phase1872 D 接口）；CLI 不再枚举队列目录/校验 schema。
-      const motionFs = fsFactory(path.join(chestnutRoot, MOTION_CLAW_ID));
-      const summonVerifyPolicy = createSummonVerifyPolicy({
-        auditWriter: clawAudit,
-        claimStore: createSummonCreationClaimStore({ fs: fsFactory(chestnutRoot) }),
-        loadTask: (taskId) => loadSubAgentTask(motionFs, taskId),
-      });
-
-      // phase 257: wire ClawTopology 到 ContractSystem 的 ToolRegistry
-      const toolRegistry = createToolRegistry();
-      for (const tool of createFileTools()) {
-        toolRegistry.register(tool);
+      // phase 1874 Step F: contract action 装配归 Assembly 窄入口（CLI 不再构造全栈）；
+      // dispose 由入口 own、动作终态统一释放。
+      const contractAction = await createContractActionContext(
+        { fsFactory },
+        opts.claw,
+        { withSummonVerifyPolicy: true },
+      );
+      try {
+        await contractCreateFromDirCommand({ fsFactory, contractSystem: contractAction.system }, opts.claw, opts.dir, { audit });
+      } finally {
+        contractAction.dispose();
       }
-      const { wireClawTopology } = await import('../assembly/index.js');
-      const { createCrossTargetAccess } = await import('../assembly/index.js');
-      wireClawTopology({
-        fs: clawFs,
-        chestnutRoot,
-        audit: clawAudit,
-        toolRegistry,
-        isMotion: false,
-        // phase 1864 Step G（CT-D10）：跨目标 capability 装配期授予。
-        crossTargetAccess: createCrossTargetAccess({
-          grantedBy: 'claw-cross-target',
-          audit: clawAudit,
-        }),
-      });
-
-      const contractSystem = await createContractSystem({
-        clawDir,
-        clawId: makeClawId(opts.claw),
-        fs: clawFs,
-        audit: clawAudit,
-        toolRegistry,
-        fsFactory,
-        // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
-        notifyClaw: (targetClawId, message) =>
-          createClawNotifier({
-            fs: clawFs,
-            audit: clawAudit,
-            resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
-          }).notify(targetClawId, message),
-      });
-      contractSystem.registerCreatePolicy('summon-verify', summonVerifyPolicy);
-
-      await contractCreateFromDirCommand({ fsFactory, contractSystem }, opts.claw, opts.dir, { audit });
     } else {
       throw new CliError('must provide --file or --dir');
     }
