@@ -22,7 +22,7 @@ describe('subagent-helpers SubagentKind', () => {
     expect(s).toBe('shadow');
   });
 
-  it('scanSyncDir 走 shadow path 返 kind shadow', () => {
+  it('scanSyncDir 走 shadow path 返 kind shadow', async () => {
     const shadowDir = path.join(tmpDir, TASKS_SYNC_SHADOW_DIR);
     fs.mkdirSync(path.join(shadowDir, 'shadow-abc'), { recursive: true });
     // 模拟 audit.tsv 含 task_completed 让 inferStatus 返 completed
@@ -35,13 +35,13 @@ describe('subagent-helpers SubagentKind', () => {
       fs.listSync = (p: string, opts?: any) => orig(p, { ...opts, includeDirs: true });
       return fs;
     };
-    const entries = scanSubagentResults({ fsFactory }, tmpDir);
+    const entries = await scanSubagentResults({ fsFactory }, tmpDir);
     const shadowEntry = entries.find(e => e.id === 'shadow-abc');
     expect(shadowEntry).toBeDefined();
     expect(shadowEntry!.kind).toBe('shadow');
   });
 
-  it('scanSyncDir 走 spawn path 返 kind spawn 不走 inferKind 错位', () => {
+  it('scanSyncDir 走 spawn path 返 kind spawn 不走 inferKind 错位', async () => {
     const spawnDir = path.join(tmpDir, TASKS_SYNC_SPAWN_DIR);
     fs.mkdirSync(path.join(spawnDir, 'spawn-xyz'), { recursive: true });
     fs.writeFileSync(path.join(spawnDir, 'spawn-xyz', 'audit.tsv'),
@@ -53,7 +53,7 @@ describe('subagent-helpers SubagentKind', () => {
       fs.listSync = (p: string, opts?: any) => orig(p, { ...opts, includeDirs: true });
       return fs;
     };
-    const entries = scanSubagentResults({ fsFactory }, tmpDir);
+    const entries = await scanSubagentResults({ fsFactory }, tmpDir);
     const spawnEntry = entries.find(e => e.id === 'spawn-xyz');
     expect(spawnEntry).toBeDefined();
     expect(spawnEntry!.kind).toBe('spawn');

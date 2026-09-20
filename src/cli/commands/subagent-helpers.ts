@@ -6,13 +6,9 @@
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
-import {
-  TASKS_QUEUES_DONE_DIR,
-  TASKS_QUEUES_FAILED_DIR,
-  TASKS_QUEUES_PENDING_DIR,
-  TASKS_QUEUES_RUNNING_DIR,
-  TASKS_QUEUES_RESULTS_DIR,
-} from '../../core/async-task-system/index.js';
+import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
+// phase 1874 Step G: task 事实经 ATS owner 窄查询（目录布局 / shape 校验归 owner）
+import { loadSubAgentTask } from '../../core/async-task-system/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';
@@ -48,57 +44,45 @@ function deriveDisplayTaskId(id: string): string {
   return id;
 }
 
-// 文件级 const，cli/commands/subagent-helpers.ts inferKind + getStartedAt 两处共用
-// 单源 = src/types/paths.ts 既有 4 const、避免 cross-line + cross-file value drift
-// 顺序与原 inline 一致（done/failed/pending/running）：fs.existsSync 查 dir 早 break、保现行为
-const QUEUE_DIRS = [
-  TASKS_QUEUES_DONE_DIR,
-  TASKS_QUEUES_FAILED_DIR,
-  TASKS_QUEUES_PENDING_DIR,
-  TASKS_QUEUES_RUNNING_DIR,
-];
-
 export function resolveClawDir(clawId: string): string {
   return clawId === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
 }
 
-export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, id: string, clawDir: string): SubagentKind {
+export async function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, id: string, clawDir: string): Promise<SubagentKind> {
   if (id.startsWith('verifier-')) return 'verifier';
 
   const clawFs = deps.fsFactory(clawDir);
   // Phase 849: queue files are keyed by fullTaskId; use resolved path id for lookups.
   const pathId = resolvePathTaskId(id, deps.shortIdIndex);
 
-  // Try to find task.json in queue dirs
-  for (const qdir of QUEUE_DIRS) {
-    const taskRel = path.join(qdir, `${pathId}.json`);
-    if (clawFs.existsSync(taskRel)) {
-      try {
-        // phase 355 C3 (review-2026-06-13): JSON.parse 返非对象（string / number）会让
-        // 下游 `.intent` NPE。先验对象 shape、否则 skip 当 partial 文件。
-        const raw: unknown = JSON.parse(clawFs.readSync(taskRel));
-        if (typeof raw !== 'object' || raw === null) continue;
-        const task = raw as { intent?: unknown; systemPrompt?: unknown; callerType?: unknown; correlation?: { source?: unknown }; postProcessor?: unknown };
-        const intentText = typeof task.intent === 'string' ? task.intent : undefined;
-        const systemPrompt = typeof task.systemPrompt === 'string' ? task.systemPrompt : undefined;
-        if (systemPrompt?.includes('RANDOM_DREAM') || intentText?.includes('[DREAM_OUTPUT]')) {
-          return 'random_dream';
-        }
-        // phase 1863 (AT-D8)：新任务写 correlation.source；legacy callerType 双读（旧任务文件）
-        const correlationSource = typeof task.correlation?.source === 'string' ? task.correlation.source : undefined;
-        const callerSource = correlationSource ?? (typeof task.callerType === 'string' ? task.callerType : undefined);
-        if (callerSource === SUMMON_CALLER_TYPES.SHADOW || callerSource === SUMMON_CALLER_TYPES.MINER || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
-          return 'summon';
-        }
-        if (callerSource === 'spawn_subagent') {
-          return 'spawn';
-        }
-        return 'spawn';
-      } catch { /* silent: parse 失败属 partial / corrupt task.json，按 spawn fallback 容忍 */ }
+  // phase 1874 Step G: task.json 读取经 ATS owner 窄查询 loadSubAgentTask
+  // （四目录顺序 / shape 校验 / kind 过滤内部化；缺失 undefined）——CLI 不再 JSON.parse 直读。
+  // full id 判据与本文件 resolvePathTaskId 一致（36 长度）：非 full id（sync 目录名等）不可能是
+  // 队列文件的文件名键、直接走 audit fallback（与旧探测语义等价）。
+  const task = pathId.length === 36
+    ? await loadSubAgentTask(clawFs, makeFullTaskId(pathId))
+    : undefined;
+  if (task) {
+    const intentText = task.intent;
+    const systemPrompt = task.systemPrompt;
+    if (systemPrompt?.includes('RANDOM_DREAM') || intentText?.includes('[DREAM_OUTPUT]')) {
+      return 'random_dream';
     }
+    // phase 1863 (AT-D8)：新任务写 correlation.source；legacy callerType 双读（旧任务文件）。
+    // callerType 为存量文件残留键（zod strip 校验容忍、owner 类型未声明）——按结构读取。
+    const correlationSource = typeof task.correlation?.source === 'string' ? task.correlation.source : undefined;
+    const legacyCallerType = (task as { callerType?: unknown }).callerType;
+    const callerSource = correlationSource ?? (typeof legacyCallerType === 'string' ? legacyCallerType : undefined);
+    if (callerSource === SUMMON_CALLER_TYPES.SHADOW || callerSource === SUMMON_CALLER_TYPES.MINER || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
+      return 'summon';
+    }
+    if (callerSource === 'spawn_subagent') {
+      return 'spawn';
+    }
+    return 'spawn';
   }
 
-  // Fallback: check audit.tsv for random_dream signals
+  // Fallback: check audit.tsv for random_dream signals（audit 事实经 foundation/audit owner reader helper）
   const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, pathId, AUDIT_FILE);
   const randomDreamResult = auditFileContains(clawFs, auditRel, 'cron_random_dream_job');
   if (randomDreamResult.ok && randomDreamResult.value) return 'random_dream';
@@ -126,27 +110,18 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   return 'running';
 }
 
-function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, resultDir: string, id: string, clawDir: string): Date | undefined {
+async function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, resultDir: string, id: string, clawDir: string): Promise<Date | undefined> {
   const clawFs = deps.fsFactory(clawDir);
   // Phase 849: queue files are keyed by fullTaskId; use resolved path id for lookups.
   const pathId = resolvePathTaskId(id, deps.shortIdIndex);
 
-  // Try task.json createdAt first
-  for (const qdir of QUEUE_DIRS) {
-    const taskRel = path.join(qdir, `${pathId}.json`);
-    if (clawFs.existsSync(taskRel)) {
-      try {
-        // phase 355 C3: 验对象 shape + createdAt 是字符串、否则 skip
-        const raw: unknown = JSON.parse(clawFs.readSync(taskRel));
-        if (typeof raw === 'object' && raw !== null) {
-          const task = raw as { createdAt?: unknown };
-          if (typeof task.createdAt === 'string') return new Date(task.createdAt);
-        }
-      } catch { /* silent: parse 失败 fallback audit.tsv 行 */ }
-    }
-  }
+  // phase 1874 Step G: createdAt 经 owner 窄查询（同上表）；非 full id 直接走 audit fallback
+  const task = pathId.length === 36
+    ? await loadSubAgentTask(clawFs, makeFullTaskId(pathId))
+    : undefined;
+  if (task && typeof task.createdAt === 'string') return new Date(task.createdAt);
 
-  // Fallback to audit.tsv first line timestamp
+  // Fallback to audit.tsv first line timestamp（foundation/audit owner reader helper）
   const resultFs = deps.fsFactory(resultDir);
   const auditRel = path.join(resultDir, AUDIT_FILE);
   const tsResult = auditFirstTimestamp(resultFs, auditRel);
@@ -184,7 +159,7 @@ export interface SubagentEntry {
   contractId?: string;
 }
 
-export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, clawDir: string): SubagentEntry[] {
+export async function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, clawDir: string): Promise<SubagentEntry[]> {
   const entries: SubagentEntry[] = [];
   const clawFs = deps.fsFactory(clawDir);
 
@@ -200,9 +175,9 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
       const resultFs = deps.fsFactory(resultDir);
       const stat = resultFs.statSync('.');
       if (!stat.isDirectory) continue;
-      const kind = inferKind(deps, id, clawDir);
+      const kind = await inferKind(deps, id, clawDir);
       const status = inferStatus(deps, resultDir);
-      const startedAt = getStartedAt(deps, resultDir, id, clawDir);
+      const startedAt = await getStartedAt(deps, resultDir, id, clawDir);
       let durationMs: number | undefined;
       if (startedAt) {
         // Use result.txt mtime or audit last event ts as end time
@@ -222,20 +197,20 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
   }
 
   // Scan sync paths: tasks/sync/subagent/ + tasks/sync/spawn/ + tasks/sync/shadow/
-  entries.push(...scanSyncDir(deps, clawDir, TASKS_SYNC_SUBAGENT_DIR, 'verifier-'));
-  entries.push(...scanSyncDir(deps, clawDir, TASKS_SYNC_SPAWN_DIR, undefined, 'spawn'));
-  entries.push(...scanSyncDir(deps, clawDir, TASKS_SYNC_SHADOW_DIR, undefined, 'shadow'));
+  entries.push(...await scanSyncDir(deps, clawDir, TASKS_SYNC_SUBAGENT_DIR, 'verifier-'));
+  entries.push(...await scanSyncDir(deps, clawDir, TASKS_SYNC_SPAWN_DIR, undefined, 'spawn'));
+  entries.push(...await scanSyncDir(deps, clawDir, TASKS_SYNC_SHADOW_DIR, undefined, 'shadow'));
 
   return entries;
 }
 
-function scanSyncDir(
+async function scanSyncDir(
   deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver },
   clawDir: string,
   syncSubDir: string,
   filterPrefix?: string,
   defaultKind?: SubagentKind,
-): SubagentEntry[] {
+): Promise<SubagentEntry[]> {
   const clawFs = deps.fsFactory(clawDir);
   const dirRel = syncSubDir;
   if (!clawFs.existsSync(dirRel)) return [];
@@ -247,9 +222,9 @@ function scanSyncDir(
     const stat = resultFs.statSync('.');
     if (!stat.isDirectory) continue;
     if (filterPrefix && !id.startsWith(filterPrefix)) continue;
-    const kind = defaultKind ?? inferKind(deps, id, clawDir);
+    const kind = defaultKind ?? await inferKind(deps, id, clawDir);
     const status = inferStatus(deps, resultDir);
-    const startedAt = getStartedAt(deps, resultDir, id, clawDir);
+    const startedAt = await getStartedAt(deps, resultDir, id, clawDir);
     let durationMs: number | undefined;
     if (startedAt) {
       const auditRel = path.join(dirRel, id, AUDIT_FILE);

@@ -26,7 +26,7 @@ export async function subagentListCommand(deps: { fsFactory: (baseDir: string) =
     throw new CliError(`Claw "${options.claw}" does not exist`);
   }
 
-  let entries = scanSubagentResults(deps, clawDir);
+  let entries = await scanSubagentResults(deps, clawDir);
 
   if (options.status) {
     const s = options.status as SubagentStatus;
