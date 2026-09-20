@@ -234,4 +234,48 @@ describe('chat-viewport-observability', () => {
     expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.SCROLLBACK_CLEAR_SUPPRESSED);
     expect(log[0][1]).toBe('count=7');
   });
+
+  it('phase 1874 Step D: recordHostInput 按 chunks 阈值聚合 + 分类计数逐列', () => {
+    const { log, audit, clock } = makeDeps();
+    const obs = createViewportObservability({ audit, clock });
+    for (let i = 0; i < VIEWPORT_OBS_CONFIG.HOST_INPUT_BATCH_SIZE; i++) {
+      obs.recordHostInput({ chunks: 1, printable: 2, control: 1, mouse: 0, escape: 0, paste: 0 });
+    }
+    expect(log).toHaveLength(1);
+    expect(log[0]).toEqual([
+      VIEWPORT_AUDIT_EVENTS.HOST_INPUT,
+      `chunks=${VIEWPORT_OBS_CONFIG.HOST_INPUT_BATCH_SIZE}`,
+      `printable=${VIEWPORT_OBS_CONFIG.HOST_INPUT_BATCH_SIZE * 2}`,
+      `control=${VIEWPORT_OBS_CONFIG.HOST_INPUT_BATCH_SIZE}`,
+      'mouse=0',
+      'escape=0',
+      'paste=0',
+      `span_ms=0`,
+    ]);
+  });
+
+  it('phase 1874 Step D: recordScreenReset 按数量阈值聚合', () => {
+    const { log, audit, clock } = makeDeps();
+    const obs = createViewportObservability({ audit, clock });
+    for (let i = 0; i < VIEWPORT_OBS_CONFIG.SCREEN_RESET_BATCH_SIZE; i++) {
+      obs.recordScreenReset(1);
+    }
+    expect(log).toHaveLength(1);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.SCREEN_RESET);
+    expect(log[0][1]).toBe(`clears=${VIEWPORT_OBS_CONFIG.SCREEN_RESET_BATCH_SIZE}`);
+  });
+
+  it('phase 1874 Step D: recordShutdown 先 flush host_input / screen_reset 再写 SHUTDOWN', () => {
+    const { log, audit, clock } = makeDeps();
+    const obs = createViewportObservability({ audit, clock });
+    obs.recordHostInput({ chunks: 1, printable: 1, control: 0, mouse: 0, escape: 0, paste: 0 });
+    obs.recordScreenReset(2);
+    obs.recordShutdown('user_quit');
+    const types = log.map(e => e[0]);
+    expect(types).toEqual([
+      VIEWPORT_AUDIT_EVENTS.HOST_INPUT,
+      VIEWPORT_AUDIT_EVENTS.SCREEN_RESET,
+      VIEWPORT_AUDIT_EVENTS.SHUTDOWN,
+    ]);
+  });
 });

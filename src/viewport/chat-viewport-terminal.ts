@@ -37,6 +37,10 @@ export interface ViewportTerminalLike {
 interface ScrollbackPreservingTerminalOptions {
   inner: ViewportTerminalLike;
   onSuppress?: (count: number) => void;
+  /** phase 1874 Step D: 宿主输入分类计数回传（诊断证据；内容不经此面）。 */
+  onInput?: (counts: HostInputCounts) => void;
+  /** phase 1874 Step D: 全屏清除序列（CSI 2J）计数回传（输入区/画面全量重绘相关证据）。 */
+  onScreenClear?: (count: number) => void;
 }
 
 /**
@@ -87,13 +91,68 @@ function filterTarget(combined: string): {
   return { output, carry, count };
 }
 
+
+/** 宿主输入分类计数（phase 1874 Step D：证据面——不含内容，仅分类与计数）。 */
+export interface HostInputCounts {
+  chunks: number;
+  printable: number;
+  control: number;
+  mouse: number;
+  escape: number;
+  paste: number;
+}
+
+/**
+ * 终端输入分类（纯函数）：用户按键/鼠标/输入法提交文本经终端以字节流转入。
+ * 只统计类别与数量、**不保留任何内容**（诊断证据的隐私边界）。
+ * - mouse: SGR 鼠标 CSI `<...M|m`；paste: bracketed paste 标记 `200~`/`201~`
+ * - escape: 其余 CSI/ESC/OSC 序列（按序列计）；control: C0 单字符；printable: 其余码点
+ */
+export function classifyTerminalInput(data: string): HostInputCounts {
+  const counts: HostInputCounts = { chunks: 1, printable: 0, control: 0, mouse: 0, escape: 0, paste: 0 };
+  let i = 0;
+  while (i < data.length) {
+    const ch = data[i];
+    const code = data.charCodeAt(i);
+    if (ch === '\x1b' && data[i + 1] === '[') {
+      // CSI 序列：ESC [ ... final(0x40-0x7E)
+      let j = i + 2;
+      while (j < data.length && !(data.charCodeAt(j) >= 0x40 && data.charCodeAt(j) <= 0x7e)) j += 1;
+      const seq = data.slice(i, Math.min(j + 1, data.length));
+      if (/^\x1b\[<\d+(;\d+)*[Mm]$/.test(seq)) counts.mouse += 1;
+      else if (seq === '\x1b[200~' || seq === '\x1b[201~') counts.paste += 1;
+      else counts.escape += 1;
+      i = j + 1;
+      continue;
+    }
+    if (ch === '\x1b') {
+      // 非 CSI 的 ESC 序列（SS3 / OSC 等）：按 2 字节最小单位计一段
+      let j = i + 1;
+      if (data[j] === ']') {
+        j += 1;
+        while (j < data.length && data[j] !== '\x07' && !(data[j] === '\x1b' && data[j + 1] === '\\')) j += 1;
+        j += data[j] === '\x07' ? 1 : 2;
+      } else {
+        j = Math.min(i + 2, data.length);
+      }
+      counts.escape += 1;
+      i = j;
+      continue;
+    }
+    if (code < 0x20 || code === 0x7f) counts.control += 1;
+    else counts.printable += 1;
+    i += 1;
+  }
+  return counts;
+}
+
 /**
  * Create a terminal wrapper that strips CSI `3J` from writes.
  */
 export function createScrollbackPreservingTerminal(
   opts: ScrollbackPreservingTerminalOptions,
 ): ViewportTerminalLike {
-  const { inner, onSuppress } = opts;
+  const { inner, onSuppress, onInput, onScreenClear } = opts;
   let pending = '';
 
   const flushPending = () => {
@@ -104,8 +163,14 @@ export function createScrollbackPreservingTerminal(
   };
 
   const wrapper: ViewportTerminalLike = {
-    start: (onInput, onResize) => {
-      inner.start(onInput, onResize);
+    start: (onInputCb, onResize) => {
+      inner.start((data) => {
+        // phase 1874 Step D: 分类计数旁路（数据原样传递；证据不含内容）
+        if (onInput) {
+          try { onInput(classifyTerminalInput(data)); } catch { /* silent: 诊断旁路失败不影响输入路径 */ }
+        }
+        onInputCb(data);
+      }, onResize);
     },
 
     stop: () => {
@@ -116,7 +181,14 @@ export function createScrollbackPreservingTerminal(
     drainInput: (maxMs, idleMs) => inner.drainInput(maxMs, idleMs),
 
     write: (data: string) => {
-      const { output, carry, count } = filterTarget(pending + data);
+      const combined = pending + data;
+      // phase 1874 Step D: CSI 2J（全屏清除）计数——输入区/画面全量重绘的证据面。
+      // 跨 chunk 拆分窗口极窄（carry 仅持 3J 前缀）；诊断用途下允许极少漏计。
+      const clearCount = combined.split('\x1b[2J').length - 1;
+      if (clearCount > 0) {
+        onScreenClear?.(clearCount);
+      }
+      const { output, carry, count } = filterTarget(combined);
       if (count > 0) {
         onSuppress?.(count);
       }

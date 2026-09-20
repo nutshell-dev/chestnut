@@ -17,6 +17,11 @@ export const VIEWPORT_OBS_CONFIG = {
   RENDER_FLUSH_MS: 500,
   SCROLLBACK_CLEAR_BATCH_SIZE: 50,
   SCROLLBACK_CLEAR_FLUSH_MS: 1000,
+  // phase 1874 Step D: 宿主输入/全屏清除诊断面批次
+  HOST_INPUT_BATCH_SIZE: 50,
+  HOST_INPUT_FLUSH_MS: 1000,
+  SCREEN_RESET_BATCH_SIZE: 10,
+  SCREEN_RESET_FLUSH_MS: 1000,
 } as const;
 
 interface Deps {
@@ -43,11 +48,32 @@ interface ScrollbackClearBatch {
   firstTs: number;
 }
 
+/** phase 1874 Step D: 宿主输入分类批次（计数、不含内容）。 */
+export interface HostInputBatchCounts {
+  chunks: number;
+  printable: number;
+  control: number;
+  mouse: number;
+  escape: number;
+  paste: number;
+}
+
+interface HostInputBatch extends HostInputBatchCounts {
+  firstTs: number;
+}
+
+interface ScreenResetBatch {
+  count: number;
+  firstTs: number;
+}
+
 export function createViewportObservability(deps: Deps) {
   const now = deps.clock ?? (() => performance.now());
   let ingest: IngestBatch | null = null;
   let render: RenderBatch | null = null;
   let scrollbackClear: ScrollbackClearBatch | null = null;
+  let hostInput: HostInputBatch | null = null;
+  let screenReset: ScreenResetBatch | null = null;
   let spinnerStartTs: number | null = null;
 
   const flushIngest = () => {
@@ -81,6 +107,31 @@ export function createViewportObservability(deps: Deps) {
       `window_ms=${now() - scrollbackClear.firstTs}`,
     );
     scrollbackClear = null;
+  };
+
+  const flushHostInput = () => {
+    if (!hostInput) return;
+    deps.audit.write(
+      VIEWPORT_AUDIT_EVENTS.HOST_INPUT,
+      `chunks=${hostInput.chunks}`,
+      `printable=${hostInput.printable}`,
+      `control=${hostInput.control}`,
+      `mouse=${hostInput.mouse}`,
+      `escape=${hostInput.escape}`,
+      `paste=${hostInput.paste}`,
+      `span_ms=${now() - hostInput.firstTs}`,
+    );
+    hostInput = null;
+  };
+
+  const flushScreenReset = () => {
+    if (!screenReset) return;
+    deps.audit.write(
+      VIEWPORT_AUDIT_EVENTS.SCREEN_RESET,
+      `clears=${screenReset.count}`,
+      `span_ms=${now() - screenReset.firstTs}`,
+    );
+    screenReset = null;
   };
 
   const recordEvent = (eventType: string) => {
@@ -153,6 +204,39 @@ export function createViewportObservability(deps: Deps) {
     }
   };
 
+  /** phase 1874 Step D: 宿主输入分类计数（内容不经此面）。 */
+  const recordHostInput = (counts: HostInputBatchCounts) => {
+    const t = now();
+    if (!hostInput) {
+      hostInput = { chunks: 0, printable: 0, control: 0, mouse: 0, escape: 0, paste: 0, firstTs: t };
+    }
+    hostInput.chunks += counts.chunks;
+    hostInput.printable += counts.printable;
+    hostInput.control += counts.control;
+    hostInput.mouse += counts.mouse;
+    hostInput.escape += counts.escape;
+    hostInput.paste += counts.paste;
+    if (
+      hostInput.chunks >= VIEWPORT_OBS_CONFIG.HOST_INPUT_BATCH_SIZE ||
+      t - hostInput.firstTs >= VIEWPORT_OBS_CONFIG.HOST_INPUT_FLUSH_MS
+    ) {
+      flushHostInput();
+    }
+  };
+
+  /** phase 1874 Step D: 全屏清除（CSI 2J）计数。 */
+  const recordScreenReset = (count: number) => {
+    const t = now();
+    if (!screenReset) screenReset = { count: 0, firstTs: t };
+    screenReset.count += count;
+    if (
+      screenReset.count >= VIEWPORT_OBS_CONFIG.SCREEN_RESET_BATCH_SIZE ||
+      t - screenReset.firstTs >= VIEWPORT_OBS_CONFIG.SCREEN_RESET_FLUSH_MS
+    ) {
+      flushScreenReset();
+    }
+  };
+
   const recordScrollbackClearSuppressed = (count: number) => {
     const t = now();
     if (!scrollbackClear) scrollbackClear = { count: 0, firstTs: t };
@@ -171,6 +255,8 @@ export function createViewportObservability(deps: Deps) {
     flushIngest();
     flushRender();
     flushScrollbackClear();
+    flushHostInput();
+    flushScreenReset();
     deps.audit.write(VIEWPORT_AUDIT_EVENTS.SHUTDOWN, `reason=${reason}`);
   };
 
@@ -178,6 +264,8 @@ export function createViewportObservability(deps: Deps) {
     flushIngest();
     flushRender();
     flushScrollbackClear();
+    flushHostInput();
+    flushScreenReset();
   };
 
   return {
@@ -185,6 +273,8 @@ export function createViewportObservability(deps: Deps) {
     recordRender,
     recordSpinner,
     recordScrollbackClearSuppressed,
+    recordHostInput,
+    recordScreenReset,
     recordShutdown,
     dispose,
   };

@@ -31,6 +31,9 @@ export const VIEWPORT_AUDIT_EVENTS = {
   DRAFT_QUARANTINED: 'viewport_draft_quarantined',
   DRAFT_CLEAR_FAILED: 'viewport_draft_clear_failed',
   DRAFT_CLEARED: 'viewport_draft_cleared',
+  // phase 1874 Step D: 宿主交互诊断面（输入类计数 / 全屏清除计数；不含内容、仅分类计数）
+  HOST_INPUT: 'viewport_host_input',
+  SCREEN_RESET: 'viewport_screen_reset',
   // phase 1874 Step B: chat crash evidence 归 viewport owner（自 cli/audit-events.ts 迁入）
   CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',
 } as const;
@@ -50,6 +53,8 @@ export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'
   viewport_scrollback_clear_suppressed: 'viewport',
   viewport_draft_persisted: 'viewport',
   viewport_draft_cleared: 'viewport',
+  viewport_host_input: 'viewport',
+  viewport_screen_reset: 'viewport',
 } as const;
 
 /**

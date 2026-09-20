@@ -41,6 +41,9 @@ describe('chat-viewport file routing (phase 1279)', () => {
     audit.write('viewport_scrollback_clear_suppressed', 'reason=active_stream');
     audit.write('viewport_draft_persisted', 'bytes=12');
     audit.write('viewport_draft_cleared', 'reason=submitted');
+    // phase 1874 Step D: 诊断面两事件亦路由 viewport.tsv
+    audit.write('viewport_host_input', 'chunks=1');
+    audit.write('viewport_screen_reset', 'clears=1');
 
     expect(existsSync(join(tmpDir, 'viewport.tsv'))).toBe(true);
     const viewportContent = readFileSync(join(tmpDir, 'viewport.tsv'), 'utf-8');

@@ -142,6 +142,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const terminal = createScrollbackPreservingTerminal({
     inner: rawTerminal,
     onSuppress: (count) => observability.recordScrollbackClearSuppressed(count),
+    // phase 1874 Step D: 宿主交互诊断面（输入类计数 / 全屏清除计数）
+    onInput: (counts) => observability.recordHostInput(counts),
+    onScreenClear: (count) => observability.recordScreenReset(count),
   });
   const tui = new TUI(terminal);
 

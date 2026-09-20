@@ -991,8 +991,10 @@
       "viewport_draft_restore_failed",
       "viewport_draft_restored",
       "viewport_event_ingest",
+      "viewport_host_input",
       "viewport_interrupt_persist_failed",
       "viewport_render_batch",
+      "viewport_screen_reset",
       "viewport_scrollback_clear_suppressed",
       "viewport_shutdown",
       "viewport_spinner_lifecycle",
@@ -1024,7 +1026,9 @@
     "contract_legacy_status_field_ignored": "audit",
     "mark_corrupted_graceful_fallback": "audit",
     "contract_progress_invariant_violated": "audit",
-    "messaging_message_invariant_violated": "audit"
+    "messaging_message_invariant_violated": "audit",
+    "viewport_host_input": "viewport",
+    "viewport_screen_reset": "viewport"
   },
   "schema_version": "2.0.0",
   "stepColOwner": {
