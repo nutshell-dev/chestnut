@@ -25,6 +25,7 @@ import {
   setCurrentActionScope,
 } from '../../src/cli/action-scope.js';
 import { cliAction } from '../../src/cli/supervision-policy.js';
+import { CliError } from '../../src/cli/errors.js';
 
 function makeFakeAudit() {
   return {
@@ -105,6 +106,32 @@ describe('phase 1874 Step I: action resource scope', () => {
     expect(createDirContextMock).toHaveBeenCalledTimes(1);
     // 无 scope 时 register 返回 false（caller 自负责）
     expect(registerActionResource('r', () => {})).toBe(false);
+  });
+
+  it('⑥ phase 1874 Step H: 错误路径 dispose 先于 process.exit（exit code 不变）', async () => {
+    const fake = makeFakeAudit();
+    createDirContextMock.mockReturnValue({ audit: fake, fs: {} });
+    const fsFactory = () => ({} as any);
+    const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => true);
+
+    const order: string[] = [];
+    fake.dispose.mockImplementation(() => { order.push('dispose'); });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((() => {
+      order.push('exit');
+      throw new Error('exit called');
+    }) as unknown as typeof process.exit));
+
+    const wrapped = cliAction('disabled', async () => {
+      actionAuditFor('/claw/err', { fsFactory });
+      throw new CliError('boom', 2);
+    }, { fsFactory });
+
+    await expect(wrapped()).rejects.toThrow('exit called');
+    // 错误边界顺序：先 dispose 本 action 资源、再退出；exit code 保持 CliError code
+    expect(order).toEqual(['dispose', 'exit']);
+    expect(exitSpy).toHaveBeenCalledWith(2);
+    exitSpy.mockRestore();
+    consoleErrSpy.mockRestore();
   });
 
   it('⑤ cliAction 成功路径统一 dispose + scope 清除', async () => {

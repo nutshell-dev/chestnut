@@ -32,8 +32,9 @@ interface SupervisionContext {
 }
 
 /**
- * phase 1874 Step I: 每次 action 一个 resource scope（handler 内经 actionAuditFor 复用/注册，
- * 成功路径统一 dispose）。错误路径 dispose 由 Step H 在同一 finally 接入。
+ * phase 1874 Step I + H: 每次 action 一个 resource scope（handler 内经 actionAuditFor
+ * 复用/注册）。两条终态路径都统一 dispose：成功 → 'completed'；错误 → 'error'
+ * （在 withCliErrorHandling 的 process.exit 之前执行——错误边界不跳过 teardown）。
  * CLIProcess 每次 invoke 独立进程 → 模块级 current scope 语义充分。
  */
 async function runWithActionScope(ctx: SupervisionContext, fn: () => Promise<void>): Promise<void> {
@@ -45,7 +46,9 @@ async function runWithActionScope(ctx: SupervisionContext, fn: () => Promise<voi
     ok = true;
   } finally {
     setCurrentActionScope(null);
-    if (ok) await scope.disposeAll('completed');
+    // phase 1874 Step H（cli-error-exit-skips-teardown）：error 路径同样 dispose——
+    // 本 finally 先于 withCliErrorHandling catch 内的 process.exit 执行，失败证据先于退出落盘。
+    await scope.disposeAll(ok ? 'completed' : 'error');
   }
 }
 
