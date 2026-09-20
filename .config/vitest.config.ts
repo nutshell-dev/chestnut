@@ -218,6 +218,7 @@ const VI_MOCK_FILES = [
   'tests/core/agent-executor/max-tokens-orphan-drop-passthrough.test.ts',
   'tests/daemon/idempotent-signal-handlers.test.ts',
   'tests/daemon/startup-check-delivery.test.ts',  // phase 1794 Step B: vi.mock startup-check/messaging（补登记，phase 316 invariant）
+  'tests/daemon/daemon-loop-fatal-budget.test.ts',  // phase 1875 Step B: vi.mock daemon/constants（缩 fatal 退避常量；补登记，phase 316 invariant）
   'tests/foundation/async-task-system/cancel-notification-failure.test.ts',  // phase 1806 Step B: vi.mock result-delivery（补登记，phase 316 invariant）
   'tests/foundation/audit/fallback-drop-observability.test.ts',
   'tests/foundation/audit/multi-file-concurrent-write.test.ts',
