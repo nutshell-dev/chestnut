@@ -28,7 +28,7 @@ import { formatErr } from '../foundation/node-utils/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
-import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
+import { ProcessSpawnConflictError, hasCleanStopIntent } from '../foundation/process-manager/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { getClawDir, enumerateClaws } from '../foundation/claw-identity/index.js';
@@ -262,7 +262,8 @@ export async function maybeCronExecutorRecovery(
 
     const clawDir = getClawDir(rawClawId);
     const clawFs = fsFactory(clawDir);
-    const cleanStop = clawFs.existsSync('clean-stop');
+    // Phase 1878 Step E: clean-stop 意图经 PM 稳定查询读取（路径知识归 PM owner）。
+    const cleanStop = hasCleanStopIntent(clawFs, daemonDir);
     if (cleanStop) {
       // 用户主动 stop：不视为需要恢复；清状态防止残留。
       if (nextMap[rawClawId]) {

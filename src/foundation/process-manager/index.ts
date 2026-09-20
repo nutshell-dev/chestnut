@@ -43,7 +43,7 @@ export { STATUS_SUBDIR } from './paths.js';
 // phase 1873 Step B: child activation capability（协议 + typed outcome）
 export { activateChildGeneration } from './activation.js';
 export type { ChildActivationInput, ChildActivationOutcome, ChildActivationStage } from './activation.js';
-export { signalCleanStop, clearCleanStop } from './signal-clean-stop.js';
+export { signalCleanStop, clearCleanStop, hasCleanStopIntent } from './signal-clean-stop.js';
 
 export { getActiveDir, PID_FILE, PROCESS_GENERATION_ENV } from './generation.js';
 export type { ProcessGenerationRecord } from './generation.js';

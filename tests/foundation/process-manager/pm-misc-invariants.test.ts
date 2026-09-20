@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { signalCleanStop } from '../../../src/foundation/process-manager/signal-clean-stop.js';
+import { signalCleanStop, hasCleanStopIntent } from '../../../src/foundation/process-manager/signal-clean-stop.js';
 import { makeDaemonDir, ProcessGenerationStateError, ProcessSpawnConflictError } from '../../../src/foundation/process-manager/index.js';
 import { liveness } from '../../../src/foundation/process-manager/alive.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -50,6 +50,34 @@ describe('signal-clean-stop', () => {
         '/data/chestnut/claws/claw-a/clean-stop',
         '',
       );
+    });
+  });
+
+  describe('hasCleanStopIntent (phase 1878 Step E)', () => {
+    it('marker 存在 → true；缺失 → false（路径知识归 PM owner）', () => {
+      const exists = vi.fn().mockReturnValue(true);
+      const fs = { existsSync: exists } as any;
+
+      expect(hasCleanStopIntent(fs, makeDaemonDir('/data/chestnut/claws/claw-a'))).toBe(true);
+      expect(exists).toHaveBeenCalledWith('/data/chestnut/claws/claw-a/clean-stop');
+
+      exists.mockReturnValue(false);
+      expect(hasCleanStopIntent(fs, makeDaemonDir('/data/chestnut/claws/claw-a'))).toBe(false);
+    });
+
+    it('写读同路径语义：signalCleanStop 写出的 marker 可被查询命中', async () => {
+      const tempDir = createTrackedTempDirSync('clean-stop-intent-');
+      try {
+        const daemonDir = makeDaemonDirFromTypes(path.join(tempDir, 'claws', 'claw-a'));
+        fs.mkdirSync(daemonDir, { recursive: true });
+        const nodeFs = new NodeFileSystem({ baseDir: tempDir });
+
+        expect(hasCleanStopIntent(nodeFs, daemonDir)).toBe(false);
+        await signalCleanStop(nodeFs, daemonDir, undefined);
+        expect(hasCleanStopIntent(nodeFs, daemonDir)).toBe(true);
+      } finally {
+        cleanupTempDirSync(tempDir);
+      }
     });
   });
 });
