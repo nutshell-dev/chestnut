@@ -118,8 +118,12 @@ describe('phase 1873 Step I: daemon-loop fatal 有界恢复', () => {
     const onFatalExhausted = vi.fn().mockResolvedValue(undefined);
 
     const { promise, stop } = startWith(run, audit, onFatalExhausted);
-    // 等第 3 次 run（第 2 次 fatal）落地（20ms+10ms 退避+20ms+20ms tick 预算）
-    await new Promise(r => setTimeout(r, 150));
+    /**
+     * 等第 3 次 run（第 2 次 fatal）落地。
+     * Derivation: 20ms(tick) + 10ms(退避) + 20ms(tick) + 20ms(tick 起跑) + 余量。
+     */
+    const FATAL_SEQUENCE_SETTLE_MS = 150;
+    await new Promise(r => setTimeout(r, FATAL_SEQUENCE_SETTLE_MS));
     stop();
     await promise.catch(() => { /* silent: teardown */ });
 
@@ -136,8 +140,12 @@ describe('phase 1873 Step I: daemon-loop fatal 有界恢复', () => {
     const run = vi.fn().mockRejectedValue(new Error('loop crash'));
 
     const { promise, stop } = startWith(run, audit);
-    // 等首个 fatal 进入退避
-    await new Promise(r => setTimeout(r, 15));
+    /**
+     * 等首个 fatal 落 audit 并进入退避。
+     * Derivation: tick 起跑 + fatal catch 的微任务链 ≪ 退避首段（10ms）前的观察窗。
+     */
+    const FIRST_FATAL_ARRIVE_MS = 15;
+    await new Promise(r => setTimeout(r, FIRST_FATAL_ARRIVE_MS));
     const before = fatalEntries(audit).length;
     expect(before).toBeGreaterThanOrEqual(1);
 
