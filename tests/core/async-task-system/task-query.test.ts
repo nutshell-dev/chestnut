@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loadSubAgentTask } from '../../../src/core/async-task-system/index.js';
+import { resolveTaskResultDir } from '../../../src/core/async-task-system/index.js';
 import { makeFullTaskId, makeShortTaskId } from '../../../src/core/async-task-system/types.js';
 import type { SubAgentTask } from '../../../src/core/async-task-system/index.js';
 
@@ -142,5 +143,28 @@ describe('phase 1872 Step D: loadSubAgentTask（owner 单条查询）', () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+describe('phase 1879 Step C: resolveTaskResultDir（results 命名空间存在性归 owner）', () => {
+  const makeExistsFs = (existing: ReadonlySet<string>) => ({
+    existsSync: (p: string): boolean => existing.has(p),
+  });
+
+  it('命中 → 返回 clawDir 相对路径（tasks/queues/results/<id>）', () => {
+    const fsImpl = makeExistsFs(new Set([`tasks/queues/results/${TASK_ID}`]));
+    expect(resolveTaskResultDir(fsImpl, TASK_ID)).toBe(`tasks/queues/results/${TASK_ID}`);
+  });
+
+  it('未命中 → null（不存在 ≠ 错误，纯存在性判定）', () => {
+    const fsImpl = makeExistsFs(new Set());
+    expect(resolveTaskResultDir(fsImpl, TASK_ID)).toBeNull();
+  });
+
+  it('只读：不探测其他命名空间（布局知识封装在 owner 内）', () => {
+    const seen: string[] = [];
+    const fsImpl = { existsSync: (p: string): boolean => { seen.push(p); return false; } };
+    expect(resolveTaskResultDir(fsImpl, TASK_ID)).toBeNull();
+    expect(seen).toEqual([`tasks/queues/results/${TASK_ID}`]);
   });
 });

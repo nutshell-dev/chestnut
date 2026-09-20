@@ -8,7 +8,9 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { CliError } from '../errors.js';
-import { parseSessionData } from '../../foundation/dialog-store/index.js';
+// phase 1879 Step C: dialog 当前/归档两态读取归 DialogStore owner 查询（布局/格式理解归
+// owner）；本模块只做结果协议 → CLI 错误文案的呈现映射。
+import { loadSessionFile } from '../../foundation/dialog-store/index.js';
 
 export interface Step {
   num: number;
@@ -107,47 +109,19 @@ export function loadSessionFromFile(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   filePath: string,
 ): SessionLoadResult {
-  const baseDir = path.dirname(filePath);
-  const relPath = path.basename(filePath);
-  const fileSystem = deps.fsFactory(baseDir);
-
-  // path 1: current.json exists → read directly
-  if (fileSystem.existsSync(relPath)) {
-    const raw = JSON.parse(fileSystem.readSync(relPath));
-    const outcome = parseSessionData(raw, relPath);
-    if (outcome.kind !== 'ok') throw new CliError(`dialog session version unknown: ${filePath}`);
-    return {
-      session: outcome.session as SessionLike,
-      source: 'current',
-    };
+  const outcome = loadSessionFile(deps.fsFactory(path.dirname(filePath)), filePath);
+  switch (outcome.kind) {
+    case 'ok':
+      return outcome.source === 'current'
+        ? { session: outcome.session, source: 'current' }
+        : { session: outcome.session, source: 'archive', archiveName: outcome.archiveName };
+    case 'not_found':
+      throw new CliError(outcome.archiveDirExists
+        ? `dialog session not found: ${filePath} (archive/ empty)`
+        : `dialog session not found: ${filePath} (archive/ also missing)`);
+    case 'rejected':
+      throw new CliError(outcome.source === 'current'
+        ? `dialog session version unknown: ${filePath}`
+        : `dialog session version unknown: archive/${outcome.archiveName}`);
   }
-
-  // path 2: cold-start fallback → latest archive under archive/
-  const archiveDir = path.join(baseDir, 'archive');
-  const archiveFs = deps.fsFactory(archiveDir);
-  if (!archiveFs.existsSync('.')) {
-    throw new CliError(`dialog session not found: ${filePath} (archive/ also missing)`);
-  }
-  const latestArchive = findLatestArchiveSync(archiveFs);
-  if (!latestArchive) {
-    throw new CliError(`dialog session not found: ${filePath} (archive/ empty)`);
-  }
-  const raw = JSON.parse(archiveFs.readSync(latestArchive));
-  const outcome = parseSessionData(raw, latestArchive);
-  if (outcome.kind !== 'ok') throw new CliError(`dialog session version unknown: archive/${latestArchive}`);
-  return {
-    session: outcome.session as SessionLike,
-    source: 'archive',
-    archiveName: latestArchive,
-  };
-}
-
-function findLatestArchiveSync(archiveFs: FileSystem): string | null {
-  const entries = archiveFs.listSync('.');
-  const archives = entries
-    .filter((e) => e.isFile && e.name.endsWith('.json') && /^\d+_/.test(e.name))
-    .map((e) => ({ name: e.name, ts: parseInt(e.name.split('_')[0], 10) }))
-    .filter((a) => !isNaN(a.ts))
-    .sort((a, b) => b.ts - a.ts);
-  return archives.length > 0 ? archives[0].name : null;
 }

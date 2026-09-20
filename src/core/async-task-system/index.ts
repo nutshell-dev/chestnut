@@ -88,6 +88,8 @@ export type { TaskQueueCounts } from './task-queue-snapshot.js';
 
 // phase 1872 Step D: task 单条只读查询（assembly-async-task-storage-bypass 收口）
 export { loadSubAgentTask } from './task-query.js';
+// phase 1879 Step C: task result 目录存在性查询（results 命名空间布局归 owner）
+export { resolveTaskResultDir } from './task-query.js';
 
 // phase 1321: async-task-system 自有 stream 事件 const（分层拆件、恢复 1312 删的名）
 export { STREAM_TASK_EVENTS } from './stream-events.js';

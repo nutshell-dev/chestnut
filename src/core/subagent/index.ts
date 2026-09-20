@@ -12,6 +12,8 @@ export type { RunSubagentOptions, RunSubagentResult } from './run.js';
 export { createDoneTool, DONE_TOOL_NAME } from './tools/done.js';
 export { createPerTaskRegistry } from './registry-helper.js';
 export { TASKS_SYNC_SUBAGENT_DIR, TASKS_SUBAGENTS_DIR, SUBAGENT_SNAPSHOT_IGNORE } from './constants.js';
+// phase 1879 Step C: subagent run 结果目录存在性查询（布局归 owner；0-instance-dep 只读）
+export { resolveSubagentRunDir } from './result-dir-query.js';
 
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
 

@@ -37,4 +37,6 @@ export { wireClawTopology } from './wire-claw-topology.js';
 // phase 1874 Step F: contract CLI action 窄装配入口（装配语义归 Assembly）
 export { createContractActionContext, createMotionContractActionContext, createClawContractAudit } from './contract-action.js';
 export type { ContractActionContext, ClawActionAudit, ContractActionFsDeps } from './contract-action.js';
+// phase 1879 Step C: subagent 结果目录跨 owner 组合解析（async→sync→legacy 顺序归 Assembly）
+export { resolveSubagentResultDir } from './subagent-result-query.js';
 export { createCrossTargetAccess } from './cross-target-access.js';

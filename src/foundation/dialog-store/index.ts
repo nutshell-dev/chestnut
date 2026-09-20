@@ -21,6 +21,9 @@ export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 // phase 1850 Step F: 单一公开校验入口 + 结果协议类型
 export { parseSessionData } from './validate.js';
 export type { SessionParseOutcome } from './validate.js';
+// phase 1879 Step C: session 文件读取查询（current/archive 两态归 owner；0-instance-dep 只读）
+export { loadSessionFile } from './session-file-query.js';
+export type { SessionFileLoadOutcome } from './session-file-query.js';
 export type {
   SessionData,
   LoadResult,

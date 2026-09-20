@@ -13,30 +13,20 @@ import {
   renderStepFull,
   type Step,
 } from './_message-renderer.js';
-import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
-import { TASKS_SUBAGENTS_DIR } from '../../core/subagent/index.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
+// phase 1879 Step C: 三命名空间布局探测归 owner（ATS/SubAgent）+ 跨 owner 组合归 Assembly；
+// CLI 只消费组合查询结果，不再持命名空间常量/存在性探测逻辑。
+import { resolveSubagentResultDir } from '../../assembly/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 
 // ─── Resolve result dir ──────────────────────────────────────
 
 function resolveResultDir(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string, id: string): string {
-  const clawFs = deps.fsFactory(clawDir);
-
-  // Try async path first
-  const asyncRel = path.join(TASKS_QUEUES_RESULTS_DIR, id);
-  if (clawFs.existsSync(asyncRel)) return path.join(clawDir, asyncRel);
-
-  // Try sync path (verifier)
-  const syncRel = path.join(TASKS_SYNC_SUBAGENT_DIR, id);
-  if (clawFs.existsSync(syncRel)) return path.join(clawDir, syncRel);
-
-  // Try tasks/subagents (legacy / fallback)
-  const subagentRel = path.join(TASKS_SUBAGENTS_DIR, id);
-  if (clawFs.existsSync(subagentRel)) return path.join(clawDir, subagentRel);
-
-  throw new CliError(`Subagent "${id}" not found in claw directory. Try \`chestnut subagent list --claw <name>\` to see subagents.`);
+  const resultDir = resolveSubagentResultDir(deps, clawDir, id);
+  if (resultDir === null) {
+    throw new CliError(`Subagent "${id}" not found in claw directory. Try \`chestnut subagent list --claw <name>\` to see subagents.`);
+  }
+  return resultDir;
 }
 
 // ─── Commands ────────────────────────────────────────────────

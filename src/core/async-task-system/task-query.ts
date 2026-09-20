@@ -20,6 +20,7 @@ import {
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
+  TASKS_QUEUES_RESULTS_DIR,
 } from './dirs.js';
 import { validateTaskShape } from './task-corrupt-helpers.js';
 import type { SubAgentTask, TaskId } from './types.js';
@@ -51,4 +52,21 @@ export async function loadSubAgentTask(
     }
   }
   return undefined;
+}
+
+/**
+ * task result 目录存在性查询（phase 1879 Step C，cli-subagent-layout-probing 收口）。
+ *
+ * callers（Assembly subagent 结果目录解析）需要「某 id 的 async task result 目录是否
+ * 存在、在哪」——此前 CLI 自行拼 `tasks/queues/results/<id>` 做存在性探测（owner 私有
+ * 布局泄漏）。本查询把 results 命名空间的布局知识收口回 ATS owner；布局演进只影响本文件。
+ *
+ * 只读：命中返回 clawDir 相对路径（`tasks/queues/results/<id>`），未命中 null。
+ */
+export function resolveTaskResultDir(
+  fs: Pick<FileSystem, 'existsSync'>,
+  taskId: string,
+): string | null {
+  const rel = `${TASKS_QUEUES_RESULTS_DIR}/${taskId}`;
+  return fs.existsSync(rel) ? rel : null;
 }
