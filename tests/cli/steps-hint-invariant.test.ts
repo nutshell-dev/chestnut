@@ -348,10 +348,11 @@ describe('commander --no-hint flag wire structure', () => {
   );
 
   it('motion steps registers --no-hint and translates opts.hint === false', () => {
-    const idx = indexSource.indexOf("motionCmd\n  .command('steps')");
+    // phase 1874 Step L: --no-hint 注册迁 motion 族 catalog 投影（motionShape → applyCommandOptions）；
+    // catalog flag 字面由 cli-command-catalog-parity 测试锁（同 1798 claw 族先例）。
+    const idx = indexSource.indexOf("motionShape(motionCmd.command('steps'), 'steps')");
     expect(idx).toBeGreaterThan(-1);
     const block = indexSource.slice(idx, idx + 400);
-    expect(block).toContain(".option('--no-hint',");
     expect(block).toContain('opts.hint === false');
   });
 

@@ -54,3 +54,9 @@ export {
   createCliSafeToken,
   type CliSafeToken,
 } from './guidance.js';
+
+// phase 1874 Step L: 命令形状 catalog 投影（motion 族首发；1798 claw 形态泛化）
+export { applyCommandOptions } from './command-shape.js';
+export type { CommandShapeSpec, CommandOptionShape, CommandShapeRegistrar } from './command-shape.js';
+export { MOTION_COMMAND_CATALOG, getMotionCommandSpec } from './motion-command-catalog.js';
+export type { MotionCommandId } from './motion-command-catalog.js';

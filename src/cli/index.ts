@@ -41,6 +41,8 @@ import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.j
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
 import { createRootConfig, createRootConfigLegacyMigration, createContractActionContext } from '../assembly/index.js';
 import { AUDIT_FILE_STEM } from '../foundation/audit/index.js';
+// phase 1874 Step L: motion 族命令形状经 CLIProtocol catalog 投影（summary/options 单源）
+import { getMotionCommandSpec, applyCommandOptions, type MotionCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
 // CLAWS_DIR removed: phase 263
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
@@ -157,40 +159,42 @@ const clawCommand = program
 clawCommand.helpInformation = () => `${renderClawHelp()}\n`;
 
 // motion command group
+// phase 1874 Step L: motion 族命令形状投影（catalog 单源；1798 形态泛化）
+function motionShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: MotionCommandId): T {
+  const spec = getMotionCommandSpec(id);
+  if (!spec) throw new Error(`unknown motion command id in catalog: ${id}`);
+  cmd.description(spec.summary);
+  applyCommandOptions(cmd, spec);
+  return cmd;
+}
+
 const motionCmd = program
   .command('motion')
   .description('Manage Motion (system orchestrator)');
 
 // motion init
-motionCmd
-  .command('init')
-  .description('Initialize Motion configuration')
+motionShape(motionCmd.command('init'), 'init')
   .action(action('disabled', async () => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await motionInitCommand({ fsFactory }, false, { audit });
   }));
 
 // motion chat
-motionCmd
-  .command('chat')
-  .description('Chat with Motion')
+motionShape(motionCmd.command('chat'), 'chat')
   .action(action('required', async () => {
     await motionChatCommand({ fsFactory, rootConfig });
   }));
 
 // motion stop
-motionCmd
-  .command('stop')
-  .description('Stop Motion daemon')
+motionShape(motionCmd.command('stop'), 'stop')
   .action(action('disabled', async () => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await motionStopCommand({ fsFactory, rootConfig }, { audit });
   }));
 
 // motion outbox
-motionCmd
-  .command('outbox')
-  .description("Drain Motion's outbox (send tool messages)")
+motionShape(motionCmd.command('outbox'), 'outbox')
+  // runtimeLiteral（1798 边界）：运行时 default 常量留注册点字面
   .option('--limit <n>', 'Maximum messages to drain', String(DEFAULT_OUTBOX_DRAIN_LIMIT))
   .action(action('required', async (options: { limit: string }) => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
@@ -199,26 +203,19 @@ motionCmd
   }));
 
 // motion steps
-motionCmd
-  .command('steps')
-  .description('Show motion turn steps')
-  .option('--no-hint', 'Suppress step <n> usage hint')
+motionShape(motionCmd.command('steps'), 'steps')
   .action(action('observe_only', async (opts: { hint?: boolean }) => {
     await motionStepsCommand({ fsFactory }, { noHint: opts.hint === false });
   }));
 
 // motion step
-motionCmd
-  .command('step <n>')
-  .description('Show full detail of a single motion turn')
+motionShape(motionCmd.command('step <n>'), 'step')
   .action(action('observe_only', async (n: string) => {
     await motionStepCommand({ fsFactory }, n);
   }));
 
 // motion daemon (auto-backgrounds)
-motionCmd
-  .command('daemon')
-  .description('Start Motion daemon (auto-backgrounds)')
+motionShape(motionCmd.command('daemon'), 'daemon')
   .action(action('internal', async () => {
     const { motionDaemonCommand } = await import('./commands/motion-daemon.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });

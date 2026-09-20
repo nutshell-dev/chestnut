@@ -50,7 +50,8 @@ describe('phase 961: motion steps/step action uses withCliErrorHandling wrapper'
     vi.restoreAllMocks();
   });
   it('motion steps .action() 使用 supervision policy wrapper（phase 1247 Step C migration）', () => {
-    const stepsIdx = indexSource.indexOf("motionCmd\n  .command('steps')");
+    // phase 1874 Step L: 注册形状经 motion 族 catalog 投影（motionShape）
+    const stepsIdx = indexSource.indexOf("motionShape(motionCmd.command('steps'), 'steps')");
     expect(stepsIdx).toBeGreaterThan(-1);
     const block = indexSource.slice(stepsIdx, stepsIdx + 400);
     expect(block).toContain(".action(action('observe_only', async (");
@@ -61,7 +62,8 @@ describe('phase 961: motion steps/step action uses withCliErrorHandling wrapper'
   });
 
   it('motion step .action() 使用 supervision policy wrapper（phase 1247 Step C migration）', () => {
-    const stepIdx = indexSource.indexOf("motionCmd\n  .command('step <n>')");
+    // phase 1874 Step L: 注册形状经 motion 族 catalog 投影（motionShape）
+    const stepIdx = indexSource.indexOf("motionShape(motionCmd.command('step <n>'), 'step')");
     expect(stepIdx).toBeGreaterThan(-1);
     const block = indexSource.slice(stepIdx, stepIdx + 400);
     expect(block).toContain(".action(action('observe_only', async (n: string) => {");
