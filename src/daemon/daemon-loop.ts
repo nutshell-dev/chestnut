@@ -24,6 +24,7 @@ import {
   LOOP_FATAL_BACKOFF_INITIAL_MS,
   LOOP_FATAL_BACKOFF_MAX_MS,
 } from './constants.js';
+import { writeDaemonHeartbeat } from './heartbeat-fact.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox, createInboxReader } from '../foundation/messaging/index.js';
@@ -228,15 +229,31 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       );
     },
   });
+  // phase 1878 Step B: liveness tick 同时落盘心跳事实（daemon-owned 协议面，
+  // 供 Watchdog 判 alive-but-loop-stale）；写失败 audit 不阻断 daemon。
+  const writeHeartbeatFact = () => {
+    try {
+      writeDaemonHeartbeat(agentFs, Date.now());
+    } catch (err) {
+      audit.write(
+        DAEMON_AUDIT_EVENTS.HEARTBEAT_WRITE_FAILED,
+        `error=${formatErr(err)}`,
+      );
+    }
+  };
   const livenessTimer = setInterval(() => {
     audit.write(
       DAEMON_AUDIT_EVENTS.LIVENESS_HEARTBEAT,
       `pid=${process.pid}`,
       `uptime_s=${Math.round(process.uptime())}`,
     );
+    writeHeartbeatFact();
     hourlyHeartbeat.tick();
   }, LIVENESS_HEARTBEAT_MS);
   livenessTimer.unref(); // 不阻 event loop 退出
+  // 启动即写一次心跳事实：首个 setInterval tick 在 60s 后才触发，提前落盘使
+  // Watchdog 在 daemon 新启动后立即看到 fresh 心跳（不依赖首个 tick 窗口）。
+  writeHeartbeatFact();
 
   const stop = () => {
     stopping = true;

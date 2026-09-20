@@ -5,7 +5,8 @@
  * Phase 1396 Step F: Watchdog 自有的 claw daemon 可用性恢复闭合。
  *
  * 职责边界：
- * - Watchdog 只对**已存在 active generation 事实但当前进程死亡**的 claw daemon 执行重启；
+ * - Watchdog 对**已存在 active generation 事实但当前进程死亡**、或**进程存活但心跳过期**
+ *   （alive-but-loop-stale，Phase 1878 Step B）的 claw daemon 执行重启；
  *   clean-stop marker 存在时视为用户主动停止，不重启。
  * - 复用 motion restart 的 reducer（executor-neutral 化），保持现有 max attempts / backoff。
  * - 每次 outcome 持久化到 Watchdog state；重启成功清除 attempt/circuit。
@@ -14,9 +15,10 @@
  *   sink 失败保留 evidence，下 tick 只重试交付，不再 spawn。
  * - Watchdog 不查询 contract 状态；sink 只带 executorId，ContractSystem 自行映射 active contract。
  *
- * 注意：当前 daemon liveness heartbeat 仅写入 audit tick 文件，没有独立 heartbeat
- * 文件/状态供 watchdog 判「alive but heartbeat stale」；因此本模块当前只覆盖进程死亡
- * 场景。活进程但执行停滞由 Step E EventLoop 负责。
+ * Phase 1878 Step B：心跳监督闭环——Daemon 稳定心跳协议（`daemon/heartbeat.json`，
+ * 见 daemon/heartbeat-fact.ts）由本模块单向消费：进程 alive 且心跳过期 → 走同一
+ * restart machinery（退避/熔断语义复用，审计事件区分 stale vs dead）；心跳缺失
+ * （旧版本升级窗口）/ 读取损坏 → 显式 unknown（audit、不重启、不误判）。
  */
 
 import * as path from 'path';
@@ -34,7 +36,7 @@ import { getClawDir, enumerateClaws } from '../foundation/claw-identity/index.js
 import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import type { ExecutionFailureSink } from '../core/contract/index.js';
-import { createDaemonSpawnOptions } from '../daemon/index.js';
+import { createDaemonSpawnOptions, readDaemonHeartbeat } from '../daemon/index.js';
 import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
 import {
   getChestnutFs,
@@ -48,6 +50,7 @@ import {
   type MotionSpawnOutcome as ExecutorSpawnOutcome,
 } from './motion-restart-state.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { HEARTBEAT_STALE_TIMEOUT_MS } from './constants.js';
 import { log } from './watchdog-log.js';
 
 /** circuit-open 阶段终端 evidence schema（chestnut root 相对路径）。 */
@@ -172,6 +175,11 @@ interface ExecutorRecoveryDeps {
   baseIntervalMs?: number;
   /** 指数退避 cap（默认 5min）。 */
   maxBackoffMs?: number;
+  /**
+   * alive-but-loop-stale 判定阈值（默认 HEARTBEAT_STALE_TIMEOUT_MS）。
+   * Phase 1878 Step C 起由 config `heartbeat_stale_timeout_ms` 注入。
+   */
+  heartbeatStaleTimeoutMs?: number;
 }
 
 export async function maybeCronExecutorRecovery(
@@ -185,6 +193,7 @@ export async function maybeCronExecutorRecovery(
   const maxAttempts = deps.maxAttempts ?? getExecutorMaxRestart();
   const baseIntervalMs = deps.baseIntervalMs ?? EXECUTOR_BASE_INTERVAL_MS;
   const maxBackoffMs = deps.maxBackoffMs ?? EXECUTOR_BACKOFF_MAX_MS;
+  const heartbeatStaleTimeoutMs = deps.heartbeatStaleTimeoutMs ?? HEARTBEAT_STALE_TIMEOUT_MS;
   const rootFs = getChestnutFs(fsFactory);
 
   const nextMap: ExecutorRestartMap = { ...stateMap };
@@ -214,19 +223,45 @@ export async function maybeCronExecutorRecovery(
     const daemonDir = resolveClawDaemonDir(clawId);
     const status = pm.liveness(daemonDir);
 
+    // Phase 1878 Step B: alive 进程额外查心跳事实——alive ∧ 心跳过期 = loop-stale，
+    // 与 dead 同走 restart machinery；missing/corrupt → unknown（不重启、不误判）。
+    let executorDown = status.kind === 'dead';
     if (status.kind === 'alive') {
-      // 恢复存活：清 attempt/circuit + 删 evidence。
-      if (nextMap[rawClawId]?.status !== 'closed') {
+      const heartbeat = readDaemonHeartbeat(fsFactory(getClawDir(rawClawId)));
+      if (heartbeat.kind === 'missing' || heartbeat.kind === 'corrupt') {
+        // 升级窗口（旧 daemon 无心跳文件）/ 读取损坏 → 显式 unknown：
+        // 不重启（防误杀）、不阻断现有 alive 清理语义。
         audit.write(
-          WATCHDOG_AUDIT_EVENTS.WATCHDOG_CIRCUIT_REOPENED,
+          WATCHDOG_AUDIT_EVENTS.EXECUTOR_HEARTBEAT_UNKNOWN,
           `claw=${rawClawId}`,
-          `reason=executor_alive_again`,
-          `prev_failures=${nextMap[rawClawId]?.consecutiveAttempts ?? 0}`,
+          `reason=heartbeat_${heartbeat.kind}`,
+          ...(heartbeat.kind === 'corrupt' ? [`error=${heartbeat.error}`] : []),
         );
-        delete nextMap[rawClawId];
-        deleteEvidence(rootFs, rawClawId);
+      } else if (now() - heartbeat.fact.ts > heartbeatStaleTimeoutMs) {
+        executorDown = true;
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.EXECUTOR_HEARTBEAT_STALE,
+          `claw=${rawClawId}`,
+          `heartbeat_ts=${heartbeat.fact.ts}`,
+          `now=${now()}`,
+          `stale_timeout_ms=${heartbeatStaleTimeoutMs}`,
+          `pm=alive`,
+        );
       }
-      continue;
+      if (!executorDown) {
+        // 恢复存活：清 attempt/circuit + 删 evidence。
+        if (nextMap[rawClawId]?.status !== 'closed') {
+          audit.write(
+            WATCHDOG_AUDIT_EVENTS.WATCHDOG_CIRCUIT_REOPENED,
+            `claw=${rawClawId}`,
+            `reason=executor_alive_again`,
+            `prev_failures=${nextMap[rawClawId]?.consecutiveAttempts ?? 0}`,
+          );
+          delete nextMap[rawClawId];
+          deleteEvidence(rootFs, rawClawId);
+        }
+        continue;
+      }
     }
 
     const clawDir = getClawDir(rawClawId);
@@ -249,7 +284,8 @@ export async function maybeCronExecutorRecovery(
     // phase 1773: 只恢复 probe 确认已死（dead）的 daemon——absent（从未启动/已退役）、
     // malformed（证据损坏）、probe_unavailable（probe 系统故障）均不恢复；
     // probe_unavailable ≠ dead，误判会 double-spawn（frozen 设计 risk 条款）。
-    if (status.kind !== 'dead') {
+    // Phase 1878 Step B: alive-but-loop-stale（executorDown）同走 restart machinery。
+    if (!executorDown) {
       continue;
     }
 

@@ -19,6 +19,8 @@ export const DAEMON_AUDIT_EVENTS = {
   LOOP_FATAL: 'daemon_loop_fatal',
   LIVENESS_HEARTBEAT: 'daemon_liveness_heartbeat',
   LIVENESS_HOURLY: 'daemon_liveness_hourly',
+  // phase 1878 Step B: 心跳事实落盘失败（写失败可观察、不阻断 daemon）
+  HEARTBEAT_WRITE_FAILED: 'daemon_heartbeat_write_failed',
   // cleanup 路径
   CLEANUP_HEARTBEAT_FAILED: 'daemon_cleanup_heartbeat_failed',
   CLEANUP_PID_FAILED: 'daemon_cleanup_pid_failed',

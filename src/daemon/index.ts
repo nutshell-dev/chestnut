@@ -23,3 +23,7 @@ export { resolveDaemonEntry } from './entry-resolver.js';
 // Phase 1464 Step B: daemon spawn specification 唯一 owner capability（CLIProcess/Watchdog 唯一启动规格入口）
 export { createDaemonSpawnOptions } from './spawn-options.js';
 export type { DaemonSpawnOptionsInput } from './spawn-options.js';
+
+// Phase 1878 Step B: Daemon 稳定心跳协议面（Watchdog 单向消费）
+export { DAEMON_HEARTBEAT_FILE, readDaemonHeartbeat } from './heartbeat-fact.js';
+export type { DaemonHeartbeatFact, DaemonHeartbeatRead } from './heartbeat-fact.js';

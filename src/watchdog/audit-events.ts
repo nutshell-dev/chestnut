@@ -64,6 +64,11 @@ export const WATCHDOG_AUDIT_EVENTS = {
   EXECUTOR_UNAVAILABLE_DELIVERY_FAILED: 'watchdog_executor_unavailable_delivery_failed',
   /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留证据并上抛 */
   EXECUTOR_UNAVAILABLE_DELIVERY_REJECTED: 'watchdog_executor_unavailable_delivery_rejected',
+  // Phase 1878 Step B: daemon 心跳监督（alive-but-loop-stale 发现与升级窗口显式语义）
+  /** 进程 alive 但心跳过期 → 走既有重启 machinery（审计含判定依据） */
+  EXECUTOR_HEARTBEAT_STALE: 'watchdog_executor_heartbeat_stale',
+  /** 心跳缺失（旧版本升级窗口）/ 读取损坏 → unknown：不重启、不误判（tick 路由防噪声） */
+  EXECUTOR_HEARTBEAT_UNKNOWN: 'watchdog_executor_heartbeat_unknown',
 } as const;
 
 
@@ -115,4 +120,7 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> =
   watchdog_executor_recovery_skipped: 'audit',
   watchdog_executor_unavailable_delivered: 'audit',
   watchdog_executor_unavailable_delivery_failed: 'audit',
+  watchdog_executor_unavailable_delivery_rejected: 'audit',
+  watchdog_executor_heartbeat_stale: 'audit',
+  watchdog_executor_heartbeat_unknown: 'tick',
 } as const;

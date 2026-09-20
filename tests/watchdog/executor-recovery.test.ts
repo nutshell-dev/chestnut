@@ -87,7 +87,15 @@ describe('maybeCronExecutorRecovery', () => {
       baseIntervalMs: 1000,
       maxBackoffMs: 60_000,
       maxAttempts: 3,
+      heartbeatStaleTimeoutMs: 180_000,
     });
+  }
+
+  /** Phase 1878 Step B: 写 daemon 心跳事实（协议面 = <clawDir>/daemon/heartbeat.json）。 */
+  function writeHeartbeat(rawClawId: string, ts: number) {
+    const p = path.join(rootDir, '.chestnut', 'claws', rawClawId, 'daemon', 'heartbeat.json');
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify({ schema_version: 1, ts, pid: 123 }));
   }
 
   it('dead claw with active generation pid → spawn restart, state retrying', async () => {
@@ -249,5 +257,69 @@ describe('maybeCronExecutorRecovery', () => {
     const rejected = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_REJECTED);
     expect(rejected).toBeDefined();
     expect(rejected!.some(col => String(col).includes('executor mismatch'))).toBe(true);
+  });
+
+  // --------------------------------------------------------------------------
+  // Phase 1878 Step B: alive-but-loop-stale 心跳监督
+  // --------------------------------------------------------------------------
+
+  it('alive + 心跳过期 → 走 restart machinery（审计含 stale 判定依据）', async () => {
+    writeHeartbeat(CLAW, TIME_BASE - 180_001); // 超过 180s 阈值
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(aliveLiveness(123)) });
+    spawnDaemon.mockResolvedValue({ kind: 'spawned', pid: 456 });
+    const next = await run();
+    expect(spawnDaemon).toHaveBeenCalledWith(CLAW);
+    expect(next[CLAW].status).toBe('retrying');
+    const stale = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_HEARTBEAT_STALE);
+    expect(stale).toBeDefined();
+    expect(stale!.some(col => String(col) === `heartbeat_ts=${TIME_BASE - 180_001}`)).toBe(true);
+    expect(stale!.some(col => String(col) === 'stale_timeout_ms=180000')).toBe(true);
+    expect(stale!.some(col => String(col) === 'pm=alive')).toBe(true);
+  });
+
+  it('alive + 心跳正常 → 零动作（不误杀、清理语义不变）', async () => {
+    writeHeartbeat(CLAW, TIME_BASE - 60_000); // 阈值内
+    fs.mkdirSync(path.dirname(evidencePath(CLAW)), { recursive: true });
+    fs.writeFileSync(evidencePath(CLAW), JSON.stringify({ schema_version: 1, executorId: CLAW, consecutiveAttempts: 3, openedAt: TIME_BASE - 1000 }));
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(aliveLiveness(123)) });
+    const prior = { [CLAW]: { status: 'open', consecutiveAttempts: 3, openedAt: TIME_BASE - 1000 } };
+    const next = await run(prior);
+    expect(spawnDaemon).not.toHaveBeenCalled();
+    expect(next[CLAW]).toBeUndefined();
+    expect(readEvidence(CLAW)).toBeNull();
+    expect(audit.entries.some(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_HEARTBEAT_STALE)).toBe(false);
+  });
+
+  it('alive + 心跳缺失（升级窗口） → unknown：不重启 + audit，alive 清理语义不变', async () => {
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(aliveLiveness(123)) });
+    const prior = { [CLAW]: { status: 'open', consecutiveAttempts: 3, openedAt: TIME_BASE - 1000 } };
+    const next = await run(prior);
+    expect(spawnDaemon).not.toHaveBeenCalled();
+    expect(next[CLAW]).toBeUndefined();
+    const unknown = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_HEARTBEAT_UNKNOWN);
+    expect(unknown).toBeDefined();
+    expect(unknown!.some(col => String(col) === 'reason=heartbeat_missing')).toBe(true);
+  });
+
+  it('alive + 心跳损坏 → unknown：不重启 + audit（不静默、不误判）', async () => {
+    const p = path.join(rootDir, '.chestnut', 'claws', CLAW, 'daemon', 'heartbeat.json');
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, '{not json');
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(aliveLiveness(123)) });
+    const next = await run();
+    expect(spawnDaemon).not.toHaveBeenCalled();
+    expect(next[CLAW]).toBeUndefined();
+    const unknown = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_HEARTBEAT_UNKNOWN);
+    expect(unknown).toBeDefined();
+    expect(unknown!.some(col => String(col) === 'reason=heartbeat_corrupt')).toBe(true);
+  });
+
+  it('stale 重启与 dead 同 machinery：失败计入退避、触顶 circuit-open', async () => {
+    writeHeartbeat(CLAW, TIME_BASE - 180_001);
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(aliveLiveness(123)) });
+    spawnDaemon.mockRejectedValue(new Error('fail'));
+    const next = await run();
+    expect(next[CLAW].status).toBe('retrying');
+    expect(next[CLAW].consecutiveAttempts).toBe(1);
   });
 });
