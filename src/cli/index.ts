@@ -44,15 +44,8 @@ import { createSummonVerifyPolicy, createSummonCreationClaimStore } from '../cor
 import { createContractSystem } from '../core/contract/index.js';
 import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
 import * as path from 'path';
-import { isFileNotFound } from '../foundation/fs/index.js';
-import {
-  TASKS_QUEUES_PENDING_DIR,
-  TASKS_QUEUES_RUNNING_DIR,
-  TASKS_QUEUES_DONE_DIR,
-  TASKS_QUEUES_FAILED_DIR,
-  validateTaskShape,
-} from '../core/async-task-system/index.js';
-import type { SubAgentTask, TaskId } from '../core/async-task-system/index.js';
+// phase 1874 Step E: task 事实读取归 AsyncTaskSystem owner 窄查询（shape/目录布局内部化）
+import { loadSubAgentTask } from '../core/async-task-system/index.js';
 // CLAWS_DIR removed: phase 263
 import { AUDIT_FILE_STEM, createSystemAudit } from '../foundation/audit/index.js';
 import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
@@ -278,28 +271,14 @@ contractCmd
       const clawFs = fsFactory(clawDir);
       const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
       const clawAudit = createSystemAudit(clawFs, clawDir);
-      // Phase 1396 Step B: CLI 不得再注入恒 undefined loader —— summon task 实然由
-      // motion AsyncTaskSystem 持有，从 motion 磁盘队列扫 pending/running/done/failed
-      // 四目录并用 Task schema 校验；claim store 与 daemon 经同一 factory 注入。
+      // Phase 1396 Step B / phase 1874 Step E: summon task 实然由 motion AsyncTaskSystem
+      // 持有——task 事实读取经 owner 窄查询 loadSubAgentTask（目录布局/shape 校验归 owner，
+      // 与 assembly 侧同一查询、同 phase1872 D 接口）；CLI 不再枚举队列目录/校验 schema。
       const motionFs = fsFactory(path.join(chestnutRoot, MOTION_CLAW_ID));
       const summonVerifyPolicy = createSummonVerifyPolicy({
         auditWriter: clawAudit,
         claimStore: createSummonCreationClaimStore({ fs: fsFactory(chestnutRoot) }),
-        loadTask: async (taskId: TaskId): Promise<SubAgentTask | undefined> => {
-          for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
-            try {
-              const content = await motionFs.read(`${dir}/${taskId}.json`);
-              const parsed = JSON.parse(content) as unknown;
-              if (validateTaskShape(parsed) && (parsed as SubAgentTask).kind === 'subagent') {
-                return parsed as SubAgentTask;
-              }
-            } catch (err) {
-              if (isFileNotFound(err)) continue;
-              throw err;
-            }
-          }
-          return undefined;
-        },
+        loadTask: (taskId) => loadSubAgentTask(motionFs, taskId),
       });
 
       // phase 257: wire ClawTopology 到 ContractSystem 的 ToolRegistry
