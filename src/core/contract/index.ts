@@ -26,6 +26,10 @@ export {
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // phase 1862 Step C (CT-D2): 终态 transition 单一 typed outcome barrel export
 export type { TerminalTransitionOutcome } from './lifecycle.js';
+// Phase 1878 Step D: ExecutionFailureSink 窄能力工厂（0-full-instance；
+// 语义与 ContractSystem.failActiveForExecutor 1:1 同一实现源）
+export { createExecutionFailureSink } from './execution-failure.js';
+export type { ExecutionFailureSinkDeps } from './execution-failure.js';
 export { CONTRACT_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
 export { createContractObserverJob } from './jobs/contract-observer.js';
 // phase 484: verification-types barrel re-export

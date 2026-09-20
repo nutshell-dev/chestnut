@@ -36,7 +36,13 @@ import {
 } from './lifecycle-intent.js';
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 
-export interface LifecycleContext {
+/**
+ * Phase 1878 Step D: 终态 transition（cancel / corrupted / fail）的最小上下文。
+ * contractDir / loadContract / getProgress / checkAllSubtasksCompleted 仅 boot
+ * reconcile 与 completion 查询使用——从本窄面移除（M#8 耦合界面最小），使
+ * 不经完整 ContractSystem 实例的窄能力（execution-failure.ts sink）可合法构造。
+ */
+export interface TerminalLifecycleContext {
   fs: FileSystem;
   audit: AuditLog;
   l1IsAlive?: typeof defaultL1IsAlive;
@@ -44,14 +50,17 @@ export interface LifecycleContext {
   baseDir: string;
   activeDir: string;
   archiveDir: ArchiveDir;
-  contractDir: (contractId: ContractId) => Promise<string>;
-  loadContract: (contractId: ContractId) => Promise<ContractYaml | null>;
-  getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   /** phase 1020 (r124 C fork): cancelContract abort propagation to active verifier subagents */
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
   /** phase 63: onNotify sink for contract terminal state alerts（phase 1260: typed event） */
   onNotify?: ContractNotificationSink;
+}
+
+export interface LifecycleContext extends TerminalLifecycleContext {
+  contractDir: (contractId: ContractId) => Promise<string>;
+  loadContract: (contractId: ContractId) => Promise<ContractYaml | null>;
+  getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
+  checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
 }
 
 function makeRequestId(prefix: string): string {
@@ -76,7 +85,7 @@ export interface TerminalTransitionOutcome {
 }
 
 function safeNotify(
-  ctx: LifecycleContext,
+  ctx: TerminalLifecycleContext,
   event: ContractNotification,
 ): void {
   try {
@@ -93,7 +102,7 @@ function safeNotify(
  * commit is the move from active/<id> to archive/cancelled/<id>.
  */
 export async function cancelContract(
-  ctx: LifecycleContext,
+  ctx: TerminalLifecycleContext,
   contractId: ContractId,
   reason: string,
   requestId?: string,
@@ -147,7 +156,7 @@ export async function cancelContract(
  * Caller is responsible for any business precondition and post-commit side effects.
  */
 export async function commitTerminalLifecycle(
-  ctx: LifecycleContext,
+  ctx: TerminalLifecycleContext,
   contractId: ContractId,
   intent: LifecycleIntent,
 ): Promise<LifecycleCommitOutcome> {
@@ -238,7 +247,7 @@ export async function commitTerminalLifecycle(
  * No progress.json mutation occurs before the directory rename.
  */
 export async function markCorrupted(
-  ctx: LifecycleContext,
+  ctx: TerminalLifecycleContext,
   contractId: ContractId,
   evidence: ContractCorruptionEvidence,
   _knownDir?: string,
@@ -283,7 +292,7 @@ export async function markCorrupted(
  * reserved for explicit business cancellation and is never used for failure.
  */
 export async function failContract(
-  ctx: LifecycleContext,
+  ctx: TerminalLifecycleContext,
   contractId: ContractId,
   failure: ContractFailure,
   requestId?: string,

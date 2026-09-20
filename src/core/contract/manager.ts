@@ -22,7 +22,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -82,6 +82,7 @@ import {
   type LifecycleContext,
   type TerminalTransitionOutcome,
 } from './lifecycle.js';
+import { failActiveContractsForExecutor } from './execution-failure.js';
 import type { NotifyClawFn, VerificationGatewayResult, SyncCompletionGatewayResult } from './verification-types.js';
 import type { VerificationAttemptTransition } from './verification-transition-types.js';
 import type { ContractCorruptionEvidence } from './types.js';
@@ -1232,44 +1233,20 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   async failActiveForExecutor(
     input: ContractExecutionFailure,
   ): Promise<ExecutionFailureReportOutcome> {
-    if (input.executorId !== this.clawId) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.FAIL_EXECUTOR_MISMATCH,
-        `executorId=${input.executorId}`,
-        `clawId=${this.clawId}`,
-        `producer=${input.failure.producer}`,
-      );
-      return {
-        kind: 'rejected',
-        reason: `Execution failure report rejected: executor "${input.executorId}" does not own this ContractSystem (claw "${this.clawId}")`,
-      };
-    }
-
-    const activeIds = await listPhysicalActiveContractIds({
-      fs: this.fs,
-      activeDir: this.activeDir,
-    });
-
-    let retryable: TerminalTransitionOutcome | null = null;
-    for (const contractId of activeIds) {
-      const outcome = await this.fail(
-        contractId,
-        input.failure,
-        executionFailureRequestId(contractId, input),
-      );
-      // 单个 retryable 只记录本轮未闭合，不阻断其他 active contract。
-      if (outcome.commit.kind === 'retryable_failure' && retryable === null) {
-        retryable = outcome;
-      }
-    }
-    if (retryable !== null) {
-      const commit = retryable.commit;
-      return {
-        kind: 'retryable',
-        error: `Execution failure not closed this round: ${commit.kind === 'retryable_failure' ? commit.cause : 'unknown'}`,
-      };
-    }
-    return { kind: 'committed' };
+    // Phase 1878 Step D: 语义本体抽至 execution-failure.ts（窄 sink 同一实现源）；
+    // auditorState 清理经 onTerminalSettled 钩子保持原 fail() 语义。
+    return failActiveContractsForExecutor(
+      {
+        fs: this.fs,
+        audit: this.audit,
+        clawDir: this.clawDir,
+        clawId: this.clawId,
+        abortContractVerifiers: (contractId, reason) => this._abortContractVerifiers(contractId, reason),
+        onNotify: this.onNotify,
+        onTerminalSettled: (contractId) => this.auditorState.delete(contractId),
+      },
+      input,
+    );
   }
 
   async isComplete(contractId: ContractId): Promise<boolean> {
@@ -1804,19 +1781,6 @@ export async function createContractSystem(deps: ContractSystemDeps): Promise<Co
 }
 
 /**
- * Phase 1398 Step B: 稳定 requestId 派生。输入全部是已有持久事实
- * （contractId + executorId + producer + reason + evidenceRef），字段顺序固定；
- * 不使用 Date.now() 或随机数，at-least-once 重试复用同一 lifecycle intent。
+ * Phase 1398 Step B: 稳定 requestId 派生已随语义本体迁入 execution-failure.ts
+ * （Phase 1878 Step D）。
  */
-function executionFailureRequestId(
-  contractId: ContractId,
-  input: ContractExecutionFailure,
-): string {
-  return `execution-failure-${sha256Hex(JSON.stringify([
-    contractId,
-    input.executorId,
-    input.failure.producer,
-    input.failure.reason,
-    input.failure.evidenceRef,
-  ]))}`;
-}

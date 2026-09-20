@@ -29,12 +29,11 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
-import { createToolRegistry } from '../foundation/tools/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { getClawDir, enumerateClaws } from '../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
-import { createContractSystem } from '../core/contract/index.js';
+import { createExecutionFailureSink } from '../core/contract/index.js';
 import type { ExecutionFailureSink } from '../core/contract/index.js';
 import { createDaemonSpawnOptions, readDaemonHeartbeat } from '../daemon/index.js';
 import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
@@ -127,34 +126,31 @@ function deleteEvidence(rootFs: FileSystem, rawClawId: string): void {
   }
 }
 
-/** 构造最小 ContractSystem 只为 failActiveForExecutor（Step D narrow sink）。 */
-async function makeContractFailureSink(
+/**
+ * Phase 1878 Step D: 消费 ContractSystem 窄 ExecutionFailureSink capability——
+ * 不再每交付构造完整 ContractSystem / ToolRegistry（语义 1:1 同一实现源）。
+ * claw audit 归 caller scope：每次交付创建并对称 dispose（防短缓冲丢失）。
+ */
+function makeContractFailureSink(
   fsFactory: (baseDir: string) => FileSystem,
   rawClawId: string,
-): Promise<ExecutionFailureSink> {
-  const clawId = makeClawId(rawClawId);
+): ExecutionFailureSink {
   const clawDir = getClawDir(rawClawId);
-  const fs = fsFactory(clawDir);
-  const { audit } = createDirContext({ fsFactory }, clawDir);
-  // phase 1445 Step D：narrow sink 故意不传 bootReconcile（boot reconcile 归 owner-daemon）
-  const contractManager = await createContractSystem({
-    clawDir,
-    clawId,
+  const { fs, audit } = createDirContext({ fsFactory }, clawDir);
+  const sink = createExecutionFailureSink({
     fs,
     audit,
-    notifyClaw: () => undefined,
-    toolRegistry: createToolRegistry(),
-    fsFactory,
+    clawDir,
+    clawId: makeClawId(rawClawId),
   });
   return {
-    report: (input) => contractManager.failActiveForExecutor({
-      executorId: input.executorId,
-      failure: {
-        reason: input.reason,
-        evidenceRef: input.evidenceRef,
-        producer: input.producer,
-      },
-    }),
+    report: async (input) => {
+      try {
+        return await sink.report(input);
+      } finally {
+        audit.dispose?.();
+      }
+    },
   };
 }
 
@@ -340,7 +336,7 @@ export async function maybeCronExecutorRecovery(
         if (!openState.sinkDelivered) {
           const sink = deps.makeFailureSink
             ? deps.makeFailureSink(rawClawId)
-            : await makeContractFailureSink(fsFactory, rawClawId);
+            : makeContractFailureSink(fsFactory, rawClawId);
           try {
             // Phase 1803 Step B: 穷尽处理三态 ack——committed 交付闭合
             // （terminal winner 已确定）；retryable 保留证据下 tick 重试；
