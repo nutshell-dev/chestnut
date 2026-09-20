@@ -42,8 +42,7 @@ const deps = {
 
 const LEGACY_CUSTOM: WatchdogConfig = {
   interval_ms: 60000,
-  disk_warning_mb: 1024,
-  claw_inactivity_timeout_ms: 600000,
+  heartbeat_stale_timeout_ms: 240000,
 };
 
 function rootYamlWithWatchdog(opts: { includeRetired?: boolean } = {}): string {
@@ -55,6 +54,7 @@ llm:
     model: claude-sonnet-4-5
 watchdog:
   interval_ms: 60000
+  heartbeat_stale_timeout_ms: 240000
   disk_warning_mb: 1024
   claw_inactivity_timeout_ms: 600000
 ${opts.includeRetired ? '  log_archive_days: 30\n' : ''}`;
@@ -103,7 +103,7 @@ describe('phase 1289 Step B: watchdog config migration orchestration', () => {
     // 新配置就位（typed 回读 + 拍板磁盘形态）
     expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toEqual({ kind: 'ok', config: LEGACY_CUSTOM });
     expect(watchdogConfigOnDisk()).toBe(
-      'schema_version: 1\ninterval_ms: 60000\ndisk_warning_mb: 1024\nclaw_inactivity_timeout_ms: 600000\n',
+      'schema_version: 1\ninterval_ms: 60000\nheartbeat_stale_timeout_ms: 240000\n',
     );
 
     // legacy 段移除 + root YAML 其余字段逐字节语义保持、无 default 注入
@@ -120,7 +120,12 @@ describe('phase 1289 Step B: watchdog config migration orchestration', () => {
     expect(journal.intent?.legacy).toEqual(LEGACY_CUSTOM);
     expect(journal.intent?.source.section).toBe('watchdog');
     expect(journal.intent?.source.sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(journal.intent?.retired_fields).toBeUndefined();
+    // Phase 1878 Step C：退役字段（disk_warning_mb / claw_inactivity_timeout_ms）
+    // 显式捕获进 retired_fields 留证、不进入新 config。
+    expect(journal.intent?.retired_fields).toEqual({
+      disk_warning_mb: 1024,
+      claw_inactivity_timeout_ms: 600000,
+    });
     expect(journal.outcome).toMatchObject({ status: 'completed', published: true, legacy_removed: true });
     expect(fs.existsSync(path.join(chestnutRoot, WATCHDOG_PATHS.layout))).toBe(true);
     expect(findPendingWatchdogMigration(fsFactory(chestnutRoot))).toBeUndefined();
@@ -134,7 +139,11 @@ describe('phase 1289 Step B: watchdog config migration orchestration', () => {
 
     // 退役字段进 journal intent，不进新 config（typed schema 无此字段）
     const journal = readWatchdogMigrationJournal(fsFactory(chestnutRoot), migrationId);
-    expect(journal.intent?.retired_fields).toEqual({ log_archive_days: 30 });
+    expect(journal.intent?.retired_fields).toEqual({
+      log_archive_days: 30,
+      disk_warning_mb: 1024,
+      claw_inactivity_timeout_ms: 600000,
+    });
     expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toEqual({ kind: 'ok', config: LEGACY_CUSTOM });
     expect(watchdogConfigOnDisk()).not.toContain('log_archive_days');
     // legacy 段整体移除（含退役字段原文）
@@ -167,7 +176,7 @@ describe('phase 1289 Step B: watchdog config migration orchestration', () => {
     fs.writeFileSync(configPath, rootYamlWithWatchdog());
     publishMigratedWorkspaceWatchdogConfig(
       fsFactory(chestnutRoot),
-      { interval_ms: 60000, disk_warning_mb: 2048, claw_inactivity_timeout_ms: 600000 },
+      { interval_ms: 60000, heartbeat_stale_timeout_ms: 300000 },
       'x'.repeat(64),
     );
     const configBefore = watchdogConfigOnDisk();

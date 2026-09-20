@@ -129,7 +129,7 @@ describe('logWithAudit — A1 clearance', () => {
     fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
     });
 
     auditWriter = new AuditWriter(
@@ -218,7 +218,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     fs.writeFileSync(path.join(chestnutDir, 'watchdog.pid'), JSON.stringify({ pid: FAKE_LIVE_PID }));
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
     });
 
     auditWriter = new AuditWriter(
@@ -521,7 +521,7 @@ describe('runWatchdogLoop', () => {
     fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 5_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 5_000, heartbeat_stale_timeout_ms: 180_000,
     });
 
     mockPm = {
@@ -801,7 +801,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
     });
   });
 

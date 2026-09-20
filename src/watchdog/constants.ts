@@ -1,12 +1,6 @@
 /** Watchdog liveness check interval (ms) */
 export const WATCHDOG_INTERVAL_MS = 30_000;
 
-/** Disk warning threshold (MB) */
-export const DEFAULT_DISK_WARNING_MB = 500;
-
-/** Claw inactivity timeout - kill claw if no activity (ms) — 5 minutes */
-export const CLAW_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
-
 /**
  * alive-but-loop-stale 判定阈值（ms）：daemon 进程 alive 但心跳事实超过本阈值未更新
  * → 判事件循环停滞，走既有重启 machinery。

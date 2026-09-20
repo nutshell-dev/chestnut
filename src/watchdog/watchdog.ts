@@ -602,9 +602,15 @@ export async function runWatchdogLoop(
     saveWatchdogState(fsFactory);
 
     // 2. Executor availability recovery (Phase 1396 Step F/H)
+    // Phase 1878 Step C: 心跳过期阈值自 workspace config 消费（B 的判定面）。
     const nextExecutorMap = await maybeCronExecutorRecovery(
       executorRestartStateAPI.snapshot(),
-      { pm, audit: auditWriter, fsFactory },
+      {
+        pm,
+        audit: auditWriter,
+        fsFactory,
+        heartbeatStaleTimeoutMs: getWatchdogConfig(fsFactory).heartbeat_stale_timeout_ms,
+      },
     );
     executorRestartStateAPI.replace(nextExecutorMap);
     saveWatchdogState(fsFactory);

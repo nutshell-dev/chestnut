@@ -237,10 +237,13 @@ export interface LegacyWatchdogConfigSection {
   /** legacy section 所在 owner resource；供迁移 journal 留证。 */
   sourcePath: string;
   /**
-   * 显式退役字段：legacy 段中 log_archive_days（现有 schema 会静默剥离）为
-   * number 时捕获于此，由编排层写入 journal intent；不进入新 schema。
+   * 显式退役字段：legacy 段中已退役字段（现有 schema 会静默剥离）为 number 时
+   * 捕获于此，由编排层写入 journal intent 留证；不进入新 schema。
+   * - log_archive_days（Phase 1289 退役）
+   * - disk_warning_mb / claw_inactivity_timeout_ms（Phase 1878 Step C 退役，
+   *   零生产决策消费）
    */
-  retired: { log_archive_days?: number };
+  retired: { log_archive_days?: number; disk_warning_mb?: number; claw_inactivity_timeout_ms?: number };
   /** legacy 段原文（js-yaml canonical dump）的 sha256 hex。 */
   sourceHash: string;
 }
@@ -267,16 +270,20 @@ export function readLegacyWatchdogConfigSection(deps: { fsFactory: (baseDir: str
 
   let config: WatchdogConfig;
   try {
-    // zod 默认剥离未知键：log_archive_days 等退役字段不进入 typed config。
+    // zod 默认剥离未知键：log_archive_days / disk_warning_mb 等退役字段不进入
+    // typed config（显式退役：读取不报错，下方捕获进 retired 留证）。
     config = watchdogConfigSchema.parse(section);
   } catch (err) {
     throw new Error(`Invalid global config: legacy watchdog section: ${formatErr(err)}`, { cause: err });
   }
-  const retired: { log_archive_days?: number } = {};
+  const retired: LegacyWatchdogConfigSection['retired'] = {};
   if (typeof section === 'object' && section !== null && !Array.isArray(section)) {
-    const logArchiveDays = (section as Record<string, unknown>).log_archive_days;
-    if (typeof logArchiveDays === 'number') {
-      retired.log_archive_days = logArchiveDays;
+    const record = section as Record<string, unknown>;
+    for (const key of ['log_archive_days', 'disk_warning_mb', 'claw_inactivity_timeout_ms'] as const) {
+      const value = record[key];
+      if (typeof value === 'number') {
+        retired[key] = value;
+      }
     }
   }
   return { config, retired, sourcePath: configPath, sourceHash: sha256Hex(yaml.dump(section)) };

@@ -70,7 +70,7 @@ describe('watchdog-state migration + schema invariants (Phase 1396 Step H)', () 
     migrationFile = path.join(chestnutDir, 'watchdog', 'migrations', 'phase1396-retired-notification-state.json');
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
     });
   });
 

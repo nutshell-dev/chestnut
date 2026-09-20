@@ -69,7 +69,7 @@ describe('watchdog orphan sweep', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
     });
 
     auditWriter = new AuditWriter(

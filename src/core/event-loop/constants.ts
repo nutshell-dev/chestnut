@@ -48,8 +48,9 @@ export const REACT_CHAIN_MAX_ITERATIONS = 100;
 
 /**
  * Phase 1396 Step E: 执行停滞判定超时 (ms)。
- * Derivation: 沿用既有 watchdog claw_inactivity_timeout_ms 默认 (5min) ——
- * 同一「自发停滞」语义从 Watchdog 迁移到 EventLoop，阈值不变避免行为跳变。
+ * Derivation: 5min —— 沿用原 watchdog claw_inactivity_timeout_ms 默认（该字段已于
+ * Phase 1878 Step C 自 watchdog config 退役）；同一「自发停滞」语义从 Watchdog
+ * 迁移到 EventLoop，阈值不变避免行为跳变。
  */
 export const EXECUTION_INACTIVITY_TIMEOUT_MS = 300_000;
 

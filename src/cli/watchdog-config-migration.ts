@@ -71,9 +71,10 @@ function writeIntentIfAbsent(
       sha256: legacy.sourceHash,
     },
     legacy: legacy.config,
-    // 退役字段留证：仅 legacy 段实际含 log_archive_days 时设置本键。
-    ...(legacy.retired.log_archive_days !== undefined
-      ? { retired_fields: { log_archive_days: legacy.retired.log_archive_days } }
+    // 退役字段留证：legacy 段实际含已退役字段时设置本键（log_archive_days /
+    // disk_warning_mb / claw_inactivity_timeout_ms，由 Assembly 读取面捕获）。
+    ...(Object.values(legacy.retired).some((v) => v !== undefined)
+      ? { retired_fields: legacy.retired }
       : {}),
   });
 }
@@ -94,8 +95,7 @@ function writeOutcome(
 function describeConfig(config: WatchdogConfig): string {
   return (
     `interval_ms=${config.interval_ms}, ` +
-    `disk_warning_mb=${config.disk_warning_mb}, ` +
-    `claw_inactivity_timeout_ms=${config.claw_inactivity_timeout_ms}`
+    `heartbeat_stale_timeout_ms=${config.heartbeat_stale_timeout_ms}`
   );
 }
 

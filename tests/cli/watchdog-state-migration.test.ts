@@ -216,7 +216,7 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
       kind: 'watchdog-config-relocation',
       created_at: new Date().toISOString(),
       source: { path: '/x/config.yaml', section: 'watchdog', sha256: 'deadbeef' },
-      legacy: { interval_ms: 1, disk_warning_mb: 1, claw_inactivity_timeout_ms: 1 },
+      legacy: { interval_ms: 1, heartbeat_stale_timeout_ms: 1 },
     }));
 
     // state 迁移：正常推进自己的迁移，不误认 config pending

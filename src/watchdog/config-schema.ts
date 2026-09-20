@@ -11,28 +11,36 @@
  */
 import { z } from 'zod';
 import { WATCHDOG_LAYOUT_SCHEMA_VERSION } from './layout.js';
-import {
-  WATCHDOG_INTERVAL_MS,
-  DEFAULT_DISK_WARNING_MB,
-  CLAW_INACTIVITY_TIMEOUT_MS,
-} from './constants.js';
+import { WATCHDOG_INTERVAL_MS, HEARTBEAT_STALE_TIMEOUT_MS } from './constants.js';
 
+/**
+ * Phase 1878 Step C：config 面与消费面对齐——只保留当前 Watchdog 消费的参数。
+ * `disk_warning_mb` / `claw_inactivity_timeout_ms` 已退役（零生产决策消费）：
+ * schema 不再声明，旧持久文件/legacy 段中的同名字段由 zod 静默剥离（视作已退役、
+ * 不报错；迁移 journal retired_fields 显式留证，见 config-load.ts）。
+ */
 export const watchdogConfigSchema = z.object({
   interval_ms: z.number().min(5000).default(WATCHDOG_INTERVAL_MS),
-  disk_warning_mb: z.number().min(10).default(DEFAULT_DISK_WARNING_MB),
-  claw_inactivity_timeout_ms: z.number().min(60000).default(CLAW_INACTIVITY_TIMEOUT_MS),
+  /**
+   * alive-but-loop-stale 判定阈值（Phase 1878 Step B 心跳监督消费）。
+   * Derivation: min 60_000 = daemon liveness tick（60s，daemon-loop
+   * LIVENESS_HEARTBEAT_MS）——低于 1 tick 时 daemon 来不及刷新心跳必误判；
+   * 默认 180_000 = 3 × tick（HEARTBEAT_STALE_TIMEOUT_MS derivation 见 constants.ts）。
+   */
+  heartbeat_stale_timeout_ms: z.number().min(60000).default(HEARTBEAT_STALE_TIMEOUT_MS),
 });
 
 export type WatchdogConfig = z.infer<typeof watchdogConfigSchema>;
 
 /**
  * .chestnut/watchdog/config.yaml 落盘文件 schema：业务 config + 文件版本。
- * 磁盘形态（Phase 1289 总览拍板）：
+ * 磁盘形态（Phase 1289 总览拍板；Phase 1878 Step C 字段对齐）：
  *   schema_version: 1
  *   interval_ms: 30000
- *   disk_warning_mb: 500
- *   claw_inactivity_timeout_ms: 300000
+ *   heartbeat_stale_timeout_ms: 180000
  * 未知未来 schema_version → invalid（fail-closed，z.literal 校验天然满足）。
+ * 旧文件含已退役字段（disk_warning_mb / claw_inactivity_timeout_ms）→ zod 静默
+ * 剥离、读取不报错（显式退役语义）。
  */
 export const watchdogWorkspaceConfigFileSchema = watchdogConfigSchema.extend({
   schema_version: z.literal(WATCHDOG_LAYOUT_SCHEMA_VERSION),
@@ -45,7 +53,6 @@ export function createDefaultWatchdogWorkspaceConfig(): WatchdogWorkspaceConfigF
   return {
     schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
     interval_ms: WATCHDOG_INTERVAL_MS,
-    disk_warning_mb: DEFAULT_DISK_WARNING_MB,
-    claw_inactivity_timeout_ms: CLAW_INACTIVITY_TIMEOUT_MS,
+    heartbeat_stale_timeout_ms: HEARTBEAT_STALE_TIMEOUT_MS,
   };
 }

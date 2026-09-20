@@ -49,8 +49,7 @@ export class WatchdogWorkspaceConfigConflictError extends Error {
 export function sameWatchdogConfig(a: WatchdogConfig, b: WatchdogConfig): boolean {
   return (
     a.interval_ms === b.interval_ms &&
-    a.disk_warning_mb === b.disk_warning_mb &&
-    a.claw_inactivity_timeout_ms === b.claw_inactivity_timeout_ms
+    a.heartbeat_stale_timeout_ms === b.heartbeat_stale_timeout_ms
   );
 }
 
@@ -59,8 +58,7 @@ function serializeWorkspaceWatchdogConfig(config: WatchdogConfig): string {
   return yaml.dump({
     schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
     interval_ms: config.interval_ms,
-    disk_warning_mb: config.disk_warning_mb,
-    claw_inactivity_timeout_ms: config.claw_inactivity_timeout_ms,
+    heartbeat_stale_timeout_ms: config.heartbeat_stale_timeout_ms,
   });
 }
 
@@ -92,8 +90,7 @@ export function loadWorkspaceWatchdogConfig(fs: FileSystem): WorkspaceWatchdogCo
     kind: 'ok',
     config: {
       interval_ms: result.data.interval_ms,
-      disk_warning_mb: result.data.disk_warning_mb,
-      claw_inactivity_timeout_ms: result.data.claw_inactivity_timeout_ms,
+      heartbeat_stale_timeout_ms: result.data.heartbeat_stale_timeout_ms,
     },
   };
 }

@@ -72,10 +72,11 @@ describe('phase 1289 Step B: Assembly legacy watchdog section primitives', () =>
     it('有 watchdog 段 → typed WatchdogConfig + sha256 sourceHash；同内容 hash 稳定、异内容 hash 不同', () => {
       writeRootYaml(ROOT_YAML);
       const first = readLegacyWatchdogConfigSection(deps);
+      // Phase 1878 Step C：disk_warning_mb / claw_inactivity_timeout_ms 已退役，
+      // 不进 typed config（下方 retired 捕获留证）；heartbeat_stale_timeout_ms 取默认。
       expect(first?.config).toEqual({
         interval_ms: 60000,
-        disk_warning_mb: 1024,
-        claw_inactivity_timeout_ms: 600000,
+        heartbeat_stale_timeout_ms: 180000,
       });
       expect(first?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
       expect(readLegacyWatchdogConfigSection(deps)?.sourceHash).toBe(first?.sourceHash);
@@ -86,25 +87,35 @@ describe('phase 1289 Step B: Assembly legacy watchdog section primitives', () =>
       expect(second?.sourceHash).not.toBe(first?.sourceHash);
     });
 
-    it('log_archive_days 为 number → 捕获进 retired，不进入 typed config', () => {
+    it('已退役字段为 number → 捕获进 retired 留证，不进入 typed config', () => {
       writeRootYaml(ROOT_YAML);
       const section = readLegacyWatchdogConfigSection(deps);
-      expect(section?.retired).toEqual({ log_archive_days: 30 });
+      expect(section?.retired).toEqual({
+        log_archive_days: 30,
+        disk_warning_mb: 1024,
+        claw_inactivity_timeout_ms: 600000,
+      });
       expect(section?.config).not.toHaveProperty('log_archive_days');
+      expect(section?.config).not.toHaveProperty('disk_warning_mb');
+      expect(section?.config).not.toHaveProperty('claw_inactivity_timeout_ms');
     });
 
-    it('无 log_archive_days → retired 为空对象', () => {
-      writeRootYaml(ROOT_YAML.replace('  log_archive_days: 30\n', ''));
+    it('无退役字段 → retired 为空对象', () => {
+      writeRootYaml(
+        ROOT_YAML
+          .replace('  log_archive_days: 30\n', '')
+          .replace('  disk_warning_mb: 1024\n', '')
+          .replace('  claw_inactivity_timeout_ms: 600000\n', ''),
+      );
       const section = readLegacyWatchdogConfigSection(deps);
       expect(section?.retired).toEqual({});
     });
 
-    it('watchdog 段为空对象 → schema default 填齐三字段', () => {
+    it('watchdog 段为空对象 → schema default 填齐当前字段', () => {
       writeRootYaml("version: '1'\nwatchdog: {}\n");
       expect(readLegacyWatchdogConfigSection(deps)?.config).toEqual({
         interval_ms: 30000,
-        disk_warning_mb: 500,
-        claw_inactivity_timeout_ms: 300000,
+        heartbeat_stale_timeout_ms: 180000,
       });
     });
 

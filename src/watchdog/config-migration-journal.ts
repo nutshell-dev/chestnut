@@ -35,10 +35,12 @@ export interface WatchdogMigrationIntent {
   };
   legacy: WatchdogConfig;
   /**
-   * 显式退役字段留证：legacy 段含 log_archive_days 时必含本键
-   * （该字段不进入新 schema、不写入新 config，仅在 journal 留档）。
+   * 显式退役字段留证：legacy 段含已退役字段时必含本键（这些字段不进入新
+   * schema、不写入新 config，仅在 journal 留档）。
+   * - log_archive_days（Phase 1289 退役）
+   * - disk_warning_mb / claw_inactivity_timeout_ms（Phase 1878 Step C 退役）
    */
-  retired_fields?: { log_archive_days?: number };
+  retired_fields?: { log_archive_days?: number; disk_warning_mb?: number; claw_inactivity_timeout_ms?: number };
 }
 
 export interface WatchdogMigrationOutcome {
