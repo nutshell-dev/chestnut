@@ -176,7 +176,7 @@ describe('phase 1839: startup_check 启动通知新语义真实生产链', () =>
     expect(msg.content).toBe(NEW_BODY);
     expect(Date.parse(msg.timestamp)).not.toBeNaN();
     // 关联字段在 decode 后的 metadata（非 extraMeta），与 status 文件及 outcome 一致
-    const statusTs = (await fs.readFile(path.join(agentDir, 'status', 'startup_check_ts'), 'utf8')).trim();
+    const statusTs = (await fs.readFile(path.join(agentDir, 'daemon', 'startup_check_ts'), 'utf8')).trim();
     expect(msg.metadata?.startup_check_ts).toBe(statusTs);
     expect(msg.metadata?.startup_check_ts).toBe(String(timestampMs));
 
