@@ -19,6 +19,7 @@ export { createWatchdogActionAudit, type WatchdogActionAudit } from './audit-wir
 export { spawnWatchdogCandidate } from './spawn.js';
 export { sweepOrphanWatchdogs } from './orphan-sweep.js';
 export { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
+export { WATCHDOG_LOG_HINT } from './watchdog-log.js';
 export { WATCHDOG_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
 export type { WatchdogProcessDeps } from './types.js';
 export {

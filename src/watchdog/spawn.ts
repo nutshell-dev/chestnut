@@ -9,6 +9,7 @@ import { spawnDetached } from '../foundation/process-exec/index.js';
 import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { isWatchdogAlive, getWatchdogPid } from './watchdog-pid.js';
+import { WATCHDOG_LOG_HINT } from './watchdog-log.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
 /**
@@ -68,7 +69,9 @@ export async function spawnWatchdogCandidate(
   if (!pid) {
     throw new Error(
       `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
-      `Check daemon log under .chestnut/logs/.`,
+      // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）；
+      // 旧文案指的 .chestnut/logs/ 已退役（legacy-retirement 登记）。
+      `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
     );
   }
   return pid;

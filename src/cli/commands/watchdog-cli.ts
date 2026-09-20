@@ -14,6 +14,7 @@ import {
   getWatchdogEntryPath, createWatchdogActionAudit,
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
   WATCHDOG_AUDIT_EVENTS,
+  WATCHDOG_LOG_HINT,
   spawnWatchdogCandidate,
 } from '../../watchdog/index.js';
 import { CliError } from '../errors.js';
@@ -67,7 +68,8 @@ export async function startCommand(
     console.log(`Watchdog started (PID: ${pid})`);
   } catch (err) {
     throw new CliError(
-      `Watchdog failed to start within 3s. Check daemon log under .chestnut/logs/.`,
+      // Phase 1878 Step K: 同 spawn.ts——指向 Watchdog owner 日志面（watchdog-log 单源提示）
+      `Watchdog failed to start within 3s. Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
       1,
     );
   }
