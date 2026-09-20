@@ -32,6 +32,9 @@ const mockState = vi.hoisted(() => {
   const mockHeartbeat = { isDue: vi.fn(() => false), fire: vi.fn() };
   const mockAssemble = vi.fn();
   const mockDispose = vi.fn().mockResolvedValue(undefined);
+  // phase 1873 Step E: 三句柄 dispose 断言面（preAssemble createSystemAudit / 主 auditWriter）
+  const mockPreAssembleDispose = vi.fn();
+  const mockMainAuditDispose = vi.fn();
   // phase 1873 Step D: 共享 PM mock（装配交付实例默认引用；断言 dispose/retire 收束面）。
   const mockProcessManager = {
     activateChildGeneration: vi.fn().mockResolvedValue({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } }),
@@ -57,6 +60,8 @@ const mockState = vi.hoisted(() => {
     mockHeartbeat,
     mockAssemble,
     mockDispose,
+    mockPreAssembleDispose,
+    mockMainAuditDispose,
     mockProcessManager,
     mockStartDaemonLoop,
     get stopFn() { return stopFn; },
@@ -98,6 +103,8 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
     preview: vi.fn((s: string) => s),
     message: vi.fn((s: string) => s),
     summary: vi.fn((s: string) => s),
+    // phase 1873 Step E: preAssembleAudit 成功路径 dispose 断言面
+    dispose: mockState.mockPreAssembleDispose,
   })),
 }));
 
@@ -195,7 +202,7 @@ function makeMockInstances(overrides?: Partial<any>) {
     eventLoop: mockEventLoop,
     streamWriter: mockState.mockStreamWriter,
     snapshot: { commit: mockState.mockSnapshotCommit },
-    auditWriter: { write: mockState.mockAuditWrite },
+    auditWriter: { write: mockState.mockAuditWrite, dispose: mockState.mockMainAuditDispose },
     heartbeat: mockState.mockHeartbeat,
     // phase 1873 Step B/D: 协议归 PM capability；Step D 收束断言用共享 mock。
     processManager: mockState.mockProcessManager,
@@ -281,6 +288,8 @@ describe('daemonCommand - A4a startup success', () => {
     mockProcessOnEvent.removeAllListeners();
     mockAuditEvent.removeAllListeners();
     vi.clearAllMocks();
+    mockState.mockPreAssembleDispose.mockClear();
+    mockState.mockMainAuditDispose.mockClear();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
@@ -322,6 +331,8 @@ describe('daemonCommand - A4a startup success', () => {
     expect(loopCallOptionsCaptured.eventLoop).toBe(mockEventLoop);
     // phase 1873 Step F: 内层 graceful handler 就绪后 shim 已让位
     expect(mockShimStandDown).toHaveBeenCalled();
+    // phase 1873 Step E: 装配完成、职责段结束 → preAssembleAudit 成功路径 dispose
+    expect(mockState.mockPreAssembleDispose).toHaveBeenCalled();
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith('daemon_start', expect.stringContaining('sha256:'));
     expect(mockState.mockSnapshotCommit).toHaveBeenCalled();
   });
@@ -356,6 +367,8 @@ describe('daemonCommand - A4a startup failure', () => {
     mockProcessOnEvent.removeAllListeners();
     mockAuditEvent.removeAllListeners();
     vi.clearAllMocks();
+    mockState.mockPreAssembleDispose.mockClear();
+    mockState.mockMainAuditDispose.mockClear();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
@@ -514,6 +527,8 @@ describe('daemonCommand - A4d shutdown signal', () => {
     mockProcessOnEvent.removeAllListeners();
     mockAuditEvent.removeAllListeners();
     vi.clearAllMocks();
+    mockState.mockPreAssembleDispose.mockClear();
+    mockState.mockMainAuditDispose.mockClear();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
@@ -550,6 +565,8 @@ describe('daemonCommand - A4d shutdown signal', () => {
       'shutdown',
       'active',
     );
+    // phase 1873 Step E: exit(0) 前主 auditWriter flush（dispose）
+    expect(mockState.mockMainAuditDispose).toHaveBeenCalled();
 
     await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
@@ -575,6 +592,8 @@ describe('daemonCommand - A4d crash handler', () => {
     mockProcessOnEvent.removeAllListeners();
     mockAuditEvent.removeAllListeners();
     vi.clearAllMocks();
+    mockState.mockPreAssembleDispose.mockClear();
+    mockState.mockMainAuditDispose.mockClear();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
@@ -637,6 +656,8 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
     mockProcessOnEvent.removeAllListeners();
     mockAuditEvent.removeAllListeners();
     vi.clearAllMocks();
+    mockState.mockPreAssembleDispose.mockClear();
+    mockState.mockMainAuditDispose.mockClear();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });

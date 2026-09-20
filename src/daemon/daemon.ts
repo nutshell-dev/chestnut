@@ -236,6 +236,9 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         );
       }
     }
+    // phase 1873 Step E（daemon-audit-session-not-disposed）：preAssemble 审计职责段
+    // 到此结束（业务已转入主 auditWriter）——成功路径同错误路径对称 dispose（flush）。
+    preAssembleAudit.dispose?.();
 
     // daemon_start: 计算 AGENTS.md 的 sha256 前 6 位作为 system prompt 版本标识
     let promptHash = 'n/a';
@@ -342,6 +345,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const shutdown = async (signal: string): Promise<void> => {
       if (!beginShutdown(signal)) return;  // phase 1124: 重入抑制、首个继续
       await gracefulShutdown(signal, 30_000);
+      // phase 1873 Step E: 主 auditWriter 在 exit(0) 前 dispose（flush；与 crash 路径同型）。
+      auditWriter.dispose?.();
       process.exit(0);
     };
     // phase 175: idempotent install
