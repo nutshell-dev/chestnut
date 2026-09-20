@@ -10,6 +10,17 @@ export const DAEMON_LOG = 'logs/daemon.log';
 export const DAEMON_FALLBACK_TIMEOUT_MS = 30000;
 
 /**
+ * phase 1873 Step G（daemon-startup-state-in-process-manager-dir）：daemon-owned 状态子目录
+ * （agentDir 相对；与 event-loop/ 等模块目录同型）。原 startup_check_ts 写 PM 的
+ * status/（STATUS_SUBDIR）——Daemon 私有 schema 不再落 PM 资源目录。
+ * legacy 读取兼容（迁移期）见 startup-check.ts。
+ */
+export const DAEMON_STATE_DIR = 'daemon' as const;
+
+/** startup cooldown 时间戳文件名（语义不变：H 步的投递关联身份）。 */
+export const STARTUP_CHECK_TS_FILE = 'startup_check_ts' as const;
+
+/**
  * Cooldown between startup_check notifications to prevent spam from rapid daemon restarts (ms).
  * Derivation: 10 * 60 * 1000 = 10 min / 给 daemon 真异常 restart loop 足够 cooldown 不灌爆.
  */

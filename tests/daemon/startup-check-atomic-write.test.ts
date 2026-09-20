@@ -6,7 +6,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
-const STATUS_SUBDIR = 'status';
+// phase 1873 Step G: 状态归 daemon-owned 路径（原 PM status/）
+const STATUS_SUBDIR = 'daemon';
 
 // phase 1214: mock fsyncSync to verify invocation in ESM
 let mockFsyncSync = vi.fn();

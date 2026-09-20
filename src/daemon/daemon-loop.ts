@@ -17,7 +17,7 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
-import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
+import { DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE } from './constants.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox, createInboxReader } from '../foundation/messaging/index.js';
@@ -104,8 +104,9 @@ export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
       if (!shouldEmitStartupCheck(agentFs, audit)) return { kind: 'not_eligible' };
       const tsMs = Date.now();
       try {
-        agentFs.ensureDirSync(STATUS_SUBDIR);
-        agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, 'startup_check_ts'), String(tsMs));
+        // phase 1873 Step G: 状态归 daemon-owned 路径（原写 PM status/）。
+        agentFs.ensureDirSync(DAEMON_STATE_DIR);
+        agentFs.writeAtomicSync(path.join(DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE), String(tsMs));
       } catch (err) {
         return { kind: 'pending_retry', stage: 'timestamp', error: formatErr(err) };
       }

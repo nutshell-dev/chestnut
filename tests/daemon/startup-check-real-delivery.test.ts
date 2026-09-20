@@ -98,7 +98,8 @@ describe('phase 1838: startup check 真实投递确认链', () => {
     clawFs = new NodeFileSystem({ baseDir: path.join(agentDir, '..') });
     auditCtx = makeAudit();
     pendingDir = path.join(agentDir, 'inbox', 'pending');
-    statusFile = path.join(agentDir, 'status', 'startup_check_ts');
+    // phase 1873 Step G: daemon-owned 路径
+    statusFile = path.join(agentDir, 'daemon', 'startup_check_ts');
     await fs.mkdir(path.join(agentDir, 'contract', 'active', 'c-live'), { recursive: true });
     await fs.mkdir(pendingDir, { recursive: true });
   });
@@ -370,8 +371,8 @@ describe('phase 1838: startup check 真实投递确认链', () => {
         name: 'fresh-cooldown',
         dir: await freshDir(async dir => {
           await fs.mkdir(path.join(dir, 'contract', 'active', 'c-live'), { recursive: true });
-          await fs.mkdir(path.join(dir, 'status'), { recursive: true });
-          await fs.writeFile(path.join(dir, 'status', 'startup_check_ts'), String(Date.now()));
+          await fs.mkdir(path.join(dir, 'daemon'), { recursive: true });
+          await fs.writeFile(path.join(dir, 'daemon', 'startup_check_ts'), String(Date.now()));
         }),
       });
 
@@ -384,7 +385,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
         });
         const out: StartupCheckOutcome = await delivery.deliver();
         expect(out.kind, tc.name).toBe('not_eligible');
-        expect(fsNative.existsSync(path.join(tc.dir, 'status', 'startup_check_ts')), tc.name).toBe(
+        expect(fsNative.existsSync(path.join(tc.dir, 'daemon', 'startup_check_ts')), tc.name).toBe(
           tc.name === 'fresh-cooldown',
         );
         expect((await fs.readdir(path.join(tc.dir, 'inbox', 'pending')))
