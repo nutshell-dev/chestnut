@@ -1031,9 +1031,10 @@ describe('Phase 833: migrated exec stream events', () => {
     system = new AsyncTaskSystem(tmpDir, nodeFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
+      // phase 1872 Step F: parentStreamLog 构造参数一次固定（setter 退役）
+      parentStreamLog: streamLog,
       ...makeTaskSystemDeps(),
     });
-    system.setParentStreamLog(streamLog);
     await system.initialize();
   });
 

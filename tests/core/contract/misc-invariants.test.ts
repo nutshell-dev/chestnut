@@ -181,7 +181,8 @@ describe('maybeAuditStep loadActive silent catch audit emit (phase 160)', () => 
     vi.restoreAllMocks();
   });
 
-  function makeManager() {
+  // phase 1872 Step F: auditor 构造参数一次固定（attachAuditor setter 退役）
+  function makeManager(overrides?: { auditor?: unknown }) {
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
     return new ContractSystem({
       clawDir,
@@ -192,14 +193,14 @@ describe('maybeAuditStep loadActive silent catch audit emit (phase 160)', () => 
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
+      ...(overrides?.auditor ? { auditor: overrides.auditor as any } : {}),
     });
   }
 
   // 反向 1：loadActive throws → emit AUDITOR_LOAD_ACTIVE_FAILED + 不抛
   it('反向 1: loadActive throws → emit AUDITOR_LOAD_ACTIVE_FAILED + 不抛', async () => {
-    const manager = makeManager();
     const mockAuditor = { maybeAudit: vi.fn().mockResolvedValue({ audited: true }) };
-    manager.attachAuditor(mockAuditor as any);
+    const manager = makeManager({ auditor: mockAuditor });
 
     vi.spyOn(manager, 'loadActive').mockRejectedValue(new Error('EIO'));
 
@@ -221,9 +222,8 @@ describe('maybeAuditStep loadActive silent catch audit emit (phase 160)', () => 
 
   // 反向 2：loadActive returns null → 0 AUDITOR_LOAD_ACTIVE_FAILED audit
   it('反向 2: loadActive returns null → 0 AUDITOR_LOAD_ACTIVE_FAILED audit', async () => {
-    const manager = makeManager();
     const mockAuditor = { maybeAudit: vi.fn().mockResolvedValue({ audited: true }) };
-    manager.attachAuditor(mockAuditor as any);
+    const manager = makeManager({ auditor: mockAuditor });
 
     vi.spyOn(manager, 'loadActive').mockResolvedValue(null);
 
@@ -241,9 +241,8 @@ describe('maybeAuditStep loadActive silent catch audit emit (phase 160)', () => 
 
   // 反向 3：loadActive returns contract → 正常路径 0 改
   it('反向 3: loadActive returns contract → 正常路径不动', async () => {
-    const manager = makeManager();
     const mockAuditor = { maybeAudit: vi.fn().mockResolvedValue({ audited: true }) };
-    manager.attachAuditor(mockAuditor as any);
+    const manager = makeManager({ auditor: mockAuditor });
 
     vi.spyOn(manager, 'loadActive').mockResolvedValue({
       id: 'c-1',

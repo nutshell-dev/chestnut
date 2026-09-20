@@ -210,6 +210,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
+  /** phase 1872 Step F: 构造期 onNotify holder（测试在断言前指向当次收集器）。 */
+  let onNotifySink: ((event: { type: string }) => void) | undefined;
   let nodeFs: NodeFileSystem;
 
   beforeEach(async () => {
@@ -220,6 +222,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     const captureAudit = {
       write: () => {},
     };
+    onNotifySink = undefined;
     manager = new ContractSystem({
       clawDir,
       clawId: 'test-claw',
@@ -228,7 +231,9 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）——测试经 holder 指向当次收集器。
+    onNotify: (event) => onNotifySink?.(event),});
   });
 
   afterEach(async () => {
@@ -238,9 +243,9 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
 
   it('phase 63: cancelContract triggers safeNotify("contract_cancelled")', async () => {
     const notifyCalls: ContractNotification[] = [];
-    manager.setOnNotify((event) => {
+    onNotifySink = (event) => {
       notifyCalls.push(event);
-    });
+    };
 
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancel Notify Test',

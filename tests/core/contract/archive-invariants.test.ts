@@ -33,6 +33,8 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
+  /** phase 1872 Step F: 构造期 onNotify holder（测试在断言前指向当次收集器）。 */
+  let onNotifySink: ((event: { type: string }) => void) | undefined;
   let auditTypes: string[];
 
   beforeEach(async () => {
@@ -46,6 +48,7 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
         auditTypes.push(type);
       },
     };
+    onNotifySink = undefined;
     manager = new ContractSystem({
       clawDir,
       clawId: 'test-claw',
@@ -54,7 +57,9 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）——测试经 holder 指向当次收集器。
+    onNotify: (event) => onNotifySink?.(event),});
   });
 
   afterEach(async () => {
@@ -114,7 +119,7 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
     // Observe every success side effect: abort, completed handler,
     // completed audit, contract_completed notify.
     const notifyTypes: string[] = [];
-    manager.setOnNotify((event) => notifyTypes.push(event.type));
+    onNotifySink = (event) => notifyTypes.push(event.type);
     const completedHandler = vi.fn(async () => {});
     manager.onContractCompleted(completedHandler);
 

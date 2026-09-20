@@ -159,14 +159,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.postProcessors.set(name, handler);
   }
 
-  /**
-   * Phase 833: inject the parent stream log after construction so migrated exec
-   * tasks can emit `task_started` / `task_completed` viewport events.
-   */
-  setParentStreamLog(streamLog: StreamLog): void {
-    this.assertConfigOpen('setParentStreamLog');
-    this.parentStreamLog = streamLog;
-  }
+  // phase 1872 Step F: setParentStreamLog 退役——parentStreamLog 由 options 构造
+  // 参数一次固定（Phase 833 原语保持：migrated exec tasks 发 viewport 事件）。
 
   /**
    * Phase 770: create an async-aware `exec` Tool.

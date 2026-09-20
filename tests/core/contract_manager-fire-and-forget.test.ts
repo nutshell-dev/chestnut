@@ -196,11 +196,12 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
 
     it('onNotify verification_failed payload = VerificationFailedNotification typed event', async () => {
       const { audit: mockAudit, emitter } = makeAudit();
+      const onNotifySpy = vi.fn();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-      const onNotifySpy = vi.fn();
-      testManager.setOnNotify(onNotifySpy);
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+    onNotify: onNotifySpy,});
 
       const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
@@ -241,11 +242,12 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
 
     it('max_attempts 后 subtask force_accepted（status=completed）', async () => {
       const { audit: mockAudit, events, emitter } = makeAudit();
+      const onNotifySpy = vi.fn();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-      const onNotifySpy = vi.fn();
-      testManager.setOnNotify(onNotifySpy);
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+    onNotify: onNotifySpy,});
 
       const contractId = await testManager.create(makeContractYaml({
         title: 'Test',

@@ -26,6 +26,8 @@ describe('Phase 1198 Step E: completed precondition failure preserves request fa
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
+  /** phase 1872 Step F: 构造期 onNotify holder（测试在断言前指向当次收集器）。 */
+  let onNotifySink: ((event: { type: string }) => void) | undefined;
   let auditTypes: string[];
 
   beforeEach(async () => {
@@ -33,6 +35,7 @@ describe('Phase 1198 Step E: completed precondition failure preserves request fa
     clawDir = path.join(tempDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });
     auditTypes = [];
+    onNotifySink = undefined;
     manager = new ContractSystem({
       clawDir,
       clawId: 'test-claw',
@@ -69,7 +72,7 @@ describe('Phase 1198 Step E: completed precondition failure preserves request fa
     const progressBytesBefore = await fs.readFile(progressPath, 'utf-8');
 
     const notifyEvents: string[] = [];
-    manager.setOnNotify((type) => notifyEvents.push(type));
+    onNotifySink = (type) => notifyEvents.push(type);
 
     const ctx = createManagerVerificationContext(manager);
     const yaml = await ctx.loadContractYaml(contractId);

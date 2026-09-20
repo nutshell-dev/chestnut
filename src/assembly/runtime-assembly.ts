@@ -16,7 +16,6 @@ import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { type Runtime, type RuntimeDependencies, type GuidanceEnvelope } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
-import { createContractNotificationAdapter } from './contract-notification-adapter.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
@@ -66,7 +65,6 @@ export async function createRuntimeAssembly(
   const {
     taskSystem, permissionChecker, sessionManager, makeDialogStore,
     inboxReader, formatterRegistry, guidanceRegistry,
-    selfInboxDir,
   } = business;
 
   // --- Snapshot（phase155B 已搬，但需保证在 Runtime 之前） ---
@@ -89,31 +87,14 @@ export async function createRuntimeAssembly(
   }
 
   // --- StreamWriter open：复用 CoreInfrastructure 构造的同一实例 ---
+  // phase 1872 Step F: parentStreamLog / onNotify 均已在 owner 工厂构造参数固定
+  // （setParentStreamLog / setOnNotify setter 退役）——此处只 open。
   try {
     streamWriter.open();
-    // Phase 833: wire stream writer into AsyncTaskSystem so migrated exec tasks
-    // can emit task_started / task_completed viewport events.
-    if (typeof taskSystem.setParentStreamLog === 'function') {
-      taskSystem.setParentStreamLog(streamWriter);
-    }
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: StreamWriter construct failed: ${formatErr(e)}`, { cause: e });
   }
-
-  // phase 1872 Step C: 本地 catch teardown 退役——跨资源反序 teardown 归
-  // assemble 级 rollback 注册表（streamWriter 构造期已登记；本地 close 失败不再遮蔽原 error）。
-  // phase 1260 Step B: Assembly own transport adapter、构造后直接 attach 到 contractManager。
-  // 必须在 createRuntime 之前完成 attach（无短窗口漏 event）；ContractManager setter
-  // 只赋 sink、不主动 fire，attach 时无业务副作用。
-  const contractNotificationSink = createContractNotificationAdapter({
-    streamWriter,
-    clawId,
-    systemFs,
-    selfInboxDir,
-    auditWriter,
-  });
-  contractManager.setOnNotify(contractNotificationSink);
 
   // === RuntimeDependencies 分组构造（assembly-auditor §六.5 follow-up / 可读性） ===
   const messagingDeps = {

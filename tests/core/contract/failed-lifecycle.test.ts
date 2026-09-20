@@ -59,8 +59,9 @@ async function setup(overrides?: { makeFs?: (clawDir: string) => NodeFileSystem 
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: path.join(tempDir, 'claws'),
     notifyClaw: () => Promise.resolve(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+    onNotify: (event) => notifies.push(event),
   });
-  manager.setOnNotify((event) => notifies.push(event));
 
   return { tempDir, clawDir, manager, notifies, audit, auditWrite };
 }

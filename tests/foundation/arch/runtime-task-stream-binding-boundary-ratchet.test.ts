@@ -6,11 +6,14 @@ const root = process.cwd();
 const read = (relative: string): string => fs.readFileSync(path.join(root, relative), 'utf8');
 
 describe('phase 1366: task stream binding ownership boundary', () => {
-  it('Assembly owns the direct stream binding and does not pass it through Runtime deps', () => {
-    const assembly = read('src/assembly/runtime-assembly.ts');
+  it('Assembly owns the stream binding at construction (phase 1872 Step F: 构造参数一次固定)', () => {
+    const business = read('src/assembly/business-systems.ts');
+    const runtimeAssembly = read('src/assembly/runtime-assembly.ts');
 
-    expect(assembly).toContain('taskSystem.setParentStreamLog(streamWriter)');
-    expect(assembly).not.toContain('parentStreamLog: streamWriter');
+    // 绑定经 ATS 工厂构造参数（不再经后补 setter）
+    expect(business).toContain('parentStreamLog: streamWriter');
+    expect(runtimeAssembly).not.toContain('setParentStreamLog(');
+    expect(business).not.toContain('setParentStreamLog(');
   });
 
   it('Runtime neither declares nor performs task stream binding', () => {
@@ -22,12 +25,14 @@ describe('phase 1366: task stream binding ownership boundary', () => {
     expect(runtime).not.toContain('.setParentStreamLog(');
   });
 
-  it('the owner concrete API keeps the Assembly entry while Runtime lifecycle excludes it', () => {
+  it('the owner API fixes the binding at construction (setter 退役)', () => {
     const system = read('src/core/async-task-system/system.ts');
     const types = read('src/core/async-task-system/types.ts');
     const lifecycle = types.match(/export interface AsyncTaskRuntimeLifecycle \{(?<body>[\s\S]*?)\n\}/)?.groups?.body;
 
-    expect(system).toContain('setParentStreamLog(streamLog: StreamLog): void');
+    // phase 1872 Step F：post-ctor setter 退役；parentStreamLog 归构造 options。
+    expect(system).not.toContain('setParentStreamLog(');
+    expect(types).toContain('parentStreamLog?: StreamLog');
     expect(lifecycle).toBeDefined();
     expect(lifecycle).not.toContain('setParentStreamLog');
   });

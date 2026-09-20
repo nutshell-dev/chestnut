@@ -429,10 +429,11 @@ describe('phase 1121 Step C: markCorrupted', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-    manager.setOnNotify((event) => {
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+    onNotify: (event) => {
       notifyCalls.push(event);
-    });
+    },});
   });
 
   afterEach(async () => {

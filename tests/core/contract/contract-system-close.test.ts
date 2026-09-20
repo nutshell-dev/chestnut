@@ -257,8 +257,21 @@ describe('phase 1860 (RT-D5) — close() returns typed ContractCloseOutcome', ()
   });
 
   it('auditor close 失败 → failures 承载证据（不吞、不阻 dispose）', async () => {
-    manager.attachAuditor({ close: vi.fn().mockRejectedValue(new Error('auditor boom')) } as any);
-    const outcome = await manager.close();
+    // phase 1872 Step F: auditor 构造参数一次固定（attachAuditor setter 退役）——
+    // 该用例需带失败 auditor 的 manager，按 beforeEach 同参就地构造。
+    const managerWithFailingAuditor = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: new NodeFileSystem({ baseDir: clawDir }),
+      audit: makeAudit().audit as any,
+      llm: { id: 'mock-llm' } as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+      auditor: { close: vi.fn().mockRejectedValue(new Error('auditor boom')) } as any,
+    });
+    const outcome = await managerWithFailingAuditor.close();
     expect(outcome.alreadyClosed).toBe(false);
     expect(outcome.failures).toHaveLength(1);
     expect(outcome.failures[0]).toContain('auditor boom');

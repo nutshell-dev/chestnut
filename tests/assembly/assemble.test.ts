@@ -32,12 +32,17 @@ const mockCronRunner = {
 const mockHeartbeat = { initialize: vi.fn(async () => ({ kind: 'absent' as const })) };
 
 // phase 1260 Step B: capture ContractSystem instances for direct-attach assertions
-const capturedContractManagers: Array<{ setOnNotify: ReturnType<typeof vi.fn> }> = [];
+// phase 1872 Step F: 捕获 ctor deps（sink/auditor 构造参数一次固定后，装配面断言看 deps）
+const capturedContractManagers: Array<{ instance: Record<string, unknown>; deps: Record<string, unknown> }> = [];
 // phase 1872 Step C: rollback teardown 断言面（llm close / task shutdown 实例捕获）
 const capturedLlmInstances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
 const capturedTaskSystems: Array<{ shutdown: ReturnType<typeof vi.fn> }> = [];
 /** phase 1872 Step C: 次生失败注入（下一次 llm.close 拒绝）。 */
 let failNextLlmClose = false;
+/** phase 1872 Step F: 交付时点 tool registry 快照（createRuntime 调用瞬间的工具名）。 */
+let toolNamesAtRuntimeConstruction: string[] = [];
+/** phase 1872 Step F: 交付给 Runtime 的 registry 实例（装配期内继续注册 shadowTool 的同一对象）。 */
+let runtimeToolRegistry: { getAll(): Array<{ name: string }> } | undefined;
 
 // ============================================================================
 // Construction order tracking (phase155C)
@@ -161,7 +166,13 @@ vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
 vi.mock('../../src/core/runtime/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/core/runtime/index.js')>()),
   Runtime: vi.fn(() => mockRuntime),
-  createRuntime: vi.fn(() => mockRuntime),
+  createRuntime: vi.fn((opts: { dependencies?: { toolRegistry?: { getAll(): Array<{ name: string }> } } }) => {
+    callOrder.push('Runtime');
+    // phase 1872 Step F: 记录交付瞬间的工具面（注册必须在运行时使用前完成）
+    toolNamesAtRuntimeConstruction = opts?.dependencies?.toolRegistry?.getAll().map(t => t.name) ?? [];
+    runtimeToolRegistry = opts?.dependencies?.toolRegistry;
+    return mockRuntime;
+  }),
   buildMotionSystemPrompt: vi.fn(() => Promise.resolve('')),
 }));
 
@@ -238,7 +249,18 @@ vi.mock('../../src/foundation/monitor/monitor.js', () => ({
 }));
 
 vi.mock('../../src/foundation/tools/registry.js', () => {
-  const ToolRegistryImpl = trackCtor('ToolRegistryImpl', () => ({ register: vi.fn(), getForProfile: vi.fn(() => []), getAll: vi.fn(() => []), formatForLLM: vi.fn(), unregister: vi.fn() }));
+  // phase 1872 Step F: mock 保真——register 记账、getAll 反映注册面
+  // （ToolRegistry 冻结面断言可穿到装配序）。
+  const ToolRegistryImpl = trackCtor('ToolRegistryImpl', () => {
+    const tools: Array<{ name: string }> = [];
+    return {
+      register: vi.fn((t: { name: string }) => { tools.push(t); }),
+      getForProfile: vi.fn(() => []),
+      getAll: vi.fn(() => tools),
+      formatForLLM: vi.fn(),
+      unregister: vi.fn(),
+    };
+  });
   return {
     ToolRegistryImpl,
     createToolRegistry: vi.fn(() => new (ToolRegistryImpl as any)()),
@@ -254,9 +276,9 @@ vi.mock('../../src/foundation/tools/executor.js', () => {
 });
 
 vi.mock('../../src/core/contract/manager.js', () => {
-  const ContractSystem = trackCtor('ContractSystem', () => {
-    const instance = { setOnNotify: vi.fn(), loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(() => () => {}), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })) };
-    capturedContractManagers.push(instance);
+  const ContractSystem = trackCtor('ContractSystem', (deps: Record<string, unknown>) => {
+    const instance = { loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(() => () => {}), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })) };
+    capturedContractManagers.push({ instance, deps });
     return instance;
   });
   return {
@@ -272,7 +294,15 @@ vi.mock('../../src/core/contract/manager.js', () => {
 
 vi.mock('../../src/core/async-task-system/system.js', () => {
   const AsyncTaskSystem = trackCtor('AsyncTaskSystem', () => {
-    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() };
+    const instance = {
+      initialize: vi.fn().mockResolvedValue(undefined),
+      startDispatch: vi.fn(),
+      shutdown: vi.fn(),
+      addPostProcessor: vi.fn(),
+      setMainDialogStore: vi.fn(),
+      // phase 1872 Step F: mock 保真——真实 ATS 提供 async exec 包装（装配面据此注册 exec）
+      createAsyncExecWrapper: vi.fn(() => ({ name: 'exec', profiles: ['full'] })),
+    };
     capturedTaskSystems.push(instance);  // phase 1872 Step C: rollback teardown 断言面
     return instance;
   });
@@ -380,6 +410,8 @@ describe('assemble', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     callOrder.length = 0;
+    toolNamesAtRuntimeConstruction = [];
+    runtimeToolRegistry = undefined;
     capturedContractManagers.length = 0;
     capturedLlmInstances.length = 0;
     capturedTaskSystems.length = 0;
@@ -586,7 +618,7 @@ describe('assemble', () => {
         'Assembly: Snapshot construct failed: snap boom'
       );
 
-      const contract = capturedContractManagers.at(-1) as unknown as { close: ReturnType<typeof vi.fn> };
+      const contract = capturedContractManagers.at(-1)!.instance as { close: ReturnType<typeof vi.fn> };
       const task = capturedTaskSystems.at(-1)!;
       const llm = capturedLlmInstances.at(-1)!;
       expect(task.shutdown).toHaveBeenCalledTimes(1);
@@ -642,6 +674,17 @@ describe('assemble', () => {
       // 次生失败不中断反序链：其余 teardown 照常执行
       expect(mockStreamWriter.close).toHaveBeenCalledTimes(1);
       expect(mockAuditDispose).toHaveBeenCalled();
+    });
+
+    it('phase 1872 Step F: ToolRegistry 注册在装配期完成（运行时使用前冻结面）', async () => {
+      await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+
+      // createRuntime 交付瞬间：base 注册 + async exec wrapper 已就位（exec 名不变）
+      expect(toolNamesAtRuntimeConstruction).toContain('exec');
+      // assemble 返回前：shadowTool 完成注册（post-runtime 但 pre-return——交付 daemon
+      // 使用（initialize/turn）前注册面已完整；交付后无任何 register 调用点）。
+      expect(runtimeToolRegistry).toBeDefined();
+      expect(runtimeToolRegistry!.getAll().map(t => t.name)).toContain('shadow');
     });
 
     it('成功路径零漂移：装配成功不触发任何 rollback teardown', async () => {
@@ -710,18 +753,16 @@ describe('assemble', () => {
       })
     );
 
-    // Runtime 中转已删除：sink 由 runtime-assembly 构造并直接 setOnNotify
+    // phase 1872 Step F: sink 经构造参数一次固定（setOnNotify setter 退役）——
+    // 装配面断言改看 createContractSystem 收到的 deps；构造即 attach（先于 createRuntime）。
     expect(capturedContractManagers.length).toBeGreaterThan(0);
-    const manager = capturedContractManagers[0];
-    expect(manager.setOnNotify).toHaveBeenCalledTimes(1);
-    const sink = manager.setOnNotify.mock.calls[0][0] as unknown;
+    const { deps } = capturedContractManagers[0];
+    const sink = deps.onNotify as unknown;
     expect(typeof sink).toBe('function');
 
-    // attach 必须先于 createRuntime（无短窗口漏 event）
-    const attachOrder = manager.setOnNotify.mock.invocationCallOrder[0];
-    const runtimeOrder = (createRuntime as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
-    expect(runtimeOrder).toBeDefined();
-    expect(attachOrder).toBeLessThan(runtimeOrder);
+    // construct 必须先于 createRuntime（构造即 attach，无短窗口漏 event）
+    expect(callOrder).toContain('ContractSystem');
+    expect(callOrder.indexOf('ContractSystem')).toBeLessThan(callOrder.indexOf('Runtime'));
 
     // transport 行为：typed event → stream system_notify legacy shape（详细逐字段 shape 见
     // tests/assembly/contract-notification-adapter.test.ts）

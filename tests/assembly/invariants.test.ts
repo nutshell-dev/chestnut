@@ -238,7 +238,6 @@ vi.mock('../../src/core/evolution-system/index.js', () => ({
 vi.mock('../../src/core/contract/manager.js', () => {
   const ContractSystem = vi.fn(() => {
     const instance = {
-      setOnNotify: vi.fn(),
       loadPaused: vi.fn(),
       resume: vi.fn(),
       onContractCompleted: vi.fn((cb: (contractId: string) => Promise<void>) => {

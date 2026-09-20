@@ -41,7 +41,8 @@ interface Fixture {
   auditEmitter: ReturnType<typeof makeAudit>['emitter'];
 }
 
-async function setup(): Promise<Fixture> {
+// phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+async function setup(overrides?: { onNotify?: (event: ContractNotification) => void }): Promise<Fixture> {
   const tempDir = await createTempDir('phase1201-race-');
   const clawDir = path.join(tempDir, 'claws', 'race-claw');
   await fsp.mkdir(clawDir, { recursive: true });
@@ -55,6 +56,7 @@ async function setup(): Promise<Fixture> {
     notifyClaw: () => {},
     toolRegistry: createToolRegistry(),
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    ...(overrides?.onNotify ? { onNotify: overrides.onNotify } : {}),
   });
   return { tempDir, clawDir, fs, manager, auditEvents: events, auditEmitter: emitter };
 }
@@ -444,11 +446,10 @@ describe('progress mutation race (phase 1201 step B)', () => {
   });
 
   it('post-commit notify 抛错：progress 不回滚，queue 不毒化', async () => {
-    const fx = await setup();
-    cleanups.push(fx.tempDir);
-    fx.manager.setOnNotify(() => {
+    const fx = await setup({ onNotify: () => {
       throw new Error('notify exploded');
-    });
+    } });
+    cleanups.push(fx.tempDir);
     const contractId = await fx.manager.create(makeContractYaml({
       subtasks: [
         { id: 'st1', description: 'S1' },

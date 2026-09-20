@@ -679,6 +679,7 @@ describe('no verification path', () => {
 
   it('submit with no verification notifies caller', async () => {
     const { audit } = makeAudit();
+    const notifyCalls: ContractNotification[] = [];
     const manager = new ContractSystem({
       clawDir,
       clawId: 'test-claw',
@@ -687,18 +688,17 @@ describe('no verification path', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+    onNotify: (event) => {
+      notifyCalls.push(event);
+    },});
 
     const contractId = await manager.create(
       makeContractYaml({
         verification: undefined,
       }),
     );
-
-    const notifyCalls: ContractNotification[] = [];
-    manager.setOnNotify((event) => {
-      notifyCalls.push(event);
-    });
 
     await completeSubtask(manager, {
       contractId,

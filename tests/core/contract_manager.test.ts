@@ -349,8 +349,9 @@ describe('ContractSystem', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-    testManager.setOnNotify(onNotifySpy);
+    notifyClaw: vi.fn(),
+    // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+    onNotify: onNotifySpy,});
 
     const contractId = await testManager.create(makeContractYaml({
       title: 'AllCompleted Test',

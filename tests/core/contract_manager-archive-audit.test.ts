@@ -137,11 +137,11 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-
-      testManager.setOnNotify(() => {
+    notifyClaw: vi.fn(),
+      // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+      onNotify: () => {
         throw new Error('notify crash');
-      });
+      },});
 
       await testManager.create(makeContractYaml({
         title: 'Test',
@@ -167,8 +167,9 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-      testManager.setOnNotify(onNotifySpy);
+    notifyClaw: vi.fn(),
+      // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+      onNotify: onNotifySpy,});
 
       const contractId = await testManager.create(makeContractYaml({
         title: 'Test',

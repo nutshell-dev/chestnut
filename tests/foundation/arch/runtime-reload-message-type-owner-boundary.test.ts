@@ -14,7 +14,9 @@ describe('Runtime reload message type owner boundary (phase 1503)', () => {
 
   it('Runtime implementation imports the reload message type directly from its owner', () => {
     expect(read('src/core/runtime/runtime.ts')).toMatch(
-      /import \{ RELOAD_LLM_CONFIG_MESSAGE_TYPE \} from '\.\/inbox-message-types\.js';/,
+      // phase 1872 Step F 随改：import 成员列表可为多行（1869 Step G 起 runtime.ts 同行
+      // 多常量 import）——断言口径 = 从 owner 直引该常量（不经 barrel/其他模块）。
+      /import \{[^}]*RELOAD_LLM_CONFIG_MESSAGE_TYPE[^}]*\} from '\.\/inbox-message-types\.js';/,
     );
   });
 

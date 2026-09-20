@@ -17,7 +17,7 @@
  * - private contractDir helper（路径解析跨 active/archive；paused 仅 legacy detector）
  * - getProgress（读 progress.json）
  * - create（contract 创建）
- * - setOnNotify + onContractCompleted + _emitContractCompleted（事件）
+ * - onNotify（构造注入）+ onContractCompleted + _emitContractCompleted（事件）
  */
 
 import * as path from 'path';
@@ -115,7 +115,7 @@ import {
   type BootResetMutationOutcome,
   type BootReplayMutationOutcome,
 } from './progress-mutation-queue.js';
-import { ContractAuditor } from './contract-auditor.js';
+import type { ContractAuditor } from './contract-auditor.js';
 import {
   CREATION_CLAIM_FILE,
   buildCreationIntent,
@@ -150,6 +150,16 @@ export interface ContractSystemDeps {
   runContractVerifier?: typeof defaultRunContractVerifier;
   /** phase 1862 Step D (CT-D4): typed verifier runner 注入（owner 语义 request/raw result）。 */
   runVerifier?: VerifierConfig['runVerifier'];
+  /**
+   * phase 1872 Step F: 契约通知 sink 由装配期构造参数一次固定（原 setOnNotify
+   * 构造后注入退役）；可选语义保持（无 sink = 无事件外推）。
+   */
+  onNotify?: ContractNotificationSink;
+  /**
+   * phase 1872 Step F: ContractAuditor 由装配期构造参数一次固定（原 attachAuditor
+   * 退役）；可选语义保持（无 auditor = maybeAuditStep 直返）。
+   */
+  auditor?: ContractAuditor;
   /**
    * phase 1445 Step D（裁定②例外）：boot reconcile（init()）由工厂内参数触发。
    * 仅 daemon 装配主路径（core-infrastructure、自有 claw）传 true；
@@ -289,20 +299,10 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     this.runContractVerifier = deps.runContractVerifier ?? defaultRunContractVerifier;
     this.runVerifier = deps.runVerifier;
     this.progressMutationQueue = new ProgressMutationQueue(this.audit);
-
-  }
-
-  setOnNotify(sink: ContractNotificationSink): void {
-    this.onNotify = sink;
-  }
-
-  // ============================================================================
-  // phase 1424: contract auditor 接入
-  // ============================================================================
-
-  /** Assembly 装配期调、注入 ContractAuditor 实例 / 仅设置 / 不主动 fire */
-  attachAuditor(auditor: ContractAuditor): void {
-    this.auditor = auditor;
+    // phase 1872 Step F: 通知 sink / auditor 构造参数一次固定（setter 退役——消除
+    // 「构造后改同一实例」的运行期可变装配面）。
+    this.onNotify = deps.onNotify;
+    this.auditor = deps.auditor;
   }
 
   /**
@@ -813,7 +813,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       getProgress: (id) => this.getProgress(id),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
-      // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
+      // phase 438: lazy thunk、onNotify 构造注入的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
       onNotify: (event) => this.onNotify?.(event),
     };
   }

@@ -43,7 +43,6 @@ import { createDialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../foundatio
 import type { DialogStore } from '../foundation/dialog-store/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
-import { ContractAuditor } from '../core/contract/index.js';
 import {
   createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
@@ -110,6 +109,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     fsFactory, systemFs, clawFs, clawDir, clawId, isMotion,
     auditWriter, llm, contractManager, toolRegistry, skillRegistry,
     toolTimeoutMs, maxConcurrent, outboxWriter, maxSteps, messagingLimits,
+    streamWriter,
   } = core;
   const { contributions } = input;
 
@@ -155,6 +155,9 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       // phase 1863 (AT-D5)：最小执行/交付面——业务装配收口于 adapter
       taskExecutor: subagentTaskExecutor,
       deliverySink,
+      // phase 1872 Step F: parentStreamLog 构造参数一次固定（原
+      // setParentStreamLog 构造后注入退役）；Phase 833 语义保持。
+      parentStreamLog: streamWriter,
     });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -298,25 +301,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     throw new Error(`Assembly: InboxReader construct failed: ${formatErr(e)}`, { cause: e });
   }
 
-  if (llm) {
-    try {
-      const clawInbox = InboxWriter.__internal_create(
-        systemFs,
-        makeInboxPath(path.join(clawDir, INBOX_PENDING_DIR)),
-        auditWriter,
-        messagingLimits,
-      );
-      const auditor = new ContractAuditor({
-        audit: auditWriter,
-        fs: systemFs,
-        inbox: clawInbox,
-        llm,
-      });
-      contractManager.attachAuditor(auditor);
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_auditor`, `phase=construct`, `reason=${formatErr(e)}`);
-    }
-  }
+  // phase 1872 Step F: ContractAuditor 构造迁移至 core-infrastructure（owner 工厂
+  // 构造参数一次固定，attachAuditor setter 退役）——本文件不再构造/后补。
 
   const formatterRegistry: InboxMessageTypeRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);

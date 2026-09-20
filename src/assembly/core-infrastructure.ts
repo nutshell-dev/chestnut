@@ -22,7 +22,9 @@ import { createAntiSelfKillGuard } from './anti-self-kill.js';
 import { createSummonCreationClaimStore, restoreSummonFacts } from '../core/summon-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
-import { ContractSystem, createContractSystem } from '../core/contract/index.js';
+import { ContractSystem, ContractAuditor, createContractSystem } from '../core/contract/index.js';
+import { createContractNotificationAdapter } from './contract-notification-adapter.js';
+import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type MessagingWriterLimits, type OutboxWriter } from '../foundation/messaging/index.js';
@@ -300,6 +302,13 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // --- L3-L5: contractManager ---
 
+    // phase 1820: messaging writer wire-size 上限由配置 owner（globalConfig.messaging）
+    // 装配期注入；writer 不再读 env、不持默认值。limits 同时挂 output 供 business-systems 复用。
+    // phase 1872 Step F: 提前到 contractManager 之前（auditor 的 inbox writer 消费）。
+    const messagingLimits: MessagingWriterLimits = {
+      bodyMaxBytes: globalConfig.messaging.body_max_bytes,
+    };
+
     let contractManager: ContractSystem;
     try {
       // phase 324 H12: notifyClaw 跨 claw 落 inbox 时 join 出 <chestnutRoot>/claws/<other>/...
@@ -313,6 +322,29 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         audit: auditWriter!,
         resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
       });
+      // phase 1872 Step F: onNotify sink / auditor 一次固定——装配期构造参数注入
+      // （原 runtime-assembly setOnNotify / business-systems attachAuditor 后补依赖退役）。
+      const selfInboxDir = path.join(clawDir, INBOX_PENDING_DIR);
+      const contractNotificationSink = createContractNotificationAdapter({
+        streamWriter,
+        clawId,
+        systemFs,
+        selfInboxDir,
+        auditWriter,
+      });
+      // auditor 保持 fail-soft：构造失败 audit 留证、不阻断装配（原语义）。
+      let auditor: ContractAuditor | undefined;
+      try {
+        const clawInbox = InboxWriter.__internal_create(
+          systemFs,
+          makeInboxPath(selfInboxDir),
+          auditWriter,
+          messagingLimits,
+        );
+        auditor = new ContractAuditor({ audit: auditWriter, fs: systemFs, inbox: clawInbox, llm });
+      } catch (e) {
+        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_auditor`, `phase=construct`, `reason=${formatErr(e)}`);
+      }
       // phase 1445 Step D（裁定②例外）：bootReconcile 经工厂参数传入、init 内化进工厂；
       // init 失败由工厂抛错、并入本 catch（phase=construct）。旁路调用点（CLI/watchdog/
       // bridge/summonQuery）不传 bootReconcile、保持不 init（详 manager.ts deps 注释）。
@@ -322,6 +354,8 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         toolTimeoutMs,  // phase 1029 / F-2
         fsFactory,
         bootReconcile: true,
+        onNotify: contractNotificationSink,
+        auditor,
         // phase 104: pre-bound notifyClaw (bind fs + chestnutRoot + audit)
         // phase 324 H12: fs 改用 rootFs（chestnut-root-scoped）让绝对 inbox 路径能落。
         notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
@@ -336,11 +370,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     // 注册（依赖 AsyncTaskSystem 构造完成后才能提供 loadTask）。
 
     // --- L2: outboxWriter ---
-    // phase 1820: messaging writer wire-size 上限由配置 owner（globalConfig.messaging）
-    // 装配期注入；writer 不再读 env、不持默认值。limits 同时挂 output 供 business-systems 复用。
-    const messagingLimits: MessagingWriterLimits = {
-      bodyMaxBytes: globalConfig.messaging.body_max_bytes,
-    };
     let outboxWriter: OutboxWriter;
     try {
       outboxWriter = createOutboxWriter(makeClawId(clawId), clawDir, systemFs, auditWriter, messagingLimits);

@@ -71,7 +71,8 @@ async function setupRace(): Promise<RaceFixture> {
   const notifyA: ContractNotification[] = [];
   const notifyB: ContractNotification[] = [];
 
-  const makeManager = () => {
+  // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
+  const makeManager = (onNotify?: (event: ContractNotification) => void) => {
     const manager = new ContractSystem({
       clawDir,
       clawId: 'race-claw',
@@ -81,14 +82,13 @@ async function setupRace(): Promise<RaceFixture> {
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: path.join(tempDir, 'claws'),
       notifyClaw: () => Promise.resolve(),
+      ...(onNotify ? { onNotify } : {}),
     });
     return manager;
   };
 
-  const managerA = makeManager();
-  const managerB = makeManager();
-  managerA.setOnNotify((event) => notifyA.push(event));
-  managerB.setOnNotify((event) => notifyB.push(event));
+  const managerA = makeManager((event) => notifyA.push(event));
+  const managerB = makeManager((event) => notifyB.push(event));
 
   return { tempDir, clawDir, managerA, managerB, notifyA, notifyB };
 }
