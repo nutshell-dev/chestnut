@@ -187,15 +187,9 @@ function makeMockInstances(overrides?: Partial<any>) {
     auditWriter: { write: mockState.mockAuditWrite },
     heartbeat: mockState.mockHeartbeat,
     processManager: {
-      inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
-      inspectSpawningPid: vi.fn(() => ({
-        status: 'ok',
-        record: { pid: process.pid, ...(ownStartTime !== undefined ? { start_time: ownStartTime } : {}) },
-      })),
-      writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
-      activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+      // phase 1873 Step B: 协议归 PM capability——daemon 只消费 typed outcome。
+      activateChildGeneration: vi.fn().mockResolvedValue({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } }),
       retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
-      hasStopIntentForGeneration: vi.fn(() => false),
     },
     dispose: mockState.mockDispose,
     ...overrides,
@@ -367,19 +361,18 @@ describe('daemonCommand - A4a startup failure', () => {
     );
   });
 
-  it('it #4b: stop intent for own generation before activation → retire + exit 1 (Phase 1204 Step F)', async () => {
+  it('it #4b: activation capability 失败（stop_intent 类）→ audit + exit 1（phase 1873 Step B：协议归 PM）', async () => {
+    // 协议细节（stop intent → retire）归 PM 面测试（tests/foundation/process-manager/activation.test.ts）；
+    // daemon 侧断言 = 消费 failed outcome → 同一审计列 + 退出。
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({
       clawId: 'test-claw',
       processManager: {
-        inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
-        inspectSpawningPid: vi.fn(() => ({
-          status: 'ok',
-          record: { pid: process.pid, ...(getProcessStartTime(process.pid) !== undefined ? { start_time: getProcessStartTime(process.pid) } : {}) },
-        })),
-        writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
-        activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+        activateChildGeneration: vi.fn().mockResolvedValue({
+          kind: 'failed',
+          stage: 'stop_intent',
+          reason: 'stop intent recorded before activation',
+        }),
         retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
-        hasStopIntentForGeneration: vi.fn(() => true),
       },
     }));
 

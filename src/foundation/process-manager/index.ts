@@ -40,6 +40,9 @@ export { createProcessManagerForCLI } from './factories.js';
 // assembly/assemble.ts 装配根 by-design 保留 deep import (lint allowlist)。
 export { createAgentProcessManager } from './agent-factory.js';
 export { STATUS_SUBDIR } from './paths.js';
+// phase 1873 Step B: child activation capability（协议 + typed outcome）
+export { activateChildGeneration } from './activation.js';
+export type { ChildActivationInput, ChildActivationOutcome, ChildActivationStage } from './activation.js';
 export { signalCleanStop, clearCleanStop } from './signal-clean-stop.js';
 
 export { getActiveDir, PID_FILE, PROCESS_GENERATION_ENV } from './generation.js';

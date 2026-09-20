@@ -19,7 +19,6 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { EventLoop } from '../core/event-loop/index.js';
 import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
-import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { getProcessStartTime, type ProcessStartTime } from '../foundation/process-exec/index.js';
 import { INBOX_PENDING_DIR, createInboxReader } from '../foundation/messaging/index.js';
@@ -28,7 +27,6 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
-import type { DaemonDir } from '../foundation/process-manager/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
 import type { ProcessGenerationRecord } from '../foundation/process-manager/index.js';
 
@@ -138,12 +136,17 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     const { runtime, streamWriter, snapshot, auditWriter, heartbeat, executionRecovery, recoverySession } = instances;
 
-    // Phase 1204 Step C：child 校验 generation identity，写 ready 事实后激活 generation。
+    // Phase 1204 Step C（phase 1873 Step B：协议归 PM capability）：child 激活
+    // generation——inspect/比对/stop-intent/ready/activate 由 PM 完成，Daemon 只消费 outcome。
     let generationRecord: ProcessGenerationRecord | undefined;
     try {
       const startTime = getProcessStartTime(process.pid) as ProcessStartTime | undefined;
-      const activationResult = await activateOwnGeneration(instances.processManager, daemonDir, processGenerationId, startTime);
-      if (activationResult.kind !== 'ok') {
+      const activationResult = await instances.processManager.activateChildGeneration(daemonDir, {
+        generationId: processGenerationId,
+        pid: process.pid,
+        startTime,
+      });
+      if (activationResult.kind !== 'activated') {
         throw new Error(activationResult.reason);
       }
       generationRecord = activationResult.record;
@@ -338,58 +341,3 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
   };
 }
 
-interface GenerationActivationResult {
-  kind: 'ok' | 'error';
-  record?: ProcessGenerationRecord;
-  reason?: string;
-}
-
-/**
- * Phase 1204 Step C: child 校验显式 generation identity，写 ready 事实后激活 generation。
- * child 只能 activate 与自身 PID/startTime 匹配的 spawning；任何 mismatch 都 fail-closed。
- */
-async function activateOwnGeneration(
-  processManager: ReturnType<typeof createAgentProcessManager>,
-  daemonDir: DaemonDir,
-  generationId: string | undefined,
-  startTime: ProcessStartTime | undefined,
-): Promise<GenerationActivationResult> {
-  if (generationId === undefined) {
-    return { kind: 'error', reason: 'CHESTNUT_PROCESS_GENERATION env missing' };
-  }
-  const spawning = processManager.inspectSpawning(daemonDir);
-  if (spawning.status !== 'ok') {
-    return { kind: 'error', reason: `spawning generation not found: ${spawning.status}` };
-  }
-  if (spawning.record.generation_id !== generationId) {
-    return { kind: 'error', reason: 'spawning generation id mismatch' };
-  }
-  const pid = processManager.inspectSpawningPid(daemonDir);
-  if (pid.status !== 'ok') {
-    return { kind: 'error', reason: `spawning pid fact not found: ${pid.status}` };
-  }
-  if (pid.record.pid !== process.pid) {
-    return { kind: 'error', reason: 'spawning pid does not match current process' };
-  }
-  if (
-    startTime !== undefined &&
-    pid.record.start_time !== undefined &&
-    pid.record.start_time !== startTime
-  ) {
-    return { kind: 'error', reason: 'spawning startTime mismatch' };
-  }
-  // Step F barrier：child 在写 ready / activate 前检查是否有绑定本 generation 的 stop intent。
-  if (processManager.hasStopIntentForGeneration(daemonDir, generationId)) {
-    processManager.retireGeneration(daemonDir, { generationId }, 'stopped', 'spawning');
-    return { kind: 'error', reason: 'stop intent recorded before activation' };
-  }
-  const ready = await processManager.writeGenerationReady(daemonDir, spawning.record, process.pid, startTime);
-  if (ready.kind !== 'written') {
-    return { kind: 'error', reason: `ready fact write failed: ${ready.kind}` };
-  }
-  const activation = processManager.activateGeneration(daemonDir, { generationId, pid: process.pid, startTime: startTime as ProcessStartTime | undefined });
-  if (activation.kind === 'activated' || activation.kind === 'already_active') {
-    return { kind: 'ok', record: activation.record };
-  }
-  return { kind: 'error', reason: `generation activation failed: ${activation.kind}` };
-}

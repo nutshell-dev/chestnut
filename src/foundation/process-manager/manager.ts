@@ -40,6 +40,8 @@ import {
   type WriteGenerationFact,
 } from './generation.js';
 import type { EnsureRunningOutcome, LivenessResult, ProcessManagerContext, ReadinessResult, SpawnOptions, StopProcessOutcome } from './types.js';
+// phase 1873 Step B: child activation 协议 capability（owner 内收口）
+import { activateChildGeneration, type ChildActivationInput, type ChildActivationOutcome } from './activation.js';
 
 
 export class ProcessManager {
@@ -90,6 +92,13 @@ export class ProcessManager {
   }
   hasStopIntentForGeneration(daemonDir: DaemonDir, generationId: string): boolean {
     return hasStopIntentForGeneration(this._ctx, daemonDir, generationId);
+  }
+  /**
+   * phase 1873 Step B: child activation 单一 capability —— inspect/比对/stop-intent/
+   * ready/activate 的协议展开与 result kind 解释归 PM；caller 只消费 typed outcome。
+   */
+  activateChildGeneration(daemonDir: DaemonDir, input: ChildActivationInput): Promise<ChildActivationOutcome> {
+    return activateChildGeneration(this._ctx, daemonDir, input);
   }
 
   // lifecycle

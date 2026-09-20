@@ -50,15 +50,9 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     selfWritePid: vi.fn().mockResolvedValue(undefined),
     markReady: vi.fn().mockResolvedValue(undefined),
     selfRemovePid: vi.fn().mockResolvedValue(undefined),
-    inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
-    inspectSpawningPid: vi.fn(() => ({
-      status: 'ok',
-      record: { pid: process.pid, ...(ownStartTime !== undefined ? { start_time: ownStartTime } : {}) },
-    })),
-    writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
-    activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+    // phase 1873 Step B: 协议收归 PM capability——Daemon 侧只消费 typed outcome。
+    activateChildGeneration: vi.fn().mockResolvedValue({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } }),
     retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
-    hasStopIntentForGeneration: vi.fn(() => false),
   })),
   PROCESS_GENERATION_ENV: 'CHESTNUT_PROCESS_GENERATION',
   makeDaemonDir: (s: string) => s,
@@ -90,15 +84,8 @@ const ownStartTime = getProcessStartTime(process.pid);
 const mockAuditWriter = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
 const mockDispose = vi.fn().mockResolvedValue(undefined);
 const mockProcessManager = {
-  inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
-  inspectSpawningPid: vi.fn(() => ({
-    status: 'ok',
-    record: { pid: process.pid, ...(ownStartTime !== undefined ? { start_time: ownStartTime } : {}) },
-  })),
-  writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
-  activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+  activateChildGeneration: vi.fn().mockResolvedValue({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } }),
   retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
-  hasStopIntentForGeneration: vi.fn(() => false),
 };
 const mockAssemble = vi.fn().mockResolvedValue({
   runtime: { initialize: vi.fn().mockResolvedValue(undefined) },
