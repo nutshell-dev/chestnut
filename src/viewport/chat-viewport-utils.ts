@@ -14,6 +14,8 @@ import { createClawNotifier } from '../foundation/messaging/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import { persistViewportDraft, clearViewportDraft } from './chat-viewport-draft.js';
 
 const ATTACHMENT_SUBDIR = 'inbox/attachments';
 const PREVIEW_HEAD_CHARS = 200;
@@ -109,4 +111,36 @@ export function fmtDuration(ms: number): string {
   const h = Math.floor(m / 60);
   if (h > 0) return `${h}h ${m % 60}m`;
   return `${m}m`;
+}
+
+export type SubmitUserMessageOutcome = { ok: true } | { ok: false; error: string };
+
+/**
+ * phase 1874 Step C（cli-viewport-draft-cleared-before-commit）: 用户消息提交路径核心。
+ *
+ * 序问题：pi-tui `Editor.submitValue` 在调用 `onSubmit` 前先触发 `onChange('')`，
+ * 经 `persistViewportDraft('')` 清掉磁盘草稿——早于 inbox 写入；若入队失败，
+ * 编辑器与磁盘草稿皆空（2026-09-13 事故形态）。时序归 pi-tui、不可改，此处事后保全：
+ * 提交前把本次文本落回 pending 草稿；inbox 写入成功 → 显式清草稿（reason=submitted、
+ * inbox 已持权威副本）；失败 → 草稿保留 pending 副本（磁盘侧可恢复），
+ * 由调用方（onSubmit）回填编辑器文本供直接重试。
+ */
+export function submitUserMessage(
+  deps: {
+    agentDir: string;
+    fs: FileSystem;
+    audit: AuditLog;
+    fsFactory: (baseDir: string) => FileSystem;
+    userInputInlineMaxChars?: number;
+  },
+  text: string,
+): SubmitUserMessageOutcome {
+  persistViewportDraft(deps.fs, deps.audit, text);
+  try {
+    writeUserChat(deps.agentDir, text, deps.fsFactory, deps.userInputInlineMaxChars);
+  } catch (err) {
+    return { ok: false, error: formatErr(err) };
+  }
+  clearViewportDraft(deps.fs, deps.audit, 'submitted');
+  return { ok: true };
 }

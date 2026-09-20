@@ -47,12 +47,15 @@ describe('chat viewport durable draft', () => {
     const { fs, audit } = context();
     persistViewportDraft(fs, audit, 'recover me');
 
-    clearViewportDraft(fs, audit);
+    clearViewportDraft(fs, audit, 'explicit_empty_state');
 
     expect(fs.existsSync(VIEWPORT_DRAFT_FILE)).toBe(false);
     expect(loadViewportDraft(fs, audit)).toEqual({ kind: 'none' });
     expect(fsSync.readFileSync(path.join(tempDir, 'viewport.tsv'), 'utf8'))
       .toContain('viewport_draft_cleared');
+    // phase 1874 Step C: reason 显式可辨
+    expect(fsSync.readFileSync(path.join(tempDir, 'viewport.tsv'), 'utf8'))
+      .toContain('reason=explicit_empty_state');
   });
 
   it('quarantines malformed state instead of overwriting it', () => {

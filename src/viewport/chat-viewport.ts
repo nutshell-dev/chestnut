@@ -27,7 +27,7 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../cor
 import { makeClawId } from '../foundation/claw-identity/index.js';
 
 
-import { writeUserChat } from './chat-viewport-utils.js';
+import { submitUserMessage } from './chat-viewport-utils.js';
 import { findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { type ClawTrack } from './chat-viewport-claw-line.js';
 import { createMainTurnUI, type MainTurnUIController } from './main-turn-ui.js';
@@ -463,21 +463,26 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       return;
     }
 
-    // 写入 inbox
-    try {
-      writeUserChat(
-        options.agentDir,
-        trimmed,
-        options.fsFactory,
-        options.userInputInlineMaxChars,  // undefined 时 writeUserChat 走默认 VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT
-      );
-      // inbox 已成为权威副本后才清除 draft，避免发送失败丢失输入。
+    // 写入 inbox（phase 1874 Step C: draft 提交序——提交前保全 pending 草稿、
+    // 写入成功才清草稿；失败草稿保留 + 编辑器回填供重试）
+    const outcome = submitUserMessage(
+      {
+        agentDir: options.agentDir,
+        fs,
+        audit: options.audit,
+        fsFactory: options.fsFactory,
+        userInputInlineMaxChars: options.userInputInlineMaxChars,  // undefined 时 writeUserChat 走默认 VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT
+      },
+      trimmed,
+    );
+    if (outcome.ok) {
       displayWithHolder.appendOutput('\x1b[32m', `> ${trimmed} (pending)`, true);
       editor.setText('');
       editor.addToHistory(trimmed);
-    } catch (err) {
-      const msg = formatErr(err);
-      displayWithHolder.appendOutput('\x1b[31m', `[error] failed to send message: ${msg} (retry or check disk / permissions)`, true);
+    } else {
+      // 失败：磁盘草稿已保留 pending 副本；编辑器回填文本供直接重试
+      editor.setText(trimmed);
+      displayWithHolder.appendOutput('\x1b[31m', `[error] failed to send message: ${outcome.error} (retry or check disk / permissions)`, true);
     }
     tui.requestRender();
   };

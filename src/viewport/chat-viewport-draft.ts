@@ -87,7 +87,7 @@ export function loadViewportDraft(fs: FileSystem, audit: AuditLog): ViewportDraf
 /** Persist the latest draft atomically. Superseded revisions are mutable UI state by design. */
 export function persistViewportDraft(fs: FileSystem, audit: AuditLog, text: string): void {
   if (text.length === 0) {
-    clearViewportDraft(fs, audit);
+    clearViewportDraft(fs, audit, 'explicit_empty_state');
     return;
   }
   try {
@@ -106,11 +106,16 @@ export function persistViewportDraft(fs: FileSystem, audit: AuditLog, text: stri
   }
 }
 
-/** Empty text is an explicit clear decision; submitted content has moved to the inbox owner. */
-export function clearViewportDraft(fs: FileSystem, audit: AuditLog): void {
+/**
+ * Clear the mutable draft.
+ *
+ * phase 1874 Step C（cli-viewport-draft-cleared-before-commit）：reason 显式化——
+ * 空编辑器（`explicit_empty_state`）与提交成功（`submitted`，inbox 已持权威副本）可辨。
+ */
+export function clearViewportDraft(fs: FileSystem, audit: AuditLog, reason: string): void {
   try {
     fs.deleteSync(VIEWPORT_DRAFT_FILE);
-    audit.write(VIEWPORT_AUDIT_EVENTS.DRAFT_CLEARED, 'reason=explicit_empty_state');
+    audit.write(VIEWPORT_AUDIT_EVENTS.DRAFT_CLEARED, `reason=${reason}`);
   } catch (err) {
     if (isFileNotFound(err)) return;
     audit.write(VIEWPORT_AUDIT_EVENTS.DRAFT_CLEAR_FAILED, `reason=${formatErr(err)}`);

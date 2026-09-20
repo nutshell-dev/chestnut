@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
+const utilsPath = path.join(__dirname, '../../src/viewport/chat-viewport-utils.ts');
 const eventHandlerPath = path.join(__dirname, '../../src/viewport/chat-viewport-event-handler.ts');
 const initPath = path.join(__dirname, '../../src/viewport/chat-viewport-init.ts');
 const auditEventsPath = path.join(__dirname, '../../src/viewport/viewport-audit-events.ts');
@@ -22,31 +23,34 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
     + fs.readFileSync(eventHandlerPath, 'utf-8')
     + fs.readFileSync(initPath, 'utf-8');
+  const submitPathCode = fs.readFileSync(utilsPath, 'utf-8');
   const auditEventsCode = fs.readFileSync(auditEventsPath, 'utf-8');
 
-  describe('phase 523 Step A: writeUserChat 失败守护', () => {
-    it('writeUserChat 调用包 try/catch', () => {
-      // 找 onSubmit 内 writeUserChat 段
-      const match = sourceCode.match(/try\s*\{\s*writeUserChat\(\s*options\.agentDir,\s*trimmed,\s*options\.fsFactory[\s\S]*?\);\s*\}\s*catch/);
+  describe('phase 523 Step A + phase 1874 Step C: writeUserChat 失败守护 / draft 提交序', () => {
+    it('提交经 submitUserMessage（内部 writeUserChat 包 try/catch）', () => {
+      // onSubmit 调提交核心；核心内 writeUserChat 的失败被 catch 转为 outcome（不冒泡到 UI 循环）
+      expect(sourceCode).toContain('submitUserMessage(');
+      const match = submitPathCode.match(/try\s*\{\s*writeUserChat\([\s\S]*?\}\s*catch\s*\(err\)\s*\{\s*return\s*\{\s*ok:\s*false/);
       expect(match).toBeTruthy();
     });
 
-    it('catch 块含红色 appendOutput error', () => {
-      const match = sourceCode.match(/catch\s*\(err\)\s*\{[\s\S]*?\\x1b\[31m[\s\S]*?failed to send message[\s\S]*?\}/);
+    it('失败分支含红色 appendOutput error', () => {
+      const match = sourceCode.match(/else\s*\{[\s\S]*?\\x1b\[31m[\s\S]*?failed to send message[\s\S]*?\}/);
       expect(match).toBeTruthy();
     });
 
-    it('只在 inbox 写入成功后清除可恢复 draft', () => {
-      const submitStart = sourceCode.indexOf('// 写入 inbox');
-      const submitEnd = sourceCode.indexOf('tui.requestRender();', submitStart);
-      const block = sourceCode.slice(submitStart, submitEnd);
-      const writeIndex = block.indexOf('writeUserChat(');
-      const clearIndex = block.indexOf("editor.setText('')");
-      const catchIndex = block.indexOf('catch (err)');
-
-      expect(writeIndex).toBeGreaterThan(-1);
+    it('draft 提交序：先保全 pending 草稿、inbox 写入成功后才清除（phase 1874 Step C）', () => {
+      // 提交核心序断言（utils 内）：persist(pending) → writeUserChat → clear(submitted)
+      const persistIndex = submitPathCode.indexOf('persistViewportDraft(deps.fs, deps.audit, text)');
+      const writeIndex = submitPathCode.indexOf('writeUserChat(deps.agentDir, text');
+      const clearIndex = submitPathCode.indexOf("clearViewportDraft(deps.fs, deps.audit, 'submitted')");
+      expect(persistIndex).toBeGreaterThan(-1);
+      expect(writeIndex).toBeGreaterThan(persistIndex);
       expect(clearIndex).toBeGreaterThan(writeIndex);
-      expect(clearIndex).toBeLessThan(catchIndex);
+      // 失败路径：return ok:false 在 clearViewportDraft 之前（草稿保留）
+      const failReturnIndex = submitPathCode.indexOf('return { ok: false');
+      expect(failReturnIndex).toBeGreaterThan(-1);
+      expect(failReturnIndex).toBeLessThan(clearIndex);
     });
   });
 
