@@ -60,3 +60,5 @@ export { applyCommandOptions } from './command-shape.js';
 export type { CommandShapeSpec, CommandOptionShape, CommandShapeRegistrar } from './command-shape.js';
 export { MOTION_COMMAND_CATALOG, getMotionCommandSpec } from './motion-command-catalog.js';
 export type { MotionCommandId } from './motion-command-catalog.js';
+export { CONTRACT_COMMAND_CATALOG, getContractCommandSpec } from './contract-command-catalog.js';
+export type { ContractCommandId } from './contract-command-catalog.js';

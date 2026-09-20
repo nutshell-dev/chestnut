@@ -14,6 +14,8 @@ import {
   CLAW_COMMAND_CATALOG,
   getClawCommandSpec,
   getMotionCommandSpec,
+  getContractCommandSpec,
+  CONTRACT_COMMAND_CATALOG,
   MOTION_COMMAND_CATALOG,
   renderClawCommandHelp,
 } from '../../../src/cli-protocol/index.js';
@@ -104,5 +106,35 @@ describe('phase 1874 Step L: motion 族 catalog parity', () => {
     const m = owner.match(/export const DEFAULT_OUTBOX_DRAIN_LIMIT = (\d+);/);
     expect(m).not.toBeNull();
     expect(getMotionCommandSpec('outbox')!.options![0]!.defaultValue).toBe(m![1]!);
+  });
+});
+
+describe('phase 1874 Step L: contract 族 catalog parity', () => {
+  const indexSource = fs.readFileSync(path.join(process.cwd(), 'src/cli/index.ts'), 'utf8');
+
+  it('catalog 单源：四 verb + required 标记（--claw/--reason/--since）', () => {
+    expect(CONTRACT_COMMAND_CATALOG.map((spec) => spec.id)).toEqual(['create', 'show', 'cancel', 'events']);
+    const flags = (id: string) => (getContractCommandSpec(id)?.options ?? []).map((o) => o.flag);
+    expect(flags('create')).toEqual(['-c, --claw <id>', '--file <path>', '--dir <path>']);
+    expect(flags('cancel')).toEqual(['-c, --claw <id>', '--reason <text>', '--contract <id>']);
+    expect(getContractCommandSpec('cancel')!.options!.filter((o) => o.required).map((o) => o.flag))
+      .toEqual(['-c, --claw <id>', '--reason <text>']);
+    expect(flags('events')).toEqual(['--since <timestamp>']);
+    expect(getContractCommandSpec('events')!.options![0]!.required).toBe(true);
+  });
+
+  it('四 verb 经 contractShape 投影；contract 段零裸 option 字面', () => {
+    const pairs: Array<[string, string]> = [
+      ['create', 'create'], ['show', 'show'], ['cancel', 'cancel'], ['events <claw>', 'events'],
+    ];
+    for (const [cmd, id] of pairs) {
+      expect(indexSource).toContain(`contractShape(contractCmd.command('${cmd}'), '${id}')`);
+    }
+    const section = indexSource.slice(
+      indexSource.indexOf('const contractCmd = program'),
+      indexSource.indexOf("contractCmd.on('command:*'"),
+    );
+    const literals = [...section.matchAll(/\.(?:option|requiredOption)\(\s*'([^']+)'/g)].map((m) => m[1]);
+    expect(literals).toEqual([]);
   });
 });

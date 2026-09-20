@@ -42,7 +42,7 @@ import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.j
 import { createRootConfig, createRootConfigLegacyMigration, createContractActionContext } from '../assembly/index.js';
 import { AUDIT_FILE_STEM } from '../foundation/audit/index.js';
 // phase 1874 Step L: motion 族命令形状经 CLIProtocol catalog 投影（summary/options 单源）
-import { getMotionCommandSpec, applyCommandOptions, type MotionCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
+import { getMotionCommandSpec, getContractCommandSpec, applyCommandOptions, type MotionCommandId, type ContractCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
 // CLAWS_DIR removed: phase 263
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
@@ -159,13 +159,22 @@ const clawCommand = program
 clawCommand.helpInformation = () => `${renderClawHelp()}\n`;
 
 // motion command group
-// phase 1874 Step L: motion 族命令形状投影（catalog 单源；1798 形态泛化）
-function motionShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: MotionCommandId): T {
-  const spec = getMotionCommandSpec(id);
-  if (!spec) throw new Error(`unknown motion command id in catalog: ${id}`);
+// phase 1874 Step L: 命令形状投影（catalog 单源；1798 形态泛化）
+function shapeCmd<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(
+  cmd: T,
+  spec: { summary: string; options?: readonly { flag: string; desc: string; required?: boolean; runtimeLiteral?: true }[] } | undefined,
+  label: string,
+): T {
+  if (!spec) throw new Error(`unknown command id in catalog: ${label}`);
   cmd.description(spec.summary);
-  applyCommandOptions(cmd, spec);
+  applyCommandOptions(cmd, spec as never);
   return cmd;
+}
+function motionShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: MotionCommandId): T {
+  return shapeCmd(cmd, getMotionCommandSpec(id), `motion/${id}`);
+}
+function contractShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: ContractCommandId): T {
+  return shapeCmd(cmd, getContractCommandSpec(id), `contract/${id}`);
 }
 
 const motionCmd = program
@@ -237,12 +246,7 @@ const contractCmd = program
   .description('Manage contracts');
 
 // contract create
-contractCmd
-  .command('create')
-  .description('Create a contract (--file: import YAML, --dir: directory with contract.yaml + verification/)')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--file <path>', 'Path to contract YAML file')
-  .option('--dir <path>', 'Directory containing contract.yaml and verification/ folder')
+contractShape(contractCmd.command('create'), 'create')
   .action(action('required', async (opts: { claw: string; file?: string; dir?: string }) => {
     rootConfig.loadGlobal();
     const audit = actionAuditFor(getClawDir(opts.claw), { fsFactory });
@@ -268,31 +272,19 @@ contractCmd
     }
   }));
 
-contractCmd
-  .command('show')
-  .description('Show contract state snapshot for a claw')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--contract <id>', 'Contract ID (default: active contract)')
+contractShape(contractCmd.command('show'), 'show')
   .action(action('observe_only', async (opts: { claw: string; contract?: string }) => {
     await contractShowCommand({ fsFactory }, opts.claw, opts.contract);
   }));
 
-contractCmd
-  .command('cancel')
-  .description('Cancel an active contract (legacy paused contracts are read-only)')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .requiredOption('--reason <text>', 'Cancel reason (recorded as immutable lifecycle intent)')
-  .option('--contract <id>', 'Contract ID (default: active contract)')
+contractShape(contractCmd.command('cancel'), 'cancel')
   .action(action('required', async (opts: { claw: string; reason: string; contract?: string }) => {
     rootConfig.loadGlobal();
     const audit = actionAuditFor(getClawDir(opts.claw), { fsFactory });
     await contractCancelCommand({ fsFactory }, opts.claw, opts.reason, opts.contract, { audit });
   }));
 
-contractCmd
-  .command('events <claw>')
-  .description('Show contract events since a timestamp')
-  .requiredOption('--since <timestamp>', 'Unix timestamp in milliseconds')
+contractShape(contractCmd.command('events <claw>'), 'events')
   .action(action('observe_only', async (claw: string, opts: { since: string }) => {
     const since = parseIntOption(opts.since, '--since must be a Unix timestamp in milliseconds');
     await contractEventsCommand({ fsFactory }, claw, since);
