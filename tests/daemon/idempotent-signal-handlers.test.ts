@@ -89,6 +89,8 @@ const mockProcessManager = {
 };
 const mockAssemble = vi.fn().mockResolvedValue({
   runtime: { initialize: vi.fn().mockResolvedValue(undefined) },
+  // phase 1873 Step C: 装配交付的 EventLoop（daemon 只驱动）
+  eventLoop: { run: vi.fn().mockResolvedValue(undefined), abort: vi.fn() },
   streamWriter: {},
   snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) },
   auditWriter: mockAuditWriter,

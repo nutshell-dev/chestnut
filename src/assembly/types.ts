@@ -4,7 +4,7 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
-import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
+import type { EventLoopExecutionRecoveryDeps, EventLoop } from '../core/event-loop/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
 import type { createSkillSystem as defaultCreateSkillSystem } from '../foundation/skill-system/index.js';
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
@@ -46,6 +46,8 @@ export type AssembleConfig =
 
 export interface Instances {
   readonly runtime: Runtime;
+  /** phase 1873 Step C: 装配期交付的 EventLoop（daemon 只驱动；构造/初始化归装配）。 */
+  readonly eventLoop: EventLoop;
   readonly streamWriter: StreamWriter;
   readonly snapshot: Snapshot;
   readonly processManager: ProcessManager;

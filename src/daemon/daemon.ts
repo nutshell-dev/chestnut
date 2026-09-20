@@ -16,12 +16,11 @@ import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
-import { EventLoop } from '../core/event-loop/index.js';
 import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { getProcessStartTime, type ProcessStartTime } from '../foundation/process-exec/index.js';
-import { INBOX_PENDING_DIR, createInboxReader } from '../foundation/messaging/index.js';
+import { createInboxReader } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
@@ -134,7 +133,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       process.exit(1);
     }
 
-    const { runtime, streamWriter, snapshot, auditWriter, heartbeat, executionRecovery, recoverySession } = instances;
+    const { runtime, snapshot, auditWriter, heartbeat, eventLoop } = instances;
 
     // Phase 1204 Step C（phase 1873 Step B：协议归 PM capability）：child 激活
     // generation——inspect/比对/stop-intent/ready/activate 由 PM 完成，Daemon 只消费 outcome。
@@ -171,23 +170,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       return true;
     };
 
-    const inboxPendingDir = path.join(dir, INBOX_PENDING_DIR);
-
-    const eventLoop = new EventLoop({
-      runtime,
-      fsFactory: deps.fsFactory,
-      agentDir: dir,
-      clawId: clawId,
-      audit: auditWriter,
-      inbox: { pendingDir: inboxPendingDir },
-      streamWriter,
-      // Phase 1396 Step E: 执行停滞恢复（Assembly 只注入持久事实 probe / async-task
-      // 在途 probe 等观察依赖；Phase 1840 起提醒链无 failure sink 失败出口）
-      executionRecovery,
-      // Phase 1826: LLM 恢复安排 owner 的窄 capability（EventLoop 只执行安排与准入）
-      recovery: recoverySession,
-    });
-    await eventLoop.initialize();
+    // phase 1873 Step C: EventLoop 构造/初始化归 Assembly（instances.eventLoop 已就绪）；
+    // daemon 只驱动（run/abort）。
 
     const auditAbsPath = preAssembleFs.resolve(AUDIT_FILE);
     const interruptionMessage = summarizeLastExit(

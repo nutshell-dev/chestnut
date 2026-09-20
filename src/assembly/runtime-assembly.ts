@@ -33,8 +33,10 @@ import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
 // Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink 组装（事实源 + Step D narrow sink）
 import { listActiveContracts, getActiveContractTimestamp, makeContractId, readContractTerminalFact } from '../core/contract/index.js';
-import { readStreamExecutionActivityMs } from '../core/event-loop/index.js';
+import { EventLoop, readStreamExecutionActivityMs } from '../core/event-loop/index.js';
 import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
+// phase 1873 Step C: 装配期构造 EventLoop 的 inbox 路径推导（daemon 侧迁入）
+import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 
 interface RuntimeAssemblyInput {
   core: CoreInfraOutput;
@@ -49,6 +51,8 @@ interface RuntimeAssemblyOutput {
   executionRecovery: EventLoopExecutionRecoveryDeps;
   /** Phase 1826: 前台恢复 session（daemon 把调度 capability 传给 EventLoop）。 */
   recoverySession: import('../foundation/llm-orchestrator/index.js').LLMRecoverySession;
+  /** phase 1873 Step C: 装配期构造并初始化的 EventLoop（完整模块图交付；daemon 只驱动）。 */
+  eventLoop: EventLoop;
 }
 
 export async function createRuntimeAssembly(
@@ -234,5 +238,23 @@ export async function createRuntimeAssembly(
     isAsyncTaskInFlight: async () => taskSystem.getInProcessRunningCount() > 0,
   };
 
-  return { snapshot, streamWriter, runtime, executionRecovery, recoverySession };
+  // --- phase 1873 Step C: EventLoop 构造/初始化归装配 ---
+  // 原 daemon 直接 new EventLoop + initialize（装配根边界破裂、失败不入统一 rollback）；
+  // 迁移后 daemon 只驱动 instances.eventLoop。EventLoop 无可 teardown 资源
+  // （abort 仅对运行中循环有意义、装配期未运行）——无需 rollback 登记。
+  const eventLoop = new EventLoop({
+    runtime,
+    fsFactory,
+    agentDir: clawDir,
+    clawId,
+    audit: auditWriter,
+    inbox: { pendingDir: path.join(clawDir, INBOX_PENDING_DIR) },
+    streamWriter,
+    executionRecovery,
+    recovery: recoverySession,
+  });
+  // 初始化须在「驱动前」完成；装配序整体先于 daemon 驱动（风险项照应）。
+  await eventLoop.initialize();
+
+  return { snapshot, streamWriter, runtime, executionRecovery, recoverySession, eventLoop };
 }

@@ -176,12 +176,14 @@ function installProcessSpies(): void {
 // Helpers
 // ============================================================================
 const TEST_GENERATION_ID = 'test-generation-id';
+// phase 1873 Step C: 装配交付的 EventLoop（daemon 只驱动同一实例）
+const mockEventLoop = { run: vi.fn().mockResolvedValue(undefined), abort: vi.fn() };
 
 function makeMockInstances(overrides?: Partial<any>) {
-  const ownStartTime = getProcessStartTime(process.pid);
   return {
     clawId: 'test',
     runtime: mockState.mockRuntime,
+    eventLoop: mockEventLoop,
     streamWriter: mockState.mockStreamWriter,
     snapshot: { commit: mockState.mockSnapshotCommit },
     auditWriter: { write: mockState.mockAuditWrite },
@@ -289,7 +291,8 @@ describe('daemonCommand - A4a startup success', () => {
     const cmdPromise = daemonCommand('test-claw');
 
     // Wait for mockStartDaemonLoop call event instead of fragile flushMicrotasks (phase 779 Step C)
-    await once(mockStartDaemonLoopCallEvent, 'call');
+    const [loopCallOptions] = await once(mockStartDaemonLoopCallEvent, 'call');
+    const loopCallOptionsCaptured = loopCallOptions as { eventLoop?: unknown };
     if (mockState.stopFn) mockState.stopFn();
     await cmdPromise.catch(() => { /* silent: expected-failure */ });  // 忽略 process.exit 抛错（若有）
 
@@ -299,6 +302,8 @@ describe('daemonCommand - A4a startup success', () => {
       clawId: 'test-claw',
     }));
     expect(mockState.mockRuntime.initialize).toHaveBeenCalled();
+    // phase 1873 Step C: daemon 把装配交付的 eventLoop 原样传入驱动循环（只驱动、不构造）
+    expect(loopCallOptionsCaptured.eventLoop).toBe(mockEventLoop);
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith('daemon_start', expect.stringContaining('sha256:'));
     expect(mockState.mockSnapshotCommit).toHaveBeenCalled();
   });
