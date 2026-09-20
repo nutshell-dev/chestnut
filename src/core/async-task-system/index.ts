@@ -86,5 +86,8 @@ export type { MigratedExecTaskInfo, TaskReadError } from './list-migrated-exec.j
 export { readTaskQueueCounts } from './task-queue-snapshot.js';
 export type { TaskQueueCounts } from './task-queue-snapshot.js';
 
+// phase 1872 Step D: task 单条只读查询（assembly-async-task-storage-bypass 收口）
+export { loadSubAgentTask } from './task-query.js';
+
 // phase 1321: async-task-system 自有 stream 事件 const（分层拆件、恢复 1312 删的名）
 export { STREAM_TASK_EVENTS } from './stream-events.js';

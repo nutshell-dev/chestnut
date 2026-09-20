@@ -47,6 +47,9 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   'src/core/async-task-system/system.ts',
   'src/core/async-task-system/task-schemas.ts',
   'src/core/async-task-system/types.ts',
+  // phase 1872 Step D: task 单条查询 owner 面（kind==='subagent' 判别与该模块
+  // schema/类型同语域；语义与迁移前 Assembly 内联实现一致）。
+  'src/core/async-task-system/task-query.ts',
   // phase 770: async exec wrapper mirrors the exec Tool profiles from L2c command-tool/exec.ts
   'src/core/async-task-system/async-exec-wrapper.ts',
   'src/core/caller-types.ts',

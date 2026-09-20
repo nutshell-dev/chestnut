@@ -14,14 +14,8 @@ import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/mes
 import { createAsyncTaskSystem, createStandardDeliverySink } from '../core/async-task-system/index.js';
 import { createSubagentTaskExecutor } from './subagent-task-executor.js';
 import { PersistentShortIdIndex, type AsyncTaskSystem } from '../core/async-task-system/index.js';
-import {
-  TASKS_QUEUES_PENDING_DIR,
-  TASKS_QUEUES_RUNNING_DIR,
-  TASKS_QUEUES_DONE_DIR,
-  TASKS_QUEUES_FAILED_DIR,
-} from '../core/async-task-system/index.js';
-import { validateTaskShape, type SubAgentTask, type TaskId } from '../core/async-task-system/index.js';
-import { isFileNotFound } from '../foundation/fs/index.js';
+// phase 1872 Step D: task 事实读取经 owner 窄查询（Assembly 不再直读 ATS 目录/schema）。
+import { loadSubAgentTask } from '../core/async-task-system/index.js';
 import {
   createSummonContractExtractPostProcessor,
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
@@ -231,21 +225,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const summonVerifyPolicy = createSummonVerifyPolicy({
     auditWriter,
     claimStore: summonClaimStore,
-    loadTask: async (taskId: TaskId): Promise<SubAgentTask | undefined> => {
-      for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
-        try {
-          const content = await systemFs.read(`${dir}/${taskId}.json`);
-          const parsed = JSON.parse(content) as unknown;
-          if (validateTaskShape(parsed) && (parsed as SubAgentTask).kind === 'subagent') {
-            return parsed as SubAgentTask;
-          }
-        } catch (err) {
-          if (isFileNotFound(err)) continue;
-          throw err;
-        }
-      }
-      return undefined;
-    },
+    // phase 1872 Step D: 目录口径/扫描顺序/schema 校验归 ATS owner（语义与迁移前等价）。
+    loadTask: (taskId) => loadSubAgentTask(systemFs, taskId),
   });
   contractManager.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 
