@@ -239,7 +239,13 @@ export async function createRuntimeAssembly(
           : (streamMs ?? createdMs);
         return { activeContractId, lastActivityAt };
       },
-      // phase 1863 (AT-D13)：语义 = 本进程是否有执行句柄（in-process 视图；磁盘 SoT 见 listRunning）
+      // phase 1863 (AT-D13)：语义 = 本进程是否有执行句柄（in-process 视图；磁盘 SoT 见 listRunning）。
+      // phase 1869 (Step E 核证登记)：queued（磁盘 pending）**显式排除**——它是 dispatcher
+      // 领取前的预派发态，唯一推进者 = startDispatch 调度循环（其启动失败则 Runtime.init
+      // 抛错、EventLoop 不运行）；循环侧无法区分「瞬时排队」与「停滞」（watcher 漏事件 /
+      // movePendingToRunning 失败重试），排除后停滞场景提醒照常触发；饱和排队必伴随
+      // in-process>0（已被本事实覆盖）。磁盘 running 含崩溃残留（归 task-recovery），
+      // 不作在途判据。核证用例：tests/core/async-task-system/queue-wait-facts.test.ts。
       isAsyncTaskInFlight: async () => taskSystem.getInProcessRunningCount() > 0,
     };
 
