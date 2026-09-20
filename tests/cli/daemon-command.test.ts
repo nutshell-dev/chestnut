@@ -277,6 +277,7 @@ const daemonCommand = createDaemonCommand({
   shimStandDown: mockShimStandDown,
   auditEvents: {
     assembleFailed: 'assemble_failed',
+    preRuntimeFailed: 'daemon_pre_runtime_failed',
     daemonStart: 'daemon_start',
     daemonCrash: 'daemon_crash',
   },
@@ -421,8 +422,8 @@ describe('daemonCommand - A4a startup failure', () => {
     await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_failed',
-      'module=generation_activation',
+      'daemon_pre_runtime_failed',
+      'stage=generation_activation',
       'phase=post_assemble',
       expect.stringMatching(/reason=.*stop intent/),
     );
@@ -435,8 +436,8 @@ describe('daemonCommand - A4a startup failure', () => {
     await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_failed',
-      'module=runtime',
+      'daemon_pre_runtime_failed',
+      'stage=runtime',
       'phase=post_assemble_init',
       expect.stringContaining('reason=init failed'),
     );
@@ -477,8 +478,8 @@ describe('daemonCommand - A4a startup failure', () => {
     await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_failed',
-      'module=post_assemble_dispose',
+      'daemon_pre_runtime_failed',
+      'stage=post_assemble_dispose',
       'phase=teardown',
       expect.stringContaining('reason=dispose boom'),
     );

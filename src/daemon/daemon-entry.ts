@@ -3,7 +3,7 @@ import { constructShimAudit, registerShimHandlers } from './daemon-handlers.js';
 import { createDaemonCommand } from './daemon.js';
 import { assemble, createRootConfig } from '../assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from '../assembly/index.js';
-import { DAEMON_FILE_ROUTING, DAEMON_INBOX_MESSAGE_TYPES } from './index.js';
+import { DAEMON_FILE_ROUTING, DAEMON_INBOX_MESSAGE_TYPES, DAEMON_AUDIT_EVENTS } from './index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
 
 // shim 早期注册（在 daemon command 调用之前；ESM imports hoist 与代码执行解耦）
@@ -31,9 +31,11 @@ const daemonCommand = createDaemonCommand({
   // phase 1873 Step F: 内层 graceful handler 就绪后让位（移除 shim 监听 + dispose shimAudit）。
   shimStandDown: () => shimHandle.standDown(),
   auditEvents: {
+    // 装配失败（Assembly owner）与 Daemon 进程生命周期事件（Daemon owner）分离。
     assembleFailed: ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
-    daemonStart: ASSEMBLY_AUDIT_EVENTS.DAEMON_START,
-    daemonCrash: ASSEMBLY_AUDIT_EVENTS.DAEMON_CRASH,
+    preRuntimeFailed: DAEMON_AUDIT_EVENTS.PRE_RUNTIME_FAILED,
+    daemonStart: DAEMON_AUDIT_EVENTS.DAEMON_START,
+    daemonCrash: DAEMON_AUDIT_EVENTS.DAEMON_CRASH,
   },
 });
 

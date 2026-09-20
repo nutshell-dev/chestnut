@@ -60,7 +60,10 @@ interface DaemonCommandDeps {
   /** phase 1873 Step F: 内层 graceful handler 就绪后 shim 让位（entry 注入；缺省无 shim）。 */
   shimStandDown?: () => void;
   auditEvents: {
+    /** 装配内部失败（Assembly owner）。 */
     assembleFailed: string;
+    /** phase 1873 Step J: 装配后、进入驱动前的进程生命周期失败（Daemon owner，携 stage）。 */
+    preRuntimeFailed: string;
     daemonStart: string;
     daemonCrash: string;
   };
@@ -92,7 +95,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         clawConfig = deps.rootConfig.loadClaw(getClawConfigPath(name));
       } catch (e) {
         const reason = formatErr(e);
-        preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=claw_config', 'phase=preconstruct', `reason=${reason}`);
+        // phase 1873 Step J: 进程生命周期失败（Daemon owner），与装配内部失败可区分。
+        preAssembleAudit.write(deps.auditEvents.preRuntimeFailed, 'stage=claw_config', 'phase=preconstruct', `reason=${reason}`);
         preAssembleAudit.dispose?.();
         process.exit(1);
       }
@@ -150,18 +154,18 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       where: { module: string; phase: string },
       e: unknown,
     ): Promise<void> => {
-      auditWriter.write(deps.auditEvents.assembleFailed, `module=${where.module}`, `phase=${where.phase}`, `reason=${formatErr(e)}`);
+      auditWriter.write(deps.auditEvents.preRuntimeFailed, `stage=${where.module}`, `phase=${where.phase}`, `reason=${formatErr(e)}`);
       try {
         await instances.dispose(`post_assemble_failure:${where.module}`);
       } catch (secondary) {
-        auditWriter.write(deps.auditEvents.assembleFailed, 'module=post_assemble_dispose', 'phase=teardown', `reason=${formatErr(secondary)}`);
+        auditWriter.write(deps.auditEvents.preRuntimeFailed, 'stage=post_assemble_dispose', 'phase=teardown', `reason=${formatErr(secondary)}`);
       }
       try {
         if (generationRecord) {
           instances.processManager.retireGeneration(daemonDir, { generationId: generationRecord.generation_id }, 'shutdown', 'active');
         }
       } catch (retireErr) {
-        auditWriter.write(deps.auditEvents.assembleFailed, 'module=post_assemble_retire', 'phase=teardown', `reason=${formatErr(retireErr)}`);
+        auditWriter.write(deps.auditEvents.preRuntimeFailed, 'stage=post_assemble_retire', 'phase=teardown', `reason=${formatErr(retireErr)}`);
       }
       auditWriter.dispose?.();
       process.exit(1);

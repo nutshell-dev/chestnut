@@ -7,11 +7,10 @@
  */
 export const ASSEMBLY_AUDIT_EVENTS = {
   ASSEMBLE_FAILED: 'assemble_failed',
+  // phase 1873 Step J: DAEMON_START/DAEMON_CRASH 声明迁 Daemon owner（daemon/audit-events.ts）。
   DAEMON_STARTED: 'daemon_started',
-  DAEMON_START: 'daemon_start',
   DAEMON_STOP: 'daemon_stop',
   DAEMON_UNCLEAN_EXIT: 'daemon_unclean_exit',
-  DAEMON_CRASH: 'daemon_crash',
   CLEANUP_TEMP_FILES_FAILED: 'cleanup_temp_files_failed',
   DISASSEMBLE_STEP_FAILED: 'disassemble_step_failed',
   FALLBACK_RECONCILE_FAILED: 'assembly_fallback_reconcile_failed',
@@ -26,10 +25,8 @@ export const ASSEMBLY_AUDIT_EVENTS = {
 export const ASSEMBLY_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   assemble_failed: 'audit',
   daemon_started: 'audit',
-  daemon_start: 'audit',
   daemon_stop: 'audit',
   daemon_unclean_exit: 'audit',
-  daemon_crash: 'audit',
   cleanup_temp_files_failed: 'audit',
   disassemble_step_failed: 'audit',
   assembly_fallback_reconcile_failed: 'audit',

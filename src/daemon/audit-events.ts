@@ -1,4 +1,12 @@
 export const DAEMON_AUDIT_EVENTS = {
+  // phase 1873 Step J（daemon-lifecycle-events-owned-by-assembly）：进程生命周期
+  // 事件归 Daemon owner（原声明在 assembly/audit-events.ts；字面 1:1 迁移不断链）：
+  // - daemon_start / daemon_crash：daemon 进程起停事实；
+  // - daemon_pre_runtime_failed：装配成功后、进入驱动前/启动期的失败（携 stage），
+  //   与装配内部失败（assemble_failed，Assembly owner）可区分。
+  DAEMON_START: 'daemon_start',
+  DAEMON_CRASH: 'daemon_crash',
+  PRE_RUNTIME_FAILED: 'daemon_pre_runtime_failed',
   // snapshot 路径（daemon.ts）
   SNAPSHOT_COMMIT_UNCATEGORIZED: 'snapshot_commit_uncategorized',
   SNAPSHOT_COMMIT_FAILED: 'snapshot_commit_failed',
