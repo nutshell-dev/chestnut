@@ -13,12 +13,10 @@
  *   invocation；command 参数收窄为 `ClawInstanceCommandId`（catalog 派生 literal union）、
  *   flat `list`/`help` 编译期不可传入（M#9）
  * - `CONTRACT_COMMANDS`：contract 命令族 invocation 常量（subject 已是 contract /
- *   verb-first 子命令、不走 subject-first 转换）
- *
- * **局部单源登记（B 类偏差）**：`CONTRACT_COMMANDS` 是 contract 命令的过渡性局部单源，
- * 尚非完整 contract catalog（contract command 无 claw 同型 facts/router/help 结构）。
- * 升档为完整 catalog 属独立 design phase（contract help/catalog 单独治理）；
- * 本文件不宣称 contract catalog 已完成。
+ *   verb-first 子命令、不走 subject-first 转换）；phase 1877 Step C 起值由
+ *   `CONTRACT_COMMAND_CATALOG`（phase 1874 Step L 立的 summary/options 单源）派生 ——
+ *   catalog 改名/删除 verb → 编译期传播到本常量（M#9），guidance 与 parser/help
+ *   共享同一 catalog（cli-protocol-contract-command-partial 收口）。
  *
  * 历史：源自 phase 554/708 `src/cli/utils/cli-commands.ts`（claw invocation helper +
  * 手写 verb 表 + CONTRACT_COMMANDS）。phase 1253 删手写 verb 表这个第二单源
@@ -26,6 +24,7 @@
  */
 
 import type { ClawInstanceCommandId } from './claw-command-catalog.js';
+import type { ContractCommandId } from './contract-command-catalog.js';
 
 /** CLI binary 字面 —— CLIProtocol 内 file-private。 */
 const CLI_BINARY = 'chestnut';
@@ -45,14 +44,21 @@ export function renderClawInvocation(
 }
 
 /**
- * Contract 命令族（过渡性局部单源、见文件头登记）。
+ * contract verb → `chestnut contract <id>` invocation（id 收窄为 catalog 派生
+ * literal union：catalog 外的 verb 编译期不可传入）。
+ */
+function renderContractInvocation(id: ContractCommandId): string {
+  return `${CLI_BINARY} contract ${id}`;
+}
+
+/**
+ * Contract 命令族 invocation 常量 —— 值由 `CONTRACT_COMMAND_CATALOG` id 派生
+ * （同名导出保持、消费点零改）；catalog 增 pause/resume 条目后在此补派生
+ * （per CLI-by-need doctrine in `design/modules/l2_messaging.md §10.6`）。
  * 字面命令需要 args 时由调用方自家拼 `${CONTRACT_COMMANDS.CANCEL} -c <id>`。
  */
 export const CONTRACT_COMMANDS = {
-  SHOW: 'chestnut contract show',        // -c <claw> [--contract <id>]
-  EVENTS: 'chestnut contract events',    // <claw> --since <ts>
-  CANCEL: 'chestnut contract cancel',    // -c <claw> --reason <text> [--contract <id>]
-  // 待立（per CLI-by-need doctrine in `design/modules/l2_messaging.md §10.6`）：
-  // PAUSE: 'chestnut contract pause',     // -c <claw> [--contract <id>] [--reason <text>]
-  // RESUME: 'chestnut contract resume',   // -c <claw> [--contract <id>]
+  SHOW: renderContractInvocation('show'),     // -c <claw> [--contract <id>]
+  EVENTS: renderContractInvocation('events'), // <claw> --since <ts>
+  CANCEL: renderContractInvocation('cancel'), // -c <claw> --reason <text> [--contract <id>]
 } as const;

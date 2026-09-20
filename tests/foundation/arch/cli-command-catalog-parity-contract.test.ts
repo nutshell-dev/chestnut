@@ -40,4 +40,16 @@ describe('phase 1874 Step L: contract 族 catalog parity', () => {
     const literals = [...section.matchAll(/\.(?:option|requiredOption)\(\s*'([^']+)'/g)].map((m) => m[1]);
     expect(literals).toEqual([]);
   });
+
+  // phase 1877 Step C（cli-protocol-contract-command-partial 收口）：
+  // guidance 侧 CONTRACT_COMMANDS 与 parser/help 共享同一 catalog——值由 catalog id 派生。
+  it('invocation 无 contract 命令裸字面：CONTRACT_COMMANDS 值由 catalog id 派生（单源）', () => {
+    const invocationSource = fs.readFileSync(
+      path.join(process.cwd(), 'src/cli-protocol/invocation.ts'), 'utf8',
+    );
+    // 字面表已删：catalog 是唯一 contract verb 字面来源（改名 → 编译期传播）
+    expect(invocationSource.match(/'chestnut contract/)).toBeNull();
+    expect(invocationSource).toContain('ContractCommandId');
+    // 渲染输出逐字不变由 tests/cli-protocol/guidance.test.ts exact 断言守
+  });
 });
