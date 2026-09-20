@@ -14,12 +14,18 @@
  * phase 1280：兼具 bootstrap 与业务语义的复合命令（`start`）不走 required，
  * 改用 cliDeferredRequiredAction——不在 handler 前 ensure，而是注入一次性
  * ensure capability，由 handler 在 workspace bootstrap 落盘后调用。
+ * phase 1874 Step I：每次 action 一个 resource scope（handler 内经 actionAuditFor 复用/注册，
+ * 两条终态路径统一 dispose）。Step H：错误路径 dispose 先于 process.exit。
+ * Step J：wrapper 层落 `cli_invoke`/`cli_settled` 外部结算事件对（证据先于 dispose）。
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import { ensureWatchdog, isWatchdogAlive } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
-import { createCliActionScope, setCurrentActionScope } from './action-scope.js';
+import { createCliActionScope, setCurrentActionScope, type CliActionScope } from './action-scope.js';
+import { CLI_AUDIT_EVENTS } from './audit-events.js';
+import { cliExitCodeFor, cliErrorClassFor } from './errors.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 
 export type SupervisionPolicy =
   | 'required'
@@ -29,27 +35,6 @@ export type SupervisionPolicy =
 
 interface SupervisionContext {
   fsFactory: (baseDir: string) => FileSystem;
-}
-
-/**
- * phase 1874 Step I + H: 每次 action 一个 resource scope（handler 内经 actionAuditFor
- * 复用/注册）。两条终态路径都统一 dispose：成功 → 'completed'；错误 → 'error'
- * （在 withCliErrorHandling 的 process.exit 之前执行——错误边界不跳过 teardown）。
- * CLIProcess 每次 invoke 独立进程 → 模块级 current scope 语义充分。
- */
-async function runWithActionScope(ctx: SupervisionContext, fn: () => Promise<void>): Promise<void> {
-  const scope = createCliActionScope({ fsFactory: ctx.fsFactory });
-  setCurrentActionScope(scope);
-  let ok = false;
-  try {
-    await fn();
-    ok = true;
-  } finally {
-    setCurrentActionScope(null);
-    // phase 1874 Step H（cli-error-exit-skips-teardown）：error 路径同样 dispose——
-    // 本 finally 先于 withCliErrorHandling catch 内的 process.exit 执行，失败证据先于退出落盘。
-    await scope.disposeAll(ok ? 'completed' : 'error');
-  }
 }
 
 async function executePolicy(
@@ -76,8 +61,82 @@ async function executePolicy(
 }
 
 /**
+ * phase 1874 Step J: 外部 invoke 摘要（白名单策略——只记命令路径与参数计数、不记参数值，
+ * 防路径/凭据泄漏）。command = argv 前两个非选项 token（子命令路径）。
+ */
+export function describeCliInvocation(argv: string[] = process.argv.slice(2)): { command: string; argsCount: number } {
+  const tokens: string[] = [];
+  let rest = 0;
+  for (const tok of argv) {
+    if (tokens.length < 2 && !tok.startsWith('-')) tokens.push(tok);
+    else rest += 1;
+  }
+  return { command: tokens.join(' ') || '(none)', argsCount: rest };
+}
+
+/** CLI 事件写入受守卫：证据面失败不改变 action 结果（console 最后手段，不静默吞）。 */
+function writeCliAuditGuarded(scope: CliActionScope, event: string, ...cols: string[]): void {
+  try {
+    scope.auditFor(getChestnutRoot()).write(event, ...cols);
+  } catch (err) {
+    console.error(`[cli] audit write failed: ${event}: ${String(err)}`);
+  }
+}
+
+/**
+ * phase 1874 Step I + H + J: 每次 action 一个 resource scope（handler 内经 actionAuditFor
+ * 复用/注册）。两条终态路径都统一 dispose：成功 → 'completed'；错误 → 'error'
+ * （在 withCliErrorHandling 的 process.exit 之前执行——错误边界不跳过 teardown）。
+ * invoke/settled 事件对在两条终态落点、且先于 dispose（证据先行）。
+ * CLIProcess 每次 invoke 独立进程 → 模块级 current scope 语义充分。
+ */
+async function runWithActionScope(ctx: SupervisionContext, fn: () => Promise<void>): Promise<void> {
+  const scope = createCliActionScope({ fsFactory: ctx.fsFactory });
+  setCurrentActionScope(scope);
+  const { command, argsCount } = describeCliInvocation();
+  const startedMs = Date.now();
+  let settled = false;
+
+  writeCliAuditGuarded(scope, CLI_AUDIT_EVENTS.CLI_INVOKE, `command=${command}`, `args_count=${argsCount}`);
+
+  const settle = (outcome: 'ok' | 'error', exitCode: number, errorClass?: string): void => {
+    if (settled) return;
+    settled = true;
+    writeCliAuditGuarded(
+      scope,
+      CLI_AUDIT_EVENTS.CLI_SETTLED,
+      `command=${command}`,
+      `outcome=${outcome}`,
+      `exit_code=${exitCode}`,
+      `duration_ms=${Date.now() - startedMs}`,
+      ...(errorClass ? [`error_class=${errorClass}`] : []),
+    );
+  };
+
+  // 显式 exit 豁免路径（§7.B）同样结算：handler 内 process.exit 使 wrapper finally 不再执行，
+  // 由 exit 钩子在进程退出前同步补 settled（exit_code 取 process.exitCode）；不改变豁免语义本身。
+  const onExit = (): void => { settle('ok', typeof process.exitCode === 'number' ? process.exitCode : 0); };
+  process.on('exit', onExit);
+
+  let ok = false;
+  try {
+    await fn();
+    ok = true;
+  } catch (err) {
+    settle('error', cliExitCodeFor(err), cliErrorClassFor(err));
+    throw err;
+  } finally {
+    process.removeListener('exit', onExit);
+    setCurrentActionScope(null);
+    if (!settled) settle(ok ? 'ok' : 'error', ok ? 0 : 1);
+    await scope.disposeAll(ok ? 'completed' : 'error');
+  }
+}
+
+/**
  * 注册一个显式声明监督策略的 CLI action。
  * 返回的函数已包含 withCliErrorHandling 边界：先执行 policy，再进入 handler。
+ * phase 1874 Step I: 本 helper 为 action resource scope 的唯一创建点。
  */
 export function cliAction<TArgs extends unknown[]>(
   policy: SupervisionPolicy,

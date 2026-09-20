@@ -108,35 +108,78 @@ describe('phase 1874 Step I: action resource scope', () => {
     expect(registerActionResource('r', () => {})).toBe(false);
   });
 
-  it('⑥ phase 1874 Step H: 错误路径 dispose 先于 process.exit（exit code 不变）', async () => {
-    const fake = makeFakeAudit();
-    createDirContextMock.mockReturnValue({ audit: fake, fs: {} });
+  it('⑥ phase 1874 Step H+J: 错误路径先结算+dispose、再 process.exit（exit code 不变）', async () => {
+    const byDir = new Map<string, ReturnType<typeof makeFakeAudit>>();
+    createDirContextMock.mockImplementation((_deps: unknown, dir: string) => {
+      const a = makeFakeAudit();
+      byDir.set(dir, a);
+      return { audit: a, fs: {} };
+    });
     const fsFactory = () => ({} as any);
     const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => true);
 
     const order: string[] = [];
-    fake.dispose.mockImplementation(() => { order.push('dispose'); });
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((() => {
       order.push('exit');
       throw new Error('exit called');
     }) as unknown as typeof process.exit));
 
     const wrapped = cliAction('disabled', async () => {
-      actionAuditFor('/claw/err', { fsFactory });
+      const audit = actionAuditFor('/claw/err', { fsFactory });
+      audit.dispose.mockImplementation(() => { order.push('dispose:claw'); });
       throw new CliError('boom', 2);
     }, { fsFactory });
 
     await expect(wrapped()).rejects.toThrow('exit called');
-    // 错误边界顺序：先 dispose 本 action 资源、再退出；exit code 保持 CliError code
-    expect(order).toEqual(['dispose', 'exit']);
+    // 错误边界顺序：dispose 全部先于 exit；exit code 保持 CliError code
+    expect(order).toEqual(['dispose:claw', 'exit']);
     expect(exitSpy).toHaveBeenCalledWith(2);
+    // 失败结算证据：outcome=error + exit_code=2 + error_class=CliError，且落盘先于 dispose
+    const rootAudit = [...byDir.entries()].find(([k]) => k !== '/claw/err')![1];
+    const settledRow = rootAudit.write.mock.calls.find((c: unknown[]) => c[0] === 'cli_settled');
+    expect(settledRow).toBeDefined();
+    expect(settledRow!.some((c: unknown) => String(c) === 'outcome=error')).toBe(true);
+    expect(settledRow!.some((c: unknown) => String(c) === 'exit_code=2')).toBe(true);
+    expect(settledRow!.some((c: unknown) => String(c) === 'error_class=CliError')).toBe(true);
+    expect(rootAudit.dispose).toHaveBeenCalledTimes(1);
     exitSpy.mockRestore();
     consoleErrSpy.mockRestore();
   });
 
-  it('⑤ cliAction 成功路径统一 dispose + scope 清除', async () => {
-    const fake = makeFakeAudit();
-    createDirContextMock.mockReturnValue({ audit: fake, fs: {} });
+  it('⑥b 显式 exit 豁免路径：exit 钩子补结算（一次 invoke 仅一对事件、exit_code 取 process.exitCode）', async () => {
+    const byDir = new Map<string, ReturnType<typeof makeFakeAudit>>();
+    createDirContextMock.mockImplementation((_deps: unknown, dir: string) => {
+      const a = makeFakeAudit();
+      byDir.set(dir, a);
+      return { audit: a, fs: {} };
+    });
+    const fsFactory = () => ({} as any);
+    const prevExitCode = process.exitCode;
+
+    const wrapped = cliAction('disabled', async () => {
+      // 模拟 §7.B 显式 exit 站点：置 exitCode 并触发进程退出事件（真实 process.exit 同义）
+      process.exitCode = 3;
+      process.emit('exit', 3 as never);
+    }, { fsFactory });
+
+    await wrapped();
+    process.exitCode = prevExitCode;
+
+    const rootAudit = [...byDir.entries()].find(([k]) => !k.startsWith('/claw'))![1];
+    const settledRows = rootAudit.write.mock.calls.filter((c: unknown[]) => c[0] === 'cli_settled');
+    expect(settledRows).toHaveLength(1);   // 钩子结算后 finally 不重复
+    expect(settledRows[0].some((c: unknown) => String(c) === 'exit_code=3')).toBe(true);
+    const invokeRows = rootAudit.write.mock.calls.filter((c: unknown[]) => c[0] === 'cli_invoke');
+    expect(invokeRows).toHaveLength(1);
+  });
+
+  it('⑤ cliAction 成功路径统一 dispose（含 root 事件 audit）+ 事件对 + scope 清除', async () => {
+    const byDir = new Map<string, ReturnType<typeof makeFakeAudit>>();
+    createDirContextMock.mockImplementation((_deps: unknown, dir: string) => {
+      const a = makeFakeAudit();
+      byDir.set(dir, a);
+      return { audit: a, fs: {} };
+    });
     const fsFactory = () => ({} as any);
 
     const wrapped = cliAction('disabled', async () => {
@@ -146,7 +189,19 @@ describe('phase 1874 Step I: action resource scope', () => {
 
     await wrapped();
 
-    expect(fake.dispose).toHaveBeenCalledTimes(1);
+    // 本 action 创建的全部 audit（root 事件 audit + handler dir audit）均 dispose
+    const rootAudit = byDir.get(String(process.cwd()) === '' ? '' : [...byDir.keys()].find(k => k !== '/claw/z')!);
+    expect(rootAudit).toBeDefined();
+    expect(byDir.get('/claw/z')!.dispose).toHaveBeenCalledTimes(1);
+    expect(rootAudit!.dispose).toHaveBeenCalledTimes(1);
+    // phase 1874 Step J: invoke/settled 事件对（command/exit_code/duration）
+    const rootWrites = rootAudit!.write.mock.calls;
+    expect(rootWrites[0][0]).toBe('cli_invoke');
+    const settledRow = rootWrites.find((c: unknown[]) => c[0] === 'cli_settled');
+    expect(settledRow).toBeDefined();
+    expect(settledRow!.some((c: unknown) => String(c).startsWith('outcome=ok'))).toBe(true);
+    expect(settledRow!.some((c: unknown) => String(c) === 'exit_code=0')).toBe(true);
+    expect(settledRow!.some((c: unknown) => String(c).startsWith('duration_ms='))).toBe(true);
     // action 结束：scope 已清除 → 回落裸创建
     createDirContextMock.mockClear();
     actionAuditFor('/claw/other', { fsFactory });

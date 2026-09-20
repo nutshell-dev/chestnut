@@ -35,4 +35,9 @@ export const CLI_AUDIT_EVENTS = {
   DAEMON_START: 'cli_daemon_start',
   DAEMON_STOP: 'cli_daemon_stop',
   DAEMON_SPAWN_RACE_FAILED: 'cli_daemon_spawn_race_failed',
+  // phase 1874 Step J (cli-action-audit-contract-missing): 外部 invoke / 终态结算事件对——
+  // CLI own「外部动作边界」（command 摘要 + exit_code + duration + 失败分类）；
+  // owner mutation 事件仍归各业务 owner（本事件不替代 owner commit event）。
+  CLI_INVOKE: 'cli_invoke',
+  CLI_SETTLED: 'cli_settled',
 } as const;

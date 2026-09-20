@@ -24,6 +24,23 @@ export class CliError extends Error {
 import { ContractValidationError } from '../core/contract/index.js';
 
 /**
+ * phase 1874 Step J: 纯 exit code 映射（无副作用）——供结算事件在 dispose 前落盘用；
+ * handleCliError 的呈现/映射语义与其逐位一致（本函数只抽映射、不改行为）。
+ */
+export function cliExitCodeFor(error: unknown): number {
+  if (error instanceof CliError) return error.code;
+  return 1;
+}
+
+/** phase 1874 Step J: 失败分类（结算事件 error_class 列）。 */
+export function cliErrorClassFor(error: unknown): string {
+  if (error instanceof ContractValidationError) return 'ContractValidationError';
+  if (error instanceof CliError) return 'CliError';
+  if (error instanceof Error) return 'Error';
+  return 'unknown';
+}
+
+/**
  * Handle CLI errors uniformly
  * Returns exit code for process.exitCode assignment
  */
