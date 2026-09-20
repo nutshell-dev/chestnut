@@ -69,6 +69,8 @@ export const WATCHDOG_AUDIT_EVENTS = {
   EXECUTOR_HEARTBEAT_STALE: 'watchdog_executor_heartbeat_stale',
   /** 心跳缺失（旧版本升级窗口）/ 读取损坏 → unknown：不重启、不误判（tick 路由防噪声） */
   EXECUTOR_HEARTBEAT_UNKNOWN: 'watchdog_executor_heartbeat_unknown',
+  /** Phase 1878 Step F: 损坏 evidence 显式隔离 + 审计（含原因与隔离位置，原文保留） */
+  EXECUTOR_RECOVERY_EVIDENCE_CORRUPT: 'watchdog_executor_recovery_evidence_corrupt',
 } as const;
 
 
@@ -123,4 +125,5 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> =
   watchdog_executor_unavailable_delivery_rejected: 'audit',
   watchdog_executor_heartbeat_stale: 'audit',
   watchdog_executor_heartbeat_unknown: 'tick',
+  watchdog_executor_recovery_evidence_corrupt: 'audit',
 } as const;

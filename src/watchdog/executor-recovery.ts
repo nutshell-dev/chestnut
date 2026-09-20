@@ -50,6 +50,7 @@ import {
 } from './motion-restart-state.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { HEARTBEAT_STALE_TIMEOUT_MS } from './constants.js';
+import { quarantineCorruptFile } from './quarantine.js';
 import { log } from './watchdog-log.js';
 
 /** circuit-open 阶段终端 evidence schema（chestnut root 相对路径）。 */
@@ -90,26 +91,42 @@ function evidenceRef(rawClawId: string): string {
   return `${EXECUTOR_RECOVERY_EVIDENCE_DIR}/${rawClawId}.json`;
 }
 
-function readEvidence(rootFs: FileSystem, rawClawId: string): ExecutorRecoveryEvidence | null {
+/** 读取分层（Phase 1878 Step F）：found / absent（ENOENT）/ corrupt（parse/schema）。
+ * IO 错误（非 ENOENT 读取失败）原样传播——不折 null、不误判。 */
+type EvidenceRead =
+  | { kind: 'found'; evidence: ExecutorRecoveryEvidence }
+  | { kind: 'absent' }
+  | { kind: 'corrupt'; error: string };
+
+function readEvidence(rootFs: FileSystem, rawClawId: string): EvidenceRead {
+  const raw = rootFs.readSync(evidencePath(rawClawId)); // ENOENT/IO 错由下方分类/上抛
+  let parsed: unknown;
   try {
-    const raw = rootFs.readSync(evidencePath(rawClawId));
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      parsed.schema_version === 1 &&
-      typeof parsed.executorId === 'string' &&
-      typeof parsed.consecutiveAttempts === 'number' &&
-      typeof parsed.openedAt === 'number'
-    ) {
-      return parsed as ExecutorRecoveryEvidence;
-    }
-    return null;
-  } catch (e) {
-    if (!isFileNotFound(e)) {
-      // best-effort: corrupt evidence 忽略，下 tick 会重建
-    }
-    return null;
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { kind: 'corrupt', error: `JSON parse failed: ${formatErr(err)}` };
+  }
+  const candidate = parsed as Partial<ExecutorRecoveryEvidence> | null;
+  if (
+    candidate
+    && typeof candidate === 'object'
+    && candidate.schema_version === 1
+    && typeof candidate.executorId === 'string'
+    && typeof candidate.consecutiveAttempts === 'number'
+    && typeof candidate.openedAt === 'number'
+  ) {
+    return { kind: 'found', evidence: candidate as ExecutorRecoveryEvidence };
+  }
+  return { kind: 'corrupt', error: 'schema mismatch' };
+}
+
+/** 读取封装：ENOENT → absent；非 ENOENT IO 错原样传播。 */
+function readEvidenceLayered(rootFs: FileSystem, rawClawId: string): EvidenceRead {
+  try {
+    return readEvidence(rootFs, rawClawId);
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'absent' };
+    throw err;
   }
 }
 
@@ -352,8 +369,33 @@ export async function maybeCronExecutorRecovery(
             switch (outcome.kind) {
               case 'committed': {
                 openState.sinkDelivered = true;
-                const evidence = readEvidence(rootFs, rawClawId);
-                if (evidence) writeEvidence(rootFs, { ...evidence, sinkDelivered: true });
+                // Phase 1878 Step F: 读取分层——found 原位更新 delivered 标记；
+                // corrupt 显式隔离（原文保留）+ audit + 显式重建 delivered 证据；
+                // absent 不写（零漂移）。不再静默折 null。
+                const read = readEvidenceLayered(rootFs, rawClawId);
+                if (read.kind === 'found') {
+                  writeEvidence(rootFs, { ...read.evidence, sinkDelivered: true });
+                } else if (read.kind === 'corrupt') {
+                  const quarantine = quarantineCorruptFile(rootFs, evidencePath(rawClawId), now());
+                  audit.write(
+                    WATCHDOG_AUDIT_EVENTS.EXECUTOR_RECOVERY_EVIDENCE_CORRUPT,
+                    `claw=${rawClawId}`,
+                    `path=${evidenceRef(rawClawId)}`,
+                    `quarantine=${quarantine.backupPath}`,
+                    `quarantine_ok=${quarantine.kind === 'quarantined'}`,
+                    ...(quarantine.kind === 'failed' ? [`quarantine_error=${quarantine.error}`] : []),
+                    `reason=${read.error}`,
+                  );
+                  // 显式重建语义：本轮交付已确认 committed → 自 openState 事实
+                  // 重建 delivered 终态证据（交付决策可重建，不静默覆盖）。
+                  writeEvidence(rootFs, {
+                    schema_version: 1,
+                    executorId: rawClawId,
+                    consecutiveAttempts: openState.consecutiveAttempts,
+                    openedAt: openState.openedAt,
+                    sinkDelivered: true,
+                  });
+                }
                 audit.write(
                   WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERED,
                   `claw=${rawClawId}`,

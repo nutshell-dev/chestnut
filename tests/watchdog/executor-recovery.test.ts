@@ -322,4 +322,77 @@ describe('maybeCronExecutorRecovery', () => {
     expect(next[CLAW].status).toBe('retrying');
     expect(next[CLAW].consecutiveAttempts).toBe(1);
   });
+
+  // --------------------------------------------------------------------------
+  // Phase 1878 Step F: 损坏 evidence 显式隔离 + 审计（不静默折 null）
+  // --------------------------------------------------------------------------
+
+  it('损坏 evidence（JSON parse 失败）→ 隔离原文 + audit + delivered 证据显式重建', async () => {
+    fs.mkdirSync(path.dirname(evidencePath(CLAW)), { recursive: true });
+    fs.writeFileSync(evidencePath(CLAW), '{corrupt json');
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
+    makeFailureSink.mockReturnValue({ report: sinkReport });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
+    const prior = { [CLAW]: { status: 'open', consecutiveAttempts: 3, openedAt: TIME_BASE - 1000, sinkDelivered: false } };
+
+    const next = await run(prior);
+
+    expect(next[CLAW].sinkDelivered).toBe(true);
+    // 原文隔离保留（DP 不丢：重命名不删除）
+    const quarantined = fs.readdirSync(path.dirname(evidencePath(CLAW)))
+      .filter(n => n.startsWith(`${CLAW}.json.corrupt-`));
+    expect(quarantined).toHaveLength(1);
+    expect(fs.readFileSync(path.join(path.dirname(evidencePath(CLAW)), quarantined[0]), 'utf8'))
+      .toBe('{corrupt json');
+    // audit 含路径 / 隔离位置 / 原因
+    const evt = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_RECOVERY_EVIDENCE_CORRUPT);
+    expect(evt).toBeDefined();
+    expect(evt!.some(col => String(col).startsWith('quarantine='))).toBe(true);
+    expect(evt!.some(col => String(col) === 'quarantine_ok=true')).toBe(true);
+    expect(evt!.some(col => String(col).startsWith('reason='))).toBe(true);
+    // 交付决策可重建：delivered 终态证据自 openState 事实重建
+    expect(readEvidence(CLAW)).toMatchObject({
+      schema_version: 1,
+      executorId: CLAW,
+      consecutiveAttempts: 3,
+      openedAt: TIME_BASE - 1000,
+      sinkDelivered: true,
+    });
+  });
+
+  it('损坏 evidence（schema 不符）→ 同 corrupt 处置（不静默覆盖重建）', async () => {
+    fs.mkdirSync(path.dirname(evidencePath(CLAW)), { recursive: true });
+    fs.writeFileSync(evidencePath(CLAW), JSON.stringify({ schema_version: 1, executorId: 123 }));
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
+    makeFailureSink.mockReturnValue({ report: sinkReport });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
+    const prior = { [CLAW]: { status: 'open', consecutiveAttempts: 2, openedAt: TIME_BASE - 500, sinkDelivered: false } };
+
+    const next = await run(prior);
+
+    expect(next[CLAW].sinkDelivered).toBe(true);
+    const quarantined = fs.readdirSync(path.dirname(evidencePath(CLAW)))
+      .filter(n => n.startsWith(`${CLAW}.json.corrupt-`));
+    expect(quarantined).toHaveLength(1);
+    expect(audit.entries.some(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_RECOVERY_EVIDENCE_CORRUPT)).toBe(true);
+    expect(readEvidence(CLAW)).toMatchObject({ executorId: CLAW, sinkDelivered: true });
+  });
+
+  it('正常 evidence 路径零漂移：found 原位更新 delivered 标记、无隔离无 audit', async () => {
+    fs.mkdirSync(path.dirname(evidencePath(CLAW)), { recursive: true });
+    fs.writeFileSync(evidencePath(CLAW), JSON.stringify({
+      schema_version: 1, executorId: CLAW, consecutiveAttempts: 3, openedAt: TIME_BASE - 1000,
+    }));
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
+    makeFailureSink.mockReturnValue({ report: sinkReport });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
+    const prior = { [CLAW]: { status: 'open', consecutiveAttempts: 3, openedAt: TIME_BASE - 1000, sinkDelivered: false } };
+
+    const next = await run(prior);
+
+    expect(next[CLAW].sinkDelivered).toBe(true);
+    expect(readEvidence(CLAW)).toMatchObject({ executorId: CLAW, consecutiveAttempts: 3, sinkDelivered: true });
+    expect(fs.readdirSync(path.dirname(evidencePath(CLAW))).filter(n => n.includes('corrupt'))).toHaveLength(0);
+    expect(audit.entries.some(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_RECOVERY_EVIDENCE_CORRUPT)).toBe(false);
+  });
 });
