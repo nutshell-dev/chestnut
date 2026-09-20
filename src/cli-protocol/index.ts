@@ -62,3 +62,5 @@ export { MOTION_COMMAND_CATALOG, getMotionCommandSpec } from './motion-command-c
 export type { MotionCommandId } from './motion-command-catalog.js';
 export { CONTRACT_COMMAND_CATALOG, getContractCommandSpec } from './contract-command-catalog.js';
 export type { ContractCommandId } from './contract-command-catalog.js';
+export { MISC_COMMAND_CATALOG, getMiscCommandSpec } from './misc-command-catalog.js';
+export type { MiscCommandId } from './misc-command-catalog.js';

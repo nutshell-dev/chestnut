@@ -42,7 +42,7 @@ import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.j
 import { createRootConfig, createRootConfigLegacyMigration, createContractActionContext } from '../assembly/index.js';
 import { AUDIT_FILE_STEM } from '../foundation/audit/index.js';
 // phase 1874 Step L: motion 族命令形状经 CLIProtocol catalog 投影（summary/options 单源）
-import { getMotionCommandSpec, getContractCommandSpec, applyCommandOptions, type MotionCommandId, type ContractCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
+import { getMotionCommandSpec, getContractCommandSpec, getMiscCommandSpec, applyCommandOptions, type MotionCommandId, type ContractCommandId, type MiscCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
 // CLAWS_DIR removed: phase 263
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
@@ -164,10 +164,11 @@ function shapeCmd<T extends { description(desc: string): unknown } & CommandShap
   cmd: T,
   spec: { summary: string; options?: readonly { flag: string; desc: string; required?: boolean; runtimeLiteral?: true }[] } | undefined,
   label: string,
+  literals?: Readonly<Record<string, (registrar: T) => void>>,
 ): T {
   if (!spec) throw new Error(`unknown command id in catalog: ${label}`);
   cmd.description(spec.summary);
-  applyCommandOptions(cmd, spec as never);
+  applyCommandOptions(cmd, spec as never, literals);
   return cmd;
 }
 function motionShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: MotionCommandId): T {
@@ -175,6 +176,13 @@ function motionShape<T extends { description(desc: string): unknown } & CommandS
 }
 function contractShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(cmd: T, id: ContractCommandId): T {
   return shapeCmd(cmd, getContractCommandSpec(id), `contract/${id}`);
+}
+function miscShape<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(
+  cmd: T,
+  id: MiscCommandId,
+  literals?: Readonly<Record<string, (registrar: T) => void>>,
+): T {
+  return shapeCmd(cmd, getMiscCommandSpec(id), id, literals);
 }
 
 const motionCmd = program
@@ -304,11 +312,7 @@ const skillCmd = program
   .command('skill')
   .description('Manage skills');
 
-skillCmd
-  .command('install [source]')
-  .description('Install a skill from local path, or install dispatch-skill to a claw (--claw)')
-  .option('-c, --claw <id>', 'Target claw ID (internal mode: install from dispatch-skills to claw)')
-  .option('--skill <name>', 'Skill name (required with --claw)')
+miscShape(skillCmd.command('install [source]'), 'skill/install')
   .action(action('required', async (source: string | undefined, opts: { claw?: string; skill?: string }) => {
     if (opts.claw) {
       if (!opts.skill) {
@@ -340,18 +344,13 @@ const watchdogCmd = program
   .command('watchdog')
   .description('System watchdog for Motion');
 
-// watchdog start
-watchdogCmd
-  .command('start')
-  .description('Start watchdog')
+// watchdog start / stop（phase 1874 Step L: 形状经 misc catalog 投影）
+miscShape(watchdogCmd.command('start'), 'watchdog/start')
   .action(action('disabled', async () => {
     await watchdogStart(fsFactory);
   }));
 
-// watchdog stop
-watchdogCmd
-  .command('stop')
-  .description('Stop watchdog')
+miscShape(watchdogCmd.command('stop'), 'watchdog/stop')
   .action(action('disabled', async () => {
     await watchdogStop(fsFactory);
   }));
@@ -371,28 +370,11 @@ const auditCmd = program
   .description('Audit log query and inspection (read-only)');
 
 // audit query
-auditCmd
-  .command('query')
-  .description('Query audit log records with filters and optional follow')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM)
-  .option('--all-files', 'Query across all audit files in this claw')
-  .option('--type <pattern>', 'Glob pattern matched against event type (e.g. cron_*)')
-  .option('--since-ts <iso>', 'Inclusive lower bound on ts (ISO 8601)')
-  .option('--until-ts <iso>', 'Inclusive upper bound on ts (ISO 8601)')
-  .option('--from-seq <n>', 'Inclusive lower bound on seq')
-  .option('--to-seq <n>', 'Inclusive upper bound on seq')
-  .option('--trace <id>', 'Exact trace_id match')
-  .option('--col <key=val>', 'Col filter (AND semantics, repeatable)', collectColFilter, {})
-  .option('--limit <n>', 'Max records to yield')
-  .option('--json', 'Output as JSON-line (default TSV passthrough)')
-  .option('--follow', 'Tail mode: emit existing then watch for new appends')
-  // phase 152 新加 typed filter flag
-  .option('--tool-use-id <id>', 'Filter by tool_use_id (exact match)')
-  .option('--step <n>', 'Filter by step number (exact match)')
-  .option('--contract-id <id>', 'Filter by contract_id (exact match)')
-  .option('--subtask-id <id>', 'Filter by subtask_id (exact match)')
-  .option('--no-hint', 'Suppress 0 result hint to stderr')
+miscShape(auditCmd.command('query'), 'audit/query', {
+  // runtimeLiteral（1798 边界）：AUDIT_FILE_STEM 默认值 / --col fn parser——就地注册保序
+  '--file <name>': (c) => { c.option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM); },
+  '--col <key=val>': (c) => { c.option('--col <key=val>', 'Col filter (AND semantics, repeatable)', collectColFilter, {}); },
+})
   .action(action('observe_only', async (opts: {
     claw: string;
     file: string;
@@ -425,15 +407,10 @@ auditCmd
   }));
 
 // audit lookup
-auditCmd
-  .command('lookup')
-  .description('Look up original content by --tool-use-id or --block-id (4-level fallback: archive → current → unavailable)')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--tool-use-id <id>', 'Look up by tool_use_id')
-  .option('--block-id <id>', 'Look up by block ID (8-char short form, from context-trim suffix)')
-  .option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM)
-  .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (--tool-use-id mode only)')
-  .option('--json', 'Output as JSON')
+miscShape(auditCmd.command('lookup'), 'audit/lookup', {
+  // runtimeLiteral（1798 边界）：AUDIT_FILE_STEM 默认值——就地注册保序
+  '--file <name>': (c) => { c.option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM); },
+})
   .action(action('observe_only', async (opts: {
     claw: string;
     file: string;
@@ -447,11 +424,7 @@ auditCmd
   }));
 
 // audit info
-auditCmd
-  .command('info')
-  .description('Show audit file metadata and schema routing')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--json', 'Output as JSON')
+miscShape(auditCmd.command('info'), 'audit/info')
   .action(action('observe_only', async (opts: {
     claw: string;
     json?: boolean;

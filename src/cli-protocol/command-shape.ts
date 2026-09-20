@@ -34,10 +34,21 @@ export interface CommandShapeRegistrar {
   requiredOption(flag: string, desc: string): unknown;
 }
 
-/** 投影 catalog spec 的可投影 options 到 registrar（runtimeLiteral 项跳过）。 */
-export function applyCommandOptions(registrar: CommandShapeRegistrar, spec: CommandShapeSpec): void {
+/**
+ * 投影 catalog spec 的 options 到 registrar（按 catalog 声明顺序）。
+ * `runtimeLiteral` 项按 flag 查 `literalRegistrars` 就地注册（保 help 选项顺序与迁移前
+ * 逐位一致）；未提供 registrar 的 literal 项跳过（注册顺序责任留在调用点）。
+ */
+export function applyCommandOptions<R extends CommandShapeRegistrar>(
+  registrar: R,
+  spec: CommandShapeSpec,
+  literalRegistrars?: Readonly<Record<string, (registrar: R) => void>>,
+): void {
   for (const opt of spec.options ?? []) {
-    if (opt.runtimeLiteral) continue;
+    if (opt.runtimeLiteral) {
+      literalRegistrars?.[opt.flag]?.(registrar);
+      continue;
+    }
     if (opt.required === true) registrar.requiredOption(opt.flag, opt.desc);
     else registrar.option(opt.flag, opt.desc);
   }
