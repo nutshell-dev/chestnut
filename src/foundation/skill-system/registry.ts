@@ -413,13 +413,35 @@ export class SkillSystem implements SkillContextSource {
 }
 
 /**
- * 构造 SkillSystem。
- * loadAll 为 lazy init — 首次调用 `loadFull()` / `getMeta()` 时自动触发。
+ * phase 1872 Step G: 首载失败 owner 类型化错误（Assembly/其他 caller 按 owner 分类，
+ * 不再做「construct」归类；cause 链保持原始失败原因）。
  */
-export function createSkillSystem(
+export class SkillSystemInitialLoadError extends Error {
+  readonly name = 'SkillSystemInitialLoadError';
+}
+
+/**
+ * 构造 SkillSystem 并**完成首载**（phase 1872 Step G：首次加载归 owner 自己——
+ * 工厂内完成、构造完成即 registry 非空可用；原「Assembly factory 后直调
+ * ensureLoaded 并按 construct 归类」退役）。
+ *
+ * 失败语义：首载失败抛 owner 类型化 `SkillSystemInitialLoadError`（cause = 原错误），
+ * caller 只做分类与留证、不解释加载内部。后续 `loadFull()`/`getMeta()` 的 lazy
+ * 触发路径不变（`ensureLoaded` 幂等、已满足）。
+ */
+export async function createSkillSystem(
   fs: FileSystem,
   skillsDir: string,
   audit: AuditLog,
-): SkillSystem {
-  return new SkillSystem(fs, skillsDir, audit);
+): Promise<SkillSystem> {
+  const system = new SkillSystem(fs, skillsDir, audit);
+  try {
+    await system.ensureLoaded();
+  } catch (e) {
+    throw new SkillSystemInitialLoadError(
+      `SkillSystem initial load failed: ${formatErr(e)}`,
+      { cause: e },
+    );
+  }
+  return system;
 }

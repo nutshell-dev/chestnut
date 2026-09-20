@@ -63,7 +63,8 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     events: { emit: () => {} },
   });
   const toolRegistry = new ToolRegistryImpl();
-  const skillRegistry = createSkillSystem(systemFs, 'skills', auditWriter);
+  // phase 1872 Step G: 工厂内完成首载（async 工厂）
+  const skillRegistry = await createSkillSystem(systemFs, 'skills', auditWriter);
   const verifierRegistry = new ToolRegistryImpl();
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
   const contractManager = new ContractSystem({

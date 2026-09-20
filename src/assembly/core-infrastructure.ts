@@ -20,7 +20,7 @@ import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
 import { createSummonCreationClaimStore, restoreSummonFacts } from '../core/summon-system/index.js';
-import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
+import { createSkillSystem as defaultCreateSkillSystem, SkillSystem, SkillSystemInitialLoadError } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, ContractAuditor, createContractSystem } from '../core/contract/index.js';
 import { createContractNotificationAdapter } from './contract-notification-adapter.js';
@@ -288,16 +288,18 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       throw new Error(`Assembly: ToolRegistry construct failed: ${formatErr(e)}`, { cause: e });
     }
 
-    // --- L3-L5: skillRegistry (lazy init / phase 1053 α-6) ---
+    // --- L3-L5: skillRegistry (phase 1872 Step G: 首载归 owner 工厂内完成) ---
     let skillRegistry: SkillSystem;
     try {
       const createSkillFn = input.createSkillSystem ?? defaultCreateSkillSystem;
-      skillRegistry = createSkillFn(systemFs, SKILLS_DIR_DEFAULT, auditWriter);
-      // phase 1070: 首 prompt 前完成 skill 加载，避免 formatForContext 读到空 registry
-      await skillRegistry.ensureLoaded();
+      // 工厂内完成首载（构造完成即 registry 非空；phase 1070 动机保持）；
+      // 首载失败为 owner 类型化错误——Assembly 只分类留证、不解释加载内部。
+      skillRegistry = await createSkillFn(systemFs, SKILLS_DIR_DEFAULT, auditWriter);
     } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=skill_registry`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: SkillSystem construct failed: ${formatErr(e)}`, { cause: e });
+      const phase = e instanceof SkillSystemInitialLoadError ? 'initialize' : 'construct';
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=skill_system`, `phase=${phase}`, `reason=${formatErr(e)}`);
+      // owner 错误原样上抛（类型可辨、cause 链不丢）。
+      throw e;
     }
 
     // --- L3-L5: contractManager ---

@@ -99,7 +99,8 @@ export class SummonTool implements Tool {
     let skillsSummary = '';
     if (ctx.auditWriter) {
       try {
-        const dispatchSkillRegistry = createSkillSystem(ctx.fs, DISPATCH_SKILLS_DIR, ctx.auditWriter);
+        // phase 1872 Step G: 工厂内完成首载（owner 自决）——此处 await 工厂即可用。
+        const dispatchSkillRegistry = await createSkillSystem(ctx.fs, DISPATCH_SKILLS_DIR, ctx.auditWriter);
         await dispatchSkillRegistry.loadAll();
         const formatted = dispatchSkillRegistry.formatForContext();
         if (!formatted.includes('No skills loaded')) {

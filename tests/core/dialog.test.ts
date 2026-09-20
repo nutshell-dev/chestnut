@@ -280,7 +280,8 @@ describe('Dialog', () => {
       );
 
       // act: 真 SkillSystem + loadAll（契约 §2.1）
-      const registry = createSkillSystem(nodeFs, 'skills', { write: () => {} });
+      // phase 1872 Step G: 工厂内完成首载（async 工厂）
+      const registry = await createSkillSystem(nodeFs, 'skills', { write: () => {} });
       await registry.loadAll();
 
       const inj = new ContextInjector({ fs: nodeFs, skillRegistry: registry });

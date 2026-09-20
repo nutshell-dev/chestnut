@@ -80,7 +80,8 @@ export function createSkillTool(skillRegistry: SkillSystem, opts: SkillToolOptio
           };
         }
         try {
-          const tempRegistry = createSkillSystem(deps.fs, dispatchSkillsDir, deps.auditWriter);
+          // phase 1872 Step G: 工厂内完成首载（owner 自决）——此处 await 工厂即可用。
+          const tempRegistry = await createSkillSystem(deps.fs, dispatchSkillsDir, deps.auditWriter);
           await tempRegistry.loadAll();
           const content = await tempRegistry.loadFull(name);
           return { success: true, content, metadata: { name: name } };

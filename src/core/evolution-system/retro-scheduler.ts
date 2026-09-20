@@ -66,7 +66,8 @@ export async function buildRetroSubagentPayload(
   let skillsSummary = '';
   try {
     const createSkillFn = input.createSkillSystem ?? defaultCreateSkillSystem;
-    const reg = createSkillFn(input.motionFs, DISPATCH_SKILLS_DIR, input.audit);
+    // phase 1872 Step G: 工厂内完成首载（owner 自决）——此处 await 工厂即可用。
+    const reg = await createSkillFn(input.motionFs, DISPATCH_SKILLS_DIR, input.audit);
     await reg.loadAll();
     const formatted = reg.formatForContext();
     if (!formatted.includes('No skills loaded')) {

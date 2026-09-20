@@ -385,6 +385,8 @@ import { Heartbeat } from '../../src/core/heartbeat/index.js';
 import { createMemorySystem } from '../../src/core/memory/index.js';
 import { runContractObserver } from '../../src/core/contract/jobs/contract-observer.js';
 import { createContractSystem } from '../../src/core/contract/manager.js';
+// phase 1872 Step G: 首载失败分类断言（owner 类型化错误）
+import { SkillSystemInitialLoadError } from '../../src/foundation/skill-system/index.js';
 
 
 // ============================================================================
@@ -1045,7 +1047,7 @@ describe('assemble', () => {
       expect(thrown.message).toMatch(/ToolRegistry construct failed/);
     });
 
-    it('skill_registry construct failure → audit module=skill_registry phase=construct + throw', async () => {
+    it('skill_system 工厂失败（非首载错误）→ audit module=skill_system phase=construct + 原 error 原样上抛', async () => {
       const events: string[] = [];
       const prevImpl = mockAuditWrite.getMockImplementation();
       mockAuditWrite.mockImplementation((type: string, ...args: string[]) => {
@@ -1066,8 +1068,33 @@ describe('assemble', () => {
       }
 
       expect(thrown).toBeDefined();
-      expect(events.some(e => /^assemble_failed\tmodule=skill_registry\tphase=construct\treason=injected/.test(e))).toBe(true);
-      expect(thrown!.message).toMatch(/SkillSystem construct failed/);
+      expect(events.some(e => /^assemble_failed\tmodule=skill_system\tphase=construct\treason=injected/.test(e))).toBe(true);
+      // phase 1872 Step G: owner 错误原样上抛（不 re-wrap、类型可辨）
+      expect(thrown!.message).toBe('injected SkillSystem');
+    });
+
+    it('phase 1872 Step G: 首载失败（owner 类型化）→ audit module=skill_system phase=initialize', async () => {
+      const events: string[] = [];
+      const prevImpl = mockAuditWrite.getMockImplementation();
+      mockAuditWrite.mockImplementation((type: string, ...args: string[]) => {
+        events.push([type, ...args].join('\t'));
+      });
+
+      mockSkillFactory.mockImplementationOnce(() => {
+        throw new SkillSystemInitialLoadError('SkillSystem initial load failed: dup boom');
+      });
+
+      let thrown: Error | undefined;
+      try {
+        await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+      } catch (e) {
+        thrown = e as Error;
+      } finally {
+        mockAuditWrite.mockImplementation(prevImpl || (() => {}));
+      }
+
+      expect(thrown).toBeInstanceOf(SkillSystemInitialLoadError);
+      expect(events.some(e => /^assemble_failed\tmodule=skill_system\tphase=initialize\treason=SkillSystem initial load failed/.test(e))).toBe(true);
     });
 
     it('contract_manager construct failure → audit module=contract_manager phase=construct + throw', async () => {
