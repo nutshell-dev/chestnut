@@ -276,10 +276,16 @@ module.exports = {
         'phase 1253 Step D 立：claw command catalog / invocation / help renderer 归 CLIProtocol 后，',
         'lint 守「CLIProtocol 只能依赖自身」、防反向 import CLIProcess / Assembly 实现模块。',
         '同型 precedent：no-foundation-to-outside（phase 725）。',
+        'phase 1877 Step B 例外：design l6_cli_protocol §2.1 ratify「message priority 合法集合',
+        '与顺序归 Messaging、CLIProtocol 消费其稳定声明」——据此放行 messaging barrel 单文件',
+        '（与 router 同一导入面）；其余 outside 仍禁。',
       ].join(' '),
       severity: 'error',
       from: { path: '^src/cli-protocol/' },
-      to: { path: '^src/(?!cli-protocol/)' },
+      to: {
+        path: '^src/(?!cli-protocol/)',
+        pathNot: '^src/foundation/messaging/index\\.ts$',
+      },
     },
     {
       name: 'no-outside-to-cli-process',

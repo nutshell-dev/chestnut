@@ -20,11 +20,12 @@
  * 字段 `name` → `id`，summary/options/examples 字面零行为变化。
  */
 
+import { PRIORITY_ORDER } from '../foundation/messaging/index.js';
 import type { ClawCommandSpec } from './command-spec.js';
 
-// 与 src/foundation/messaging/types.ts PRIORITY_ORDER 保持同步：
-// critical/high/normal/low 顺序决定 help 渲染与校验顺序。
-const PRIORITY_ORDER = ['critical', 'high', 'normal', 'low'] as const;
+// phase 1877 Step B（cli-protocol-priority-domain-duplicated 收口）：priority 集合/顺序
+// 单源归 Messaging owner 稳定声明（design l6_cli_protocol §2.1 ratify：CLIProtocol 消费、
+// 不复制）；与 router 同一导入面。展示字面由 owner 数组派生（`:send --priority` defaultValue）。
 
 /** claw outbox read 默认读取条数。 */
 export const DEFAULT_OUTBOX_READ_LIMIT = 1;

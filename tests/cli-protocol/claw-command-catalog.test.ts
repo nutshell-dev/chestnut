@@ -8,6 +8,7 @@ import {
   renderClawHelp,
   renderClawCommandHelp,
 } from '../../src/cli-protocol/index.js';
+import { PRIORITY_ORDER } from '../../src/foundation/messaging/index.js';
 
 /**
  * claw command catalog 单源 invariants — phase 1477 Step B4 立 / phase 1253 Step C
@@ -62,6 +63,18 @@ describe('CLAW_COMMAND_CATALOG invariants', () => {
         expect(ex.startsWith('chestnut claw ')).toBe(true);
       }
     }
+  });
+
+  // phase 1877 Step B（cli-protocol-priority-domain-duplicated 收口）：
+  // catalog 不再私有复制 priority 数组，展示字面由 Messaging owner PRIORITY_ORDER 派生。
+  it('send --priority defaultValue 由 Messaging PRIORITY_ORDER 单源派生、展示字面逐字不变', () => {
+    const priorityOption = getClawCommandSpec('send')?.options?.find(
+      (opt) => opt.flag === '--priority <level>',
+    );
+    // 输出零漂移：历史展示字面锁死
+    expect(priorityOption?.defaultValue).toBe('normal (critical|high|normal|low)');
+    // 单源方向：owner 重排/增删 priority 时 help 与 parser 同源同步
+    expect(priorityOption?.defaultValue).toBe(`normal (${PRIORITY_ORDER.join('|')})`);
   });
 
 });
