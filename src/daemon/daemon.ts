@@ -138,6 +138,33 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // Phase 1204 Step C（phase 1873 Step B：协议归 PM capability）：child 激活
     // generation——inspect/比对/stop-intent/ready/activate 由 PM 完成，Daemon 只消费 outcome。
     let generationRecord: ProcessGenerationRecord | undefined;
+    /**
+     * phase 1873 Step D（daemon-post-assemble-failure-leaks-session）：获得 Instances
+     * 后的任意启动失败统一收束——audit 留证 → dispose session（次生失败 audit）→
+     * 收束 generation（retire）→ flush audit → exit(1)。不再裸 exit 弃置已装配资源。
+     * 与 1872 C 装配期 rollback 不重叠：此处处理的是装配成功后（Instances 已提交）的失败。
+     */
+    const failAfterAssemble = async (
+      where: { module: string; phase: string },
+      e: unknown,
+    ): Promise<void> => {
+      auditWriter.write(deps.auditEvents.assembleFailed, `module=${where.module}`, `phase=${where.phase}`, `reason=${formatErr(e)}`);
+      try {
+        await instances.dispose(`post_assemble_failure:${where.module}`);
+      } catch (secondary) {
+        auditWriter.write(deps.auditEvents.assembleFailed, 'module=post_assemble_dispose', 'phase=teardown', `reason=${formatErr(secondary)}`);
+      }
+      try {
+        if (generationRecord) {
+          instances.processManager.retireGeneration(daemonDir, { generationId: generationRecord.generation_id }, 'shutdown', 'active');
+        }
+      } catch (retireErr) {
+        auditWriter.write(deps.auditEvents.assembleFailed, 'module=post_assemble_retire', 'phase=teardown', `reason=${formatErr(retireErr)}`);
+      }
+      auditWriter.dispose?.();
+      process.exit(1);
+    };
+
     try {
       const startTime = getProcessStartTime(process.pid) as ProcessStartTime | undefined;
       const activationResult = await instances.processManager.activateChildGeneration(daemonDir, {
@@ -150,10 +177,9 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       }
       generationRecord = activationResult.record;
     } catch (e) {
-      const reason = formatErr(e);
-      auditWriter.write(deps.auditEvents.assembleFailed, 'module=generation_activation', 'phase=post_assemble', `reason=${reason}`);
-      auditWriter.dispose?.();
-      process.exit(1);
+      // phase 1873 Step D: 收束后再退出（此窗口 generationRecord 未建立 → 无 retire 分支）。
+      await failAfterAssemble({ module: 'generation_activation', phase: 'post_assemble' }, e);
+      return;
     }
 
     // phase 1124: 4 个 shutdown 入口统一重入 guard（mirror watchdog.ts:87-111）
@@ -189,9 +215,9 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     } catch (e) {
       // 兜底：Runtime 侧若已精确 audit（如 inboxReader.init / sessionManager.save）此行幂等重复；
       // Runtime 侧漏网的失败由此行唯一覆盖，postmortem 信号"需补精确 audit"
-      auditWriter.write(deps.auditEvents.assembleFailed, `module=runtime`, `phase=post_assemble_init`, `reason=${formatErr(e)}`);
-      auditWriter.dispose?.();  // phase 467 (review N3-L): flush 前 exit
-      process.exit(1);
+      // phase 1873 Step D: dispose + retire 后再退出（不再裸 exit 弃置 session）。
+      await failAfterAssemble({ module: 'runtime', phase: 'post_assemble_init' }, e);
+      return;
     }
 
     // 清理残留心跳（上次 daemon 的遗留，重启后无需立即巡查）

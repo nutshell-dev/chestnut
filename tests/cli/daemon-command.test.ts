@@ -20,6 +20,8 @@ const LIBUV_IO_SETTLE_MS = 50;
 // Hoisted mock state（供 vi.mock factory 引用，必须 hoisted）
 // ============================================================================
 const mockState = vi.hoisted(() => {
+  // phase 1873 Step B: 常量须在 hoisted 工厂内定义（工厂先于模块级 const 执行）
+  const TEST_GENERATION_ID = 'test-generation-id';
   const mockAuditWrite = vi.fn();
   const mockSnapshotCommit = vi.fn().mockResolvedValue({ ok: true });
   const mockRuntime = {
@@ -30,6 +32,11 @@ const mockState = vi.hoisted(() => {
   const mockHeartbeat = { isDue: vi.fn(() => false), fire: vi.fn() };
   const mockAssemble = vi.fn();
   const mockDispose = vi.fn().mockResolvedValue(undefined);
+  // phase 1873 Step D: 共享 PM mock（装配交付实例默认引用；断言 dispose/retire 收束面）。
+  const mockProcessManager = {
+    activateChildGeneration: vi.fn().mockResolvedValue({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } }),
+    retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+  };
 
   let stopFn: (() => void) | null = null;
   const mockStartDaemonLoop = vi.fn(() => {
@@ -42,6 +49,7 @@ const mockState = vi.hoisted(() => {
   const processHandlers: Record<string, Function[]> = {};
 
   return {
+    TEST_GENERATION_ID,
     mockAuditWrite,
     mockSnapshotCommit,
     mockRuntime,
@@ -49,6 +57,7 @@ const mockState = vi.hoisted(() => {
     mockHeartbeat,
     mockAssemble,
     mockDispose,
+    mockProcessManager,
     mockStartDaemonLoop,
     get stopFn() { return stopFn; },
     set stopFn(v) { stopFn = v; },
@@ -175,7 +184,7 @@ function installProcessSpies(): void {
 // ============================================================================
 // Helpers
 // ============================================================================
-const TEST_GENERATION_ID = 'test-generation-id';
+const TEST_GENERATION_ID = mockState.TEST_GENERATION_ID;
 // phase 1873 Step C: 装配交付的 EventLoop（daemon 只驱动同一实例）
 const mockEventLoop = { run: vi.fn().mockResolvedValue(undefined), abort: vi.fn() };
 
@@ -188,11 +197,8 @@ function makeMockInstances(overrides?: Partial<any>) {
     snapshot: { commit: mockState.mockSnapshotCommit },
     auditWriter: { write: mockState.mockAuditWrite },
     heartbeat: mockState.mockHeartbeat,
-    processManager: {
-      // phase 1873 Step B: 协议归 PM capability——daemon 只消费 typed outcome。
-      activateChildGeneration: vi.fn().mockResolvedValue({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } }),
-      retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
-    },
+    // phase 1873 Step B/D: 协议归 PM capability；Step D 收束断言用共享 mock。
+    processManager: mockState.mockProcessManager,
     dispose: mockState.mockDispose,
     ...overrides,
   };
@@ -275,6 +281,13 @@ describe('daemonCommand - A4a startup success', () => {
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
+    // phase 1873 Step D: restoreAllMocks 会清掉共享 vi.fn 实现 → 每轮重装 PM capability
+    // （与 mockStartDaemonLoop 的既有保护模式同型）。
+    mockState.mockProcessManager.activateChildGeneration.mockResolvedValue({
+      kind: 'activated',
+      record: { generation_id: TEST_GENERATION_ID },
+    });
+    mockState.mockProcessManager.retireGeneration.mockReturnValue({ kind: 'retired' });
   });
 
   afterEach(() => {
@@ -341,6 +354,12 @@ describe('daemonCommand - A4a startup failure', () => {
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
+    // phase 1873 Step D: restoreAllMocks 会清掉共享 vi.fn 实现 → 每轮重装 PM capability
+    mockState.mockProcessManager.activateChildGeneration.mockResolvedValue({
+      kind: 'activated',
+      record: { generation_id: TEST_GENERATION_ID },
+    });
+    mockState.mockProcessManager.retireGeneration.mockReturnValue({ kind: 'retired' });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
   });
@@ -391,7 +410,7 @@ describe('daemonCommand - A4a startup failure', () => {
     );
   });
 
-  it('it #5: runtime.initialize 失败 → assemble_failed audit + exit 1', async () => {
+  it('it #5: runtime.initialize 失败 → assemble_failed audit + dispose + retire + exit 1（phase 1873 Step D）', async () => {
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
     mockState.mockRuntime.initialize.mockRejectedValue(new Error('init failed'));
 
@@ -402,6 +421,48 @@ describe('daemonCommand - A4a startup failure', () => {
       'module=runtime',
       'phase=post_assemble_init',
       expect.stringContaining('reason=init failed'),
+    );
+    // Step D：已提交装配的失败先收束 session + generation 再退出
+    expect(mockState.mockDispose).toHaveBeenCalledWith(expect.stringContaining('post_assemble_failure'));
+    expect(mockState.mockProcessManager.retireGeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      { generationId: TEST_GENERATION_ID },
+      'shutdown',
+      'active',
+    );
+  });
+
+  it('phase 1873 Step D: generation activation 失败 → dispose（无 retire，record 未建立）+ exit 1', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({
+      clawId: 'test-claw',
+      processManager: {
+        activateChildGeneration: vi.fn().mockResolvedValue({
+          kind: 'failed',
+          stage: 'spawning_not_found',
+          reason: 'spawning generation not found: none',
+        }),
+        retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+      },
+    }));
+
+    await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
+
+    expect(mockState.mockDispose).toHaveBeenCalledWith(expect.stringContaining('post_assemble_failure'));
+    expect(mockState.mockProcessManager.retireGeneration).not.toHaveBeenCalled();
+  });
+
+  it('phase 1873 Step D: dispose 次生失败 → audit 留证 + 退出不被阻断', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
+    mockState.mockRuntime.initialize.mockRejectedValue(new Error('init failed'));
+    mockState.mockDispose.mockRejectedValueOnce(new Error('dispose boom'));
+
+    await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
+
+    expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
+      'assemble_failed',
+      'module=post_assemble_dispose',
+      'phase=teardown',
+      expect.stringContaining('reason=dispose boom'),
     );
   });
 
@@ -451,6 +512,12 @@ describe('daemonCommand - A4d shutdown signal', () => {
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
+    // phase 1873 Step D: restoreAllMocks 会清掉共享 vi.fn 实现 → 每轮重装 PM capability
+    mockState.mockProcessManager.activateChildGeneration.mockResolvedValue({
+      kind: 'activated',
+      record: { generation_id: TEST_GENERATION_ID },
+    });
+    mockState.mockProcessManager.retireGeneration.mockReturnValue({ kind: 'retired' });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
@@ -506,6 +573,12 @@ describe('daemonCommand - A4d crash handler', () => {
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
+    // phase 1873 Step D: restoreAllMocks 会清掉共享 vi.fn 实现 → 每轮重装 PM capability
+    mockState.mockProcessManager.activateChildGeneration.mockResolvedValue({
+      kind: 'activated',
+      record: { generation_id: TEST_GENERATION_ID },
+    });
+    mockState.mockProcessManager.retireGeneration.mockReturnValue({ kind: 'retired' });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
@@ -562,6 +635,12 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
     installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
+    // phase 1873 Step D: restoreAllMocks 会清掉共享 vi.fn 实现 → 每轮重装 PM capability
+    mockState.mockProcessManager.activateChildGeneration.mockResolvedValue({
+      kind: 'activated',
+      record: { generation_id: TEST_GENERATION_ID },
+    });
+    mockState.mockProcessManager.retireGeneration.mockReturnValue({ kind: 'retired' });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'motion' }));
