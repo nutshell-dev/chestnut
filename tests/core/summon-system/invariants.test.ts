@@ -729,10 +729,17 @@ describe('phase1396-creation-claim-boundary', () => {
   });
 
   it('CLI 与 Assembly 经同一 factory 注入 claim store（不直接拼路径）', () => {
-    for (const file of ['src/cli/index.ts', 'src/assembly/business-systems.ts']) {
+    // phase 1874 Step F: CLI 侧装配归 Assembly 窄入口（contract-action.ts）——语义不变
+    // （仍经同一 factory、不手拼路径；CLI 侧更收窄为不构造）。扫描面随归属迁移。
+    for (const file of ['src/assembly/contract-action.ts', 'src/assembly/business-systems.ts']) {
       const hits = grepRecurse(['-F', 'createSummonCreationClaimStore', file]);
       expect(hits.trim()).not.toBe('');
     }
+    // CLI 入口经 Assembly 窄入口消费（不再自行装配 claim store）
+    const cliHits = grepRecurse(['-F', 'createContractActionContext', 'src/cli/index.ts']);
+    expect(cliHits.trim()).not.toBe('');
+    const cliClaim = grepRecurse(['-F', 'createSummonCreationClaimStore', 'src/cli/']);
+    expect(cliClaim.trim()).toBe('');
   });
 });
 
