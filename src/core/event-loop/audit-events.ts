@@ -37,6 +37,9 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留 record 证据并上抛。
    *  Phase 1840: 历史保留（旧版本审计可理解）；提醒链不再发出本事件。 */
   EXECUTION_RECOVERY_DELIVERY_REJECTED: 'eventloop_execution_recovery_delivery_rejected',
+  /** Phase 1869 (Step C): drain 后同契约重复提醒系统侧合并——同一消费点同契约
+   *  至多交付一条，其余 ack 到 done/（正文保留）。merged_id/kept_id/location 留证。 */
+  EXECUTION_RECOVERY_DUPLICATE_MERGED: 'eventloop_execution_recovery_duplicate_merged',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {

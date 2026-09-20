@@ -684,6 +684,47 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
   }
 
   /**
+   * Phase 1869 (Step C): 未结算事实枚举 —— 扫 pending/ + inflight/（与
+   * findByExtraMeta 同口径 by-design 排除 done/failed），解码后按三要素
+   * （type / from / metadata.contract_id）精确匹配，返回全部命中及其位置。
+   * 只读、不 init/drain/ack；读取或解码失败原样抛出（不折空——caller 不得
+   * 以空集推断「不存在」，这是 pending-only 单视图缺口的收口面）。
+   */
+  async peekUnsettled(filter: {
+    type: string;
+    from: string;
+    contractId: string;
+  }): Promise<Array<{ id: string; location: 'pending' | 'inflight' }>> {
+    const hits: Array<{ id: string; location: 'pending' | 'inflight' }> = [];
+    const locations: Array<{ dir: string; location: 'pending' | 'inflight' }> = [
+      { dir: this.pendingDir, location: 'pending' },
+      { dir: this.inflightDir, location: 'inflight' },
+    ];
+    for (const { dir, location } of locations) {
+      let entries: { name: string }[] = [];
+      try {
+        entries = await this.fs.list(dir, { includeDirs: false });
+      } catch (err) {
+        if (isFileNotFound(err)) continue;
+        throw err;
+      }
+      for (const entry of entries) {
+        if (!entry.name.endsWith('.md')) continue;
+        if (entry.name.startsWith('.tmp_')) continue;  // phase 1021: defense-in-depth — never read temp files
+        const message = decodeInbox(await this.fs.read(path.join(dir, entry.name)));
+        if (
+          message.type === filter.type &&
+          message.from === filter.from &&
+          message.metadata?.contract_id === filter.contractId
+        ) {
+          hits.push({ id: message.id, location });
+        }
+      }
+    }
+    return hits;
+  }
+
+  /**
    * Read all pending messages, sort by priority (desc) then timestamp (asc).
    *
    * Side effects (phase 427 Step C, review N12 — replaces earlier self-contradictory

@@ -688,6 +688,7 @@
       "eventloop_cooldown",
       "eventloop_execution_recovery_delivery_failed",
       "eventloop_execution_recovery_delivery_rejected",
+      "eventloop_execution_recovery_duplicate_merged",
       "eventloop_execution_recovery_failure_delivered",
       "eventloop_execution_recovery_reset",
       "eventloop_execution_recovery_resume",

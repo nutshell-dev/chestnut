@@ -799,7 +799,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     expect(pendingFiles(h)).toHaveLength(1);
   });
 
-  it('登记前 pending 查询 read EIO（PendingViewError）：既有 record 原字节不变、0 新消息；坏消息恢复后可登记', async () => {
+  it('登记前 pending 查询 read EIO：既有 record 原字节不变、0 新消息；坏消息恢复后可登记', async () => {
     const h = makeHarness('delivery-precheck-read-eio-');
     const existing: ExecutionRecoveryRecord = {
       schema_version: 1,
@@ -829,7 +829,9 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
       e.some(col => String(col) === 'context=executionRecoveryPendingCheck'));
     expect(fatal).toBeDefined();
-    expect(fatal!.some(col => String(col).includes('Pending view incomplete'))).toBe(true);
+    // Phase 1869 (Step C): 未结算查询（peekUnsettled）读取失败原样抛出原 error
+    // （不再包装为 PendingViewError 文案）；未知仍显式留证、不折 absent。
+    expect(fatal!.some(col => String(col).includes('probe read EIO'))).toBe(true);
 
     // 坏消息恢复可读后：无关消息不匹配三要素，正常登记 attempt3
     restore();
@@ -907,7 +909,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       return pendingFiles(h).sort().map(f => fs.readFileSync(path.join(h.pendingDir, f), 'utf8'));
     }
 
-    function expectSuppressed(h: Harness, messageId: string): void {
+    function expectSuppressed(h: Harness, messageId: string, count?: number): void {
       expect(h.requests).toHaveLength(0);
       const hit = h.audit.entries.find(e =>
         e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
@@ -915,6 +917,10 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         e.some(col => String(col) === 'reason=pending_reminder_exists'));
       expect(hit).toBeDefined();
       expect(hit!.some(col => String(col) === `message_id=${messageId}`)).toBe(true);
+      if (count !== undefined) {
+        // Phase 1869 (Step C): 未结算命中总数（pending + inflight）入审计。
+        expect(hit!.some(col => String(col) === `count=${count}`)).toBe(true);
+      }
     }
 
     it('旧格式消息（无 1842 delivery 关联字段）+ 无 record：抑制新增、不建 record、消息字节不变', async () => {
@@ -984,6 +990,22 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       // 命中证据是 reader 排序后首个现存 ID（两条之一），不枚举/删除旧消息
       expect(['message_id=epoch-1', 'message_id=epoch-2']
         .some(col => hit!.some(c => String(c) === col))).toBe(true);
+      // Phase 1869 (Step C): 两条未结算事实全部计入 count。
+      expect(hit!.some(c => String(c) === 'count=2')).toBe(true);
+    });
+
+    it('inflight 残留（degraded reconcile 形态）同样构成抑制事实（phase 1869 Step C）', async () => {
+      const h = makeHarness('matrix-inflight-');
+      await writeReminder(h, { id: 'inflight-reminder', contractId: CONTRACT_ID });
+      // 真实 owner 链：drain claim 到 inflight、不 ack——模拟未结算残留
+      const reader = createInboxReader(h.agentFs, h.audit, path.dirname(h.pendingDir));
+      const drained = await reader.drainAndDeliver();
+      expect(drained.kind).toBe('complete');
+      expect(pendingFiles(h)).toHaveLength(0);
+
+      await h.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expectSuppressed(h, 'inflight-reminder', 1);
+      expect(readRecord(h, CONTRACT_ID)).toBeNull();
     });
 
     it('三要素缺一不抑制：同 contract 不同 type / 同 type 不同 from / 同 type from 不同 contract', async () => {

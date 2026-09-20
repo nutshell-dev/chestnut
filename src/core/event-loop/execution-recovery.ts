@@ -144,15 +144,16 @@ export type ExecutionRecoveryDeliveryOutcome =
 // ---------------------------------------------------------------------------
 
 /**
- * 新登记前的 owner pending 查询结果（EventLoop 模块内部契约，经 EventLoop 的
- * protected 适配从 Messaging.peekPending 取得）。absent = 同三要素提醒不存在；
+ * 新登记前的 owner 未结算事实查询结果（EventLoop 模块内部契约，经 EventLoop 的
+ * protected 适配从 Messaging.peekUnsettled 取得）。absent = 同三要素提醒不存在；
  * present = 精确命中（type=execution_recovery、from=本 claw、
- * metadata.contract_id=本契约），携带一个用于审计的现存 messageId。读取未知
+ * metadata.contract_id=本契约），携带首个 messageId 与命中总数（pending +
+ * inflight 双位置，phase 1869 Step C 起不再 pending-only）。读取未知
  * 由回调以 rejection 保留实际异常，不得折成 absent。
  */
 export type PendingExecutionResume =
   | { kind: 'absent' }
-  | { kind: 'present'; messageId: string };
+  | { kind: 'present'; messageId: string; count: number };
 
 function isRepresentableMs(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_DATE_MS;
@@ -684,6 +685,8 @@ export function createExecutionRecoveryController(
           `contract=${contractId}`,
           `reason=pending_reminder_exists`,
           `message_id=${pendingResume.messageId}`,
+          // Phase 1869 (Step C): 命中总数（pending + inflight）——积压规模可观察。
+          `count=${pendingResume.count}`,
         );
         return;
       }

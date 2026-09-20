@@ -53,10 +53,11 @@ import {
   type ExecutionRecoveryController,
   type ExecutionRecoveryDeliveryOutcome,
   type ExecutionRecoveryDeliveryRequest,
+  type ExecutionRecoveryStore,
   type PendingExecutionResume,
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks } from './types.js';
-import type { PreparedInboxBatch } from '../runtime/index.js';
+import type { PreparedInboxBatch, PreparedInboxEntry } from '../runtime/index.js';
 
 /**
  * Phase 1826: 旧 EventLoop retry-state 文件的只读字段形状。
@@ -70,6 +71,18 @@ interface LegacyRetryStateFileV1V2 {
   llmQuotaDelayMs?: number;
   llmRetryPending: boolean;
   waiting?: unknown;
+}
+
+/**
+ * Phase 1869 (Step C): 合并分组内「最新一条」——按 message.timestamp 比较
+ * （非法/缺失按 0），平局保留先遇到者（稳定、不依赖目录顺序之外的随机性）。
+ */
+function newestRecoveryEntry(entries: PreparedInboxEntry[]): PreparedInboxEntry {
+  return entries.reduce((newest, entry) => {
+    const t = new Date(entry.message.timestamp).getTime() || 0;
+    const tNewest = new Date(newest.message.timestamp).getTime() || 0;
+    return t > tNewest ? entry : newest;
+  });
 }
 
 export class EventLoop {
@@ -112,6 +125,11 @@ export class EventLoop {
   // Phase 1841: record 按实例归属——写本 claw agentFs；旧 root 共享目录仅只读继承。
   private executionRecovery?: ExecutionRecoveryController;
   private executionRecoveryDeps?: EventLoopExecutionRecoveryDeps;
+  /**
+   * Phase 1869 (Step C): 合并判定用 record 读面（同一 store 实例，无第二写端）——
+   * drain 后重复提醒分组时读「当前义务 delivery id」。
+   */
+  private executionRecoveryStore?: ExecutionRecoveryStore;
   /** processTurn 执行中为 true（observe 只挂在 idle 路径，此字段为未来挂载点保真） */
   private turnInFlight = false;
 
@@ -129,10 +147,11 @@ export class EventLoop {
     this.recovery = options.recovery;
     if (options.executionRecovery) {
       this.executionRecoveryDeps = options.executionRecovery;
+      // Phase 1841: 实例本地记录（agentFs）+ 旧 root 共享基线只读继承（rootFs
+      // 以 Pick<..., 'readSync'> 收窄传入；rootFs 本身仍供 clean-stop marker 使用）。
+      this.executionRecoveryStore = createExecutionRecoveryStore({ agentFs: this.agentFs, legacyRootFs: this.rootFs, audit: this.audit });
       this.executionRecovery = createExecutionRecoveryController({
-        // Phase 1841: 实例本地记录（agentFs）+ 旧 root 共享基线只读继承（rootFs
-        // 以 Pick<..., 'readSync'> 收窄传入；rootFs 本身仍供 clean-stop marker 使用）。
-        store: createExecutionRecoveryStore({ agentFs: this.agentFs, legacyRootFs: this.rootFs, audit: this.audit }),
+        store: this.executionRecoveryStore,
         audit: this.audit,
         timeoutMs: options.executionRecovery.timeoutMs ?? EXECUTION_INACTIVITY_TIMEOUT_MS,
         // Phase 1842: 真实 owner 投递适配（查询→写→查询确认），生产绑定不变。
@@ -758,15 +777,17 @@ export class EventLoop {
       // 格式化在 _processDrainedBatch 的 disposition guard 内执行。
       const prepared = await this.runtime.prepareInbox();
       if (prepared.entries.length === 0) break;
+      // Phase 1869 (Step C): 进入 turn 前的同契约重复提醒系统侧合并。
+      const effective = await this._mergeDuplicateRecoveryReminders(prepared);
 
       if (chainIters === 0) {
-        firstInjected = prepared.entries.length;
+        firstInjected = effective.entries.length;
       }
-      chainTotal += prepared.entries.length;
+      chainTotal += effective.entries.length;
       chainIters++;
 
       const action = await this._processDrainedBatch({
-        prepared,
+        prepared: effective,
         turnFingerprint,
         wrappedCallbacks,
       });
@@ -918,23 +939,111 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1843: 新登记前只读查询本 claw pending 是否已有同契约执行提醒。
+   * Phase 1843: 新登记前只读查询本 claw 是否已有同契约执行提醒。
    * 精确三要素匹配：type=execution_recovery、from=本 claw、
    * metadata.contract_id=当前选中契约（不能只按 contract_id——其他系统消息也用；
    * 不按 delivery 关联 ID——旧 epoch/1842 前提醒没有该字段）。消息年龄、正文、
    * priority、是否具有 1842 metadata 均不影响匹配。仅 peek，无 init/drain/ack/
-   * cleanup；owner 异常（含 PendingViewError）原样传播给 controller，不在适配层
-   * catch 折空。使用实际注入的 pending 路径推导 inbox baseDir，不硬编码默认 inbox。
+   * cleanup；owner 异常原样传播给 controller，不在适配层 catch 折空。
+   * Phase 1869 (Step C): 事实面从 pending 单视图扩为未结算双位置
+   * （peekUnsettled = pending + inflight）——reconcile degraded 残留的 inflight
+   * 提醒同样构成抑制事实，不再以 pending-only 推出全队列唯一；命中总数入审计。
+   * 使用实际注入的 pending 路径推导 inbox baseDir，不硬编码默认 inbox。
    * protected 只为真实类型化测试子类调用，不是面向上层模块的配置/端口。
    */
   protected async _findPendingExecutionResume(contractId: string): Promise<PendingExecutionResume> {
     const reader = createInboxReader(this.agentFs, this.audit, path.dirname(this.inboxPendingDir));
-    const view = await reader.peekPending();
-    const entry = view.entries.find(({ message }) =>
-      message.type === EXECUTION_RECOVERY_MESSAGE_TYPE &&
-      message.from === this.clawId &&
-      message.metadata?.contract_id === contractId);
-    return entry ? { kind: 'present', messageId: entry.message.id } : { kind: 'absent' };
+    const hits = await reader.peekUnsettled({
+      type: EXECUTION_RECOVERY_MESSAGE_TYPE,
+      from: this.clawId,
+      contractId,
+    });
+    const first = hits[0];
+    return first ? { kind: 'present', messageId: first.id, count: hits.length } : { kind: 'absent' };
+  }
+
+  /**
+   * Phase 1869 (Step C): drain 领取后、进入 turn 前的同契约重复提醒合并
+   * （2026-09-20 用户拍板合并协议：重复提醒是系统窗口机制的记账，系统侧
+   * 合并、agent 只收一条）。
+   *
+   * 分组：本批 type=execution_recovery 且 from=本 claw 的消息按
+   * metadata.contract_id 分组；每组单条不受影响（即唯一唤醒机会）。
+   * 交付优先级（每组至多交付一条）：① metadata 的 delivery_id 命中本 claw
+   * record 当前义务者；② 无命中（legacy 无 id / record 无义务）→ 组内最新
+   * 一条（timestamp）。判定所需事实不足（无 record / 读取失败退化批次内规则）
+   * 审计留证、不静默。
+   * 合并处置（其余每条）：ack 到 done/（正文保留、不删除、不召回）+ 独立审计
+   * （contract/merged_id/kept_id/location）。跨契约、其他 message type 完全不
+   * 受影响；合并的是重复积压，不是提醒节奏节流。
+   */
+  private async _mergeDuplicateRecoveryReminders(
+    prepared: PreparedInboxBatch,
+  ): Promise<PreparedInboxBatch> {
+    const groups = new Map<string, PreparedInboxEntry[]>();
+    for (const entry of prepared.entries) {
+      const message = entry.message;
+      if (message.type !== EXECUTION_RECOVERY_MESSAGE_TYPE) continue;
+      if (message.from !== this.clawId) continue;
+      const contractId = message.metadata?.contract_id;
+      if (typeof contractId !== 'string' || contractId.length === 0) continue;
+      const group = groups.get(contractId);
+      if (group) {
+        group.push(entry);
+      } else {
+        groups.set(contractId, [entry]);
+      }
+    }
+
+    const mergedEntries: PreparedInboxEntry[] = [];
+    for (const [contractId, entries] of groups) {
+      if (entries.length < 2) continue;
+      const obligationId = this._currentRecoveryObligationId(contractId);
+      const keeper =
+        (obligationId !== undefined
+          ? entries.find(e => e.message.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY] === obligationId)
+          : undefined) ?? newestRecoveryEntry(entries);
+      for (const entry of entries) {
+        if (entry === keeper) continue;
+        mergedEntries.push(entry);
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DUPLICATE_MERGED,
+          `contract=${contractId}`,
+          `merged_id=${entry.message.id}`,
+          `kept_id=${keeper.message.id}`,
+          `location=inflight`,
+        );
+      }
+    }
+    if (mergedEntries.length === 0) return prepared;
+
+    const mergedSet = new Set(mergedEntries);
+    const keptEntries = prepared.entries.filter(e => !mergedSet.has(e));
+    // ack 到 done/（原文留存、不删除）。ack 失败由 Runtime 逐条审计
+    // （INBOX_ACK_FAILED），消息留在 inflight/，重启 reconcile 回队、下轮重判（幂等）。
+    await this.runtime.ackHandles(mergedEntries.map(e => e.handle), 'duplicate_merged');
+    return { entries: keptEntries };
+  }
+
+  /**
+   * Phase 1869 (Step C): 读本 claw 当前 recovery 义务身份（合并判定用，同一
+   * store 实例、无第二写端）。记录缺失（含未注入 recovery 的测试装配）→
+   * undefined，退化为批次内规则；读取/解析失败 → FATAL 审计 + undefined
+   * （事实不足显式留证，不静默、不阻断交付）。
+   */
+  private _currentRecoveryObligationId(contractId: string): string | undefined {
+    if (!this.executionRecoveryStore) return undefined;
+    try {
+      return this.executionRecoveryStore.load(contractId)?.delivery?.id;
+    } catch (error) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=duplicateMergeRecordRead`,
+        `contract=${contractId}`,
+        `error=${formatErr(error)}`,
+      );
+      return undefined;
+    }
   }
 
   /** Phase 1826: trim 重试预算（纯内存，EventLoop 自有语义）。 */

@@ -594,7 +594,7 @@ describe('execution-recovery controller', () => {
   });
 
   describe('pending 新增抑制（Phase 1843）', () => {
-    function expectPendingCheckAudit(present: boolean, messageId?: string): void {
+    function expectPendingCheckAudit(present: boolean, messageId?: string, count?: number): void {
       const hits = audit.entries.filter(e =>
         e.some(col => String(col) === 'context=executionRecoveryPendingCheck'));
       expect(hits).toHaveLength(1);
@@ -603,6 +603,8 @@ describe('execution-recovery controller', () => {
         expect(hit[0]).toBe(EVENTLOOP_AUDIT_EVENTS.ITERATION);
         expect(hit.some(col => String(col) === 'reason=pending_reminder_exists')).toBe(true);
         expect(hit.some(col => String(col) === `message_id=${messageId}`)).toBe(true);
+        // Phase 1869 (Step C): 未结算命中总数（pending + inflight）入审计。
+        expect(hit.some(col => String(col) === `count=${count}`)).toBe(true);
       } else {
         expect(hit[0]).toBe(EVENTLOOP_AUDIT_EVENTS.FATAL);
       }
@@ -610,12 +612,12 @@ describe('execution-recovery controller', () => {
 
     it('无 record 且 pending 已有同契约提醒：不建 record、不交付，审计携带现存 messageId', async () => {
       const { controller } = makeController();
-      nextPendingResume = { kind: 'present', messageId: 'old-reminder-1' };
+      nextPendingResume = { kind: 'present', messageId: 'old-reminder-1', count: 1 };
       await controller.observe(stalledSnapshot());
       expect(resumeCalls).toHaveLength(0);
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
       expect(pendingResumeCalls).toEqual([CONTRACT_ID]);
-      expectPendingCheckAudit(true, 'old-reminder-1');
+      expectPendingCheckAudit(true, 'old-reminder-1', 1);
     });
 
     it('既有 record（窗口到期）且 pending 已有同契约提醒：原 record 字节不变、attempt 不增、不生成新 ID', async () => {
@@ -629,11 +631,11 @@ describe('execution-recovery controller', () => {
       };
       store.save(existing);
       const bytesBefore = fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8');
-      nextPendingResume = { kind: 'present', messageId: 'old-reminder-2' };
+      nextPendingResume = { kind: 'present', messageId: 'old-reminder-2', count: 2 };
       await controller.observe(stalledSnapshot());
       expect(fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe(bytesBefore);
       expect(resumeCalls).toHaveLength(0);
-      expectPendingCheckAudit(true, 'old-reminder-2');
+      expectPendingCheckAudit(true, 'old-reminder-2', 2);
       // 命中不延长窗口：消费后（查询变 absent）同窗口即可登记
       nextPendingResume = { kind: 'absent' };
       await controller.observe(stalledSnapshot());
