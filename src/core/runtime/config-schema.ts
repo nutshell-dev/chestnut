@@ -8,7 +8,8 @@ import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/i
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../async-task-system/index.js';
 
 export const runtimeMotionConfigSchema = z.object({
-  heartbeat_interval_ms: z.number().min(0).default(0),
+  // phase 1870: heartbeat_interval_ms 声明迁 Heartbeat owner
+  // （src/core/heartbeat/config-schema.ts），由 Assembly 组合回 motion 段。
   max_steps: z.number().min(1).max(1000).optional(),
   subagent_max_steps: z.number().min(1).max(200).optional(),
   max_concurrent_tasks: z.number().min(1).max(20).default(DEFAULT_MAX_CONCURRENT_TASKS),

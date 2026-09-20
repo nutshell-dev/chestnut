@@ -13,3 +13,5 @@ export type { HeartbeatCursor, CursorRead, HeartbeatCursorStore } from './heartb
 // phase 1414: 业主自管 'heartbeat' inbox 消息 formatter
 export { createHeartbeatInboxFormatter } from './inbox-formatter.js';
 export { HEARTBEAT_FILE_ROUTING } from './audit-events.js';
+// phase 1870: 启停/周期字段声明（owner: heartbeat；Assembly 组合进 motion 段）
+export { heartbeatConfigSchema, HEARTBEAT_DEFAULT_INTERVAL_MS } from './config-schema.js';

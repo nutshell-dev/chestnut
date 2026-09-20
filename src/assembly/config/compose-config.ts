@@ -9,6 +9,7 @@
 import { z } from 'zod';
 import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/index.js';
 import { runtimeMotionConfigSchema, clawConfigSchema } from '../../core/runtime/index.js';
+import { heartbeatConfigSchema } from '../../core/heartbeat/index.js';
 import { toolsConfigSchema } from '../../foundation/tools/index.js';
 import { cronConfigSchema } from '../../foundation/cron/index.js';
 import { viewportConfigSchema } from '../../cli-protocol/index.js';
@@ -25,7 +26,8 @@ export function createGlobalConfigSchema() {
     version: z.string().default('1'),
     default_max_steps: agentExecutorConfigSchema,
     llm: llmOrchestratorConfigSchema,
-    motion: runtimeMotionConfigSchema.default({}),
+    // phase 1870: motion 段 = runtime 字段 + heartbeat 字段（heartbeat 声明归其 owner）。
+    motion: runtimeMotionConfigSchema.merge(heartbeatConfigSchema).default({}),
     tool_timeout_ms: toolsConfigSchema,
     cron: cronConfigSchema.default({}),
     viewport: viewportConfigSchema.default({}),

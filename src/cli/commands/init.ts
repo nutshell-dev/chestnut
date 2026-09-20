@@ -19,6 +19,8 @@ import {
 } from '../../foundation/llm-orchestrator/index.js';
 
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index.js';
+// phase 1870: heartbeat 字段声明归 Heartbeat owner——init 模板默认值由 schema 常量派生（无二处字面值）。
+import { HEARTBEAT_DEFAULT_INTERVAL_MS } from '../../core/heartbeat/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { initWorkspaceAuditConfig, publishAuditLayout } from '../../foundation/audit/index.js';
@@ -304,7 +306,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       // initWorkspaceWatchdogConfig 落入 .chestnut/watchdog/config.yaml；
       // log_archive_days 随块显式退役（捕获进迁移 journal retired_fields）。
       motion: {
-        heartbeat_interval_ms: 0,
+        heartbeat_interval_ms: HEARTBEAT_DEFAULT_INTERVAL_MS,
         // phase 1485: max_steps 不写入初始 config — agent-executor 持默认值、user 显式覆盖时再设。
         max_concurrent_tasks: DEFAULT_MAX_CONCURRENT_TASKS,
         llm_idle_timeout_ms: INIT_LLM_IDLE_TIMEOUT_MS,
