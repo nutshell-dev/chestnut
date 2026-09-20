@@ -19,6 +19,7 @@
 import type { FileSystem } from '../foundation/fs/index.js';
 import { ensureWatchdog, isWatchdogAlive } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
+import { createCliActionScope, setCurrentActionScope } from './action-scope.js';
 
 export type SupervisionPolicy =
   | 'required'
@@ -28,6 +29,24 @@ export type SupervisionPolicy =
 
 interface SupervisionContext {
   fsFactory: (baseDir: string) => FileSystem;
+}
+
+/**
+ * phase 1874 Step I: 每次 action 一个 resource scope（handler 内经 actionAuditFor 复用/注册，
+ * 成功路径统一 dispose）。错误路径 dispose 由 Step H 在同一 finally 接入。
+ * CLIProcess 每次 invoke 独立进程 → 模块级 current scope 语义充分。
+ */
+async function runWithActionScope(ctx: SupervisionContext, fn: () => Promise<void>): Promise<void> {
+  const scope = createCliActionScope({ fsFactory: ctx.fsFactory });
+  setCurrentActionScope(scope);
+  let ok = false;
+  try {
+    await fn();
+    ok = true;
+  } finally {
+    setCurrentActionScope(null);
+    if (ok) await scope.disposeAll('completed');
+  }
 }
 
 async function executePolicy(
@@ -63,8 +82,10 @@ export function cliAction<TArgs extends unknown[]>(
   ctx: SupervisionContext,
 ): (...args: TArgs) => Promise<void> {
   return withCliErrorHandling(async (...args) => {
-    await executePolicy(policy, ctx);
-    await handler(...args);
+    await runWithActionScope(ctx, async () => {
+      await executePolicy(policy, ctx);
+      await handler(...args);
+    });
   });
 }
 
@@ -88,5 +109,5 @@ export function cliDeferredRequiredAction<TArgs extends unknown[]>(
   ctx: SupervisionContext,
 ): (...args: TArgs) => Promise<void> {
   return withCliErrorHandling((...args) =>
-    handler(() => ensureWatchdog(ctx.fsFactory), ...args));
+    runWithActionScope(ctx, () => handler(() => ensureWatchdog(ctx.fsFactory), ...args)));
 }

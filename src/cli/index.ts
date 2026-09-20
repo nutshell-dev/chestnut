@@ -35,7 +35,7 @@ import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
-import { createDirContext } from '../foundation/audit/index.js';
+import { actionAuditFor } from './action-scope.js';
 import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
@@ -96,7 +96,7 @@ program
   .command('stop')
   .description('Stop all chestnut processes (watchdog → motion → claws)')
   .action(action('disabled', async () => {
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await stopAllCommand({ fsFactory, rootConfig }, { audit });
   }));
 
@@ -114,7 +114,7 @@ program
   .description('Start the system (initializes if needed) and open Motion chat')
   .action(deferredRequiredAction(async (ensureSupervision) => {
     const { startCommand } = await import('./commands/start.js');
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await startCommand({ fsFactory, rootConfig, rootConfigLegacy }, { audit, ensureSupervision });
   }));
 
@@ -124,7 +124,7 @@ program
   .description('Initialize chestnut workspace')
   .action(action('disabled', async () => {
     const { initCommand } = await import('./commands/init.js');
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await initCommand({ fsFactory, rootConfig }, false, { audit });
   }));
 
@@ -166,7 +166,7 @@ motionCmd
   .command('init')
   .description('Initialize Motion configuration')
   .action(action('disabled', async () => {
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await motionInitCommand({ fsFactory }, false, { audit });
   }));
 
@@ -183,7 +183,7 @@ motionCmd
   .command('stop')
   .description('Stop Motion daemon')
   .action(action('disabled', async () => {
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await motionStopCommand({ fsFactory, rootConfig }, { audit });
   }));
 
@@ -193,7 +193,7 @@ motionCmd
   .description("Drain Motion's outbox (send tool messages)")
   .option('--limit <n>', 'Maximum messages to drain', String(DEFAULT_OUTBOX_DRAIN_LIMIT))
   .action(action('required', async (options: { limit: string }) => {
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     const limit = parseIntOption(options.limit, '--limit must be a non-negative integer');
     await motionOutboxCommand({ fsFactory }, { limit }, { audit });
   }));
@@ -221,7 +221,7 @@ motionCmd
   .description('Start Motion daemon (auto-backgrounds)')
   .action(action('internal', async () => {
     const { motionDaemonCommand } = await import('./commands/motion-daemon.js');
-    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await motionDaemonCommand({ fsFactory, rootConfig }, { audit });
   }));
 
@@ -248,7 +248,7 @@ contractCmd
   .option('--dir <path>', 'Directory containing contract.yaml and verification/ folder')
   .action(action('required', async (opts: { claw: string; file?: string; dir?: string }) => {
     rootConfig.loadGlobal();
-    const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
+    const audit = actionAuditFor(getClawDir(opts.claw), { fsFactory });
     if (opts.file && opts.dir) {
       throw new CliError('--file and --dir are mutually exclusive. Use one of --file or --dir, not both.');
     } else if (opts.file) {
@@ -288,7 +288,7 @@ contractCmd
   .option('--contract <id>', 'Contract ID (default: active contract)')
   .action(action('required', async (opts: { claw: string; reason: string; contract?: string }) => {
     rootConfig.loadGlobal();
-    const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
+    const audit = actionAuditFor(getClawDir(opts.claw), { fsFactory });
     await contractCancelCommand({ fsFactory }, opts.claw, opts.reason, opts.contract, { audit });
   }));
 
@@ -326,13 +326,13 @@ skillCmd
         throw new CliError('--skill <name> is required with --claw');
       }
       rootConfig.loadGlobal();
-      const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
+      const audit = actionAuditFor(getClawDir(opts.claw), { fsFactory });
       await skillInstallClawCommand({ fsFactory }, opts.claw, opts.skill, { audit });
     } else {
       if (!source) {
         throw new CliError('source path is required');
       }
-      const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+      const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
       await skillInstallUserCommand({ fsFactory }, source, { audit });
     }
   }));
