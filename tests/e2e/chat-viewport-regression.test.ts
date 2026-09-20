@@ -10,14 +10,14 @@ import {
   type StreamReader,
   type StreamEvent,
 } from '../../src/foundation/stream/index.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { AUDIT_FILE } from '../../src/foundation/audit/index.js';
 import {
   createMainTurnUI,
   type MainTurnUIController,
-} from '../../src/cli/commands/chat-viewport.js';
-import { createViewportObservability } from '../../src/cli/commands/chat-viewport-observability.js';
+} from '../../src/viewport/chat-viewport.js';
+import { createViewportObservability } from '../../src/viewport/chat-viewport-observability.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createEventCollector } from '../helpers/event-collector.js';

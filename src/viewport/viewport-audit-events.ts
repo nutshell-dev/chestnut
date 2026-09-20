@@ -31,6 +31,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   DRAFT_QUARANTINED: 'viewport_draft_quarantined',
   DRAFT_CLEAR_FAILED: 'viewport_draft_clear_failed',
   DRAFT_CLEARED: 'viewport_draft_cleared',
+  // phase 1874 Step B: chat crash evidence 归 viewport owner（自 cli/audit-events.ts 迁入）
+  CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',
 } as const;
 
 /**
@@ -38,8 +40,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
  *
  * viewport 高频 UI tick 类 → 'viewport' file、其余留 'audit'（默认主 file）.
  */
-import type { FileSystem } from '../../foundation/fs/index.js';
-import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 
 export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'>> = {
   viewport_render_batch: 'viewport',

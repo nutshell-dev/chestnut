@@ -15,7 +15,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import {
   createViewportAudit,
   VIEWPORT_FILE_ROUTING,
-} from '../../src/cli/commands/viewport-audit-events.js';
+} from '../../src/viewport/viewport-audit-events.js';
 import { _resetFallbackForTest } from '../../src/foundation/audit/writer.js';
 
 describe('chat-viewport file routing (phase 1279)', () => {

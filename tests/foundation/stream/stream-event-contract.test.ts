@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { STREAM_EVENT_NAMES, type StreamEvent, type StreamEventType } from '../../../src/foundation/stream/index.js';
 import { SUBAGENT_EVENTS } from '../../../src/core/subagent/index.js';
 import { STREAM_TASK_EVENTS } from '../../../src/core/async-task-system/index.js';
-import type { CliStreamEvent } from '../../../src/cli/commands/stream-event-types.js';
+import type { CliStreamEvent } from '../../../src/viewport/stream-event-types.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 
 type LLMEventType = LLMEvent['type'];

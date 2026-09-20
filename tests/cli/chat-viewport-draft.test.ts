@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { createViewportAudit } from '../../src/cli/commands/viewport-audit-events.js';
+import { createViewportAudit } from '../../src/viewport/viewport-audit-events.js';
 import {
   clearViewportDraft,
   loadViewportDraft,
   persistViewportDraft,
   VIEWPORT_DRAFT_FILE,
-} from '../../src/cli/commands/chat-viewport-draft.js';
+} from '../../src/viewport/chat-viewport-draft.js';
 import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
 
 describe('chat viewport durable draft', () => {

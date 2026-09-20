@@ -91,7 +91,7 @@ describe('phase 1288 Step D: legacy 根 audit 只读与 segments 边界 ratchet'
     const eventloopEvents = fs.readFileSync(path.join(PROJECT_ROOT, 'src/core/event-loop/audit-events.ts'), 'utf8');
     expect(eventloopEvents).toContain("eventloop_iteration: 'tick'");
     // viewport 分流保持原值
-    const viewportEvents = fs.readFileSync(path.join(PROJECT_ROOT, 'src/cli/commands/viewport-audit-events.ts'), 'utf8');
+    const viewportEvents = fs.readFileSync(path.join(PROJECT_ROOT, 'src/viewport/viewport-audit-events.ts'), 'utf8');
     expect(viewportEvents).toContain("'viewport'");
   });
 

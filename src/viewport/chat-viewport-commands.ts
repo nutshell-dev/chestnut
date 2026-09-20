@@ -1,13 +1,13 @@
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ClawTopology } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import type { ClawTopology } from '../core/claw-topology/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ClawManager } from './chat-viewport-claw-manager.js';
 import type { CommandResult } from './viewport-command-result.js';
 import type { RenderDescriptor } from './viewport-render-descriptor.js';
-import { STREAM_FILE } from '../../foundation/stream/index.js';
+import { STREAM_FILE } from '../foundation/stream/index.js';
 
 export type ThinkingMode = 'compact' | 'full' | 'off';
 

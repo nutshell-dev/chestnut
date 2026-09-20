@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import * as ChatViewportMain from '../../../src/cli/commands/chat-viewport.js';
+import * as ChatViewportMain from '../../../src/viewport/chat-viewport.js';
 import * as fs from 'node:fs/promises';
 
 const SUB_FILES = [
@@ -35,7 +35,7 @@ describe('phase 1209 + 1228 chat-viewport sub-file cluster DAG', () => {
   it('14 sub-file cluster forms a DAG (no cycle / M#5 严格判断)', async () => {
     const importMap = new Map<string, Set<string>>();
     for (const file of SUB_FILES) {
-      const content = await fs.readFile(`src/cli/commands/${file}`, 'utf-8');
+      const content = await fs.readFile(`src/viewport/${file}`, 'utf-8');
       const imports = new Set<string>();
       for (const other of SUB_FILES) {
         if (other === file) continue;
@@ -75,7 +75,7 @@ describe('phase 1209 + 1228 chat-viewport sub-file cluster DAG', () => {
 
   // 反向 3 (扩 scope by phase 1228): thin orchestration imports cluster sub-files
   it('chat-viewport.ts (thin orch) imports cluster sub-files', async () => {
-    const main = await fs.readFile('src/cli/commands/chat-viewport.ts', 'utf-8');
+    const main = await fs.readFile('src/viewport/chat-viewport.ts', 'utf-8');
     let importedCount = 0;
     for (const sub of SUB_FILES) {
       const subBase = sub.replace('.ts', '');

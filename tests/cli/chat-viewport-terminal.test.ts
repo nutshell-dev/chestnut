@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   createScrollbackPreservingTerminal,
   type ViewportTerminalLike,
-} from '../../src/cli/commands/chat-viewport-terminal.js';
+} from '../../src/viewport/chat-viewport-terminal.js';
 
 const TARGET = '\x1b[3J';
 

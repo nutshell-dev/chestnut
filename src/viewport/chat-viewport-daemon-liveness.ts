@@ -9,7 +9,7 @@
  * Per 项目设计原则「事件驱动、避免预灌上下文」.
  */
 
-import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
+import { createWatcher, type Watcher } from '../foundation/file-watcher/index.js';
 
 interface DaemonLivenessMonitorDeps {
   pidFilePath: string;        // abs path to daemon PID file

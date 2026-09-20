@@ -10,10 +10,10 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
+const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
 const viewportSource = fs.readFileSync(viewportPath, 'utf-8');
 
 describe('phase 1325 chat-viewport streamReader.start defense', () => {

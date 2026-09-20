@@ -1,18 +1,18 @@
 import * as path from 'path';
-import { formatErr } from "../../foundation/node-utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 
-import { getActiveContractTimestamp } from '../../core/contract/index.js';
-import { parseStreamLines } from '../../foundation/stream/index.js';
-import { STREAM_FILE } from '../../foundation/stream/index.js';
+import { getActiveContractTimestamp } from '../core/contract/index.js';
+import { parseStreamLines } from '../foundation/stream/index.js';
+import { STREAM_FILE } from '../foundation/stream/index.js';
 import type { CliStreamEvent } from './stream-event-types.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
-import type { ClawTopology } from '../../core/claw-topology/index.js';
-import type { DaemonDir } from '../../foundation/process-manager/index.js';
+import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../core/claw-topology/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
+import type { ClawTopology } from '../core/claw-topology/index.js';
+import type { DaemonDir } from '../foundation/process-manager/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import { createChatViewportWatcher, type Watcher } from './chat-viewport-watcher.js';
 

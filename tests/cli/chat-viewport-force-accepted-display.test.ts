@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createEventHandler, type EventHandlerDeps } from '../../src/cli/commands/chat-viewport-event-handler.js';
+import { createEventHandler, type EventHandlerDeps } from '../../src/viewport/chat-viewport-event-handler.js';
 
 function makeDeps(captured: { lines: string[] }): EventHandlerDeps {
   return {

@@ -1,6 +1,17 @@
+/**
+ * @module L6.CLIProtocol.TerminalText
+ * phase 1874 Step B（cli-viewport-module-boundary）：viewport 模块提取时，CLI 与 viewport
+ * 共用的终端文本呈现原语（视觉宽度截取/单行适配/折行/多行加前缀）集中于 CLI 呈现层 owner。
+ * 原址：cli/utils/string.ts + cli/utils/constants.ts（CLIProcess 内部；viewport 独立后不可深引）。
+ */
+
 import stringWidth from 'string-width';
 
-import { DEFAULT_TERMINAL_WIDTH } from './constants.js';
+/**
+ * Fallback terminal width (columns) when `process.stdout.columns` is unavailable.
+ * 80 = classic POSIX default (predates wide terminals).
+ */
+export const DEFAULT_TERMINAL_WIDTH = 80;
 
 /**
  * 按视觉列宽从头截取字符串（正确处理 emoji / CJK 等宽字符）

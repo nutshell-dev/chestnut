@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { CRON_FILE_ROUTING } from '../../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../../src/daemon/audit-events.js';
 import { EVENTLOOP_FILE_ROUTING } from '../../../src/core/event-loop/audit-events.js';
-import { VIEWPORT_FILE_ROUTING } from '../../../src/cli/commands/viewport-audit-events.js';
+import { VIEWPORT_FILE_ROUTING } from '../../../src/viewport/viewport-audit-events.js';
 
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from '../../../src/assembly/audit-events.js';
@@ -246,7 +246,7 @@ describe('audit-events snapshot lock', () => {
       'foundation/cron/audit-events.ts',
       'daemon/audit-events.ts',
       'core/event-loop/audit-events.ts',
-      'cli/commands/viewport-audit-events.ts',
+      'viewport/viewport-audit-events.ts',
     ];
 
     for (const mod of ownerModules) {

@@ -3,16 +3,16 @@
  * Pure utility helpers for chat-viewport — 0 闭包依赖
  */
 
-import { newShortUuid } from '../../foundation/node-utils/index.js';
-import { VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../../cli-protocol/index.js';
-import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { newShortUuid } from '../foundation/node-utils/index.js';
+import { VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../cli-protocol/index.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
+import { makeChestnutRoot } from '../foundation/claw-identity/index.js';
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
-import { createClawNotifier } from '../../foundation/messaging/index.js';
-import { createDirContext } from '../../foundation/audit/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
+import { createClawNotifier } from '../foundation/messaging/index.js';
+import { createDirContext } from '../foundation/audit/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 const ATTACHMENT_SUBDIR = 'inbox/attachments';

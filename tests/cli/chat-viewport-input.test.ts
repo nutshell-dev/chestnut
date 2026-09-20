@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTuiInputHandler, type InputHandlerDeps } from '../../src/cli/commands/chat-viewport-input.js';
+import { createTuiInputHandler, type InputHandlerDeps } from '../../src/viewport/chat-viewport-input.js';
 
 function createDeps(active = true): InputHandlerDeps {
   return {

@@ -5,14 +5,13 @@
  * Why: session repair logic and crash handling evolve independently of display/event dispatch
  */
 
-import { createSystemAudit } from '../../foundation/audit/index.js';
-import { CLI_AUDIT_EVENTS } from '../audit-events.js';
+import { createSystemAudit } from '../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
-import type { StreamEvent } from '../../foundation/stream/index.js';
+import type { StreamEvent } from '../foundation/stream/index.js';
 
 /** chat-viewport crash audit 写入时 stack trace top-N 行截取（防 audit row 过长）*/
 const CHAT_CRASH_STACK_TOP_N = 5;
@@ -36,7 +35,7 @@ export function createUncaughtHandler(deps: UncaughtHandlerDeps) {
       const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       const stack = err instanceof Error && err.stack ? err.stack.split('\n').slice(0, CHAT_CRASH_STACK_TOP_N).join(' | ') : '';
       shim?.write(
-        CLI_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT,
+        VIEWPORT_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT,
         `pid=${process.pid}`,
         `error=${errMsg}`,
         stack ? `stack_head=${stack}` : '',

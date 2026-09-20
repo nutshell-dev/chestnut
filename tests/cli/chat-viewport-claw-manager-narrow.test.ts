@@ -7,9 +7,9 @@
  * 3. EACCES → emit REFRESH_CLAWS_FAILED
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createClawManager } from '../../src/cli/commands/chat-viewport-claw-manager.js';
+import { createClawManager } from '../../src/viewport/chat-viewport-claw-manager.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { ClawTopology } from '../../src/core/claw-topology/index.js';

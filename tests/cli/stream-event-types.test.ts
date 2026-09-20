@@ -12,7 +12,7 @@ import { STREAM_EVENT_NAMES } from '../../src/foundation/stream/index.js';
 import { SUBAGENT_EVENTS } from '../../src/core/subagent/index.js';
 import { STREAM_TASK_EVENTS } from '../../src/core/async-task-system/index.js';
 import { ASSEMBLY_STREAM_EVENTS } from '../../src/assembly/stream-events.js';
-import { STREAM_WIRE_EVENTS, type CliStreamEventType } from '../../src/cli/commands/stream-event-types.js';
+import { STREAM_WIRE_EVENTS, type CliStreamEventType } from '../../src/viewport/stream-event-types.js';
 
 type Assert<T extends true> = T;
 type UpperEventType =

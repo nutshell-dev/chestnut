@@ -9,9 +9,9 @@
  *     / async-task-system 3 / assembly 1（payload 本地定义）
  */
 
-import { STREAM_EVENT_NAMES, type StreamEventMap } from '../../foundation/stream/index.js';
-import { STREAM_TASK_EVENTS } from '../../core/async-task-system/index.js';
-import { ASSEMBLY_STREAM_EVENTS } from '../../assembly/index.js';
+import { STREAM_EVENT_NAMES, type StreamEventMap } from '../foundation/stream/index.js';
+import { STREAM_TASK_EVENTS } from '../core/async-task-system/index.js';
+import { ASSEMBLY_STREAM_EVENTS } from '../assembly/index.js';
 
 /**
  * phase 1789: 稳定 wire catalog——agent turn 生命周期 6 事件的字符串映射。

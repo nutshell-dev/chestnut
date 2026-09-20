@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { fitLine, sliceFromStart, wrapLine } from '../../src/cli/utils/string.js';
+import { fitLine, sliceFromStart, wrapLine } from '../../src/viewport/terminal-text.js';
 
 describe('sliceFromStart — ANSI CSI 支持', () => {
   it('ANSI 前缀不计入可见宽度', () => {

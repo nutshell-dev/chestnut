@@ -46,7 +46,7 @@ describe('cross-claw-must-via-topology', () => {
    *
    * 防 regression 抓范围：
    * - src/core/**（业务层）
-   * - src/cli/commands/chat-viewport-claw-manager.ts、chat-viewport-claw-panel.ts、chat-viewport-commands.ts（phase 260 cascade、防 regression）
+   * - src/viewport/chat-viewport-claw-manager.ts、chat-viewport-claw-panel.ts、chat-viewport-commands.ts（phase 260 cascade、防 regression）
    *
    * 不抓（by-design）：
    * - src/foundation/**（primitive 层、phase 238 ratify foundation 单源）
@@ -56,9 +56,9 @@ describe('cross-claw-must-via-topology', () => {
 
   const SCAN_DIRS_AND_FILES: string[] = [
     'src/core',
-    'src/cli/commands/chat-viewport-claw-manager.ts',
-    'src/cli/commands/chat-viewport-claw-panel.ts',
-    'src/cli/commands/chat-viewport-commands.ts',
+    'src/viewport/chat-viewport-claw-manager.ts',
+    'src/viewport/chat-viewport-claw-panel.ts',
+    'src/viewport/chat-viewport-commands.ts',
   ];
 
   const WHITELIST_PATH_PREFIXES: string[] = [

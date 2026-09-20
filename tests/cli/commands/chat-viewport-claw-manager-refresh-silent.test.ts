@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createClawManager } from '../../../src/cli/commands/chat-viewport-claw-manager.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../../src/cli/commands/viewport-audit-events.js';
+import { createClawManager } from '../../../src/viewport/chat-viewport-claw-manager.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../../src/viewport/viewport-audit-events.js';
 import { makeAudit } from '../../helpers/audit.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/index.js';
 

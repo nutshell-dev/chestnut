@@ -19,6 +19,8 @@
 
 const SCOPE_DIRS = [
   'src/cli/commands/',
+  // phase 1874 Step B: viewport 独立模块仍在用户面路径内、motion 字面纪律同 cli/commands
+  'src/viewport/',
   'src/daemon/',
   'src/watchdog/',
   'src/foundation/',

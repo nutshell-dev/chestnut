@@ -13,29 +13,30 @@ import { fileURLToPath } from 'url';
 // phase 281: hoist 3 dyn imports
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
-import { CLI_AUDIT_EVENTS } from '../../src/cli/audit-events.js';
+// phase 1874 Step B: crash 事件归 viewport 命名空间（自 cli/audit-events.ts 迁入）
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_STRING } from '../helpers/test-pids.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
-const initPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-init.ts');
-const auditEventsPath = path.join(__dirname, '../../src/cli/audit-events.ts');
+const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
+const initPath = path.join(__dirname, '../../src/viewport/chat-viewport-init.ts');
+const auditEventsPath = path.join(__dirname, '../../src/viewport/viewport-audit-events.ts');
 
 describe('chat-viewport CRASH audit (phase 816 B1)', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
     + fs.readFileSync(initPath, 'utf-8');
   const auditEventsCode = fs.readFileSync(auditEventsPath, 'utf-8');
 
-  it('audit-events.ts 含 CHAT_CRASH_UNCAUGHT const', () => {
+  it('viewport-audit-events.ts 含 CHAT_CRASH_UNCAUGHT const', () => {
     expect(auditEventsCode).toMatch(/CHAT_CRASH_UNCAUGHT:\s*'cli_chat_crash_uncaught'/);
   });
 
   it('uncaughtHandler 内导入 createSystemAudit', () => {
-    expect(sourceCode).toContain("import { createSystemAudit } from '../../foundation/audit/index.js';");
+    expect(sourceCode).toContain("import { createSystemAudit } from '../foundation/audit/index.js';");
   });
 
-  it('uncaughtHandler 内使用 CLI_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT', () => {
-    expect(sourceCode).toContain('CLI_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT');
+  it('uncaughtHandler 内使用 VIEWPORT_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT', () => {
+    expect(sourceCode).toContain('VIEWPORT_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT');
   });
 
   it('uncaughtHandler 内 audit shim 包 try-catch（fail-soft）', () => {
@@ -83,7 +84,7 @@ describe('chat-viewport CRASH audit (phase 816 B1)', () => {
       const shimFs = new NodeFileSystem({ baseDir: tempDir });
       const shim = createSystemAudit(shimFs, tempDir);
       shim.write(
-        CLI_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT,
+        VIEWPORT_AUDIT_EVENTS.CHAT_CRASH_UNCAUGHT,
         `pid=${FAKE_LIVE_PID}`,
         'error=TestError: test',
         'stack_head=TestError: test | at foo | at bar',

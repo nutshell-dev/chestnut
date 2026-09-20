@@ -7,28 +7,28 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/node-utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 
-import { createDirContext } from '../../foundation/audit/index.js';
-import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { getActiveDir, PID_FILE } from '../../foundation/process-manager/index.js';
+import { createDirContext } from '../foundation/audit/index.js';
+import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
+import { getActiveDir, PID_FILE } from '../foundation/process-manager/index.js';
 
 import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
-import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import {  DEFAULT_TERMINAL_WIDTH  } from './terminal-text.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
-import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
+import { createStreamReader, STREAM_FILE } from '../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { createScrollbackPreservingTerminal } from './chat-viewport-terminal.js';
-import { CLAWS_DIR, getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
+import { CLAWS_DIR, getChestnutRoot } from '../foundation/claw-identity/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../core/claw-topology/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 
 
 import { writeUserChat } from './chat-viewport-utils.js';
-import { findRecentTurnStartOffset } from '../../foundation/stream/index.js';
+import { findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { type ClawTrack } from './chat-viewport-claw-line.js';
 import { createMainTurnUI, type MainTurnUIController } from './main-turn-ui.js';
 import { createTaskEventHandler } from './chat-viewport-task-events.js';
@@ -44,7 +44,7 @@ import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-pane
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-init.js';
-import { type TaskId, readShortTaskId, adoptLegacyShortTaskId } from '../../core/async-task-system/index.js';
+import { type TaskId, readShortTaskId, adoptLegacyShortTaskId } from '../core/async-task-system/index.js';
 
 
 /**

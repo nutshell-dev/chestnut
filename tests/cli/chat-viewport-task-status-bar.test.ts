@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createTaskStatusBar, buildTaskLine, makeTaskTrack } from '../../src/cli/commands/chat-viewport-task-status-bar.js';
+import { createTaskStatusBar, buildTaskLine, makeTaskTrack } from '../../src/viewport/chat-viewport-task-status-bar.js';
 
 describe('chat-viewport-task-status-bar', () => {
   const makeDeps = () => {

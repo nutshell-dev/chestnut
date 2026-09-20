@@ -22,6 +22,8 @@
 
 const ALLOWLIST_PREFIXES = [
   'src/cli/',
+  // phase 1874 Step B: viewport 独立模块 = CLI user-face（TUI 终端输出天然边界），同 cli/** 类别
+  'src/viewport/',
   'src/watchdog/',
   'src/foundation/audit/',
 ];

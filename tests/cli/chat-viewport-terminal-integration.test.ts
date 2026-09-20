@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { createScrollbackPreservingTerminal, type ViewportTerminalLike } from '../../src/cli/commands/chat-viewport-terminal.js';
+import { createScrollbackPreservingTerminal, type ViewportTerminalLike } from '../../src/viewport/chat-viewport-terminal.js';
 
 // pi-tui is loaded lazily so the test can run without a real tty.
 async function loadPiTui() {

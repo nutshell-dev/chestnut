@@ -1,3 +1,6 @@
+/** Maximum output lines cap for viewport（原 cli/commands/constants.ts，phase 1874 Step B 随 viewport 归位）*/
+const OUTPUT_LINES_CAP = 5000;
+
 /**
  * Terminal display rendering + output buffer management + resize handler
  * What: body cache, output lines cap, wrap/fit, and resize coordination
@@ -5,9 +8,8 @@
  * Why: terminal rendering strategy (wrap/fit/cache) evolves independently of event handling
  */
 
-import { wrapLine, fitLine } from '../utils/string.js';
-import { OUTPUT_LINES_CAP } from './constants.js';
-import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
+import {  wrapLine, fitLine  } from './terminal-text.js';
+import {  DEFAULT_TERMINAL_WIDTH  } from './terminal-text.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import type { ClawTrack } from './chat-viewport-claw-line.js';

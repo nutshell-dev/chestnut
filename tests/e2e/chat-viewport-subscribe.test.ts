@@ -6,10 +6,10 @@ import { createDirContext } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createStreamReader, STREAM_FILE, type StreamEvent, type StreamReader } from '../../src/foundation/stream/index.js';
 import { makeAudit } from '../helpers/audit.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
-import { createMainTurnUI, createTaskEventHandler, type MainTurnUIController } from '../../src/cli/commands/chat-viewport.js';
-import { prefixLines } from '../../src/cli/utils/string.js';
+import { createMainTurnUI, createTaskEventHandler, type MainTurnUIController } from '../../src/viewport/chat-viewport.js';
+import { prefixLines } from '../../src/viewport/terminal-text.js';
 
 /**
  * Stream reader settle / events propagate 间隔 (150ms).
@@ -217,12 +217,12 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
 
   it('TaskEventHandlerDeps 不含 MainTurnUIController（tsc 层隔离）', () => {
     // 运行时类型断言
-    type HasMainUI = 'mainUI' extends keyof import('../../src/cli/commands/chat-viewport.js').TaskEventHandlerDeps ? true : false;
+    type HasMainUI = 'mainUI' extends keyof import('../../src/viewport/chat-viewport.js').TaskEventHandlerDeps ? true : false;
     const _check: HasMainUI = false;
     expect(_check).toBe(false);
 
     // @ts-expect-error TaskEventHandlerDeps should not accept MainTurnUIController
-    const _bad: import('../../src/cli/commands/chat-viewport.js').TaskEventHandlerDeps = {
+    const _bad: import('../../src/viewport/chat-viewport.js').TaskEventHandlerDeps = {
       getTaskWatch: () => undefined,
       showRecapStream: () => false,
       appendOutput: () => {},

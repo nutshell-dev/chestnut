@@ -14,9 +14,9 @@
  * 防 StreamReader 同步 while 批读 + tui.requestRender nextTick 批 → spinner 0 帧塌缩。
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { prefixLines } from '../utils/string.js';
+import { prefixLines } from './terminal-text.js';
 
 
 type TurnUIPhase =

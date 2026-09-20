@@ -34,6 +34,5 @@ export const CLI_AUDIT_EVENTS = {
   STREAM_SHUTDOWN_FAILED: 'cli_stream_shutdown_failed',                       // NEW phase 1377: claw stream signal/daemon-dead stop() rejection convergence
   DAEMON_START: 'cli_daemon_start',
   DAEMON_STOP: 'cli_daemon_stop',
-  CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',
   DAEMON_SPAWN_RACE_FAILED: 'cli_daemon_spawn_race_failed',
 } as const;

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   createViewportObservability,
   VIEWPORT_OBS_CONFIG,
-} from '../../src/cli/commands/chat-viewport-observability.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+} from '../../src/viewport/chat-viewport-observability.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 
 describe('chat-viewport-observability', () => {
   function makeDeps() {

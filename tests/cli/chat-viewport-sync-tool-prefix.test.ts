@@ -4,8 +4,8 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
-const eventHandlerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-event-handler.ts');
+const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
+const eventHandlerPath = path.join(__dirname, '../../src/viewport/chat-viewport-event-handler.ts');
 
 describe('chat-viewport tool call display (unified, no special prefix)', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')

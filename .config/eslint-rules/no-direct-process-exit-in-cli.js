@@ -12,7 +12,7 @@
 
 const ALLOW_LIST = [
   'src/cli/with-cli-error-handling.ts',
-  'src/cli/commands/chat-viewport-init.ts',
+  'src/viewport/chat-viewport-init.ts',
   'src/cli/commands/subagent-steps.ts',
   // phase 544 (lint:no-direct-process-exit): claw-stream 是长跑 stream tail CLI、
   // SIGINT/SIGTERM 后 shutdown() 内 reader.stop() 完成后立即 process.exit；不依赖
@@ -37,8 +37,9 @@ export default {
   create(context) {
     const filename = context.filename;
 
-    // scope: 仅 src/cli/ 内 enforce（兼容 RuleTester 相对 path 与 ESLint 绝对 path）
-    const isInCliScope = filename.includes('/src/cli/') || filename.startsWith('src/cli/');
+    // scope: src/cli/ + src/viewport/（phase 1874 Step B：viewport 独立模块仍在 CLI 进程内运行、同纪律）
+    const isInCliScope = filename.includes('/src/cli/') || filename.startsWith('src/cli/')
+      || filename.includes('/src/viewport/') || filename.startsWith('src/viewport/');
     if (!isInCliScope) return {};
 
     // allow-list (相对 path endsWith 匹配)

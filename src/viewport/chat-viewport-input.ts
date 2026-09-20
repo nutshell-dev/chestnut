@@ -1,9 +1,9 @@
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { TurnTracker } from './chat-viewport-types.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 export type ShutdownReason = 'daemon_dead' | 'user_quit' | 'stream_end';

@@ -8,7 +8,8 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import type { CliStreamEvent } from './stream-event-types.js';
+// phase 1874 Step B: CliStreamEvent 随 viewport 模块归位（经 barrel 消费）
+import type { CliStreamEvent } from '../../viewport/index.js';
 import * as yaml from 'js-yaml';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';

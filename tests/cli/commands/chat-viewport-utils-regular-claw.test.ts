@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { writeUserChat } from '../../../src/cli/commands/chat-viewport-utils.js';
+import { writeUserChat } from '../../../src/viewport/chat-viewport-utils.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 describe('phase 1388 Bug A: writeUserChat 普通 claw 不嵌套 claws/claws/', () => {

@@ -13,7 +13,7 @@ import { motionStepsCommand, motionStepCommand } from '../../src/cli/commands/mo
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as clawSteps from '../../src/cli/commands/claw-steps.js';
 import { skillInstallClawCommand } from '../../src/cli/commands/skill.js';
-import { createTaskStatusBar } from '../../src/cli/commands/chat-viewport-task-status-bar.js';
+import { createTaskStatusBar } from '../../src/viewport/chat-viewport-task-status-bar.js';
 import { chatCommand } from '../../src/cli/commands/claw-chat.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
@@ -217,7 +217,7 @@ describe('motion-steps', () => {
  */
 describe('chat-viewport shutdown parallelization (B2)', () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const sourcePath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
+  const sourcePath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
   const sourceCode = fs.readFileSync(sourcePath, 'utf-8');
 
   it('source uses Promise.all for taskWatchMap shutdown', () => {
@@ -291,7 +291,7 @@ const REGRESSION_TIMEOUT_MINUTES = 5;
 // 30min 是当前选定值，下限 20min 留 fudge 给后续微调；防 regression 误改回 5min。
 describe('phase 1401: TASK_STALE_TIMEOUT_MS 必 >= 20min', () => {
   const ROOT = path.resolve(__dirname, '../..');
-  const FILE = `${ROOT}/src/cli/commands/chat-viewport.ts`;
+  const FILE = `${ROOT}/src/viewport/chat-viewport.ts`;
 
   it('常量声明 minutes 系数 ≥ 20', () => {
     const src = readFileSync(FILE, 'utf-8');
@@ -314,7 +314,7 @@ describe('phase 1401: TASK_STALE_TIMEOUT_MS 必 >= 20min', () => {
 // (task_attempt_start / turn_start / llm_start) 漏读，间接触发 stale-sweep 误杀。
 describe('phase 1401: task stream reader catch-up from 0', () => {
   const ROOT = path.resolve(__dirname, '../..');
-  const FILE = `${ROOT}/src/cli/commands/chat-viewport-event-handler.ts`;
+  const FILE = `${ROOT}/src/viewport/chat-viewport-event-handler.ts`;
 
   it('taskReader.start(0) explicit — 不 fall back EOF tail', () => {
     const src = readFileSync(FILE, 'utf-8');

@@ -6,8 +6,8 @@ import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identit
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
-import { runChatViewport } from './chat-viewport.js';
-import { createViewportAudit } from './viewport-audit-events.js';
+// phase 1874 Step B: viewport 独立模块入口（CLIProcess 只经 barrel 消费）
+import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';

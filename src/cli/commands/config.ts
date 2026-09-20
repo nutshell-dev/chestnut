@@ -13,9 +13,10 @@ import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.
 import { PRESETS } from '../../foundation/llm-provider/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
-import { fitLine } from '../utils/string.js';
+// phase 1874 Step B: 终端文本原语经 viewport 模块 barrel（CLIProtocol 有 zod-only bare 白名单、不容 string-width）
+import { fitLine } from '../../viewport/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
-import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
+import { DEFAULT_TERMINAL_WIDTH } from '../../viewport/index.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';

@@ -13,10 +13,10 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
-const eventHandlerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-event-handler.ts');
-const initPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-init.ts');
-const auditEventsPath = path.join(__dirname, '../../src/cli/commands/viewport-audit-events.ts');
+const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
+const eventHandlerPath = path.join(__dirname, '../../src/viewport/chat-viewport-event-handler.ts');
+const initPath = path.join(__dirname, '../../src/viewport/chat-viewport-init.ts');
+const auditEventsPath = path.join(__dirname, '../../src/viewport/viewport-audit-events.ts');
 
 describe('chat-viewport error handling (phase 523 + 524)', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')

@@ -88,7 +88,7 @@ export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVEN
  * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 13 个以写端对象字面量为准。
  * 全部成员含 trace_id?: string，因为 stream-callbacks checkWrite 可能注入 trace_id。
  * 上层 10 事件（agent 6 / task 3 / daemon 1）的 payload 判别归 CLI 汇总
- * （cli/commands/stream-event-types.ts 的 UpperPayloadMap）。
+ * （viewport/stream-event-types.ts 的 UpperPayloadMap）。
  */
 export interface StreamEventMap {
   // LLM 恢复安排（5，phase 1826）
@@ -148,7 +148,7 @@ export interface StreamEventMap {
 /**
  * stream.jsonl 事件（协议基础形态，phase 1321 诚实化）。
  * reader/writer 只保证 ts + type 存在（读 JSON 行的真实边界）；
- * 全量判别联合（含上层事件 payload）归消费端汇总（cli/commands/stream-event-types.ts）。
+ * 全量判别联合（含上层事件 payload）归消费端汇总（viewport/stream-event-types.ts）。
  */
 export interface StreamEvent {
   ts: number;

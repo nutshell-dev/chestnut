@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createMainTurnUI } from '../../src/cli/commands/chat-viewport.js';
-import { MIN_DWELL_MS } from '../../src/cli/commands/main-turn-ui.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { createMainTurnUI } from '../../src/viewport/chat-viewport.js';
+import { MIN_DWELL_MS } from '../../src/viewport/main-turn-ui.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 
 describe('MainTurnUIController', () => {
   const makeDeps = () => ({

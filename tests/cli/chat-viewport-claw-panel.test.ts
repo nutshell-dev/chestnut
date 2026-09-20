@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createClawPanel } from '../../src/cli/commands/chat-viewport-claw-panel.js';
-import { makeClawTrack, type ClawTrack } from '../../src/cli/commands/chat-viewport-claw-line.js';
+import { createClawPanel } from '../../src/viewport/chat-viewport-claw-panel.js';
+import { makeClawTrack, type ClawTrack } from '../../src/viewport/chat-viewport-claw-line.js';
 
 function makeAttachedClawBar() {
   const calls: string[] = [];

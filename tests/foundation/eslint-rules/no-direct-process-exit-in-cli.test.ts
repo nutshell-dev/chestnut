@@ -15,7 +15,7 @@ describe('eslint custom rule: no-direct-process-exit-in-cli (phase 312)', () => 
       { code: 'process.exit(1);', filename: 'src/daemon/daemon.ts' },
       // in src/cli/ allow-list
       { code: 'process.exit(1);', filename: 'src/cli/with-cli-error-handling.ts' },
-      { code: 'process.exit(1);', filename: 'src/cli/commands/chat-viewport-init.ts' },
+      { code: 'process.exit(1);', filename: 'src/viewport/chat-viewport-init.ts' },
       { code: 'process.exit(1);', filename: 'src/cli/commands/subagent-steps.ts' },
       // exitCode (not exit) is OK
       { code: 'process.exitCode = 1;', filename: 'src/cli/commands/fake-cmd.ts' },

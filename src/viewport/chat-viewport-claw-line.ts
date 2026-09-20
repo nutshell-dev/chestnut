@@ -4,7 +4,7 @@
  */
 
 import stringWidth from 'string-width';
-import { sliceFromStart, fitLine } from '../utils/string.js';
+import {  sliceFromStart, fitLine  } from './terminal-text.js';
 import { fmtDuration } from './chat-viewport-utils.js';
 
 /** 单个 claw 的运行时跟踪状态 / 1:1 保 chat-viewport.ts:659-680 ClawTrack interface */

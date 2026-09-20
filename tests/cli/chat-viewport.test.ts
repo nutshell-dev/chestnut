@@ -11,20 +11,20 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { createMainTurnUI } from '../../src/cli/commands/chat-viewport.js';
+import { createMainTurnUI } from '../../src/viewport/chat-viewport.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
-const mainTurnUIPath = path.join(__dirname, '../../src/cli/commands/main-turn-ui.ts');
-const clawLinePath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-line.ts');
-const taskEventsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-task-events.ts');
-const clawManagerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-manager.ts');
-const commandsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-commands.ts');
-const turnTrackerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-turn-tracker.ts');
-const eventHandlerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-event-handler.ts');
-const clawPanelPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-panel.ts');
-const displayPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-display.ts');
-const initPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-init.ts');
+const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');
+const mainTurnUIPath = path.join(__dirname, '../../src/viewport/main-turn-ui.ts');
+const clawLinePath = path.join(__dirname, '../../src/viewport/chat-viewport-claw-line.ts');
+const taskEventsPath = path.join(__dirname, '../../src/viewport/chat-viewport-task-events.ts');
+const clawManagerPath = path.join(__dirname, '../../src/viewport/chat-viewport-claw-manager.ts');
+const commandsPath = path.join(__dirname, '../../src/viewport/chat-viewport-commands.ts');
+const turnTrackerPath = path.join(__dirname, '../../src/viewport/chat-viewport-turn-tracker.ts');
+const eventHandlerPath = path.join(__dirname, '../../src/viewport/chat-viewport-event-handler.ts');
+const clawPanelPath = path.join(__dirname, '../../src/viewport/chat-viewport-claw-panel.ts');
+const displayPath = path.join(__dirname, '../../src/viewport/chat-viewport-display.ts');
+const initPath = path.join(__dirname, '../../src/viewport/chat-viewport-init.ts');
 
 describe('chat-viewport Phase 72', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
@@ -265,7 +265,7 @@ describe('chat-viewport Phase 72', () => {
   describe('Phase 91 step5: wrapLine Math.max 防死循环', () => {
     it('wrapLine 实现中应有 Math.max(1', () => {
       const wrapLineSrc = fs.readFileSync(
-        path.join(__dirname, '../../src/cli/utils/string.ts'), 'utf-8'
+        path.join(__dirname, '../../src/viewport/terminal-text.ts'), 'utf-8'
       );
       const wrapLineStart = wrapLineSrc.indexOf('export function wrapLine');
       expect(wrapLineStart).toBeGreaterThan(-1);
@@ -536,7 +536,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   const CLOCK_RE = /\[\d{2}:\d{2}:\d{2}\]/;
 
   it('provider_attempt_failed 静默：不渲染行，audit 保留（phase 1276）', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines, auditWrites } = makeHandlerDeps();
     const recordEvent = vi.fn();
     (deps.observability as any).recordEvent = recordEvent;
@@ -555,7 +555,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('breaker_opened 静默：不渲染行，audit 保留（phase 1276）', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
 
@@ -565,7 +565,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('turn retry 1/3 与 cooldown 行可区分，含 label 与 deadline', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
 
@@ -605,7 +605,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('llm_retry_waiting 不触发 UNKNOWN_EVENT audit；非消费 event 仍走可观察 fallback', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, auditWrites } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
 
@@ -619,7 +619,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('recovery_scheduled：安排类型 + 错误分类穷尽渲染（phase 1826）', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
 
@@ -651,7 +651,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('recovery 结算类事件静默、状态写失败可见（phase 1826）', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines, auditWrites } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
 
@@ -674,7 +674,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('ALL_FAILED 连续失败序列只报第一次，成功 turn 后恢复（phase 1277）', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
 
@@ -695,7 +695,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   });
 
   it('send_content_delta fragments accumulate and flush exactly once at send_content_end (phase 1273)', async () => {
-    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps } = makeHandlerDeps();
     const flushStreaming = vi.fn();
     const flushStreamingNormal = vi.fn();

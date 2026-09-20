@@ -1,7 +1,7 @@
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 export const VIEWPORT_DRAFT_FILE = 'viewport-draft.json';

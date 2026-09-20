@@ -6,25 +6,25 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/node-utils/index.js";
-import { createDirContext } from '../../foundation/audit/index.js';
-import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
-import { TASKS_QUEUES_RESULTS_DIR, readShortTaskId, adoptLegacyShortTaskId } from '../../core/async-task-system/index.js';
+import { formatErr } from "../foundation/node-utils/index.js";
+import { createDirContext } from '../foundation/audit/index.js';
+import { createStreamReader, STREAM_FILE } from '../foundation/stream/index.js';
+import { TASKS_QUEUES_RESULTS_DIR, readShortTaskId, adoptLegacyShortTaskId } from '../core/async-task-system/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
-import type { StreamReader } from '../../foundation/stream/index.js';
+import type { StreamReader } from '../foundation/stream/index.js';
 import type { CliStreamEvent } from './stream-event-types.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
-import { type TaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/index.js';
+import { type TaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../core/async-task-system/index.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
-import { prefixLines } from '../utils/string.js';
-import { formatIsoClock } from '../utils/time.js';
-import { formatRecoveryErrorClass } from '../utils/recovery-display.js';
+import {  prefixLines  } from './terminal-text.js';
+import { formatIsoClock } from './time.js';
+import { formatRecoveryErrorClass } from './recovery-display.js';
 
 
 export interface TaskWatch {

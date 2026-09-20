@@ -5,7 +5,7 @@
  * main runtime（event-loop）与 subagent runtime 共用同一 turn 事件词汇；单一 owner
  * 避免 event-loop↔subagent 双向 import 成环（no-circular）。事件字符串/payload 不变；
  * AgentExecutor 不再拥有跨层事件 catalog（仅消费最小 StreamCallbacks 协议）；
- * CLI 汇总经稳定 wire catalog（cli/commands/stream-event-types.ts）、不导入本 owner。
+ * CLI 汇总经稳定 wire catalog（viewport/stream-event-types.ts）、不导入本 owner。
  */
 export const SUBAGENT_EVENTS = {
   TURN_START: 'turn_start',

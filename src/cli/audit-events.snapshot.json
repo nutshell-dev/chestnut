@@ -39,7 +39,6 @@
       "llm_tool_arg_parse_error"
     ],
     "cli_audit-events": [
-      "cli_chat_crash_uncaught",
       "cli_claw_create",
       "cli_claw_daemon_start",
       "cli_claw_import",
@@ -68,34 +67,6 @@
       "cli_motion_stop",
       "cli_skill_install",
       "cli_stream_shutdown_failed"
-    ],
-    "cli_commands_viewport-audit-events": [
-      "chat_viewport_history_replay_failed",
-      "chat_viewport_invalid_task_id",
-      "chat_viewport_refresh_claws_failed",
-      "chat_viewport_stream_reader_start_failed",
-      "chat_viewport_watcher_callback_failed",
-      "chat_viewport_watcher_failed",
-      "viewport_clawsdir_scan_failed",
-      "viewport_command_error",
-      "viewport_draft_clear_failed",
-      "viewport_draft_cleared",
-      "viewport_draft_persist_failed",
-      "viewport_draft_persisted",
-      "viewport_draft_quarantined",
-      "viewport_draft_restore_failed",
-      "viewport_draft_restored",
-      "viewport_event_ingest",
-      "viewport_attachment_persist_failed",
-      "viewport_interrupt_persist_failed",
-      "viewport_render_batch",
-      "viewport_scrollback_clear_suppressed",
-      "viewport_shutdown",
-      "viewport_spinner_lifecycle",
-      "viewport_task_stream_stale_cleanup",
-      "viewport_task_watch_stop_failed",
-      "viewport_ui_cross_pollution",
-      "viewport_unknown_event"
     ],
     "core_agent-executor_audit-events": [
       {
@@ -1000,6 +971,35 @@
     "core_claw-topology_jobs_outbox-summary_audit-events": [
       "cron_outbox_summary_failed",
       "cron_outbox_summary_written"
+    ],
+    "viewport_viewport-audit-events": [
+      "chat_viewport_history_replay_failed",
+      "chat_viewport_invalid_task_id",
+      "chat_viewport_refresh_claws_failed",
+      "chat_viewport_stream_reader_start_failed",
+      "chat_viewport_watcher_callback_failed",
+      "chat_viewport_watcher_failed",
+      "cli_chat_crash_uncaught",
+      "viewport_attachment_persist_failed",
+      "viewport_clawsdir_scan_failed",
+      "viewport_command_error",
+      "viewport_draft_clear_failed",
+      "viewport_draft_cleared",
+      "viewport_draft_persist_failed",
+      "viewport_draft_persisted",
+      "viewport_draft_quarantined",
+      "viewport_draft_restore_failed",
+      "viewport_draft_restored",
+      "viewport_event_ingest",
+      "viewport_interrupt_persist_failed",
+      "viewport_render_batch",
+      "viewport_scrollback_clear_suppressed",
+      "viewport_shutdown",
+      "viewport_spinner_lifecycle",
+      "viewport_task_stream_stale_cleanup",
+      "viewport_task_watch_stop_failed",
+      "viewport_ui_cross_pollution",
+      "viewport_unknown_event"
     ]
   },
   "fileRouting": {

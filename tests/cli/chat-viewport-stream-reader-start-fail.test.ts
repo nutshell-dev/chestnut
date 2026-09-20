@@ -5,8 +5,8 @@
  * - start() throw → STREAM_READER_START_FAILED audit emit + taskWatchMap.has(taskId) === false
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createEventHandler } from '../../src/cli/commands/chat-viewport-event-handler.js';
-import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { createEventHandler } from '../../src/viewport/chat-viewport-event-handler.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });

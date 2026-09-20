@@ -12,12 +12,12 @@
  *   - 严格分两组（spawn 加 shadow 独立 Map、render 2 Text、GView-7 α 的 viewport 端落地）
  */
 
-import { fitLine } from '../utils/string.js';
-import { formatIsoClock } from '../utils/time.js';
-import { formatRecoveryErrorClass } from '../utils/recovery-display.js';
+import {  fitLine  } from './terminal-text.js';
+import { formatIsoClock } from './time.js';
+import { formatRecoveryErrorClass } from './recovery-display.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
-import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
+import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../core/async-task-system/index.js';
 
 /** chat-viewport task line shortId 显示截断 cap（viewport UI 业务、与 UUID_SHORT_LEN=8 独立可变）*/
 const VIEWPORT_TASK_ID_DISPLAY_CHARS = 6;

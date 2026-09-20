@@ -6,19 +6,19 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/node-utils/index.js";
-import { getActiveContractTimestamp } from '../../core/contract/index.js';
+import { formatErr } from "../foundation/node-utils/index.js";
+import { getActiveContractTimestamp } from '../core/contract/index.js';
 import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-claw-line.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { ClawTopology } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import type { ClawTopology } from '../core/claw-topology/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
+import {  DEFAULT_TERMINAL_WIDTH  } from './terminal-text.js';
 
-import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { STREAM_FILE } from '../../foundation/stream/index.js';
+import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
+import { STREAM_FILE } from '../foundation/stream/index.js';
 
 interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };
@@ -78,9 +78,9 @@ interface RescanClawsDirDeps {
   agentDir: string;
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
   pm: {
-    inspectSpawning: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => { status: string; record?: { generation_id: string } };
+    inspectSpawning: (daemonDir: import('../foundation/process-manager/index.js').DaemonDir) => { status: string; record?: { generation_id: string } };
     // phase 1773: boolean convenience 注入（单一 liveness probe 的单行投影）
-    isAlive: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => boolean;
+    isAlive: (daemonDir: import('../foundation/process-manager/index.js').DaemonDir) => boolean;
   };
 }
 

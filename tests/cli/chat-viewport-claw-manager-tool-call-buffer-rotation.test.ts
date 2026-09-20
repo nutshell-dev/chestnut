@@ -8,8 +8,8 @@
  *   4. turn_end 后 turn_start 重启 → 新 turn 首轮 tool_call 仍走"保留"路径（toolSuccess 已被 turn_end 重置 null）
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createClawManager } from '../../src/cli/commands/chat-viewport-claw-manager.js';
-import { makeClawTrack, type ClawTrack } from '../../src/cli/commands/chat-viewport-claw-line.js';
+import { createClawManager } from '../../src/viewport/chat-viewport-claw-manager.js';
+import { makeClawTrack, type ClawTrack } from '../../src/viewport/chat-viewport-claw-line.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { ClawTopology } from '../../src/core/claw-topology/index.js';

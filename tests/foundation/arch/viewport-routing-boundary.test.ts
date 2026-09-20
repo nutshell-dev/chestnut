@@ -7,6 +7,10 @@
  *  - 两个真实 chat 入口（motion chat / claw chat）恰经 owner 工厂
  *    createViewportAudit 接线，且不各自复制 Record→Map routing 转换（M#7/M#8）；
  *  - createViewportAudit 唯一定义于 owner 模块 viewport-audit-events.ts。
+ *
+ * phase 1874 Step B（cli-viewport-module-boundary）：viewport 提取为独立模块后，
+ * 入口经模块公开面消费——import specifier 命中 owner 模块 barrel（viewport/index.js）
+ * 或 owner 文件亦算合规；断言语义（经 owner 工厂接线、不复制 routing）不变。
  * scanner 原语复用 cli-guidance-boundary-helpers.js；正反 fixture 自证，
  * 避免只对当前源码做脆弱 grep。
  */
@@ -57,12 +61,13 @@ function scanViewportRoutingRefs(dir: string, relativeBase: string): string[] {
   return violations;
 }
 
-/** 入口接线判定：import owner 模块且调用 createViewportAudit(。 */
+/** 入口接线判定：import owner 公开面（模块 barrel 或 owner 文件）且调用 createViewportAudit(。 */
 function entryWiredViaOwnerFactory(text: string): boolean {
   const stripped = stripComments(text);
   let importsOwner = false;
   for (const m of stripped.matchAll(IMPORT_SPECIFIER_RE)) {
-    if (m[1].includes(OWNER_MODULE) && m[0].includes(FACTORY_SYMBOL)) importsOwner = true;
+    const isOwnerSurface = m[1].includes(OWNER_MODULE) || m[1].includes('viewport/index.js');
+    if (isOwnerSurface && m[0].includes(FACTORY_SYMBOL)) importsOwner = true;
   }
   return importsOwner && new RegExp(`${FACTORY_SYMBOL}\\(`).test(stripped);
 }
@@ -90,7 +95,7 @@ describe('phase 1279 Step A: viewport routing boundary（owner = CLI Chat Viewpo
         definitions.push(relativeToSrc(file));
       }
     }
-    expect(definitions).toEqual([path.join('cli', 'commands', 'viewport-audit-events.ts')]);
+    expect(definitions).toEqual([path.join('viewport', 'viewport-audit-events.ts')]);
   });
 
   it('scanner 正反 fixture 自证', () => {
