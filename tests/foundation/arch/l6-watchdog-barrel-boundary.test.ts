@@ -30,6 +30,8 @@ describe('phase 1345: Watchdog single production barrel', () => {
     const barrel = fs.readFileSync(path.join(WATCHDOG, 'index.ts'), 'utf8');
     expect(barrel).not.toMatch(/export\s+\*/);
     expect(barrel).not.toMatch(/_reset|_setWatchdog|acquireWatchdogOwnership|shutdownWatchdog/);
+    // Phase 1878 Step I: 全局 audit writer get/set 面收窄（CLI 经 createWatchdogActionAudit 窄能力）
+    expect(barrel).not.toMatch(/getAuditWriter|setAuditWriter/);
     expect(barrel).toContain('runWatchdogLoop');
     expect(barrel).toContain('ensureWatchdog');
     expect(barrel).toContain('createWatchdogConfigMigration');

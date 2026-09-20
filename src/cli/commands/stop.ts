@@ -8,14 +8,14 @@ import type { RootConfigReader } from '../../assembly/index.js';
 import { getChestnutRoot, getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { enumerateClaws, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { createWorkspaceAudit } from '../../foundation/audit/index.js';
-import { WATCHDOG_FILE_ROUTING, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/index.js';
+import { createWatchdogActionAudit } from '../../watchdog/index.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
 import { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from '../../foundation/process-manager/index.js';
 import { kill, isPidArgvMatching, isAlive, ProcessListUnavailable } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
+import { registerActionResource } from '../action-scope.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 import { resolveDaemonEntry } from '../../daemon/index.js';
@@ -49,16 +49,14 @@ export async function stopAllCommand(
 
   // NEW: workspace audit 注入 watchdog 模块（与 watchdog daemon 同源）
   // 防 sub-1/sub-2/sub-4 audit emit 在 CLI 进程 silent no-op
-  // Phase 1288 Step C: 构造委托 AuditLog 自家 createWorkspaceAudit（固定写
-  // audit/audit.tsv、retention 自 AuditLog config store 自读）；CLI 不再接触
-  // 路径 / maxSizeMb / Assembly config
+  // Phase 1878 Step I: 经窄能力 createWatchdogActionAudit 取得（构造 fail-soft
+  // 内化）+ action scope 注册 dispose；无 scope 直调（测试/内部）时终态自 dispose。
+  const watchdogActionAudit = createWatchdogActionAudit(deps.fsFactory);
+  const watchdogAuditScoped = registerActionResource(
+    'watchdog-action-audit',
+    () => watchdogActionAudit.dispose(),
+  );
   const baseDir = getChestnutRoot();
-  try {
-    setWatchdogAuditWriter(createWorkspaceAudit(deps.fsFactory, baseDir, WATCHDOG_FILE_ROUTING));
-  } catch (err) {
-    console.error('Failed to wire watchdog audit:', err);
-    // fail-soft: 既有 silent no-op fallback 保 (audit 不阻 stop 流程)
-  }
 
   // 1. Stop watchdog first (prevents it from restarting motion)
   await watchdogStop(deps.fsFactory);
@@ -224,6 +222,8 @@ export async function stopAllCommand(
   }
 
   // phase 355 C2: cleanup 完后才 throw、保 cleanup 不被 partial-failure 跳过。
+  // 无 action scope 直调时本处为唯一终态点（正常 return / CliError throw 同在此后）
+  if (!watchdogAuditScoped) watchdogActionAudit.dispose();
   if (stopFailed.length > 0) {
     throw new CliError(
       `Failed to stop ${stopFailed.length} claw(s): ${stopFailed.join(', ')}`,

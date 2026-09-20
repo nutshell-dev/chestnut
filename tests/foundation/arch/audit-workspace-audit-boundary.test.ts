@@ -21,12 +21,14 @@ const AUDIT_DIR = path.join(SRC_ROOT, 'foundation', 'audit');
 
 describe('phase 1288 Step C: workspace audit capability 接管根数据路径', () => {
   const WORKSPACE_AUDIT_FILE = path.join(AUDIT_DIR, 'workspace-audit.ts');
-  // Watchdog 侧 audit wiring 三文件 + CLI 根审计调用方（stop）
-  const ROOT_AUDIT_CALLERS = [
+  // Watchdog 侧 audit wiring 两文件 + CLI 根审计调用方（stop）
+  // Phase 1878 Step I: 构造点收归 audit-wiring.ts（CLI 经 createWatchdogActionAudit
+  // 窄能力消费），stop.ts 不再直接构造。
+  const ROOT_AUDIT_CONSTRUCTORS = [
     'src/watchdog/audit-wiring.ts',
     'src/watchdog/watchdog.ts',
-    'src/cli/commands/stop.ts',
   ];
+  const ROOT_AUDIT_CALLERS = [...ROOT_AUDIT_CONSTRUCTORS, 'src/cli/commands/stop.ts'];
 
   it('createWorkspaceAudit 是 workspace 根审计唯一工厂：固定 AUDIT_PATHS.audit + 自家 config store、经 barrel 导出', () => {
     const text = fs.readFileSync(WORKSPACE_AUDIT_FILE, 'utf8');
@@ -51,10 +53,16 @@ describe('phase 1288 Step C: workspace audit capability 接管根数据路径', 
         expect(text.includes(token), `${rel} must not reference ${token}`).toBe(false);
       }
     }
-    for (const rel of ROOT_AUDIT_CALLERS) {
+    for (const rel of ROOT_AUDIT_CONSTRUCTORS) {
       const text = fs.readFileSync(path.join(PROJECT_ROOT, rel), 'utf8');
       expect(text.includes('createWorkspaceAudit'), `${rel} must construct via createWorkspaceAudit`).toBe(true);
     }
+    // Phase 1878 Step I: CLI 侧不再直接构造——经 createWatchdogActionAudit 窄能力
+    // 消费（生命周期归 action scope dispose），全局 setAuditWriter 面退役。
+    const stopText = fs.readFileSync(path.join(PROJECT_ROOT, 'src/cli/commands/stop.ts'), 'utf8');
+    expect(stopText.includes('createWorkspaceAudit'), 'stop.ts must consume narrow capability, not construct').toBe(false);
+    expect(stopText).toContain('createWatchdogActionAudit');
+    expect(stopText.includes('setAuditWriter'), 'stop.ts must not touch global setter').toBe(false);
   });
 
   it('Watchdog audit wiring 零 Assembly config import（watchdog-context 已切自家 config store、无 audit 段访问）', () => {

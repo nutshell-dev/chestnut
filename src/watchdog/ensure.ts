@@ -10,8 +10,7 @@
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
 import { spawnWatchdogCandidate } from './spawn.js';
-import { ensureAuditWired } from './audit-wiring.js';
-export { ensureAuditWired };
+import { createWatchdogActionAudit } from './audit-wiring.js';
 
 /**
  * 唯一入口、所有 caller 必经此。
@@ -23,7 +22,14 @@ export { ensureAuditWired };
 export async function ensureWatchdog(
   fsFactory: (baseDir: string) => FileSystem,
 ): Promise<void> {
-  ensureAuditWired(fsFactory);
-  if (isWatchdogAlive(fsFactory)) return; // throws WatchdogPidForeignWorkspaceError if foreign
-  await spawnWatchdogCandidate(fsFactory);
+  // Phase 1878 Step I: writer 生命周期归 action/进程——CLI action 已安装则复用
+  // （非 owner handle、dispose no-op）；未安装则本调用 scoped own + 终态 dispose
+  // （旧 ensureAuditWired lazy 悬挂语义退役）。
+  const actionAudit = createWatchdogActionAudit(fsFactory);
+  try {
+    if (isWatchdogAlive(fsFactory)) return; // throws WatchdogPidForeignWorkspaceError if foreign
+    await spawnWatchdogCandidate(fsFactory);
+  } finally {
+    actionAudit.dispose();
+  }
 }

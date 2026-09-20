@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { setAuditWriter, getAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
-import { ensureAuditWired } from '../../src/watchdog/ensure.js';
+import { createWatchdogActionAudit } from '../../src/watchdog/audit-wiring.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -54,7 +54,9 @@ vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   })),
 }));
 
-describe('audit wired in CLI', () => {
+// Phase 1878 Step I: CLI 侧 audit wiring 归位——createWatchdogActionAudit 窄能力
+// （action scoped own + dispose；已安装则非 owner 复用；构造 fail-soft）。
+describe('watchdog action audit in CLI (phase 1878 Step I)', () => {
   let tmpDir: string;
   let chestnutDir: string;
   const originalConsoleError = console.error;
@@ -85,7 +87,7 @@ describe('audit wired in CLI', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('sweepOrphanWatchdogs auto-wires audit when not previously set and writes ORPHAN_SWEEP_KILLED', async () => {
+  it('sweepOrphanWatchdogs scoped-wires audit when not installed, writes ORPHAN_SWEEP_KILLED, disposes at end', async () => {
     // phase 287: fake timers skip the 1000ms SWEEP_GRACE_MS wait inside orphan-sweep
     vi.useFakeTimers();
     try {
@@ -103,9 +105,10 @@ describe('audit wired in CLI', () => {
       const killed = await sweepPromise;
 
       expect(killed).toEqual([2000]);
-      expect(getAuditWriter()).not.toBeNull();
+      // Phase 1878 Step I: scoped own + 终态 dispose——sweep 结束后无悬挂安装
+      expect(getAuditWriter()).toBeNull();
 
-      // Phase 1288 Step C: 新根事件真实落 audit/audit.tsv
+      // Phase 1288 Step C: 新根事件真实落 audit/audit.tsv（dispose 前已同步落盘）
       const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv');
       expect(fs.existsSync(auditPath)).toBe(true);
       const content = fs.readFileSync(auditPath, 'utf8');
@@ -117,26 +120,49 @@ describe('audit wired in CLI', () => {
     }
   });
 
-  it('daemon process: existing audit writer is preserved by ensureAuditWired', () => {
+  it('owner lifecycle: create installs writer; dispose releases + uninstalls; double dispose idempotent', () => {
+    const handle = createWatchdogActionAudit(fsFactory);
+    expect(handle.audit).not.toBeNull();
+    expect(getAuditWriter()).toBe(handle.audit);
+
+    const disposeSpy = vi.spyOn(handle.audit!, 'dispose');
+    handle.dispose();
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    expect(getAuditWriter()).toBeNull();
+
+    expect(() => handle.dispose()).not.toThrow();
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('existing writer (daemon process / prior action install): non-owner handle, dispose does not touch it', () => {
     const mockWriter = makeMockAudit();
+    const disposeSpy = vi.fn();
+    (mockWriter as { dispose?: () => void }).dispose = disposeSpy;
     setAuditWriter(mockWriter);
 
-    ensureAuditWired();
+    const handle = createWatchdogActionAudit(fsFactory);
 
+    expect(handle.audit).toBe(mockWriter);
+    handle.dispose();
+    // 非 owner：安装保留、writer 未被释放
     expect(getAuditWriter()).toBe(mockWriter);
+    expect(disposeSpy).not.toHaveBeenCalled();
     expect(mockWriter.write).not.toHaveBeenCalled();
   });
 
-  it('ensureAuditWired fail-soft when getChestnutFs throws, preserving null audit writer', () => {
+  it('construction fail-soft when chestnut dir unreachable: audit=null + console.error, dispose safe', () => {
     vi.mocked(getNamedSubrootDir).mockImplementation(() => {
       throw new Error('fs unreachable');
     });
 
-    expect(() => ensureAuditWired()).not.toThrow();
+    let handle: ReturnType<typeof createWatchdogActionAudit>;
+    expect(() => { handle = createWatchdogActionAudit(fsFactory); }).not.toThrow();
+    expect(handle!.audit).toBeNull();
     expect(getAuditWriter()).toBeNull();
     expect(console.error).toHaveBeenCalledWith(
       'Failed to wire watchdog audit in CLI:',
       expect.any(Error),
     );
+    expect(() => handle!.dispose()).not.toThrow();
   });
 });

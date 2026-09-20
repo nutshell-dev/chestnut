@@ -3,6 +3,7 @@
  * Watchdog CLI subcommands — start + stop
  */
 import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { setTimeout } from 'timers/promises';
 import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../../foundation/process-exec/index.js';
@@ -10,7 +11,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   type WatchdogProcessDeps,
-  getWatchdogEntryPath, getAuditWriter,
+  getWatchdogEntryPath, createWatchdogActionAudit,
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
   WATCHDOG_AUDIT_EVENTS,
   spawnWatchdogCandidate,
@@ -77,6 +78,21 @@ export async function stopCommand(
   fsFactory: (baseDir: string) => FileSystem,
   deps?: WatchdogProcessDeps,
 ): Promise<void> {
+  // Phase 1878 Step I: writer 生命周期归 action——stop-all / wrapper 已安装则复用
+  // （非 owner handle），未安装则本调用 scoped own + 终态 dispose（不悬挂）。
+  const actionAudit = createWatchdogActionAudit(fsFactory);
+  try {
+    await stopCommandWithAudit(fsFactory, actionAudit.audit, deps);
+  } finally {
+    actionAudit.dispose();
+  }
+}
+
+async function stopCommandWithAudit(
+  fsFactory: (baseDir: string) => FileSystem,
+  audit: AuditLog | null,
+  deps?: WatchdogProcessDeps,
+): Promise<void> {
   const pid = getWatchdogPid(fsFactory);
 
   if (!pid || !isWatchdogAlive(fsFactory)) {
@@ -104,7 +120,7 @@ export async function stopCommand(
         killFn(actualPid, 'TERM');
       } catch (err) {
         console.log('Failed to send SIGTERM:', err);
-        getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${actualPid}`, `error=${formatErr(err)}`);
+        audit?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${actualPid}`, `error=${formatErr(err)}`);
       }
 
       // Wait up to 5s
@@ -121,7 +137,7 @@ export async function stopCommand(
           killFn(actualPid, 'KILL');
         } catch (err) {
           console.log('Failed to send SIGKILL:', err);
-          getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGKILL_FAILED, `pid=${actualPid}`, `error=${formatErr(err)}`);
+          audit?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGKILL_FAILED, `pid=${actualPid}`, `error=${formatErr(err)}`);
         }
         await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
       }
@@ -143,7 +159,7 @@ export async function stopCommand(
   } catch (err) {
     console.log('Failed to send SIGTERM:', err);
     // phase 472 (review N3-L): observability — SIGTERM 失败 emit audit
-    getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
+    audit?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
   }
 
   // Wait up to 5s
@@ -160,7 +176,7 @@ export async function stopCommand(
     } catch (err) {
       console.log('Failed to send SIGKILL:', err);
       // phase 472 (review N3-L): observability — SIGKILL 失败 emit audit
-      getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGKILL_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
+      audit?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGKILL_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
     }
     await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
   }

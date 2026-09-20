@@ -10,11 +10,10 @@ export {
   removeWatchdogPid,
   WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
-export {
-  getWatchdogEntryPath,
-  getAuditWriter,
-  setAuditWriter,
-} from './watchdog-context.js';
+export { getWatchdogEntryPath } from './watchdog-context.js';
+// Phase 1878 Step I: 全局 audit writer get/set 面退役；CLI action 经窄能力取得
+// writer 并自行 dispose（daemon 进程 own 语义不经 barrel）。
+export { createWatchdogActionAudit, type WatchdogActionAudit } from './audit-wiring.js';
 export { spawnWatchdogCandidate } from './spawn.js';
 export { sweepOrphanWatchdogs } from './orphan-sweep.js';
 export { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';

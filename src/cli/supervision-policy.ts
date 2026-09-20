@@ -20,9 +20,9 @@
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { ensureWatchdog, isWatchdogAlive } from '../watchdog/index.js';
+import { ensureWatchdog, isWatchdogAlive, createWatchdogActionAudit } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
-import { createCliActionScope, setCurrentActionScope, type CliActionScope } from './action-scope.js';
+import { createCliActionScope, setCurrentActionScope, registerActionResource, type CliActionScope } from './action-scope.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import { cliExitCodeFor, cliErrorClassFor } from './errors.js';
 import { getChestnutRoot } from '../foundation/claw-identity/index.js';
@@ -42,12 +42,27 @@ async function executePolicy(
   ctx: SupervisionContext,
 ): Promise<void> {
   switch (policy) {
-    case 'required':
-      await ensureWatchdog(ctx.fsFactory);
+    case 'required': {
+      // Phase 1878 Step I: action 级安装 writer 并注册 scope dispose——action 全程
+      // 深调用（watchdog-pid 等）可写、终态统一释放；无 scope（测试直调）则本调用内释放。
+      const actionAudit = createWatchdogActionAudit(ctx.fsFactory);
+      const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
+      try {
+        await ensureWatchdog(ctx.fsFactory);
+      } finally {
+        if (!scoped) actionAudit.dispose();
+      }
       return;
+    }
     case 'observe_only': {
       // 读取存活状态但不启动；foreign workspace 等异常上抛给 withCliErrorHandling
-      isWatchdogAlive(ctx.fsFactory);
+      const actionAudit = createWatchdogActionAudit(ctx.fsFactory);
+      const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
+      try {
+        isWatchdogAlive(ctx.fsFactory);
+      } finally {
+        if (!scoped) actionAudit.dispose();
+      }
       return;
     }
     case 'disabled':
@@ -177,10 +192,21 @@ export function makeEnsureSupervision(fsFactory: (baseDir: string) => FileSystem
   let granted: Promise<SupervisionReceipt> | null = null;
   return () => {
     if (!granted) {
-      granted = ensureWatchdog(fsFactory).then(() => ({
-        grantedAt: Date.now(),
-        via: 'watchdog_ensure' as const,
-      }));
+      granted = (async () => {
+        // Phase 1878 Step I: 同 executePolicy——deferred 路径同样在首次行使时
+        // action 级安装 writer + scope dispose（无 scope 则本调用内释放）。
+        const actionAudit = createWatchdogActionAudit(fsFactory);
+        const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
+        try {
+          await ensureWatchdog(fsFactory);
+        } finally {
+          if (!scoped) actionAudit.dispose();
+        }
+        return {
+          grantedAt: Date.now(),
+          via: 'watchdog_ensure' as const,
+        };
+      })();
     }
     return granted;
   };

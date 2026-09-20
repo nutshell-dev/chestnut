@@ -21,7 +21,7 @@ import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { getWatchdogPid } from './watchdog-pid.js';
 import { getAuditWriter } from './watchdog-context.js';
-import { ensureAuditWired } from './audit-wiring.js';
+import { createWatchdogActionAudit } from './audit-wiring.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 /**
@@ -41,7 +41,21 @@ export async function sweepOrphanWatchdogs(
   opts: { excludePid?: number | null } = {},
   deps?: WatchdogProcessDeps,
 ): Promise<number[]> {
-  ensureAuditWired(fsFactory);
+  // Phase 1878 Step I: writer 生命周期归 action/进程——action 已安装则复用
+  // （非 owner handle），未安装则本调用 scoped own + 终态 dispose（不悬挂）。
+  const actionAudit = createWatchdogActionAudit(fsFactory);
+  try {
+    return await sweepOrphanWatchdogsScoped(fsFactory, opts, deps);
+  } finally {
+    actionAudit.dispose();
+  }
+}
+
+async function sweepOrphanWatchdogsScoped(
+  fsFactory: (baseDir: string) => FileSystem,
+  opts: { excludePid?: number | null } = {},
+  deps?: WatchdogProcessDeps,
+): Promise<number[]> {
   const baseDir = getChestnutRoot();
   const pm = createProcessManagerForCLI({ fsFactory, baseDir });
   const wdPath = getWatchdogEntryPath();
