@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockAuditWrite = vi.fn();
+// phase 1873 Step F: 让位时 dispose shimAudit 断言面
+const mockAuditDispose = vi.fn();
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
   NodeFileSystem: vi.fn().mockImplementation(() => ({})),
@@ -12,6 +14,7 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
     preview: vi.fn((s: string) => s),
     message: vi.fn((s: string) => s),
     summary: vi.fn((s: string) => s),
+    dispose: mockAuditDispose,
   })),
   AUDIT_FILE: 'audit.tsv',
 }));
@@ -37,6 +40,7 @@ describe('daemon-handlers shim audit', () => {
 
   beforeEach(() => {
     mockAuditWrite.mockClear();
+    mockAuditDispose.mockClear();
     mockAuditWrite.mockImplementation(() => {}); // 默 noop
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mockExit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
@@ -75,6 +79,33 @@ describe('daemon-handlers shim audit', () => {
     const unhandledHandlers = process.listeners('unhandledRejection');
     expect(uncaughtHandlers.length).toBeGreaterThanOrEqual(1);
     expect(unhandledHandlers.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('phase 1873 Step F: standDown 移除自身监听 + dispose shimAudit（内层就绪后让位）', () => {
+    const beforeUncaught = process.listeners('uncaughtException').length;
+    const beforeUnhandled = process.listeners('unhandledRejection').length;
+    const handle = registerShimHandlers(constructShimAudit('test-claw')!);
+
+    handle.standDown();
+
+    expect(process.listeners('uncaughtException').length).toBe(beforeUncaught);
+    expect(process.listeners('unhandledRejection').length).toBe(beforeUnhandled);
+    expect(mockAuditDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('phase 1873 Step F: standDown 幂等（重复调用不重复 dispose / 不误删他人监听）', () => {
+    const handle = registerShimHandlers(constructShimAudit('test-claw')!);
+    handle.standDown();
+    // 再注册一个哨兵监听 → 第二次 standDown 不得动它
+    const sentinel = () => {};
+    process.on('uncaughtException', sentinel);
+    try {
+      handle.standDown();
+      expect(process.listeners('uncaughtException')).toContain(sentinel);
+      expect(mockAuditDispose).toHaveBeenCalledTimes(1);
+    } finally {
+      process.removeListener('uncaughtException', sentinel);
+    }
   });
 
   it('uncaughtException → audit daemon_uncaught_exception + console + exit(1)', () => {

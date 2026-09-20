@@ -33,13 +33,21 @@ export function constructShimAudit(rawName: unknown): AuditLog | null {
   }
 }
 
+/** phase 1873 Step F: shim 让位句柄（幂等；让位时释放 shimAudit）。 */
+export interface ShimHandle {
+  /** 内层 graceful handler 就绪后让位：移除 shim 监听（未捕获错误转交内层）+ dispose shimAudit。 */
+  standDown(): void;
+}
+
 /**
  * 注册 process-level uncaughtException + unhandledRejection handler。
- * 双层兜底（shim 层）：audit emit + console + exit(1)。
+ * 双层兜底（shim 层）：只在内层 handler 尚不可用时兜底——audit emit + console +
+ * exit(1)；内层就绪后由 daemon 调 standDown() 让位（phase 1873 Step F：
+ * harsh shim exit 不截断内层 graceful teardown）。
  * audit 写入失败 → silent fallback console（last-resort、不可再 audit 自身）。
  */
-export function registerShimHandlers(shimAudit: AuditLog | null): void {
-  process.on('unhandledRejection', (reason) => {
+export function registerShimHandlers(shimAudit: AuditLog | null): ShimHandle {
+  const onUnhandledRejection = (reason: unknown): void => {
     const msg = errMsg(reason);
     try {
       shimAudit?.write(DAEMON_AUDIT_EVENTS.UNHANDLED_REJECTION, `error=${msg}`);
@@ -49,9 +57,9 @@ export function registerShimHandlers(shimAudit: AuditLog | null): void {
     // daemon handler 加 dispose、flush batched audit buffer 防 telemetry 丢
     shimAudit?.dispose?.();
     process.exit(1);
-  });
+  };
 
-  process.on('uncaughtException', (err) => {
+  const onUncaughtException = (err: unknown): void => {
     const msg = errMsg(err);
     try {
       shimAudit?.write(DAEMON_AUDIT_EVENTS.UNCAUGHT_EXCEPTION, `error=${msg}`);
@@ -60,5 +68,20 @@ export function registerShimHandlers(shimAudit: AuditLog | null): void {
     // phase 518 (review-round4 CLI M、phase 477 gap 补完): shim handler dispose
     shimAudit?.dispose?.();
     process.exit(1);
-  });
+  };
+
+  process.on('unhandledRejection', onUnhandledRejection);
+  process.on('uncaughtException', onUncaughtException);
+
+  let stoodDown = false;
+  return {
+    standDown(): void {
+      if (stoodDown) return;
+      stoodDown = true;
+      process.removeListener('unhandledRejection', onUnhandledRejection);
+      process.removeListener('uncaughtException', onUncaughtException);
+      // phase 1873 Step E 协调：让位 = shim 职责段结束 → dispose shimAudit（flush）。
+      shimAudit?.dispose?.();
+    },
+  };
 }

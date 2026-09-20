@@ -8,7 +8,9 @@ import type { AssembleConfig, Instances } from '../assembly/index.js';
 
 // shim 早期注册（在 daemon command 调用之前；ESM imports hoist 与代码执行解耦）
 const shimAudit = constructShimAudit(process.argv[2]);
-registerShimHandlers(shimAudit);
+// phase 1873 Step F/E: shim 让位句柄——内层 handler 就绪后经 deps 传回的 standDown 让位；
+// 早退场景（内层未就绪）由下方 finally 终态收尾（幂等）。
+const shimHandle = registerShimHandlers(shimAudit);
 
 // phase 1247 Step D: daemon 不再持有 watchdog 探针；fsFactory 仅用于 daemon 自身文件系统。
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
@@ -26,6 +28,8 @@ const daemonCommand = createDaemonCommand({
   fsFactory,
   rootConfig: createRootConfig({ fsFactory }),
   assemble: assembleWithDaemonContributions,
+  // phase 1873 Step F: 内层 graceful handler 就绪后让位（移除 shim 监听 + dispose shimAudit）。
+  shimStandDown: () => shimHandle.standDown(),
   auditEvents: {
     assembleFailed: ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
     daemonStart: ASSEMBLY_AUDIT_EVENTS.DAEMON_START,
@@ -33,4 +37,9 @@ const daemonCommand = createDaemonCommand({
   },
 });
 
-await daemonCommand(process.argv[2]);
+try {
+  await daemonCommand(process.argv[2]);
+} finally {
+  // phase 1873 Step E: 早退场景（shim 未让位）→ entry 终态收尾（幂等；让位过的为 no-op）。
+  shimHandle.standDown();
+}

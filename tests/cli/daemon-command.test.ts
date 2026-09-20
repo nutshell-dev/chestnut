@@ -261,10 +261,13 @@ async function waitForAuditCall(eventName: string, timeoutMs = 15_000): Promise<
 // ============================================================================
 import { createDaemonCommand, _resetDaemonSignalHandlers } from '../../src/daemon/daemon.js';
 
+const mockShimStandDown = vi.hoisted(() => vi.fn());
 const daemonCommand = createDaemonCommand({
   fsFactory,
   rootConfig: { loadGlobal: () => ({} as any), loadClaw: () => ({} as any) },
   assemble: mockState.mockAssemble,
+  // phase 1873 Step F: 内层 handler 就绪后 shim 让位（entry 注入；断言接线）
+  shimStandDown: mockShimStandDown,
   auditEvents: {
     assembleFailed: 'assemble_failed',
     daemonStart: 'daemon_start',
@@ -317,6 +320,8 @@ describe('daemonCommand - A4a startup success', () => {
     expect(mockState.mockRuntime.initialize).toHaveBeenCalled();
     // phase 1873 Step C: daemon 把装配交付的 eventLoop 原样传入驱动循环（只驱动、不构造）
     expect(loopCallOptionsCaptured.eventLoop).toBe(mockEventLoop);
+    // phase 1873 Step F: 内层 graceful handler 就绪后 shim 已让位
+    expect(mockShimStandDown).toHaveBeenCalled();
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith('daemon_start', expect.stringContaining('sha256:'));
     expect(mockState.mockSnapshotCommit).toHaveBeenCalled();
   });

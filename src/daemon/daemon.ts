@@ -57,6 +57,8 @@ interface DaemonCommandDeps {
   // phase 386: inline anonymous type 替为 AssembleConfig (assembly/types.ts) —
   // ML#9 显式表达（不可消除耦合优先编译器检查）+ ML#1 单源真理（消 inline `any` 类型逃逸 + 类型字段重复）
   assemble: (config: AssembleConfig) => Promise<Instances>;
+  /** phase 1873 Step F: 内层 graceful handler 就绪后 shim 让位（entry 注入；缺省无 shim）。 */
+  shimStandDown?: () => void;
   auditEvents: {
     assembleFailed: string;
     daemonStart: string;
@@ -332,6 +334,9 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     };
     process.on('uncaughtException', uncaughtHandler);
     process.on('unhandledRejection', unhandledRejectionHandler);
+    // phase 1873 Step F: 内层 graceful handler 已就绪（含 dispose→retire→exit 链）——
+    // shim 让位（移除自身监听 + dispose shimAudit）；此后未捕获错误走内层、不再被 harsh exit 截断。
+    deps.shimStandDown?.();
 
     // shutdown (SIGTERM/SIGINT)
     const shutdown = async (signal: string): Promise<void> => {
