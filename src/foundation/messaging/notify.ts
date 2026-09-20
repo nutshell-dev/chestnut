@@ -105,6 +105,12 @@ export function notifyClaw(
  * Async inbox write with error propagation.
  * Used by result-delivery where fallback-path retry requires throw semantics.
  * Kept in Messaging module so InboxWriter direct construct stays within module boundary.
+ *
+ * Phase 1869 (Step D) 边界声明（owner 显式契约）：
+ * - resolve = 写入已提交（rename 完成）；目录耐久性降级（平台受限 / 未知）不拒绝
+ *   写入、不静默——由 `inbox_write_durability_degraded` 审计留证，调用方可观察；
+ * - reject = rename 前失败（temp 写入 / fsync / rename），未提交、可安全重试；
+ * - 不承诺 exactly-once / 掉电耐久性 / 跨进程互斥（独立 owner 协议面，另行升档）。
  */
 export async function writeInboxAsync(
   fs: FileSystem,

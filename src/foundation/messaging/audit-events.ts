@@ -11,6 +11,9 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_DONE: 'inbox_done',
   INBOX_WRITTEN: 'inbox_written',
   INBOX_WRITE_FAILED: 'inbox_write_failed',
+  // phase 1869 Step D: 写入已提交（rename 后）但目录耐久性降级
+  // （committed_platform_limited / committed_durability_unknown）——留证不静默。
+  INBOX_WRITE_DURABILITY_DEGRADED: 'inbox_write_durability_degraded',
   INBOX_FAILED: 'inbox_failed',
   INBOX_WATCHER_FAILED: 'inbox_watcher_failed',
   INBOX_WATCHER_CALLBACK_FAILED: 'inbox_watcher_callback_failed',
@@ -71,6 +74,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<MessagingAuditEvent, 'audit
   inbox_done: 'audit',
   inbox_written: 'audit',
   inbox_write_failed: 'audit',
+  inbox_write_durability_degraded: 'audit',
   inbox_failed: 'audit',
   inbox_watcher_failed: 'audit',
   inbox_watcher_callback_failed: 'audit',

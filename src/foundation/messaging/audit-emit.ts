@@ -47,6 +47,26 @@ export function emitInboxWriteFailed(
   );
 }
 
+// ─── INBOX_WRITE_DURABILITY_DEGRADED (phase 1869 Step D) ─────────────────────
+// 写入已提交（rename 后）但目录耐久性降级（committed_platform_limited /
+// committed_durability_unknown）：不得静默——留证供观察与事后审计；
+// 写入不回滚、不重写覆盖（与 execution-recovery writeRecord 同口径）。
+// phase 1851 Step B: business-key opacity — message identity only (id/type).
+export function emitInboxWriteDurabilityDegraded(
+  audit: MessagingAuditSink,
+  opts: { file: string; to?: string; id: string; type: string; durability: string; error: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_WRITE_DURABILITY_DEGRADED,
+    `file=${opts.file}`,
+    `to=${opts.to ?? 'broadcast'}`,
+    `id=${opts.id}`,
+    `type=${opts.type}`,
+    `durability=${opts.durability}`,
+    `error=${opts.error}`,
+  );
+}
+
 // ─── INBOX_BODY_OVERSIZE ──────────────────────────────────────────────────────
 // phase 429 Step A (review medium): inbox body 超 cap、emit + caller 收 throw
 // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)

@@ -172,9 +172,17 @@ describe('InboxReader.findByExtraMeta', () => {
 
     const { InboxWriter } = await import('../../../src/foundation/messaging/inbox-writer.js');
     const originalReadMeta = InboxWriter.readMeta;
-    InboxWriter.readMeta = () => ({ ok: false, error: { kind: 'permission_denied', cause: new Error('EACCES') } } as any);
+    const typedError = { kind: 'permission_denied', cause: new Error('EACCES') };
+    InboxWriter.readMeta = () => ({ ok: false, error: typedError } as any);
     try {
-      await expect(reader.findByExtraMeta('hash', 'perm-hash')).rejects.toThrow(/Dedup scan failed/);
+      const err = await reader.findByExtraMeta('hash', 'perm-hash').then(
+        () => { throw new Error('expected rejection'); },
+        (e: Error) => e,
+      );
+      expect(err.message).toMatch(/Dedup scan failed/);
+      // Phase 1869 (Step D): 完整 cause 链保留（typed InboxMetaError 含原始异常）。
+      expect(err.cause).toBe(typedError);
+      expect((err.cause as { cause: Error }).cause.message).toBe('EACCES');
     } finally {
       InboxWriter.readMeta = originalReadMeta;
     }

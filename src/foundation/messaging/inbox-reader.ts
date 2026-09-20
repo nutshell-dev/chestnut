@@ -1190,6 +1190,14 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
    *   2. 本函数 switch 必报 TS error（assertNever default 不再 unreachable）
    *   3. 作者被强制处理新态的扫描/不扫语义决策
    *
+   * Phase 1869 (Step D) 边界声明（owner 显式契约，caller 可依赖的承诺面）：
+   *   ① 跨目录顺序扫描、非原子——无快照保证：扫描期间其他写者可能改变目录内容，
+   *      caller 不得据一次 null 结果推「全队列唯一」；需要更强保证须走独立
+   *      owner 协议（升档项，不在本接口）；
+   *   ② `failed/` 不扫 = 显式语义决策（见上），caller 对失败消息应 re-emit；
+   *   ③ 确认语义承诺边界 = 正常单实例串行链中「可见消息」的确认，不含
+   *      exactly-once、跨进程互斥或掉电耐久性保证。
+   *
    * @returns null if no hit, else { file: <basename>, location: ScannedInboxLocation }
    */
   async findByExtraMeta(
@@ -1272,7 +1280,9 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         // TOCTOU: file vanished between list and read → skip
         if (result.error.kind === 'not_found') continue;
         // Real error: permission, I/O, parse → propagate. Can't give a definitive "no duplicate".
-        throw new Error(`Dedup scan failed reading ${filePath}: ${result.error.kind}`);
+        // Phase 1869 (Step D): 保留完整 cause 链（typed InboxMetaError 含原始异常），
+        // 调用方可据此分类与审计——不再只留 kind 丢原错误。
+        throw new Error(`Dedup scan failed reading ${filePath}: ${result.error.kind}`, { cause: result.error });
       }
       const meta = result.value;
       if (meta[key] === value) return entry.name;

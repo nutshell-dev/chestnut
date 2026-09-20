@@ -15,6 +15,7 @@ import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitInboxWriteFailed,
   emitInboxWritten,
+  emitInboxWriteDurabilityDegraded,
   emitInboxBodyOversize,
 } from './audit-emit.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
@@ -104,7 +105,19 @@ export class InboxWriter {
       const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
       filename = `${source}-${timestamp}_${priority}_${filenameUuid}.md`;
       const filePath = path.join(this.inboxDir, filename);
-      await this.fs.writeAtomic(filePath, encoded);
+      // Phase 1869 (Step D): 消费 AtomicWriteResult —— rename 已提交、写入不回滚；
+      // 非 durable（平台受限 / 耐久性未知）必须留证，不得静默丢弃。
+      const result = await this.fs.writeAtomic(filePath, encoded);
+      if (result.kind !== 'durable') {
+        emitInboxWriteDurabilityDegraded(this.audit, {
+          file: filename as string,
+          to: msg.to,
+          id: msg.id,
+          type: msg.type,
+          durability: result.kind,
+          error: formatErr(result.error),
+        });
+      }
       emitInboxWritten(this.audit, { file: filename as string, to: msg.to, id: msg.id, type: msg.type });
     } catch (e) {
       const reason = formatErr(e);
@@ -200,7 +213,18 @@ export class InboxWriter {
       this.fs.ensureDirSync(this.inboxDir);
       const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
       filename = `${source}-${timestamp}_${priority}_${messageUuid}.md`;
-      this.fs.writeAtomicSync(path.join(this.inboxDir, filename), encoded);
+      // Phase 1869 (Step D): 与 async write() 同口径——非 durable 结果留证（不静默）。
+      const result = this.fs.writeAtomicSync(path.join(this.inboxDir, filename), encoded);
+      if (result.kind !== 'durable') {
+        emitInboxWriteDurabilityDegraded(this.audit, {
+          file: filename,
+          to: opts.to,
+          id: message.id,
+          type: message.type,
+          durability: result.kind,
+          error: formatErr(result.error),
+        });
+      }
     } catch (e) {
       const reason = formatErr(e);
       emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: opts.to, reason, id: message.id, type: message.type });

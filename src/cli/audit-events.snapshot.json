@@ -793,6 +793,7 @@
       "inbox_stage_quarantine",
       "inbox_watcher_callback_failed",
       "inbox_watcher_failed",
+      "inbox_write_durability_degraded",
       "inbox_write_failed",
       "inbox_written",
       "messaging_outbox_peek_failed",
