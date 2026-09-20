@@ -33,7 +33,7 @@ import { createToolExecutor, createToolRegistry } from '../foundation/tools/inde
 import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
 // Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink 组装（事实源 + Step D narrow sink）
-import { listActiveContracts, getActiveContractTimestamp } from '../core/contract/index.js';
+import { listActiveContracts, getActiveContractTimestamp, makeContractId, readContractTerminalFact } from '../core/contract/index.js';
 import { readStreamExecutionActivityMs } from '../core/event-loop/index.js';
 import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
 
@@ -177,6 +177,9 @@ export async function createRuntimeAssembly(
       dialogStoreFactory: makeDialogStore,
       // Phase 773: plain sync exec registry for subagent spawn paths.
       baseToolRegistry: business.baseToolRegistry,
+      // phase 1869 (Step G): 消费适用性判定只读能力（1846 终态事实查询，目录为权威；
+      // 只读 stat、无缓存）。注入绑定注入面，Runtime 侧 fail-open 语义见其契约注释。
+      contractTerminalFact: (contractId) => readContractTerminalFact(systemFs, makeContractId(contractId)),
       ...messagingDeps,
       ...toolingDeps,
       ...lifecycleDeps,

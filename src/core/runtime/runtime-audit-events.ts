@@ -29,6 +29,10 @@ export const RUNTIME_AUDIT_EVENTS = {
   INBOX_INIT_FAILED: 'runtime_inbox_init_failed',
   // phase 1781: init reconcile 返回 degraded（list/read/move 失败已留证据）——显式降级继续，不伪造 ready
   INBOX_INIT_DEGRADED: 'runtime_inbox_init_degraded',
+  // phase 1869 (Step G): execution_recovery 提醒的契约已终态 → 不交付（ack 到 done/）
+  INBOX_CONTRACT_TERMINAL: 'runtime_inbox_contract_terminal',
+  // phase 1869 (Step G): 终态事实查询失败 → fail-open 照常交付 + 留证（可观察）
+  INBOX_TERMINAL_QUERY_FAILED: 'runtime_inbox_terminal_query_failed',
   SESSION_REPAIR_FAILED: 'runtime_session_repair_failed',
   // phase 1850 Step E: regime switch 事件迁 DIALOG_AUDIT_EVENTS（DialogStore owner / 字符串值 0 漂移）
   // phase 598: optional section read failed audit event
@@ -84,6 +88,8 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   runtime_inbox_nack_failed: 'audit',
   runtime_inbox_drain_errors: 'audit',
   runtime_inbox_init_degraded: 'audit',  // phase 1781
+  runtime_inbox_contract_terminal: 'audit',  // phase 1869 Step G
+  runtime_inbox_terminal_query_failed: 'audit',  // phase 1869 Step G
   runtime_maybe_audit_step_failed: 'audit',
   runtime_turn_contract_id_cache_failed: 'audit',
   runtime_reactive_trim_triggered: 'audit',  // phase 690

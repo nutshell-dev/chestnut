@@ -65,6 +65,8 @@ const mockMemorySystem = {
 let capturedContractCallback: ((contractId: string) => Promise<void>) | undefined;
 let createContractSystemCalls: any[][] = [];
 const capturedContractSystems: any[] = [];
+// phase 1869 Step G: RuntimeDependencies 捕获（装配面接线锁定）。
+const capturedRuntimeDeps: any[] = [];
 
 vi.mock('../../src/foundation/audit/writer.js', () => ({
   AuditWriter: vi.fn(() => ({
@@ -139,7 +141,11 @@ vi.mock('../../src/core/runtime/index.js', async (importOriginal) => {
   return {
     ...(await importOriginal<typeof import('../../src/core/runtime/index.js')>()),
     Runtime: vi.fn(() => mockRuntime),
-    createRuntime: vi.fn(() => mockRuntime),
+    createRuntime: vi.fn((opts: { dependencies?: unknown }) => {
+      // phase 1869 Step G: 捕获 RuntimeDependencies 供装配面接线断言。
+      capturedRuntimeDeps.push(opts?.dependencies);
+      return mockRuntime;
+    }),
     buildMotionSystemPrompt: vi.fn(() => Promise.resolve('')),
     Heartbeat: HeartbeatCtor,
     createHeartbeat: vi.fn((...args: any[]) => new (HeartbeatCtor as any)(...args)),
@@ -752,6 +758,7 @@ describe('phase1396-execution-recovery-wiring', () => {
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
     capturedContractSystems.length = 0;
+    capturedRuntimeDeps.length = 0;
   });
 
   it('assemble 输出 executionRecovery：无 failureSink 属性，failActiveForExecutor 未被提醒装配调用', async () => {
@@ -770,5 +777,12 @@ describe('phase1396-execution-recovery-wiring', () => {
     const probe = await instances.executionRecovery!.probeActivity();
     expect(probe.activeContractId).toBeUndefined();
     await expect(instances.executionRecovery!.isAsyncTaskInFlight!()).resolves.toBe(false);
+  });
+
+  it('phase 1869 Step G: contractTerminalFact capability 已注入（消费适用性判定接线）', async () => {
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    const deps = capturedRuntimeDeps.at(-1);
+    expect(deps).toBeDefined();
+    expect(typeof deps.contractTerminalFact).toBe('function');
   });
 });

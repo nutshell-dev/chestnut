@@ -16,6 +16,7 @@ import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
 import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { ContractTerminalFact } from '../contract/index.js';
 import type { TrimRuntimePolicy } from '../context_manager/index.js';
 import type { AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
@@ -140,6 +141,16 @@ export interface RuntimeDependencies {
    * Assembly 注入实际 composer（基于 MotionGuidanceRegistry）、Runtime 仅调用 callback。
    */
   readonly guidanceCompose?: GuidanceCompose;
+
+  /**
+   * phase 1869 (Step G): 契约终态事实只读查询（1846 `readContractTerminalFact`）。
+   * Runtime.prepareInbox 消费适用性判定用：execution_recovery 提醒的契约已终态 →
+   * 不交付（ack 到 done/ + 审计）。目录为生命周期权威，只读、无缓存。
+   * 生产装配必注入；未注入 = 判定面关闭（照常交付，测试/无契约查询场景）。
+   * 查询失败 fail-open（照常交付 + FATAL 留证）——误丢唤醒机会代价大于一次
+   * 可能过期的交付。
+   */
+  readonly contractTerminalFact?: (contractId: string) => Promise<ContractTerminalFact>;
 }
 
 /** 1:1 保 runtime.ts:74-101 body */

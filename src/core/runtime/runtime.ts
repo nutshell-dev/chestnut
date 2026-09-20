@@ -33,7 +33,12 @@ import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
 import { isStepAbortError, abortEvidenceAuditCols } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
-import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';
+import {
+  RELOAD_LLM_CONFIG_MESSAGE_TYPE,
+  EXECUTION_RECOVERY_MESSAGE_TYPE,
+  EXECUTION_RECOVERY_DELIVERY_META_KEY,
+} from './inbox-message-types.js';
+import type { ContractTerminalFact } from '../contract/index.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
 import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 // phase 1414: HEARTBEAT_AUDIT_EVENTS import removed — heartbeat 自家 inbox-formatter 持 audit
@@ -725,6 +730,14 @@ export class Runtime {
             `Runtime.prepareInbox: claimed entry has no delivery handle: ${entry.filePath}`,
           );
         }
+        // phase 1869 (Step G): 消费适用性判定（execution_recovery × 契约终态事实）。
+        // 不适用 → ack 到 done/ 并留证，不进入交付批次；句柄已结算、从 ownedHandles
+        // 移除（不被后续 catch 回队）。判定与 ack 之间崩溃：消息留 inflight →
+        // reconcile 回 pending → 重启重判（幂等；重复判定不产生副作用）。
+        if (!(await this._judgeContractApplicability(entry, handle))) {
+          ownedHandles.delete(handle);
+          continue;
+        }
         prepared.push({ message: entry.message, handle });
       }
       return { entries: prepared };
@@ -734,6 +747,60 @@ export class Runtime {
       await this.nackHandles([...ownedHandles], formatErr(error), 'inbox_prepare_failure');
       throw error;
     }
+  }
+
+  /**
+   * phase 1869 (Step G): 领取后、格式化前的消费适用性判定。
+   *
+   * 判定对象：type=execution_recovery 且 metadata.contract_id 存在的消息；
+   * 只读查询契约终态事实（1846 readContractTerminalFact，目录为生命周期权威，
+   * 不读契约内部目录；不召回、不删除已写消息）。
+   * - 终态（completed/failed/cancelled）→ 不交付：ack 到 done/（正文保留）
+   *   + runtime_inbox_contract_terminal 留证（file/contract/state/reason/delivery_id）；
+   * - unconfirmed / 非本类型 / 无 contract_id → 可交付；
+   * - 查询失败 → **fail-open**：照常交付 + runtime_inbox_terminal_query_failed 留证
+   *   ——提醒系统的目的即唤醒，误丢唤醒机会的代价大于一次可能过期的交付；失败
+   *   可观察，若实测造成困扰 → 升档 fail-closed（不交付 + reason=query_unknown）。
+   * 未注入查询能力 = 判定面关闭（照常交付；生产装配必注入，装配测试锁定）。
+   *
+   * @returns true = 可交付；false = 已处置（ack 到 done/，不再进入本次交付批次）
+   */
+  private async _judgeContractApplicability(
+    entry: InboxEntry,
+    handle: InboxHandle,
+  ): Promise<boolean> {
+    const message = entry.message;
+    if (message.type !== EXECUTION_RECOVERY_MESSAGE_TYPE) return true;
+    const contractId = message.metadata?.contract_id;
+    if (typeof contractId !== 'string' || contractId.length === 0) return true;
+    const query = this.options.dependencies.contractTerminalFact;
+    if (!query) return true;
+
+    let fact: ContractTerminalFact;
+    try {
+      fact = await query(contractId);
+    } catch (error) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.INBOX_TERMINAL_QUERY_FAILED,
+        `file=${handle.originalFileName}`,
+        `contract=${contractId}`,
+        `error=${formatErr(error)}`,
+      );
+      return true;
+    }
+    if (fact.kind !== 'terminal') return true;
+
+    const deliveryId = message.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY];
+    this.auditWriter.write(
+      RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL,
+      `file=${handle.originalFileName}`,
+      `contract=${contractId}`,
+      `state=${fact.state}`,
+      `reason=contract_terminal`,
+      ...(typeof deliveryId === 'string' && deliveryId.length > 0 ? [`delivery_id=${deliveryId}`] : []),
+    );
+    await this.ackHandles([handle], 'contract_terminal');
+    return false;
   }
 
   /**
