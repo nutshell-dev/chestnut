@@ -66,10 +66,39 @@ export type CliGuidanceLabel =
 /** closed truncation subject union — 超 cap 提示行的事实主语。 */
 export type CliGuidanceSubject = 'contract-events' | 'contract-cancellations';
 
-export interface CliGuidanceDocumentLine {
-  readonly label: CliGuidanceLabel;
-  readonly action: CliGuidanceAction;
+/**
+ * phase 1877 Step D（cli-protocol-label-action-cartesian 收口）：label → 合法 action
+ * 组合映射 —— document line 只允许语义合法组合（如 `restart + contract.show` 类
+ * 无意义组合编译期拒绝，M#9）。矩阵实读自现 Assembly binding 与既有渲染/等价
+ * 测试（不发明新组合、不删既有合法组合）；新增 label 必须显式补本映射
+ * （缺键时 `CliGuidanceDocumentLine` 索引编译失败）。
+ *
+ * 注：`claw.outbox-skip` 当前无 label 配对（phase 1834 确认旧样本配对是 renderer
+ * 样本而非 binding 输出；action 本身仍可经 renderCliGuidanceAction 直接渲染）。
+ */
+interface CliGuidanceLabelActionMap {
+  readonly restart: Extract<CliGuidanceAction, { kind: 'claw.daemon' }>;
+  readonly 'inspect-before-crash': Extract<CliGuidanceAction, { kind: 'claw.steps' | 'claw.status' }>;
+  readonly 'check-current-status': Extract<CliGuidanceAction, { kind: 'claw.status' }>;
+  readonly 'inspect-current-work': Extract<CliGuidanceAction, { kind: 'claw.steps' }>;
+  readonly 'inspect-stuck': Extract<CliGuidanceAction, { kind: 'claw.steps' | 'claw.trace' }>;
+  readonly inspect: Extract<CliGuidanceAction, { kind: 'claw.steps' | 'contract.show' }>;
+  readonly 'read-outbox': Extract<CliGuidanceAction, { kind: 'claw.outbox' }>;
+  readonly 'trace-contract': Extract<CliGuidanceAction, { kind: 'claw.trace' }>;
+  readonly 'show-contract': Extract<CliGuidanceAction, { kind: 'contract.show' }>;
 }
+
+/**
+ * document line：label 为判别键、action 按 label 收窄为合法组合（判别联合的
+ * 映射表形态）；`label: CliGuidanceLabel + action: CliGuidanceAction` 两独立字段的
+ * 笛卡尔积已消除（phase 1877 Step D）。
+ */
+export type CliGuidanceDocumentLine = {
+  [L in CliGuidanceLabel]: {
+    readonly label: L;
+    readonly action: CliGuidanceLabelActionMap[L];
+  };
+}[CliGuidanceLabel];
 
 /** presentation 截断事实：total/shown/subject，不复制 owner 项。 */
 export interface CliGuidanceTruncation {

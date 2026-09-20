@@ -67,6 +67,20 @@ type _ActionKindExhaustive = AssertNever<Exclude<CliGuidanceAction['kind'], type
 type _LabelExhaustive = AssertNever<Exclude<CliGuidanceLabel, typeof ALL_LABELS[number]>>;
 type _SubjectExhaustive = AssertNever<Exclude<CliGuidanceSubject, typeof ALL_SUBJECTS[number]>>;
 
+// phase 1877 Step D（cli-protocol-label-action-cartesian 收口）：非法 label/action
+// 组合编译期拒绝（@ts-expect-error 锁类型穷尽）；合法组合由下方渲染用例全数保留。
+const ILLEGAL_LINE_FIXTURES = [
+  // @ts-expect-error restart 只合法配对 claw.daemon
+  { label: 'restart', action: { kind: 'contract.show', clawId: createCliSafeToken('clawA'), contractId: createCliSafeToken('c1') } },
+  // @ts-expect-error show-contract 只合法配对 contract.show
+  { label: 'show-contract', action: { kind: 'claw.daemon', target: clawA } },
+  // @ts-expect-error trace-contract 不合法配对 claw.status
+  { label: 'trace-contract', action: { kind: 'claw.status', target: clawA } },
+  // @ts-expect-error read-outbox 不合法配对 claw.trace（无 target/clawId 形状交叉）
+  { label: 'read-outbox', action: { kind: 'claw.trace', clawId: createCliSafeToken('clawA'), contractId: createCliSafeToken('c1') } },
+] as const satisfies readonly CliGuidanceDocumentLine[];
+void ILLEGAL_LINE_FIXTURES;
+
 describe('phase 1263 Step A: renderCliGuidanceAction', () => {
   it('claw.daemon / status / steps 渲染裸 claw invocation（真 id 与 placeholder 两种 target）', () => {
     expect(renderCliGuidanceAction({ kind: 'claw.daemon', target: clawA }))
