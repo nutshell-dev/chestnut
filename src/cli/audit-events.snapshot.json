@@ -11,7 +11,7 @@
       "daemon_unclean_exit",
       "disassemble_step_failed"
     ],
-    "assembly_llm-audit-events": [
+    "foundation_llm-orchestrator_audit-events": [
       "llm.hedge.fallback_committed",
       "llm.hedge.primary_post_first_chunk_failure",
       "llm.hedge.primary_recovered",

@@ -9,7 +9,8 @@ import { VIEWPORT_FILE_ROUTING } from '../../../src/cli/commands/viewport-audit-
 
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from '../../../src/assembly/audit-events.js';
-import { ASSEMBLY_LLM_FILE_ROUTING } from '../../../src/assembly/llm-audit-events.js';
+// phase 1872 Step H: routing 声明归 LLMOrchestrator owner（原 assembly/llm-audit-events.ts）
+import { LLM_ORCHESTRATOR_FILE_ROUTING } from '../../../src/foundation/llm-orchestrator/index.js';
 import { CONTRACT_FILE_ROUTING } from '../../../src/core/contract/audit-events.js';
 import { GATEWAY_FILE_ROUTING } from '../../../src/core/gateway/audit-events.js';
 import { HEARTBEAT_FILE_ROUTING } from '../../../src/core/heartbeat/audit-events.js';
@@ -139,7 +140,7 @@ describe('audit-events snapshot lock', () => {
       ...EVENTLOOP_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
-      ...ASSEMBLY_LLM_FILE_ROUTING,
+      ...LLM_ORCHESTRATOR_FILE_ROUTING,
       ...CONTRACT_FILE_ROUTING,
       ...GATEWAY_FILE_ROUTING,
       ...HEARTBEAT_FILE_ROUTING,
@@ -169,7 +170,7 @@ describe('audit-events snapshot lock', () => {
       ...EVENTLOOP_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
-      ...ASSEMBLY_LLM_FILE_ROUTING,
+      ...LLM_ORCHESTRATOR_FILE_ROUTING,
       ...CONTRACT_FILE_ROUTING,
       ...GATEWAY_FILE_ROUTING,
       ...HEARTBEAT_FILE_ROUTING,
@@ -204,7 +205,7 @@ describe('audit-events snapshot lock', () => {
       ...EVENTLOOP_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
-      ...ASSEMBLY_LLM_FILE_ROUTING,
+      ...LLM_ORCHESTRATOR_FILE_ROUTING,
       ...CONTRACT_FILE_ROUTING,
       ...GATEWAY_FILE_ROUTING,
       ...HEARTBEAT_FILE_ROUTING,
@@ -229,7 +230,7 @@ describe('audit-events snapshot lock', () => {
   it('phase 163 owner modules have OWNER_FILE_ROUTING declaration', () => {
     const ownerModules = [
       'assembly/audit-events.ts',
-      'assembly/llm-audit-events.ts',
+      'foundation/llm-orchestrator/audit-events.ts',
       'core/contract/audit-events.ts',
       'core/gateway/audit-events.ts',
       'core/heartbeat/audit-events.ts',

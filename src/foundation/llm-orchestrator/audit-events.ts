@@ -1,11 +1,13 @@
-// src/assembly/llm-audit-events.ts
+// src/foundation/llm-orchestrator/audit-events.ts
 /**
- * LLM Service audit event names.
+ * LLMOrchestrator audit event names（phase 1872 Step H：声明归 owner）。
  *
- * Module-owned event namespace per H1 design (phase336 / r36 α 决策 / H1 收官).
+ * 原文件 src/assembly/llm-audit-events.ts（phase328 起物理归 Assembly）——LLM
+ * provider/retry/breaker/stream 事件协议归 LLMOrchestrator owner，Assembly 只做
+ * sink 绑定。事件字面 1:1 不变（审计历史不断链）；routing 常量随属主更名
+ * ASSEMBLY_LLM_FILE_ROUTING → LLM_ORCHESTRATOR_FILE_ROUTING。
+ *
  * 字符串值与起步态 events.ts LLM_* 系列等价 / 0 漂移。
- *
- * 文件位置与 caller llm-audit-sink.ts 同目录 / phase328 历史关联。
  */
 export const LLM_AUDIT_EVENTS = {
   PROVIDER_ATTEMPT_FAILED: 'llm_provider_attempt_failed',
@@ -44,7 +46,7 @@ export const LLM_AUDIT_EVENTS = {
  *
  * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
  */
-export const ASSEMBLY_LLM_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
+export const LLM_ORCHESTRATOR_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   llm_provider_attempt_failed: 'audit',
   llm_retry_scheduled: 'audit',
   llm_provider_exhausted: 'audit',

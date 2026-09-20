@@ -21,7 +21,8 @@ import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/index.js';
 
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from './audit-events.js';
-import { ASSEMBLY_LLM_FILE_ROUTING } from './llm-audit-events.js';
+// phase 1872 Step H: routing 声明归 LLMOrchestrator owner。
+import { LLM_ORCHESTRATOR_FILE_ROUTING } from '../foundation/llm-orchestrator/index.js';
 import { CONTRACT_FILE_ROUTING } from '../core/contract/index.js';
 import { GATEWAY_FILE_ROUTING } from '../core/gateway/index.js';
 import { HEARTBEAT_FILE_ROUTING } from '../core/heartbeat/index.js';
@@ -44,7 +45,7 @@ const INTERNAL_FILE_ROUTING: Readonly<Record<string, FileName>> = {
   ...EVENTLOOP_FILE_ROUTING,
   // phase 163 新加
   ...ASSEMBLY_FILE_ROUTING,
-  ...ASSEMBLY_LLM_FILE_ROUTING,
+  ...LLM_ORCHESTRATOR_FILE_ROUTING,
   ...CONTRACT_FILE_ROUTING,
   ...GATEWAY_FILE_ROUTING,
   ...HEARTBEAT_FILE_ROUTING,

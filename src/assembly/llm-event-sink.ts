@@ -1,4 +1,5 @@
-import { LLM_AUDIT_EVENTS } from './llm-audit-events.js';
+// phase 1872 Step H: 事件声明归 LLMOrchestrator owner——sink 只做绑定。
+import { LLM_AUDIT_EVENTS } from '../foundation/llm-orchestrator/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { LLMEventSink, LLMEvent } from '../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
