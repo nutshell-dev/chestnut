@@ -21,6 +21,22 @@ export const DAEMON_STATE_DIR = 'daemon' as const;
 export const STARTUP_CHECK_TS_FILE = 'startup_check_ts' as const;
 
 /**
+ * phase 1873 Step I（daemon-loop-fatal-unbounded-retry）：EventLoop fatal（进程级
+ * 异常）的进程内恢复预算——连续 fatal 达上限即显式退出交 Watchdog 重启语义。
+ * Derivation: 3 = 与 EventLoop 内部 unknown-error 恢复同型的最小有界预算；
+ * 「重启由 Watchdog 决策」是既有升级语义（不新增进程内机制）。
+ */
+export const MAX_LOOP_FATAL_RESTARTS = 3;
+
+/**
+ * fatal 恢复退避：1s 起指数翻倍、封顶 30s（可被 stop 中断）。
+ * Derivation: 1s = 快速可恢复故障（瞬时崩溃）不空等；30s = 持续故障下避免
+ * CPU/audit 紧循环（原隐患）同时保留观察窗口。
+ */
+export const LOOP_FATAL_BACKOFF_INITIAL_MS = 1000;
+export const LOOP_FATAL_BACKOFF_MAX_MS = 30_000;
+
+/**
  * Cooldown between startup_check notifications to prevent spam from rapid daemon restarts (ms).
  * Derivation: 10 * 60 * 1000 = 10 min / 给 daemon 真异常 restart loop 足够 cooldown 不灌爆.
  */

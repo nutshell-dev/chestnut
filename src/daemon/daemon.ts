@@ -281,6 +281,13 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       label: isMotion ? '[motion daemon]' : '[daemon]',
       audit: auditWriter,
       motion: isMotion ? { heartbeat: heartbeat ?? undefined } : undefined,
+      // phase 1873 Step I: fatal 恢复预算耗尽 → 走既有 teardown 语义（gracefulShutdown
+      // 的 dispose→retire 链）后退出，交 Watchdog 重启接管。
+      onFatalExhausted: async () => {
+        await gracefulShutdown('loop_fatal_exhausted', 5_000);
+        auditWriter.dispose?.();
+        process.exit(1);
+      },
     });
 
     /**

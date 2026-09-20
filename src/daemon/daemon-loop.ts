@@ -17,7 +17,13 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
-import { DAEMON_STATE_DIR, STARTUP_CHECK_TS_FILE } from './constants.js';
+import {
+  DAEMON_STATE_DIR,
+  STARTUP_CHECK_TS_FILE,
+  MAX_LOOP_FATAL_RESTARTS,
+  LOOP_FATAL_BACKOFF_INITIAL_MS,
+  LOOP_FATAL_BACKOFF_MAX_MS,
+} from './constants.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox, createInboxReader } from '../foundation/messaging/index.js';
@@ -169,6 +175,11 @@ interface DaemonLoopOptions {
   clawId: string;            // agent identifier (kebab-case)
   label: string;             // log prefix, e.g. '[motion daemon]' or '[daemon]'
   audit: AuditLog;           // audit sink
+  /**
+   * phase 1873 Step I: fatal 恢复预算耗尽时的收束回调（daemon 注入 =
+   * gracefulShutdown + audit flush + exit(1)）；缺省 process.exit(1)。
+   */
+  onFatalExhausted?: (info: { consecutive: number }) => Promise<void>;
 
   // motion 专用扩展（claw 整体省略）
   motion?: DaemonMotionExtensions;
@@ -185,7 +196,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   promise: Promise<void>;
   stop: () => void;
 } {
-  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher } = options;
+  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher, onFatalExhausted } = options;
   const heartbeat = motion?.heartbeat;
   const agentFs = fsFactory(agentDir);
   let stopped = false;
@@ -201,6 +212,9 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
     audit,
   });
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  // phase 1873 Step I: fatal 恢复退避 timer/resolver（stop 可中断等待）
+  let fatalBackoffTimer: ReturnType<typeof setTimeout> | null = null;
+  let fatalBackoffResolve: (() => void) | null = null;
 
   // phase 1154 r+ derive: 60s liveness 心跳（B + 心跳混合方案）
   const LIVENESS_HEARTBEAT_MS = 60_000;
@@ -231,7 +245,29 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;
     }
+    // phase 1873 Step I: 中断 fatal 退避等待（停止不被退避拖延）
+    if (fatalBackoffTimer) {
+      clearTimeout(fatalBackoffTimer);
+      fatalBackoffTimer = null;
+    }
+    if (fatalBackoffResolve) {
+      const resolve = fatalBackoffResolve;
+      fatalBackoffResolve = null;
+      resolve();
+    }
   };
+
+  const waitFatalBackoff = (ms: number): Promise<void> => new Promise<void>((resolve) => {
+    fatalBackoffResolve = resolve;
+    fatalBackoffTimer = setTimeout(() => {
+      fatalBackoffTimer = null;
+      fatalBackoffResolve = null;
+      resolve();
+    }, ms);
+  });
+
+  // phase 1873 Step I: 连续 fatal 计数（成功 run 归零）；达上限 → 显式退出交 Watchdog。
+  let consecutiveFatal = 0;
 
   const promise = (async () => {
     while (!stopped) {
@@ -333,6 +369,8 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         try {
           // 核心变更：委托 EventLoop 处理所有调度逻辑
           await eventLoop.run();
+          // phase 1873 Step I: 一次正常返回（本 tick 未被 fatal 中断）→ 恢复预算归零
+          consecutiveFatal = 0;
         } finally {
           if (interruptWatcher) {
             // silent: cleanup path; close 失败不影响 finally 后续
@@ -348,7 +386,34 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           await interruptWatcher.close().catch(() => { /* silent: cleanup */ });
           interruptWatcher = null;
         }
-        audit.write(DAEMON_AUDIT_EVENTS.LOOP_FATAL, `reason=eventloop_crash`, `error=${formatErr(err)}`);
+        // phase 1873 Step I（daemon-loop-fatal-unbounded-retry）：fatal 恢复有界——
+        // 连续计数 + 指数退避（可被 stop 中断）；达上限 → 显式退出交 Watchdog 接管
+        // （不再无退避紧循环）。单次 fatal 的既有「恢复」语义不变。
+        consecutiveFatal++;
+        const delayMs = Math.min(
+          LOOP_FATAL_BACKOFF_INITIAL_MS * 2 ** (consecutiveFatal - 1),
+          LOOP_FATAL_BACKOFF_MAX_MS,
+        );
+        audit.write(
+          DAEMON_AUDIT_EVENTS.LOOP_FATAL,
+          `reason=eventloop_crash`,
+          `consecutive=${consecutiveFatal}`,
+          `backoff_ms=${delayMs}`,
+          `error=${formatErr(err)}`,
+        );
+        if (consecutiveFatal >= MAX_LOOP_FATAL_RESTARTS) {
+          audit.write(
+            DAEMON_AUDIT_EVENTS.LOOP_FATAL,
+            `reason=restart_budget_exhausted`,
+            `consecutive=${consecutiveFatal}`,
+          );
+          if (onFatalExhausted) {
+            await onFatalExhausted({ consecutive: consecutiveFatal });
+            return;  // 收束方负责退出（teardown 后 exit）
+          }
+          process.exit(1);  // 无收束回调（测试/独立使用）：显式退出
+        }
+        await waitFatalBackoff(delayMs);
       }
     }
     clearInterval(livenessTimer);
