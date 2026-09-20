@@ -31,6 +31,7 @@ import { createClawNotifier } from '../foundation/messaging/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { createAggregatedFileRouting } from './file-routing-aggregator.js';
 import { initializeClawLayout } from './claw-subdirs.js';
+import { createAssemblyRollback } from './rollback.js';
 import type { AssembleConfig, AssemblyContributions } from './types.js';
 
 /** Phase 1826: 前台 LLM 恢复 session 的稳定 opaque scope 标识。 */
@@ -107,6 +108,26 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
   let auditWriter: AuditLog | undefined;
   let topology: ClawTopology | undefined;
 
+  // phase 1872 Step C: 内部自清注册表——「部分子资源已构造、后续失败」时反序 teardown，
+  // 保持本工厂不返回半成品的契约（签名不变）。次生失败经 audit 留证；audit 尚不可用
+  // （最早期的失败）时降级 stderr。
+  const rollback = createAssemblyRollback((step, error) => {
+    if (auditWriter) {
+      try {
+        auditWriter.write(
+          ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
+          `module=rollback`,
+          `step=${step}`,
+          `reason=${formatErr(error)}`,
+        );
+        return;
+      } catch {
+        // silent: audit 写入失败 → 降级 stderr 兜底（次生失败信息不丢，见下一行）。
+      }
+    }
+    process.stderr.write(`[assembly] rollback teardown failed step=${step}: ${formatErr(error)}\n`);
+  });
+
   try {
     // --- 1. AuditWriter (daemon.ts L100-104) ---
     try {
@@ -117,6 +138,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     } catch (e) {
       throw new Error(`Assembly: audit writer construct failed: ${formatErr(e)}`, { cause: e });
     }
+    rollback.register('audit_writer', () => auditWriter?.dispose?.());
 
     // phase 281 Step B: scan legacy summon-state/ files and emit audit (no auto-delete)
     try {
@@ -195,6 +217,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: StreamWriter construct failed: ${formatErr(e)}`, { cause: e });
     }
+    rollback.register('stream_writer', () => streamWriter.close());
 
     let llm: LLMOrchestratorOwner;
     let recoverySession: LLMRecoverySession;
@@ -220,6 +243,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: LLMOrchestrator construct failed: ${formatErr(e)}`, { cause: e });
     }
+    rollback.register('llm', () => llm.close());
 
     // phase 1406: 单一 truth source（提前到 toolRegistry 装配前供 wireClawTopology 使用）
     const chestnutRoot = resolveChestnutRoot(clawDir, isMotion);
@@ -306,6 +330,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ContractSystem construct failed: ${formatErr(e)}`, { cause: e });
     }
+    rollback.register('contract_manager', () => contractManager.close());
 
     // Phase 230 / phase 281 Step B: SummonVerifyPolicy 改在 business-systems.ts
     // 注册（依赖 AsyncTaskSystem 构造完成后才能提供 loadTask）。
@@ -352,6 +377,9 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       topology,
     };
   } catch (e) {
+    // phase 1872 Step C: 内部自清——已构造子资源反序 teardown（次生失败 audit/stderr
+    // 留证），本工厂不返回半成品；原 error 原样重抛（cause 链不丢）。
+    await rollback.run();
     throw e;
   }
 }

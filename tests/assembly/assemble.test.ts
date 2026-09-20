@@ -10,6 +10,7 @@ import { buildTestGlobalConfig } from '../helpers/global-config.js';
 // Shared mock instances (captured by vi.mock factories)
 // ============================================================================
 const mockAuditWrite = vi.fn();
+const mockAuditDispose = vi.fn();
 const mockRuntime = {
   stop: vi.fn().mockResolvedValue(undefined),
 };
@@ -32,6 +33,11 @@ const mockHeartbeat = { initialize: vi.fn(async () => ({ kind: 'absent' as const
 
 // phase 1260 Step B: capture ContractSystem instances for direct-attach assertions
 const capturedContractManagers: Array<{ setOnNotify: ReturnType<typeof vi.fn> }> = [];
+// phase 1872 Step C: rollback teardown 断言面（llm close / task shutdown 实例捕获）
+const capturedLlmInstances: Array<{ close: ReturnType<typeof vi.fn> }> = [];
+const capturedTaskSystems: Array<{ shutdown: ReturnType<typeof vi.fn> }> = [];
+/** phase 1872 Step C: 次生失败注入（下一次 llm.close 拒绝）。 */
+let failNextLlmClose = false;
 
 // ============================================================================
 // Construction order tracking (phase155C)
@@ -66,6 +72,8 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
     preview: vi.fn((s: string) => s),
     message: vi.fn((s: string) => s),
     summary: vi.fn((s: string) => s),
+    // phase 1872 Step C: rollback teardown 断言面（AuditLog.dispose? 可选方法）。
+    dispose: mockAuditDispose,
   })),
   AUDIT_FILE: 'audit.tsv',
   TICK_RETENTION_DAYS: 30,
@@ -210,7 +218,15 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
 });
 
 vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
-  const LLMOrchestratorImpl = trackCtor('LLMOrchestratorImpl', () => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() }));
+  const LLMOrchestratorImpl = trackCtor('LLMOrchestratorImpl', () => {
+    const instance = {
+      close: vi.fn(() => (failNextLlmClose ? Promise.reject(new Error('llm close boom')) : Promise.resolve())),
+      healthCheck: vi.fn(),
+      getProviderInfo: vi.fn(),
+    };
+    capturedLlmInstances.push(instance);  // phase 1872 Step C: rollback teardown 断言面
+    return instance;
+  });
   return {
     LLMOrchestratorImpl,
     createLLMOrchestrator: vi.fn((config: any) => new (LLMOrchestratorImpl as any)(config)),
@@ -255,7 +271,11 @@ vi.mock('../../src/core/contract/manager.js', () => {
 });
 
 vi.mock('../../src/core/async-task-system/system.js', () => {
-  const AsyncTaskSystem = trackCtor('AsyncTaskSystem', () => ({ initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() }));
+  const AsyncTaskSystem = trackCtor('AsyncTaskSystem', () => {
+    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() };
+    capturedTaskSystems.push(instance);  // phase 1872 Step C: rollback teardown 断言面
+    return instance;
+  });
   return {
     AsyncTaskSystem,
     createAsyncTaskSystem: vi.fn((clawDir: any, fs: any, options: any) => new (AsyncTaskSystem as any)(clawDir, fs, options)),
@@ -334,6 +354,7 @@ import { createRuntime } from '../../src/core/runtime/index.js';
 import { Heartbeat } from '../../src/core/heartbeat/index.js';
 import { createMemorySystem } from '../../src/core/memory/index.js';
 import { runContractObserver } from '../../src/core/contract/jobs/contract-observer.js';
+import { createContractSystem } from '../../src/core/contract/manager.js';
 
 
 // ============================================================================
@@ -360,6 +381,8 @@ describe('assemble', () => {
     vi.clearAllMocks();
     callOrder.length = 0;
     capturedContractManagers.length = 0;
+    capturedLlmInstances.length = 0;
+    capturedTaskSystems.length = 0;
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
@@ -530,6 +553,107 @@ describe('assemble', () => {
       'phase=construct',
       'reason=cron fail'
     );
+  });
+
+  // --------------------------------------------------------------------------
+  // phase 1872 Step C: 构造回滚（反序 teardown + 次生失败留证）
+  // --------------------------------------------------------------------------
+  describe('构造回滚（phase 1872 Step C）', () => {
+    it('core 内部失败（contract 构造失败）→ 已构造子资源反序自清（llm → streamWriter → audit）', async () => {
+      (createContractSystem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('contract boom')
+      );
+
+      await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+        'Assembly: ContractSystem construct failed: contract boom'
+      );
+
+      const llm = capturedLlmInstances.at(-1)!;
+      expect(llm.close).toHaveBeenCalledTimes(1);
+      expect(mockStreamWriter.close).toHaveBeenCalledTimes(1);
+      expect(mockAuditDispose).toHaveBeenCalled();
+      // 反序：llm（后构造）先释放、audit（先构造）最后释放
+      expect(llm.close.mock.invocationCallOrder[0])
+        .toBeLessThan(mockStreamWriter.close.mock.invocationCallOrder[0]);
+      expect(mockStreamWriter.close.mock.invocationCallOrder[0])
+        .toBeLessThan(mockAuditDispose.mock.invocationCallOrder[0]);
+    });
+
+    it('runtime 阶段失败（snapshot 构造失败）→ assemble 级反序 teardown（task → contract → llm → streamWriter → audit）', async () => {
+      (createSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('snap boom'));
+
+      await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+        'Assembly: Snapshot construct failed: snap boom'
+      );
+
+      const contract = capturedContractManagers.at(-1) as unknown as { close: ReturnType<typeof vi.fn> };
+      const task = capturedTaskSystems.at(-1)!;
+      const llm = capturedLlmInstances.at(-1)!;
+      expect(task.shutdown).toHaveBeenCalledTimes(1);
+      expect(contract.close).toHaveBeenCalledTimes(1);
+      expect(llm.close).toHaveBeenCalledTimes(1);
+      expect(mockStreamWriter.close).toHaveBeenCalledTimes(1);
+      expect(mockAuditDispose).toHaveBeenCalled();
+      const order = [
+        task.shutdown.mock.invocationCallOrder[0],
+        contract.close.mock.invocationCallOrder[0],
+        llm.close.mock.invocationCallOrder[0],
+        mockStreamWriter.close.mock.invocationCallOrder[0],
+        mockAuditDispose.mock.invocationCallOrder[0],
+      ];
+      expect(order).toEqual([...order].sort((a, b) => a - b));
+    });
+
+    it('motion 阶段失败（CronRunner 构造失败）→ runtime/core 资源同样反序 teardown', async () => {
+      (CronRunner as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw new Error('cron boom');
+      });
+
+      await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+        'Assembly: CronRunner construct failed: cron boom'
+      );
+
+      const task = capturedTaskSystems.at(-1)!;
+      expect(mockRuntime.stop).toHaveBeenCalledTimes(1);
+      expect(task.shutdown).toHaveBeenCalledTimes(1);
+      expect(mockAuditDispose).toHaveBeenCalled();
+      // 反序：runtime（后构造）先于 task_system
+      expect(mockRuntime.stop.mock.invocationCallOrder[0])
+        .toBeLessThan(task.shutdown.mock.invocationCallOrder[0]);
+    });
+
+    it('次生失败留证：llm.close 回滚失败 → assemble_failed module=rollback step=llm（无空 catch）、原 error 不丢', async () => {
+      failNextLlmClose = true;
+      (createSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('snap boom'));
+      try {
+        await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+          'Assembly: Snapshot construct failed: snap boom'  // 原 error 未被次生失败遮蔽
+        );
+      } finally {
+        failNextLlmClose = false;
+      }
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        'assemble_failed',
+        'module=rollback',
+        'step=llm',
+        'reason=llm close boom'
+      );
+      // 次生失败不中断反序链：其余 teardown 照常执行
+      expect(mockStreamWriter.close).toHaveBeenCalledTimes(1);
+      expect(mockAuditDispose).toHaveBeenCalled();
+    });
+
+    it('成功路径零漂移：装配成功不触发任何 rollback teardown', async () => {
+      const result = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+
+      expect(result).toBeDefined();
+      expect(mockAuditDispose).not.toHaveBeenCalled();
+      expect(mockStreamWriter.close).not.toHaveBeenCalled();
+      expect(capturedLlmInstances.at(-1)!.close).not.toHaveBeenCalled();
+      expect(capturedTaskSystems.at(-1)!.shutdown).not.toHaveBeenCalled();
+      expect(mockRuntime.stop).not.toHaveBeenCalled();
+    });
   });
 
   it('CronRunner.start 失败时 stream.daemon_started 未调用', async () => {

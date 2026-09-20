@@ -30,6 +30,7 @@ import { createCoreInfrastructure } from './core-infrastructure.js';
 import { createBusinessSystems } from './business-systems.js';
 import { createRuntimeAssembly } from './runtime-assembly.js';
 import { createMotionAddons } from './motion-addons.js';
+import { createAssemblyRollback } from './rollback.js';
 import { disassemble } from './disassemble.js';
 
 
@@ -93,23 +94,52 @@ export async function assemble(
   // phase 1808 Step B: typed dispose outcome（partial_failure 携 clawId/error 证据）
   let disposeContractSystems: (() => Promise<import('./contract-bridge-dispose.js').ContractBridgeDisposeResult>) | undefined;
 
+  // phase 1872 Step C: 未提交装配 rollback 注册表——按构造序登记、失败时反序
+  // best-effort teardown；次生失败经 audit 留证（core 未就绪的早期失败降级 stderr），
+  // 原 error 由下方 rethrow 不丢。成功路径不执行（teardown 走 disassemble）。
+  const rollback = createAssemblyRollback((step, error) => {
+    if (core) {
+      try {
+        core.auditWriter.write(
+          ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
+          `module=rollback`,
+          `step=${step}`,
+          `reason=${formatErr(error)}`,
+        );
+        return;
+      } catch {
+        // silent: audit 写入失败 → 降级 stderr 兜底（次生失败信息不丢，见下一行）。
+      }
+    }
+    process.stderr.write(`[assembly] rollback teardown failed step=${step}: ${formatErr(error)}\n`);
+  });
+
   try {
-    core = await createCoreInfrastructure({
+    const coreInfra = await createCoreInfrastructure({
       config,
       createSkillSystem: overrides?.createSkillSystem,
       contributions,
     });
+    core = coreInfra;
+    // 登记顺序 = 构造序（audit_writer 先登记 → 反序 teardown 最后释放，供其余次生失败留证）。
+    // 注：createCoreInfrastructure 内部失败由其内部注册表自清（不返回半成品）。
+    rollback.register('audit_writer', () => coreInfra.auditWriter.dispose?.());
+    rollback.register('stream_writer', () => coreInfra.streamWriter.close());
+    rollback.register('llm', () => coreInfra.llm.close());
+    rollback.register('contract_manager', () => coreInfra.contractManager.close());
     const {
       systemFs,
       auditWriter, processManager,
-    } = core;
+    } = coreInfra;
 
     // §A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
     // 详 src/assembly/business-systems.ts (phase 37 rename motionInbox{Dir} → selfInbox{Dir} 命名 hygiene)
-    const business = await createBusinessSystems({ core, contributions });
+    const business = await createBusinessSystems({ core: coreInfra, contributions });
+    rollback.register('task_system', () => business.taskSystem.shutdown());
 
-    const { snapshot, streamWriter: sw, runtime, executionRecovery, recoverySession } = await createRuntimeAssembly({ core, business, config });
+    const { snapshot, streamWriter: sw, runtime, executionRecovery, recoverySession } = await createRuntimeAssembly({ core: coreInfra, business, config });
     streamWriter = sw;
+    rollback.register('runtime', () => runtime.stop());
 
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）
     await cleanupOrphanedTemp(systemFs, clawDir, startTime).catch((err: unknown) => {
@@ -125,6 +155,14 @@ export async function assemble(
       heartbeat = motionAddons.heartbeat;
       cronRunner = motionAddons.cronRunner;
       disposeContractSystems = motionAddons.disposeContractSystems;
+      // phase 1872 Step C: motion 面已构造资源纳入反序 teardown（heartbeat 无 teardown API，
+      // 不外泄 timer 句柄、不注册；gateway/cron/bridge 按构造序登记）。
+      const gw = motionAddons.gateway;
+      const cr = motionAddons.cronRunner;
+      const bridgeDispose = motionAddons.disposeContractSystems;
+      if (gw) rollback.register('gateway', () => gw.stop());
+      if (cr) rollback.register('cron_runner', () => cr.stop());
+      if (bridgeDispose) rollback.register('contract_bridge', () => bridgeDispose());
     }
 
     // --- 5. detectUncleanExit (daemon.ts L152) ---
@@ -153,11 +191,9 @@ export async function assemble(
       }, signal),
     };
   } catch (e) {
-    // Best-effort cleanup of already-constructed resources
-    streamWriter?.close?.();
-    core?.llm?.close()?.catch(() => {
-      // silent: assemble throw 兜底 teardown 路径，原 error e 在末尾 throw 不丢失；llm.close 异步失败属次生 error，无 auditWriter 可信通道（catch 内 auditWriter 自身可能未完成构造）
-    });
+    // phase 1872 Step C: 未提交装配反序 teardown（含 llm/streamWriter 的旧空 catch 路径；
+    // 次生失败 audit/stderr 留证）。原 error 原样重抛（cause 链不丢）。
+    await rollback.run();
     throw e;
   }
 }
