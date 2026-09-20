@@ -513,6 +513,60 @@ describe('legacy watchdog.pid 迁移（Phase 1203 Step D）', () => {
   });
 });
 
+describe('phase 1878 Step H: graceful shutdown terminal 写失败保 active', () => {
+  it('terminal 写失败（malformed active）→ 保 active + WATCHDOG_TERMINAL_WRITE_FAILED audit + 仍退出', () => {
+    const record = newWatchdogAttempt(process.pid);
+    seedActive(record);
+    // 弄坏 active owner.json → recordGenerationTerminal 返回 malformed
+    fs.writeFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'), 'NOT_JSON{{{');
+    _setWatchdogOwnershipForTest({
+      attemptId: record.attempt_id,
+      ownerToken: record.owner_token,
+      pid: record.pid,
+      activeDir: WATCHDOG_ACTIVE_DIR,
+      record,
+    });
+
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
+    exitSpy.mockRestore();
+
+    // active 保留（未 retire）——收束交下次启动 stale-owner 检测链
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(true);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, record.owner_token))).toBe(false);
+    // 留证：ctx=graceful_shutdown + generation identity
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_terminal_write_failed');
+    expect(audit).toContain('ctx=graceful_shutdown');
+    expect(audit).toContain(`attempt=${record.attempt_id}`);
+    expect(audit).toContain('signal=SIGTERM');
+  });
+
+  it('terminal 写成功后 retire 语义零漂移（对照）', () => {
+    const record = newWatchdogAttempt(process.pid);
+    seedActive(record);
+    _setWatchdogOwnershipForTest({
+      attemptId: record.attempt_id,
+      ownerToken: record.owner_token,
+      pid: record.pid,
+      activeDir: WATCHDOG_ACTIVE_DIR,
+      record,
+    });
+
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
+    exitSpy.mockRestore();
+
+    // terminal recorded → retire 正常收束
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
+    const terminal = JSON.parse(fs.readFileSync(
+      path.join(chestnutDir, WATCHDOG_RETIRED_DIR, record.owner_token, 'terminal.json'), 'utf-8'));
+    expect(terminal.kind).toBe('stopped');
+    expect(auditLines()).toContain('watchdog_terminal_recorded');
+    expect(auditLines()).not.toContain('watchdog_terminal_write_failed');
+  });
+});
+
 describe('旧 generation 迟到 shutdown', () => {
   it('不动 fresh active、不删新 owner legacy pid 镜像', () => {
     // fresh generation（gen2）占 active + legacy pid 镜像

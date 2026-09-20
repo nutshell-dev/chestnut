@@ -286,7 +286,12 @@ export function shutdownWatchdog(
   if (shuttingDown) return;
   shuttingDown = true;
   log(fsFactory, `[watchdog] Received ${signal}, shutting down...`);
-  // Phase 1247 Step B: 在 retire 前写 stopped terminal；best-effort，失败仍继续 shutdown。
+  // Phase 1247 Step B: 在 retire 前写 stopped terminal。
+  // Phase 1878 Step H: terminal 写失败（failed/malformed）→ 保 active + 留证
+  // （对齐 stale-owner 路径 1247 语义），不再 best-effort 后仍 retire——generation
+  // 唯一终局不得永久缺失。收束交下次启动的 stale-owner 检测链（dead owner +
+  // 缺失 terminal → unclean 补记 → retire，即 acquireWatchdogOwnership 既有路径）。
+  let terminalWriteFailed = false;
   if (currentOwnership && (signal === 'SIGTERM' || signal === 'SIGINT')) {
     const terminal: WatchdogGenerationTerminal = {
       kind: 'stopped',
@@ -310,6 +315,17 @@ export function shutdownWatchdog(
         `kind=stopped`,
         `signal=${signal}`,
       );
+    } else if (terminalResult.kind === 'failed' || terminalResult.kind === 'malformed') {
+      terminalWriteFailed = true;
+      auditWriter.write(
+        WATCHDOG_AUDIT_EVENTS.WATCHDOG_TERMINAL_WRITE_FAILED,
+        `ctx=graceful_shutdown`,
+        `attempt=${currentOwnership.attemptId}`,
+        `token=${currentOwnership.ownerToken}`,
+        `pid=${currentOwnership.pid}`,
+        `signal=${signal}`,
+        `error=${auditWriter.message(formatErr(terminalResult.cause)) ?? formatErr(terminalResult.cause)}`,
+      );
     }
   }
   let saveFailed: string | undefined;
@@ -319,7 +335,7 @@ export function shutdownWatchdog(
     saveFailed = formatErr(err);
     log(fsFactory, `[watchdog] Failed to save state: ${saveFailed}`);
   }
-  removeWatchdogPidLegacy(fsFactory);
+  removeWatchdogPidLegacy(fsFactory, { preserveActive: terminalWriteFailed });
   if (saveFailed) {
     auditWriter.write(WATCHDOG_AUDIT_EVENTS.STOP, `signal=${signal}`, `save_failed=${auditWriter.message(saveFailed)}`);
   } else {
@@ -331,22 +347,31 @@ export function shutdownWatchdog(
   process.exit(saveFailed ? 1 : 0);
 }
 
-/** shutdown 的 PID/ownership 处置：有 ownership 句柄 → generation guard；无句柄 → legacy 旧行为 */
-function removeWatchdogPidLegacy(fsFactory: (baseDir: string) => FileSystem): void {
+/** shutdown 的 PID/ownership 处置：有 ownership 句柄 → generation guard；无句柄 → legacy 旧行为。
+ * Phase 1878 Step H: preserveActive=true（terminal 写失败）时跳过 retire——active
+ * 证据保留，收束交下次启动 stale-owner 检测（unclean 补记 → retire）链。 */
+function removeWatchdogPidLegacy(
+  fsFactory: (baseDir: string) => FileSystem,
+  opts?: { preserveActive?: boolean },
+): void {
   if (currentOwnership) {
-    const fs = getChestnutFs(fsFactory);
-    const retired = retireOwnership(
-      fs,
-      {
-        attemptId: currentOwnership.attemptId,
-        ownerToken: currentOwnership.ownerToken,
-        pid: currentOwnership.pid,
-      },
-      'shutdown',
-    );
-    if (retired.kind !== 'retired' && retired.kind !== 'no_active') {
-      // 旧 generation 迟到 shutdown 命中 fresh active / 他 reclaimer 已处置 → 不动磁盘
-      log(fsFactory, `[watchdog] ownership retire skipped (kind=${retired.kind})`);
+    if (opts?.preserveActive) {
+      log(fsFactory, '[watchdog] terminal write failed; active generation preserved for next-start reconcile');
+    } else {
+      const fs = getChestnutFs(fsFactory);
+      const retired = retireOwnership(
+        fs,
+        {
+          attemptId: currentOwnership.attemptId,
+          ownerToken: currentOwnership.ownerToken,
+          pid: currentOwnership.pid,
+        },
+        'shutdown',
+      );
+      if (retired.kind !== 'retired' && retired.kind !== 'no_active') {
+        // 旧 generation 迟到 shutdown 命中 fresh active / 他 reclaimer 已处置 → 不动磁盘
+        log(fsFactory, `[watchdog] ownership retire skipped (kind=${retired.kind})`);
+      }
     }
     removeWatchdogPidIfOwner(fsFactory, currentOwnership.pid);
     return;
