@@ -1,8 +1,10 @@
 /**
  * @module L6.Watchdog
  * Single public production surface. Implementation and test hooks stay internal.
+ *
+ * Phase 1878 Step J: 主 loop 退出 barrel——只由 watchdog-entry 内部启动
+ * （外部经 entry 面，不可绕过 crash handler 与进程启动协议）。
  */
-export { runWatchdogLoop } from './watchdog.js';
 export { ensureWatchdog } from './ensure.js';
 export {
   getWatchdogPid,

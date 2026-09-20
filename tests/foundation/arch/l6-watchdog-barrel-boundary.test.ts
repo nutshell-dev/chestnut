@@ -32,7 +32,8 @@ describe('phase 1345: Watchdog single production barrel', () => {
     expect(barrel).not.toMatch(/_reset|_setWatchdog|acquireWatchdogOwnership|shutdownWatchdog/);
     // Phase 1878 Step I: 全局 audit writer get/set 面收窄（CLI 经 createWatchdogActionAudit 窄能力）
     expect(barrel).not.toMatch(/getAuditWriter|setAuditWriter/);
-    expect(barrel).toContain('runWatchdogLoop');
+    // Phase 1878 Step J: 主 loop 退出 barrel（只由 watchdog-entry 内部启动）
+    expect(barrel).not.toContain('runWatchdogLoop');
     expect(barrel).toContain('ensureWatchdog');
     expect(barrel).toContain('createWatchdogConfigMigration');
   });
