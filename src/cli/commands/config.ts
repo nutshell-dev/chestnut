@@ -26,8 +26,7 @@ import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
@@ -46,7 +45,7 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   const chestnutRoot = getChestnutRoot();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: chestnutRoot });
   const rootFs = deps.fsFactory(chestnutRoot);
-  const audit = createSystemAudit(rootFs, chestnutRoot);
+  const audit = actionAuditFor(chestnutRoot, deps);
 
   const candidates: string[] = [MOTION_CLAW_ID];
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
@@ -146,9 +145,10 @@ function findProviderIndex(config: ClawGlobalConfig, label: string): { type: 'pr
 }
 
 // phase 1452 Step B: config mutation 子命令 saveGlobal 成功侧 CLI audit。
-// audit 与 notifyRunningDaemons 同根（chestnutRoot）/ 每次调用新实例（createDirContext 语义）。
+// phase 1879 Step D: audit 创建统一经 action scope（有 scope 同 dir 复用 + 统一 dispose；
+// 无 scope 直调回落裸创建）；与 notifyRunningDaemons 同根（chestnutRoot）。
 function configAudit(deps: ConfigCommandDeps): AuditLog {
-  return createDirContext({ fsFactory: deps.fsFactory }, getChestnutRoot()).audit;
+  return actionAuditFor(getChestnutRoot(), deps);
 }
 
 // provider add command

@@ -35,7 +35,7 @@ import {
   runStreamFromArgs,
 } from './claw.js';
 import { CliError } from '../errors.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 // phase 1324 Step A：RouterDeps 收敛为 Claw 命令族共享 deps 的 type alias
@@ -230,7 +230,7 @@ async function runCreate(deps: RouterDeps, name: string, args: string[]): Promis
   if (args.length > 0) {
     throw new CliError(`'create' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  const { audit } = createDirContext(deps, getClawDir(name));
+  const audit = actionAuditFor(getClawDir(name), deps);
   await createCommand(deps, name, { audit });
 }
 
@@ -245,7 +245,7 @@ async function runStop(deps: RouterDeps, name: string, args: string[]): Promise<
   if (args.length > 0) {
     throw new CliError(`'stop' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  const { audit } = createDirContext(deps, getClawDir(name));
+  const audit = actionAuditFor(getClawDir(name), deps);
   await stopCommand(deps, name, { audit });
 }
 
@@ -291,7 +291,7 @@ async function runOutbox(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`invalid 'claw <name> outbox' options: ${(err as Error).message}`, { cause: err });
   }
   deps.rootConfig.loadGlobal();
-  const { audit } = createDirContext(deps, getClawDir(name));
+  const audit = actionAuditFor(getClawDir(name), deps);
   const opts = parser.opts() as { limit: string };
   const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
   await outboxCommand(deps, name, { limit }, { audit });
@@ -313,7 +313,7 @@ async function runOutboxSkip(deps: RouterDeps, name: string, args: string[]): Pr
     throw new CliError("options '--all' and '--limit' are mutually exclusive");
   }
   deps.rootConfig.loadGlobal();
-  const { audit } = createDirContext(deps, getClawDir(name));
+  const audit = actionAuditFor(getClawDir(name), deps);
   const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
   await outboxSkipCommand(deps, name, { all: opts.all === true, limit }, { audit });
 }
@@ -329,7 +329,7 @@ async function runImport(deps: RouterDeps, name: string, args: string[]): Promis
   }
   const [source] = parser.processedArgs;
   const opts = parser.opts() as { target?: string };
-  const { audit } = createDirContext(deps, getClawDir(name));
+  const audit = actionAuditFor(getClawDir(name), deps);
   await importCommand(deps, source as string, name, opts.target, { audit });
 }
 
@@ -391,7 +391,7 @@ async function runDaemon(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`'daemon' takes no extra arguments (got: ${args.join(' ')})`);
   }
   const { clawDaemonCommand } = await import('./claw-daemon.js');
-  const { audit } = createDirContext(deps, getClawDir(name));
+  const audit = actionAuditFor(getClawDir(name), deps);
   await clawDaemonCommand(deps, name, { audit });
 }
 
@@ -434,7 +434,7 @@ async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<vo
     throw new CliError(`Claw "${name}" does not exist`);
   }
   const clawDir = getClawDir(name);
-  const { audit } = createDirContext(deps, clawDir);
+  const audit = actionAuditFor(clawDir, deps);
   await psCommand(
     {
       listMigratedExecTasks: (dir) => listMigratedExecTasks({

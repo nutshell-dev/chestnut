@@ -15,8 +15,11 @@ const mockAuditState = vi.hoisted(() => {
 });
 
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
-const mockCreateSystemAudit = vi.hoisted(() => vi.fn(() => ({
-  write: mockAuditState.write,
+// phase 1879 Step D: stop.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
+// mock 目标随创建点统一迁移（返回 { fs, audit } 形状）。
+const mockCreateDirContext = vi.hoisted(() => vi.fn(() => ({
+  fs: {},
+  audit: { write: mockAuditState.write },
 })));
 
 // ============================================================================
@@ -91,7 +94,7 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/audit/index.js')>();
   return {
     ...actual,
-    createSystemAudit: mockCreateSystemAudit,
+    createDirContext: mockCreateDirContext,
     // Phase 1288 Step C: stop 根审计构造切到 createWorkspaceAudit（mock 防真实磁盘写入）
     createWorkspaceAudit: vi.fn(),
   };
@@ -127,7 +130,7 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
 
   it('stopAllCommand sweeps orphan watchdogs + audits ORPHAN_SWEEP_KILLED', async () => {
     mockFindProcesses.mockReturnValue([1111, 2222]);
-    mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
+    mockCreateDirContext.mockReturnValue({ fs: {}, audit: { write: mockAuditState.write } });
 
     await stopAllCommand(stopDeps);
 
@@ -149,6 +152,6 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
 
     await expect(stopAllCommand(stopDeps)).rejects.toBe(sentinel);
     expect(mockFindProcesses).not.toHaveBeenCalled();
-    expect(mockCreateSystemAudit).not.toHaveBeenCalled();
+    expect(mockCreateDirContext).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,9 @@ import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-
 import { createProcessManagerForCLI } from '../../../src/foundation/process-manager/factories.js';
 import { formatRelativeTime, getLastActiveMs } from '../../../src/cli/commands/claw-shared.js';
 import { aliveLiveness, absentLiveness } from '../../helpers/liveness-fixtures.js';
+import { createDirContext } from '../../../src/foundation/audit/index.js';
+import { createCliActionScope, setCurrentActionScope } from '../../../src/cli/action-scope.js';
+import { getChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const loadGlobal = vi.fn();
@@ -320,5 +323,72 @@ describe('claw-list', () => {
     expect(output).toMatch(/claw-a/);
     expect(output).not.toMatch(/\.DS_Store/);
     expect(output).toMatch(/Total: 1 claw/);
+  });
+});
+
+describe('phase 1879 Step D: listCommand audit 创建经 action scope', () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  function makeScope() {
+    const fakeAudit = {
+      write: vi.fn(),
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+      dispose: vi.fn(),
+    };
+    vi.mocked(createDirContext).mockReset().mockReturnValue({ fs: {}, audit: fakeAudit } as any);
+    const scope = createCliActionScope({ fsFactory });
+    return { scope, fakeAudit };
+  }
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    loadGlobal.mockReset().mockReturnValue({});
+    setCurrentActionScope(null);
+  });
+
+  afterEach(() => {
+    setCurrentActionScope(null);
+    consoleLogSpy.mockRestore();
+  });
+
+  it('成功路径：命令 audit 经 scope（同 dir 复用一次创建）+ disposeAll 统一释放', async () => {
+    const { scope, fakeAudit } = makeScope();
+    vi.mocked(fs.existsSync).mockReturnValue(false);  // 无 claws 目录 → 空 catalog
+    setCurrentActionScope(scope);
+    try {
+      // scope 预取 + 命令内 actionAuditFor 同 dir → 复用同一实例（仅创建一次）
+      expect(scope.auditFor(getChestnutRoot())).toBe(fakeAudit);
+      await listCommand(commandDeps, {});
+    } finally {
+      setCurrentActionScope(null);
+    }
+    expect(vi.mocked(createDirContext)).toHaveBeenCalledTimes(1);
+    expect(fakeAudit.dispose).not.toHaveBeenCalled();
+
+    await scope.disposeAll('completed');
+    expect(fakeAudit.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('错误路径：命令抛出后句柄仍由 scope 持有、disposeAll(\'error\') 释放', async () => {
+    const { scope, fakeAudit } = makeScope();
+    // audit 创建之后：claws 目录枚举抛 EIO → 命令失败（无外层 catch）
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readdirSync).mockImplementation(() => {
+      throw Object.assign(new Error('EIO'), { code: 'EIO' });
+    });
+
+    setCurrentActionScope(scope);
+    try {
+      await expect(listCommand(commandDeps, {})).rejects.toThrow('EIO');
+    } finally {
+      setCurrentActionScope(null);
+    }
+    expect(vi.mocked(createDirContext)).toHaveBeenCalledTimes(1);
+    expect(fakeAudit.dispose).not.toHaveBeenCalled();  // 命令自身不 dispose
+
+    await scope.disposeAll('error');
+    expect(fakeAudit.dispose).toHaveBeenCalledTimes(1);
   });
 });

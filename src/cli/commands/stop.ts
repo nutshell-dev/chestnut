@@ -14,8 +14,8 @@ import { stopCommand as motionStop } from './motion.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
 import { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from '../../foundation/process-manager/index.js';
 import { kill, isPidArgvMatching, isAlive, ProcessListUnavailable } from '../../foundation/process-exec/index.js';
-import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
-import { registerActionResource } from '../action-scope.js';
+import { actionAuditFor, registerActionResource } from '../action-scope.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 import { resolveDaemonEntry } from '../../daemon/index.js';
@@ -35,12 +35,12 @@ export async function stopAllCommand(
   deps.rootConfig.loadGlobal();
 
   // motion-level audit（α 模板复用 / 同 daemon-entry shim / fail-soft）
+  // phase 1879 Step D: 创建经 action scope（无 scope 直调回落裸创建；fail-soft 语义保持）
   let audit: AuditLog | null = extraDeps?.audit ?? null;
   if (!audit) {
     try {
       const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
-      const motionFs = deps.fsFactory(motionDir);
-      audit = createSystemAudit(motionFs, motionDir);
+      audit = actionAuditFor(motionDir, deps);
     } catch (err) {
       console.error('Failed to construct audit for stop command:', err);
       audit = null;  // audit 构造失败 / fallback null / 后续 audit?.write 软降级

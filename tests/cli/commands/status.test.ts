@@ -39,9 +39,11 @@ vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/audit/index.js')>();
   return {
     ...actual,
-    createSystemAudit: vi.fn(() => {
+    // phase 1879 Step D: status.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
+    // mock 目标随创建点统一迁移。
+    createDirContext: vi.fn(() => {
       currentAudit = makeAudit();
-      return currentAudit;
+      return { fs: makeFakeFs(), audit: currentAudit };
     }),
   };
 });

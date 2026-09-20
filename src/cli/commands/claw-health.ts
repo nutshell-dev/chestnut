@@ -6,7 +6,7 @@
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { hasActiveContract, listLegacyPausedContracts } from '../../core/contract/index.js';
@@ -30,7 +30,7 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   const clawFs = deps.fsFactory(clawDir);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
-  const { audit: systemAudit } = createDirContext(deps, baseDir);
+  const systemAudit = actionAuditFor(baseDir, deps);
 
   const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
 

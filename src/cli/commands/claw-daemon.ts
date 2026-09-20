@@ -10,7 +10,7 @@
 import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
@@ -40,8 +40,7 @@ export async function clawDaemonCommand(
   }
   const clawDir = getClawDir(name);
   const baseDir = getChestnutRoot();
-  const nodeFs = deps.fsFactory(baseDir);
-  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const systemAudit = actionAuditFor(baseDir, deps);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   const clawId = makeClawId(name);

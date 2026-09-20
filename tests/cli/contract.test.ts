@@ -6,11 +6,10 @@ import { type ContractYaml } from '../../src/core/contract/index.js';
 
 vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/foundation/audit/index.js')>()),
+  // phase 1879 Step D: notifyContractCreated 的 audit 经 actionAuditFor（无 scope 回落
+  // createDirContext；fs 则直接取 deps.fsFactory）——本 mock 只保留 audit 捕获面。
   createDirContext: vi.fn((_deps: any) => ({
-    fs: {
-      appendSync: vi.fn(() => { throw new Error('disk full'); }),
-      existsSync: vi.fn(() => false),
-    },
+    fs: {},
     audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)},
   })),
 }));
@@ -35,14 +34,13 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 describe('notifyContractCreated audit observability', () => {
   it('audit includes contractId on append failure', () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    (createDirContext as any).mockReturnValue({
-      fs: {
-        appendSync: vi.fn(() => { throw new Error('disk full'); }),
-        resolve: vi.fn((p: string) => path.resolve(p)),
-        existsSync: vi.fn(() => false),
-      },
-      audit,
-    });
+    (createDirContext as any).mockReturnValue({ fs: {}, audit });
+    // phase 1879 Step D: stream 写盘 fs 直接取 deps.fsFactory——经 fsFactory 注入写失败面
+    const failingFs = {
+      appendSync: vi.fn(() => { throw new Error('disk full'); }),
+      resolve: vi.fn((p: string) => path.resolve(p)),
+      existsSync: vi.fn(() => false),
+    };
 
     const contract = {
       title: 'Test Contract',
@@ -50,7 +48,7 @@ describe('notifyContractCreated audit observability', () => {
       subtasks: [{ id: 't1', description: 'd1' }],
     } as any;
 
-    notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-1', 'test-contract-001', contract, '/tmp/chestnut');
+    notifyContractCreated({ fsFactory: () => failingFs as any }, '/tmp/claw', 'claw-1', 'test-contract-001', contract, '/tmp/chestnut');
 
     expect(audit.write).toHaveBeenCalledWith(
       'stream_append_failed',
@@ -65,16 +63,7 @@ describe('notifyContractCreated audit observability', () => {
     const tempDir = await createTrackedTempDir('contract-notify-');
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     try {
-      (createDirContext as any).mockReturnValue({
-        fs: {
-          appendSync: vi.fn((filePath: string, data: string) => {
-            fs.appendFileSync(path.join(tempDir, filePath), data);
-          }),
-          resolve: vi.fn((p: string) => path.resolve(tempDir, p)),
-          existsSync: vi.fn(() => false),
-        },
-        audit,
-      });
+      (createDirContext as any).mockReturnValue({ fs: {}, audit });
 
       const contract: ContractYaml = {
         title: 'T', goal: 'G', subtasks: [{ id: 's1', description: 'd' }],
@@ -100,20 +89,19 @@ describe('notifyContractCreated audit observability', () => {
 
   it('emits STREAM_AUDIT_EVENTS.APPEND_FAILED on stream write failure (phase 1120)', () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    (createDirContext as any).mockReturnValue({
-      fs: {
-        appendSync: vi.fn(() => { throw new Error('disk full'); }),
-        resolve: vi.fn((p: string) => path.resolve(p)),
-        existsSync: vi.fn(() => false),
-      },
-      audit,
-    });
+    (createDirContext as any).mockReturnValue({ fs: {}, audit });
+    // phase 1879 Step D: 同 test 1——写失败面经 deps.fsFactory 注入
+    const failingFs = {
+      appendSync: vi.fn(() => { throw new Error('disk full'); }),
+      resolve: vi.fn((p: string) => path.resolve(p)),
+      existsSync: vi.fn(() => false),
+    };
 
     const contract: ContractYaml = {
       title: 'T', goal: 'G', subtasks: [],
     };
 
-    expect(() => notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-A', 'c-002', contract, '/tmp/chestnut')).not.toThrow();
+    expect(() => notifyContractCreated({ fsFactory: () => failingFs as any }, '/tmp/claw', 'claw-A', 'c-002', contract, '/tmp/chestnut')).not.toThrow();
 
     const streamFailedCalls = audit.write.mock.calls.filter(c => c[0] === 'stream_append_failed');
     expect(streamFailedCalls).toHaveLength(1);

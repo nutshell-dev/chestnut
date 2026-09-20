@@ -6,7 +6,7 @@
 import * as yaml from 'js-yaml';
 import { ContractYamlSchema } from '../../core/contract/index.js';
 import type { ContractYaml } from '../../core/contract/index.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { STREAM_FILE, STREAM_EVENT_NAMES, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
@@ -46,7 +46,8 @@ export function formatContractValidationError(err: ContractValidationError): voi
 }
 
 export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string, clawId: string, contractId: ContractId, contract: ContractYaml, chestnutRoot: string): void {
-  const { fs, audit: contractAudit } = createDirContext(deps, clawDir);
+  const fs = deps.fsFactory(clawDir);
+  const contractAudit = actionAuditFor(clawDir, deps);
 
   // best-effort：通知 viewport via stream.jsonl（失败不中断 contract 创建）
   // CLI cross-process append to daemon singleton stream — boundary event、low-frequency；

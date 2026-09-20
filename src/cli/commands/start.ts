@@ -28,7 +28,7 @@ import {
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 
 import { createMotionContractActionContext } from '../../assembly/index.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
@@ -164,7 +164,8 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
   // 之后的 Motion init / daemon spawn / contract / chat 均位于监督之下。
   await runtime.ensureSupervision();
   // Step 2: motion init
-  const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
+  const notifyFs = deps.fsFactory(motionDir);
+  const notifyAudit = actionAuditFor(motionDir, deps);
   // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot。
   const notifyChestnutRoot = makeChestnutRoot(path.dirname(motionDir));

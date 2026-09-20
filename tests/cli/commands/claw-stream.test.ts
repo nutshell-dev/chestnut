@@ -78,7 +78,9 @@ vi.mock('../../../src/foundation/stream/index.js', () => ({
 }));
 
 vi.mock('../../../src/foundation/audit/index.js', () => ({
-  createSystemAudit: vi.fn(() => shutdownMocks.audit as unknown as AuditLog),
+  // phase 1879 Step D: claw-stream audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
+  // mock 目标随创建点统一迁移。
+  createDirContext: vi.fn(() => ({ fs: {}, audit: shutdownMocks.audit as unknown as AuditLog })),
 }));
 
 vi.mock('../../../src/foundation/process-manager/index.js', () => ({

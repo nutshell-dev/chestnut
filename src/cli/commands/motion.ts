@@ -22,7 +22,7 @@ import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
 import { drainOutbox, printOutboxResults, type OutboxDrainOptions } from './claw-outbox.js';
 import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 assembly barrel (CLI L6 → Assembly L6 barrel)
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
@@ -175,7 +175,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
   await installBuiltinSkills(deps, motionDir);
 
   // Init git for motion directory
-  const { fs: motionFs, audit: motionAudit } = createDirContext(deps, motionDir);
+  const motionFs = deps.fsFactory(motionDir);
+  const motionAudit = actionAuditFor(motionDir, deps);
   const motionSyncDir = path.join(motionDir, 'tasks', 'sync');
   await motionFs.ensureDir(motionSyncDir);
   const motionSnapshot = new Snapshot(motionDir, motionFs, motionAudit, SNAPSHOT_IGNORE_PATTERNS, [

@@ -14,7 +14,7 @@ import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
 import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
@@ -71,7 +71,7 @@ export async function streamCommand(
   const clawDir = path.join(baseDir, getRelativeClawDir(name));
   const fs = deps.fsFactory(clawDir);
   // audit reused for stream reader internal failure logging; stream session itself does not emit
-  const audit = createSystemAudit(deps.fsFactory(baseDir), clawDir);
+  const audit = actionAuditFor(clawDir, deps);
 
   // initial daemon liveness probe — non-blocking warn; tail still proceeds
   // so that consumers can subscribe before daemon starts.

@@ -26,11 +26,16 @@ const mockKill = vi.hoisted(() => vi.fn());
 const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
-const mockCreateSystemAudit = vi.hoisted(() => vi.fn(() => ({
-  write: mockAuditState.write,
-  preview: (s: string) => s,
-  message: (s: string) => s,
-  summary: (s: string) => s,
+// phase 1879 Step D: stop.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
+// mock 目标随创建点统一迁移（返回 { fs, audit } 形状）。
+const mockCreateDirContext = vi.hoisted(() => vi.fn(() => ({
+  fs: {},
+  audit: {
+    write: mockAuditState.write,
+    preview: (s: string) => s,
+    message: (s: string) => s,
+    summary: (s: string) => s,
+  },
 })));
 
 // ============================================================================
@@ -95,7 +100,7 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/audit/index.js')>();
   return {
     ...actual,
-    createSystemAudit: mockCreateSystemAudit,
+    createDirContext: mockCreateDirContext,
     // Phase 1288 Step C: stop 根审计构造切到 createWorkspaceAudit（mock 防真实磁盘写入）
     createWorkspaceAudit: vi.fn(),
   };
@@ -115,7 +120,6 @@ vi.mock('fs', async (importOriginal) => {
 // Imports (after mocks)
 // ============================================================================
 import { stopAllCommand } from '../../src/cli/commands/stop.js';
-import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -132,11 +136,14 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     mockFindProcesses.mockReset().mockReturnValue([99991, 99992]);
     mockIsAlive.mockReset().mockReturnValue(false);
     mockIsPidArgvMatching.mockReset().mockReturnValue(true);
-    mockCreateSystemAudit.mockReset().mockImplementation(() => ({
-      write: mockAuditState.write,
-      preview: (s: string) => s,
-      message: (s: string) => s,
-      summary: (s: string) => s,
+    mockCreateDirContext.mockReset().mockImplementation(() => ({
+      fs: {},
+      audit: {
+        write: mockAuditState.write,
+        preview: (s: string) => s,
+        message: (s: string) => s,
+        summary: (s: string) => s,
+      },
     }));
   });
 
@@ -145,11 +152,14 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       throw new Error('EPERM');
     });
     mockFindProcesses.mockReturnValue([1111, 2222]);
-    mockCreateSystemAudit.mockReturnValue({
-      write: mockAuditState.write,
-      preview: (s: string) => s,
-      message: (s: string) => s,
-      summary: (s: string) => s,
+    mockCreateDirContext.mockReturnValue({
+      fs: {},
+      audit: {
+        write: mockAuditState.write,
+        preview: (s: string) => s,
+        message: (s: string) => s,
+        summary: (s: string) => s,
+      },
     });
 
     await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
@@ -179,7 +189,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     mockFindProcesses.mockImplementation(() => {
       throw new Error('some pipeline error');
     });
-    mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
+    mockCreateDirContext.mockReturnValue({ fs: {}, audit: { write: mockAuditState.write } });
 
     await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
 
@@ -197,7 +207,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
   it('audit 构造失败时 fallback null + 不抛', async () => {
     mockKill.mockImplementation(() => {});
     mockFindProcesses.mockReturnValue([3333]);
-    mockCreateSystemAudit.mockImplementation(() => {
+    mockCreateDirContext.mockImplementation(() => {
       throw new Error('audit init failed');
     });
 
@@ -216,11 +226,14 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
     mockFindProcesses.mockReturnValue([4444]);
     mockIsAlive.mockReturnValue(true);
-    mockCreateSystemAudit.mockReturnValue({
-      write: mockAuditState.write,
-      preview: (s: string) => s,
-      message: (s: string) => s,
-      summary: (s: string) => s,
+    mockCreateDirContext.mockReturnValue({
+      fs: {},
+      audit: {
+        write: mockAuditState.write,
+        preview: (s: string) => s,
+        message: (s: string) => s,
+        summary: (s: string) => s,
+      },
     });
 
     await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
@@ -239,11 +252,14 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     mockKill.mockImplementation(() => {});
     mockFindProcesses.mockReturnValue([5555]);
     mockIsAlive.mockReturnValue(true);
-    mockCreateSystemAudit.mockReturnValue({
-      write: mockAuditState.write,
-      preview: (s: string) => s,
-      message: (s: string) => s,
-      summary: (s: string) => s,
+    mockCreateDirContext.mockReturnValue({
+      fs: {},
+      audit: {
+        write: mockAuditState.write,
+        preview: (s: string) => s,
+        message: (s: string) => s,
+        summary: (s: string) => s,
+      },
     });
 
     await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });

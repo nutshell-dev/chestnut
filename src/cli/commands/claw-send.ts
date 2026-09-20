@@ -12,7 +12,7 @@ import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';
 import { formatClawStatusHint } from '../../cli-protocol/index.js';
 import type { Priority } from '../../foundation/messaging/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
@@ -36,7 +36,7 @@ export async function sendCommand(
   const baseDir = getChestnutRoot();
   const clawDir = path.join(baseDir, getRelativeClawDir(name));
   const fileSystem = deps.fsFactory(baseDir);
-  const audit = createSystemAudit(fileSystem, clawDir);
+  const audit = actionAuditFor(clawDir, deps);
 
   // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
   createClawNotifier({

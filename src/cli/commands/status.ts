@@ -28,7 +28,7 @@ import {
 } from '../../core/status-service/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 
 interface StatusCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -40,7 +40,7 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const baseDir = path.dirname(motionDir);
-  const audit = createSystemAudit(deps.fsFactory(baseDir), baseDir);
+  const audit = actionAuditFor(baseDir, deps);
   const pm = createProcessManagerForCLI({ ...deps, baseDir });
 
   const watchdogPid = getWatchdogPid(deps.fsFactory);

@@ -9,7 +9,7 @@ import {
   getChestnutRoot,
 } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { createDirContext } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
@@ -67,7 +67,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   const clawsDir = path.join(baseDir, 'claws');
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
-  const { audit: systemAudit } = createDirContext(deps, baseDir);
+  const systemAudit = actionAuditFor(baseDir, deps);
 
   // Helper: check contract status
   function getContractStatus(clawFs: FileSystem): FieldValue {

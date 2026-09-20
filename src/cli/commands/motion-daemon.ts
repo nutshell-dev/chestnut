@@ -10,7 +10,7 @@ import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
+import { actionAuditFor } from '../action-scope.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
@@ -31,8 +31,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { 
   const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
   const baseDir = path.dirname(motionDir);
-  const nodeFs = deps.fsFactory(baseDir);
-  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const systemAudit = actionAuditFor(baseDir, deps);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   if (pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
