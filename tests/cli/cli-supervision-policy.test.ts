@@ -15,6 +15,7 @@ import { cliAction, cliDeferredRequiredAction } from '../../src/cli/supervision-
 import { ensureWatchdog } from '../../src/watchdog/ensure.js';
 import { isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
 import { withCliErrorHandling } from '../../src/cli/with-cli-error-handling.js';
+import { CliError } from '../../src/cli/errors.js';
 
 vi.mock('../../src/watchdog/ensure.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/ensure.js')>();
@@ -168,6 +169,35 @@ describe('cliDeferredRequiredAction (phase 1280)', () => {
 
     expect(ensureWatchdog).not.toHaveBeenCalled();
     expect(handlerCalls).toEqual(['handler']);
+  });
+
+  it('phase 1874 Step K: 重复调用 capability → ensureWatchdog 恰一次 + 同一 receipt（幂等）', async () => {
+    vi.mocked(ensureWatchdog).mockResolvedValue(undefined);
+    const receipts: unknown[] = [];
+    const wrapped = cliDeferredRequiredAction(async (ensureSupervision) => {
+      receipts.push(await ensureSupervision());
+      receipts.push(await ensureSupervision());
+      receipts.push(await ensureSupervision());
+    }, { fsFactory });
+
+    await wrapped();
+
+    // 恰好一次：不重复 spawn/check；receipt 同一引用 = 同一次行使
+    expect(ensureWatchdog).toHaveBeenCalledTimes(1);
+    expect(receipts[0]).toBe(receipts[1]);
+    expect(receipts[1]).toBe(receipts[2]);
+    const r = receipts[0] as { grantedAt: number; via: string };
+    expect(typeof r.grantedAt).toBe('number');
+    expect(r.via).toBe('watchdog_ensure');
+  });
+
+  it('phase 1874 Step K: 零次调用（handler 在提交点前失败）→ ensure 零次、无 receipt', async () => {
+    const wrapped = cliDeferredRequiredAction(async () => {
+      throw new CliError('bootstrap failed before commit point', 1);
+    }, { fsFactory });
+
+    await expect(wrapped()).rejects.toThrow();
+    expect(ensureWatchdog).not.toHaveBeenCalled();
   });
 
   it('原样转发 Commander 参数（capability 之后的 args）', async () => {

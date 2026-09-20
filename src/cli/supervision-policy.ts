@@ -152,11 +152,39 @@ export function cliAction<TArgs extends unknown[]>(
 }
 
 /**
- * 一次性监督 capability（phase 1280）：由 CLI 监督边界创建并注入 deferred
- * action；handler 在自身 bootstrap 完整落盘后、业务副作用前调用。
- * 只暴露 `ensure(): Promise<void>`，不暴露 fsFactory 或 Watchdog 内部对象。
+ * phase 1874 Step K (cli-deferred-supervision-not-once): supervision 行使 receipt。
+ * 同一 receipt 引用 = 同一次行使（证明「在指定提交点已恰好行使监督」）。
  */
-export type EnsureSupervision = () => Promise<void>;
+export interface SupervisionReceipt {
+  readonly grantedAt: number;
+  readonly via: 'watchdog_ensure';
+}
+
+/**
+ * 一次性监督 capability（phase 1280 立；phase 1874 Step K 收口为 typed once）：
+ * 由 CLI 监督边界创建并注入 deferred action；handler 在自身 bootstrap 完整落盘后、
+ * 业务副作用前调用。
+ * - **恰好一次**：capability 内部记忆化——首个调用执行 ensureWatchdog、后续调用
+ *   返回同一 receipt（不重复 spawn/check）；不同 receipt 引用即不同 action 的行使。
+ * - 类型上返回 `SupervisionReceipt`（行使证明），不再是裸 `() => Promise<void>`。
+ * - 零次调用 = handler 在提交点前失败（合法失败路径），此时无 receipt 可证；
+ *   语义由用例守（tests/cli/cli-supervision-policy.test.ts）。
+ */
+export type EnsureSupervision = () => Promise<SupervisionReceipt>;
+
+/** phase 1874 Step K: 记忆化 receipt 工厂（每 action 一份、重复调用幂等）。 */
+export function makeEnsureSupervision(fsFactory: (baseDir: string) => FileSystem): EnsureSupervision {
+  let granted: Promise<SupervisionReceipt> | null = null;
+  return () => {
+    if (!granted) {
+      granted = ensureWatchdog(fsFactory).then(() => ({
+        grantedAt: Date.now(),
+        via: 'watchdog_ensure' as const,
+      }));
+    }
+    return granted;
+  };
+}
 
 /**
  * 注册一个 deferred-required CLI action（如 `start`：先 bootstrap workspace，
@@ -171,5 +199,5 @@ export function cliDeferredRequiredAction<TArgs extends unknown[]>(
   ctx: SupervisionContext,
 ): (...args: TArgs) => Promise<void> {
   return withCliErrorHandling((...args) =>
-    runWithActionScope(ctx, () => handler(() => ensureWatchdog(ctx.fsFactory), ...args)));
+    runWithActionScope(ctx, () => handler(makeEnsureSupervision(ctx.fsFactory), ...args)));
 }
