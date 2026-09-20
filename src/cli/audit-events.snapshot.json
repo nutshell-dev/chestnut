@@ -675,6 +675,7 @@
       "daemon_cleanup_heartbeat_failed",
       "daemon_cleanup_pid_failed",
       "daemon_crash",
+      "daemon_heartbeat_write_failed",
       "daemon_last_exit_summary_read_failed",
       "daemon_liveness_heartbeat",
       "daemon_liveness_hourly",
@@ -908,6 +909,9 @@
       "watchdog_executor_unavailable_delivered",
       "watchdog_executor_unavailable_delivery_failed",
       "watchdog_executor_unavailable_delivery_rejected",
+      "watchdog_executor_heartbeat_stale",
+      "watchdog_executor_heartbeat_unknown",
+      "watchdog_executor_recovery_evidence_corrupt",
       "watchdog_gave_up",
       "watchdog_motion_stability_confirmed",
       "watchdog_notification_state_migrated",
@@ -922,6 +926,7 @@
       "watchdog_pid_read_failed",
       "watchdog_pid_reuse_detected",
       "watchdog_pid_stale_auto_cleaned",
+      "watchdog_state_executor_entry_invalid",
       "watchdog_state_load_failed",
       "watchdog_state_schema_invalid",
       "watchdog_start",
@@ -1030,7 +1035,11 @@
     "contract_progress_invariant_violated": "audit",
     "messaging_message_invariant_violated": "audit",
     "viewport_host_input": "viewport",
-    "viewport_screen_reset": "viewport"
+    "viewport_screen_reset": "viewport",
+    "watchdog_executor_heartbeat_stale": "audit",
+    "watchdog_executor_heartbeat_unknown": "tick",
+    "watchdog_executor_recovery_evidence_corrupt": "audit",
+    "watchdog_state_executor_entry_invalid": "audit"
   },
   "schema_version": "2.0.0",
   "stepColOwner": {
