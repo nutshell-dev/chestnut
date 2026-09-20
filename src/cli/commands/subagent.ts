@@ -9,10 +9,18 @@ import { subagentStepsCommand, subagentStepCommand } from './subagent-steps.js';
 import { SUBAGENT_KIND_VALUES, SUBAGENT_STATUS_VALUES } from './subagent-helpers.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+// phase 1874 Step L（族 3b）: 命令形状经 CLIProtocol catalog 投影
+import { getSubagentCommandSpec, shapeCommand } from '../../cli-protocol/index.js';
+import type { CommandShapeSpec } from '../../cli-protocol/index.js';
+
+function spec(id: string): CommandShapeSpec {
+  const s = getSubagentCommandSpec(id);
+  if (!s) throw new Error(`unknown subagent command id in catalog: ${id}`);
+  return s;
+}
 
 export function createSubagentCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Command {
-  const cmd = new Command('subagent')
-    .description('Subagent log observability commands');
+  const cmd = shapeCommand(new Command('subagent'), spec('subagent'));
 
   function action<TArgs extends unknown[]>(
     policy: SupervisionPolicy,
@@ -21,36 +29,21 @@ export function createSubagentCommand(deps: { fsFactory: (baseDir: string) => Fi
     return cliAction(policy, handler, { fsFactory: deps.fsFactory });
   }
 
-  cmd
-    .command('list')
-    .description('List subagent tasks')
-    .requiredOption('-c, --claw <claw>', 'Claw to query')
-    .option('--status <status>', `Filter by status (${SUBAGENT_STATUS_VALUES.join('|')})`)
-    .option('--kind <kind>', `Filter by kind (${SUBAGENT_KIND_VALUES.join('|')})`)
-    .option('--contract <id>', 'Filter by contractId')
-    .option('--limit <n>', 'Max rows (default: 20)')
-    .option('--from <ts>', 'Filter started_at >= ts')
-    .option('--to <ts>', 'Filter started_at <= ts')
-    .option('--json', 'Output as JSON (machine-readable)')
+  shapeCommand(cmd.command('list'), spec('subagent/list'), {
+    // 动态 desc（枚举 owner 常量）——就地注册保序（1798 边界）
+    '--status <status>': (c) => { c.option('--status <status>', `Filter by status (${SUBAGENT_STATUS_VALUES.join('|')})`); },
+    '--kind <kind>': (c) => { c.option('--kind <kind>', `Filter by kind (${SUBAGENT_KIND_VALUES.join('|')})`); },
+  })
     .action(action('observe_only', async (opts) => {
       await subagentListCommand(deps, opts);
     }));
 
-  cmd
-    .command('steps <id>')
-    .description('Show subagent turn steps')
-    .requiredOption('-c, --claw <claw>', 'Claw to query')
-    .option('--json', 'Output as JSON (machine-readable)')
-    .option('--no-hint', 'Suppress step <n> usage hint')
+  shapeCommand(cmd.command('steps <id>'), spec('subagent/steps'))
     .action(action('observe_only', async (id: string, opts: { claw: string; json?: boolean; hint?: boolean }) => {
       await subagentStepsCommand(deps, id, opts.claw, { json: opts.json, noHint: opts.hint === false });
     }));
 
-  cmd
-    .command('step <n> <id>')
-    .description('Show full detail of a single turn (n = "N" for whole turn, "N.x" for slot x)')
-    .requiredOption('-c, --claw <claw>', 'Claw to query')
-    .option('--json', 'Output as JSON (machine-readable)')
+  shapeCommand(cmd.command('step <n> <id>'), spec('subagent/step'))
     .action(action('observe_only', async (n: string, id: string, opts: { claw: string; json?: boolean }) => {
       await subagentStepCommand(deps, n, id, opts.claw, { json: opts.json });
     }));

@@ -53,3 +53,14 @@ export function applyCommandOptions<R extends CommandShapeRegistrar>(
     else registrar.option(opt.flag, opt.desc);
   }
 }
+
+/** 通用形状投影：summary/options（含 literal 就地注册）到命令构建器。 */
+export function shapeCommand<T extends { description(desc: string): unknown } & CommandShapeRegistrar>(
+  cmd: T,
+  spec: CommandShapeSpec,
+  literalRegistrars?: Readonly<Record<string, (registrar: T) => void>>,
+): T {
+  cmd.description(spec.summary);
+  applyCommandOptions(cmd, spec, literalRegistrars);
+  return cmd;
+}

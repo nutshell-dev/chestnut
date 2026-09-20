@@ -64,3 +64,8 @@ export { CONTRACT_COMMAND_CATALOG, getContractCommandSpec } from './contract-com
 export type { ContractCommandId } from './contract-command-catalog.js';
 export { MISC_COMMAND_CATALOG, getMiscCommandSpec } from './misc-command-catalog.js';
 export type { MiscCommandId } from './misc-command-catalog.js';
+export { shapeCommand } from './command-shape.js';
+export { SUBAGENT_COMMAND_CATALOG, getSubagentCommandSpec } from './subagent-command-catalog.js';
+export type { SubagentCommandId } from './subagent-command-catalog.js';
+export { CONFIG_COMMAND_CATALOG, getConfigCommandSpec } from './config-command-catalog.js';
+export type { ConfigCommandId } from './config-command-catalog.js';

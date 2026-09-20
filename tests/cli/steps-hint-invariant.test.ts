@@ -357,7 +357,9 @@ describe('commander --no-hint flag wire structure', () => {
   });
 
   it('subagent steps registers --no-hint and translates opts.hint === false', () => {
-    expect(subagentSource).toContain(".option('--no-hint',");
+    // phase 1874 Step L（族 3b）: --no-hint 注册迁 subagent 族 catalog 投影；
+    // catalog flag 字面由 cli-command-catalog-parity 测试锁（同 1798 claw 族先例）。
+    expect(subagentSource).toContain("shapeCommand(cmd.command('steps <id>'), spec('subagent/steps'))");
     expect(subagentSource).toContain('opts.hint === false');
   });
 

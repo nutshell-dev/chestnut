@@ -33,6 +33,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
+import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 
 /**
  * phase 320: 通知所有运行中的 daemon（motion + 所有 claws）重新加载 LLM 配置。
@@ -451,9 +452,16 @@ interface ConfigCommandDeps {
   rootConfigLegacy: RootConfigLegacyMigration;
 }
 
+// phase 1874 Step L（族 3b）: 形状经 CLIProtocol catalog 投影
+function configSpec(id: string): CommandShapeSpec {
+  const spec = getConfigCommandSpec(id);
+  if (!spec) throw new Error(`unknown config command id in catalog: ${id}`);
+  return spec;
+}
+
 export function createConfigCommand(deps: ConfigCommandDeps): Command {
-  const configCommand = new Command('config')
-    .description('Manage chestnut configuration');
+  // phase 1874 Step L（族 3b）: 命令形状经 CLIProtocol catalog 投影
+  const configCommand = shapeCommand(new Command('config'), configSpec('config'));
 
   function action<TArgs extends unknown[]>(
     policy: SupervisionPolicy,
@@ -471,32 +479,21 @@ export function createConfigCommand(deps: ConfigCommandDeps): Command {
   }
 
   // provider subcommand
-  const providerCmd = new Command('provider')
-    .description('Manage LLM providers');
+  const providerCmd = shapeCommand(new Command('provider'), configSpec('config/provider'));
 
-  providerCmd
-    .command('add')
-    .description('Add a new provider interactively')
+  shapeCommand(providerCmd.command('add'), configSpec('config/provider/add'))
     .action(action('required', () => providerAdd(deps)));
 
-  providerCmd
-    .command('list')
-    .description('List all providers')
+  shapeCommand(providerCmd.command('list'), configSpec('config/provider/list'))
     .action(action('observe_only', () => providerList(deps)));
 
-  providerCmd
-    .command('remove <label>')
-    .description('Remove a fallback provider')
+  shapeCommand(providerCmd.command('remove <label>'), configSpec('config/provider/remove'))
     .action(action('required', (label: string) => providerRemove(deps, label)));
 
-  providerCmd
-    .command('set-primary <label>')
-    .description('Set a provider as primary (current primary becomes fallback)')
+  shapeCommand(providerCmd.command('set-primary <label>'), configSpec('config/provider/set-primary'))
     .action(action('required', (label: string) => providerSetPrimary(deps, label)));
 
-  providerCmd
-    .command('move <label> <position>')
-    .description('Move a fallback provider to a new position (1-based)')
+  shapeCommand(providerCmd.command('move <label> <position>'), configSpec('config/provider/move'))
     .action(action('required', (label: string, position: string) => providerMove(deps, label, position)));
 
   configCommand.addCommand(providerCmd);

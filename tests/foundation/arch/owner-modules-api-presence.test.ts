@@ -112,7 +112,9 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     const cliProtocolDir = path.resolve(__dirname, '../../../src/cli-protocol');
     for (const file of ['index.ts', 'invocation.ts']) {
       const text = fs.readFileSync(path.join(cliProtocolDir, file), 'utf8');
-      expect(text.includes('ContractCommand'), `${file} must not reference ContractCommand`).toBe(false);
+      // phase 1874 Step L: 词边界精化——守旧符号 `ContractCommand` 本体不复活；
+      // 允许前缀同族新符号（如 ContractCommandId catalog id 类型）。
+      expect(/\bContractCommand\b/.test(text), `${file} must not export legacy ContractCommand symbol`).toBe(false);
     }
   });
 });
