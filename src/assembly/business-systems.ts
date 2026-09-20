@@ -61,7 +61,7 @@ import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guida
 import type { MotionGuidanceRegistry } from './guidance/index.js';
 import type { GuidanceCompose } from '../core/runtime/index.js';
 import type { InboxMessageTypeRegistry } from '../foundation/messaging/index.js';
-import { createContractSystem } from '../core/contract/index.js';
+import { createContractSystem, queryContractExistence } from '../core/contract/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
 import { createClawNotifier } from '../foundation/messaging/index.js';
@@ -231,31 +231,15 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   contractManager.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 
   if (isMotion && evolutionSystem) {
-    // Phase 1396 Step B: summon 创建事实查询 capability —— 按 executor 构造
-    // ContractSystem 并核实 claim 指向的 contract 是否已提交（active 或 archive）。
+    // Phase 1396 Step B: summon 创建事实查询 capability —— 核实 claim 指向的
+    // contract 是否已提交（active 或 archive）。
+    // phase 1872 Step E: 改消费 ContractSystem owner 窄查询（0-instance-dep，同
+    // hasContract 语义）——不再为每次查询构造 audit/notifier/完整 ContractSystem。
     const summonContractQuery: SummonContractQuery = {
       async exists(targetExecutorId: string, contractId: string): Promise<boolean> {
         const execDir = path.join(chestnutRoot, CLAWS_DIR, targetExecutorId);
         const execFs = fsFactory(execDir);
-        const execAudit = createSystemAudit(execFs, execDir);
-        // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
-        const execNotifier = createClawNotifier({
-          fs: execFs,
-          audit: execAudit,
-          resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
-        });
-        // phase 1445 Step D：旁路只读实例故意不传 bootReconcile（不 init）
-        const execContracts = await createContractSystem({
-          clawDir: execDir,
-          clawId: makeClawId(targetExecutorId),
-          fs: execFs,
-          audit: execAudit,
-          toolRegistry,
-          toolTimeoutMs,
-          fsFactory,
-          notifyClaw: (targetClawId, message) => execNotifier.notify(targetClawId, message),
-        });
-        return execContracts.hasContract(makeContractId(contractId));
+        return queryContractExistence(execFs, makeContractId(contractId));
       },
     };
     // Phase 1396 Step M: summon post-processor 只注入 claimStore + contractQuery；
