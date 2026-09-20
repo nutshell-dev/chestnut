@@ -8,18 +8,19 @@
  * protected 适配器（类型化测试子类公开，不复制控制逻辑）投递 → 真实
  * createInboxReader.drainAndDeliver/ack 读回 → Runtime.formatInboxMessage 最终呈现。
  *
- * 呈现路径实然：M01（execution_recovery）当前没有 formatter 注册——正式 registry
- * 未解析到该 type，经 runtime_inbox_unknown_type 审计后走标准 system 兜底呈现；
- * motion 装正式 registerAllMotionGuidance（无匹配不追加），worker 不装 guidance。
- * 本测试如实断言该兜底路径，不临时注册 M01 formatter 冒充完整装配。
+ * 呈现路径实然（phase 1869 Step H 更新）：M01（execution_recovery）已由 EventLoop
+ * 显式声明 rendering（EVENTLOOP_INBOX_MESSAGE_TYPES，standard/system）并经
+ * business-systems 装配——正式 registry 解析命中、无 runtime_inbox_unknown_type
+ * 审计，渲染输出与旧兜底逐字一致；motion 装正式 registerAllMotionGuidance
+ * （无匹配不追加），worker 不装 guidance。
  *
  * 覆盖（Step B §6 验收场景）：
  *  1. 真实生成/读回：唯一消息、完整新正文 literal、envelope 与 metadata 关联正确；
  *     调度次数证据留在 record/delivery/EXECUTION_RECOVERY_RESUME 审计且一致，
  *     正文不含次数
- *  2. 最终呈现：motion 与 worker 均为 `[system message] ` + 完整正文，有
+ *  2. 最终呈现：motion 与 worker 均为 `[system message] ` + 完整正文，无
  *     unknown_type 审计、无 guidance 追加/异常（timestamp 传 undefined 隔离动态时间）
- *  3. 旧英文历史 body 经当前兜底呈现原样保留（不重写、不追加迁移说明）
+ *  3. 旧英文历史 body 经当前呈现原样保留（不重写、不追加迁移说明）
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -47,6 +48,7 @@ import type {
   PendingExecutionResume,
 } from '../../../src/core/event-loop/index.js';
 import { DAEMON_INBOX_MESSAGE_TYPES } from '../../../src/daemon/inbox-formatter.js';
+import { EVENTLOOP_INBOX_MESSAGE_TYPES } from '../../../src/core/event-loop/index.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from '../../../src/assembly/guidance/index.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
@@ -95,9 +97,9 @@ class TestRuntime extends Runtime {
 }
 
 /**
- * 现行真实装配：正式 DAEMON_INBOX_MESSAGE_TYPES 注册（不含 execution_recovery，
- * M01 无 formatter 声明 → unknown_type 兜底）；motion = 装正式
- * registerAllMotionGuidance；worker = 不装 guidance（guidanceCompose undefined）。
+ * 现行真实装配：正式 DAEMON_INBOX_MESSAGE_TYPES + EVENTLOOP_INBOX_MESSAGE_TYPES
+ * （phase 1869 Step H：execution_recovery standard/system 显式声明）；
+ * motion = 装正式 registerAllMotionGuidance；worker = 不装 guidance。
  */
 function buildRuntime(
   audit: ReturnType<typeof makeAudit>['audit'],
@@ -105,6 +107,7 @@ function buildRuntime(
 ): TestRuntime {
   const formatterRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, DAEMON_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, EVENTLOOP_INBOX_MESSAGE_TYPES);
   const guidanceRegistry = createMotionGuidanceRegistry();
   registerAllMotionGuidance(guidanceRegistry);
   return new TestRuntime({
@@ -225,7 +228,8 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     expect(msg.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(record.delivery!.id);
     expect(msg.id).toBe(record.delivery!.id);
 
-    // 最终呈现：现行未注册 type → unknown_type 审计后标准 system 兜底；
+    // 最终呈现（phase 1869 Step H）：显式声明 standard/system → registry 命中、
+    // 渲染逐字同旧兜底、无 unknown_type 审计；
     // motion（正式 guidance 全注册，无匹配）与 worker（无 guidance）结果一致
     const finals: string[] = [];
     for (const withMotionGuidance of [true, false]) {
@@ -236,11 +240,11 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     expect(finals[0]).toBe(finals[1]);
     expect(finals[0]).toBe(`[system message] ${NEW_BODY}`);
     const unknownTypeEvents = events.filter(e => e[0] === 'runtime_inbox_unknown_type');
-    expect(unknownTypeEvents).toHaveLength(2);
+    expect(unknownTypeEvents).toHaveLength(0);
     expect(events.some(e => e[0] === 'guidance_composer_failed')).toBe(false);
   });
 
-  it('旧英文历史 body 经当前 motion/worker 兜底呈现原样保留，不追加指导或迁移说明', async () => {
+  it('旧英文历史 body 经当前 motion/worker 呈现原样保留，不追加指导或迁移说明', async () => {
     const { audit, events } = makeAudit();
     for (const withMotionGuidance of [true, false]) {
       const final = await buildRuntime(audit, { withMotionGuidance }).testFormatInboxMessage(
@@ -248,7 +252,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
       );
       expect(final).toBe(`[system message] ${LEGACY_BODY}`);
     }
-    expect(events.filter(e => e[0] === 'runtime_inbox_unknown_type')).toHaveLength(2);
+    expect(events.filter(e => e[0] === 'runtime_inbox_unknown_type')).toHaveLength(0);
     expect(events.some(e => e[0] === 'guidance_composer_failed')).toBe(false);
   });
 });

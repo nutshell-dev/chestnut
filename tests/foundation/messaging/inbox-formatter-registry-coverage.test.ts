@@ -24,6 +24,9 @@ const DECLARATION_FILES = [
   'daemon/inbox-formatter.ts',
   'core/memory/inbox-formatter.ts',
   'core/async-task-system/inbox-formatter.ts',
+  // phase 1869 Step H: execution_recovery rendering declaration（type 引用 owner 常量，
+  // 无字面量可提取；列此防未来该文件新增字面量 type 时漏检）。
+  'core/event-loop/inbox-formatter.ts',
 ] as const;
 
 function extractRegisteredTypes(): Set<string> {

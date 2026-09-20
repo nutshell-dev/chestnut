@@ -61,6 +61,7 @@ import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/index.js';
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/index.js';
 import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/index.js';
+import { EVENTLOOP_INBOX_MESSAGE_TYPES } from '../core/event-loop/index.js';
 import type { AssemblyContributions } from './types.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
 import type { MotionGuidanceRegistry } from './guidance/index.js';
@@ -359,6 +360,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   registerInboxMessageTypes(formatterRegistry, CONTRACT_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, MEMORY_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, EVENTLOOP_INBOX_MESSAGE_TYPES);  // phase 1869 Step H
   // phase 1243 Step B: Daemon 等外部 lifecycle caller 的 declarations 由 contributions 传入。
   registerInboxMessageTypes(formatterRegistry, contributions?.inboxMessageTypes ?? []);
   if (isMotion) {

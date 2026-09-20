@@ -12,6 +12,8 @@
 export { EventLoop } from './event-loop.js';
 export type { EventLoopRuntime, EventLoopTraceSource, EventLoopExecutionRecoveryDeps, TurnStartCallback, EventLoopStreamCallbacks } from './types.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';
+// phase 1869 Step H: 呈现显式装配（execution_recovery rendering declaration）
+export { EVENTLOOP_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
 // Phase 1396 Step E: 执行停滞恢复（record store / controller / 持久 activity 事实读取）
 export {
   createExecutionRecoveryController,

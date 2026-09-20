@@ -311,7 +311,13 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
         resolve: vi.fn((type: string) => map.get(type)),
       };
     }),
-    registerInboxMessageTypes: vi.fn(),
+    // phase 1869 Step H: mock 保真——与真实 helper 同行为（逐条 register），
+    // 使 registry.resolve 断言可穿到装配面（原先 no-op 使注册不可观测）。
+    registerInboxMessageTypes: vi.fn(
+      (registry: { register: (d: { type: string; rendering: unknown }) => void }, declarations: readonly { type: string; rendering: unknown }[]) => {
+        for (const d of declarations) registry.register(d);
+      },
+    ),
   };
 });
 
@@ -784,5 +790,14 @@ describe('phase1396-execution-recovery-wiring', () => {
     const deps = capturedRuntimeDeps.at(-1);
     expect(deps).toBeDefined();
     expect(typeof deps.contractTerminalFact).toBe('function');
+  });
+
+  it('phase 1869 Step H: execution_recovery rendering 已装配（真实 registry resolve 命中）', async () => {
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    const deps = capturedRuntimeDeps.at(-1);
+    expect(deps.formatterRegistry.resolve('execution_recovery')).toEqual({
+      kind: 'standard',
+      presentation: 'system',
+    });
   });
 });
