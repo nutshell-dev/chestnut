@@ -1218,7 +1218,10 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
+    // phase 1891: 命令时长 0.3s→2s——软超时(100ms)与进程完成的竞争 margin
+    // 200ms→1900ms；父进程定时器在 CI 满载下可延迟 >200ms，0.3s 窗下同步
+    // 路径会胜出（无 metadata.fullTaskId → undefined.json ENOENT）。
+    const result = await tool.execute({ command: 'sleep 2 && echo done' }, ctx);
     expect(result.success).toBe(true);
     const fullId = result.metadata?.fullTaskId as string;
 
