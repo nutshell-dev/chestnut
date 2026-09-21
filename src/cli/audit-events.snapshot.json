@@ -902,8 +902,6 @@
       "watchdog_executor_recovery_evidence_corrupt",
       "watchdog_gave_up",
       "watchdog_motion_stability_confirmed",
-      "watchdog_notification_state_migrated",
-      "watchdog_notification_state_migration_conflict",
       "watchdog_orphan_sweep_failed",
       "watchdog_orphan_sweep_killed",
       "watchdog_orphan_sweep_pid_reuse_skipped",
@@ -1000,8 +998,6 @@
     ]
   },
   "fileRouting": {
-    "watchdog_notification_state_migrated": "audit",
-    "watchdog_notification_state_migration_conflict": "audit",
     "daemon_liveness_heartbeat": "tick",
     "eventloop_iteration": "tick",
     "watchdog_check": "tick",

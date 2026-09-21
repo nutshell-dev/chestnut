@@ -2,19 +2,12 @@
  * @module L6.Watchdog.State
  * Watchdog state persistence — load/save durable restart maps.
  *
- * Phase 1396 Step H: legacy notification Maps retired. On first load of an old
- * state containing those fields, the original values are atomically preserved to
- * `.chestnut/watchdog/migrations/phase1396-retired-notification-state.json`
- * before the new in-memory state takes over.
- *
  * Phase 1455 Step A: 磁盘位置归位 `watchdog/state.json`（WATCHDOG_PATHS.state）。
  * phase 1890 Step J：迁移协议退役——读写只走新路径，不再有 legacy root
  * `watchdog-state.json` 回退（无老版本部署存量）。
  */
 
-import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
-import type { AuditLog } from '../foundation/audit/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import {
   getChestnutFs, getAuditWriter, motionRestartStateAPI, executorRestartStateAPI,
@@ -26,27 +19,11 @@ import { WATCHDOG_PATHS } from './layout.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 
 const CURRENT_WATCHDOG_SCHEMA_VERSION = 3;
-const MIGRATION_RECORD_PATH = 'watchdog/migrations/phase1396-retired-notification-state.json';
 
 interface WatchdogState {
   schema_version: number;
   motionRestart?: MotionRestartState;
   executorRestart?: ExecutorRestartMap;
-}
-
-interface LegacyNotificationFields {
-  lastInactivityNotified?: Record<string, number>;
-  inactivityNotifyCount?: Record<string, number>;
-  clawPreviouslyAlive?: Record<string, boolean>;
-  everSpawned?: string[];
-  clawPreviouslyNotified?: Record<string, number>;
-}
-
-interface MigrationRecord {
-  schema_version: 1;
-  source_schema_version: number;
-  retired_at: string;
-  fields: LegacyNotificationFields;
 }
 
 function normalizeMotionRestartState(value: unknown): MotionRestartState {
@@ -161,70 +138,6 @@ class WatchdogSchemaError extends Error {
   }
 }
 
-function hasLegacyNotificationFields(state: Record<string, unknown>): state is Record<string, unknown> & LegacyNotificationFields {
-  return (
-    state.lastInactivityNotified !== undefined
-    || state.inactivityNotifyCount !== undefined
-    || state.clawPreviouslyAlive !== undefined
-    || state.everSpawned !== undefined
-    || state.clawPreviouslyNotified !== undefined
-  );
-}
-
-function fieldsEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function migrateLegacyNotificationState(
-  fs: FileSystem,
-  audit: AuditLog | null,
-  sourceSchemaVersion: number,
-  fields: LegacyNotificationFields,
-): void {
-  const record: MigrationRecord = {
-    schema_version: 1,
-    source_schema_version: sourceSchemaVersion,
-    retired_at: new Date().toISOString(),
-    fields,
-  };
-
-  if (fs.existsSync(MIGRATION_RECORD_PATH)) {
-    let existing: MigrationRecord | undefined;
-    try {
-      existing = JSON.parse(fs.readSync(MIGRATION_RECORD_PATH)) as MigrationRecord;
-    } catch (err) {
-      audit?.write(
-        WATCHDOG_AUDIT_EVENTS.NOTIFICATION_STATE_MIGRATION_CONFLICT,
-        `reason=existing_migration_unreadable`,
-        `path=${MIGRATION_RECORD_PATH}`,
-        `error=${audit?.message(formatErr(err)) ?? formatErr(err)}`,
-      );
-      throw new Error(`Existing migration record at ${MIGRATION_RECORD_PATH} is unreadable; refusing to overwrite.`);
-    }
-    if (
-      existing.source_schema_version === sourceSchemaVersion
-      && fieldsEqual(existing.fields, fields)
-    ) {
-      // Idempotent re-run: same source facts already migrated.
-      return;
-    }
-    audit?.write(
-      WATCHDOG_AUDIT_EVENTS.NOTIFICATION_STATE_MIGRATION_CONFLICT,
-      `reason=field_mismatch`,
-      `path=${MIGRATION_RECORD_PATH}`,
-    );
-    throw new Error(`Migration record at ${MIGRATION_RECORD_PATH} conflicts with current legacy state; refusing to overwrite.`);
-  }
-
-  fs.ensureDirSync(path.dirname(MIGRATION_RECORD_PATH));
-  fs.writeAtomicSync(MIGRATION_RECORD_PATH, JSON.stringify(record, null, 2));
-  audit?.write(
-    WATCHDOG_AUDIT_EVENTS.NOTIFICATION_STATE_MIGRATED,
-    `path=${MIGRATION_RECORD_PATH}`,
-    `source_schema_version=${sourceSchemaVersion}`,
-  );
-}
-
 /** 读 state 原文（phase 1890 Step J：只走新路径；FNF 由 caller 按首次启动处理）。 */
 function readStateRaw(fs: FileSystem): { raw: string; statePath: string } {
   return { raw: fs.readSync(WATCHDOG_PATHS.state), statePath: WATCHDOG_PATHS.state };
@@ -246,17 +159,6 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
       || stateVersion > CURRENT_WATCHDOG_SCHEMA_VERSION
     ) {
       throw new WatchdogSchemaError(stateVersion, CURRENT_WATCHDOG_SCHEMA_VERSION);
-    }
-
-    if (hasLegacyNotificationFields(state)) {
-      const audit = getAuditWriter();
-      migrateLegacyNotificationState(fs, audit, stateVersion, {
-        lastInactivityNotified: state.lastInactivityNotified,
-        inactivityNotifyCount: state.inactivityNotifyCount,
-        clawPreviouslyAlive: state.clawPreviouslyAlive,
-        everSpawned: state.everSpawned,
-        clawPreviouslyNotified: state.clawPreviouslyNotified,
-      });
     }
 
     const motionRestart = normalizeMotionRestartState(state.motionRestart);

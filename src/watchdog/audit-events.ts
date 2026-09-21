@@ -55,9 +55,6 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_UNCLEAN_TERMINATION_DETECTED: 'watchdog_unclean_termination_detected',
   WATCHDOG_TERMINAL_WRITE_FAILED: 'watchdog_terminal_write_failed',
   WATCHDOG_TERMINAL_RECORDED: 'watchdog_terminal_recorded',
-  // Phase 1396 Step H: legacy notification state migrated before being retired
-  NOTIFICATION_STATE_MIGRATED: 'watchdog_notification_state_migrated',
-  NOTIFICATION_STATE_MIGRATION_CONFLICT: 'watchdog_notification_state_migration_conflict',
   // Phase 1396 Step F: claw daemon executor recovery events
   EXECUTOR_RECOVERY_SKIPPED: 'watchdog_executor_recovery_skipped',
   EXECUTOR_UNAVAILABLE_DELIVERED: 'watchdog_executor_unavailable_delivered',
@@ -119,8 +116,6 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> =
   watchdog_unclean_termination_detected: 'audit',
   watchdog_terminal_write_failed: 'audit',
   watchdog_terminal_recorded: 'audit',
-  watchdog_notification_state_migrated: 'audit',
-  watchdog_notification_state_migration_conflict: 'audit',
   watchdog_executor_recovery_skipped: 'audit',
   watchdog_executor_unavailable_delivered: 'audit',
   watchdog_executor_unavailable_delivery_failed: 'audit',
