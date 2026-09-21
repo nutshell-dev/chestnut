@@ -48,9 +48,8 @@ const MIGRATED: MigratedSource[] = [
     // phase 1829: 新语义文案同样不得在模板外定义第二份
     id: 'M03', file: 'core/contract/verification-notify.ts',
     fragments: [
-      'accepted. All subtasks complete!', 'No feedback provided', 'force-accepted after',
-      'Acceptance verification failed with error', 'Acceptance verifier timed out after', 'Acceptance verification crashed (system bug)',
-      '本次验收未通过', '契约验收通知', '本次验收流程异常', '按现行规则将该子任务记为完成',
+      'accepted. All subtasks complete!', 'No feedback provided', 'force-accepted after', 'Acceptance verification failed with error',
+      'Acceptance verifier timed out after', 'Acceptance verification crashed (system bug)', '本次验收未通过', '契约验收通知', '本次验收流程异常', '按现行规则将该子任务记为完成',
     ],
   },
   {
@@ -74,11 +73,8 @@ const MIGRATED: MigratedSource[] = [
     fragments: ['outbox 未读：共', '（无预览）', '〔提示〕以上未读消息与此前推送完全重复', '计数可能不完整'],
   },
   { id: 'M08', file: 'core/heartbeat/inbox-formatter.ts', fragments: ['Heartbeat triggered. Please perform a routine check.'] },
-  {
-    // phase 1835: 新语义文案同样不得在模板外定义第二份（旧英文保留防回退）
-    id: 'M09', file: 'core/memory/random-dream.ts',
-    fragments: ['Dream outputs persisted', '跨 claw 经验探索输出已保存', '产物：', '尚未自动整理为可检索的长期记忆'],
-  },
+  // phase 1835: 新语义文案同样不得在模板外定义第二份（旧英文保留防回退）
+  { id: 'M09', file: 'core/memory/random-dream.ts', fragments: ['Dream outputs persisted', '跨 claw 经验探索输出已保存', '产物：', '尚未自动整理为可检索的长期记忆'] },
   { id: 'M10', file: 'foundation/messaging/formatter-registry.ts', fragments: ['[system message${', '[user inbox message${'] },
   {
     // phase 1836: 新语义文案同样不得在模板外定义第二份（旧英文保留防回退）
@@ -146,10 +142,7 @@ describe('phase 1828: inbox message template boundary', () => {
     expect(text).not.toMatch(/templates\/messages/);
   });
 
-  it('M10 旧位置 system-message-helper.ts：前缀字面定义不回流（文件已退化为 origin 谓词、无文案职责）', () => {
-    // phase 1891: phase1889 Step D 删 SYSTEM_MESSAGE_PREFIX re-export 后，该文件只剩
-    // isSystemMessage/isUserMessage 谓词；照 phase 1845 M01 先例——不为迁就旧检查加无用 import。
-    const text = readStripped('foundation/messaging/system-message-helper.ts');
-    expect(text).not.toContain("= '[system message");
+  it('M10 旧位置 system-message-helper.ts：前缀字面定义不回流（phase 1891：文件已退化为 origin 谓词、无文案职责，照 M01 先例不加无用 import）', () => {
+    expect(readStripped('foundation/messaging/system-message-helper.ts')).not.toContain("= '[system message");
   });
 });
