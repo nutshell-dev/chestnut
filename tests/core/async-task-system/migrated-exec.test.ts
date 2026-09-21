@@ -250,8 +250,11 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-long-taskid');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-long-taskid ]; do sleep 0.01; done; echo done',
+    }, ctx);
 
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
@@ -273,6 +276,7 @@ describe('createAsyncExecWrapper', () => {
     expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED)).toBe(true);
 
     // Wait for the background chain to finish and move the running file to done.
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     // Result file is written by the background chain once the process exits (persistence uses fullId).
@@ -539,8 +543,11 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-identity');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-identity ]; do sleep 0.01; done; echo done',
+    }, ctx);
     expect(result.success).toBe(true);
     const fullId = result.metadata?.fullTaskId as string;
 
@@ -560,6 +567,7 @@ describe('createAsyncExecWrapper', () => {
       expect(task.migratedExecution.leaderStartTime.length).toBeGreaterThan(0);
     }
 
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
   });
 
@@ -683,13 +691,21 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-automigrate');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-automigrate ]; do sleep 0.01; done; echo done',
+    }, ctx);
 
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
     expect(result.metadata).toMatchObject({ async: true, migrated: true });
     expect(typeof result.metadata?.taskId).toBe('string');
+
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
+    await waitUntilGone(runningFile, 5000);
   });
 
   it('should return sync result when timeoutMs is not set and command is fast', async () => {
@@ -1050,8 +1066,11 @@ describe('Phase 833: migrated exec stream events', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-task-started');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-task-started ]; do sleep 0.01; done; echo done',
+    }, ctx);
 
     expect(result.success).toBe(true);
     const shortId = result.metadata?.taskId as string;
@@ -1062,8 +1081,12 @@ describe('Phase 833: migrated exec stream events', () => {
     expect(started?.taskId).toBe(shortId);
     expect(started?.fullTaskId).toBe(fullId);
     expect(started?.taskKind).toBe('exec_migrated');
-    expect(started?.command).toBe('sleep 0.3 && echo done');
+    expect(started?.command).toBe('while [ ! -f release-task-started ]; do sleep 0.01; done; echo done');
     expect(typeof started?.startedAt).toBe('number');
+
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
+    await waitUntilGone(runningFile, 5000);
   });
 
   it('emits task_completed after migrated process finishes', async () => {
@@ -1097,7 +1120,8 @@ describe('Phase 833: migrated exec stream events', () => {
       softTimeoutMs: 100,
     });
 
-    const longCommand = 'sleep 0.3 && echo ' + 'x'.repeat(200);
+    const releaseFile = path.join(tmpDir, 'release-truncated-command');
+    const longCommand = 'while [ ! -f release-truncated-command ]; do sleep 0.01; done; echo ' + 'x'.repeat(200);
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: longCommand }, ctx);
 
@@ -1108,6 +1132,11 @@ describe('Phase 833: migrated exec stream events', () => {
     const command = started!.command as string;
     expect(command.length).toBeLessThanOrEqual(83); // 80 + '...'
     expect(command.endsWith('...')).toBe(true);
+
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
+    await waitUntilGone(runningFile, 5000);
   });
 
   it('does not emit task_started for sync completion', async () => {
