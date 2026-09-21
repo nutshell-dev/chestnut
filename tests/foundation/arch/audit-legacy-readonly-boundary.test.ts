@@ -3,9 +3,9 @@
  * （自 audit-layout-boundary.test.ts 拆出、Phase 1292 Step B）
  *
  * 冻结：
- *  - 目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰四处，构造点收敛 factory.ts
+ *  - 目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰三处，构造点收敛 factory.ts
  *    （workspace-audit.ts 通过 createSystemAudit 委托 factory）；
- *  - legacy 根 audit.tsv 只读：AUDIT_LEGACY_PATHS.audit 引用白名单恰三处、
+ *  - legacy 根 audit.tsv 只读：AUDIT_LEGACY_PATHS.audit 引用白名单恰两处、
  *    零写/删/移/改名操作；
  *  - 其他 scope（motion/claw/tick/viewport）审计路径零迁移、值保持原值；
  *  - legacy 写操作 scanner 正反 fixture 自证。
@@ -26,18 +26,15 @@ describe('phase 1288 Step D: legacy 根 audit 只读与 segments 边界 ratchet'
   //  - workspace-audit.ts   唯一生产写 audit/audit.tsv（createWorkspaceAudit）
   //  - workspace-segments.ts 唯一 segments 读取消费方（legacy/new 双段、只读）
   //  - motion-addons.ts     monitor 三段常驻观察装配（stat 观察、不写）
-  //  - task-recovery.ts     Phase 1396 Step L legacy 结果分类只读证据
-  //    （typed task_completed status=ok|err 扫描、零写/删/移）
+  // （phase 1890 Step B：task-recovery.ts 的 legacy 结果分类只读证据面已删，出白名单）
   const TARGET_AUDIT_REF_FILES = [
     'src/foundation/audit/workspace-audit.ts',
     'src/foundation/audit/workspace-segments.ts',
     'src/assembly/motion-addons.ts',
-    'src/core/async-task-system/task-recovery.ts',
   ];
   const LEGACY_AUDIT_REF_FILES = [
     'src/foundation/audit/workspace-segments.ts',
     'src/assembly/motion-addons.ts',
-    'src/core/async-task-system/task-recovery.ts',
   ];
   const MUTATION_TOKENS = [
     'writeSync(', 'writeFileSync(', 'appendSync(', 'appendFileSync(',
@@ -55,7 +52,7 @@ describe('phase 1288 Step D: legacy 根 audit 只读与 segments 边界 ratchet'
     return MUTATION_TOKENS.filter((t) => text.includes(t));
   }
 
-  it('目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰四处、构造点收敛 factory.ts', () => {
+  it('目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰三处、构造点收敛 factory.ts', () => {
     expect(filesReferencing('AUDIT_PATHS.audit', SRC_ROOT).sort()).toEqual([...TARGET_AUDIT_REF_FILES].sort());
     const factoryText = fs.readFileSync(path.join(PROJECT_ROOT, 'src/foundation/audit/factory.ts'), 'utf8');
     expect(factoryText).toContain('new AuditWriter');
@@ -70,7 +67,7 @@ describe('phase 1288 Step D: legacy 根 audit 只读与 segments 边界 ratchet'
     }
   });
 
-  it('legacy 根 audit.tsv 只读：AUDIT_LEGACY_PATHS.audit 引用白名单恰三处、零写/删/移/改名操作', () => {
+  it('legacy 根 audit.tsv 只读：AUDIT_LEGACY_PATHS.audit 引用白名单恰两处、零写/删/移/改名操作', () => {
     expect(filesReferencing('AUDIT_LEGACY_PATHS.audit', SRC_ROOT).sort()).toEqual([...LEGACY_AUDIT_REF_FILES].sort());
     for (const rel of LEGACY_AUDIT_REF_FILES) {
       expect(mutationTokensIn(rel), `${rel} must not mutate legacy audit`).toEqual([]);
