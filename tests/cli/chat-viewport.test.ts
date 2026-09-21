@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { createMainTurnUI } from '../../src/viewport/chat-viewport.js';
+import { createMainTurnUI } from '../../src/viewport/main-turn-ui.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viewportPath = path.join(__dirname, '../../src/viewport/chat-viewport.ts');

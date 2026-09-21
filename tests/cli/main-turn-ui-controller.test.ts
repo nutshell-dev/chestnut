@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createMainTurnUI } from '../../src/viewport/chat-viewport.js';
+import { createMainTurnUI } from '../../src/viewport/main-turn-ui.js';
 import { MIN_DWELL_MS } from '../../src/viewport/main-turn-ui.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 

@@ -585,16 +585,3 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     process.stdin.pause();
   }
 }
-
-// Re-exports for backward compatibility (tests import from chat-viewport.js)
-export {
-  createMainTurnUI,
-  type MainTurnUIDeps,
-  type MainTurnUIController,
-} from './main-turn-ui.js';
-
-export {
-  createTaskEventHandler,
-  type TaskEventHandlerDeps,
-  type TaskEvent,
-} from './chat-viewport-task-events.js';

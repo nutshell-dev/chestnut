@@ -16,7 +16,7 @@ import { AUDIT_FILE } from '../../src/foundation/audit/index.js';
 import {
   createMainTurnUI,
   type MainTurnUIController,
-} from '../../src/viewport/chat-viewport.js';
+} from '../../src/viewport/main-turn-ui.js';
 import { createViewportObservability } from '../../src/viewport/chat-viewport-observability.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';

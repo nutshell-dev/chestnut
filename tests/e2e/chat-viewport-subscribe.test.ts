@@ -8,7 +8,8 @@ import { createStreamReader, STREAM_FILE, type StreamEvent, type StreamReader } 
 import { makeAudit } from '../helpers/audit.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
-import { createMainTurnUI, createTaskEventHandler, type MainTurnUIController } from '../../src/viewport/chat-viewport.js';
+import { createMainTurnUI, type MainTurnUIController } from '../../src/viewport/main-turn-ui.js';
+import { createTaskEventHandler } from '../../src/viewport/chat-viewport-task-events.js';
 import { prefixLines } from '../../src/viewport/terminal-text.js';
 
 /**

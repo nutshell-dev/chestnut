@@ -16,9 +16,9 @@ import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js
 import { AUDIT_FILE } from '../../src/foundation/audit/index.js';
 import {
   createMainTurnUI,
+  MIN_DWELL_MS,
   type MainTurnUIController,
-} from '../../src/viewport/chat-viewport.js';
-import { MIN_DWELL_MS } from '../../src/viewport/main-turn-ui.js';
+} from '../../src/viewport/main-turn-ui.js';
 import { SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { createViewportObservability } from '../../src/viewport/chat-viewport-observability.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
