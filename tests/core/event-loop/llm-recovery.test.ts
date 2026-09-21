@@ -499,8 +499,9 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 等到 deadline（500ms 缩放值）后由 EventLoop 自动放行一次。
     h.setProviderError(undefined);
     const rerun = h.eventLoop.run();
-    await sleep(650);
-    expect(h.providerCalls.length).toBe(2);
+    // phase 1891: 正断言 waitFor 化（同 phase 1884 模式）——固定 650ms 窗假设
+    // deadline 放行 + 真实调用在窗内完成，CI 满载 tick 延迟下不成立。
+    await waitFor(() => h.providerCalls.length === 2, 5_000, 10);
     h.eventLoop.abort();
     await rerun;
   });
