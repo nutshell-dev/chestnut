@@ -44,7 +44,6 @@ function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[
 describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
   let rootDir: string;
   let agentDir: string;
-  let rootFs: NodeFileSystem;
   let agentFs: NodeFileSystem;
   let audit: ReturnType<typeof createMockAudit>;
   let currentNow: number;
@@ -56,7 +55,6 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
     rootDir = path.join(os.tmpdir(), `transition-evidence-${randomUUID()}`);
     agentDir = path.join(rootDir, 'claws', 'claw-1');
     fs.mkdirSync(agentDir, { recursive: true });
-    rootFs = new NodeFileSystem({ baseDir: rootDir });
     agentFs = new NodeFileSystem({ baseDir: agentDir });
     audit = createMockAudit();
     currentNow = BASE_NOW;
@@ -79,7 +77,7 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
   }
 
   function makeStore(): ExecutionRecoveryStore {
-    return createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    return createExecutionRecoveryStore({ agentFs, audit });
   }
 
   function reopenController(store: ExecutionRecoveryStore): ExecutionRecoveryController {

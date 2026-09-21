@@ -60,7 +60,6 @@ function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[
 describe('execution-recovery controller', () => {
   let rootDir: string;
   let agentDir: string;
-  let rootFs: NodeFileSystem;
   let agentFs: NodeFileSystem;
   let audit: ReturnType<typeof createMockAudit>;
   let currentNow: number;
@@ -93,10 +92,9 @@ describe('execution-recovery controller', () => {
   beforeEach(() => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     rootDir = path.join(os.tmpdir(), `execution-recovery-test-${randomUUID()}`);
-    // agentDir 形如 <root>/claws/<clawId>：local record 落 agentDir，legacy 只读 rootDir。
+    // agentDir 形如 <root>/claws/<clawId>：local record 落 agentDir。
     agentDir = path.join(rootDir, 'claws', 'claw-1');
     fs.mkdirSync(agentDir, { recursive: true });
-    rootFs = new NodeFileSystem({ baseDir: rootDir });
     agentFs = new NodeFileSystem({ baseDir: agentDir });
     audit = createMockAudit();
     currentNow = BASE_NOW;
@@ -119,11 +117,6 @@ describe('execution-recovery controller', () => {
     return path.join(agentDir, EXECUTION_RECOVERY_DIR, `${contractId}.json`);
   }
 
-  /** 旧 root 共享目录路径（只读基线来源）。 */
-  function legacyRecordFilePath(contractId: string): string {
-    return path.join(rootDir, EXECUTION_RECOVERY_DIR, `${contractId}.json`);
-  }
-
   function readRecordFile(contractId: string): ExecutionRecoveryRecord | null {
     const p = recordFilePath(contractId);
     if (!fs.existsSync(p)) return null;
@@ -131,7 +124,7 @@ describe('execution-recovery controller', () => {
   }
 
   function makeStore(): ExecutionRecoveryStore {
-    return createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    return createExecutionRecoveryStore({ agentFs, audit });
   }
 
   function makeController(): { store: ExecutionRecoveryStore; controller: ExecutionRecoveryController } {
@@ -886,27 +879,6 @@ describe('execution-recovery controller', () => {
       expect(scheduleCheckAudits()).toHaveLength(1);
     });
 
-    it('旧共享基线导入写保持：legacy 继承照常落盘，新登记被未来 at 抑制', async () => {
-      const legacyRaw = JSON.stringify({
-        schema_version: 1,
-        contractId: CONTRACT_ID,
-        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
-        attempts: 3,
-        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
-      });
-      fs.mkdirSync(path.dirname(legacyRecordFilePath(CONTRACT_ID)), { recursive: true });
-      fs.writeFileSync(legacyRecordFilePath(CONTRACT_ID), legacyRaw);
-      const { controller } = makeController();
-      nextSchedule = futureAt();
-      await controller.observe(stalledSnapshot());
-      // 继承写保持：本地 record 建立（attempts 3 + unknown 来源证据），root 原文不变
-      const record = readRecordFile(CONTRACT_ID)!;
-      expect(record.attempts).toBe(3);
-      expect(record.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
-      expect(fs.readFileSync(legacyRecordFilePath(CONTRACT_ID), 'utf8')).toBe(legacyRaw);
-      expect(resumeCalls).toHaveLength(0);
-      expect(scheduleCheckAudits()).toHaveLength(1);
-    });
 
     it('已持久 pending 义务 + inspect 抛错：inspect 0 调用，义务按原身份恢复确认', async () => {
       // 先用正常流程建立持久 pending 义务（第一次交付未证实）
@@ -987,8 +959,6 @@ describe('execution-recovery controller', () => {
       const updated: ExecutionRecoveryRecord = { ...record, attempts: 3, lastAttemptAt: 789 };
       store.save(updated);
       expect(store.load(CONTRACT_ID)).toEqual(updated);
-      // legacy 目录全程未被写入
-      expect(fs.existsSync(legacyRecordFilePath(CONTRACT_ID))).toBe(false);
     });
 
     it('损坏 record：load 审计后抛出（Phase 1841：读取未知不降格为不存在），原字节不变', () => {
@@ -1000,7 +970,6 @@ describe('execution-recovery controller', () => {
       expect(fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe(bytesBefore);
       const fatal = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL);
       expect(fatal).toBeDefined();
-      expect(fatal!.some(col => String(col) === 'scope=local')).toBe(true);
       expect(fatal!.some(col => String(col) === 'reason=parse_failed')).toBe(true);
     });
 

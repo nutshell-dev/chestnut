@@ -396,7 +396,6 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
     // observedActivityAt 必须等于 probe 的 lastActivityAt（不触发 reset）
     const store = createExecutionRecoveryStore({
       agentFs: f.fs,
-      legacyRootFs: new NodeFileSystem({ baseDir: f.rootDir }),
       audit: { write: () => {} },
     });
     const scheduledAt = sharedNow - RECOVERY_TIMEOUT_MS;

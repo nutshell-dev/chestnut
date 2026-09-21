@@ -1,7 +1,6 @@
 import type { AuditLog, TraceId } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
-import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle, InboxMessage } from '../../foundation/messaging/index.js';
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
@@ -126,16 +125,9 @@ export type LLMRequestBlockedState =
       reason: 'retry_exhausted';
       attempts: number;
       maxAttempts: number;
-    })
-  | (LLMRequestBlockedBase & {
-      reason: 'invalid_request';
-      errorCode: 'LLM_INVALID_REQUEST';
-    })
-  | (LLMRequestBlockedBase & {
-      reason: 'permanent_provider_error';
-      userActionHint: UserActionHint;
-      message: string;
     });
+// phase 1890 Step D：provider 类阻断（invalid_request / permanent_provider_error）
+// 归 LLMOrchestrator owner（phase 1826）；EventLoop 不再持有其状态变体。
 
 export type LLMRequestGateDecision =
   | { kind: 'open'; fingerprint: string }

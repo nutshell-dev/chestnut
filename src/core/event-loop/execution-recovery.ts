@@ -10,9 +10,9 @@
  * 对真实失败来源独占裁决。
  * Phase 1841: 提醒记录按实例归属——记录写到本 claw 的
  * `<agentDir>/event-loop/execution-recovery/<contractId>.json`（motion 为
- * `<root>/motion/...`，worker 为 `<root>/claws/<id>/...`）；旧
- * `<root>/event-loop/execution-recovery/` 共享目录仅作只读历史基线继承
- * （归属不可考，原文与 unknown 标记随记录保留）。controller 只按当前选中
+ * `<root>/motion/...`，worker 为 `<root>/claws/<id>/...`）。
+ * phase 1890 Step D：旧 root 共享目录基线继承面删除（存量废弃）——本地
+ * 缺失即首次观察。controller 只按当前选中
  * 契约 ID 直读直写，未选中/无 active 不授权删除任何记录，不扫描目录。
  * Phase 1842: 一次已决定的提醒先持久化 pending 交付义务（冻结稳定
  * id/attempt/scheduledAt/body），直到 Messaging 查询证实消息存在于
@@ -76,22 +76,10 @@ export interface ExecutionRecoveryRecord {
   observedActivityAt: number;
   /**
    * 调度计数（1-based 累计）：本模块登记过的 resume 调度尝试次数。
-   * Phase 1841: 可能包含归属未知的旧共享基线（见 legacySharedBaseline），
-   * 不得当作「本 claw 已成功收到提醒消息数」。
    */
   attempts: number;
   /** 最近一次 attempt 落盘时间（epoch ms）；同窗口重入幂等的判别依据。 */
   lastAttemptAt: number;
-  /**
-   * Phase 1841: 旧 root 共享记录的只读继承证据（schema1 附加来源字段，
-   * 五个原控制字段含义/格式不变）。旧 schema1 没有 clawId，无法恢复真实
-   * 发送者；同 ID 还可能已被多实例互相覆盖，故归属恒为 unknown。raw 保存
-   * 旧文件完整 UTF-8 原文（含空白与未知字段），不以重序列化替代。
-   */
-  legacySharedBaseline?: {
-    attribution: 'unknown';
-    raw: string;
-  };
   /**
    * Phase 1842: 交付义务（可选，schema_version 仍为 1，旧记录无此字段合法）。
    * pending = 已决定但未经 Messaging 证实的义务（冻结 id/attempt/scheduledAt/body，
@@ -224,15 +212,6 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
   if (typeof r.observedActivityAt !== 'number' || !Number.isFinite(r.observedActivityAt)) return null;
   if (typeof r.attempts !== 'number' || !Number.isInteger(r.attempts) || r.attempts < 0) return null;
   if (typeof r.lastAttemptAt !== 'number' || !Number.isFinite(r.lastAttemptAt)) return null;
-  let legacySharedBaseline: ExecutionRecoveryRecord['legacySharedBaseline'];
-  if (r.legacySharedBaseline !== undefined) {
-    const p = r.legacySharedBaseline;
-    if (typeof p !== 'object' || p === null) return null;
-    const prov = p as Record<string, unknown>;
-    if (prov.attribution !== 'unknown') return null;
-    if (typeof prov.raw !== 'string') return null;
-    legacySharedBaseline = { attribution: 'unknown', raw: prov.raw };
-  }
   const delivery = parseDelivery(r.delivery, r.attempts, r.lastAttemptAt);
   if (delivery === null) return null;
   return {
@@ -241,7 +220,6 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
     observedActivityAt: r.observedActivityAt,
     attempts: r.attempts,
     lastAttemptAt: r.lastAttemptAt,
-    ...(legacySharedBaseline ? { legacySharedBaseline } : {}),
     ...(delivery ? { delivery } : {}),
   };
 }
@@ -250,9 +228,8 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
 // Store — per-contract record 持久化（Phase 1841: 实例归属）
 //
 // 本地记录写到 agentFs（<agentDir>/event-loop/execution-recovery/），存在即权威；
-// legacyRootFs（旧 root 共享目录）仅以 Pick<..., 'readSync'> 只读参与，且仅在
-// 本地真缺失时作为共享历史基线继承一次。store 不提供 list/delete：本 claw 无权
-// 枚举或清理任何记录（包括自己未选中的）。
+// 本地真缺失即首次观察（不建立空状态，首次实际 save 才建本地文件）。store 不
+// 提供 list/delete：本 claw 无权枚举或清理任何记录（包括自己未选中的）。
 // ---------------------------------------------------------------------------
 
 export interface ExecutionRecoveryStore {
@@ -280,11 +257,9 @@ function recordFileName(contractId: string): string {
 
 export function createExecutionRecoveryStore(deps: {
   agentFs: FileSystem;
-  /** 旧 root 共享目录的只读来源；接口以 Pick 限制，调用方不得扩回 FileSystem。 */
-  legacyRootFs: Pick<FileSystem, 'readSync'>;
   audit: AuditLog;
 }): ExecutionRecoveryStore {
-  const { agentFs, legacyRootFs, audit } = deps;
+  const { agentFs, audit } = deps;
   const recordPath = (contractId: string): string =>
     path.join(EXECUTION_RECOVERY_DIR, recordFileName(contractId));
 
@@ -293,7 +268,7 @@ export function createExecutionRecoveryStore(deps: {
   };
 
   /**
-   * 私有写：save 与 legacy 继承共用。rename 前失败原样抛出（调用者不 enqueue）；
+   * 私有写：save 专用。rename 前失败原样抛出（调用者不 enqueue）；
    * rename 已提交的两种受限耐久性结果只审计留证——不能删除、回滚、当未写成
    * 重写或再加 attempt。
    */
@@ -322,45 +297,31 @@ export function createExecutionRecoveryStore(deps: {
   };
 
   /**
-   * 严格解析：JSON 解析 / schema（含来源字段）/ ID 一致性错误一律审计后抛出，
+   * 严格解析：JSON 解析 / schema / ID 一致性错误一律审计后抛出，
    * 不返回 null、不写任何文件。读取未知不能降格为「不存在」。
    */
   const parseStrict = (
     raw: string,
-    scope: 'local' | 'legacy',
     contractId: string,
   ): ExecutionRecoveryRecord => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch (e) {
-      auditFailure(`scope=${scope}`, `operation=read`, `contract=${contractId}`, `reason=parse_failed`, `error=${formatErr(e)}`);
+      auditFailure(`operation=read`, `contract=${contractId}`, `reason=parse_failed`, `error=${formatErr(e)}`);
       throw new Error(
-        `execution recovery record ${scope} parse failed (contract=${contractId})`,
+        `execution recovery record parse failed (contract=${contractId})`,
         { cause: e },
       );
     }
-    // Phase 1842: legacy scope 在严格解析前只为控制投影移除 delivery 字段——
-    // 旧 root 共享记录没有实例身份，其 delivery（无论格式是否合法）不能证明本
-    // claw 的交付义务，不继承、不阻断；完整原文仍随 legacySharedBaseline.raw
-    // 保留为来源证据。这是显式兼容决策，不是静默忽略。local scope 不做投影：
-    // 本地 delivery 无效即整个 record 无效。
-    const projectionSource =
-      scope === 'legacy' && typeof parsed === 'object' && parsed !== null
-        ? (() => {
-            const copy = { ...(parsed as Record<string, unknown>) };
-            delete copy.delivery;
-            return copy;
-          })()
-        : parsed;
-    const record = parseExecutionRecoveryRecord(projectionSource);
+    const record = parseExecutionRecoveryRecord(parsed);
     if (!record) {
-      auditFailure(`scope=${scope}`, `operation=read`, `contract=${contractId}`, `reason=schema_invalid`);
-      throw new Error(`execution recovery record ${scope} schema invalid (contract=${contractId})`);
+      auditFailure(`operation=read`, `contract=${contractId}`, `reason=schema_invalid`);
+      throw new Error(`execution recovery record schema invalid (contract=${contractId})`);
     }
     if (record.contractId !== contractId) {
-      auditFailure(`scope=${scope}`, `operation=read`, `contract=${contractId}`, `reason=id_mismatch`);
-      throw new Error(`execution recovery record ${scope} id mismatch (contract=${contractId})`);
+      auditFailure(`operation=read`, `contract=${contractId}`, `reason=id_mismatch`);
+      throw new Error(`execution recovery record id mismatch (contract=${contractId})`);
     }
     return record;
   };
@@ -368,49 +329,21 @@ export function createExecutionRecoveryStore(deps: {
   return {
     load(contractId) {
       const relPath = recordPath(contractId);
-      // 1) 本地优先：直接读，不以 existsSync 预判。成功即权威返回（包括
-      //    attempts=0 的已建立本地状态），不再读取 legacy。
+      // 本地记录存在即权威（包括 attempts=0 的已建立本地状态）。
       let localRaw: string | undefined;
       try {
         localRaw = agentFs.readSync(relPath);
       } catch (e) {
         if (!isFileNotFound(e)) {
-          auditFailure(`scope=local`, `operation=read`, `contract=${contractId}`, `reason=read_failed`, `error=${formatErr(e)}`);
+          auditFailure(`operation=read`, `contract=${contractId}`, `reason=read_failed`, `error=${formatErr(e)}`);
           throw e;
         }
       }
       if (localRaw !== undefined) {
-        return parseStrict(localRaw, 'local', contractId);
+        return parseStrict(localRaw, contractId);
       }
-      // 2) 仅本地真缺失（ENOENT）才读旧共享基线；其他读取错误原样抛出。
-      let legacyRaw: string;
-      try {
-        legacyRaw = legacyRootFs.readSync(relPath);
-      } catch (e) {
-        if (isFileNotFound(e)) {
-          // 两侧真缺失 → 首次观察：不建立空状态，首次实际 save 才建本地文件。
-          return null;
-        }
-        auditFailure(`scope=legacy`, `operation=read`, `contract=${contractId}`, `reason=read_failed`, `error=${formatErr(e)}`);
-        throw e;
-      }
-      // 3) 旧共享基线继承：五个控制字段原样投影，附完整原文与 unknown 归属
-      //    标记。不采用旧输入中的同名来源字段伪造新来源。root 字节始终不变。
-      const legacyRecord = parseStrict(legacyRaw, 'legacy', contractId);
-      const inherited: ExecutionRecoveryRecord = {
-        ...legacyRecord,
-        legacySharedBaseline: { attribution: 'unknown', raw: legacyRaw },
-      };
-      // 先落盘再返回：迁移写失败则抛，不返回可继续 enqueue 的记录。
-      writeRecord(inherited);
-      audit.write(
-        EVENTLOOP_AUDIT_EVENTS.ITERATION,
-        `context=executionRecoveryLegacyImport`,
-        `contract=${contractId}`,
-        `source=root_shared`,
-        `attribution=unknown`,
-      );
-      return inherited;
+      // 本地真缺失 → 首次观察：不建立空状态，首次实际 save 才建本地文件。
+      return null;
     },
 
     save(record) {
@@ -568,8 +501,8 @@ export function createExecutionRecoveryController(
       let record = store.load(contractId);
 
       // activity 前进 → 本 epoch 已恢复：先持久化零计数记录（保留「已建立本地状态」
-      // 事实与 legacy 来源证据，重启不会重新导入旧共享基线），再判断活动是否超时，
-      // 不留「内存已重置、磁盘旧值」窗口。spread 保留 legacySharedBaseline。
+      // 事实，重启后按本地记录继续），再判断活动是否超时，
+      // 不留「内存已重置、磁盘旧值」窗口。
       // Phase 1842: 旧 pending 义务同次转 superseded（停止后续补投，保留冻结身份
       // 与正文证据；不召回已写消息，也不宣称旧消息从未投递）；旧 confirmed /
       // superseded 保持原证据。save 失败终止本次，不能继续交付。superseded 与

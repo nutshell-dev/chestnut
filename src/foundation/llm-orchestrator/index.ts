@@ -37,8 +37,6 @@ export type {
 export {
   LLM_RECOVERY_STATE_FILE,
   createInitialRecoveryState,
-  exportLegacyRecoveryState,
-  importLegacyRecoveryExport,
   loadRecoveryState,
   saveRecoveryState,
 } from './recovery-state.js';
@@ -48,10 +46,6 @@ export type {
   LLMRecoveryStateV1,
   LLMRecoveryBudget,
   LLMRecoveryProviderFact,
-  LegacyRecoveryExport,
-  LegacyRecoveryExportResult,
-  LegacyRetryStateV2,
-  LegacyBlockedStateV2,
 } from './recovery-state.js';
 
 export {

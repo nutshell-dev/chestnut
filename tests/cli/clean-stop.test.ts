@@ -122,9 +122,9 @@ describe('Phase 86: clean stop 生命周期修复', () => {
 
     it('clean stop 不再清除已决定的 LLM 恢复等待（phase 1826：特例移除）', () => {
       // 旧「clean stop 跳过 llm-retry-state 加载」特例已删除：恢复安排是持久事实，
-      // 进程恢复与 clean-stop 都不清除；旧文件仅由迁移读取（_readLegacyRecoveryExport）。
+      // 进程恢复与 clean-stop 都不清除。phase 1890 Step D：旧文件迁移读取
+      // （_readLegacyRecoveryExport）随存量废弃删除。
       expect(eventLoopSource).not.toContain('!isCleanStop');
-      expect(eventLoopSource).toContain('_readLegacyRecoveryExport');
     });
 
     it('标记文件应被一次性消费（deleteSync）', () => {

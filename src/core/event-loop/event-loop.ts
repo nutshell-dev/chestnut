@@ -25,9 +25,7 @@ import {
   CONTEXT_TRIM_RETRY_MAX,
   CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
   CONTEXT_TRIM_RETRY_MAX_DELAY_MS,
-  LLM_RETRY_STATE_FILE,
   LLM_REQUEST_BLOCKED_STATE_FILE,
-  LEGACY_CONTEXT_BLOCKED_STATE_FILE,
   REACT_CHAIN_MAX_ITERATIONS,
 } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js';
@@ -42,7 +40,6 @@ import type {
   LLMRecoveryController,
   LLMRecoveryFacts,
   LLMRecoverySchedule,
-  LegacyRecoveryExport,
 } from '../../foundation/llm-orchestrator/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
@@ -58,20 +55,6 @@ import {
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks } from './types.js';
 import type { PreparedInboxBatch, PreparedInboxEntry } from '../runtime/index.js';
-
-/**
- * Phase 1826: 旧 EventLoop retry-state 文件的只读字段形状。
- * 仅供迁移读取（`_readLegacyRecoveryExport`）判别与导出使用，不参与任何调度决策；
- * 新恢复状态由 LLMOrchestrator 的 recovery-state schema 拥有。
- */
-interface LegacyRetryStateFileV1V2 {
-  schema_version: 1 | 2;
-  llmRetryCount: number;
-  llmRetryDelayMs: number;
-  llmQuotaDelayMs?: number;
-  llmRetryPending: boolean;
-  waiting?: unknown;
-}
 
 /**
  * Phase 1869 (Step C): 合并分组内「最新一条」——按 message.timestamp 比较
@@ -147,9 +130,9 @@ export class EventLoop {
     this.recovery = options.recovery;
     if (options.executionRecovery) {
       this.executionRecoveryDeps = options.executionRecovery;
-      // Phase 1841: 实例本地记录（agentFs）+ 旧 root 共享基线只读继承（rootFs
-      // 以 Pick<..., 'readSync'> 收窄传入；rootFs 本身仍供 clean-stop marker 使用）。
-      this.executionRecoveryStore = createExecutionRecoveryStore({ agentFs: this.agentFs, legacyRootFs: this.rootFs, audit: this.audit });
+      // Phase 1841: 实例本地记录（agentFs）；phase 1890 Step D 起旧 root 共享基线
+      // 继承面删除（存量废弃）——本地缺失即首次观察。
+      this.executionRecoveryStore = createExecutionRecoveryStore({ agentFs: this.agentFs, audit: this.audit });
       this.executionRecovery = createExecutionRecoveryController({
         store: this.executionRecoveryStore,
         audit: this.audit,
@@ -161,7 +144,7 @@ export class EventLoop {
         // Phase 1844: 新登记前只读 inspect 本模块 recovery owner 的公开安排
         // （未来 at 抑制新登记）；未注入 owner 时显式返回 undefined。async 展开
         // 返回 Promise 并传播 rejection；this.recovery 在上方已赋值。只读
-        // inspect，不调用 begin/finish/adoptLegacy 试探资格。
+        // inspect，不调用 begin/finish 试探资格。
         inspectLlmRecoverySchedule: async () => this.recovery?.inspect(),
       });
     }
@@ -220,8 +203,7 @@ export class EventLoop {
     consumeMarker(this.rootFs);    // global
     // Phase 1826: clean-stop 不再清除已决定的 LLM 恢复等待（旧「跳过加载」特例移除）；
     // marker 的一次性消费语义本身保留（watchdog 另行读取不受影响）。
-
-    this._adoptLegacyLlmRecovery();
+    // phase 1890 Step D：旧 owner 恢复文件 adopt 链删除（存量废弃）。
   }
 
   /**
@@ -1053,167 +1035,17 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1826: 旧 owner（EventLoop）的恢复状态导出与交接。
-   * - 读旧 `llm-retry-state.json`（v1/v2）并构造中性导出数据；
-   * - owner 幂等导入（旧等待保持原 resumeAt）；
-   * - 旧文件原文保留为只读迁移证据，EventLoop 不再写入。
-   */
-  private _adoptLegacyLlmRecovery(): void {
-    const recovery = this.recovery;
-    if (!recovery) return;
-    const legacy = this._readLegacyRecoveryExport();
-    if (!legacy) return;
-    try {
-      const result = recovery.adoptLegacy(legacy);
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.ITERATION,
-        `type=recovery_adopt`,
-        `source=${legacy.source}`,
-        `result=${result.kind}`,
-      );
-    } catch (error) {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=recoveryAdopt`,
-        `source=${legacy.source}`,
-        `reason=${formatErr(error)}`,
-      );
-    }
-  }
-
-  /** 读旧 retry-state 文件并构造中性导出；非法/未来版本 → audit 后不导入。 */
-  private _readLegacyRecoveryExport(): LegacyRecoveryExport | undefined {
-    let raw: string | undefined;
-    try {
-      raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, LLM_RETRY_STATE_FILE));
-    } catch (e) {
-      if (!isFileNotFound(e)) {
-        this.audit.write(
-          EVENTLOOP_AUDIT_EVENTS.FATAL,
-          `context=loadLlmRetryState`,
-          `reason=read_failed`,
-          `error=${formatErr(e)}`,
-        );
-      }
-      return undefined;
-    }
-    if (raw === undefined) return undefined;
-
-    let saved: unknown;
-    try {
-      saved = JSON.parse(raw);
-    } catch (e) {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadLlmRetryState`,
-        `reason=parse_failed`,
-        `error=${formatErr(e)}`,
-      );
-      return undefined;
-    }
-    if (typeof saved !== 'object' || saved === null) {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadLlmRetryState`,
-        `reason=schema_invalid`,
-        `actual=${typeof saved}`,
-      );
-      return undefined;
-    }
-    const s = saved as LegacyRetryStateFileV1V2;
-    if (s.schema_version !== 1 && s.schema_version !== 2) {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadLlmRetryState`,
-        `reason=schema_version_mismatch`,
-        `actual=${String(s.schema_version)}`,
-        `expected=2`,
-      );
-      return undefined;
-    }
-    if (
-      typeof s.llmRetryCount !== 'number'
-      || typeof s.llmRetryDelayMs !== 'number'
-      || typeof s.llmRetryPending !== 'boolean'
-    ) {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadLlmRetryState`,
-        `reason=field_type_mismatch`,
-      );
-      return undefined;
-    }
-    if (s.schema_version === 2 && s.waiting !== null && !this._isValidLegacyWaiting(s.waiting)) {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadLlmRetryState`,
-        `reason=field_type_mismatch`,
-        `field=waiting`,
-      );
-      return undefined;
-    }
-    if (s.llmRetryPending === true) {
-      // P1-10: 旧文件 pending=true 不再恢复，消息已由 inflight reconcile 重投。
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.ITERATION,
-        `context=loadLlmRetryState`,
-        `reason=legacy_pending_ignored`,
-      );
-    }
-
-    const waiting = s.schema_version === 2 && s.waiting !== null
-      ? this._toLegacyWaitingExport(s.waiting as Record<string, unknown>)
-      : null;
-    return {
-      source: `llm-retry-state.json@v${String(s.schema_version)}`,
-      retryCount: s.llmRetryCount,
-      retryDelayMs: s.llmRetryDelayMs,
-      ...(typeof s.llmQuotaDelayMs === 'number' ? { quotaDelayMs: s.llmQuotaDelayMs } : {}),
-      waiting,
-    };
-  }
-
-  /** legacy waiting 判别联合校验（旧 schema；非法/猜测字段一律拒绝）。 */
-  private _isValidLegacyWaiting(waiting: unknown): boolean {
-    if (typeof waiting !== 'object' || waiting === null) return false;
-    const w = waiting as Record<string, unknown>;
-    if (w.kind !== 'retry' && w.kind !== 'cooldown') return false;
-    if (typeof w.requestFingerprint !== 'string' || w.requestFingerprint.length === 0) return false;
-    if (w.errorClass !== 'transient' && w.errorClass !== 'rate_limit' && w.errorClass !== 'quota') return false;
-    if (typeof w.scheduledAt !== 'string' || typeof w.resumeAt !== 'string') return false;
-    if (typeof w.error !== 'string') return false;
-    if (typeof w.maxAttempts !== 'number') return false;
-    if (w.kind === 'retry') return typeof w.attempt === 'number';
-    return typeof w.attempts === 'number';
-  }
-
-  private _toLegacyWaitingExport(w: Record<string, unknown>): LegacyRecoveryExport['waiting'] {
-    return {
-      kind: w.kind === 'cooldown' ? 'cooldown' : 'retry',
-      errorClass: String(w.errorClass),
-      resumeAt: String(w.resumeAt),
-      ...(typeof w.attempt === 'number' ? { attempt: w.attempt } : {}),
-      ...(typeof w.attempts === 'number' ? { attempts: w.attempts } : {}),
-      ...(typeof w.maxAttempts === 'number' ? { maxAttempts: w.maxAttempts } : {}),
-      ...(typeof w.error === 'string' ? { error: w.error } : {}),
-    };
-  }
-
-  /**
    * Phase 1154 Step E: load and validate LLM-request blocked state.
-   * - Prefer v2 file (`llm-request-blocked-state.json`).
-   * - Fall back to legacy v1 file (`context-blocked-state.json`) and migrate in-memory
-   *   + atomically write v2 + delete legacy.
+   * 只认现行 v2 文件（`llm-request-blocked-state.json`）；phase 1890 Step D 起
+   * legacy v1（`context-blocked-state.json`）回退与 provider 类阻断 adopt 交接删除
+   * （存量废弃）——provider 类 reason 按非法 schema fail-closed。
    * Invalid schema/version/reason/fingerprint → audit fatal and fail-closed (throw).
    */
   private async _loadLlmRequestBlockedState(): Promise<void> {
-    let source: 'v2' | 'legacy' | undefined;
     let raw: string | undefined;
 
-    // 1. Try v2 file.
     try {
       raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE));
-      source = 'v2';
     } catch (e) {
       if (!isFileNotFound(e)) {
         this.audit.write(
@@ -1228,26 +1060,6 @@ export class EventLoop {
       raw = undefined;
     }
 
-    // 2. Try legacy v1 file.
-    if (raw === undefined) {
-      try {
-        raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, LEGACY_CONTEXT_BLOCKED_STATE_FILE));
-        source = 'legacy';
-      } catch (e) {
-        if (!isFileNotFound(e)) {
-          this.audit.write(
-            EVENTLOOP_AUDIT_EVENTS.FATAL,
-            `context=loadLlmRequestBlockedState`,
-            `reason=read_failed`,
-            `file=legacy`,
-            `error=${formatErr(e)}`,
-          );
-          throw new Error(`Failed to load legacy context blocked state: ${formatErr(e)}`);
-        }
-        raw = undefined;
-      }
-    }
-
     if (raw === undefined) return;
 
     let saved: unknown;
@@ -1258,45 +1070,10 @@ export class EventLoop {
         EVENTLOOP_AUDIT_EVENTS.FATAL,
         `context=loadLlmRequestBlockedState`,
         `reason=parse_failed`,
-        `file=${source}`,
+        `file=v2`,
         `error=${formatErr(e)}`,
       );
       throw new Error(`Failed to parse LLM request blocked state: ${formatErr(e)}`);
-    }
-
-    if (source === 'legacy') {
-      if (!this._isValidLegacyContextBlockedState(saved)) {
-        this.audit.write(
-          EVENTLOOP_AUDIT_EVENTS.FATAL,
-          `context=loadLlmRequestBlockedState`,
-          `reason=schema_invalid`,
-          `file=legacy`,
-          `actual=${JSON.stringify(saved)}`,
-        );
-        throw new Error('Invalid legacy context blocked state schema');
-      }
-      saved = this._migrateLegacyContextBlockedState(saved);
-      // Atomic migration: write v2 before deleting legacy. If write fails we throw
-      // and keep legacy intact. If delete fails (non-ENOENT) we still fail-closed
-      // because the in-memory gate is now authoritative and the v2 file exists.
-      this.agentFs.ensureDirSync(STATUS_SUBDIR);
-      this.agentFs.writeAtomicSync(
-        path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE),
-        JSON.stringify(saved),
-      );
-      try {
-        this.agentFs.deleteSync(path.join(STATUS_SUBDIR, LEGACY_CONTEXT_BLOCKED_STATE_FILE));
-      } catch (error) {
-        if (!isFileNotFound(error)) {
-          this.audit.write(
-            EVENTLOOP_AUDIT_EVENTS.FATAL,
-            `context=migrateLlmRequestBlockedState`,
-            `reason=legacy_delete_failed`,
-            `error=${formatErr(error)}`,
-          );
-          throw new Error(`Failed to delete legacy context blocked state: ${formatErr(error)}`);
-        }
-      }
     }
 
     if (!this._isValidLlmRequestBlockedState(saved)) {
@@ -1304,67 +1081,13 @@ export class EventLoop {
         EVENTLOOP_AUDIT_EVENTS.FATAL,
         `context=loadLlmRequestBlockedState`,
         `reason=schema_invalid`,
-        `file=${source ?? 'v2'}`,
+        `file=v2`,
         `actual=${JSON.stringify(saved)}`,
       );
       throw new Error('Invalid LLM request blocked state schema');
     }
 
-    // Phase 1826: provider 类阻断（invalid_request / permanent_provider_error）
-    // 归 owner（on_change 安排 + 原错误证据）；EventLoop 不再持有，消除双 owner。
-    // trim 类 reason（no_progress/policy_conflict/retry_exhausted）仍归本模块。
-    if (saved.reason === 'invalid_request' || saved.reason === 'permanent_provider_error') {
-      this._adoptLegacyBlockedState(saved);
-      return;
-    }
     this.llmRequestBlocked = saved;
-  }
-
-  /** Phase 1826: 把 provider 类旧阻断交接给 owner（幂等；成功后删除旧文件，不双写）。 */
-  private _adoptLegacyBlockedState(state: LLMRequestBlockedState): void {
-    const recovery = this.recovery;
-    if (recovery) {
-      try {
-        recovery.adoptLegacy({
-          source: 'llm-request-blocked-state.json@v2',
-          blocked: {
-            reason: state.reason,
-            requestFingerprint: state.requestFingerprint,
-            blockedAt: state.blockedAt,
-            ...(state.reason === 'permanent_provider_error' ? { message: state.message } : {}),
-          },
-        });
-      } catch (error) {
-        // 迁移失败：保留内存 gate 与文件（fail-closed，不丢失阻断信息）。
-        this.audit.write(
-          EVENTLOOP_AUDIT_EVENTS.FATAL,
-          `context=adoptLegacyBlocked`,
-          `reason=${formatErr(error)}`,
-        );
-        this.llmRequestBlocked = state;
-        return;
-      }
-    }
-    try {
-      this.agentFs.deleteSync(path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE));
-    } catch (error) {
-      if (!isFileNotFound(error)) {
-        this.audit.write(
-          EVENTLOOP_AUDIT_EVENTS.FATAL,
-          `context=adoptLegacyBlocked`,
-          `reason=legacy_delete_failed`,
-          `error=${formatErr(error)}`,
-        );
-        this.llmRequestBlocked = state;
-        return;
-      }
-    }
-    this.audit.write(
-      EVENTLOOP_AUDIT_EVENTS.ITERATION,
-      `type=recovery_adopt`,
-      `source=llm-request-blocked-state.json@v2`,
-      `reason=${state.reason}`,
-    );
   }
 
   private _isValidLlmRequestBlockedState(saved: unknown): saved is LLMRequestBlockedState {
@@ -1384,75 +1107,9 @@ export class EventLoop {
       return true;
     }
 
-    if (s.reason === 'invalid_request') {
-      if (s.errorCode !== 'LLM_INVALID_REQUEST') return false;
-      return true;
-    }
-
-    if (s.reason === 'permanent_provider_error') {
-      if (typeof s.message !== 'string') return false;
-      // userActionHint is nullable; presence alone is enough.
-      return true;
-    }
-
+    // provider 类 reason（invalid_request / permanent_provider_error）归 owner
+    // （phase 1826）；phase 1890 Step D 起此处不再接受（按 schema_invalid fail-closed）。
     return false;
-  }
-
-  private _isValidLegacyContextBlockedState(saved: unknown): saved is {
-    version: 1;
-    reason: 'no_progress' | 'policy_conflict' | 'retry_exhausted';
-    requestFingerprint: string;
-    blockedAt: string;
-    before?: number;
-    after?: number;
-    attempts?: number;
-    maxAttempts?: number;
-  } {
-    if (typeof saved !== 'object' || saved === null) return false;
-    const s = saved as Record<string, unknown>;
-    if (s.version !== 1) return false;
-    if (typeof s.requestFingerprint !== 'string' || s.requestFingerprint.length === 0) return false;
-    if (typeof s.blockedAt !== 'string') return false;
-
-    if (s.reason === 'no_progress' || s.reason === 'policy_conflict') {
-      if (typeof s.before !== 'number' || typeof s.after !== 'number') return false;
-      return true;
-    }
-
-    if (s.reason === 'retry_exhausted') {
-      if (typeof s.attempts !== 'number' || typeof s.maxAttempts !== 'number') return false;
-      return true;
-    }
-
-    return false;
-  }
-
-  private _migrateLegacyContextBlockedState(
-    legacy: {
-      version: 1;
-      reason: 'no_progress' | 'policy_conflict' | 'retry_exhausted';
-      requestFingerprint: string;
-      blockedAt: string;
-      before?: number;
-      after?: number;
-      attempts?: number;
-      maxAttempts?: number;
-    },
-  ): LLMRequestBlockedState {
-    const base = {
-      version: 2 as const,
-      requestFingerprint: legacy.requestFingerprint,
-      blockedAt: legacy.blockedAt,
-    };
-    if (legacy.reason === 'no_progress' || legacy.reason === 'policy_conflict') {
-      return { ...base, reason: legacy.reason, before: legacy.before ?? 0, after: legacy.after ?? 0 };
-    }
-    return {
-      ...base,
-      reason: 'retry_exhausted',
-      attempts: legacy.attempts ?? 0,
-      maxAttempts: legacy.maxAttempts ?? CONTEXT_TRIM_RETRY_MAX,
-    };
   }
 
   /**

@@ -166,7 +166,6 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     fs.mkdirSync(pendingDir, { recursive: true });
     const { audit, events } = makeAudit();
     const agentFs = new NodeFileSystem({ baseDir: agentDir });
-    const rootFs = new NodeFileSystem({ baseDir: rootDir });
     const loop = new TestEventLoop({
       runtime: {} as never,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
@@ -175,7 +174,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
       audit,
       inbox: { pendingDir },
     });
-    const store = createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    const store = createExecutionRecoveryStore({ agentFs, audit });
     const controller = createExecutionRecoveryController({
       store,
       audit,

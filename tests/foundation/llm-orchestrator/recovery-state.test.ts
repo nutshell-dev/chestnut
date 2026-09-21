@@ -1,5 +1,6 @@
 /**
- * Phase 1826: 恢复状态持久化 — schema 校验、原子读写、迁移 intake、降级导出。
+ * Phase 1826: 恢复状态持久化 — schema 校验、原子读写。
+ * phase 1890 Step D：迁移 intake / 降级导出随存量废弃删除（对应专测同删）。
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fsNative from 'fs';
@@ -9,8 +10,6 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import {
   LLM_RECOVERY_STATE_FILE,
   createInitialRecoveryState,
-  exportLegacyRecoveryState,
-  importLegacyRecoveryExport,
   loadRecoveryState,
   saveRecoveryState,
   validateRecoveryState,
@@ -121,117 +120,6 @@ describe('recovery state schema', () => {
   });
 });
 
-describe('legacy import intake', () => {
-  it('imports waiting keeping original resumeAt and budget', () => {
-    const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    const resumeAt = new Date(T0 + 60_000).toISOString();
-    const result = importLegacyRecoveryExport(state, {
-      source: 'llm-retry-state.json@v2',
-      retryCount: 2,
-      retryDelayMs: 60_000,
-      quotaDelayMs: 240_000,
-      waiting: { kind: 'cooldown', errorClass: 'quota', resumeAt, error: 'quota hit' },
-    }, T0);
-
-    expect(result.kind).toBe('imported');
-    if (result.kind !== 'imported') return;
-    expect(result.state.schedule.kind).toBe('at');
-    if (result.state.schedule.kind === 'at') {
-      expect(result.state.schedule.resumeAt).toBe(resumeAt);  // 不重新计时
-    }
-    expect(result.state.budget.retryCount).toBe(2);
-    expect(result.state.budget.quotaDelayMs).toBe(240_000);
-    expect(result.state.importedSources).toContain('llm-retry-state.json@v2');
-  });
-
-  it('expired legacy waiting becomes ready (deadline already passed)', () => {
-    const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    const result = importLegacyRecoveryExport(state, {
-      source: 'llm-retry-state.json@v2',
-      waiting: { kind: 'retry', errorClass: 'transient', resumeAt: new Date(T0 - 1_000).toISOString() },
-    }, T0);
-    expect(result.kind).toBe('imported');
-    if (result.kind === 'imported') expect(result.state.schedule.kind).toBe('ready');
-  });
-
-  it('imports provider-class blocked as on_change', () => {
-    const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    const result = importLegacyRecoveryExport(state, {
-      source: 'llm-request-blocked-state.json@v2',
-      blocked: {
-        reason: 'permanent_provider_error',
-        requestFingerprint: 'fp',
-        blockedAt: new Date(T0).toISOString(),
-        message: 'auth failed',
-      },
-    }, T0);
-    expect(result.kind).toBe('imported');
-    if (result.kind === 'imported') expect(result.state.schedule.kind).toBe('on_change');
-  });
-
-  it('re-importing the same source is idempotent', () => {
-    const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    const legacy = {
-      source: 'llm-retry-state.json@v2',
-      waiting: { kind: 'retry' as const, errorClass: 'transient', resumeAt: new Date(T0 + 5_000).toISOString() },
-    };
-    const first = importLegacyRecoveryExport(state, legacy, T0);
-    expect(first.kind).toBe('imported');
-    if (first.kind !== 'imported') return;
-
-    const second = importLegacyRecoveryExport(
-      { ...first.state, budget: { ...first.state.budget, retryCount: 7 } },
-      legacy,
-      T0,
-    );
-    expect(second.kind).toBe('already_imported');
-    expect(second.state.budget.retryCount).toBe(7);  // 不覆盖较新状态
-  });
-});
-
-describe('downgrade export', () => {
-  it('exports at-schedule as legacy waiting and on_change as blocked', () => {
-    const base = createInitialRecoveryState(SCOPE, budget(), T0);
-    const atState = {
-      ...base,
-      revision: 3,
-      schedule: { kind: 'at' as const, revision: 3, resumeAt: new Date(T0 + 30_000).toISOString() },
-      failures: [{ at: new Date(T0).toISOString(), providerId: 'p1', errorClass: 'quota', message: 'quota hit' }],
-    };
-    const exported = exportLegacyRecoveryState(atState, T0);
-    expect(exported.kind).toBe('exported');
-    if (exported.kind !== 'exported') return;
-    expect(exported.retry.waiting?.resumeAt).toBe(atState.schedule.resumeAt);
-    expect(exported.retry.llmQuotaDelayMs).toBe(120_000);
-    expect(exported.blocked).toBeNull();
-    expect(exported.unrepresentable.length).toBeGreaterThan(0);  // failures 无法表达
-
-    const onChange = { ...base, schedule: { kind: 'on_change' as const, revision: 4 } };
-    const exported2 = exportLegacyRecoveryState(onChange, T0);
-    expect(exported2.kind).toBe('exported');
-    if (exported2.kind !== 'exported') return;
-    expect(exported2.blocked?.reason).toBe('permanent_provider_error');
-    expect(exported2.retry.waiting).toBeNull();
-  });
-
-  it('refuses downgrade while an attempt has already started', () => {
-    const base = createInitialRecoveryState(SCOPE, budget(), T0);
-    const inFlight = {
-      ...base,
-      activeAdmission: {
-        attemptId: 'att-1',
-        started: true,
-        startedAt: new Date(T0).toISOString(),
-        requestKey: 'fp',
-        triggerKind: 'automatic',
-      },
-    };
-    const exported = exportLegacyRecoveryState(inFlight, T0);
-    expect(exported.kind).toBe('unrepresentable');
-    if (exported.kind === 'unrepresentable') expect(exported.reason).toBe('in_flight_admission');
-  });
-});
-
 describe('Z 补修兼容性', () => {
   it('补修前写入的 admission（无 probeOnly/allowBreakerProbe 字段）仍可加载', async () => {
     const { dir, fs } = await makeTrackedDir();
@@ -303,47 +191,4 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
     }
   });
 
-  it('降级导出：准入事实关联与接受历史进入 unrepresentable，不静默丢弃', () => {
-    const base = createInitialRecoveryState(SCOPE, budget(), T0);
-    const withFacts = {
-      ...base,
-      revision: 5,
-      schedule: { kind: 'on_change' as const, revision: 5 },
-      activeAdmission: {
-        attemptId: 'att-1',
-        started: false,
-        requestKey: 'fp',
-        triggerKind: 'intervention',
-        interventionIds: ['m1', 'm2'],
-        configurationRevision: 'r1',
-      },
-      acceptedFactBatches: [{
-        scope: SCOPE,
-        revision: 4,
-        interventionIds: ['m1'],
-        configurationRevision: 'r1',
-        attemptId: 'att-1',
-      }],
-    };
-    const exported = exportLegacyRecoveryState(withFacts, T0);
-    expect(exported.kind).toBe('exported');
-    if (exported.kind !== 'exported') return;
-    expect(exported.unrepresentable).toContain('activeAdmissionFacts=3');
-    expect(exported.unrepresentable).toContain('acceptedFactBatches=1');
-  });
-
-  it('已开始准入仍硬拒绝降级（含事实关联时不降级运行中状态）', () => {
-    const base = createInitialRecoveryState(SCOPE, budget(), T0);
-    const exported = exportLegacyRecoveryState({
-      ...base,
-      activeAdmission: {
-        attemptId: 'att-1',
-        started: true,
-        requestKey: 'fp',
-        triggerKind: 'intervention',
-        interventionIds: ['m1'],
-      },
-    }, T0);
-    expect(exported.kind).toBe('unrepresentable');
-  });
 });

@@ -80,7 +80,6 @@ interface Harness {
   agentDir: string;
   pendingDir: string;
   agentFs: NodeFileSystem;
-  rootFs: NodeFileSystem;
   audit: ReturnType<typeof createMockAudit>;
   requests: ExecutionRecoveryDeliveryRequest[];
   loop: TestEventLoop;
@@ -110,7 +109,6 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     const pendingDir = path.join(agentDir, 'inbox', 'pending');
     fs.mkdirSync(pendingDir, { recursive: true });
     const agentFs = new NodeFileSystem({ baseDir: agentDir });
-    const rootFs = new NodeFileSystem({ baseDir: rootDir });
     const audit = createMockAudit();
     const requests: ExecutionRecoveryDeliveryRequest[] = [];
     // EventLoop 构造只用 agentDir 推导自身 fs；提供共享 agentFs 以便 Fs 边界注入。
@@ -122,7 +120,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       audit,
       inbox: { pendingDir },
     });
-    const store = createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    const store = createExecutionRecoveryStore({ agentFs, audit });
     const controller = createExecutionRecoveryController({
       store,
       audit,
@@ -136,12 +134,12 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
-    return { rootDir, agentDir, pendingDir, agentFs, rootFs, audit, requests, loop, store, controller };
+    return { rootDir, agentDir, pendingDir, agentFs, audit, requests, loop, store, controller };
   }
 
   /** 只重建 store/controller（模拟重启），Fs/inbox/audit/requests 不变。 */
   function reopen(h: Harness): void {
-    h.store = createExecutionRecoveryStore({ agentFs: h.agentFs, legacyRootFs: h.rootFs, audit: h.audit });
+    h.store = createExecutionRecoveryStore({ agentFs: h.agentFs, audit: h.audit });
     h.controller = createExecutionRecoveryController({
       store: h.store,
       audit: h.audit,

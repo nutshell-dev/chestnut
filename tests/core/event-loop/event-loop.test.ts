@@ -134,11 +134,10 @@ describe('EventLoop.run', () => {
 
 
   function makeMockRecovery() {
-    const adoptLegacy = vi.fn().mockReturnValue({ kind: 'imported' });
     const begin = vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test', factsAccepted: true });
     const finish = vi.fn().mockResolvedValue(undefined);
     const inspect = vi.fn().mockResolvedValue({ kind: 'ready', revision: 1 });
-    return { controller: { inspect, begin, finish, adoptLegacy }, adoptLegacy, begin, finish, inspect };
+    return { controller: { inspect, begin, finish }, begin, finish, inspect };
   }
 
   function makeEventLoop(
@@ -200,15 +199,6 @@ describe('EventLoop.run', () => {
     require('fs').mkdirSync(statusDir, { recursive: true });
     require('fs').writeFileSync(
       path.join(statusDir, 'llm-request-blocked-state.json'),
-      JSON.stringify(state),
-    );
-  }
-
-  function seedLegacyBlockedState(state: Record<string, unknown>): void {
-    const statusDir = path.join(agentDir, 'status');
-    require('fs').mkdirSync(statusDir, { recursive: true });
-    require('fs').writeFileSync(
-      path.join(statusDir, 'context-blocked-state.json'),
       JSON.stringify(state),
     );
   }
@@ -545,38 +535,6 @@ describe('EventLoop.run', () => {
     expect(loaded).toBeUndefined();
   });
 
-  it('claw: no marker → loads retry-state', async () => {
-    const audit = createMockAudit();
-    const clawAgentDir = path.join(agentDir, 'claws', 'c1');
-    require('fs').mkdirSync(clawAgentDir, { recursive: true });
-    require('fs').mkdirSync(path.join(clawAgentDir, 'status'), { recursive: true });
-    require('fs').writeFileSync(
-      path.join(clawAgentDir, 'status', 'llm-retry-state.json'),
-      JSON.stringify({ schema_version: 1, llmRetryCount: 7, llmRetryDelayMs: 1000, llmRetryPending: true }),
-    );
-
-    const recovery = makeMockRecovery();
-    const eventLoop = new EventLoop({
-      runtime: { abort: vi.fn() } as unknown as Runtime,
-      fsFactory,
-      agentDir: clawAgentDir,
-      clawId: 'c1',
-      audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
-      recovery: recovery.controller,
-    });
-
-    await eventLoop.initialize();
-
-    // Phase 1826: 旧恢复状态由 EventLoop（旧 owner）导出、owner 幂等导入。
-    expect(recovery.adoptLegacy).toHaveBeenCalledTimes(1);
-    const exported = recovery.adoptLegacy.mock.calls[0][0];
-    expect(exported.source).toBe('llm-retry-state.json@v1');
-    expect(exported.retryCount).toBe(7);
-    const loaded = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c).includes('legacy_pending_ignored')));
-    expect(loaded).toBeDefined();
-  });
-
   it('motion: global clean-stop marker → skips retry-state load and consumes marker', async () => {
     const audit = createMockAudit();
     const motionAgentDir = path.join(agentDir, 'motion');
@@ -882,39 +840,6 @@ describe('EventLoop.run', () => {
     expect(processTurn).toHaveBeenCalledTimes(1);
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE)).toBe(false);
-  });
-
-  it('provider 类旧 blocked 在 initialize 交接给 owner（文件删除、不双写）', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    seedBlockedState({
-      version: 2,
-      reason: 'permanent_provider_error',
-      requestFingerprint: 'stable-fp',
-      userActionHint: null,
-      message: 'provider auth error (stale)',
-      blockedAt: new Date().toISOString(),
-    });
-    const recovery = makeMockRecovery();
-    const { runtime } = makeContextExceededRuntime(audit);
-    const eventLoop = makeEventLoop(runtime, audit, recovery.controller);
-
-    await eventLoop.initialize();
-
-    // Phase 1826: provider 类阻断（invalid_request / permanent_provider_error）归 owner；
-    // EventLoop 作为旧 owner 导出后删除旧文件（禁止双写），不再持有该 gate。
-    expect(recovery.adoptLegacy).toHaveBeenCalledTimes(1);
-    const exported = recovery.adoptLegacy.mock.calls[0][0];
-    expect(exported.source).toBe('llm-request-blocked-state.json@v2');
-    expect(exported.blocked).toMatchObject({
-      reason: 'permanent_provider_error',
-      requestFingerprint: 'stable-fp',
-    });
-    expect(readBlockedState()).toBeUndefined();
-    // provider 类不触发 trim 类 blocked 的启动探测语义
-    expect(
-      audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE).length,
-    ).toBe(0);
   });
 
   it('phase 1778 startup probe: 无 blocked 启动不受影响（无探测 audit、行为不变）', async () => {
@@ -1320,46 +1245,6 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(messages[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(persisted.delivery.id);
     expect(messages[0].id).toBe(persisted.delivery.id);
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(true);
-  });
-
-  it('旧 root 共享 attempts=3 record：run() 只读继承到本地，到期继续提醒产出第 4 条 resume（Phase 1840：无契约失败出口；Phase 1841：root 原文不变）', async () => {
-    const audit = createMockAudit();
-    const lastActivityAt = Date.now() - 10 * RECOVERY_TIMEOUT_MS;
-    // 预置旧版 root 共享 attempts=3 的 schema1 record（旧阈值记录升级后作为
-    // 归属未知的共享基线继承，在本地继续计数）
-    const legacyRaw = JSON.stringify({
-      schema_version: 1,
-      contractId: CONTRACT_ID,
-      observedActivityAt: lastActivityAt,
-      attempts: 3,
-      lastAttemptAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
-    });
-    require('fs').mkdirSync(path.dirname(legacyRecordFilePath(CONTRACT_ID)), { recursive: true });
-    require('fs').writeFileSync(legacyRecordFilePath(CONTRACT_ID), legacyRaw);
-    const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
-      probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt }),
-    });
-
-    await loop.run();
-
-    const messages = readInboxMessages();
-    expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('execution_recovery');
-    expect(messages[0].from).toBe('test-claw');
-    expect(messages[0].priority).toBe('high');
-    expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
-    // 本地 record 变 4 且附旧基线原文/unknown 归属；root 原字节不变；
-    // Phase 1842: 旧 root 无实例身份，新义务以全新 delivery id 落盘并确认
-    const persisted = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
-    expect(persisted.attempts).toBe(4);
-    expect(persisted.delivery?.kind).toBe('confirmed');
-    expect(persisted.delivery?.attempt).toBe(4);
-    expect(persisted.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
-    expect(require('fs').readFileSync(legacyRecordFilePath(CONTRACT_ID), 'utf8')).toBe(legacyRaw);
-    expect(audit.entries.some(e =>
-      e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED ||
-      e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED ||
-      e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_REJECTED)).toBe(false);
   });
 
   it('async task 在途：run() 不判 stall（不写 resume、不建 record）', async () => {

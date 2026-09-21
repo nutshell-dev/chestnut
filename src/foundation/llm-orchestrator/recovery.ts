@@ -31,10 +31,8 @@ import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
   createInitialRecoveryState,
-  importLegacyRecoveryExport,
   loadRecoveryState,
   saveRecoveryState,
-  type LegacyRecoveryExport,
   type LLMRecoveryAcceptedFactBatch,
   type LLMRecoveryBudget,
   type LLMRecoverySchedule,
@@ -107,8 +105,6 @@ export interface LLMRecoveryController {
   inspect(): Promise<LLMRecoverySchedule>;
   begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission>;
   finish(attemptId: string, outcome: 'completed' | 'interrupted' | 'failed'): Promise<void>;
-  /** 迁移期：幂等导入旧 owner 的中性导出数据（旧等待保持原 resumeAt）。 */
-  adoptLegacy(legacy: LegacyRecoveryExport): { kind: 'imported' | 'already_imported' };
 }
 
 export interface LLMRecoverySession extends LLMRecoveryController {
@@ -433,16 +429,6 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       outcome,
       accepted: true,
     });
-  }
-
-  /** 迁移期：幂等导入旧 owner 的中性导出。 */
-  adoptLegacy(legacy: LegacyRecoveryExport): { kind: 'imported' | 'already_imported' } {
-    const result = importLegacyRecoveryExport(this.state, legacy, this.now());
-    if (result.kind === 'imported') {
-      this.state = result.state;
-      this.commit();
-    }
-    return { kind: result.kind };
   }
 
   // -------------------------------------------------------------------------

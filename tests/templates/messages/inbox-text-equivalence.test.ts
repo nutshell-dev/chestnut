@@ -191,7 +191,6 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     fsNative.mkdirSync(pendingDir, { recursive: true });
     const audit = auditStub();
     const agentFs = new NodeFileSystem({ baseDir: agentDir });
-    const rootFs = new NodeFileSystem({ baseDir });
     class TestEventLoop extends EventLoop {
       deliverExecutionResume(
         request: ExecutionRecoveryDeliveryRequest,
@@ -216,7 +215,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     const FIXED_NOW = 1_700_500_000_000;
     const TIMEOUT_MS = 1000;
     const lastActivityAt = FIXED_NOW - 10 * TIMEOUT_MS;
-    const store = createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    const store = createExecutionRecoveryStore({ agentFs, audit });
     store.save({
       schema_version: 1,
       contractId: CONTRACT_ID,
