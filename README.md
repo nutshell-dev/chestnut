@@ -3,7 +3,7 @@
 
 # chestnut
 
-![node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
+![node >=20.19](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)
 ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 

@@ -16,7 +16,7 @@ describe('ci-node-version-engines-invariant', () => {
  * Drift breaks invisibly:
  * - engines.node bumped to '>=24' but CI keeps testing 22.x → CI passes
  *   on unsupported version; users on 24+ may hit untested failures
- * - CI adds 18.x to matrix but engines.node still '>=20.18.0' → CI runs
+ * - CI adds 18.x to matrix but engines.node still '>=20.19.0' → CI runs
  *   unsupported version; passes mean nothing for engines-compliant users
  *
  * The invariant doesn't lock a specific major (project may upgrade either
