@@ -336,8 +336,10 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 500,
     });
 
-    // Produce 20 lines over ~2s; migration should fire around line 5.
-    const command = 'for i in $(seq 1 20); do echo "line $i"; sleep 0.1; done';
+    // Produce 20 lines of output; the release-file gate tail (not duration)
+    // guarantees migration fires before the process exits.
+    const releaseFile = path.join(tmpDir, 'release-full-output');
+    const command = 'for i in $(seq 1 20); do echo "line $i"; sleep 0.1; done; while [ ! -f release-full-output ]; do sleep 0.01; done';
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command }, ctx);
 
@@ -348,6 +350,7 @@ describe('createAsyncExecWrapper', () => {
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     // Wait for the background chain to finish and move the task to done.
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const output = await fs.readFile(resultFile, 'utf-8');
@@ -391,8 +394,9 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-post-migration');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'echo before && sleep 0.5 && echo after' }, ctx);
+    const result = await tool.execute({ command: 'echo before; while [ ! -f release-post-migration ]; do sleep 0.01; done; echo after' }, ctx);
 
     expect(result.success).toBe(true);
     const shortId = result.metadata?.taskId as string;
@@ -400,6 +404,7 @@ describe('createAsyncExecWrapper', () => {
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const output = await fs.readFile(resultFile, 'utf-8');
@@ -414,8 +419,11 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-exit-error');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'echo partial && sleep 0.3 && exit 1' }, ctx);
+    const result = await tool.execute({
+      command: 'echo partial; while [ ! -f release-exit-error ]; do sleep 0.01; done; exit 1',
+    }, ctx);
 
     expect(result.success).toBe(true);
     const shortId = result.metadata?.taskId as string;
@@ -423,6 +431,7 @@ describe('createAsyncExecWrapper', () => {
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const output = await fs.readFile(resultFile, 'utf-8');
@@ -479,7 +488,10 @@ describe('createAsyncExecWrapper', () => {
     const controller = new AbortController();
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, signal: controller.signal });
 
-    const result = await tool.execute({ command: 'sleep 0.8 && echo survived' }, ctx);
+    const releaseFile = path.join(tmpDir, 'release-abort-survive');
+    const result = await tool.execute({
+      command: 'while [ ! -f release-abort-survive ]; do sleep 0.01; done; echo survived',
+    }, ctx);
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
 
@@ -499,6 +511,7 @@ describe('createAsyncExecWrapper', () => {
     expect(isAlive(pid)).toBe(true);
 
     // Wait for the process to finish naturally and the background chain to deliver output.
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
@@ -977,8 +990,11 @@ describe('migrated process hard timeout (Phase 777)', () => {
       migratedHardTimeoutMs: 5000,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-before-hard-timeout');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-before-hard-timeout ]; do sleep 0.01; done; echo done',
+    }, ctx);
 
     expect(result.success).toBe(true);
     const shortId = result.metadata?.taskId as string;
@@ -986,6 +1002,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const output = await fs.readFile(resultFile, 'utf-8');
@@ -1096,14 +1113,18 @@ describe('Phase 833: migrated exec stream events', () => {
       softTimeoutMs: 100,
     });
 
+    const releaseFile = path.join(tmpDir, 'release-task-completed');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-task-completed ]; do sleep 0.01; done; echo done',
+    }, ctx);
 
     expect(result.success).toBe(true);
     const shortId = result.metadata?.taskId as string;
     const fullId = result.metadata?.fullTaskId as string;
 
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const completed = streamEvents.find(e => e.type === 'task_completed');
