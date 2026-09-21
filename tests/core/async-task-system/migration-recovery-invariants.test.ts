@@ -1223,8 +1223,6 @@ describe('phase 1119', () => {
       await mockFs.writeAtomic(resultPath, 'complete output');
       await mockFs.writeAtomic(exitMarkerPath, JSON.stringify({ completedAt: new Date().toISOString() }));
 
-      // phase 1269 Step E: recovery probes via the L1 legacy single-process path.
-      vi.spyOn(processExecModule, 'probeLegacyProcess').mockReturnValue({ kind: 'gone' });
 
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -1243,8 +1241,6 @@ describe('phase 1119', () => {
       const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
       await mockFs.writeAtomic(resultPath, 'partial output');
 
-      vi.spyOn(processExecModule, 'probeLegacyProcess').mockReturnValue({ kind: 'gone' });
-
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));
 
@@ -1257,36 +1253,6 @@ describe('phase 1119', () => {
       expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
     });
 
-    it('appends kill note when recovery itself kills the process for hard timeout', async () => {
-      const task = makeMigratedToolTask({ migratedPid: 99999 });
-      const taskFile = 'tasks/queues/running/task-1.json';
-      const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
-
-      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
-      await mockFs.writeAtomic(resultPath, 'partial output');
-
-      // phase 1269 Step E: probe alive → recovery terminates via the L1 legacy
-      // state machine; a confirmed-gone outcome carries the kill note.
-      vi.spyOn(processExecModule, 'probeLegacyProcess').mockReturnValue({ kind: 'alive' });
-      vi.spyOn(processExecModule, 'terminateLegacyProcess').mockResolvedValue({
-        status: 'gone',
-        pid: 99999,
-        termSent: true,
-        killSent: false,
-        completedAt: new Date().toISOString(),
-      });
-
-      const { audit, events } = makeMockAudit();
-      await recoverTasks(makeRecoverDeps(mockFs, audit));
-
-      expect(mockSendToolResult).toHaveBeenCalledTimes(1);
-      const delivered = mockSendToolResult.mock.calls[0][3] as string;
-      expect(delivered).toContain('partial output');
-      expect(delivered).toContain('[Process killed by recovery: hard timeout exceeded]');
-      expect(delivered).not.toContain('may be truncated');
-      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED)).toBe(false);
-      expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
-    });
   });
 
   describe('subagent recovery terminalState routing', () => {

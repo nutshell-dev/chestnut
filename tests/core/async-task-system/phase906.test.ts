@@ -42,8 +42,6 @@ vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOr
     ...actual,
     isAlive: vi.fn(),
     getProcessStartTime: vi.fn(),
-    probeLegacyProcess: vi.fn(),
-    terminateLegacyProcess: vi.fn(),
     probeExecutionGroup: vi.fn(),
     terminateExecutionGroup: vi.fn(),
   };
@@ -197,49 +195,6 @@ describe('phase 906: dispatcher runtime convergence for migrated deadlines', () 
     expect(callPath).toBe(runningPath);
     expect((callTask as { id: string }).id).toBe(VALID_TASK_ID);
     expect(callDeps.fs).toBe(fs);
-  });
-});
-
-describe('phase 906+1269: termination survival keeps task in running', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('keeps task in running and audits when the process survives TERM+KILL', async () => {
-    // Phase 1269 Step E: the SIGKILL-effectiveness concern is now owned by the
-    // L1 legacy termination state machine; recovery keeps the task in running
-    // whenever the outcome is not provably gone.
-    const { probeLegacyProcess, terminateLegacyProcess } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(probeLegacyProcess).mockReturnValue({ kind: 'alive' });
-    vi.mocked(terminateLegacyProcess).mockResolvedValue({
-      status: 'still_alive',
-      pid: 12345,
-      termSent: true,
-      killSent: true,
-      checkedAt: new Date().toISOString(),
-    });
-
-    const startTime = 'Mon Jan 01 00:00:00 2020';
-    const task = makeMigratedToolTask({ migratedStartTime: startTime });
-    const runningPath = `${TASKS_QUEUES_RUNNING_DIR}/${VALID_TASK_ID}.json`;
-    const fs = makeInMemoryFs({
-      [runningPath]: JSON.stringify(task),
-    });
-
-    const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs, auditWriter: audit } as Parameters<typeof recoverTasks>[0]);
-
-    // Task must remain in running dir because termination was not confirmed.
-    expect(fs.move).not.toHaveBeenCalled();
-    expect(terminateLegacyProcess).toHaveBeenCalledWith(12345, startTime);
-
-    const termEvents = events.filter(
-      (e) => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION,
-    );
-    expect(termEvents.length).toBe(1);
-    expect(termEvents[0]).toContain('context=recovery_hard_timeout');
-    expect(termEvents[0]).toContain('status=still_alive');
-    expect(termEvents[0]).toContain('kill_sent=true');
   });
 });
 

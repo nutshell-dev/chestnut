@@ -48,7 +48,6 @@ export const TASK_AUDIT_EVENTS = {
   TASK_MIGRATED_PID_REUSED: 'task_migrated_pid_reused', // phase 770 Step A
   TASK_MIGRATED_TIMED_OUT: 'task_migrated_timed_out', // phase 777 Step A
   TASK_MIGRATED_EXEC_TERMINATION: 'task_migrated_exec_termination', // phase 1269 Step E
-  TASK_MIGRATED_LEGACY_IDENTITY: 'task_migrated_legacy_identity', // phase 1269 Step E
   MIGRATED_TRUNCATED_RESULT_DELIVERED: 'task_migrated_truncated_result_delivered', // phase 1119 Step A
   TASK_QUERY_FILE_CORRUPT: 'task_query_file_corrupt', // phase 844 Step B
   TASK_QUERY_RESULT_IO_ERROR: 'task_query_result_io_error', // phase 844 Step B

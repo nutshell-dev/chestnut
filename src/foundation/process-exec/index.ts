@@ -16,7 +16,6 @@ export type {
   ExecutionTerminationFact,
 } from './types.js';
 export { terminateExecutionGroup, probeExecutionGroup } from './execution-group.js';
-export { probeLegacyProcess, terminateLegacyProcess } from './legacy-process.js';
 export { spawnDetached } from './spawn-detached.js';
 export type { SpawnDetachedOptions, SpawnDetachedOutcome, SpawnDetachedFailure } from './types.js';
 export { kill, isAlive } from './process-control.js';

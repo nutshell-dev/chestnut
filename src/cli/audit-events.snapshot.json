@@ -198,7 +198,6 @@
       "task_inbox_write_failed",
       "task_migrated_completed",
       "task_migrated_exec_termination",
-      "task_migrated_legacy_identity",
       "task_migrated_pid_reused",
       "task_migrated_registered",
       "task_migrated_timed_out",

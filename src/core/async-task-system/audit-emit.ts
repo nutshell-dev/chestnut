@@ -506,7 +506,7 @@ export function emitPreparedTaskIdentityConflict(
   );
 }
 
-// ─── TASK_MIGRATED_EXEC_TERMINATION / TASK_MIGRATED_LEGACY_IDENTITY (phase 1269 Step E) ───
+// ─── TASK_MIGRATED_EXEC_TERMINATION (phase 1269 Step E) ───
 /**
  * Termination outcome audit for migrated exec. Every L1 terminate call from
  * runtime (caller abort / persist failure / hard timeout) or restart
@@ -518,7 +518,7 @@ export function emitMigratedExecTermination(
   opts: {
     taskId: string;
     context: 'caller_abort' | 'persist_failed' | 'identity_checkpoint_failed' | 'hard_timeout' | 'recovery_hard_timeout' | 'pre_deadline_termination';
-    /** Identity cols, e.g. ['leader_pid=123', 'process_group_id=123'] or ['identity=legacy_pid_only', 'leader_pid=123']. */
+    /** Identity cols, e.g. ['leader_pid=123', 'process_group_id=123']. */
     identityCols: string[];
     trigger: string;
     termSent: boolean;
@@ -538,23 +538,6 @@ export function emitMigratedExecTermination(
   ];
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
   audit.write(TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION, ...cols);
-}
-
-/**
- * Legacy PID-only task recovered: the process was spawned non-detached, so
- * no process-group identity exists and descendant cleanup is unprovable.
- * Emitted once per recovery pass for honesty; the legacy write path is zero.
- */
-export function emitMigratedLegacyIdentity(
-  audit: AuditLog,
-  opts: { taskId: string; pid: number },
-): void {
-  audit.write(
-    TASK_AUDIT_EVENTS.TASK_MIGRATED_LEGACY_IDENTITY,
-    `taskId=${opts.taskId}`,
-    `pid=${opts.pid}`,
-    'note=descendant_cleanup_unprovable',
-  );
 }
 
 // ─── LEGACY_RESULT_CLASSIFICATION_UNKNOWN (Phase 1396 Step L) ────────────────

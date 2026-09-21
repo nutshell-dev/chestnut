@@ -17,7 +17,6 @@ import {
   emitRecoveryFailed,
   emitRecoveryDeadLetter,
   emitMigratedExecTermination,
-  emitMigratedLegacyIdentity,
   emitLegacyResultClassificationUnknown,
   emitTaskPostProcessorMissing,
 } from './audit-emit.js';
@@ -28,8 +27,6 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import {
   probeExecutionGroup,
   terminateExecutionGroup,
-  probeLegacyProcess,
-  terminateLegacyProcess,
 } from '../../foundation/process-exec/index.js';
 import type { ExecutionIdentity } from '../../foundation/process-exec/index.js';
 import {
@@ -359,7 +356,8 @@ export async function recoverMigratedToolTask(
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   let killedByRecovery = false;
-  let pidForAudit: number;
+  // phase 1890 Step B：legacy PID-only 分支已删；pid 直取任务字段（v1 identity 优先）。
+  const pidForAudit: number | undefined = task.migratedExecution?.leaderPid ?? task.migratedPid;
 
   // 1. Probe the migrated execution unit (phase 1269 Step E).
   //    All OS probes and signals go through L1; L4 maps the three-state
@@ -372,7 +370,6 @@ export async function recoverMigratedToolTask(
       leaderPid: task.migratedExecution.leaderPid,
       processGroupId: task.migratedExecution.processGroupId,
     };
-    pidForAudit = identity.leaderPid;
     const probe = probeExecutionGroup(identity, task.migratedExecution.leaderStartTime);
 
     if (probe.kind === 'indeterminate') {
@@ -437,72 +434,9 @@ export async function recoverMigratedToolTask(
       killedByRecovery = true; // phase 1119: recovery itself killed the process
     }
     // probe.kind === 'gone' → fall through to result check
-  } else {
-    // ── legacy PID-only protocol (pre-phase-1269 writes) ─────────────────
-    // The process was spawned non-detached and is NOT a group leader — never
-    // guess a PGID. Verify and terminate THIS PROCESS ONLY via the explicit
-    // L1 legacy path; descendant cleanup is unprovable and audited as such.
-    const pid = task.migratedPid!;
-    pidForAudit = pid;
-    emitMigratedLegacyIdentity(auditWriter, { taskId: task.id, pid });
-
-    const probe = probeLegacyProcess(pid, task.migratedStartTime);
-    if (probe.kind === 'indeterminate') {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'migrated_legacy_probe_indeterminate',
-        error: probe.reason,
-      });
-      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-      if (Date.now() < deadlineMs) {
-        return 0; // keep in running — deadline not reached, retry next cycle
-      }
-      // Hard deadline reached and ownership still unprovable: surface one
-      // manual-intervention notification instead of silent indefinite
-      // retention. Never signal, never guess — the task ends observably.
-      if (!(await notifyManualIntervention(deps, task, probe.reason))) {
-        return 0; // keep in running — retry notification next cycle
-      }
-      await moveToFailedAfterManualIntervention(deps, filePath, task);
-      return 0;
-    }
-
-    if (probe.kind === 'alive') {
-      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-      if (Date.now() < deadlineMs) {
-        emitRecovered(auditWriter, {
-          fullTaskId: task.id as FullTaskId,
-          shortTaskId: taskShortId(task),
-          kind: task.kind,
-          from: 'running',
-          to: 'running',
-          reason: 'migrated_process_still_alive',
-        });
-        return 0;
-      }
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'migrated_process_hard_timeout_exceeded',
-        error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
-      });
-      const outcome = await terminateLegacyProcess(pid, task.migratedStartTime);
-      emitMigratedExecTermination(auditWriter, {
-        taskId: task.id,
-        context: 'recovery_hard_timeout',
-        identityCols: ['identity=legacy_pid_only', `leader_pid=${pid}`],
-        trigger: 'caller_requested',
-        termSent: outcome.termSent,
-        killSent: outcome.killSent,
-        status: outcome.status,
-        reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
-      });
-      if (outcome.status !== 'gone') {
-        return 0; // keep in running, retry next recovery cycle
-      }
-      killedByRecovery = true; // phase 1119: recovery itself killed the process
-    }
-    // probe.kind === 'gone' (dead or PID provably reused) → result check
   }
+  // phase 1890 Step B：无执行组身份（pre-1269 legacy PID-only）的 running 任务不特设分支——
+  // 存量废弃、不可达；即便出现按常规未知路径（直落 result check）处理。
 
   // 2. Process is dead — check whether the wrapper already wrote the result.
   const resultPath = `${resultDir}/result.txt`;
@@ -582,7 +516,7 @@ export async function recoverMigratedToolTask(
         auditWriter.write(
           TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED,
           `taskId=${task.id}`,
-          `pid=${pidForAudit}`,
+          `pid=${pidForAudit ?? 'unknown'}`,
         );
       }
     }

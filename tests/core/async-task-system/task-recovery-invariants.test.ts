@@ -33,8 +33,6 @@ vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOr
     getProcessStartTime: vi.fn(),
     probeExecutionGroup: vi.fn(),
     terminateExecutionGroup: vi.fn(),
-    probeLegacyProcess: vi.fn(),
-    terminateLegacyProcess: vi.fn(),
   };
 });
 
@@ -670,164 +668,6 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
   });
 });
 
-describe('phase 904: migrated recovery radical fix', () => {
-  const VALID_TASK_ID = '550e8400-e29b-41d4-a716-446655440000';
-  const VALID_TASK_SHORT_ID = '550e8400';
-
-  function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
-    const events: Array<[string, ...(string | number)[]]> = [];
-    const audit: AuditLog = {
-      write: (type: string, ...cols: (string | number)[]) => {
-        events.push([type, ...cols]);
-      },
-      preview: (s: string) => s,
-      message: (s: string) => s,
-      summary: (s: string) => s,
-    };
-    return { audit, events };
-  }
-
-  function makeMigratedTask(opts: { createdAt?: string; migratedPid?: number } = {}) {
-    return {
-      kind: 'tool' as const,
-      id: VALID_TASK_ID,
-      shortId: VALID_TASK_SHORT_ID,
-      toolName: 'read',
-      args: {},
-      parentClawDir: '/tmp',
-      parentClawId: 'parent',
-      createdAt: opts.createdAt ?? new Date().toISOString(),
-      isIdempotent: true,
-      maxRetries: 2,
-      retryCount: 0,
-      mode: 'migrated' as const,
-      migratedPid: opts.migratedPid ?? 12345,
-    };
-  }
-
-  function makeMockFs(opts: {
-    runningFiles?: Array<{ name: string; path: string; content: string }>;
-  } = {}): FileSystem {
-    const running = opts.runningFiles ?? [];
-    const fileMap = new Map<string, string>();
-
-    for (const f of running) fileMap.set(f.path, f.content);
-
-    return {
-      list: vi.fn().mockImplementation((dir: string) => {
-        if (dir === 'tasks/queues/running') {
-          return Promise.resolve(running.map((f) => ({ name: f.name, path: f.path })));
-        }
-        if (dir === 'tasks/queues/pending') {
-          return Promise.resolve([]);
-        }
-        if (dir === 'tasks/queues/failed') {
-          return Promise.resolve([]);
-        }
-        return Promise.resolve([]);
-      }),
-      read: vi.fn().mockImplementation((filePath: string) => {
-        const content = fileMap.get(filePath);
-        if (content === undefined) return Promise.reject(new Error('ENOENT'));
-        return Promise.resolve(content);
-      }),
-      move: vi.fn().mockImplementation((from: string, to: string) => {
-        const content = fileMap.get(from);
-        fileMap.delete(from);
-        if (content !== undefined) {
-          fileMap.set(to, content);
-        }
-        return Promise.resolve(undefined);
-      }),
-      delete: vi.fn().mockImplementation((filePath: string) => {
-        fileMap.delete(filePath);
-        return Promise.resolve(undefined);
-      }),
-      writeAtomic: vi.fn().mockImplementation((filePath: string, content: string) => {
-        fileMap.set(filePath, content);
-        return Promise.resolve(undefined);
-      }),
-      ensureDir: vi.fn().mockResolvedValue(undefined),
-      exists: vi.fn().mockImplementation((filePath: string) => {
-        return Promise.resolve(fileMap.has(filePath));
-      }),
-    } as unknown as FileSystem;
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('terminates migrated process via L1 legacy path when hard timeout exceeded', async () => {
-    const { probeLegacyProcess, terminateLegacyProcess } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(probeLegacyProcess).mockReturnValue({ kind: 'alive' });
-    vi.mocked(terminateLegacyProcess).mockResolvedValue({
-      status: 'gone',
-      pid: 12345,
-      termSent: true,
-      killSent: false,
-      completedAt: new Date().toISOString(),
-    });
-
-    const task = makeMigratedTask({ createdAt: '2020-01-01T00:00:00Z' });
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const mockFs = makeMockFs({
-      runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
-    });
-
-    const { audit, events } = makeMockAudit();
-    await recoverTasks(makeRecoverDeps(mockFs, audit));
-
-    // Termination must go through the L1 legacy single-process entry — never raw process.kill.
-    expect(terminateLegacyProcess).toHaveBeenCalledWith(task.migratedPid, undefined);
-
-    const termEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
-    expect(termEvents.length).toBe(1);
-    expect(termEvents[0]).toContain('context=recovery_hard_timeout');
-    expect(termEvents[0]).toContain('identity=legacy_pid_only');
-    expect(termEvents[0]).toContain('status=gone');
-  });
-
-  it('keeps task in running when sendFallbackResult fails', async () => {
-    const { probeLegacyProcess, terminateLegacyProcess } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(probeLegacyProcess).mockReturnValue({ kind: 'gone' });
-
-    const task = makeMigratedTask();
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const mockFs = makeMockFs({
-      runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
-    });
-
-    const { audit, events } = makeMockAudit();
-    await recoverTasks(makeRecoverDeps(mockFs, audit));
-
-    expect(mockFs.move).not.toHaveBeenCalled();
-    expect(terminateLegacyProcess).not.toHaveBeenCalled();
-
-    const fallbackFailedEvents = events.filter(
-      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=migrated_fallback_error_failed',
-    );
-    expect(fallbackFailedEvents.length).toBe(1);
-  });
-
-  it('keeps alive process in running when within deadline', async () => {
-    const { probeLegacyProcess, terminateLegacyProcess } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(probeLegacyProcess).mockReturnValue({ kind: 'alive' });
-
-    const task = makeMigratedTask({ createdAt: new Date().toISOString() });
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const mockFs = makeMockFs({
-      runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
-    });
-
-    const { audit } = makeMockAudit();
-    await recoverTasks(makeRecoverDeps(mockFs, audit));
-
-    expect(mockFs.move).not.toHaveBeenCalled();
-    expect(terminateLegacyProcess).not.toHaveBeenCalled();
-  });
-});
-
 describe('phase 989 task-recovery sub-fixes', () => {
   function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
     const events: Array<[string, ...(string | number)[]]> = [];
@@ -1017,27 +857,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     };
   }
 
-  function makeLegacyMigratedTask(extra: Record<string, unknown> = {}) {
-    return {
-      kind: 'tool' as const,
-      id: VALID_TASK_ID,
-      shortId: VALID_TASK_SHORT_ID,
-      toolName: 'exec',
-      args: { command: 'sleep 9999' },
-      parentClawDir: '/tmp',
-      parentClawId: 'parent',
-      createdAt: '2020-01-01T00:00:00Z',
-      isIdempotent: false,
-      maxRetries: 0,
-      retryCount: 0,
-      mode: 'migrated' as const,
-      migratedPid: 12345,
-      migratedStartTime: 'Mon Jan 01 00:00:00 2020',
-      migratedDeadlineMs: 1, // already past
-      ...extra,
-    };
-  }
-
   function makeMockFs(
     runningFiles: Array<{ name: string; path: string; content: string }>,
   ): FileSystem {
@@ -1082,8 +901,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     return {
       probeExecutionGroup: vi.mocked(mod.probeExecutionGroup),
       terminateExecutionGroup: vi.mocked(mod.terminateExecutionGroup),
-      probeLegacyProcess: vi.mocked(mod.probeLegacyProcess),
-      terminateLegacyProcess: vi.mocked(mod.terminateLegacyProcess),
     };
   }
 
@@ -1128,7 +945,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       { leaderPid: LEADER_PID, processGroupId: LEADER_PID },
       'caller_requested',
     );
-    expect(mocks.terminateLegacyProcess).not.toHaveBeenCalled();
 
     // Termination outcome audited with identity + outcome columns.
     const termEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
@@ -1169,7 +985,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
     // Safety: leader gone but group still responds → possible PGID reuse.
     expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
-    expect(mocks.probeLegacyProcess).not.toHaveBeenCalled();
     expect(sendToolResult).not.toHaveBeenCalled();
     expect(mockFs.move).not.toHaveBeenCalled();
     expect(await mockFs.exists(taskFile)).toBe(true);
@@ -1303,86 +1118,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(termEvents[0]).toContain('kill_sent=true');
   });
 
-  it('legacy PID-only task uses L1 legacy path and audits the identity limitation', async () => {
-    const mocks = await importProcessExecMocks();
-    mocks.probeLegacyProcess.mockReturnValue({ kind: 'alive' });
-    mocks.terminateLegacyProcess.mockResolvedValue({
-      status: 'gone',
-      pid: 12345,
-      termSent: true,
-      killSent: false,
-      completedAt: new Date().toISOString(),
-    });
-
-    const task = makeLegacyMigratedTask();
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
-
-    const { audit, events } = makeMockAudit();
-    await recoverTasks(makeRecoverDeps(mockFs, audit));
-
-    // Legacy tasks must NEVER be guessed into a process-group identity.
-    expect(mocks.probeExecutionGroup).not.toHaveBeenCalled();
-    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
-    expect(mocks.terminateLegacyProcess).toHaveBeenCalledWith(12345, 'Mon Jan 01 00:00:00 2020');
-
-    const legacyEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_LEGACY_IDENTITY);
-    expect(legacyEvents.length).toBe(1);
-    expect(legacyEvents[0]).toContain('pid=12345');
-    expect(legacyEvents[0]).toContain('note=descendant_cleanup_unprovable');
-
-    const termEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
-    expect(termEvents.length).toBe(1);
-    expect(termEvents[0]).toContain('identity=legacy_pid_only');
-    expect(termEvents[0]).toContain('status=gone');
-  });
-
-  it('legacy probe indeterminate holds task without signal or move within deadline', async () => {
-    const mocks = await importProcessExecMocks();
-    mocks.probeLegacyProcess.mockReturnValue({ kind: 'indeterminate', reason: 'start_time_unreadable' });
-
-    const task = makeLegacyMigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
-
-    const { audit, events } = makeMockAudit();
-    await recoverTasks(makeRecoverDeps(mockFs, audit));
-
-    expect(mocks.terminateLegacyProcess).not.toHaveBeenCalled();
-    expect(mockFs.move).not.toHaveBeenCalled();
-
-    const holdEvents = events.filter(
-      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e.some((c) => c === 'context=migrated_legacy_probe_indeterminate'),
-    );
-    expect(holdEvents.length).toBe(1);
-    expect(holdEvents[0].some((c) => typeof c === 'string' && c.includes('start_time_unreadable'))).toBe(true);
-  });
-
-  it('legacy probe indeterminate past deadline notifies manual intervention once and moves to failed', async () => {
-    const mocks = await importProcessExecMocks();
-    mocks.probeLegacyProcess.mockReturnValue({ kind: 'indeterminate', reason: 'start_time_unreadable' });
-
-    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
-    const task = makeLegacyMigratedTask(); // migratedDeadlineMs: 1 → already past
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
-
-    const { audit } = makeMockAudit();
-    await recoverTasks({
-      fs: mockFs,
-      auditWriter: audit,
-      sendResult: vi.fn(),
-      sendFallbackResult,
-      sendToolResult: vi.fn(),
-    });
-
-    expect(mocks.terminateLegacyProcess).not.toHaveBeenCalled(); // never signal indeterminate
-    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
-    expect(String((sendFallbackResult.mock.calls[0][3] as { content: string }).content)).toContain('Manual intervention required');
-    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
-    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
-  });
-
   it('dead-no-result fallback followed by move failure re-notifies only once (marker guard)', async () => {
     const mocks = await importProcessExecMocks();
     mocks.probeExecutionGroup.mockReturnValue({ kind: 'gone' });
@@ -1404,35 +1139,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual`)).toBe(true);
   });
 
-  it('legacy gone probe (PID reused) delivers result without ever signalling', async () => {
-    const mocks = await importProcessExecMocks();
-    mocks.probeLegacyProcess.mockReturnValue({ kind: 'gone' });
-
-    const sendToolResult = vi.fn().mockResolvedValue(undefined);
-    const task = makeLegacyMigratedTask();
-    const taskFile = 'tasks/queues/running/task-1.json';
-    const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
-    const exitMarkerPath = `tasks/queues/results/${VALID_TASK_ID}/exit.json`;
-    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
-    await mockFs.writeAtomic(resultPath, 'complete output');
-    await mockFs.writeAtomic(exitMarkerPath, JSON.stringify({ completedAt: new Date().toISOString() }));
-
-    const { audit } = makeMockAudit();
-    await recoverTasks({
-      fs: mockFs,
-      auditWriter: audit,
-      sendResult: vi.fn(),
-      sendFallbackResult: vi.fn(),
-      sendToolResult,
-    });
-
-    // A reused PID must never be signalled — termination is skipped entirely.
-    expect(mocks.terminateLegacyProcess).not.toHaveBeenCalled();
-    expect(sendToolResult).toHaveBeenCalledTimes(1);
-    expect(sendToolResult.mock.calls[0][3]).toBe('complete output');
-    expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
-  });
-
   // Phase 1269 Step F: an on-disk identity violating the v1 creation
   // invariant must be rejected by the schema at load — before any probe —
   // so the mocked L4分流 tests above can never mask an invalid identity.
@@ -1449,7 +1155,6 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
     expect(mocks.probeExecutionGroup).not.toHaveBeenCalled();
     expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
-    expect(mocks.probeLegacyProcess).not.toHaveBeenCalled();
 
     const corruptEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_CORRUPT);
     expect(corruptEvents.length).toBe(1);

@@ -213,8 +213,8 @@ describe('phase 1269 Step B: process-exec group termination invariants', () => {
 
 /**
  * Phase 1269 Step E — async-task-system 终止所有权静态断言：迁移 exec 的
- * 运行期与恢复期终止必须全部经 L1（handle.terminate / terminateExecutionGroup /
- * terminateLegacyProcess），L4 业务路径禁止 raw child.kill / process.kill。
+ * 运行期与恢复期终止必须全部经 L1（handle.terminate / terminateExecutionGroup），
+ * L4 业务路径禁止 raw child.kill / process.kill。
  */
 describe('phase 1269 Step E: async-task-system termination ownership', () => {
   const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
@@ -246,7 +246,6 @@ describe('phase 1269 Step F: persisted identity ownership proof invariants', () 
     const forbidden = ['get', 'pgid'].join('');
     const files = [
       `${SRC_ROOT}/foundation/process-exec/execution-group.ts`,
-      `${SRC_ROOT}/foundation/process-exec/legacy-process.ts`,
       `${SRC_ROOT}/foundation/process-exec/exec.ts`,
     ];
     const offenders = files.filter((file) => readFileSync(file, 'utf8').includes(forbidden));
