@@ -6,6 +6,8 @@
  * factory 闭包持有且只持有 deps（FileSystem factory），不缓存任何配置结果，
  * 每次 load 仍从磁盘重建（M#4 capability 不成为内存权威）。
  * 方法为闭包箭头函数，不依赖 `this`，可被窄 DI 解构后直接调用（M#9）。
+ *
+ * （phase 1890 Step L：RootConfigLegacyMigration 兼容期迁移面随存量废弃删除。）
  */
 import {
   isInitialized,
@@ -14,9 +16,6 @@ import {
   saveGlobalConfig,
   saveClawConfig,
   patchGlobalConfigPrimary,
-  readLegacyAuditConfigSection,
-  removeLegacyAuditConfigSection,
-  type LegacyAuditConfigSection,
 } from './config-load.js';
 import type {
   ClawGlobalConfig,
@@ -47,12 +46,6 @@ export interface RootConfigDeps {
   fsFactory(baseDir: string): FileSystem;
 }
 
-/** 兼容期专用迁移面；与日常Reader/Admin隔离。 */
-export interface RootConfigLegacyMigration {
-  readAuditSection(): LegacyAuditConfigSection | undefined;
-  removeAuditSection(): void;
-}
-
 /**
  * 建立 RootConfig capability。闭包只持有 deps，每次调用仍从磁盘读取；
  * 不缓存配置、不保存配置结果。
@@ -65,12 +58,5 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
     saveGlobal: (config) => saveGlobalConfig(deps, config),
     saveClaw: (configPath, config) => saveClawConfig(deps, configPath, config),
     patchPrimary: (patch) => patchGlobalConfigPrimary(deps, { ...patch }),
-  };
-}
-
-export function createRootConfigLegacyMigration(deps: RootConfigDeps): RootConfigLegacyMigration {
-  return {
-    readAuditSection: () => readLegacyAuditConfigSection(deps),
-    removeAuditSection: () => removeLegacyAuditConfigSection(deps),
   };
 }

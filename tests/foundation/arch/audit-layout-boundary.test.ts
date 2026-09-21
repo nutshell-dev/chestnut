@@ -12,6 +12,9 @@
  *
  * （Step C workspace audit capability / Step D legacy 只读 ratchet 在
  *  audit-workspace-audit-boundary.test.ts 与 audit-legacy-readonly-boundary.test.ts。）
+ *
+ * phase 1890 Step L：迁移 journal 退役——AUDIT_PATHS.migrations 与
+ * AUDIT_LEGACY_PATHS.configSection 键随删。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -28,10 +31,10 @@ const INTERNAL_SPECIFIER = './layout.js';
 
 const TARGET_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ['root', 'audit'], ['layout', 'audit/layout.json'], ['config', 'audit/config.yaml'],
-  ['audit', 'audit/audit.tsv'], ['migrations', 'audit/migrations'],
+  ['audit', 'audit/audit.tsv'],
 ];
 const LEGACY_ENTRIES: ReadonlyArray<readonly [string, string]> = [
-  ['audit', 'audit.tsv'], ['configSection', 'audit'],
+  ['audit', 'audit.tsv'],
 ];
 
 const DEFINITION_RE = /export\s+const\s+(AUDIT_PATHS|AUDIT_LEGACY_PATHS)\b/;

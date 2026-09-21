@@ -54,8 +54,9 @@ export type {
 // phase 1788: audit 自观察失败受限 secondary channel（drop event write failure）
 export type { AuditFailureReporter } from './writer.js';
 
-// Phase 1288 Step B: audit namespace layout / config store / migration journal
+// Phase 1288 Step B: audit namespace layout / config store
 // （模块外消费一律经本 barrel；layout.ts 禁止 deep import）
+// （phase 1890 Step L：migration journal 退役删除；publishAuditLayout 归 workspace-config）
 export { AUDIT_LAYOUT_SCHEMA_VERSION, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from './layout.js';
 export {
   auditConfigSchema,
@@ -65,7 +66,7 @@ export {
   loadWorkspaceAuditConfig,
   readWorkspaceAuditRetentionMaxSizeMb,
   initWorkspaceAuditConfig,
-  publishMigratedWorkspaceAuditConfig,
+  publishAuditLayout,
 } from './workspace-config.js';
 // Phase 1288 Step C: workspace 根审计 capability（唯一生产构造入口；caller 不传路径/retention）
 export { createWorkspaceAudit } from './workspace-audit.js';
@@ -76,14 +77,6 @@ export {
   readWorkspaceAuditMerged,
   type WorkspaceAuditSegmentIssue,
 } from './workspace-segments.js';
-
-export {
-  writeAuditMigrationIntent,
-  writeAuditMigrationOutcome,
-  findPendingAuditMigration,
-  publishAuditLayout,
-  type AuditMigrationOutcome,
-} from './migration-journal.js';
 
 // phase 693 Step A: audit 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
 // Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)

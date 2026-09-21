@@ -27,8 +27,8 @@ export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 // 只导出 factory、resolver 与三种接口类型；config-load 离散函数、path helper、
 // generic ConfigStore 与 legacy migration 原语不进入 barrel（临时兼容出口，
 // 后续 CLI/Daemon 迁移 phase 消化）。
-export { createRootConfig, createRootConfigLegacyMigration } from './config/root-config.js';
-export type { RootConfigReader, RootConfigAdmin, RootConfigDeps, RootConfigLegacyMigration } from './config/root-config.js';
+export { createRootConfig } from './config/root-config.js';
+export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config/root-config.js';
 export { resolveLLMConfig } from './config/config-load.js';
 export { initializeClawLayout } from './claw-subdirs.js';
 export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';

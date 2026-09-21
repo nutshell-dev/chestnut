@@ -5,7 +5,9 @@
  * - loadWorkspaceAuditConfig：missing / ok / invalid（读失败、YAML 错、schema 错），不静默创建
  * - readWorkspaceAuditRetentionMaxSizeMb：ok → 值；missing → null；invalid → throw
  * - initWorkspaceAuditConfig：fresh 创建默认（精确磁盘形态）+ 回读；已存在 → already 不覆盖；invalid → throw
- * - publishMigratedWorkspaceAuditConfig：exclusive publish + 回读；同值幂等；异值 conflict 双方保留
+ * - publishAuditLayout：layout.json 磁盘形态（phase 1890 Step L 自 migration-journal 收编）
+ *
+ * phase 1890 Step L：publishMigratedWorkspaceAuditConfig / ConflictError 随迁移协议删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -15,17 +17,16 @@ import {
   loadWorkspaceAuditConfig,
   readWorkspaceAuditRetentionMaxSizeMb,
   initWorkspaceAuditConfig,
-  publishMigratedWorkspaceAuditConfig,
+  publishAuditLayout,
+  AUDIT_LAYOUT_SCHEMA_VERSION,
   AUDIT_PATHS,
   type AuditConfig,
 } from '../../../src/foundation/audit/index.js';
-import { AuditWorkspaceConfigConflictError } from '../../../src/foundation/audit/workspace-config.js';
 import { createTrackedTempDirSync } from '../../utils/temp.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
 const LEGACY_DEFAULT: AuditConfig = { retention: { max_size_mb: null } };
-const LEGACY_64: AuditConfig = { retention: { max_size_mb: 64 } };
 
 describe('phase 1288 Step B: workspace audit config store', () => {
   let chestnutRoot: string;
@@ -40,6 +41,15 @@ describe('phase 1288 Step B: workspace audit config store', () => {
 
   function readConfigFile(): string {
     return fs.readFileSync(path.join(chestnutRoot, AUDIT_PATHS.config), 'utf8');
+  }
+
+  /** 直接以拍板磁盘形态种子一个自定义 config（替代已删的迁移 publish 面）。 */
+  function seedCustomConfig(): void {
+    fs.mkdirSync(path.join(chestnutRoot, AUDIT_PATHS.root), { recursive: true });
+    fs.writeFileSync(
+      path.join(chestnutRoot, AUDIT_PATHS.config),
+      'schema_version: 1\nretention:\n  max_size_mb: 64\n',
+    );
   }
 
   describe('loadWorkspaceAuditConfig', () => {
@@ -83,7 +93,7 @@ describe('phase 1288 Step B: workspace audit config store', () => {
     });
 
     it('ok → 配置值', () => {
-      publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef');
+      seedCustomConfig();
       expect(readWorkspaceAuditRetentionMaxSizeMb(fsFactory(chestnutRoot))).toBe(64);
     });
 
@@ -101,7 +111,7 @@ describe('phase 1288 Step B: workspace audit config store', () => {
     });
 
     it('已存在 → already，不覆盖现有内容', () => {
-      publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef');
+      seedCustomConfig();
       const before = readConfigFile();
       expect(initWorkspaceAuditConfig(fsFactory(chestnutRoot))).toBe('already');
       expect(readConfigFile()).toBe(before);
@@ -114,33 +124,14 @@ describe('phase 1288 Step B: workspace audit config store', () => {
     });
   });
 
-  describe('publishMigratedWorkspaceAuditConfig', () => {
-    it('不存在 → published，写入 legacy 值并可读回', () => {
-      expect(publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef')).toBe('published');
-      expect(readConfigFile()).toBe('schema_version: 1\nretention:\n  max_size_mb: 64\n');
-      expect(loadWorkspaceAuditConfig(fsFactory(chestnutRoot))).toEqual({ kind: 'ok', config: LEGACY_64 });
-    });
-
-    it('已存在且同值 → already-present，文件不被重写', () => {
-      publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef');
-      const before = readConfigFile();
-      expect(publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef')).toBe('already-present');
-      expect(readConfigFile()).toBe(before);
-    });
-
-    it('已存在且异值 → ConflictError，双方保留（文件不被改写）', () => {
-      publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef');
-      const before = readConfigFile();
-      const attempt = () => publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_DEFAULT, 'cafe');
-      expect(attempt).toThrow(AuditWorkspaceConfigConflictError);
-      expect(attempt).toThrow(/Both preserved/);
-      expect(readConfigFile()).toBe(before);
-    });
-
-    it('已存在但 invalid → throw', () => {
-      fs.mkdirSync(path.join(chestnutRoot, AUDIT_PATHS.root), { recursive: true });
-      fs.writeFileSync(path.join(chestnutRoot, AUDIT_PATHS.config), 'schema_version: 9\n');
-      expect(() => publishMigratedWorkspaceAuditConfig(fsFactory(chestnutRoot), LEGACY_64, 'deadbeef')).toThrow(/invalid/);
+  describe('publishAuditLayout', () => {
+    it('写 layout.json：schema_version + owner', () => {
+      const rootFs = fsFactory(chestnutRoot);
+      publishAuditLayout(rootFs);
+      const layout = JSON.parse(fs.readFileSync(path.join(chestnutRoot, AUDIT_PATHS.layout), 'utf8'));
+      expect(layout.schema_version).toBe(AUDIT_LAYOUT_SCHEMA_VERSION);
+      expect(layout.owner).toBe('audit-log');
+      expect(typeof layout.updated_at).toBe('string');
     });
   });
 });

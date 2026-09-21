@@ -11,9 +11,8 @@
  *   读取，missing → null 与旧 schema default 行为等价，invalid → throw fail-loud）。
  * - 写（fresh init）：initWorkspaceAuditConfig 创建默认配置 + 回读校验；
  *   已存在不覆盖。
- * - 写（迁移）：publishMigratedWorkspaceAuditConfig — exclusive publish + 回读
- *   校验；只接 typed legacy AuditConfig 及 source hash，不接完整 GlobalConfig；
- *   已有同值配置 → already-present（幂等），已有异值配置 → conflict fail-loud。
+ * - layout 留痕：publishAuditLayout 发布 layout.json（phase 1890 Step L 自
+ *   migration-journal 收编；fresh init 直调）。
  *
  * fs 一律以 chestnutRoot 为 baseDir；路径全部出自 ./layout.js。
  */
@@ -31,19 +30,6 @@ type WorkspaceAuditConfigResult =
   | { kind: 'ok'; config: AuditConfig }
   | { kind: 'missing' }
   | { kind: 'invalid'; message: string };
-
-/** 双方 retention 值不一致时抛出（fail-loud；双方文件均保留、由 caller 处理）。 */
-export class AuditWorkspaceConfigConflictError extends Error {
-  constructor(
-    message: string,
-    readonly existing: AuditConfig,
-    readonly incoming: AuditConfig,
-    readonly sourceHash: string,
-  ) {
-    super(message);
-    this.name = 'AuditWorkspaceConfigConflictError';
-  }
-}
 
 function sameAuditConfig(a: AuditConfig, b: AuditConfig): boolean {
   return a.retention.max_size_mb === b.retention.max_size_mb;
@@ -128,38 +114,15 @@ export function initWorkspaceAuditConfig(fs: FileSystem): 'created' | 'already' 
 }
 
 /**
- * 迁移专用 exclusive publish（Phase 1288 Step B 契约步骤 3）。
- *
- * - 不存在 → 写入 legacy 值 + 回读校验 → 'published'；
- * - 已存在且同值 → 'already-present'（幂等重入，不重写）；
- * - 已存在且异值 → AuditWorkspaceConfigConflictError（保留双方、fail-loud）；
- * - 已存在但 invalid → throw。
- *
- * sourceHash 仅用于诊断信息（journal intent 由 CLIProcess 另行写入）。
+ * 发布 layout.json（phase 1890 Step L 自 migration-journal 收编，1:1）。
+ * 内容是布局协议版本 + owner 声明；路径 identity 的 SoT 是 ./layout.ts 常量，
+ * 本函数只做磁盘留痕、不被生产代码读回。
  */
-export function publishMigratedWorkspaceAuditConfig(
-  fs: FileSystem,
-  legacy: AuditConfig,
-  sourceHash: string,
-): 'published' | 'already-present' {
-  const existing = loadWorkspaceAuditConfig(fs);
-  if (existing.kind === 'invalid') {
-    throw new Error(
-      `Cannot publish migrated audit config: existing ${AUDIT_PATHS.config} is invalid: ${existing.message}`,
-    );
-  }
-  if (existing.kind === 'ok') {
-    if (sameAuditConfig(existing.config, legacy)) return 'already-present';
-    throw new AuditWorkspaceConfigConflictError(
-      `Audit config conflict: ${AUDIT_PATHS.config} already exists with different value ` +
-      `(existing max_size_mb=${existing.config.retention.max_size_mb}, ` +
-      `legacy max_size_mb=${legacy.retention.max_size_mb}, source sha256=${sourceHash}). ` +
-      `Both preserved; resolve manually.`,
-      existing.config,
-      legacy,
-      sourceHash,
-    );
-  }
-  writeAndVerify(fs, legacy, 'publish');
-  return 'published';
+export function publishAuditLayout(fs: FileSystem): void {
+  const layout = {
+    schema_version: AUDIT_LAYOUT_SCHEMA_VERSION,
+    owner: 'audit-log',
+    updated_at: new Date().toISOString(),
+  };
+  fs.writeAtomicSync(AUDIT_PATHS.layout, `${JSON.stringify(layout, null, 2)}\n`);
 }

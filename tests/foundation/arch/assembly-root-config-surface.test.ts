@@ -41,20 +41,17 @@ function rootConfigSurface(exports: string[]): string[] {
 const EXPECTED_SURFACE = [
   'RootConfigAdmin',
   'RootConfigDeps',
-  'RootConfigLegacyMigration',
   'RootConfigReader',
   'createRootConfig',
-  'createRootConfigLegacyMigration',
   'resolveLLMConfig',
 ];
 
-// 内部符号：不得进入 barrel。（phase 1886 Step B: 兼容出口 buildLLMConfig 已随 alias 删除出列）
+// 内部符号：不得进入 barrel。（phase 1886 Step B: 兼容出口 buildLLMConfig 已随 alias 删除出列；
+// phase 1890 Step L: legacy 迁移段原语随存量废弃删除、出列）
 const FORBIDDEN = [
   'isInitialized', 'loadGlobalConfig', 'loadClawConfig', 'saveGlobalConfig', 'saveClawConfig',
   'patchGlobalConfigPrimary', 'clawExists', 'getGlobalConfigPath',
   'loadYamlConfig', 'writeYamlConfig', 'patchYamlConfig', 'configExists',
-  'readLegacyAuditConfigSection', 'removeLegacyAuditConfigSection',
-  'LegacyAuditConfigSection',
 ];
 
 /** root-config.ts 违规 import（ConfigStore / FileSystem 实现）扫描。 */
@@ -84,7 +81,7 @@ describe('phase 1300: Assembly barrel RootConfig 精确新增表面', () => {
     const withClawExists = parseBarrelExports(`${text}\nexport { clawExists } from './config/config-load.js';`);
     expect(rootConfigSurface(withClawExists)).toEqual(EXPECTED_SURFACE);
     expect(withClawExists.filter((n) => FORBIDDEN.includes(n))).toEqual(['clawExists']);
-    const missing = parseBarrelExports(text.replace('createRootConfig, ', ''));
+    const missing = parseBarrelExports(text.replace("export { createRootConfig } from './config/root-config.js';", ''));
     expect(rootConfigSurface(missing)).not.toEqual(EXPECTED_SURFACE);
   });
 });
