@@ -3,8 +3,7 @@ import type { ContractCreatePolicy, CreatePolicyContext } from '../contract/inde
 import { ContractCreatePolicyViolationError } from '../contract/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from './post-processors/contract-extract.js';
-import type { SubAgentTask, LegacySummonDecisionV1 } from '../async-task-system/index.js';
-import { readSummonDecision } from './legacy-decision.js';
+import type { SubAgentTask } from '../async-task-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeFullTaskId, type TaskId } from '../async-task-system/index.js';
 import {
@@ -22,8 +21,9 @@ import {
 // Phase 1396 Step K: decision 版本化 —— v2 active path 固定 no-verification，
 // executor 只取自 ctx.clawDir；v1 legacy adapter 保留原 verify/targetClaw 行为。
 // Phase 1402 Step A: decision 缺失时按 canonical post-processor 识别当前 summon
-// task（decision-present 永远优先按 legacy v1/v2 解释）；active writer 停写
-// decision 后 policy 无需等待新字段即可识别新任务。
+// task；active writer 停写 decision 后 policy 无需等待新字段即可识别新任务。
+// Phase 1890 Step E: legacy v1/v2 decision 读层删除（存量废弃）——task 上仍带
+// summonDecision 的任务按 unknown 版本 fail-closed（防伪造 decision 注入）。
 // ============================================================================
 
 export interface SummonVerifyPolicyDeps {
@@ -87,14 +87,10 @@ export function createSummonVerifyPolicy(
         );
       }
 
-      // phase 1866 Step C（SU-D2）：decision 解释经 migration 读面（不内联版本判断）；
-      // legacy decision 是恢复兼容输入，不是创建 authority（authority = claim）。
-      const decisionRead = readSummonDecision(task);
-
-      if (decisionRead.kind === 'absent') {
+      if (!task.summonDecision) {
         if (task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME) {
           // Phase 1402 Step A: 当前 summon task 由 canonical post-processor identity 识别，
-          // 与 legacy v2 共用 no-verification + ctx.clawDir executor + claim 行为。
+          // no-verification + ctx.clawDir executor + claim 行为。
           await checkCurrent(ctx, contract, task, deps);
           return;
         }
@@ -107,29 +103,21 @@ export function createSummonVerifyPolicy(
         return;
       }
 
-      if (decisionRead.kind === 'legacy_v2') {
-        // Phase 1402 Step A: legacy v2 decision 与 canonical 当前路径行为一致，共用 helper。
-        await checkCurrent(ctx, contract, task, deps);
-        return;
-      }
-
-      if (decisionRead.kind === 'legacy_v1') {
-        await checkLegacyV1(ctx, contract, task, decisionRead.decision, deps);
-        return;
-      }
-
-      // Unknown future version: fail-observable, never downgrade to pass-through.
+      // Phase 1890 Step E: legacy v1/v2 decision 读层已删（存量废弃）；task 上仍带
+      // summonDecision = 未知/伪造输入，与 unknown future version 同处理——
+      // fail-observable + fail-closed，绝不降级 pass-through。
+      const schemaVersion = (task.summonDecision as { schema_version?: unknown }).schema_version;
       deps.auditWriter.write(
         SUMMON_AUDIT_EVENTS.SUMMON_GATE_UNKNOWN_SCHEMA_VERSION,
         `subagentTaskId=${subagentTaskId}`,
-        `schema_version=${String(decisionRead.version)}`,
+        `schema_version=${String(schemaVersion)}`,
       );
       throw new ContractCreatePolicyViolationError(
         'summon-verify',
         'summon_unknown_schema_version',
         {
           subagentTaskId,
-          schemaVersion: decisionRead.version,
+          schemaVersion,
           note: 'unsupported summon decision schema version',
         },
       );
@@ -179,70 +167,6 @@ async function checkCurrent(
         note: 'v2 summon decision requires executor context (ctx.clawDir)',
       },
     );
-  }
-
-  await claimCreation(ctx, task, targetExecutorId, deps);
-}
-
-async function checkLegacyV1(
-  ctx: CreatePolicyContext,
-  contract: ContractYaml,
-  task: SubAgentTask,
-  decision: LegacySummonDecisionV1,
-  deps: SummonVerifyPolicyDeps,
-): Promise<void> {
-  // Legacy v1 path: 保留原 verify/targetClaw 行为，用于已落盘任务的恢复兼容。
-  if (!decision.verify) {
-    const verificationArr = contract.verification ?? [];
-    if (verificationArr.length > 0) {
-      deps.auditWriter.write(
-        SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
-        `subagentTaskId=${ctx.subagentTaskId}`,
-        `targetClaw=${decision.targetClaw ?? '(unset)'}`,
-        `verificationCount=${verificationArr.length}`,
-      );
-      throw new ContractCreatePolicyViolationError(
-        'summon-verify',
-        'summon_verify_false_violation',
-        {
-          subagentTaskId: ctx.subagentTaskId,
-          targetClaw: decision.targetClaw,
-          verificationCount: verificationArr.length,
-          note: 'legacy v1 summon dispatch with verify=false; contract must not include verification entries',
-        },
-      );
-    }
-
-    // phase 119: target_claw 边界校验（verify=false 路径）
-    const clawDir = ctx.clawDir;
-    if (decision.targetClaw && clawDir && decision.targetClaw !== clawDir) {
-      deps.auditWriter.write(
-        SUMMON_AUDIT_EVENTS.SUMMON_TARGET_CLAW_VIOLATION,
-        `subagentTaskId=${ctx.subagentTaskId}`,
-        `expectedTargetClaw=${decision.targetClaw}`,
-        `requestedClawId=${clawDir}`,
-      );
-      throw new ContractCreatePolicyViolationError(
-        'summon-verify',
-        'summon_target_claw_violation',
-        {
-          subagentTaskId: ctx.subagentTaskId,
-          expectedTargetClaw: decision.targetClaw,
-          requestedClawId: clawDir,
-          note: 'legacy v1: cross-claw contract creation from a summon subagent is prohibited',
-        },
-      );
-    }
-  }
-
-  const targetExecutorId = ctx.clawDir ?? decision.targetClaw;
-  if (!targetExecutorId) {
-    deps.auditWriter.write(
-      SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_SKIPPED,
-      `subagentTaskId=${ctx.subagentTaskId}`,
-      'reason=no_executor_context',
-    );
-    return;
   }
 
   await claimCreation(ctx, task, targetExecutorId, deps);

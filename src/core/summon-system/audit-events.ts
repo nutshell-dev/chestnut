@@ -27,8 +27,6 @@ export const SUMMON_AUDIT_EVENTS = {
   SUMMON_VERIFY_FALSE_VIOLATION: 'summon_verify_false_violation',
   SUMMON_STATE_READ_FAILED: 'summon_state_read_failed',
   SUMMON_GATE_NO_DECISION: 'summon_gate_no_decision',
-  SUMMON_TARGET_CLAW_VIOLATION: 'summon_target_claw_violation',
-  SUMMON_LEGACY_STATE_FILE_DETECTED: 'summon_legacy_state_file_detected',
   /**
    * Phase 1396 Step K: v2 active path invariants.
    * V2_EXECUTOR_CONTEXT_MISSING: ctx.clawDir 缺失，无法确定 executor。
@@ -45,11 +43,8 @@ export const SUMMON_AUDIT_EVENTS = {
   /**
    * Phase 1396 Step B: 0/1 创建 claim 事件。
    * CONTRACT_ALREADY_CLAIMED: 同一 summonId 的第二候选被 policy 拒绝。
-   * CLAIM_SKIPPED: summon task 缺少 executor 上下文（clawDir 与 decision.targetClaw 均缺失）、
-   *   无法构造 claim —— 实然路径不可达（CLI contract create 必传 --claw），保留作防御审计。
    */
   SUMMON_CONTRACT_ALREADY_CLAIMED: 'summon_contract_already_claimed',
-  SUMMON_CLAIM_SKIPPED: 'summon_claim_skipped',
   /**
    * Phase 1396 Step B: post-processor 创建事实核实事件。
    * CREATION_RECOVERED: task error envelope 但 claim 指向的 contract 已提交 → 恢复为成功。

@@ -15,7 +15,7 @@ export { createSummonVerifyPolicy } from './summon-verify-policy.js';
 export type { SummonVerifyPolicyDeps } from './summon-verify-policy.js';
 export { SUMMON_CALLER_TYPES } from './caller-types.js';
 export { AskMotionTool } from './tools/ask-motion.js';
-// phase 1866 Step H（SU-D8）：legacy 扫描降级为恢复入口的内部子面（不再单独经 barrel 暴露）。
+// phase 1866 Step H（SU-D8）：恢复事实单一入口（legacy 扫描子面已随 phase 1890 Step E 删除）。
 export { restoreSummonFacts } from './restore.js';
 export type {
   SummonRestoreReport,
@@ -23,8 +23,6 @@ export type {
   SummonRestoreIssue,
   SummonClaimIssue,
 } from './restore.js';
-export { readSummonDecision } from './legacy-decision.js';
-export type { SummonDecisionRead } from './legacy-decision.js';
 
 export {
   createSummonCreationClaimStore,

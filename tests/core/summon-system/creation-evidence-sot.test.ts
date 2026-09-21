@@ -3,7 +3,8 @@
  *
  * 锁定：
  * - claim store 是唯一 authority（唯一 writer；claim 文件路径只在该 owner 出现）；
- * - legacy `summonDecision` 无 writer（仅 migration 读面）；读面矩阵 typed；
+ * - legacy `summonDecision` 无 writer（phase 1890 Step E：migration 读面也已删除，
+ *   policy 对仍带 decision 的任务 fail-closed）；
  * - claim 与 cross-check evidence 冲突时 authority 仍是 claim（结果不随 evidence 变）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -12,7 +13,6 @@ import * as path from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit } from '../../helpers/audit.js';
-import { readSummonDecision } from '../../../src/core/summon-system/legacy-decision.js';
 import { createSummonCreationClaimStore } from '../../../src/core/summon-system/creation-claim-store.js';
 import { createSummonContractExtractPostProcessor } from '../../../src/core/summon-system/post-processors/contract-extract.js';
 
@@ -42,14 +42,14 @@ describe('phase 1866 Step C: creation evidence single source of truth', () => {
       expect(owners).toEqual(['src/core/summon-system/creation-claim-store.ts']);
     });
 
-    it('legacy summonDecision 在 src 无 writer（只有 ATS schema/类型 + migration 读面）', () => {
+    it('legacy summonDecision 在 src 无 writer（只有 ATS schema/类型声明）', () => {
       const writers: string[] = [];
       for (const f of srcFiles) {
         const rel = path.relative(repoRoot, f);
         const src = stripComments(fsSync.readFileSync(f, 'utf8'));
         // 写点特征：`summonDecision:` 赋值（object literal 赋字段）——排除 zod schema 声明与类型定义
         if (rel.startsWith('src/core/async-task-system/')) continue;
-        if (/summonDecision\s*:\s*(?!z\.)/.test(src) && !rel.endsWith('legacy-decision.ts')) {
+        if (/summonDecision\s*:\s*(?!z\.)/.test(src)) {
           writers.push(rel);
         }
       }
@@ -61,28 +61,6 @@ describe('phase 1866 Step C: creation evidence single source of truth', () => {
         .filter((f) => /claimStore\.claim\(/.test(fsSync.readFileSync(f, 'utf8')))
         .map((f) => path.relative(repoRoot, f));
       expect(claimCallers).toEqual(['src/core/summon-system/summon-verify-policy.ts']);
-    });
-  });
-
-  describe('legacy decision read face (migration 兼容读，非 authority)', () => {
-    it.each([
-      ['absent', undefined, 'absent'],
-      ['v2', { schema_version: 2, dispatchedAt: 'x' }, 'legacy_v2'],
-      ['v1', { schema_version: 1, mode: 'shadow', verify: false, dispatchedAt: 'x' }, 'legacy_v1'],
-      ['unknown', { schema_version: 3 }, 'unknown_schema_version'],
-    ])('%s → %s', (_label, summonDecision, expected) => {
-      expect(readSummonDecision({ summonDecision } as never).kind).toBe(expected);
-    });
-
-    it('v1 读面保留 decision 载荷（verify/targetClaw 兼容解释输入）', () => {
-      const read = readSummonDecision({
-        summonDecision: { schema_version: 1, mode: 'mining', verify: true, targetClaw: 'claw-a', dispatchedAt: 'x' },
-      } as never);
-      expect(read.kind).toBe('legacy_v1');
-      if (read.kind === 'legacy_v1') {
-        expect(read.decision.targetClaw).toBe('claw-a');
-        expect(read.decision.verify).toBe(true);
-      }
     });
   });
 

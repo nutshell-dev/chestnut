@@ -18,7 +18,8 @@
  * - 本 store 是**唯一**创建事实 authority（写点只有 policy 的 claimCreation；读点 =
  *   post-processor 恢复核实 + 单一恢复入口的 claim 核对）；
  * - 回执（task result envelope）= 结果交付面，不是 evidence；
- * - legacy `summonDecision`（v1/v2）= migration 兼容读（`legacy-decision.ts`），不是第二 writer/authority；
+ * - legacy `summonDecision`（v1/v2）= 存量废弃字段（phase 1890 Step E 读面已删，
+ *   policy 对仍带 decision 的任务 fail-closed），不是第二 writer/authority；
  * - pending-retrospective = 观测/补报面，不是创建 evidence。
  */
 

@@ -142,12 +142,11 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     }
     rollback.register('audit_writer', () => auditWriter?.dispose?.());
 
-    // phase 281 Step B: scan legacy summon-state/ files and emit audit (no auto-delete)
+    // Summon 恢复事实核对（pending-retrospective 列举 + creation claim 核对）
     try {
-      // phase 1866 Step H（SU-D8）：恢复事实经唯一入口（legacy 扫描子面在其内、audit 行为不变）。
+      // phase 1866 Step H（SU-D8）：恢复事实经唯一入口。
       await restoreSummonFacts({
         fs: systemFs,
-        audit: auditWriter,
         claimStore: createSummonCreationClaimStore({
           fs: fsFactory(resolveChestnutRoot(clawDir, isMotion)),
         }),
@@ -156,7 +155,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       // phase 703: 加 context col 区分 2 caller 路径、与 phase 582/584 context col 同模式
       auditWriter.write(
         ASSEMBLY_AUDIT_EVENTS.FALLBACK_RECONCILE_FAILED,
-        `context=legacy_summon_state`,
+        `context=summon_restore_facts`,
         `reason=${formatErr(err)}`,
       );
     }
