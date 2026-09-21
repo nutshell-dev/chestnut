@@ -73,7 +73,6 @@ const ALLOWED_EXPORTS: readonly string[] = [
   'deriveShortIdFromTaskId',
   'makeFullTaskId',
   'makeShortTaskId',
-  'makeTaskId',
   'readFullTaskId',
   'readShortTaskId',
   'taskShortId',

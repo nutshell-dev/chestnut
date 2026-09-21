@@ -50,13 +50,6 @@ export function makeShortTaskId(s: string): ShortTaskId {
   if (!SHORT_ID_RE.test(s)) throw new Error(`makeShortTaskId: invalid ShortTaskId "${s}" (expected 8-char hex)`);
   return s as ShortTaskId;
 }
-/** @deprecated Use makeFullTaskId or makeShortTaskId. 两形态任一合法即通过。 */
-export function makeTaskId(s: string): TaskId {
-  if (FULL_ID_RE.test(s)) return s as FullTaskId;
-  if (SHORT_ID_RE.test(s)) return s as ShortTaskId;
-  throw new Error(`makeTaskId: invalid TaskId "${s}" (expected UUID or 8-char hex)`);
-}
-
 /**
  * phase 1863 (AT-D11)：反序列化入口（宽容，不抛）——供磁盘/存储读路径。
  * 非法值经 `onInvalid` 记录（调用方决定 audit/跳过），返回 undefined 由调用方处置。

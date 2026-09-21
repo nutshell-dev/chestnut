@@ -19,7 +19,7 @@ import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../../../src/core/su
 import { ContractCreatePolicyViolationError } from '../../../src/core/contract/types.js';
 import type { CreatePolicyContext } from '../../../src/core/contract/types.js';
 import { SUMMON_AUDIT_EVENTS } from '../../../src/core/summon-system/audit-events.js';
-import { makeTaskId, type TaskId, type SubAgentTask } from '../../../src/core/async-task-system/types.js';
+import { makeFullTaskId, type TaskId, type SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import type { ContractYaml } from '../../../src/core/contract/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import {
@@ -39,7 +39,7 @@ function makeSubAgentTask(
 ): SubAgentTask {
   return {
     kind: 'subagent',
-    id: makeTaskId(taskId),
+    id: makeFullTaskId(taskId),
     mode: 'shadow',
     intent: 'test intent',
     timeoutMs: 1000,
@@ -161,14 +161,14 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
         policy.check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'any-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'any-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         ),
       ).resolves.toBeUndefined();
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'reason=likely_non_summon_subagent',
       ]);
     });
@@ -184,14 +184,14 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
         policy.check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'any-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'any-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         ),
       ).resolves.toBeUndefined();
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'reason=likely_non_summon_subagent',
       ]);
     });
@@ -204,7 +204,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
         policy.check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'any-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'any-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         ),
       ).rejects.toMatchObject({
@@ -214,7 +214,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'reason=task_not_found',
       ]);
     });
@@ -232,7 +232,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
         policy.check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'any-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'any-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         ),
       ).rejects.toMatchObject({
@@ -244,7 +244,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       expect(failedAudit).toBeDefined();
       expect(failedAudit).toEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_STATE_READ_FAILED,
-        'taskId=a1100001',
+        'taskId=a1100001-0000-4000-8000-000000000000',
         expect.stringContaining(String(thrown.message)),
       ]);
     });
@@ -258,16 +258,16 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
       ).resolves.toBeUndefined();
 
       expect(claimSpy).toHaveBeenCalledTimes(1);
       expect(claimSpy).toHaveBeenCalledWith({
-        summonId: 'a1100001',
+        summonId: 'a1100001-0000-4000-8000-000000000000',
         targetExecutorId: 'my-claw',
         contractId: 'cand-1',
       });
-      expect(claims.get('a1100001')).toMatchObject({ contractId: 'cand-1' });
+      expect(claims.get('a1100001-0000-4000-8000-000000000000')).toMatchObject({ contractId: 'cand-1' });
     });
 
     it('v2 + verification entries → throw summon_verify_false_violation', async () => {
@@ -278,7 +278,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
 
       const err = await policy
         .check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         )
         .catch(e => e);
@@ -288,14 +288,14 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
         policyName: 'summon-verify',
         cause: 'summon_verify_false_violation',
         details: expect.objectContaining({
-          subagentTaskId: 'a1100001',
+          subagentTaskId: 'a1100001-0000-4000-8000-000000000000',
           verificationCount: 1,
         }),
       });
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'verificationCount=1',
         'reason=v2_no_verification_allowed',
       ]);
@@ -308,7 +308,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 'a1100001' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000' }), makeContract())
         .catch(e => e);
 
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
@@ -319,7 +319,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_V2_EXECUTOR_CONTEXT_MISSING,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'reason=no_executor_context',
       ]);
     });
@@ -329,7 +329,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const { audit } = makeAudit();
       const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      const ctx = makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw', proposedContractId: 'cand-1' });
+      const ctx = makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw', proposedContractId: 'cand-1' });
 
       await expect(policy.check(ctx, makeContract())).resolves.toBeUndefined();
       await expect(policy.check(ctx, makeContract())).resolves.toBeUndefined();
@@ -342,11 +342,11 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       await policy.check(
-        makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw', proposedContractId: 'cand-1' }),
+        makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw', proposedContractId: 'cand-1' }),
         makeContract(),
       );
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw', proposedContractId: 'cand-2' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw', proposedContractId: 'cand-2' }), makeContract())
         .catch(e => e);
 
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
@@ -354,7 +354,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
         policyName: 'summon-verify',
         cause: 'summon_contract_already_claimed',
         details: expect.objectContaining({
-          subagentTaskId: 'a1100001',
+          subagentTaskId: 'a1100001-0000-4000-8000-000000000000',
           claimedContractId: 'cand-1',
           requestedContractId: 'cand-2',
         }),
@@ -372,16 +372,16 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
       ).resolves.toBeUndefined();
 
       expect(claimSpy).toHaveBeenCalledTimes(1);
       expect(claimSpy).toHaveBeenCalledWith({
-        summonId: 'a1100001',
+        summonId: 'a1100001-0000-4000-8000-000000000000',
         targetExecutorId: 'my-claw',
         contractId: 'cand-1',
       });
-      expect(claims.get('a1100001')).toMatchObject({ contractId: 'cand-1' });
+      expect(claims.get('a1100001-0000-4000-8000-000000000000')).toMatchObject({ contractId: 'cand-1' });
     });
 
     it('canonical + no decision + verification entries → throw summon_verify_false_violation', async () => {
@@ -394,7 +394,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
 
       const err = await policy
         .check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         )
         .catch(e => e);
@@ -404,14 +404,14 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
         policyName: 'summon-verify',
         cause: 'summon_verify_false_violation',
         details: expect.objectContaining({
-          subagentTaskId: 'a1100001',
+          subagentTaskId: 'a1100001-0000-4000-8000-000000000000',
           verificationCount: 1,
         }),
       });
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'verificationCount=1',
         'reason=v2_no_verification_allowed',
       ]);
@@ -426,7 +426,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 'a1100001' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000' }), makeContract())
         .catch(e => e);
 
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
@@ -437,7 +437,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_V2_EXECUTOR_CONTEXT_MISSING,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'reason=no_executor_context',
       ]);
     });
@@ -457,7 +457,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'gateway-auditor' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'gateway-auditor' }), makeContract())
         .catch(e => e);
 
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
@@ -465,7 +465,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
         policyName: 'summon-verify',
         cause: 'summon_target_claw_violation',
         details: expect.objectContaining({
-          subagentTaskId: 'a1100001',
+          subagentTaskId: 'a1100001-0000-4000-8000-000000000000',
           expectedTargetClaw: 'statsvc-auditor',
           requestedClawId: 'gateway-auditor',
         }),
@@ -481,7 +481,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw' }), makeContract()),
       ).resolves.toBeUndefined();
       expect(writes).toEqual([]);
     });
@@ -492,7 +492,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'gateway-auditor' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'gateway-auditor' }), makeContract())
         .catch(e => e);
       expect(err).toBeDefined();
       expect(err).toMatchObject({
@@ -500,7 +500,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
         policyName: 'summon-verify',
         cause: 'summon_target_claw_violation',
         details: expect.objectContaining({
-          subagentTaskId: 'a1100001',
+          subagentTaskId: 'a1100001-0000-4000-8000-000000000000',
           expectedTargetClaw: 'statsvc-auditor',
           requestedClawId: 'gateway-auditor',
         }),
@@ -515,7 +515,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'gateway-auditor' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'gateway-auditor' }), makeContract()),
       ).resolves.toBeUndefined();
     });
 
@@ -525,7 +525,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001' }), makeContract([{ subtask_id: 'a', type: 'llm' }])),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000' }), makeContract([{ subtask_id: 'a', type: 'llm' }])),
       ).resolves.toBeUndefined();
     });
 
@@ -536,7 +536,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       const err = await policy
         .check(
-          makeCtx({ subagentTaskId: 'a1100001', clawDir: 'any-claw' }),
+          makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'any-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         )
         .catch(e => e);
@@ -545,14 +545,14 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
         policyName: 'summon-verify',
         cause: 'summon_verify_false_violation',
         details: expect.objectContaining({
-          subagentTaskId: 'a1100001',
+          subagentTaskId: 'a1100001-0000-4000-8000-000000000000',
           targetClaw: 'foo',
           verificationCount: 1,
         }),
       });
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'targetClaw=foo',
         'verificationCount=1',
       ]);
@@ -566,7 +566,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000' }), makeContract()),
       ).resolves.toBeUndefined();
       expect(claimSpy).toHaveBeenCalledWith(expect.objectContaining({ targetExecutorId: 'fallback-claw' }));
     });
@@ -577,12 +577,12 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 'a1100001' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000' }), makeContract()),
       ).resolves.toBeUndefined();
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_SKIPPED,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'reason=no_executor_context',
       ]);
     });
@@ -596,7 +596,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 'a1100001', clawDir: 'my-claw' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 'a1100001-0000-4000-8000-000000000000', clawDir: 'my-claw' }), makeContract())
         .catch(e => e);
 
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
@@ -607,7 +607,7 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_GATE_UNKNOWN_SCHEMA_VERSION,
-        'subagentTaskId=a1100001',
+        'subagentTaskId=a1100001-0000-4000-8000-000000000000',
         'schema_version=3',
       ]);
     });

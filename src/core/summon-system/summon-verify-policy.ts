@@ -6,7 +6,7 @@ import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from './post-processors/co
 import type { SubAgentTask, LegacySummonDecisionV1 } from '../async-task-system/index.js';
 import { readSummonDecision } from './legacy-decision.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { makeTaskId, type TaskId } from '../async-task-system/index.js';
+import { makeFullTaskId, type TaskId } from '../async-task-system/index.js';
 import {
   SummonContractAlreadyClaimedError,
   type SummonCreationClaimStore,
@@ -48,8 +48,10 @@ export function createSummonVerifyPolicy(
 
       let task: SubAgentTask | undefined;
       try {
-        // phase 276 Step A: makeTaskId SoT (M#9 编译器可检) / 替 'subagentTaskId as TaskId' 直 cast
-        task = await deps.loadTask(makeTaskId(subagentTaskId));
+        // phase 276 Step A: TaskId 工厂 SoT (M#9 编译器可检) / 替 'subagentTaskId as TaskId' 直 cast；
+        // phase 1886 Step C: 归严入口 makeFullTaskId——ATS 路径 subagent task id 恒 UUID
+        // (subagent-task-executor agentId=task.id)；非 UUID 输入此处抛错、由下方 catch fail-closed。
+        task = await deps.loadTask(makeFullTaskId(subagentTaskId));
       } catch (err) {
         // Phase 1396 Step M: 读失败 = summon 创建状态不可判定（I/O / corrupt / future schema），
         // fail-closed 抛 typed violation、不放行创建、不写 claim。不得 pass-through。

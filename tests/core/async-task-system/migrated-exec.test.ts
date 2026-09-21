@@ -31,7 +31,7 @@ import { getProcessStartTime, isAlive, ProcessExecError, PROCESS_EXEC_DEFAULT_TI
 import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
 import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
-import { makeTaskId } from '../../../src/core/async-task-system/types.js';
+import { makeFullTaskId } from '../../../src/core/async-task-system/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 function sleepMs(ms: number): Promise<void> {
@@ -102,7 +102,7 @@ describe('executeToolTask migrated path', () => {
     const pid = proc.pid!;
     const startTime = getProcessStartTime(pid);
 
-    const taskId = makeTaskId(randomUUID());
+    const taskId = makeFullTaskId(randomUUID());
     const partialOutput = 'partial output before migration\n';
     await fs.mkdir(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId), { recursive: true });
     await fs.writeFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt'), partialOutput);
@@ -158,7 +158,7 @@ describe('executeToolTask migrated path', () => {
     try {
       vi.spyOn(startTimeModule, 'getProcessStartTime').mockReturnValue('Mon Jan 01 00:00:00 2020');
 
-      const taskId = makeTaskId(randomUUID());
+      const taskId = makeFullTaskId(randomUUID());
       const task: ToolTask = {
         ...makeBaseToolTask(taskId),
         mode: 'migrated',
