@@ -41,7 +41,6 @@ import {
  * phase 547: 加 schema_version 字段（DP「持久化 schema 显式版本」+ 与 contract/progress.json / dialog/current.json 同模式）。
  * phase 1162 Step B: 升级到 v2，支持 pendingNotifications durable outbox。
  * v1/v2 = 历史 schema；未来增/改字段时 ++version + 加 migration 路径。
- * 与 phase 280 'processedArchives' legacy 实体共存（legacy 是字段名 hint、未来 v2 用版本号 cleaner）。
  */
 const DEEP_DREAM_STATE_CURRENT_VERSION = 2;
 
@@ -218,17 +217,6 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): De
         `reason=cannot_migrate_future_version`,
       );
       return { status: 'blocked', reason: 'future_schema', version };
-    }
-
-    // phase 280: legacy schema migration (option 2 silent reset + audit emit)
-    if ('processedArchives' in raw) {
-      audit.write(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET,
-        `kind=deep_dream`,
-        `clawId=${clawId}`,
-        `legacy_field=processedArchives`,
-        `legacy_count=${Array.isArray(raw.processedArchives) ? raw.processedArchives.length : 0}`,
-      );
-      return ready(defaultDreamState());
     }
 
     // phase 1162 Step B: normalize v1/v2 state into current schema (pending outbox + filters)

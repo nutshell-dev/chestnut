@@ -1,7 +1,8 @@
 /**
  * phase 280 — memory dream-state high-water-mark migration tests
  *
- * 覆盖 legacy schema（processedArchives / processedContractIds）→ 高水位线 silent reset + audit emit。
+ * 覆盖 random-dream legacy schema（processedContractIds / lastProcessedRandomDreamAt）→
+ * completedContractIds silent reset + audit emit；deep-dream legacy 分支已随 phase 1895 Step D 删除。
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -39,35 +40,6 @@ function makeMockFs(contentMap: Record<string, string | Error>): FileSystem {
 }
 
 describe('deep-dream legacy schema migration (phase 280)', () => {
-  it('legacy state 含 processedArchives → migrate to lastProcessedDeepDreamAt=0 + audit emit', () => {
-    const audit = makeMockAudit();
-    const fs = makeMockFs({
-      [__test_DEEP_DREAM_STATE_FILE]: JSON.stringify({
-        processedArchives: ['1717000000000_a.json', '1717000000001_b.json'],
-        currentSessionDreamedDate: '2026-05-30',
-      }),
-    });
-
-    const result = __test_loadDreamState(fs, audit, 'test-claw');
-    expect(result.status).toBe('ready');
-    const { state } = result;
-
-    expect(state.lastProcessedDeepDreamAt).toBe(0);
-    expect(state.currentSessionDreamedDate).toBe('');
-    expect(state.currentSessionRetryCount).toBe(0);
-    expect(state.schema_version).toBe(2);
-    expect(state.pendingNotifications).toEqual([]);
-
-    expect(audit.write).toHaveBeenCalledTimes(1);
-    const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
-    expect(call).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^kind=deep_dream$/),
-      expect.stringMatching(/^legacy_field=processedArchives$/),
-      expect.stringMatching(/^legacy_count=2$/),
-    ]));
-  });
-
   it('新 schema → 0 migration 触发 + 正常返回', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({
