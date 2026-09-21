@@ -455,6 +455,13 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
   // cheap under both real and fake timers (same role as existing tests).
   const TEST_SIGKILL_GRACE_MS = 50;
 
+  /**
+   * phase 1882: SIGKILL 后组死亡确认段的真实墙钟总预算（防死循环安全阀，
+   * 非判定依据）。derivation：隔离实测整文件 tests ~1.0s、该 case 确认段
+   * <<1s；取 5s 满载余量（OS 信号投递/回收调度延迟上限），且 < case timeout 20s。
+   */
+  const REAL_CONFIRM_BUDGET_MS = 5_000;
+
   // Node platform fact: a single setTimeout delay is capped at the signed
   // 32-bit ms max; larger delays overflow and fire after ~1ms.
   const NODE_TIMER_DELAY_CAP_MS = 2_147_483_647;
@@ -477,6 +484,33 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     for (let elapsed = 0; elapsed < ms; elapsed += STEP_MS) {
       await vi.advanceTimersByTimeAsync(STEP_MS);
       await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
+  /**
+   * phase 1882: SIGKILL 后确认段真实时间化（l1_process_exec.md §9 #3 flaky 收口）。
+   * L1 的组死亡确认窗以 fake 时间计（25ms 轮询粒度、~1s 窗）；旧写法每个
+   * fake 步仅配一次真实 setImmediate 让出（满载下 ≈0.1ms 真实/步），确认窗被
+   * 压缩到 OS 来不及回收子进程 → L1 如实返回 still_alive。这里每个 fake 25ms
+   * 步配对 ≥25ms 真实墙钟让出（performance.now 不在 toFake 列表、保持真实），
+   * 确认窗 1:1 映射为真实 OS 进度；settled 即提前退出（隔离下 ~100ms 量级）。
+   * 真实预算 REAL_CONFIRM_BUDGET_MS 耗尽则 flush 剩余 fake 窗强制 settle，
+   * 交由 gone 断言 fail-loud（不吃 still_alive、不假绿）。
+   */
+  async function advanceConfirmRealTime(isSettled: () => boolean): Promise<void> {
+    const STEP_MS = 25; // matches L1's group-confirm poll granularity
+    const budgetStart = performance.now();
+    while (!isSettled() && performance.now() - budgetStart < REAL_CONFIRM_BUDGET_MS) {
+      const stepStart = performance.now();
+      await vi.advanceTimersByTimeAsync(STEP_MS);
+      do {
+        await new Promise((resolve) => setImmediate(resolve));
+      } while (performance.now() - stepStart < STEP_MS);
+    }
+    if (!isSettled()) {
+      // 安全阀触发（实然不可达：80 步即覆盖 L1 全确认窗、耗时 ~2s < 5s 预算）：
+      // flush 剩余 fake 窗让 L1 如实 settle，避免 await 挂起
+      await vi.advanceTimersByTimeAsync(2_000);
     }
   }
 
@@ -584,9 +618,10 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
       expect(isAlivePid(handle.identity!.leaderPid)).toBe(true);
 
       // Reach the deadline exactly: the timer fires and termination begins;
-      // flush grace/polls with real yields so the group genuinely goes away.
+      // confirmation phase runs real-time (phase 1882) so the OS genuinely
+      // reaps the group inside L1's confirmation window even under full load.
       await vi.advanceTimersByTimeAsync(BEYOND_CEILING_MS - 1);
-      await advanceWithRealYield(2_000);
+      await advanceConfirmRealTime(() => settled);
       const err = await handle.promise.catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ProcessExecError);
       const error = err as ProcessExecError;
