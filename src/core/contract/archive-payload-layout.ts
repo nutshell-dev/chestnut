@@ -13,6 +13,7 @@ import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import { makeContractId } from './types.js';
 import { CONTRACT_SUBTASKS_DIR, CONTRACT_YAML_FILE } from './dirs.js';
 import {
   PersistedContractYamlSchema,
@@ -425,7 +426,7 @@ export function projectArchivePayloadRuntime(layout: ArchivePayloadLayoutSnapsho
 
   const progress: ProgressData = {
     schema_version: 1,
-    contract_id: layout.contract.id as any,
+    contract_id: makeContractId(layout.contract.id),
     status: progressStatus,
     subtasks,
     checkpoint: undefined,
