@@ -41,7 +41,7 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import type { AsyncTaskSystem as AsyncTaskSystemType } from '../../../src/core/async-task-system/system.js';
 import { renderStandardInboxMessage } from '../../../src/foundation/messaging/formatter-registry.js';
-import { SYSTEM_MESSAGE_PREFIX } from '../../../src/foundation/messaging/system-message-helper.js';
+import { SYSTEM_MESSAGE_PREFIX } from '../../../src/templates/messages/index.js';
 import { composer as overflowComposer } from '../../../src/assembly/guidance/composers/task-queue-overflow.js';
 import { renderCliGuidanceDocument, createCliSafeToken } from '../../../src/cli-protocol/guidance.js';
 import type { CliGuidanceDocument } from '../../../src/cli-protocol/guidance.js';

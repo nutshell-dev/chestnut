@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { SYSTEM_MESSAGE_PREFIX } from '../../../src/templates/messages/index.js';
 import {
-  SYSTEM_MESSAGE_PREFIX,
   isSystemMessage,
   isUserMessage,
 } from '../../../src/foundation/messaging/system-message-helper.js';
