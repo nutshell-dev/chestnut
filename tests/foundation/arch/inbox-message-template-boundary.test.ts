@@ -80,7 +80,6 @@ const MIGRATED: MigratedSource[] = [
     fragments: ['Dream outputs persisted', '跨 claw 经验探索输出已保存', '产物：', '尚未自动整理为可检索的长期记忆'],
   },
   { id: 'M10', file: 'foundation/messaging/formatter-registry.ts', fragments: ['[system message${', '[user inbox message${'] },
-  { id: 'M10', file: 'foundation/messaging/system-message-helper.ts', fragments: ["= '[system message'"] },
   {
     // phase 1836: 新语义文案同样不得在模板外定义第二份（旧英文保留防回退）
     id: 'M11', file: 'core/async-task-system/system.ts',
@@ -145,5 +144,12 @@ describe('phase 1828: inbox message template boundary', () => {
     expect(text).not.toContain('system-level overload beyond agent control');
     expect(text).not.toContain('taskQueueOverflowGuidanceText');
     expect(text).not.toMatch(/templates\/messages/);
+  });
+
+  it('M10 旧位置 system-message-helper.ts：前缀字面定义不回流（文件已退化为 origin 谓词、无文案职责）', () => {
+    // phase 1891: phase1889 Step D 删 SYSTEM_MESSAGE_PREFIX re-export 后，该文件只剩
+    // isSystemMessage/isUserMessage 谓词；照 phase 1845 M01 先例——不为迁就旧检查加无用 import。
+    const text = readStripped('foundation/messaging/system-message-helper.ts');
+    expect(text).not.toContain("= '[system message");
   });
 });
