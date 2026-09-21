@@ -16,6 +16,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as fsNative from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { waitFor } from '../../helpers/wait-for.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
@@ -566,7 +567,11 @@ describe('Phase 1827 事实读取失败处理', () => {
 
     // 读取恢复：重读拿到真实用户事实，正常准入一次。
     h.setInterventionPeekFailures(0);
-    await sleep(150);
+    // phase 1884: 正断言 waitFor 化——固定 sleep(150) 窗假设重读+准入在 150ms
+    // 内完成，满载下 event-loop tick 调度延迟 → flaky（l5_event_loop §9 #1）；
+    // 改真实时间轮询命中即过（预算 5000ms = 隔离实测 322ms 的 ~15×；
+    // 上方负断言 sleep(120) 固定窗保留——「不得空集合准入」的反向验证不动）
+    await waitFor(() => h.providerCalls.length === 1, 5_000, 10);
     expect(h.providerCalls.length).toBe(1);
     expect(h.turns.length).toBe(1);
     expect(h.turns[0].map(m => m.content)).toEqual(['hello']);
