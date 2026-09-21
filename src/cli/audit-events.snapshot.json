@@ -298,7 +298,6 @@
       "contract_layout_corrupted",
       "contract_legacy_contract_id_field_ignored",
       "contract_legacy_crashed_observed",
-      "contract_legacy_paused_observed",
       "contract_legacy_status_field_ignored",
       "contract_lifecycle_intent_persisted",
       "contract_lifecycle_intent_read_issue",

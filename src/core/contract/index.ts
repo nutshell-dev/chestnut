@@ -69,13 +69,12 @@ export {
   getActiveContractTimestamp,
   getContractVerificationDir,
   listActiveContracts,
-  listLegacyPausedContracts,
   getContractMetadata,
   readContractYamlLightweight,
   readArchiveProgress,
   getLatestContractStats,
 } from './lightweight-query.js';
-export type { ContractSubtaskStats, LegacyPausedContractRef } from './lightweight-query.js';
+export type { ContractSubtaskStats } from './lightweight-query.js';
 
 export { collectContractEvents } from './jobs/event-collector.js';
 

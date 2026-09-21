@@ -40,7 +40,6 @@ import {
   emitContractCreatePolicyRejected,
   emitContractVerifierRegistered,
   emitContractVerifierUnregistered,
-  emitContractLegacyPausedObserved,
   emitContractCreationClaimed,
   emitContractCreationInterrupted,
   emitVerificationOutcomeReplay,
@@ -49,7 +48,7 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { classifyCorruption, classifySchemaViolation, isolationReasonFor } from './corruption.js';
-import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
+import { CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
 import { resolveContractLocation, resolveActiveContractLocation, listPhysicalActiveContractIds, type ActiveContractLocation } from './locations.js';
 import { type ClawId } from '../../foundation/claw-identity/index.js';
 
@@ -183,7 +182,6 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   private runContractVerifier: typeof defaultRunContractVerifier;
   private runVerifier?: VerifierConfig['runVerifier'];
   private activeDir = CONTRACT_ACTIVE_DIR;
-  private pausedDir = CONTRACT_PAUSED_DIR;
   private archiveDir: ArchiveDir = makeArchiveDir(CONTRACT_ARCHIVE_DIR);
   onNotify?: ContractNotificationSink;
 
@@ -215,9 +213,6 @@ export class ContractSystem implements ContractRuntimeLifecycle {
 
   // Phase 230: contract create policy plug-in registry
   private createPolicies = new Map<string, ContractCreatePolicy>();
-
-  // phase 1123 Step D: deduplicate legacy paused audit events per ContractSystem instance
-  private _legacyPausedObserved = new Set<string>();
 
   private _registerVerifierController(contractId: ContractId, ctrl: AbortController, promise: Promise<unknown>): void {
     // Phase 968: audit FIRST so tracking never commits if audit fails
@@ -887,34 +882,6 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   // Discovery
   async loadActive(): Promise<Contract | null> {
     return loadActiveContract(this._discoveryCtx(), this.activeDir);
-  }
-
-  /**
-   * phase 1123 Step D: read-only legacy paused detector.
-   * Scans contract/paused/ and returns tagged references without moving data.
-   * Emits a deduplicated audit event per legacy contract per instance.
-   */
-  async findLegacyPausedContracts(): Promise<Array<{ contractId: ContractId; sourcePath: string }>> {
-    const results: Array<{ contractId: ContractId; sourcePath: string }> = [];
-    if (!(await this.fs.exists(this.pausedDir))) return results;
-    const entries = await this.fs.list(this.pausedDir, { includeDirs: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory) continue;
-      const progressPath = `${this.pausedDir}/${entry.name}/progress.json`;
-      if (!(await this.fs.exists(progressPath))) continue;
-      const contractId = makeContractId(entry.name);
-      const sourcePath = `${this.pausedDir}/${entry.name}`;
-      results.push({ contractId, sourcePath });
-      if (!this._legacyPausedObserved.has(entry.name)) {
-        this._legacyPausedObserved.add(entry.name);
-        emitContractLegacyPausedObserved(this.audit, {
-          clawId: this.clawId,
-          contractId,
-          sourcePath,
-        });
-      }
-    }
-    return results;
   }
 
   /**

@@ -83,41 +83,6 @@ describe('ContractSystem.init() boot reconcile', () => {
     expect(reconcileCall).toContainEqual('recovered=false');
   });
 
-  it('leaves legacy paused/ directory untouched and observes it via findLegacyPausedContracts (phase 1123 Step C)', async () => {
-    const pausedDir = path.join(clawDir, 'contract', 'paused', 'paused-contract');
-    await fs.mkdir(pausedDir, { recursive: true });
-    await fs.writeFile(
-      path.join(pausedDir, 'progress.json'),
-      JSON.stringify({
-        schema_version: 1,
-        contract_id: 'paused-contract',
-        status: 'paused',
-        subtasks: { t1: { status: 'todo' } },
-        started_at: new Date().toISOString(),
-        checkpoint: null,
-      }),
-    );
-    await fs.writeFile(
-      path.join(pausedDir, 'contract.yaml'),
-      'schema_version: 1\nid: paused-contract\ntitle: T\ngoal: G\nsubtasks:\n  - id: t1\n    description: D\n',
-    );
-
-    const manager = makeManager();
-    await manager.init();
-
-    // Legacy paused data must not be moved, resumed, or cancelled by boot reconcile.
-    expect(await fs.stat(pausedDir).then(() => true).catch(() => false)).toBe(true);
-
-    // Read-only detector surfaces the legacy entry.
-    const legacy = await manager.findLegacyPausedContracts();
-    expect(legacy).toHaveLength(1);
-    expect(legacy[0].contractId).toBe('paused-contract');
-
-    // No recovery-style paused move audits are emitted.
-    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_PAUSED_MOVED)).toBe(false);
-    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVED)).toBe(false);
-  });
-
   it('does not recover a cancelled contract from legacy progress.status (Step E derive-only)', async () => {
     const activeDir = path.join(clawDir, 'contract', 'active', 'cancelled-contract');
     await fs.mkdir(activeDir, { recursive: true });

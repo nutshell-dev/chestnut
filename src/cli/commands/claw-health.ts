@@ -9,7 +9,7 @@ import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { hasActiveContract, listLegacyPausedContracts } from '../../core/contract/index.js';
+import { hasActiveContract } from '../../core/contract/index.js';
 import { peekPendingCount, listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
@@ -47,9 +47,6 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
     contractStatus = 'active';
   }
 
-  // phase 1123 Step D: surface legacy paused contracts as read-only diagnostics
-  const legacyPaused = listLegacyPausedContracts(clawFs, '.');
-
   // Last active time（统一使用 stream.jsonl 指标）
   let lastActive = '-';
   let lastActiveIso: string | null = null;
@@ -66,7 +63,6 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
       inbox_pending: inboxPending,
       outbox_pending: outboxPending,
       contract: contractStatus as 'active' | 'none',
-      legacy_paused: legacyPaused,
       last_active: lastActiveIso,
       as_of: new Date().toISOString(),
     };
@@ -80,9 +76,6 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   console.log(`inbox_pending: ${inboxPending}`);
   console.log(`outbox_pending: ${outboxPending}`);
   console.log(`contract: ${contractStatus}`);
-  if (legacyPaused.length > 0) {
-    console.log(`legacy_paused: ${legacyPaused.map(r => r.contractId).join(', ')} (read-only)`);
-  }
   console.log(`last_active: ${lastActive}`);
   console.log(`as_of: ${new Date().toISOString()}`);
 }

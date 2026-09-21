@@ -150,8 +150,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   MARK_CORRUPTED_GRACEFUL_FALLBACK: 'mark_corrupted_graceful_fallback',
   // phase 1121 Step D: legacy crashed contract observed in archive
   CONTRACT_LEGACY_CRASHED_OBSERVED: 'contract_legacy_crashed_observed',
-  // phase 1123 Step D: legacy paused contract observed in live paused/ directory
-  CONTRACT_LEGACY_PAUSED_OBSERVED: 'contract_legacy_paused_observed',
   // Phase 1145 Step B: archive payload reader encountered a typed issue
   ARCHIVE_PAYLOAD_READ_ISSUE: 'contract_archive_payload_read_issue',
 
@@ -265,7 +263,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_lifecycle_intent_read_issue: 'audit',
   contract_missing_started_at: 'audit',
   contract_legacy_crashed_observed: 'audit',
-  contract_legacy_paused_observed: 'audit',
   contract_archive_payload_read_issue: 'audit',
   contract_multi_dir: 'audit',
   contract_boot_reconcile_in_progress_reset: 'audit',

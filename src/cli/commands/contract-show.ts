@@ -56,18 +56,6 @@ export async function contractShowCommand(deps: { fsFactory: (baseDir: string) =
       }
     }
 
-    // phase 1123 Step D: legacy paused contracts are observable but not current
-    if (!progress) {
-      const legacyPaused = await manager.findLegacyPausedContracts();
-      const legacy = legacyPaused.find(r => r.contractId === resolvedId);
-      if (legacy) {
-        console.log(`Contract: ${resolvedId}`);
-        console.log(`Status: legacy paused (read-only)`);
-        console.log(`Source: ${legacy.sourcePath}`);
-        return;
-      }
-    }
-
     console.log(`Contract: ${resolvedId}`);
     console.log(`Title: ${contractYaml.title}`);
     console.log(`Goal: ${contractYaml.goal}`);

@@ -17,12 +17,11 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   getLatestContractStats,
   listActiveContracts,
-  listLegacyPausedContracts,
   CONTRACT_ACTIVE_DIR,
   CONTRACT_YAML_FILE,
 } from '../../core/contract/index.js';
 import { listArchiveContractLocations, archiveContainerDir } from '../../core/contract/index.js';
-import type { ContractSubtaskStats, LegacyPausedContractRef } from '../../core/contract/index.js';
+import type { ContractSubtaskStats } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../foundation/claw-identity/index.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
@@ -57,7 +56,6 @@ interface ClawEntry {
   lastActive: string;
   lastContract: string;
   lastContractError?: string;
-  legacyPaused: LegacyPausedContractRef[];
 }
 
 export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean; summary?: boolean }): Promise<void> {
@@ -181,7 +179,6 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
 
       const contractField = getContractStatus(clawFs);
       const lastContractField = getLatestContractTitle(clawFs);
-      const legacyPaused = listLegacyPausedContracts(clawFs, '.');
       const pidField = await readPidField(entry);
 
       if (contractField.kind === 'error') diagnostics.push({ claw: entry, field: 'contract', reason: contractField.reason });
@@ -215,7 +212,6 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
         lastActiveIso: lastMs !== undefined ? new Date(lastMs).toISOString() : null,
         lastContract: formatField(lastContractField),
         lastContractError: lastContractField.kind === 'error' ? lastContractField.reason : undefined,
-        legacyPaused,
       });
     }
   }
@@ -226,19 +222,6 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
     for (const d of diagnostics) {
       console.error(`  [${d.claw}/${d.field}] ${d.reason}`);
     }
-  }
-
-  function printLegacyPaused(): void {
-    const lines: string[] = [];
-    for (const claw of claws) {
-      if (claw.legacyPaused.length > 0) {
-        const ids = claw.legacyPaused.map(r => r.contractId).join(', ');
-        lines.push(`  ${claw.name}: legacy paused ${ids}`);
-      }
-    }
-    if (lines.length === 0) return;
-    console.log('\nLegacy paused contracts (read-only):');
-    for (const line of lines) console.log(line);
   }
 
   if (opts?.summary) {
@@ -271,7 +254,6 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
         outbox: c.outbox,
         last_active: c.lastActiveIso,
         last_contract: c.lastContract,
-        legacy_paused: c.legacyPaused,
       })),
       total: claws.length,
       running_count: claws.filter(c => c.status === 'running').length,
@@ -300,7 +282,6 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   console.log('─'.repeat(112));
   console.log(`\nTotal: ${claws.length} claws (${claws.filter(c => c.status === 'running').length} running)\n`);
   printDiagnostics();
-  printLegacyPaused();
 }
 
 /** Exported for unit testing; not part of the public CLI surface. */
@@ -364,11 +345,6 @@ export function formatClawSummary(claw: ClawEntry, stats: ContractSubtaskStats |
 
   if (claw.outbox > 0) {
     lines.push(`  ⚠ ${claw.outbox} undelivered outbox messages`);
-  }
-
-  if (claw.legacyPaused && claw.legacyPaused.length > 0) {
-    const ids = claw.legacyPaused.map(r => r.contractId).join(', ');
-    lines.push(`  legacy paused (read-only): ${ids}`);
   }
 
   return lines.join('\n');
