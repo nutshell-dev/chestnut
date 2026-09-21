@@ -25,6 +25,7 @@ import {
 } from '../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../src/foundation/process-exec/execution-group.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
+import { requireProcessListCapability } from '../helpers/process-list-capability.js';
 
 /**
  * Subprocess hang duration: 1 minute, >>> any test timeout, force kill expected.
@@ -407,10 +408,14 @@ describe('isAlive', () => {
 });
 
 describe('findByPattern', () => {
-  it('returns empty for no match', () => {
+  // phase 1883: 环境能力前提显式化——preflight 探针不过 → typed skip（带原因）；
+  // preflight 通过后再遇 ProcessListUnavailable 照常 fail（不假绿、不吞）。
+  it('returns empty for no match', (ctx) => {
+    requireProcessListCapability(ctx);
     expect(findByPattern('zzz_no_such_process_zzz_xyz')).toEqual([]);
   });
-  it('finds processes with command field', () => {
+  it('finds processes with command field', (ctx) => {
+    requireProcessListCapability(ctx);
     const r = findByPattern('node');
     expect(r.length).toBeGreaterThan(0);
     expect(r[0]).toHaveProperty('pid');
