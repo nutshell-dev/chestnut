@@ -118,9 +118,9 @@ export function encodeInbox(
 
 /**
  * Decode raw string to InboxMessage.
- * Reads `from` field, falls back to `source` for backward compatibility.
  * `id`, `type`, `from`, and `timestamp` are required and will throw
  * InboxDecodeError when absent or malformed.
+ * （phase 1890 Step H：旧 wire `source` 字段 fallback 删除——旧消息存量废弃。）
  */
 export function decodeInbox(raw: string): InboxMessage {
   if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) {
@@ -129,7 +129,7 @@ export function decodeInbox(raw: string): InboxMessage {
 
   const { meta, body } = parseFrontmatter(raw);
 
-  const baseKeys = new Set(['id', 'type', 'from', 'source', 'to', 'content',
+  const baseKeys = new Set(['id', 'type', 'from', 'to', 'content',
     'priority', 'timestamp', 'reply_to']);
 
   // Generic metadata pass-through (non-base keys excluding internal __-prefixed)
@@ -167,9 +167,8 @@ export function decodeInbox(raw: string): InboxMessage {
     );
   }
 
-  // Legacy migration: source → from
-  const from = meta.from ?? meta.source;
-  if (!from) throw new InboxDecodeError('missing required field: from (or source for legacy)');
+  const from = meta.from;
+  if (!from) throw new InboxDecodeError('missing required field: from');
   if (!meta.timestamp) throw new InboxDecodeError('missing required field: timestamp');
   if (Number.isNaN(Date.parse(meta.timestamp))) {
     throw new InboxDecodeError(`invalid timestamp: "${meta.timestamp}"`);

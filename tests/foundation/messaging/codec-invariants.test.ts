@@ -297,7 +297,7 @@ describe('codec-inbox strict decode invariant (phase 931)', () => {
     timestamp: '2026-05-17T00:00:00Z',
   };
 
-  it('throws when from and source are both missing', () => {
+  it('throws when from is missing', () => {
     const encoded = encodeInbox({ ...base, from: '' });
     const rawWithoutFrom = encoded.replace(/^from:.*$/m, '');
     expect(() => decodeInbox(rawWithoutFrom)).toThrow(/missing required field: from/i);
@@ -309,10 +309,9 @@ describe('codec-inbox strict decode invariant (phase 931)', () => {
     expect(() => decodeInbox(rawWithoutTimestamp)).toThrow(/missing required field: timestamp/i);
   });
 
-  it('falls back to legacy source field when from is missing', () => {
+  it('legacy source field 不再充当 from（phase 1890 Step H：fallback 删除）', () => {
     const raw = `---\nid: m-1\ntype: message\nsource: legacy\nto: worker-1\npriority: normal\ntimestamp: 2026-05-17T00:00:00Z\n---\nbody`;
-    const decoded = decodeInbox(raw);
-    expect(decoded.from).toBe('legacy');
+    expect(() => decodeInbox(raw)).toThrow(/missing required field: from/i);
   });
 
   it('throws when extraFields override reserved from key', () => {
