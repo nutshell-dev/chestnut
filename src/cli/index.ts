@@ -401,13 +401,11 @@ miscShape(auditCmd.command('query'), 'audit/query', {
   }));
 
 // audit lookup
-miscShape(auditCmd.command('lookup'), 'audit/lookup', {
-  // runtimeLiteral（1798 边界）：AUDIT_FILE_STEM 默认值——就地注册保序
-  '--file <name>': (c) => { c.option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM); },
-})
+// phase 1895 Step G: --file 不再注册（lookup 从不消费它——静默忽略退役；
+// commander 对未知选项 fail-loud 拒绝）。
+miscShape(auditCmd.command('lookup'), 'audit/lookup')
   .action(action('observe_only', async (opts: {
     claw: string;
-    file: string;
     toolUseId?: string;
     blockId?: string;
     contentHash?: string;

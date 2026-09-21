@@ -48,7 +48,7 @@ describe('audit lookup', () => {
   it('claw not found → throws CliError', async () => {
     await expect(auditLookupCommand(
       { fsFactory },
-      { claw: 'nonexistent', file: 'audit', toolUseId: 'call_00_xxx' },
+      { claw: 'nonexistent', toolUseId: 'call_00_xxx' },
     )).rejects.toThrow('Claw "nonexistent" does not exist');
   });
 
@@ -73,7 +73,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', toolUseId: 'call_00_xxx' });
+    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', toolUseId: 'call_00_xxx' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Source: current dialog session');
@@ -104,7 +104,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', file: 'audit' });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Source: archived dialog session');
@@ -136,7 +136,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', file: 'audit' });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Source: archived dialog session');
@@ -169,7 +169,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', file: 'audit', contentHash: hash });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', contentHash: hash });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Hash verified: yes');
@@ -200,7 +200,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', file: 'audit', contentHash: '00000000' });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', contentHash: '00000000' });
 
     const errOutput = stderrSpy.mock.calls.map(c => c[0] as string).join('');
     expect(errOutput).toContain('reason=hash_mismatch');
@@ -216,7 +216,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_99_nonexistent', claw: 'test-claw', file: 'audit' });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_99_nonexistent', claw: 'test-claw' });
 
     const errOutput = stderrSpy.mock.calls.map(c => c[0] as string).join('');
     expect(errOutput).toContain('reason=all_failed');
@@ -244,7 +244,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', file: 'audit', json: true });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'test-claw', json: true });
 
     const lines = stdoutSpy.mock.calls.map(c => c[0] as string).join('').trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(1);
@@ -260,7 +260,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_99_nonexistent', claw: 'test-claw', file: 'audit', json: true });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_99_nonexistent', claw: 'test-claw', json: true });
 
     const lines = stdoutSpy.mock.calls.map(c => c[0] as string).join('').trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(1);
@@ -274,7 +274,7 @@ describe('audit lookup', () => {
   it('invalid content-hash format → throws CliError', async () => {
     await expect(auditLookupCommand(
       { fsFactory },
-      { claw: 'test-claw', file: 'audit', toolUseId: 'call_00_xxx', contentHash: 'bad' },
+      { claw: 'test-claw', toolUseId: 'call_00_xxx', contentHash: 'bad' },
     )).rejects.toThrow('--content-hash must be 8-character hex');
   });
 
@@ -314,7 +314,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', blockId: 'abc123de' });
+    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', blockId: 'abc123de' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Source: archive');
@@ -348,7 +348,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', blockId: 'notfound1' });
+    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', blockId: 'notfound1' });
 
     const errOutput = stderrSpy.mock.calls.map(c => c[0] as string).join('');
     expect(errOutput).toContain('Block ID not found: notfound1');
@@ -384,7 +384,7 @@ describe('audit lookup', () => {
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
-    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', blockId: 'abc123de', json: true });
+    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', blockId: 'abc123de', json: true });
 
     const lines = stdoutSpy.mock.calls.map(c => c[0] as string).join('').trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(1);
@@ -400,14 +400,14 @@ describe('audit lookup', () => {
   it('no toolUseId and no --block-id → throws CliError', async () => {
     await expect(auditLookupCommand(
       { fsFactory },
-      { claw: 'test-claw', file: 'audit' },
+      { claw: 'test-claw' },
     )).rejects.toThrow('must provide --tool-use-id or --block-id');
   });
 
   it('toolUseId and --block-id together → throws CliError', async () => {
     await expect(auditLookupCommand(
       { fsFactory },
-      { claw: 'test-claw', file: 'audit', toolUseId: 'call_00_xxx', blockId: 'abc123de' },
+      { claw: 'test-claw', toolUseId: 'call_00_xxx', blockId: 'abc123de' },
     )).rejects.toThrow('--tool-use-id and --block-id are mutually exclusive');
   });
 });
@@ -512,7 +512,7 @@ describe('audit CLI motion-aware adaptation (phase 167)', () => {
     };
     fsNative.writeFileSync(path.join(motionDir, 'dialog', 'current.json'), JSON.stringify(session));
 
-    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'motion', file: 'audit' });
+    await auditLookupCommand({ fsFactory }, { toolUseId: 'call_00_xxx', claw: 'motion' });
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Source: current dialog session');
     expect(output).toContain('motion dialog content');
@@ -537,7 +537,7 @@ describe('audit CLI motion-aware adaptation (phase 167)', () => {
   it('audit lookup -c nonexistent still throws (backward compatible)', async () => {
     await expect(auditLookupCommand(
       { fsFactory },
-      { claw: 'nonexistent', file: 'audit', toolUseId: 'call_00_xxx' },
+      { claw: 'nonexistent', toolUseId: 'call_00_xxx' },
     )).rejects.toThrow('Claw "nonexistent" does not exist');
   });
 

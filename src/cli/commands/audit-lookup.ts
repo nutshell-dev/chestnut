@@ -25,7 +25,6 @@ import type { AuditCommandDeps } from './audit-command-deps.js';
 
 interface AuditLookupOpts {
   claw: string;
-  file: string;
   toolUseId?: string;
   blockId?: string;
   contentHash?: string;
@@ -37,8 +36,6 @@ export async function auditLookupCommand(
   opts: AuditLookupOpts,
 ): Promise<void> {
   // phase 682: caller 直 reach dialog-store/lookupContentByToolUseId、不走 audit reader facade。
-  void opts.file;
-
   if (!opts.toolUseId && !opts.blockId) {
     throw new CliError('must provide --tool-use-id or --block-id');
   }

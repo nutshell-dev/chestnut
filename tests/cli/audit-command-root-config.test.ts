@@ -11,7 +11,7 @@ const fsFactory = vi.fn(() => {
 describe('Audit CLI RootConfig injection', () => {
   it.each([
     ['query', auditQueryCommand, { claw: 'test-claw', file: 'audit' }],
-    ['lookup', auditLookupCommand, { claw: 'test-claw', file: 'audit', toolUseId: 'call_1' }],
+    ['lookup', auditLookupCommand, { claw: 'test-claw', toolUseId: 'call_1' }],
     ['info', auditInfoCommand, { claw: 'test-claw' }],
   ] as const)('%s propagates global config read failures unchanged', async (_name, command, opts) => {
     const failure = new Error('global config corrupt');
@@ -22,7 +22,7 @@ describe('Audit CLI RootConfig injection', () => {
 
   it.each([
     ['query', auditQueryCommand, { claw: 'missing', file: 'audit' }],
-    ['lookup', auditLookupCommand, { claw: 'missing', file: 'audit', toolUseId: 'call_1' }],
+    ['lookup', auditLookupCommand, { claw: 'missing', toolUseId: 'call_1' }],
     ['info', auditInfoCommand, { claw: 'missing' }],
   ] as const)('%s maps an absent claw config to the CLI not-found error', async (_name, command, opts) => {
     const deps = makeAuditCommandDeps(fsFactory, { loadClaw: () => undefined });
@@ -32,7 +32,7 @@ describe('Audit CLI RootConfig injection', () => {
 
   it.each([
     ['query', auditQueryCommand, { claw: 'broken', file: 'audit' }],
-    ['lookup', auditLookupCommand, { claw: 'broken', file: 'audit', toolUseId: 'call_1' }],
+    ['lookup', auditLookupCommand, { claw: 'broken', toolUseId: 'call_1' }],
     ['info', auditInfoCommand, { claw: 'broken' }],
   ] as const)('%s propagates claw config corruption/IO failures unchanged', async (_name, command, opts) => {
     const failure = new Error('claw config unreadable');
