@@ -51,8 +51,8 @@ const ALLOWED_EXPORTS: readonly string[] = [
   'TaskIdResolver',
   'listMigratedExecTasks',
   'readTaskQueueCounts',
-  // phase 1872 Step D: 单条 task 只读查询（assembly-async-task-storage-bypass 收口）
-  'loadSubAgentTask',
+  // phase 1872 Step D: 单条 task 只读查询；phase 1879 Step C: task result dir owner 查询
+  'loadSubAgentTask', 'resolveTaskResultDir',
   // lifecycle / 执行交付面
   'DeliverySink',
   'ExecutorPayloadAdapter',
