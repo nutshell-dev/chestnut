@@ -66,9 +66,8 @@ describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
     for (const file of listCliTsFiles()) {
       if (file === allowedFile) continue;
       const content = fs.readFileSync(file, 'utf-8');
-      // Phase 1289 Step B 校准：ensureWatchdogConfigMigrated（CLI 同层配置迁移编排，
-      // 与 ensureAuditConfigMigrated 同型）不是 supervision 原语，词边界精确化排除。
-      if (/\bensureWatchdog\b(?!ConfigMigrated)/.test(content)) {
+      // phase 1890 Step J：迁移编排已删，ensureWatchdog 仅 supervision-policy.ts 可引用。
+      if (/\bensureWatchdog\b/.test(content)) {
         violations.push(relativePath(file));
       }
     }
@@ -85,11 +84,9 @@ describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
   it('start command does not depend on Watchdog directly (phase 1280)', () => {
     const startPath = path.join(cliDir, 'commands', 'start.ts');
     const content = fs.readFileSync(startPath, 'utf-8');
-    // Phase 1289 Step B 校准：start.ts 可引用同层 CLI 迁移编排模块
-    //（../watchdog-config-migration.js，与 audit-config-migration 同型）；
-    // Phase 1455 Step A 校准：同层 ../watchdog-state-migration.js 同型特许；
+    // phase 1890 Step J：同层迁移编排特许随删除回收；start.ts 零 watchdog 引用。
     // 禁止的是直依赖 Watchdog daemon/监督模块（watchdog/ 深链与 ensureWatchdog 原语）。
-    expect(content).not.toMatch(/from\s+['"][^'"]*watchdog(?!(?:-config|-state)-migration)[^'"]*['"]/);
-    expect(content).not.toMatch(/\bensureWatchdog\b(?!ConfigMigrated|StateMigrated)/);
+    expect(content).not.toMatch(/from\s+['"][^'"]*watchdog[^'"]*['"]/);
+    expect(content).not.toMatch(/\bensureWatchdog\b/);
   });
 });

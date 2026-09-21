@@ -811,7 +811,9 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
   });
 
   it('legacy state without schema_version is schema invalid', () => {
-    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    // phase 1890 Step J：legacy root 路径读回退已删，读写只走 watchdog/state.json
+    const stateFile = path.join(chestnutDir, 'watchdog', 'state.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify({
       lastInactivityNotified: { 'claw-1': 1000 },
       inactivityNotifyCount:  { 'claw-1': 2 },
@@ -827,7 +829,9 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
   });
 
   it('writes WATCHDOG_STATE_LOAD_FAILED audit and renames corrupt file', () => {
-    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    // phase 1890 Step J：legacy root 路径读回退已删，读写只走 watchdog/state.json
+    const stateFile = path.join(chestnutDir, 'watchdog', 'state.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, 'NOT_VALID_JSON{{{{');
 
     const mockAudit = makeMockAudit() as unknown as AuditWriter;
@@ -842,12 +846,14 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
       expect.stringContaining('error='),
     );
     expect(fs.existsSync(stateFile)).toBe(false);
-    const files = fs.readdirSync(chestnutDir);
+    const files = fs.readdirSync(path.dirname(stateFile));
     expect(files.some(f => f.includes('.corrupt-'))).toBe(true);
   });
 
   it('loadWatchdogState resets durable state on corrupt JSON (no partial leak)', () => {
-    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    // phase 1890 Step J：legacy root 路径读回退已删，读写只走 watchdog/state.json
+    const stateFile = path.join(chestnutDir, 'watchdog', 'state.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
 
     // Seed stale durable state
     motionRestartStateAPI.replace({ status: 'retrying', consecutiveAttempts: 5, nextAttemptAt: 9999, awaitingStability: false });
@@ -867,7 +873,9 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
   });
 
   it('loadWatchdogState audits move failure separately', () => {
-    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    // phase 1890 Step J：legacy root 路径读回退已删，读写只走 watchdog/state.json
+    const stateFile = path.join(chestnutDir, 'watchdog', 'state.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, 'NOT_VALID_JSON{{{{');
 
     // 让 moveSync 抛错（spyOn getChestnutFs 返回的实例）

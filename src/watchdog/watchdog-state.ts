@@ -8,9 +8,8 @@
  * before the new in-memory state takes over.
  *
  * Phase 1455 Step A: 磁盘位置归位 `watchdog/state.json`（WATCHDOG_PATHS.state）。
- * 读兼容：新路径缺失时回退 legacy root `watchdog-state.json`（迁移 pending 态）；
- * 写只走新路径。迁移协议 owner 原语见 state-migration.ts，CLI 编排见
- * cli/watchdog-state-migration.ts；legacy 清退归 Phase 1455 Step C。
+ * phase 1890 Step J：迁移协议退役——读写只走新路径，不再有 legacy root
+ * `watchdog-state.json` 回退（无老版本部署存量）。
  */
 
 import * as path from 'path';
@@ -22,7 +21,7 @@ import {
   type MotionRestartState, type ExecutorRestartMap, type ExecutorRestartState,
 } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { WATCHDOG_LEGACY_PATHS, WATCHDOG_PATHS } from './layout.js';
+import { WATCHDOG_PATHS } from './layout.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
 
@@ -226,18 +225,9 @@ function migrateLegacyNotificationState(
   );
 }
 
-/**
- * Resolve which state file to read (Phase 1455 Step A 迁移窗口读兼容)。
- * 新路径存在读新；不存在回退 legacy（pending 态）。新路径存在但不可读
- * （非 ENOENT）→ 抛错走 corrupt quarantine，不回退（防静默退回 legacy 旧态）。
- */
+/** 读 state 原文（phase 1890 Step J：只走新路径；FNF 由 caller 按首次启动处理）。 */
 function readStateRaw(fs: FileSystem): { raw: string; statePath: string } {
-  try {
-    return { raw: fs.readSync(WATCHDOG_PATHS.state), statePath: WATCHDOG_PATHS.state };
-  } catch (err) {
-    if (!isFileNotFound(err)) throw err;
-  }
-  return { raw: fs.readSync(WATCHDOG_LEGACY_PATHS.state), statePath: WATCHDOG_LEGACY_PATHS.state };
+  return { raw: fs.readSync(WATCHDOG_PATHS.state), statePath: WATCHDOG_PATHS.state };
 }
 
 /** Load durable watchdog state from disk. */

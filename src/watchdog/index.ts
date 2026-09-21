@@ -22,22 +22,9 @@ export { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js'
 export { WATCHDOG_LOG_HINT } from './watchdog-log.js';
 export { WATCHDOG_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
 export type { WatchdogProcessDeps } from './types.js';
+// phase 1890 Step J：迁移协议实体（config-migration-journal/migration/
+// state-migration/legacy-retirement）退役删除；fresh init 直调 live 创建面。
 export {
-  createWatchdogConfigMigration,
-  WATCHDOG_LEGACY_PATHS,
-  watchdogConfigSchema,
-  type WatchdogConfig,
-  type WatchdogConfigMigration,
-  type WatchdogMigrationIntent,
-  type WatchdogMigrationOutcome,
-} from './migration.js';
-export {
-  createWatchdogStateMigration,
-  type WatchdogStateMigration,
-  type WatchdogStateMigrationIntent,
-  type WatchdogStateMigrationOutcome,
-} from './state-migration.js';
-export {
-  createWatchdogLegacyRetirement,
-  type WatchdogLegacyRetirement,
-} from './legacy-retirement.js';
+  initWorkspaceWatchdogConfig,
+  publishWatchdogLayout,
+} from './workspace-config.js';

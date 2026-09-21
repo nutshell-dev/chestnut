@@ -16,10 +16,7 @@ import {
   patchGlobalConfigPrimary,
   readLegacyAuditConfigSection,
   removeLegacyAuditConfigSection,
-  readLegacyWatchdogConfigSection,
-  removeLegacyWatchdogConfigSection,
   type LegacyAuditConfigSection,
-  type LegacyWatchdogConfigSection,
 } from './config-load.js';
 import type {
   ClawGlobalConfig,
@@ -54,8 +51,6 @@ export interface RootConfigDeps {
 export interface RootConfigLegacyMigration {
   readAuditSection(): LegacyAuditConfigSection | undefined;
   removeAuditSection(): void;
-  readWatchdogSection(): LegacyWatchdogConfigSection | undefined;
-  removeWatchdogSection(): void;
 }
 
 /**
@@ -77,7 +72,5 @@ export function createRootConfigLegacyMigration(deps: RootConfigDeps): RootConfi
   return {
     readAuditSection: () => readLegacyAuditConfigSection(deps),
     removeAuditSection: () => removeLegacyAuditConfigSection(deps),
-    readWatchdogSection: () => readLegacyWatchdogConfigSection(deps),
-    removeWatchdogSection: () => removeLegacyWatchdogConfigSection(deps),
   };
 }

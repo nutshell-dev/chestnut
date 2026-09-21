@@ -23,6 +23,7 @@ describe('phase 1340: Assembly global config path stays owner-internal', () => {
   it('legacy snapshots carry their owner resource reference', () => {
     const text = fs.readFileSync(path.join(SRC, 'assembly', 'config', 'config-load.ts'), 'utf8');
     expect(text).toContain('sourcePath: string;');
-    expect(text.match(/sourcePath: configPath/g)).toHaveLength(2);
+    // phase 1890 Step J：watchdog 族 legacy 段原语已删（Step L 将删 audit 族）。
+    expect(text.match(/sourcePath: configPath/g)).toHaveLength(1);
   });
 });

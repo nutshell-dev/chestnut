@@ -6,8 +6,6 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
-import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
-import { ensureWatchdogStateMigrated } from '../watchdog-state-migration.js';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
@@ -470,10 +468,6 @@ export function createConfigCommand(deps: ConfigCommandDeps): Command {
     return cliAction(policy, async (...args: TArgs) => {
       // Phase 1288 Step B: config 命令族入口编排 audit config 迁移（幂等；冲突 fail-loud）
       ensureAuditConfigMigrated(deps);
-      // Phase 1289 Step B: 同型编排 watchdog config 迁移（幂等；冲突 fail-loud）
-      ensureWatchdogConfigMigrated(deps);
-      // Phase 1455 Step A: 同型编排 watchdog state 迁移（幂等；冲突 fail-loud）
-      ensureWatchdogStateMigrated(deps);
       await handler(...args);
     }, { fsFactory: deps.fsFactory });
   }

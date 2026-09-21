@@ -5,20 +5,21 @@
  * - loadWorkspaceWatchdogConfig：missing / ok / invalid（读失败、YAML 错、schema 错），不静默创建
  * - readWorkspaceWatchdogConfig：ok → 值；missing → throw fail-loud；invalid → throw
  * - initWorkspaceWatchdogConfig：fresh 创建默认（精确磁盘形态）+ 回读；已存在 → already 不覆盖；invalid → throw
- * - publishMigratedWorkspaceWatchdogConfig：exclusive publish + 回读；同值幂等；异值 conflict 双方保留
+ * - publishWatchdogLayout：layout.json 磁盘形态（phase 1890 Step J 自 config-migration-journal 收编）
+ *
+ * phase 1890 Step J：publishMigratedWorkspaceWatchdogConfig / ConflictError 随迁移协议删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { WATCHDOG_PATHS } from '../../src/watchdog/layout.js';
+import { WATCHDOG_LAYOUT_SCHEMA_VERSION, WATCHDOG_PATHS } from '../../src/watchdog/layout.js';
 import type { WatchdogConfig } from '../../src/watchdog/config-schema.js';
 import {
   loadWorkspaceWatchdogConfig,
   readWorkspaceWatchdogConfig,
   initWorkspaceWatchdogConfig,
-  publishMigratedWorkspaceWatchdogConfig,
-  WatchdogWorkspaceConfigConflictError,
+  publishWatchdogLayout,
 } from '../../src/watchdog/workspace-config.js';
 import { createTrackedTempDirSync } from '../utils/temp.js';
 
@@ -46,6 +47,15 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
 
   function readConfigFile(): string {
     return fs.readFileSync(path.join(chestnutRoot, WATCHDOG_PATHS.config), 'utf8');
+  }
+
+  /** 直接以拍板磁盘形态种子一个自定义 config（替代已删的迁移 publish 面）。 */
+  function seedCustomConfig(): void {
+    fs.mkdirSync(path.join(chestnutRoot, WATCHDOG_PATHS.root), { recursive: true });
+    fs.writeFileSync(
+      path.join(chestnutRoot, WATCHDOG_PATHS.config),
+      'schema_version: 1\ninterval_ms: 60000\nheartbeat_stale_timeout_ms: 240000\n',
+    );
   }
 
   describe('loadWorkspaceWatchdogConfig', () => {
@@ -125,7 +135,7 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
     });
 
     it('ok → 配置值', () => {
-      publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef');
+      seedCustomConfig();
       expect(readWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toEqual(LEGACY_CUSTOM);
     });
 
@@ -145,7 +155,7 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
     });
 
     it('已存在 → already，不覆盖现有内容', () => {
-      publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef');
+      seedCustomConfig();
       const before = readConfigFile();
       expect(initWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toBe('already');
       expect(readConfigFile()).toBe(before);
@@ -158,35 +168,20 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
     });
   });
 
-  describe('publishMigratedWorkspaceWatchdogConfig', () => {
-    it('不存在 → published，写入 legacy 值并可读回（key 顺序固定）', () => {
-      expect(publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef')).toBe('published');
-      expect(readConfigFile()).toBe(
-        'schema_version: 1\ninterval_ms: 60000\nheartbeat_stale_timeout_ms: 240000\n',
-      );
-      expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toEqual({ kind: 'ok', config: LEGACY_CUSTOM });
-    });
-
-    it('已存在且同值 → already-present，文件不被重写', () => {
-      publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef');
-      const before = readConfigFile();
-      expect(publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef')).toBe('already-present');
-      expect(readConfigFile()).toBe(before);
-    });
-
-    it('已存在且异值 → ConflictError，双方保留（文件不被改写）', () => {
-      publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef');
-      const before = readConfigFile();
-      const attempt = () => publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_DEFAULT, 'cafe');
-      expect(attempt).toThrow(WatchdogWorkspaceConfigConflictError);
-      expect(attempt).toThrow(/Both preserved/);
-      expect(readConfigFile()).toBe(before);
-    });
-
-    it('已存在但 invalid → throw', () => {
-      fs.mkdirSync(path.join(chestnutRoot, WATCHDOG_PATHS.root), { recursive: true });
-      fs.writeFileSync(path.join(chestnutRoot, WATCHDOG_PATHS.config), 'schema_version: 9\n');
-      expect(() => publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef')).toThrow(/invalid/);
+  describe('publishWatchdogLayout', () => {
+    it('写 layout.json：schema_version + owner + resources 账本（Phase 1455 Step C ratchet）', () => {
+      const rootFs = fsFactory(chestnutRoot);
+      publishWatchdogLayout(rootFs);
+      const layout = JSON.parse(fs.readFileSync(path.join(chestnutRoot, WATCHDOG_PATHS.layout), 'utf8'));
+      expect(layout.schema_version).toBe(WATCHDOG_LAYOUT_SCHEMA_VERSION);
+      expect(layout.owner).toBe('watchdog');
+      expect(typeof layout.updated_at).toBe('string');
+      expect(layout.resources).toEqual({
+        config: 'migrated',
+        state: 'migrated',
+        log: 'migrated',
+        subscriptions: 'retired',
+      });
     });
   });
 });

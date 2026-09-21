@@ -35,7 +35,9 @@ describe('phase 1345: Watchdog single production barrel', () => {
     // Phase 1878 Step J: 主 loop 退出 barrel（只由 watchdog-entry 内部启动）
     expect(barrel).not.toContain('runWatchdogLoop');
     expect(barrel).toContain('ensureWatchdog');
-    expect(barrel).toContain('createWatchdogConfigMigration');
+    // phase 1890 Step J：迁移协议导出删除；fresh init 创建面经 barrel 暴露
+    expect(barrel).toContain('initWorkspaceWatchdogConfig');
+    expect(barrel).toContain('publishWatchdogLayout');
   });
 
   it('watchdog.ts no longer re-exports internal modules', () => {

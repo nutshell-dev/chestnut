@@ -54,8 +54,7 @@ const FORBIDDEN = [
   'patchGlobalConfigPrimary', 'clawExists', 'getGlobalConfigPath',
   'loadYamlConfig', 'writeYamlConfig', 'patchYamlConfig', 'configExists',
   'readLegacyAuditConfigSection', 'removeLegacyAuditConfigSection',
-  'readLegacyWatchdogConfigSection', 'removeLegacyWatchdogConfigSection',
-  'LegacyAuditConfigSection', 'LegacyWatchdogConfigSection',
+  'LegacyAuditConfigSection',
 ];
 
 /** root-config.ts 违规 import（ConfigStore / FileSystem 实现）扫描。 */

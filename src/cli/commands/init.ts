@@ -24,7 +24,7 @@ import { HEARTBEAT_DEFAULT_INTERVAL_MS } from '../../core/heartbeat/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { initWorkspaceAuditConfig, publishAuditLayout } from '../../foundation/audit/index.js';
-import { createWatchdogConfigMigration } from '../../watchdog/index.js';
+import { initWorkspaceWatchdogConfig, publishWatchdogLayout } from '../../watchdog/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
@@ -323,9 +323,9 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     publishAuditLayout(chestnutRootFs);
     // Phase 1289 Step B/D: fresh init 创建默认 workspace watchdog config（同型协议；
     // Step D 起 root YAML 的 watchdog: 块同步退役，不再写入）。
-    const watchdogMigration = createWatchdogConfigMigration(chestnutRootFs);
-    watchdogMigration.init();
-    watchdogMigration.finalizeLayout();
+    // phase 1890 Step K：迁移协议退役；fresh init 直调 live 创建面（等价原 migration.init()+finalizeLayout()）。
+    initWorkspaceWatchdogConfig(chestnutRootFs);
+    publishWatchdogLayout(chestnutRootFs);
 
     // Create logs directory
     const root = getWorkspaceRoot();

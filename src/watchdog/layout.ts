@@ -5,15 +5,12 @@
  * @contract Phase 1286 Watchdog 磁盘资源命名空间最终布局
  *
  * Watchdog 磁盘布局唯一 owner（Phase 1287 Step B）：
- *   WATCHDOG_PATHS        目标布局 identity（应然路径，不代表资源已迁移）
- *   WATCHDOG_LEGACY_PATHS legacy 输入位置（仅 migration/compat 代码可消费）
+ *   WATCHDOG_PATHS        目标布局 identity
  *
  * 边界：
- * - 全部资源已归位：config（Phase 1289 Step B）、state（Phase 1455 Step A）、
- *   log（Phase 1455 Step B）生产 IO 走 WATCHDOG_PATHS；subscriptions 0 生产
- *   使用、Phase 1455 Step C 清退登记；legacy 文件清退由迁移编排终态收口。
- * - 普通新写代码不得使用 WATCHDOG_LEGACY_PATHS（仅 migration/compat 与
- *   legacy-retirement 清退原语可消费）。
+ * - 全部资源生产 IO 走 WATCHDOG_PATHS；subscriptions 0 生产使用（退役登记）。
+ *   （phase 1890 Step J：WATCHDOG_LEGACY_PATHS 随迁移协议退役删除——无老版本
+ *   部署存量；legacy 输入位置不再特设。）
  * - ownership 记录文件名（owner.json/outcome.json/terminal.json）归
  *   ownership 协议，不在此表。
  * - 本模块不执行任何初始化；禁止 import FileSystem / YAML / AuditLog /
@@ -35,15 +32,4 @@ export const WATCHDOG_PATHS = {
   active: 'watchdog/active',
   retired: 'watchdog/retired',
   quarantine: 'watchdog/quarantine',
-  migrations: 'watchdog/migrations',
-} as const;
-
-/** legacy 输入位置；仅允许 migration/compat 代码消费。 */
-export const WATCHDOG_LEGACY_PATHS = {
-  state: 'watchdog-state.json',
-  subscriptions: 'watchdog-subscriptions',
-  log: 'logs/watchdog.log',
-  pid: 'watchdog.pid',
-  /** legacy root YAML（.chestnut/config.yaml）中的 watchdog 配置段顶层键名。 */
-  configSection: 'watchdog',
 } as const;

@@ -69,8 +69,7 @@ export async function spawnWatchdogCandidate(
   if (!pid) {
     throw new Error(
       `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
-      // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）；
-      // 旧文案指的 .chestnut/logs/ 已退役（legacy-retirement 登记）。
+      // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）。
       `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
     );
   }

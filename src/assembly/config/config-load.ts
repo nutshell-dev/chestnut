@@ -27,11 +27,6 @@ import {
 import { getGlobalConfigPath } from './global-config-path.js';
 import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
 import { auditConfigSchema, AUDIT_LEGACY_PATHS, type AuditConfig } from '../../foundation/audit/index.js';
-import {
-  watchdogConfigSchema,
-  WATCHDOG_LEGACY_PATHS,
-  type WatchdogConfig,
-} from '../../watchdog/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -224,90 +219,6 @@ export function removeLegacyAuditConfigSection(deps: { fsFactory: (baseDir: stri
   }
 }
 
-// ── Phase 1289 Step B: legacy root YAML `watchdog:` 段（Assembly 拥有 root YAML IO）──
-//
-// 迁移协议中 Assembly 侧的两次 mutation 原语：raw 读取 legacy 段（typed 返回
-// WatchdogConfig + 退役字段捕获 + 原文 canonical dump 的 source hash，不暴露完整
-// GlobalConfig）与原子移除 legacy 段（raw YAML patch + 回读校验，不走 schema
-// round-trip、未知/非 watchdog 字段逐字节语义保持）。编排归 CLIProcess
-//（cli/watchdog-config-migration.ts）。本边为临时迁移原语，Step D 计划删除。
-
-export interface LegacyWatchdogConfigSection {
-  config: WatchdogConfig;
-  /** legacy section 所在 owner resource；供迁移 journal 留证。 */
-  sourcePath: string;
-  /**
-   * 显式退役字段：legacy 段中已退役字段（现有 schema 会静默剥离）为 number 时
-   * 捕获于此，由编排层写入 journal intent 留证；不进入新 schema。
-   * - log_archive_days（Phase 1289 退役）
-   * - disk_warning_mb / claw_inactivity_timeout_ms（Phase 1878 Step C 退役，
-   *   零生产决策消费）
-   */
-  retired: { log_archive_days?: number; disk_warning_mb?: number; claw_inactivity_timeout_ms?: number };
-  /** legacy 段原文（js-yaml canonical dump）的 sha256 hex。 */
-  sourceHash: string;
-}
-
-/** raw 读取 root YAML 的 legacy `watchdog:` 段；文件或段不存在 → undefined。 */
-export function readLegacyWatchdogConfigSection(deps: { fsFactory: (baseDir: string) => FileSystem }): LegacyWatchdogConfigSection | undefined {
-  const configPath = getGlobalConfigPath();
-  const dir = path.dirname(configPath);
-  const fs = deps.fsFactory(dir);
-  const basename = path.basename(configPath);
-  if (!fs.existsSync(basename)) return undefined;
-
-  let loaded: unknown;
-  try {
-    loaded = yaml.load(fs.readSync(basename));
-  } catch (err) {
-    throw new Error(`Invalid YAML in config: ${formatErr(err)}`, { cause: err });
-  }
-  if (typeof loaded !== 'object' || loaded === null || Array.isArray(loaded)) {
-    throw new Error(`Invalid global config: expected object at root, got ${Array.isArray(loaded) ? 'array' : typeof loaded}`);
-  }
-  const section = (loaded as Record<string, unknown>)[WATCHDOG_LEGACY_PATHS.configSection];
-  if (section === undefined) return undefined;
-
-  let config: WatchdogConfig;
-  try {
-    // zod 默认剥离未知键：log_archive_days / disk_warning_mb 等退役字段不进入
-    // typed config（显式退役：读取不报错，下方捕获进 retired 留证）。
-    config = watchdogConfigSchema.parse(section);
-  } catch (err) {
-    throw new Error(`Invalid global config: legacy watchdog section: ${formatErr(err)}`, { cause: err });
-  }
-  const retired: LegacyWatchdogConfigSection['retired'] = {};
-  if (typeof section === 'object' && section !== null && !Array.isArray(section)) {
-    const record = section as Record<string, unknown>;
-    for (const key of ['log_archive_days', 'disk_warning_mb', 'claw_inactivity_timeout_ms'] as const) {
-      const value = record[key];
-      if (typeof value === 'number') {
-        retired[key] = value;
-      }
-    }
-  }
-  return { config, retired, sourcePath: configPath, sourceHash: sha256Hex(yaml.dump(section)) };
-}
-
-/**
- * 原子移除 root YAML 的 legacy `watchdog:` 段 + 回读校验。
- * raw YAML patch（同 patchYamlConfig 模式）：不 schema round-trip 重写整个文件，
- * 未知/非 watchdog 字段保持原值且不注入任何 schema default。段本不存在 → no-op（幂等）。
- */
-export function removeLegacyWatchdogConfigSection(deps: { fsFactory: (baseDir: string) => FileSystem }): void {
-  const configPath = getGlobalConfigPath();
-  patchYamlConfig(
-    { fsFactory: deps.fsFactory },
-    configPath,
-    (cfg) => {
-      delete cfg[WATCHDOG_LEGACY_PATHS.configSection];
-    },
-  );
-  // 回读校验：段必须真的消失（防写损坏 / 部分写成功伪装完成）。
-  if (readLegacyWatchdogConfigSection(deps) !== undefined) {
-    throw new Error(`Failed to remove legacy watchdog section from ${configPath}: readback still present`);
-  }
-}
 
 // Build LLMOrchestratorConfig from global + claw config
 // phase 1300 Step A: resolveLLMConfig 为 owner 名称（phase 1886 Step B: 兼容

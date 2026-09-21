@@ -16,8 +16,6 @@ import * as readline from 'readline';
 
 import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/index.js';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
-import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
-import { ensureWatchdogStateMigrated } from '../watchdog-state-migration.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { initCommand } from './init.js';
@@ -155,11 +153,6 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
   // Phase 1288 Step B: audit config 迁移编排（幂等；fresh init 已建默认 → already，
   // legacy 工作区 → 迁移，冲突 → fail-loud 在 ensureSupervision/daemon spawn 前暴露）。
   ensureAuditConfigMigrated(deps);
-  // Phase 1289 Step B: watchdog config 迁移编排（同型协议；冲突/invalid fail-loud）。
-  ensureWatchdogConfigMigrated(deps);
-  // Phase 1455 Step A: watchdog state 迁移编排（同型协议；冲突 fail-loud 在
-  // ensureSupervision / daemon spawn 前暴露；legacy 清退归 Step C）。
-  ensureWatchdogStateMigrated(deps);
   // phase 1280: workspace bootstrap（config 完整落盘）后才恢复 Watchdog；
   // 之后的 Motion init / daemon spawn / contract / chat 均位于监督之下。
   await runtime.ensureSupervision();

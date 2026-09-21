@@ -40,16 +40,10 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
     // phase 552 update: 2 guidance composers (claw-inactivity / claw-crashed) 已迁 type import
     // 到 foundation/utils/claw-failure-classes、不再 import from watchdog/watchdog-utils。
     // phase 708 update: claw-failure-classes 迁 watchdog/、2 guidance composers 恢复 type-only import from watchdog。
-    // phase 1289 Step B: watchdog config 迁移协议新增两处特许消费——Assembly config-load
-    // （legacy root `watchdog:` 段 raw 读/删原语，永久保留以支持旧安装迁移）与 CLI
-    // 同层编排模块 watchdog-config-migration；均为迁移协议组成，非 daemon/监督依赖。
-    // phase 1289 Step D: compose-config 边已删（root schema 移除 watchdog 段）；
-    // init.ts 仅经 watchdog/workspace-config + config-migration-journal 消费（迁移协议）。
-    // phase 1455 Step A: CLI 同层编排模块 watchdog-state-migration（state 迁移协议
-    // 组成，与 watchdog-config-migration 同型特许）。
+    // phase 1890 Step J：迁移协议特许消费面（config-load legacy 段原语、CLI 同层编排
+    // 两模块）随存量废弃删除——白名单回收。
     const expected = [
       'assembly/business-systems.ts',
-      'assembly/config/config-load.ts',
       'assembly/file-routing-aggregator.ts',
       // Phase 1396 Step H: claw-watch command retired; motion-facing failure bindings removed.
       'cli/commands/init.ts',
@@ -57,8 +51,6 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
       'cli/commands/stop.ts',
       'cli/commands/watchdog-cli.ts',
       'cli/supervision-policy.ts',
-      'cli/watchdog-config-migration.ts',
-      'cli/watchdog-state-migration.ts',
     ].sort();
     expect(fromOutside).toEqual(expected);
   });

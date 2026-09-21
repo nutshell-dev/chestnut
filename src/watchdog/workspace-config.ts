@@ -12,9 +12,8 @@
  *   仅 fresh init 创建默认），invalid → throw）。
  * - 写（fresh init）：initWorkspaceWatchdogConfig 创建默认配置 + 回读校验；
  *   已存在不覆盖。
- * - 写（迁移）：publishMigratedWorkspaceWatchdogConfig — exclusive publish + 回读
- *   校验；只接 typed legacy WatchdogConfig 及 source hash，不接完整 GlobalConfig；
- *   已有同值配置 → already-present（幂等），已有异值配置 → conflict fail-loud。
+ * - layout 留痕：publishWatchdogLayout 发布 layout.json（phase 1890 Step J 自
+ *   config-migration-journal 收编；fresh init 直调）。
  *
  * fs 一律以 chestnutRoot 为 baseDir；路径全部出自 ./layout.js。
  */
@@ -32,19 +31,6 @@ type WorkspaceWatchdogConfigResult =
   | { kind: 'ok'; config: WatchdogConfig }
   | { kind: 'missing' }
   | { kind: 'invalid'; message: string };
-
-/** 双方配置值不一致时抛出（fail-loud；双方文件均保留、由 caller 处理）。 */
-export class WatchdogWorkspaceConfigConflictError extends Error {
-  constructor(
-    message: string,
-    readonly existing: WatchdogConfig,
-    readonly incoming: WatchdogConfig,
-    readonly sourceHash: string,
-  ) {
-    super(message);
-    this.name = 'WatchdogWorkspaceConfigConflictError';
-  }
-}
 
 export function sameWatchdogConfig(a: WatchdogConfig, b: WatchdogConfig): boolean {
   return (
@@ -145,38 +131,23 @@ export function initWorkspaceWatchdogConfig(fs: FileSystem): 'created' | 'alread
 }
 
 /**
- * 迁移专用 exclusive publish（Phase 1289 Step B 契约步骤 3）。
- *
- * - 不存在 → 写入 legacy 值 + 回读校验 → 'published'；
- * - 已存在且同值 → 'already-present'（幂等重入，不重写）；
- * - 已存在且异值 → WatchdogWorkspaceConfigConflictError（保留双方、fail-loud）；
- * - 已存在但 invalid → throw。
- *
- * sourceHash 仅用于诊断信息（journal intent 由 CLIProcess 另行写入）。
+ * 发布 layout.json（phase 1890 Step J 自 config-migration-journal 收编，1:1）。
+ * 内容是布局协议版本 + owner 声明 + 资源迁移账本（Phase 1455 Step C ratchet：
+ * config Phase 1289 Step B / state Phase 1455 Step A / log Phase 1455 Step B 已迁，
+ * subscriptions 0 生产使用退役）；路径 identity 的 SoT 是 ./layout.ts 常量，
+ * 本函数只做磁盘留痕、不被生产代码读回。
  */
-export function publishMigratedWorkspaceWatchdogConfig(
-  fs: FileSystem,
-  legacy: WatchdogConfig,
-  sourceHash: string,
-): 'published' | 'already-present' {
-  const existing = loadWorkspaceWatchdogConfig(fs);
-  if (existing.kind === 'invalid') {
-    throw new Error(
-      `Cannot publish migrated watchdog config: existing ${WATCHDOG_PATHS.config} is invalid: ${existing.message}`,
-    );
-  }
-  if (existing.kind === 'ok') {
-    if (sameWatchdogConfig(existing.config, legacy)) return 'already-present';
-    throw new WatchdogWorkspaceConfigConflictError(
-      `Watchdog config conflict: ${WATCHDOG_PATHS.config} already exists with different value ` +
-      `(existing ${JSON.stringify(existing.config)}, ` +
-      `legacy ${JSON.stringify(legacy)}, source sha256=${sourceHash}). ` +
-      `Both preserved; resolve manually.`,
-      existing.config,
-      legacy,
-      sourceHash,
-    );
-  }
-  writeAndVerify(fs, legacy, 'publish');
-  return 'published';
+export function publishWatchdogLayout(fs: FileSystem): void {
+  const layout = {
+    schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
+    owner: 'watchdog',
+    updated_at: new Date().toISOString(),
+    resources: {
+      config: 'migrated',
+      state: 'migrated',
+      log: 'migrated',
+      subscriptions: 'retired',
+    },
+  } as const;
+  fs.writeAtomicSync(WATCHDOG_PATHS.layout, `${JSON.stringify(layout, null, 2)}\n`);
 }
