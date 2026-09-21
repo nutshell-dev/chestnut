@@ -232,8 +232,8 @@ module.exports = {
       name: 'no-unused-node-modules',
       comment: [
         'Defensive forbid for Node modules that should not be needed in chestnut:',
-        'http/https (chestnut uses LLM providers via undici, not raw http)',
-        'tls/dns (delegated to undici / LLM provider)',
+        'http/https (chestnut 不走 raw http、LLM providers 经各自 SDK)',
+        'tls/dns (delegated to LLM provider SDK)',
         'stream (chestnut composes higher-level abstractions、避免直 stream)',
         'worker_threads/cluster (单 process daemon 模式、no clustering)',
         'process (process.env etc. 不该走 import、用 global)',
