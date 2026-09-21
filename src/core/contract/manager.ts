@@ -105,7 +105,6 @@ import {
   type VerificationOutcomeIntent,
 } from './verification-outcome.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
-import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
 import { readArchivePayload } from './archive-reader.js';
 import {
@@ -1139,24 +1138,6 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       this.audit.write(
         CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_FAILED,
         `clawId=${this.clawId}`,
-        `context=init_outer_catch`,
-        `error=${formatErr(err)}`,
-      );
-    }
-
-    // phase 1127 Step E: migrate classified legacy flat archive entries to typed state dirs.
-    try {
-      await migrateLegacyArchiveEntries(
-        { fs: this.fs, audit: this.audit },
-        this.clawId,
-        this.clawDir,
-      );
-    } catch (err) {
-      // migrator 内已 catch + audit emit；此处兜底
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_LEGACY_MIGRATION_FAILED,
-        `clawId=${this.clawId}`,
-        `contractId=<init_outer_catch>`,
         `context=init_outer_catch`,
         `error=${formatErr(err)}`,
       );

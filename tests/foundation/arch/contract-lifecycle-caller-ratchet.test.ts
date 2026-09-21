@@ -117,7 +117,6 @@ describe('Phase 1198 Step D: terminal lifecycle caller ratchet', () => {
     const allowed = [
       path.join('src', 'core', 'contract', 'lifecycle.ts'),
       path.join('src', 'core', 'contract', '_isolation-helper.ts'),
-      path.join('src', 'core', 'contract', 'jobs', 'archive-legacy-migrator.ts'),
     ].map(p => path.resolve(repoRoot, p));
 
     const offenders: string[] = [];

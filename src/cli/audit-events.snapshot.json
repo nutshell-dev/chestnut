@@ -256,11 +256,6 @@
     ],
     "core_contract_audit-events": [
       "contract_archive_active_state_detected",
-      "contract_archive_legacy_migrated",
-      "contract_archive_legacy_migration_conflict",
-      "contract_archive_legacy_migration_failed",
-      "contract_archive_legacy_migration_skipped",
-      "contract_archive_legacy_migration_summary",
       "contract_archive_payload_read_issue",
       "contract_archive_precondition_violated",
       "contract_archive_reconcile_failed",

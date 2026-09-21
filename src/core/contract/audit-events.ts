@@ -121,11 +121,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 1127 Step D: terminal writer target conflict (same id already in state subdir)
   CONTRACT_ARCHIVE_TARGET_EXISTS: 'contract_archive_target_exists',
   // phase 1127 Step E: legacy flat archive migration
-  CONTRACT_ARCHIVE_LEGACY_MIGRATED: 'contract_archive_legacy_migrated',
-  CONTRACT_ARCHIVE_LEGACY_MIGRATION_CONFLICT: 'contract_archive_legacy_migration_conflict',
-  CONTRACT_ARCHIVE_LEGACY_MIGRATION_SKIPPED: 'contract_archive_legacy_migration_skipped',
-  CONTRACT_ARCHIVE_LEGACY_MIGRATION_FAILED: 'contract_archive_legacy_migration_failed',
-  CONTRACT_ARCHIVE_LEGACY_MIGRATION_SUMMARY: 'contract_archive_legacy_migration_summary',
   // phase 949: event-collector 在 archive 目录发现 active status 状态机断裂
   CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED: 'contract_archive_active_state_detected',
   // Phase 230: contract create policy rejected
@@ -256,11 +251,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_archive_reconcile_failed: 'audit',
   contract_archive_reconcile_summary: 'audit',
   contract_archive_target_exists: 'audit',
-  contract_archive_legacy_migrated: 'audit',
-  contract_archive_legacy_migration_conflict: 'audit',
-  contract_archive_legacy_migration_skipped: 'audit',
-  contract_archive_legacy_migration_failed: 'audit',
-  contract_archive_legacy_migration_summary: 'audit',
   contract_archive_active_state_detected: 'audit',
   contract_progress_invariant_violated: 'audit',
   contract_legacy_status_field_ignored: 'audit',
