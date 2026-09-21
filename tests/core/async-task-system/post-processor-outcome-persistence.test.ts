@@ -820,60 +820,8 @@ describe('Phase 1396 Step L: recovery classification from the committed envelope
     )).toBe(true);
   });
 
-  it('pre-Step-J bare result.txt with terminalState=failed rebuilds the envelope and moves failed', async () => {
-    const task = { ...makeSubAgentTask(), terminalState: 'failed' } as SubAgentTask;
-    seedRunningTask(task);
-    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-    fs.files.set(`${resultDir}/result.txt`, 'legacy content');
-    const sendResult = vi.fn().mockResolvedValue(undefined);
 
-    await recoverTasks(recoveryDeps({ sendResult }));
 
-    expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendResult.mock.calls[0][3]).toEqual({
-      schema_version: 1,
-      content: 'legacy content',
-      isError: true,
-    });
-    expect(fs.files.has(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(true);
-    expect(fs.files.has(`${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)).toBe(true);
-    expect(fs.files.has(`${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)).toBe(false);
-  });
-
-  it('pre-Step-J bare result.txt classified via typed task_completed audit (status=err → failed)', async () => {
-    const task = makeSubAgentTask();
-    seedRunningTask(task);
-    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-    fs.files.set(`${resultDir}/result.txt`, 'legacy content');
-    fs.files.set('audit/audit.tsv', [
-      '2026-08-17T00:00:00.000Z\t1\ttask_completed\tfullTaskId=other-task\tshortTaskId=other\tstatus=ok',
-      `2026-08-17T00:00:01.000Z\t2\ttask_completed\tfullTaskId=${task.id}\tshortTaskId=${task.shortId}\tstatus=err`,
-    ].join('\n'));
-    const sendResult = vi.fn().mockResolvedValue(undefined);
-
-    await recoverTasks(recoveryDeps({ sendResult }));
-
-    expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendResult.mock.calls[0][3].isError).toBe(true);
-    expect(fs.files.has(`${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)).toBe(true);
-    expect(fs.files.has(`${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)).toBe(false);
-  });
-
-  it('pre-Step-J bare result.txt without reliable evidence stays running and is audited (no success guess)', async () => {
-    const task = makeSubAgentTask();
-    seedRunningTask(task);
-    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-    fs.files.set(`${resultDir}/result.txt`, 'legacy content');
-    const sendResult = vi.fn().mockResolvedValue(undefined);
-
-    await recoverTasks(recoveryDeps({ sendResult }));
-
-    expect(sendResult).not.toHaveBeenCalled();
-    expect(fs.files.has(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`)).toBe(true);
-    expect(fs.files.has(`${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)).toBe(false);
-    expect(fs.files.has(`${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)).toBe(false);
-    expect(audit.events.some(e => e[0] === TASK_AUDIT_EVENTS.LEGACY_RESULT_CLASSIFICATION_UNKNOWN)).toBe(true);
-  });
 
   it('recovery: replay 遇未注册 processor → terminal failed（phase 1863 AT-D14）', async () => {
     const task = makeSubAgentTask({ postProcessor: 'not-registered' });

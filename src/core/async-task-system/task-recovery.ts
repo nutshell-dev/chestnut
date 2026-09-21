@@ -45,7 +45,6 @@ import {
   MAX_POST_PROCESSOR_DEFERS,
 } from './subagent-executor.js';
 import { createProcessedResultStore, type ProcessedResultStore } from './processed-result-store.js';
-import { AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../../foundation/audit/index.js';
 import type { TaskId } from './types.js';
 
 
@@ -638,10 +637,12 @@ export async function recoverMigratedToolTask(
 /**
  * Phase 1396 Step L: recovery decision order is fixed —
  *   sent marker → committed envelope → durable input → Step J intermediate →
- *   pre-Step-J legacy result.txt → no result.
- * Terminal classification always comes from the committed envelope (or, for
- * legacy formats, from reliable evidence only). Indeterminate state keeps the
- * task in running/ and is audited — never silently defaulted to success.
+ *   no result.
+ * phase 1890 Step C：pre-Step-J bare result.txt 兼容面删除（存量废弃）——裸
+ * result.txt 不再特设分类，直落 _recoverWithoutResult 常规路径。
+ * Terminal classification always comes from the committed envelope.
+ * Indeterminate state keeps the task in running/ and is audited — never
+ * silently defaulted to success.
  */
 async function _recoverSubAgentTask(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
@@ -649,7 +650,6 @@ async function _recoverSubAgentTask(
   const store = createProcessedResultStore(deps.fs);
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   const inputPath = `${resultDir}/${POST_PROCESS_INPUT_FILE}`;
-  const resultPath = `${resultDir}/result.txt`;
   const alreadySent = await deps.fs.exists(SENT_MARKER(task.id));
 
   if (alreadySent) {
@@ -690,11 +690,6 @@ async function _recoverSubAgentTask(
   }
   if (migration === 'indeterminate') {
     return 0; // audited in _migrateStepJIntermediate; keep running
-  }
-
-  if (await deps.fs.exists(resultPath)) {
-    // Pre-Step-J legacy bare result.txt.
-    return await _recoverLegacyResult(deps, filePath, task, resultPath, store);
   }
 
   return await _recoverWithoutResult(deps, filePath, task);
@@ -898,7 +893,7 @@ async function _recoverAlreadySent(
     return;
   }
 
-  // Legacy fallbacks (envelope absent): reliable evidence only, never a guess.
+  // terminalState 分流（现行面；phase 1890 Step C：audit 行分类的 legacy 回退已删）。
   const terminalState = _terminalStateOf(task);
   if (terminalState === 'failed') {
     await _recoverToFailed(deps, filePath, task, 'terminal_state_failed', 'terminal_state_failed_move_failed');
@@ -919,15 +914,6 @@ async function _recoverAlreadySent(
   if (migration === 'indeterminate') {
     return; // audited; keep running
   }
-  const legacy = await _classifyFromCompletedAudit(deps, task);
-  if (legacy === 'failed') {
-    await _recoverToFailed(deps, filePath, task, 'legacy_audit_status_err', 'alreadysent_move_failed');
-    return;
-  }
-  if (legacy === 'done') {
-    await _recoverToDone(deps, filePath, task, 'legacy_audit_status_ok', 'alreadysent_move_failed');
-    return;
-  }
   emitLegacyResultClassificationUnknown(deps.auditWriter, {
     fullTaskId: task.id as FullTaskId,
     shortTaskId: taskShortId(task),
@@ -938,39 +924,6 @@ async function _recoverAlreadySent(
 function _terminalStateOf(task: SubAgentTask): 'done' | 'failed' | undefined {
   const ts = ((task as unknown) as Record<string, unknown>).terminalState as string | undefined;
   if (ts === 'done' || ts === 'failed') return ts;
-  return undefined;
-}
-
-/**
- * Legacy classification evidence: the typed task_completed audit row for this
- * task (status=ok → done, status=err → failed). Returns undefined when no
- * reliable evidence exists — callers audit and keep the task in running/.
- */
-async function _classifyFromCompletedAudit(
-  deps: RecoverTasksDeps, task: SubAgentTask,
-): Promise<'done' | 'failed' | undefined> {
-  for (const auditPath of [AUDIT_PATHS.audit, AUDIT_LEGACY_PATHS.audit]) {
-    let content: string;
-    try {
-      content = await deps.fs.read(auditPath);
-    } catch (err) {
-      if (isFileNotFound(err)) continue;
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'legacy_audit_read_failed',
-        error: formatErr(err),
-      });
-      return undefined;
-    }
-    const lines = content.split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const cols = lines[i].split('\t');
-      if (cols[2] !== TASK_AUDIT_EVENTS.TASK_COMPLETED) continue;
-      if (!cols.includes(`fullTaskId=${task.id}`)) continue;
-      if (cols.includes('status=err')) return 'failed';
-      if (cols.includes('status=ok')) return 'done';
-    }
-  }
   return undefined;
 }
 
@@ -1008,52 +961,6 @@ async function _moveToEnvelopeTerminal(
   } else {
     await _recoverToDone(deps, filePath, task, reason, 'envelope_terminal_move_failed');
   }
-}
-
-/**
- * Pre-Step-J legacy bare result.txt (no envelope, no meta): classify from
- * reliable evidence (terminalState, then typed task_completed audit), rebuild
- * and commit the envelope once, then deliver. Indeterminate → audit + keep
- * running/manual-recoverable; never guessed as success.
- */
-async function _recoverLegacyResult(
-  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, resultPath: string, store: ProcessedResultStore,
-): Promise<number> {
-  const classification = _terminalStateOf(task) ?? await _classifyFromCompletedAudit(deps, task);
-  if (classification === undefined) {
-    emitLegacyResultClassificationUnknown(deps.auditWriter, {
-      fullTaskId: task.id as FullTaskId,
-      shortTaskId: taskShortId(task),
-    });
-    return 0;
-  }
-  let content: string;
-  try {
-    content = await deps.fs.read(resultPath);
-  } catch (err) {
-    emitRecoveryFailed(deps.auditWriter, {
-      taskId: task.id,
-      context: 'legacy_result_read_failed',
-      error: formatErr(err),
-    });
-    return 0;
-  }
-  const envelope: ProcessedTaskResult = {
-    schema_version: 1,
-    content,
-    isError: classification === 'failed',
-  };
-  try {
-    await store.commit(task.id, envelope);
-  } catch (err) {
-    emitRecoveryFailed(deps.auditWriter, {
-      taskId: task.id,
-      context: 'legacy_envelope_commit_failed',
-      error: formatErr(err),
-    });
-    return 0;
-  }
-  return await _recoverWithEnvelope(deps, filePath, task, envelope);
 }
 
 /**
