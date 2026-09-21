@@ -77,6 +77,23 @@ vi.mock('../../../src/foundation/process-manager/ready-convergence.js', async (i
   };
 });
 
+// phase 1887 Step B: orphan cleanup 走确定性缝（1779 模式）——findProcessesDetailed
+// 经 hoisted impl 可控。默认确定性空列表（无 orphan → cleanupOrphans 走 not_needed →
+// spawn 继续）；call-through 真实 pgrep 会让无 pgrep/受限环境下全部 happy-path 用例以
+// ProcessOrphanCleanupError（blocked stage=enumerate，fail-closed 不 spawn）误失败。
+// 需要真实枚举的用例显式置 undefined（call-through 真实实现）。
+const orphanFind = vi.hoisted(() => ({
+  impl: (() => []) as undefined | (() => Array<{ pid: number; command: string }>),
+}));
+vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
+  return {
+    ...actual,
+    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+  };
+});
+
 function defaultCtx(
   nodeFs: NodeFileSystem,
   audit: ProcessManagerContext['audit'],
@@ -130,9 +147,11 @@ describe('ensureRunning', () => {
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
+    orphanFind.impl = () => [];  // 默认无 orphan
   });
 
   afterEach(async () => {
+    orphanFind.impl = () => [];  // 恢复默认（确定性空列表）
     await cleanupTempDir(tempDir);
   });
 
