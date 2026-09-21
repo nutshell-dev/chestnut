@@ -144,9 +144,6 @@ export function emitInboxDeduped(
   opts: { file: string; shortTaskId?: string; fullTaskId?: string; id?: string; type?: string },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
-  // phase 849: dual-key IDs; keep legacy taskId= column for backward compatibility
-  const legacyTaskId = opts.shortTaskId ?? opts.fullTaskId;
-  if (legacyTaskId !== undefined) cols.push(`taskId=${legacyTaskId}`);
   if (opts.shortTaskId !== undefined) cols.push(`shortTaskId=${opts.shortTaskId}`);
   if (opts.fullTaskId !== undefined) cols.push(`fullTaskId=${opts.fullTaskId}`);
   if (opts.id !== undefined) cols.push(`id=${opts.id}`);

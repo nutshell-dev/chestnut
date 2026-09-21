@@ -86,7 +86,8 @@ describe('InboxReader taskId dedupe', () => {
     // audit emit INBOX_DEDUPED 1 次
     const dedupeAudits = auditCalls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED);
     expect(dedupeAudits).toHaveLength(1);
-    expect(dedupeAudits[0].cols.some(c => c.includes(`taskId=${taskId}`))).toBe(true);
+    // phase 1889 Step C: legacy taskId= 列停写；dual-key 断言归 shortTaskId 列
+    expect(dedupeAudits[0].cols).toContain(`shortTaskId=${taskId}`);
     // phase 1851 Step B: message identity recorded; business keys never echoed
     expect(dedupeAudits[0].cols).toContain('id=msg-2');
     expect(dedupeAudits[0].cols).toContain('type=result');
