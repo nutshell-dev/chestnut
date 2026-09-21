@@ -303,11 +303,11 @@ describe('Runtime DrainInbox', () => {
       }));
       await runtime.initialize();
 
-      // Create a message with 'source' field
+      // Create a message with 'from' field
       const content = `---
 id: test-msg
 type: message
-source: motion
+from: motion
 contract_id: test-contract
 priority: normal
 timestamp: ${new Date().toISOString()}
