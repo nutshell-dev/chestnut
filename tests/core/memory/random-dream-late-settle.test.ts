@@ -54,6 +54,21 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
   };
 }
 
+/**
+ * Test-local barrier（Phase1374 族 / phase 1881）: resolves once RandomDream
+ * durably writes its state file via the provided opts' fs instance. Wraps the
+ * existing writeAtomicSync so the real durable write completes before resolve.
+ */
+function observeRandomDreamStateWrite(opts: RandomDreamOptions): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const originalWriteAtomicSync = opts.fs.writeAtomicSync.bind(opts.fs);
+    vi.spyOn(opts.fs, 'writeAtomicSync').mockImplementation((relativePath, content) => {
+      originalWriteAtomicSync(relativePath, content);
+      if (relativePath === '.random-dream-state.json') resolve();
+    });
+  });
+}
+
 function readOutboxPending(motionDir: string): string[] {
   const outboxDir = path.join(motionDir, 'outbox', 'pending');
   if (!fsSync.existsSync(outboxDir)) return [];
@@ -118,14 +133,15 @@ describe('random-dream late-settle (phase 170)', () => {
       // 只有 daemon.log，没有 result.txt → timeout
       fsSync.writeFileSync(path.join(taskResultDir, 'daemon.log'), '=== started ===');
 
-      const runPromise = runRandomDream({ ...makeOpts(chestnutRoot, motionDir), subagentTimeoutMs: 1000, pulseIntervalMs: 10 });
-      // discover 现为真实 async I/O（structured archive query）：小步推进 fake clock，
-      // 每步让出真实 event loop，直到 runPromise settle（discover → schedule → poll 越过 deadline）
-      let settled = false;
-      void runPromise.then(() => { settled = true; }, () => { settled = true; });
-      for (let i = 0; i < 300 && !settled; i++) {
-        await vi.advanceTimersByTimeAsync(10);
-      }
+      const opts = { ...makeOpts(chestnutRoot, motionDir), subagentTimeoutMs: 1000, pulseIntervalMs: 10 };
+      const statePersisted = observeRandomDreamStateWrite(opts);
+      const runPromise = runRandomDream(opts);
+      // state-write completion barrier（Phase1374 族 / phase 1881）：discover 是真实 async I/O
+      // （structured archive query），等 schedule 后 pending state 真实落盘（无步数/墙钟预算，
+      // 负载下等多久都可以）；落盘后 poll tick 全是 sync fs 检查 + fake timer，
+      // 一次推进越过 subagentTimeoutMs=1000 deadline 即确定性走 timeout 路径
+      await statePersisted;
+      await vi.advanceTimersByTimeAsync(1001);
       await runPromise;
 
       // state 文件应含 pendingLateSettle entry
