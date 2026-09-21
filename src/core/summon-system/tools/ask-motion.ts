@@ -77,7 +77,8 @@ export class AskMotionTool implements Tool {
       }
       const { session } = loadResult;
 
-      // Backward compat: still pass full messages until runAgent supports handoff marker resolution
+      // 全量传 Motion 上下文（system + 历史 + cloneHistory）为设计语义（phase 713 全然一致性）。
+      // 曾挂记的 handoff marker 机制已 phase 1482 退役，无替代传递路径（architecture.md §309）。
       // phase 517 B5: 透传 ctx.signal 给 LLM call、parent cancel/SIGTERM 时 ask-motion 内 LLM 调用也能中断
       const response = await this.llm.call({
         system: session.systemPrompt,                          // 全然一致性 / Motion 用啥 / 这里用啥
