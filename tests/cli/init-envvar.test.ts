@@ -114,7 +114,20 @@ describe('initCommand — default circuit breaker (phase 1268 Step E)', () => {
     await initCommand(commandDeps, true);
     const rootYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
     expect(rootYaml).not.toContain('watchdog');
-    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'watchdog', 'config.yaml'))).toBe(true);
+    // phase 1890 Step J/K：迁移 facade 退役后 fresh init 直调 live 创建面——
+    // 逐字节等价硬验收（config.yaml 内容 + layout.json 形态）。
+    const watchdogYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'watchdog', 'config.yaml'), 'utf8');
+    expect(watchdogYaml).toBe(
+      'schema_version: 1\ninterval_ms: 30000\nheartbeat_stale_timeout_ms: 180000\n',
+    );
+    const layout = JSON.parse(
+      fs.readFileSync(path.join(tempDir, '.chestnut', 'watchdog', 'layout.json'), 'utf8'),
+    );
+    expect(layout).toMatchObject({
+      schema_version: 1,
+      owner: 'watchdog',
+      resources: { config: 'migrated', state: 'migrated', log: 'migrated', subscriptions: 'retired' },
+    });
   });
 });
 

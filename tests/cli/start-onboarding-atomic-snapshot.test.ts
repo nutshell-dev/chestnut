@@ -13,13 +13,12 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { createRootConfig, createRootConfigLegacyMigration } from '../../src/assembly/index.js';
+import { createRootConfig } from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const snapshotDeps = {
   fsFactory,
   rootConfig: createRootConfig({ fsFactory }),
-  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
 };
 
 const { getInitializationSnapshot, getOnboardingStatus } =

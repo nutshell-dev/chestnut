@@ -5,7 +5,6 @@
 import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
-import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
@@ -19,7 +18,7 @@ import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/index.js';
+import type { RootConfigAdmin } from '../../assembly/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
@@ -447,7 +446,6 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
 interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
-  rootConfigLegacy: RootConfigLegacyMigration;
 }
 
 // phase 1874 Step L（族 3b）: 形状经 CLIProtocol catalog 投影
@@ -466,8 +464,6 @@ export function createConfigCommand(deps: ConfigCommandDeps): Command {
     handler: (...args: TArgs) => Promise<void>,
   ): (...args: TArgs) => Promise<void> {
     return cliAction(policy, async (...args: TArgs) => {
-      // Phase 1288 Step B: config 命令族入口编排 audit config 迁移（幂等；冲突 fail-loud）
-      ensureAuditConfigMigrated(deps);
       await handler(...args);
     }, { fsFactory: deps.fsFactory });
   }

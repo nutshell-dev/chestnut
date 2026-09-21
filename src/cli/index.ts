@@ -39,7 +39,7 @@ import { actionAuditFor } from './action-scope.js';
 import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
-import { createRootConfig, createRootConfigLegacyMigration, createContractActionContext } from '../assembly/index.js';
+import { createRootConfig, createContractActionContext } from '../assembly/index.js';
 import { AUDIT_FILE_STEM } from '../foundation/audit/index.js';
 // phase 1874 Step L: motion 族命令形状经 CLIProtocol catalog 投影（summary/options 单源）
 import { getMotionCommandSpec, getContractCommandSpec, getMiscCommandSpec, getRootCommandSpec, applyCommandOptions, type MotionCommandId, type ContractCommandId, type MiscCommandId, type CommandShapeRegistrar } from '../cli-protocol/index.js';
@@ -64,7 +64,6 @@ function deferredRequiredAction<TArgs extends unknown[]>(
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 // phase 1301 Step A：composition root 唯一构造点（无 IO）；后续 command 族迁移沿用同一实例。
 const rootConfig = createRootConfig({ fsFactory });
-const rootConfigLegacy = createRootConfigLegacyMigration({ fsFactory });
 
 program
   .name('chestnut')
@@ -91,7 +90,7 @@ program
 }
 
 // config command
-program.addCommand(createConfigCommand({ fsFactory, rootConfig, rootConfigLegacy }));
+program.addCommand(createConfigCommand({ fsFactory, rootConfig }));
 
 // stop command
 rootShape(program.command('stop'), 'stop')
@@ -111,7 +110,7 @@ rootShape(program.command('start'), 'start')
   .action(deferredRequiredAction(async (ensureSupervision) => {
     const { startCommand } = await import('./commands/start.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-    await startCommand({ fsFactory, rootConfig, rootConfigLegacy }, { audit, ensureSupervision });
+    await startCommand({ fsFactory, rootConfig }, { audit, ensureSupervision });
   }));
 
 // init command

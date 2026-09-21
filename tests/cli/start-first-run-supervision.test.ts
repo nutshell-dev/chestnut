@@ -18,7 +18,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
-import { createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const h = vi.hoisted(() => ({
   order: [] as string[],
@@ -105,7 +104,6 @@ const startDeps = () => ({
     saveGlobal: vi.fn(),
     patchPrimary: vi.fn(),
   },
-  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
 });
 
 let tmpDir: string;
