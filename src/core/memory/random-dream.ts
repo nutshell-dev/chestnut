@@ -114,7 +114,7 @@ interface PendingRandomDreamNotification {
 interface RandomDreamState {
   schema_version?: number;                              // phase 548: 显式 schema 版本（缺即视 v1）
   completedContractIds: ContractId[];                   // phase 925: per-contract 完成集合
-  pendingLateSettle?: PendingLateSettleEntry[];         // NEW phase 170, optional for backward compat
+  pendingLateSettle?: PendingLateSettleEntry[];         // phase 170: late-settle 待办（normalizeState 恒产出；optional 仅为容损坏输入，读侧校验过滤）
   pendingNotifications?: PendingRandomDreamNotification[]; // phase 1159 Step B: durable notification outbox
 }
 
