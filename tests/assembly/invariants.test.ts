@@ -329,10 +329,10 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
 }));
 
 vi.mock('../../src/assembly/config/config-load.js', () => {
-  // phase 1300 Step A: owner 名称改为 resolveLLMConfig；同一 mock fn 同时挂在
-  // 新旧两名下，保持 buildLLMConfig 断言与 mockImplementationOnce 语义不变。
+  // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
+  // mockImplementationOnce 语义不变。
   const llmConfigFn = vi.fn(() => ({ provider: 'mock' }));
-  return { buildLLMConfig: llmConfigFn, resolveLLMConfig: llmConfigFn };
+  return { resolveLLMConfig: llmConfigFn };
 });
 
 vi.mock('../../src/core/contract/index.js', async (importOriginal) => {

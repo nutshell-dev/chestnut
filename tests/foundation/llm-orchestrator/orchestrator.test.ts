@@ -24,7 +24,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
-import { buildLLMConfig } from '../../../src/assembly/config/config-load.js';
+import { resolveLLMConfig } from '../../../src/assembly/config/config-load.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 
 function createMockSink() {
@@ -132,7 +132,7 @@ describe('Phase 1268 Step E: circuit breaker default enabled', () => {
         ],
       },
     });
-    const llmConfig = buildLLMConfig(globalConfig);
+    const llmConfig = resolveLLMConfig(globalConfig);
 
     const primary = createMockProvider('anthropic');
     const fb1 = createMockProvider('openai');

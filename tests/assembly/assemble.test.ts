@@ -365,10 +365,10 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
 }));
 
 vi.mock('../../src/assembly/config/config-load.js', () => {
-  // phase 1300 Step A: owner 名称改为 resolveLLMConfig；同一 mock fn 同时挂在
-  // 新旧两名下，保持 buildLLMConfig 断言与 mockImplementationOnce 语义不变。
+  // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
+  // mockImplementationOnce 语义不变。
   const llmConfigFn = vi.fn(() => ({ provider: 'mock' }));
-  return { buildLLMConfig: llmConfigFn, resolveLLMConfig: llmConfigFn };
+  return { resolveLLMConfig: llmConfigFn };
 });
 
 // phase 265: hoist 14 dynamic imports below. vitest hoists all vi.mock(...) above
@@ -377,7 +377,7 @@ vi.mock('../../src/assembly/config/config-load.js', () => {
 // did, without paying the per-invocation resolution cost.
 import { createStreamWriter } from '../../src/foundation/stream/index.js';
 import { CronRunner } from '../../src/foundation/cron/runner.js';
-import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
+import { resolveLLMConfig } from '../../src/assembly/config/config-load.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
 import { createRuntime } from '../../src/core/runtime/index.js';
@@ -728,13 +728,13 @@ describe('assemble', () => {
     );
   });
 
-  it('buildLLMConfig 失败 → assemble_failed module=llm_config + 抛 Error', async () => {
-    (buildLLMConfig as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+  it('resolveLLMConfig 失败 → assemble_failed module=llm_config + 抛 Error', async () => {
+    (resolveLLMConfig as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       throw new Error('llm cfg boom');
     });
 
     await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
-      'Assembly: buildLLMConfig failed: llm cfg boom'
+      'Assembly: resolveLLMConfig failed: llm cfg boom'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'assemble_failed',

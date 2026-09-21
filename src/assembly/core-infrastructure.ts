@@ -191,7 +191,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         : resolveLLMConfig(globalConfig, clawConfig!);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm_config`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: buildLLMConfig failed: ${formatErr(e)}`, { cause: e });
+      throw new Error(`Assembly: resolveLLMConfig failed: ${formatErr(e)}`, { cause: e });
     }
 
     // --- L3-L5: 派生配置统一求值（motion vs claw 分叉） ---

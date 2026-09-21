@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { buildLLMConfig } from '../../../src/assembly/config/config-load.js';
+import { resolveLLMConfig } from '../../../src/assembly/config/config-load.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 import type {
   LLMEventSink,
@@ -143,7 +143,7 @@ describe('phase 320 Step A: reloadConfig', () => {
         primary: { preset: 'anthropic', api_key: 'kA', model: 'mA' },
       },
     });
-    const orch = new LLMOrchestratorImpl({ ...buildLLMConfig(cfgA), events: sink });
+    const orch = new LLMOrchestratorImpl({ ...resolveLLMConfig(cfgA), events: sink });
     expect((orch as any).breakers).toHaveLength(1);
     const firstBreaker = (orch as any).breakers[0];
     expect(firstBreaker.threshold).toBe(3);
@@ -157,7 +157,7 @@ describe('phase 320 Step A: reloadConfig', () => {
         ],
       },
     });
-    orch.reloadConfig({ ...buildLLMConfig(cfgB), events: sink });
+    orch.reloadConfig({ ...resolveLLMConfig(cfgB), events: sink });
     expect((orch as any).breakers).toHaveLength(2);
   });
 

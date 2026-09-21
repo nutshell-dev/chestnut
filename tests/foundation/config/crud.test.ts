@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { getClawConfigPath } from '../../../src/foundation/claw-identity/index.js';
 
-const { loadGlobalConfig, loadClawConfig, patchGlobalConfigPrimary, buildLLMConfig } = await import('../../../src/assembly/config/config-load.js');
+const { loadGlobalConfig, loadClawConfig, patchGlobalConfigPrimary, resolveLLMConfig } = await import('../../../src/assembly/config/config-load.js');
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -92,7 +92,7 @@ llm:
   });
 });
 
-describe('assembly/config-load: buildLLMConfig circuit breaker defaults (phase 1268 Step E)', () => {
+describe('assembly/config-load: resolveLLMConfig circuit breaker defaults (phase 1268 Step E)', () => {
   beforeEach(setupTempDir);
   afterEach(teardownTempDir);
 
@@ -118,7 +118,7 @@ ${extraLlmYaml}
       reset_timeout_ms: 60_000,
     });
 
-    const llmConfig = buildLLMConfig(globalConfig);
+    const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.circuitBreaker).toEqual({
       failureThreshold: 3,
       resetTimeoutMs: 60_000,
@@ -133,7 +133,7 @@ ${extraLlmYaml}
       reset_timeout_ms: 120_000,
     });
 
-    const llmConfig = buildLLMConfig(globalConfig);
+    const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.circuitBreaker).toEqual({
       failureThreshold: 5,
       resetTimeoutMs: 120_000,
@@ -143,7 +143,7 @@ ${extraLlmYaml}
   it('缺段 + primary+2 fallbacks 时 build 得到 N+1 个 breaker 配置', () => {
     writeMinimalConfig(`  fallbacks:\n    - preset: openai\n      api_key: sk-fb1\n      model: gpt-test\n    - preset: moonshot\n      api_key: sk-fb2\n      model: kimi-test\n`);
     const globalConfig = loadGlobalConfig({ fsFactory });
-    const llmConfig = buildLLMConfig(globalConfig);
+    const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.fallbacks).toHaveLength(2);
     expect(llmConfig.circuitBreaker).toEqual({
       failureThreshold: 3,

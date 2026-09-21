@@ -45,7 +45,7 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   patchGlobalConfigPrimary: vi.fn(),
   saveClawConfig: vi.fn(),
   clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
+  resolveLLMConfig: vi.fn(),  // phase 1886 Step B: mock 随 alias 删除归名
 }));
 
 vi.mock('../../src/foundation/process-manager/index.js', () => ({

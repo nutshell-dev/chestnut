@@ -48,10 +48,10 @@ const EXPECTED_SURFACE = [
   'resolveLLMConfig',
 ];
 
-// 临时兼容出口与内部符号：不得进入 barrel。
+// 内部符号：不得进入 barrel。（phase 1886 Step B: 兼容出口 buildLLMConfig 已随 alias 删除出列）
 const FORBIDDEN = [
   'isInitialized', 'loadGlobalConfig', 'loadClawConfig', 'saveGlobalConfig', 'saveClawConfig',
-  'patchGlobalConfigPrimary', 'buildLLMConfig', 'clawExists', 'getGlobalConfigPath',
+  'patchGlobalConfigPrimary', 'clawExists', 'getGlobalConfigPath',
   'loadYamlConfig', 'writeYamlConfig', 'patchYamlConfig', 'configExists',
   'readLegacyAuditConfigSection', 'removeLegacyAuditConfigSection',
   'readLegacyWatchdogConfigSection', 'removeLegacyWatchdogConfigSection',

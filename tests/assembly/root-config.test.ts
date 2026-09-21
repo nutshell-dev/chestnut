@@ -20,8 +20,6 @@ import {
   resolveLLMConfig,
   type RootConfigAdmin,
 } from '../../src/assembly/index.js';
-// 兼容 alias identity 断言需引用旧名（同一模块深链，属临时兼容出口）。
-import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -175,9 +173,5 @@ describe('resolveLLMConfig resolver', () => {
     // claw 只覆盖 primary，fallback/retry/breaker 仍取 global。
     expect(withClaw.maxAttempts).toBe(globalOnly.maxAttempts);
     expect(withClaw.circuitBreaker).toEqual(globalOnly.circuitBreaker);
-  });
-
-  it('buildLLMConfig 是同一函数的 deprecated alias（无双实现）', () => {
-    expect(buildLLMConfig).toBe(resolveLLMConfig);
   });
 });
