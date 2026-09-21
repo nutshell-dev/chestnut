@@ -195,7 +195,6 @@ const VI_MOCK_FILES = [
   'tests/foundation/misc-invariants.test.ts',
   'tests/watchdog/shutdown-invariants.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
-  'tests/watchdog/watchdog-state-migration.test.ts',  // Phase 1396 Step H: legacy notification state migration uses vi.mock
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
   'tests/assembly/invariants.test.ts',
   'tests/assembly/assemble.test.ts',
