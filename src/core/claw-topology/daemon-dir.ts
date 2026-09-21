@@ -11,6 +11,7 @@
  *
  * phase 694：从现 makeAgentDirResolver() factory 抽出直调入口、PM 撤
  * dirResolver 注入后 caller 改用本 helper 直算 daemonDir 再传 PM API。
+ * （resolver 文件已随 phase 1893 删除：694 直调化后零运行消费。）
  */
 
 import type { ClawId } from '../../foundation/claw-identity/index.js';

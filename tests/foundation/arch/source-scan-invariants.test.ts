@@ -247,7 +247,8 @@ describe('resource-owner-presence', () => {
    * Lint rules and ratchet tests reference these paths. If anyone renames
    * or removes them without updating dependent rules, this catches it.
    *
-   * phase 564 扩 (phase 520-554 follow-up): 加 5 entry 覆盖 motion-claw-id / agent-dir-resolver /
+   * phase 564 扩 (phase 520-554 follow-up): 加 5 entry 覆盖 motion-claw-id /
+   * agent-dir-resolver（已随 phase 1893 删除：694 直调化后零运行消费，有意移除）/
    * claw-status-hints / claw-failure-classes / cli-protocol。新 owner module 引入后未加 invariant、
    * 误删不 fail-loud。
    */
@@ -262,7 +263,7 @@ describe('resource-owner-presence', () => {
       { name: 'foundation/transport (net owner)', rel: 'foundation/transport/unix-socket.ts' },
       // phase 564: phase 520-554 引入的 5 个 owner module
       { name: 'core/claw-topology/motion-claw-id (phase 520: MOTION_CLAW_ID owner)', rel: 'core/claw-topology/motion-claw-id.ts' },
-      { name: 'core/claw-topology/agent-dir-resolver (phase 535: motion-vs-claw dir resolver)', rel: 'core/claw-topology/agent-dir-resolver.ts' },
+      // phase 1893：agent-dir-resolver 已随零消费面有意删除（原 phase 535 entry 移除）
       { name: 'cli/utils/claw-status-hints (phase 540/708)', rel: 'cli/utils/claw-status-hints.ts' },
       // Phase 1396 Step F: claw-crashed / claw-inactivity guidance + failure-classes 已退役
       { name: 'core/claw-topology/jobs/outbox-summary/guidance-state (phase 1259: claw_outbox_summary guidance codec owner)', rel: 'core/claw-topology/jobs/outbox-summary/guidance-state.ts' },
