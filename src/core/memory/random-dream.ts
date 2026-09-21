@@ -243,22 +243,6 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamLoadR
       };
     }
 
-    // phase 280/925: legacy schema migration
-    if ('processedContractIds' in r || 'lastProcessedRandomDreamAt' in r) {
-      const legacyField = 'processedContractIds' in r ? 'processedContractIds' : 'lastProcessedRandomDreamAt';
-      audit.write(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET,
-        `kind=random_dream`,
-        `legacy_field=${legacyField}`,
-        `legacy_count=${Array.isArray(r.processedContractIds) ? r.processedContractIds.length : 0}`,
-      );
-      const normalized = normalizeState(r, audit);
-      // phase 925: best-effort seed completedContractIds from legacy processedContractIds
-      const completed: ContractId[] = Array.isArray(r.processedContractIds)
-        ? r.processedContractIds.filter((id): id is ContractId => typeof id === 'string')
-        : [];
-      return { state: { ...normalized, completedContractIds: completed } };
-    }
-
     return { state: normalizeState(r, audit) };
     }
   }

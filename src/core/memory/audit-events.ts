@@ -26,7 +26,6 @@ export const MEMORY_AUDIT_EVENTS = {
   MEMORY_DREAM_INVARIANT_VIOLATED: 'memory_dream_invariant_violated',  // NEW phase 247 Step A
   MEMORY_DREAM_CROSS_SOURCE_MISMATCH: 'memory_dream_cross_source_mismatch',  // NEW phase 247 Step B
   MEMORY_DREAM_CROSS_SOURCE_SKIPPED: 'memory_dream_cross_source_skipped',    // NEW phase 247 Step B
-  LEGACY_SCHEMA_MIGRATED_RESET: 'memory_legacy_schema_migrated_reset',        // NEW phase 280
   DREAM_STATE_FUTURE_VERSION: 'memory_dream_state_future_version',             // NEW phase 926
 } as const;
 
@@ -63,6 +62,5 @@ export const MEMORY_FILE_ROUTING: Readonly<Record<MemoryAuditEvent, 'audit'>> = 
   memory_dream_invariant_violated: 'audit',        // phase 1809 补（phase 247 Step A 事件）
   memory_dream_cross_source_mismatch: 'audit',     // phase 1809 补（phase 247 Step B 事件）
   memory_dream_cross_source_skipped: 'audit',      // phase 1809 补（phase 247 Step B 事件）
-  memory_legacy_schema_migrated_reset: 'audit',    // phase 1809 补（phase 280 事件）
   memory_dream_state_future_version: 'audit',      // phase 1809 补（phase 926 事件）
 } as const;

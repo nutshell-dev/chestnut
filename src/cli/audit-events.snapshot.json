@@ -431,7 +431,6 @@
       "memory_dream_cross_source_mismatch",
       "memory_dream_cross_source_skipped",
       "memory_dream_state_future_version",
-      "memory_legacy_schema_migrated_reset",
       "memory_random_dream_late_settle_abandoned",
       "memory_random_dream_late_settle_consumed",
       "memory_random_dream_late_settle_pending",

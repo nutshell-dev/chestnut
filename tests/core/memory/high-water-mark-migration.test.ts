@@ -1,8 +1,9 @@
 /**
- * phase 280 — memory dream-state high-water-mark migration tests
+ * phase 280 — memory dream-state high-water-mark load tests
  *
- * 覆盖 random-dream legacy schema（processedContractIds / lastProcessedRandomDreamAt）→
- * completedContractIds silent reset + audit emit；deep-dream legacy 分支已随 phase 1895 Step D 删除。
+ * legacy schema 迁移分支（processedArchives / processedContractIds）已随
+ * phase 1895 Step D/E 删除；本文件保留现行 schema 的 load 行为回归
+ * （默认值、0 audit、损坏 quarantine）。
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -98,74 +99,7 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
   });
 });
 
-describe('random-dream legacy schema migration (phase 925)', () => {
-  it('legacy state 含 processedContractIds → migrate to completedContractIds + audit emit', () => {
-    const audit = makeMockAudit();
-    const fs = makeMockFs({
-      [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
-        processedContractIds: ['c1', 'c2'],
-      }),
-    });
-
-    const { state } = __test_loadRandomDreamState(fs, audit);
-
-    expect(state.completedContractIds).toEqual(['c1', 'c2']);
-    expect(state.pendingLateSettle).toEqual([]);
-    expect(state.pendingNotifications).toEqual([]);
-    expect(state.schema_version).toBe(2);
-
-    expect(audit.write).toHaveBeenCalledTimes(1);
-    const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
-    expect(call).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^kind=random_dream$/),
-      expect.stringMatching(/^legacy_field=processedContractIds$/),
-      expect.stringMatching(/^legacy_count=2$/),
-    ]));
-  });
-
-  it('legacy state 含 processedContractIds + pendingLateSettle → migrate 保 pendingLateSettle', () => {
-    const audit = makeMockAudit();
-    const fs = makeMockFs({
-      [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
-        processedContractIds: ['c1'],
-        pendingLateSettle: [
-          { taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2, contractIds: ['c1'] },
-          { taskId: 't2', scheduledAt: 3, expectedTimeoutAt: 4, contractIds: ['c2'] },
-        ],
-      }),
-    });
-
-    const { state } = __test_loadRandomDreamState(fs, audit);
-
-    expect(state.completedContractIds).toEqual(['c1']);
-    expect(state.pendingLateSettle).toHaveLength(2);
-    expect(state.pendingLateSettle?.[0].taskId).toBe('t1');
-    expect(state.pendingNotifications).toEqual([]);
-    expect(state.schema_version).toBe(2);
-    expect(audit.write).toHaveBeenCalledTimes(1);
-    expect((audit.write as ReturnType<typeof vi.fn>).mock.calls[0][0])
-      .toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
-  });
-
-  it('legacy state 含 lastProcessedRandomDreamAt → migrate to completedContractIds=[] + audit emit', () => {
-    const audit = makeMockAudit();
-    const fs = makeMockFs({
-      [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
-        lastProcessedRandomDreamAt: 1717000000000,
-      }),
-    });
-
-    const { state } = __test_loadRandomDreamState(fs, audit);
-
-    expect(state.completedContractIds).toEqual([]);
-    expect(state.pendingNotifications).toEqual([]);
-    expect(state.schema_version).toBe(2);
-    expect(audit.write).toHaveBeenCalledTimes(1);
-    expect((audit.write as ReturnType<typeof vi.fn>).mock.calls[0][0])
-      .toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
-  });
-
+describe('random-dream state load (现行 schema)', () => {
   it('新 schema → 0 migration 触发 + 正常返回', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({

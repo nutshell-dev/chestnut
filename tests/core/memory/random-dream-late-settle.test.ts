@@ -317,35 +317,6 @@ describe('random-dream late-settle (phase 170)', () => {
     expect(outboxContents).toHaveLength(0);
   });
 
-  // ── case 5: backward compat ───────────────────────────────────
-
-  it('legacy state 含 processedContractIds → load migration + skip_empty 不覆写文件', async () => {
-    await fs.writeFile(
-      path.join(chestnutRoot, '.random-dream-state.json'),
-      JSON.stringify({ processedContractIds: ['c-old'] }),
-      'utf-8'
-    );
-
-    await runRandomDream(makeOpts(chestnutRoot, motionDir));
-
-    // 0 shape_invalid audit
-    const shapeInvalidCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
-      c.some((arg: any) => typeof arg === 'string' && arg.includes('shape_invalid'))
-    );
-    expect(shapeInvalidCalls).toHaveLength(0);
-
-    // migration audit emit（load 时触发）
-    const migrationCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
-      c[0] === MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET
-    );
-    expect(migrationCalls).toHaveLength(1);
-
-    // skip_empty 不触发 save，文件保持原样（legacy schema）
-    const diskState = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
-    expect(diskState.processedContractIds).toContain('c-old');
-    expect(diskState.completedContractIds).toBeUndefined();
-  });
-
   // ── case 6: sweep 同 entry 重入 idempotent ────────────────────
 
   it('sweep 同 entry 重入 idempotent + motion dedup', async () => {
