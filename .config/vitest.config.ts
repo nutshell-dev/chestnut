@@ -299,6 +299,29 @@ const INFRA_FILES = [
   'tests/utils/run-root-teardown-integration.test.ts',
 ];
 
+/**
+ * phase 1880 Step B: tsc-API 编译族（TS compiler API 编译全仓模块图的 arch 测试）
+ * 这些 file 单测即 1.6s–10s CPU 密集固定成本（ts.createProgram 族）；混跑 fast
+ * project（isolate:false + 全量高并发）时并行装载放大编译成本、超 15s 预算
+ * （l2_process_manager.md §9 #1–#4 登记 flaky：N=3 + N=1×3，隔离复跑全绿）。
+ * 归专用 arch-compile project（isolate:true + maxThreads:2 + testTimeout 60s）
+ * 与其余测试负载隔离；仍在默认运行面（test:run / test:diff / test:preflight）。
+ * 维护: 新增经 TS compiler API 编译全仓模块图的测试需加此列表
+ * 判据: 测试内 import 'typescript' 并 ts.createProgram / ts.createSourceFile 编译面
+ *   （grep: tests/ 下 `typescript|ts\\.createProgram`；eslint-config.invariant 为例外
+ *    登记——同族重负载观察随族迁移，防回 fast 混跑）
+ */
+const ARCH_COMPILE_FILES = [
+  'tests/foundation/arch/process-manager-failure-surface.test.ts',
+  'tests/foundation/arch/ensure-running-outcome-deep-surface.test.ts',
+  'tests/foundation/arch/process-spawn-conflict-reason-surface.test.ts',
+  'tests/foundation/arch/process-winner-convergence-reason-deep-surface.test.ts',
+  'tests/foundation/arch/spawn-options-surface.test.ts',
+  'tests/foundation/arch/eslint-config.invariant.test.ts',
+  'tests/foundation/arch/messaging-message-direction-surface.test.ts',
+  'tests/foundation/arch/messaging-message-kind-surface.test.ts',
+];
+
 const ISOLATED_FILES = [...VI_MOCK_FILES, ...VI_DOMOCK_FILES, ...VI_GLOBALS_FILES];
 
 export default defineConfig({
@@ -335,6 +358,7 @@ export default defineConfig({
             ...INTEGRATION_PROCESS_FILES,
             ...INTEGRATION_IO_FILES,
             ...INFRA_FILES,
+            ...ARCH_COMPILE_FILES, // phase 1880: tsc-API 编译族归 arch-compile project
             '**/.chestnut/**',
             '**/node_modules/**',
             '**/dist/**',
@@ -345,6 +369,23 @@ export default defineConfig({
           hookTimeout: 10000,
           teardownTimeout: 5000, // phase 781: force worker teardown after 5s to prevent orphan vitest processes
           maxConcurrency: 20, // phase 300: lift default 5 → 20 for describe.concurrent blocks
+        },
+      },
+      {
+        test: {
+          // phase 1880 Step B: tsc-API 编译族专用 project——编译是 CPU 密集固定成本，
+          // isolate + 低并发（2 worker）使其不与其余测试争 worker；60s 预算 =
+          // 隔离峰值（~5.5s 实测 / 登记观察 ~10s）的 6-10×，防并行装载再超时。
+          name: 'arch-compile',
+          globals: true,
+          environment: 'node',
+          include: ARCH_COMPILE_FILES,
+          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          pool: 'threads',
+          poolOptions: { threads: { maxThreads: 2, isolate: true } },
+          testTimeout: 60000,
+          hookTimeout: 15000,
+          teardownTimeout: 5000,
         },
       },
       {
@@ -429,4 +470,4 @@ export default defineConfig({
 });
 
 // phase 1006: export project file lists for invariant tests
-export { INTEGRATION_PROCESS_FILES, INTEGRATION_IO_FILES, INFRA_FILES };
+export { INTEGRATION_PROCESS_FILES, INTEGRATION_IO_FILES, INFRA_FILES, ARCH_COMPILE_FILES };
