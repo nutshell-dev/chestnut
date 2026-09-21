@@ -571,8 +571,8 @@ function writeVerificationDispositionInbox(
 
 /**
  * Orchestrator: classify error → run retry state machine → 按 disposition 发一次通知。
- * Kept under existing name for backward compat with single callsite in verification.ts.
  * phase 1829: 通知投递与状态处置隔离——投递失败只记 audit，不进入状态回退/计数。
+ * （单调用方 verification.ts；现名为终名。）
  */
 export async function writeVerificationError(
   ctx: VerificationContext,
