@@ -12,6 +12,7 @@
  *   （candidate → spawning → pid → ready → active），child PID 是真实存活 sleeper 进程；
  * - 仅隔离语言输入（readline）、Motion init/chat、ContractSystem、notify 四类
  *   与 race 无关的交互。
+ * - orphan enumerate 以确定性缝表达（默认无 orphan；race 语义不涉 orphan）——phase 1887。
  *
  * Gating：CLI PM 的 system audit 同步落盘 <workspace>/.chestnut/audit.tsv；
  * 等到 `process_generation_commit_lost` 出现即证明 CLI 已 conflict 并进入 join 轮询，
@@ -106,6 +107,24 @@ vi.mock('readline', () => ({
   }),
 }));
 
+// phase 1887 Step C: orphan cleanup 走确定性缝（1779 模式）——findProcessesDetailed
+// 经 hoisted impl 可控。默认确定性空列表（无 orphan → cleanupOrphans 走 not_needed →
+// spawn 继续至 commit 竞争）；call-through 真实 pgrep 会让无 pgrep/受限环境下本用例以
+// ProcessOrphanCleanupError（blocked stage=enumerate，fail-closed 不 spawn）误失败。
+// race 语义（conflict → join exact winner）不依赖枚举结果；需要真实枚举的用例显式置
+// undefined（call-through 真实实现）。
+const orphanFind = vi.hoisted(() => ({
+  impl: (() => []) as undefined | (() => Array<{ pid: number; command: string }>),
+}));
+vi.mock('../../src/foundation/process-manager/find.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/process-manager/find.js')>();
+  return {
+    ...actual,
+    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+  };
+});
+
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 const startDeps = () => ({
   fsFactory,
@@ -150,6 +169,7 @@ beforeEach(() => {
   savedRoot = process.env.CHESTNUT_ROOT;
   process.env.CHESTNUT_ROOT = tmpDir;
   vi.spyOn(console, 'log').mockImplementation(() => {});
+  orphanFind.impl = () => [];  // 默认无 orphan
 });
 
 afterEach(() => {
@@ -161,6 +181,7 @@ afterEach(() => {
   else process.env.CHESTNUT_ROOT = savedRoot;
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.restoreAllMocks();
+  orphanFind.impl = () => [];  // 恢复默认（确定性空列表）
 });
 
 describe('start watchdog winner spawn race (phase 1282)', () => {
