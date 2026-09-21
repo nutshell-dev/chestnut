@@ -85,6 +85,8 @@ export { AUDIT_SNAPSHOT_IGNORE } from './writer.js';
 export { createDirContext } from './dir-context.js';
 
 export { createSystemAudit, createAuditWriter } from './factory.js';
+// phase 1893: fallback 静默 audit（完整接口面全 noop，免 as unknown as 裸 stub）
+export { noopAuditLog } from './noop.js';
 export { createHourlyHeartbeatAccumulator } from './hourly-heartbeat.js';
 export { runAuditSizeMonitor, AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from './jobs/audit-size-monitor.js';
 

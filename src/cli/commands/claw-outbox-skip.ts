@@ -11,6 +11,7 @@
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
+import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -124,7 +125,7 @@ export async function outboxSkipCommand(
 
   const modeCol = options.all === true ? 'all=true' : `limit=${options.limit ?? 1}`;
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_SKIP_START, `claw=${name}`, modeCol);
-  const { skipped, remaining } = await skipOutbox(clawFs, audit ?? { write: () => {} } as unknown as AuditLog, options);
+  const { skipped, remaining } = await skipOutbox(clawFs, audit ?? noopAuditLog, options);
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_SKIP_DONE, `claw=${name}`, `count=${skipped.length}`, `remaining=${remaining}`);
 
   printOutboxSkipResults(skipped, remaining);

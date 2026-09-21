@@ -32,6 +32,7 @@ import { createDaemonSpawnOptions, DAEMON_LOG } from '../../daemon/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/skill-system/index.js';
+import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -258,7 +259,7 @@ export async function motionOutboxCommand(
   audit?.write(CLI_AUDIT_EVENTS.MOTION_OUTBOX_DRAIN_START, `limit=${options.limit ?? DEFAULT_OUTBOX_DRAIN_LIMIT}`);
   const { drained, remaining } = await drainOutbox(
     motionFs,
-    audit ?? { write: () => {} } as unknown as AuditLog,
+    audit ?? noopAuditLog,
     options,
   );
   audit?.write(CLI_AUDIT_EVENTS.MOTION_OUTBOX_DRAIN_DONE, `count=${drained.length}`, `remaining=${remaining}`);

@@ -2,6 +2,7 @@ import * as path from 'path';
 import { formatErr } from "../../../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
+import { noopAuditLog } from '../../../foundation/audit/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveState, LifecycleIntent, LifecycleIntentIssue } from '../types.js';
@@ -178,7 +179,7 @@ async function formatCurrentArchiveEvent(
     case 'corrupted': {
       const { intents } = await readLifecycleIntentsForContract(
         fs,
-        { write: () => {} } as unknown as AuditLog,
+        noopAuditLog,
         clawDir,
         contractDirName as import('../types.js').ContractId,
       );
@@ -196,7 +197,7 @@ async function formatCurrentArchiveEvent(
       // no restart/cancel prescription (motion decision belongs to later phases).
       const { intents } = await readLifecycleIntentsForContract(
         fs,
-        { write: () => {} } as unknown as AuditLog,
+        noopAuditLog,
         clawDir,
         contractDirName as import('../types.js').ContractId,
       );

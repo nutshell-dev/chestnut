@@ -6,6 +6,7 @@
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
+import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -124,7 +125,7 @@ export async function outboxCommand(
   }
 
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${options?.limit ?? 1}`);
-  const { drained, remaining } = await drainOutbox(clawFs, audit ?? { write: () => {} } as unknown as AuditLog, options);
+  const { drained, remaining } = await drainOutbox(clawFs, audit ?? noopAuditLog, options);
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_DONE, `claw=${name}`, `count=${drained.length}`, `remaining=${remaining}`);
 
   printOutboxResults(drained, remaining);
