@@ -11,7 +11,6 @@ import * as path from 'path';
 
 import { type ContractId } from '../contract/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
-import type { LegacyPendingRetrospective } from './retrospective-store.js';
 import type { FullTaskId, PreparedSubagentSchedule } from '../async-task-system/index.js';
 import {
   RetrospectiveStore,
@@ -78,15 +77,7 @@ interface ClawFactories {
 }
 
 /** Context for retrospective review: motion resources + claw factories. */
-export interface MotionReviewContext extends MotionResources, ClawFactories {
-  /**
-   * Phase 1206 Step D: legacy pending-retrospective migration callbacks.
-   * EvolutionSystem delegates migration to RetrospectiveStore but does not
-   * import the legacy read/ack surface directly (architecture ratchet).
-   */
-  listLegacyPendingRetrospectives?: () => Promise<LegacyPendingRetrospective[]>;
-  ackLegacyPendingRetrospective?: (contractId: ContractId) => Promise<void>;
-}
+export type MotionReviewContext = MotionResources & ClawFactories;
 
 const LEGACY_STATE_FILE_PATH = '.evolution-system-state.json';
 
@@ -226,23 +217,18 @@ export class EvolutionSystem {
 
   /**
    * Recover from disk on startup:
-   * 1. Migrate legacy pending-retrospective rows.
-   * 2. Re-submit any dispatching rows (crash after move, before markSubmitted).
-   * 3. Drive ready rows whose contracts are completed.
+   * 1. Re-submit any dispatching rows (crash after move, before markSubmitted).
+   * 2. Drive ready rows whose contracts are completed.
+   *
+   * （phase 1890 Step G：legacy pending-retrospective 迁移步骤删除——存量废弃。）
    */
   async recoverRetrospectives(ctx: MotionReviewContext): Promise<{
-    migrated: number;
     failed: number;
     recovered: number;
     driven: number;
   }> {
-    const migration = await this.store.migrateLegacyRows(
-      ctx.listLegacyPendingRetrospectives ?? (() => Promise.resolve([])),
-      ctx.ackLegacyPendingRetrospective ?? (() => Promise.resolve()),
-    );
-
     let recovered = 0;
-    let failed = migration.failed;
+    let failed = 0;
     const dispatching = await this.store.listDispatching();
     for (const item of dispatching) {
       try {
@@ -302,14 +288,12 @@ export class EvolutionSystem {
 
     this.deps.audit.write(
       RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
-      `migrated=${migration.migrated}`,
       `failed=${failed}`,
       `recovered=${recovered}`,
       `driven=${driven}`,
     );
 
     return {
-      migrated: migration.migrated,
       failed,
       recovered,
       driven,

@@ -22,8 +22,6 @@ import {
   createSummonVerifyPolicy,
   createSummonCreationClaimStore,
   SummonTool,
-  listPendingRetrospectives,
-  ackPendingRetrospective,
 } from '../core/summon-system/index.js';
 import type { SummonContractQuery } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
@@ -178,9 +176,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         CLAWS_DIR
       ),
       clawFsFactory: fsFactory,
-      listLegacyPendingRetrospectives: () => listPendingRetrospectives({ fs: systemFs }),
-      ackLegacyPendingRetrospective: (contractId) =>
-        ackPendingRetrospective({ fs: systemFs, contractId, audit: auditWriter }),
       clawContractManagerFactory: async (d: string, id: string, fs: typeof systemFs) => {
         const cr = resolveChestnutRoot(d, false);
         const perClawAudit = createSystemAudit(fs, d);

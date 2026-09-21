@@ -374,8 +374,6 @@
       "retro_dispatch_started",
       "retro_dispatch_submitted",
       "retro_dispatch_submitted_failed",
-      "retro_legacy_migration_failed",
-      "retro_legacy_migration_summary",
       "retro_recovery_failed",
       "retro_registration_committed",
       "retro_state_load_failed",

@@ -79,15 +79,6 @@ export function executorIdOf(item: RetrospectiveWorkItem): string {
 
 type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'missing';
 
-export interface LegacyPendingRetrospective {
-  contractId: ContractId;
-  targetClaw: string;
-  mode?: string;
-  miningTaskId?: string;
-  shadowTaskId?: string;
-  createdAt?: string;
-}
-
 interface RetrospectiveStoreDeps {
   fs: FileSystem;
   audit: AuditLog;
@@ -281,83 +272,6 @@ export class RetrospectiveStore {
 
   async listSubmitted(): Promise<RetrospectiveWorkItem[]> {
     return this._listDir('submitted');
-  }
-
-  /**
-   * Migrate legacy pending-retrospective rows into the ready store as v2 rows
-   * (Phase 1396 Step M: legacy mode/task-id fields are dropped on migration).
-   * Each row is ensured, re-read to verify, then acked via the legacy owner.
-   * Failures preserve the original legacy row and emit audit.
-   */
-  async migrateLegacyRows(
-    listLegacy: () => Promise<LegacyPendingRetrospective[]>,
-    ackLegacy: (contractId: ContractId) => Promise<void>,
-  ): Promise<{ migrated: number; failed: number; skipped: number }> {
-    let migrated = 0;
-    let failed = 0;
-    let skipped = 0;
-
-    let legacyRows: LegacyPendingRetrospective[];
-    try {
-      legacyRows = await listLegacy();
-    } catch (e) {
-      this.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_LEGACY_MIGRATION_FAILED,
-        `phase=list`,
-        `reason=${formatErr(e)}`,
-      );
-      return { migrated: 0, failed: 0, skipped: 0 };
-    }
-
-    for (const row of legacyRows) {
-      try {
-        const ensureInput: EnsureRetrospectiveInput = {
-          contractId: row.contractId,
-          targetExecutorId: row.targetClaw,
-        };
-        const existing = await this._findAnyRow(row.contractId);
-        if (existing) {
-          const item = await this._readRow(existing.path, existing.dir);
-          if (item && observedInputMatchesRow(ensureInput, item)) {
-            // Already migrated and consistent — ack the legacy row.
-            await ackLegacy(row.contractId);
-            migrated++;
-            continue;
-          }
-        }
-
-        const { taskId } = await this.ensure(ensureInput);
-
-        // Verify readable before acking legacy.
-        const written = await this.readReady(row.contractId);
-        if (!written || written.task_id !== taskId) {
-          throw new Error(`migration verification failed for ${row.contractId}`);
-        }
-
-        await ackLegacy(row.contractId);
-        migrated++;
-      } catch (e) {
-        failed++;
-        this.audit.write(
-          RETRO_AUDIT_EVENTS.RETRO_LEGACY_MIGRATION_FAILED,
-          `contractId=${row.contractId}`,
-          `reason=${formatErr(e)}`,
-        );
-      }
-    }
-
-    this.audit.write(
-      RETRO_AUDIT_EVENTS.RETRO_LEGACY_MIGRATION_SUMMARY,
-      `migrated=${migrated}`,
-      `failed=${failed}`,
-      `skipped=${skipped}`,
-    );
-
-    return { migrated, failed, skipped };
-  }
-
-  private async readReady(contractId: ContractId): Promise<RetrospectiveWorkItem | null> {
-    return this._readRow(this.rowPath(contractId, 'ready'), 'ready');
   }
 
   private async _listDir(dir: RowLocation['dir']): Promise<RetrospectiveWorkItem[]> {

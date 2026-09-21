@@ -141,7 +141,6 @@ describe('boot-reconcile', () => {
         (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
       );
       expect(reconcileCall).toBeDefined();
-      expect(reconcileCall).toContainEqual('migrated=0');
       expect(reconcileCall).toContainEqual('failed=0');
       expect(reconcileCall).toContainEqual('recovered=0');
       expect(reconcileCall).toContainEqual('driven=1');
@@ -158,7 +157,6 @@ describe('boot-reconcile', () => {
         (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
       );
       expect(reconcileCall).toBeDefined();
-      expect(reconcileCall).toContainEqual('migrated=0');
       expect(reconcileCall).toContainEqual('failed=0');
       expect(reconcileCall).toContainEqual('recovered=0');
       expect(reconcileCall).toContainEqual('driven=0');
