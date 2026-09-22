@@ -596,7 +596,11 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     // 用户修好配置：reload 控制消息落盘；真实 consumePendingControls 应用并返回新修订。
     h.writeReload();
     const running = h.eventLoop.run();
-    await sleep(150);
+    // D.llm-recovery-z5-second-request-timing 治理（同 phase 1884 在上文「读取失败」
+    // 用例的形态）：固定 sleep(150) 窗假设 reload 消费+恢复准入+第二次真发在 150ms 内
+    // 完成，满载下 event-loop tick 调度延迟 → flaky（N=2，l5_event_loop §9）；改真实
+    // 时间轮询命中即过（预算 5000ms），命中后再 abort。断言面不变。
+    await waitFor(() => h.providerCalls.length === 2, 5_000, 10);
     h.eventLoop.abort();
     await running;
 
