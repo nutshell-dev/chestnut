@@ -32,7 +32,7 @@
     "check:drift-backlog": "node scripts/check-drift-backlog.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm run typecheck && pnpm run lint:arch && pnpm run lint:lint",
-    "lint:arch": "bash -c 'set -o pipefail; depcruise --config .config/dependency-cruiser.cjs src | sed \"s/ modules,/ graph nodes,/\"'",
+    "lint:arch": "node scripts/lint-arch.mjs",
     "lint:lint": "eslint src/ tests/ --config .config/eslint.config.js"
   },
   "keywords": [
