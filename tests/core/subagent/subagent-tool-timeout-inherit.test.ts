@@ -15,7 +15,7 @@ vi.mock('../../../src/core/agent-executor/loop.js', () => ({
 }));
 
 vi.mock('../../../src/foundation/tools/executor.js', () => ({
-  ToolExecutor: vi.fn().mockImplementation(() => ({
+  ToolExecutor: vi.fn().mockImplementation(function () { return {
     getExecContext: vi.fn().mockReturnValue({
       clawId: 'test-agent',
       clawDir: '/tmp/test',
@@ -30,12 +30,12 @@ vi.mock('../../../src/foundation/tools/executor.js', () => ({
       requestStop: vi.fn(),
       readFileState: new Map(),
     }),
-  })),
+  }; }),
 }));
 
 vi.mock('../../../src/foundation/audit/index.js', () => ({
   createAuditWriter: vi.fn().mockReturnValue({ write: vi.fn() }),
-  makeTraceId: vi.fn((value: string) => value),
+  makeTraceId: vi.fn(function (value: string) { return value; }),
 }));
 
 vi.mock('../../../src/foundation/dialog-store/index.js', () => ({

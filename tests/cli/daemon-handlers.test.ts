@@ -5,17 +5,17 @@ const mockAuditWrite = vi.fn();
 const mockAuditDispose = vi.fn();
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
-  NodeFileSystem: vi.fn().mockImplementation(() => ({})),
+  NodeFileSystem: vi.fn().mockImplementation(function () { return {}; }),
 }));
 
 vi.mock('../../src/foundation/audit/index.js', () => ({
-  createSystemAudit: vi.fn(() => ({
+  createSystemAudit: vi.fn(function () { return {
     write: mockAuditWrite,
-    preview: vi.fn((s: string) => s),
-    message: vi.fn((s: string) => s),
-    summary: vi.fn((s: string) => s),
+    preview: vi.fn(function (s: string) { return s; }),
+    message: vi.fn(function (s: string) { return s; }),
+    summary: vi.fn(function (s: string) { return s; }),
     dispose: mockAuditDispose,
-  })),
+  }; }),
   AUDIT_FILE: 'audit.tsv',
 }));
 
@@ -23,8 +23,8 @@ vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOri
   const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
   return {
     ...actual,
-    getClawDir: vi.fn(() => '/tmp/test-claw'),
-    getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
+    getClawDir: vi.fn(function () { return '/tmp/test-claw'; }),
+    getNamedSubrootDir: vi.fn(function () { return '/tmp/test-motion'; }),
   };
 });
 
@@ -41,9 +41,9 @@ describe('daemon-handlers shim audit', () => {
   beforeEach(() => {
     mockAuditWrite.mockClear();
     mockAuditDispose.mockClear();
-    mockAuditWrite.mockImplementation(() => {}); // 默 noop
-    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mockExit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    mockAuditWrite.mockImplementation(function () {}); // 默 noop
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(function () {});
+    mockExit = vi.spyOn(process, 'exit').mockImplementation((function (code?: number) {
       throw new Error(`process.exit(${code})`);
     }) as any);
 
@@ -141,7 +141,7 @@ describe('daemon-handlers shim audit', () => {
   });
 
   it('audit write 抛 → 静默 fallback console（uncaught path）', () => {
-    mockAuditWrite.mockImplementation(() => {
+    mockAuditWrite.mockImplementation(function () {
       throw new Error('audit disk full');
     });
 

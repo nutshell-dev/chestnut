@@ -16,7 +16,7 @@ vi.mock('../../src/foundation/fs/node-fs.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/fs/node-fs.js')>();
   return {
     ...actual,
-    NodeFileSystem: vi.fn().mockImplementation((opts: any) => new actual.NodeFileSystem(opts)),
+    NodeFileSystem: vi.fn().mockImplementation(function (opts: any) { return new actual.NodeFileSystem(opts); }),
   };
 });
 

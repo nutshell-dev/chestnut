@@ -36,7 +36,7 @@ describe('ProcessManager - spawn defaults', () => {
 
     // Setup mock process（phase 1763: spawnDetached 提交点由 'spawn' 事件定义，
     // double 需自动交付 spawn 事件，见 makeFakeSpawnedChild）
-    vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(FAKE_LIVE_PID) as any);
+    vi.mocked(spawn).mockImplementation(function () { return makeFakeSpawnedChild(FAKE_LIVE_PID) as any; });
 
     // phase 1779: pgrep 语义化 mock（exit 1 = 无匹配）——orphan enumerate 走真
     // findByPattern；若 mock 被 reset 成 undefined，findByPattern 会抛

@@ -76,7 +76,7 @@ describe('spawnDetached typed outcome（phase 1763）', () => {
   });
 
   it('同步 pre-commit 失败：spawn 自身 throw 折叠为 failed outcome', async () => {
-    vi.mocked(spawn).mockImplementation(() => {
+    vi.mocked(spawn).mockImplementation(function () {
       throw errnoError('spawn EINVAL', 'EINVAL', -22);
     });
 

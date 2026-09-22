@@ -29,7 +29,7 @@ const mockCronRunner = {
   stop: vi.fn(),
 };
 // phase 1791: mock 补显式恢复点（装配期 initialize() 恢复 due 基线；缺省 absent=首次启动）
-const mockHeartbeat = { initialize: vi.fn(async () => ({ kind: 'absent' as const })) };
+const mockHeartbeat = { initialize: vi.fn(async function () { return { kind: 'absent' as const }; }) };
 
 // phase 1260 Step B: capture ContractSystem instances for direct-attach assertions
 // phase 1872 Step F: 捕获 ctor deps（sink/auditor 构造参数一次固定后，装配面断言看 deps）
@@ -51,18 +51,18 @@ const callOrder: string[] = [];
 
 // phase 121: DI-injected mock factory for createSkillSystem (replaces vi.mock)
 const { mockSkillFactory } = vi.hoisted(() => ({
-  mockSkillFactory: vi.fn((..._args: any[]) => {
+  mockSkillFactory: vi.fn(function (..._args: any[]) {
     callOrder.push('SkillSystem');
     return {
       loadAll: vi.fn().mockResolvedValue(undefined),
       ensureLoaded: vi.fn().mockResolvedValue(undefined),
-      getSkills: vi.fn(() => []),
+      getSkills: vi.fn(function () { return []; }),
     };
   }),
 }));
 
 function trackCtor(name: string, factory: () => any) {
-  return vi.fn((...args: any[]) => {
+  return vi.fn(function (...args: any[]) {
     callOrder.push(name);
     return factory(...args);
   });
@@ -72,22 +72,24 @@ function trackCtor(name: string, factory: () => any) {
 // Module mocks
 // ============================================================================
 vi.mock('../../src/foundation/audit/writer.js', () => ({
-  AuditWriter: vi.fn(() => ({
-    write: mockAuditWrite,
-    preview: vi.fn((s: string) => s),
-    message: vi.fn((s: string) => s),
-    summary: vi.fn((s: string) => s),
-    // phase 1872 Step C: rollback teardown 断言面（AuditLog.dispose? 可选方法）。
-    dispose: mockAuditDispose,
-  })),
+  AuditWriter: vi.fn(function () {
+    return {
+      write: mockAuditWrite,
+      preview: vi.fn(function (s: string) { return s; }),
+      message: vi.fn(function (s: string) { return s; }),
+      summary: vi.fn(function (s: string) { return s; }),
+      // phase 1872 Step C: rollback teardown 断言面（AuditLog.dispose? 可选方法）。
+      dispose: mockAuditDispose,
+    };
+  }),
   AUDIT_FILE: 'audit.tsv',
   TICK_RETENTION_DAYS: 30,
   reconcileFallbackDumps: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/foundation/snapshot/index.js', () => ({
-  Snapshot: vi.fn(() => mockSnapshot),
-  createSnapshot: vi.fn(() => mockSnapshot),
+  Snapshot: vi.fn(function () { return mockSnapshot; }),
+  createSnapshot: vi.fn(function () { return mockSnapshot; }),
   SNAPSHOT_FILE_ROUTING: {},
 }));
 
@@ -98,61 +100,63 @@ vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
 }));
 
 vi.mock('../../src/foundation/stream/writer.js', () => ({
-  StreamWriter: vi.fn(() => mockStreamWriter),
-  createStreamWriter: vi.fn(() => mockStreamWriter),
+  StreamWriter: vi.fn(function () { return mockStreamWriter; }),
+  createStreamWriter: vi.fn(function () { return mockStreamWriter; }),
 }));
 
 vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../src/foundation/stream/index.js')>();
   return {
     ...mod,
-    createStreamWriter: vi.fn(() => mockStreamWriter),
+    createStreamWriter: vi.fn(function () { return mockStreamWriter; }),
     STREAM_FILE_ROUTING: {},
   };
 });
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
-  NodeFileSystem: vi.fn(({ baseDir }: { baseDir: string }) => ({
-    ensureDir: vi.fn().mockResolvedValue(undefined),
-    ensureDirSync: vi.fn(),
-    exists: vi.fn().mockResolvedValue(false),
-    existsSync: vi.fn((p: string) => fs.existsSync(path.join(baseDir, p))),
-    statSync: vi.fn((p: string) => fs.statSync(path.join(baseDir, p))),
-    readBytesSync: vi.fn((p: string, start: number, end: number) => {
-      const buf = fs.readFileSync(path.join(baseDir, p));
-      return buf.subarray(start, end);
-    }),
-    listSync: vi.fn(() => []),
-    list: vi.fn().mockResolvedValue([]),
-    read: vi.fn().mockRejectedValue(new Error('ENOENT')),
-    // Phase 1826: LLM 恢复状态读写（owner session 构造期读状态文件；默认 ENOENT = 首次启动）。
-    readSync: vi.fn((p: string) => {
-      const full = path.join(baseDir, p);
-      if (!fs.existsSync(full)) {
-        const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
-        err.code = 'ENOENT';
-        throw err;
-      }
-      return fs.readFileSync(full, 'utf-8');
-    }),
-    writeAtomicSync: vi.fn((p: string, content: string) => {
-      const full = path.join(baseDir, p);
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, content);
-    }),
-    deleteSync: vi.fn((p: string) => {
-      const full = path.join(baseDir, p);
-      if (fs.existsSync(full)) fs.unlinkSync(full);
-    }),
-    writeAtomic: vi.fn().mockResolvedValue(undefined),
-    move: vi.fn().mockResolvedValue(undefined),
-    // phase 1818: createClawPermissionChecker 构造期必需 canonical resolve capability，
-    // mock 亦须提供（词法 join 即可——本文件断言与 containment 无关）
-    resolve: vi.fn((p: string) => (path.isAbsolute(p) ? p : path.join(baseDir, p))),
-    // phase 1817: GuardedWrite 消费 realpath/writeAtomic/append——构造期校验一并要求
-    realpath: vi.fn(async (p: string) => (path.isAbsolute(p) ? p : path.join(baseDir, p))),
-    append: vi.fn().mockResolvedValue(undefined),
-  })),
+  NodeFileSystem: vi.fn(function ({ baseDir }: { baseDir: string }) {
+    return {
+      ensureDir: vi.fn().mockResolvedValue(undefined),
+      ensureDirSync: vi.fn(),
+      exists: vi.fn().mockResolvedValue(false),
+      existsSync: vi.fn(function (p: string) { return fs.existsSync(path.join(baseDir, p)); }),
+      statSync: vi.fn(function (p: string) { return fs.statSync(path.join(baseDir, p)); }),
+      readBytesSync: vi.fn(function (p: string, start: number, end: number) {
+        const buf = fs.readFileSync(path.join(baseDir, p));
+        return buf.subarray(start, end);
+      }),
+      listSync: vi.fn(function () { return []; }),
+      list: vi.fn().mockResolvedValue([]),
+      read: vi.fn().mockRejectedValue(new Error('ENOENT')),
+      // Phase 1826: LLM 恢复状态读写（owner session 构造期读状态文件；默认 ENOENT = 首次启动）。
+      readSync: vi.fn(function (p: string) {
+        const full = path.join(baseDir, p);
+        if (!fs.existsSync(full)) {
+          const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return fs.readFileSync(full, 'utf-8');
+      }),
+      writeAtomicSync: vi.fn(function (p: string, content: string) {
+        const full = path.join(baseDir, p);
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, content);
+      }),
+      deleteSync: vi.fn(function (p: string) {
+        const full = path.join(baseDir, p);
+        if (fs.existsSync(full)) fs.unlinkSync(full);
+      }),
+      writeAtomic: vi.fn().mockResolvedValue(undefined),
+      move: vi.fn().mockResolvedValue(undefined),
+      // phase 1818: createClawPermissionChecker 构造期必需 canonical resolve capability，
+      // mock 亦须提供（词法 join 即可——本文件断言与 containment 无关）
+      resolve: vi.fn(function (p: string) { return (path.isAbsolute(p) ? p : path.join(baseDir, p)); }),
+      // phase 1817: GuardedWrite 消费 realpath/writeAtomic/append——构造期校验一并要求
+      realpath: vi.fn(async function (p: string) { return (path.isAbsolute(p) ? p : path.join(baseDir, p)); }),
+      append: vi.fn().mockResolvedValue(undefined),
+    };
+  }),
 }));
 
 vi.mock('../../src/assembly/cleanup.js', () => ({
@@ -160,39 +164,39 @@ vi.mock('../../src/assembly/cleanup.js', () => ({
 }));
 
 vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
-  createAgentProcessManager: vi.fn(() => mockProcessManager),
+  createAgentProcessManager: vi.fn(function () { return mockProcessManager; }),
 }));
 
 vi.mock('../../src/core/runtime/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/core/runtime/index.js')>()),
-  Runtime: vi.fn(() => mockRuntime),
-  createRuntime: vi.fn((opts: { dependencies?: { toolRegistry?: { getAll(): Array<{ name: string }> } } }) => {
+  Runtime: vi.fn(function () { return mockRuntime; }),
+  createRuntime: vi.fn(function (opts: { dependencies?: { toolRegistry?: { getAll(): Array<{ name: string }> } } }) {
     callOrder.push('Runtime');
     // phase 1872 Step F: 记录交付瞬间的工具面（注册必须在运行时使用前完成）
     toolNamesAtRuntimeConstruction = opts?.dependencies?.toolRegistry?.getAll().map(t => t.name) ?? [];
     runtimeToolRegistry = opts?.dependencies?.toolRegistry;
     return mockRuntime;
   }),
-  buildMotionSystemPrompt: vi.fn(() => Promise.resolve('')),
+  buildMotionSystemPrompt: vi.fn(function () { return Promise.resolve(''); }),
 }));
 
 vi.mock('../../src/core/heartbeat/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/heartbeat/index.js')>();
-  const HeartbeatCtor = vi.fn(() => mockHeartbeat);
+  const HeartbeatCtor = vi.fn(function () { return mockHeartbeat; });
   return {
     ...actual,
     Heartbeat: HeartbeatCtor,
-    createHeartbeat: vi.fn((...args: any[]) => new (HeartbeatCtor as any)(...args)),
+    createHeartbeat: vi.fn(function (...args: any[]) { return new (HeartbeatCtor as any)(...args); }),
   };
 });
 
 vi.mock('../../src/foundation/cron/runner.js', () => {
-  const CronRunner = vi.fn(() => mockCronRunner);
+  const CronRunner = vi.fn(function () { return mockCronRunner; });
   return {
     CronRunner,
-    parseSchedule: vi.fn((s: string) => s),
+    parseSchedule: vi.fn(function (s: string) { return s; }),
     // phase 1445 Step D: mirror 实然工厂契约 — createCronRunner 内自动 start(tickMs)
-    createCronRunner: vi.fn((jobs: any, sink: any, tickMs?: number) => {
+    createCronRunner: vi.fn(function (jobs: any, sink: any, tickMs?: number) {
       const r = new (CronRunner as any)(jobs, sink);
       r.start(tickMs);
       return r;
@@ -207,7 +211,7 @@ const mockMemorySystem = {
 
 vi.mock('../../src/core/memory/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/core/memory/index.js')>()),
-  createMemorySystem: vi.fn(() => mockMemorySystem),
+  createMemorySystem: vi.fn(function () { return mockMemorySystem; }),
   memorySearchTool: { name: 'memory_search' },
   MEMORY_DIR: 'memory',
   MEMORY_FILE_ROUTING: {},
@@ -218,20 +222,22 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
   return {
     runContractObserver: mockRunContractObserver,
     CONTRACT_OBSERVER_CRON_TIMEOUT_MS: 5 * 60_000,
-    createContractObserverJob: vi.fn((deps, globalConfig) => ({
-      name: 'contract-observer',
-      enabled: globalConfig.cron.jobs.contract_observer.enabled,
-      schedule: globalConfig.cron.jobs.contract_observer.schedule,
-      handler: (signal: AbortSignal) => mockRunContractObserver({ ...deps, signal }),
-      timeoutMs: 5 * 60_000,
-    })),
+    createContractObserverJob: vi.fn(function (deps, globalConfig) {
+      return {
+        name: 'contract-observer',
+        enabled: globalConfig.cron.jobs.contract_observer.enabled,
+        schedule: globalConfig.cron.jobs.contract_observer.schedule,
+        handler: (signal: AbortSignal) => mockRunContractObserver({ ...deps, signal }),
+        timeoutMs: 5 * 60_000,
+      };
+    }),
   };
 });
 
 vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
   const LLMOrchestratorImpl = trackCtor('LLMOrchestratorImpl', () => {
     const instance = {
-      close: vi.fn(() => (failNextLlmClose ? Promise.reject(new Error('llm close boom')) : Promise.resolve())),
+      close: vi.fn(function () { return (failNextLlmClose ? Promise.reject(new Error('llm close boom')) : Promise.resolve()); }),
       healthCheck: vi.fn(),
       getProviderInfo: vi.fn(),
     };
@@ -240,7 +246,7 @@ vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
   });
   return {
     LLMOrchestratorImpl,
-    createLLMOrchestrator: vi.fn((config: any) => new (LLMOrchestratorImpl as any)(config)),
+    createLLMOrchestrator: vi.fn(function (config: any) { return new (LLMOrchestratorImpl as any)(config); }),
   };
 });
 
@@ -254,16 +260,16 @@ vi.mock('../../src/foundation/tools/registry.js', () => {
   const ToolRegistryImpl = trackCtor('ToolRegistryImpl', () => {
     const tools: Array<{ name: string }> = [];
     return {
-      register: vi.fn((t: { name: string }) => { tools.push(t); }),
-      getForProfile: vi.fn(() => []),
-      getAll: vi.fn(() => tools),
+      register: vi.fn(function (t: { name: string }) { tools.push(t); }),
+      getForProfile: vi.fn(function () { return []; }),
+      getAll: vi.fn(function () { return tools; }),
       formatForLLM: vi.fn(),
       unregister: vi.fn(),
     };
   });
   return {
     ToolRegistryImpl,
-    createToolRegistry: vi.fn(() => new (ToolRegistryImpl as any)()),
+    createToolRegistry: vi.fn(function () { return new (ToolRegistryImpl as any)(); }),
   };
 });
 
@@ -271,20 +277,20 @@ vi.mock('../../src/foundation/tools/executor.js', () => {
   const Ctor = trackCtor('ToolExecutorImpl', () => ({ execute: vi.fn() }));
   return {
     ToolExecutorImpl: Ctor,
-    createToolExecutor: vi.fn((...args: any[]) => new (Ctor as any)(...args)),
+    createToolExecutor: vi.fn(function (...args: any[]) { return new (Ctor as any)(...args); }),
   };
 });
 
 vi.mock('../../src/core/contract/manager.js', () => {
   const ContractSystem = trackCtor('ContractSystem', (deps: Record<string, unknown>) => {
-    const instance = { loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(() => () => {}), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })) };
+    const instance = { loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(function () { return () => {}; }), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(function () { return { name: 'submit_subtask', profiles: ['full'] }; }) };
     capturedContractManagers.push({ instance, deps });
     return instance;
   });
   return {
     ContractSystem,
     // phase 1445 Step D: mirror 实然工厂契约 — bootReconcile=true 时工厂内 await init()
-    createContractSystem: vi.fn(async (deps: any) => {
+    createContractSystem: vi.fn(async function (deps: any) {
       const m = new (ContractSystem as any)(deps);
       if (deps.bootReconcile) await m.init();
       return m;
@@ -301,14 +307,14 @@ vi.mock('../../src/core/async-task-system/system.js', () => {
       addPostProcessor: vi.fn(),
       setMainDialogStore: vi.fn(),
       // phase 1872 Step F: mock 保真——真实 ATS 提供 async exec 包装（装配面据此注册 exec）
-      createAsyncExecWrapper: vi.fn(() => ({ name: 'exec', profiles: ['full'] })),
+      createAsyncExecWrapper: vi.fn(function () { return { name: 'exec', profiles: ['full'] }; }),
     };
     capturedTaskSystems.push(instance);  // phase 1872 Step C: rollback teardown 断言面
     return instance;
   });
   return {
     AsyncTaskSystem,
-    createAsyncTaskSystem: vi.fn((clawDir: any, fs: any, options: any) => new (AsyncTaskSystem as any)(clawDir, fs, options)),
+    createAsyncTaskSystem: vi.fn(function (clawDir: any, fs: any, options: any) { return new (AsyncTaskSystem as any)(clawDir, fs, options); }),
   };
 });
 
@@ -316,7 +322,7 @@ vi.mock('../../src/core/runtime/injector.js', () => {
   const Ctor = trackCtor('ContextInjector', () => ({ buildSystemPrompt: vi.fn(), buildParts: vi.fn() }));
   return {
     ContextInjector: Ctor,
-    createContextInjector: vi.fn((...args: any[]) => new (Ctor as any)(...args)),
+    createContextInjector: vi.fn(function (...args: any[]) { return new (Ctor as any)(...args); }),
   };
 });
 
@@ -328,28 +334,30 @@ vi.mock('../../src/foundation/tools/context.js', () => ({
 
 vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/messaging/index.js')>();
-  const MockInboxWriter = vi.fn().mockImplementation(() => ({
-    write: vi.fn().mockResolvedValue(undefined),
-    writeSync: vi.fn(),
-  }));
+  const MockInboxWriter = vi.fn().mockImplementation(function () {
+    return {
+      write: vi.fn().mockResolvedValue(undefined),
+      writeSync: vi.fn(),
+    };
+  });
   (MockInboxWriter as any).readMeta = vi.fn();
-  (MockInboxWriter as any).__internal_create = vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined), writeSync: vi.fn() }));
+  (MockInboxWriter as any).__internal_create = vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined), writeSync: vi.fn() }; });
   return {
     ...actual,
-    InboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), drainAndDeliver: vi.fn(() => ({ kind: 'complete', entries: [], handles: [] })), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() })),
-    OutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
+    InboxReader: vi.fn(function () { return { init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(function () { return []; }), drainAndDeliver: vi.fn(function () { return { kind: 'complete', entries: [], handles: [] }; }), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() }; }),
+    OutboxWriter: vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined) }; }),
     InboxWriter: MockInboxWriter,
-    createInboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), drainAndDeliver: vi.fn(() => ({ kind: 'complete', entries: [], handles: [] })), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() })),
-    createOutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
-    makeInboxPath: vi.fn((dir: string) => dir),
-    makeOutboxPath: vi.fn((_clawId: string, clawDir: string) => clawDir + '/outbox/pending'),
+    createInboxReader: vi.fn(function () { return { init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(function () { return []; }), drainAndDeliver: vi.fn(function () { return { kind: 'complete', entries: [], handles: [] }; }), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() }; }),
+    createOutboxWriter: vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined) }; }),
+    makeInboxPath: vi.fn(function (dir: string) { return dir; }),
+    makeOutboxPath: vi.fn(function (_clawId: string, clawDir: string) { return clawDir + '/outbox/pending'; }),
     readInboxFileMeta: vi.fn(),
     // phase 1243: formatter registry + Messaging 自家 declarations mock
-    createInboxMessageTypeRegistry: vi.fn(() => {
+    createInboxMessageTypeRegistry: vi.fn(function () {
       const map = new Map<string, unknown>();
       return {
-        register: vi.fn((declaration: { type: string; rendering: unknown }) => { map.set(declaration.type, declaration.rendering); }),
-        resolve: vi.fn((type: string) => map.get(type)),
+        register: vi.fn(function (declaration: { type: string; rendering: unknown }) { map.set(declaration.type, declaration.rendering); }),
+        resolve: vi.fn(function (type: string) { return map.get(type); }),
       };
     }),
     registerInboxMessageTypes: vi.fn(),
@@ -357,8 +365,8 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
 });
 
 vi.mock('../../src/foundation/dialog-store/index.js', () => ({
-  DialogStore: vi.fn(() => ({ load: vi.fn(), save: vi.fn(), archive: vi.fn(), systemPrompt: '' })),
-  createDialogStore: vi.fn(() => ({ load: vi.fn(), save: vi.fn(), archive: vi.fn(), restorePrefix: vi.fn() })),
+  DialogStore: vi.fn(function () { return { load: vi.fn(), save: vi.fn(), archive: vi.fn(), systemPrompt: '' }; }),
+  createDialogStore: vi.fn(function () { return { load: vi.fn(), save: vi.fn(), archive: vi.fn(), restorePrefix: vi.fn() }; }),
   DIALOG_DIR: 'dialog',
   DIALOG_ARCHIVE_DIR: 'dialog/archive',
   CURRENT_DIALOG_FILE: 'current.json',
@@ -367,7 +375,7 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
 vi.mock('../../src/assembly/config/config-load.js', () => {
   // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
   // mockImplementationOnce 语义不变。
-  const llmConfigFn = vi.fn(() => ({ provider: 'mock' }));
+  const llmConfigFn = vi.fn(function () { return { provider: 'mock' }; });
   return { resolveLLMConfig: llmConfigFn };
 });
 
@@ -558,7 +566,7 @@ describe('assemble', () => {
   });
 
   it('StreamWriter 构造失败 → assemble_failed + 抛 Error', async () => {
-    (createStreamWriter as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (createStreamWriter as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('stream fail');
     });
 
@@ -574,7 +582,7 @@ describe('assemble', () => {
   });
 
   it('CronRunner 构造失败 → assemble_failed + 抛 Error', async () => {
-    (CronRunner as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (CronRunner as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('cron fail');
     });
 
@@ -639,7 +647,7 @@ describe('assemble', () => {
     });
 
     it('motion 阶段失败（CronRunner 构造失败）→ runtime/core 资源同样反序 teardown', async () => {
-      (CronRunner as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      (CronRunner as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
         throw new Error('cron boom');
       });
 
@@ -702,7 +710,7 @@ describe('assemble', () => {
   });
 
   it('CronRunner.start 失败时 stream.daemon_started 未调用', async () => {
-    mockCronRunner.start.mockImplementationOnce(() => {
+    mockCronRunner.start.mockImplementationOnce(function () {
       throw new Error('start boom');
     });
 
@@ -713,7 +721,7 @@ describe('assemble', () => {
   });
 
   it('CronRunner.start 失败 → assemble_failed + 抛 Error（phase 1445 Step D：start 内化进工厂、并入 construct catch）', async () => {
-    mockCronRunner.start.mockImplementationOnce(() => {
+    mockCronRunner.start.mockImplementationOnce(function () {
       throw new Error('start boom');
     });
 
@@ -729,7 +737,7 @@ describe('assemble', () => {
   });
 
   it('resolveLLMConfig 失败 → assemble_failed module=llm_config + 抛 Error', async () => {
-    (resolveLLMConfig as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (resolveLLMConfig as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('llm cfg boom');
     });
 
@@ -785,7 +793,7 @@ describe('assemble', () => {
   });
 
   it('ProcessManager 构造失败 → assemble_failed + 抛 Error', async () => {
-    (createAgentProcessManager as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (createAgentProcessManager as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('pm fail');
     });
 
@@ -801,7 +809,7 @@ describe('assemble', () => {
   });
 
   it('Snapshot 构造失败 → assemble_failed + 抛 Error', async () => {
-    (createSnapshot as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (createSnapshot as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('snapshot fail');
     });
 
@@ -817,7 +825,7 @@ describe('assemble', () => {
   });
 
   it('Runtime 构造失败 → assemble_failed + 抛 Error', async () => {
-    (createRuntime as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (createRuntime as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('runtime fail');
     });
 
@@ -833,7 +841,7 @@ describe('assemble', () => {
   });
 
   it('Heartbeat 构造失败 → assemble_failed + 抛 Error', async () => {
-    (Heartbeat as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    (Heartbeat as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function () {
       throw new Error('heartbeat fail');
     });
 
@@ -997,7 +1005,7 @@ describe('assemble', () => {
       const events: string[] = [];
       const auditTs: number[] = [];
       const prevImpl = mockAuditWrite.getMockImplementation();
-      mockAuditWrite.mockImplementation((type: string, ...args: string[]) => {
+      mockAuditWrite.mockImplementation(function (type: string, ...args: string[]) {
         events.push([type, ...args].join('\t'));
         auditTs.push(Date.now());
       });
@@ -1006,14 +1014,16 @@ describe('assemble', () => {
       const MockClass = mod[className] as ReturnType<typeof vi.fn>;
 
       if (methodName === 'ctor') {
-        MockClass.mockImplementationOnce(() => {
+        MockClass.mockImplementationOnce(function () {
           throw new Error(`injected ${className}`);
         });
       } else {
-        MockClass.mockImplementationOnce(() => ({
-          ...extraImpl,
-          [methodName]: () => { throw new Error(`injected ${className}.${methodName}`); },
-        }));
+        MockClass.mockImplementationOnce(function () {
+          return {
+            ...extraImpl,
+            [methodName]: () => { throw new Error(`injected ${className}.${methodName}`); },
+          };
+        });
       }
 
       let thrown: Error | undefined;
@@ -1024,7 +1034,7 @@ describe('assemble', () => {
         thrown = e as Error;
         throwTs = Date.now();
       } finally {
-        mockAuditWrite.mockImplementation(prevImpl || (() => {}));
+        mockAuditWrite.mockImplementation(prevImpl || function () {});
       }
 
       expect(thrown).toBeDefined();
@@ -1050,11 +1060,11 @@ describe('assemble', () => {
     it('skill_system 工厂失败（非首载错误）→ audit module=skill_system phase=construct + 原 error 原样上抛', async () => {
       const events: string[] = [];
       const prevImpl = mockAuditWrite.getMockImplementation();
-      mockAuditWrite.mockImplementation((type: string, ...args: string[]) => {
+      mockAuditWrite.mockImplementation(function (type: string, ...args: string[]) {
         events.push([type, ...args].join('\t'));
       });
 
-      mockSkillFactory.mockImplementationOnce(() => {
+      mockSkillFactory.mockImplementationOnce(function () {
         throw new Error('injected SkillSystem');
       });
 
@@ -1064,7 +1074,7 @@ describe('assemble', () => {
       } catch (e) {
         thrown = e as Error;
       } finally {
-        mockAuditWrite.mockImplementation(prevImpl || (() => {}));
+        mockAuditWrite.mockImplementation(prevImpl || function () {});
       }
 
       expect(thrown).toBeDefined();
@@ -1076,11 +1086,11 @@ describe('assemble', () => {
     it('phase 1872 Step G: 首载失败（owner 类型化）→ audit module=skill_system phase=initialize', async () => {
       const events: string[] = [];
       const prevImpl = mockAuditWrite.getMockImplementation();
-      mockAuditWrite.mockImplementation((type: string, ...args: string[]) => {
+      mockAuditWrite.mockImplementation(function (type: string, ...args: string[]) {
         events.push([type, ...args].join('\t'));
       });
 
-      mockSkillFactory.mockImplementationOnce(() => {
+      mockSkillFactory.mockImplementationOnce(function () {
         throw new SkillSystemInitialLoadError('SkillSystem initial load failed: dup boom');
       });
 
@@ -1090,7 +1100,7 @@ describe('assemble', () => {
       } catch (e) {
         thrown = e as Error;
       } finally {
-        mockAuditWrite.mockImplementation(prevImpl || (() => {}));
+        mockAuditWrite.mockImplementation(prevImpl || function () {});
       }
 
       expect(thrown).toBeInstanceOf(SkillSystemInitialLoadError);
