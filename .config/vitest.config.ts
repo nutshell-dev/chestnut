@@ -376,6 +376,9 @@ export default defineConfig({
             '**/dist/**',
           ],
           pool: 'threads',
+          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
+          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
+          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
           poolOptions: { threads: { maxThreads, isolate: false } },
           testTimeout: 15000,
           hookTimeout: 10000,
@@ -394,6 +397,9 @@ export default defineConfig({
           include: ARCH_COMPILE_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
+          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
+          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
+          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
           poolOptions: { threads: { maxThreads: 2, isolate: true } },
           testTimeout: 60000,
           hookTimeout: 15000,
@@ -416,6 +422,9 @@ export default defineConfig({
             'tests/cli/already-running-sentinel.test.ts',
           ],
           pool: 'threads',
+          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
+          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
+          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
           poolOptions: { threads: { maxThreads, isolate: true } },
           testTimeout: 15000,
           hookTimeout: 10000,
@@ -430,6 +439,9 @@ export default defineConfig({
           include: INTEGRATION_PROCESS_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
+          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
+          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
+          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
           poolOptions: { threads: { maxThreads: 2, isolate: true } },
           testTimeout: 30000,
           hookTimeout: 15000,
@@ -444,6 +456,9 @@ export default defineConfig({
           include: INTEGRATION_IO_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
+          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
+          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
+          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
           poolOptions: { threads: { maxThreads: 2, isolate: true } },
           testTimeout: 15000,
           hookTimeout: 10000,
@@ -458,6 +473,9 @@ export default defineConfig({
           include: INFRA_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
+          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
+          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
+          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
           poolOptions: { threads: { maxThreads: 1, isolate: true } },
           testTimeout: 60000,
           hookTimeout: 30000,

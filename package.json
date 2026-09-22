@@ -30,7 +30,7 @@
     "test:diff": "vitest run --config .config/vitest.config.ts --changed=main",
     "bench:test-cost": "node scripts/test-cost-baseline.mjs",
     "check:drift-backlog": "node scripts/check-drift-backlog.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p .config/tsconfig.json",
     "lint": "pnpm run typecheck && pnpm run lint:arch && pnpm run lint:lint",
     "lint:arch": "node scripts/lint-arch.mjs",
     "lint:lint": "eslint src/ tests/ --config .config/eslint.config.js"

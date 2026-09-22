@@ -141,6 +141,7 @@ function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: string): 
       // 无 manifest 或损坏 → 安全跳过（不删未知目录）
       continue;
     }
+    if (manifest === null) continue;
 
     // 不回收当前 invocation
     if (manifest.invocationId === currentInvocationId) continue;
