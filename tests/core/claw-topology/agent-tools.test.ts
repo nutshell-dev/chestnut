@@ -314,6 +314,12 @@ describe('createCrossClawSearchTool broadcast', () => {
     readJSON: vi.fn(),
   };
 
+  // phase 1897: vitest 4 的 spyOn 对已 mock 属性复用同一 mock（v3 会重建并重置状态）
+  // → 无 restore 时 execute 计数跨测试累积。显式 restore，下一测试 spyOn 拿新 mock。
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   function makeBaseCtx(overrides?: Partial<ExecContext>): ExecContext {
     return {
       clawId: 'motion',

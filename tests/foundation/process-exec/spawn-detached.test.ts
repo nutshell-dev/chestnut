@@ -39,6 +39,9 @@ function errnoError(message: string, code: string, errno: number): NodeJS.ErrnoE
 
 describe('spawnDetached typed outcome（phase 1763）', () => {
   afterEach(() => {
+    // phase 1897: vitest 4 的 restoreAllMocks 不再清 vi.fn() 调用状态 → 显式 clear，
+    // 防 spawn 模块 mock 的 calls 跨测试累积（「未被调用」类断言读到历史调用）。
+    vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 

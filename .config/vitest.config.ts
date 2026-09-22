@@ -5,9 +5,11 @@ import os from 'node:os';
 // env unset → fallback os.cpus() (单 worktree 跑等价旧行为)
 // env 设有效正整数 → vitest worker 上限取 env 值
 // 详 design/practices.md "多 worktree 并行跑测试" 段
-const envMaxThreads = parseInt(process.env.VITEST_MAX_THREADS ?? '', 10);
-const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
-  ? envMaxThreads
+// phase 1897: vitest 4 池重构——poolOptions.threads.maxThreads（v3 野键）→ 顶层
+// maxWorkers（v4 项目级合法）；env 随之改名 VITEST_MAX_THREADS → VITEST_MAX_WORKERS。
+const envMaxWorkers = parseInt(process.env.VITEST_MAX_WORKERS ?? '', 10);
+const maxWorkers = Number.isFinite(envMaxWorkers) && envMaxWorkers > 0
+  ? envMaxWorkers
   : os.cpus().length;
 
 /**
@@ -316,7 +318,7 @@ const INFRA_FILES = [
  * 这些 file 单测即 1.6s–10s CPU 密集固定成本（ts.createProgram 族）；混跑 fast
  * project（isolate:false + 全量高并发）时并行装载放大编译成本、超 15s 预算
  * （l2_process_manager.md §9 #1–#4 登记 flaky：N=3 + N=1×3，隔离复跑全绿）。
- * 归专用 arch-compile project（isolate:true + maxThreads:2 + testTimeout 60s）
+ * 归专用 arch-compile project（isolate:true + maxWorkers:2 + testTimeout 60s）
  * 与其余测试负载隔离；仍在默认运行面（test:run / test:diff / test:preflight）。
  * 维护: 新增经 TS compiler API 编译全仓模块图的测试需加此列表
  * 判据: 测试内 import 'typescript' 并 ts.createProgram / ts.createSourceFile 编译面
@@ -358,10 +360,21 @@ export default defineConfig({
     // 触发 hook 超时。leading `**/` 让 exclude 在任意路径深度匹配 `.chestnut`
     // 节、与 project-level exclude 双保险。
     exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+    // phase 781: force worker teardown，防孤儿 vitest 进程。
+    // phase 1897: vitest 4 将 teardownTimeout 收为根级选项（NonProjectOptions，项目级
+    // 不再生效）→ 6 处项目级值（5×5000 + infra 10000）归并根级单值 10000（用户拍定：
+    // 保 infra 显式值；该项是强制 teardown 前的等待上限，放宽仅意味着孤儿清理最坏多等
+    // 5s，不会误杀正常清理）。
+    teardownTimeout: 10000,
+    // phase 1897: vitest 4 调度模型——同 sequence.groupOrder 的项目同组并行、组间按
+    // groupOrder 从小到大串行；同组项目必须同 maxWorkers（v4 硬校验）。为保留各项目
+    // 并发上限（fast/isolated=N、arch-compile/integration-*=2、infra=1），按上限值分组：
+    // 0=N 组（大头先跑）、1=2-worker 组、2=infra。
     projects: [
       {
         test: {
           name: 'fast',
+          sequence: { groupOrder: 0 },
           globals: true,
           environment: 'node',
           include: ['tests/**/*.test.ts'],
@@ -376,13 +389,10 @@ export default defineConfig({
             '**/dist/**',
           ],
           pool: 'threads',
-          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
-          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
-          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
-          poolOptions: { threads: { maxThreads, isolate: false } },
+          maxWorkers,
+          isolate: false,
           testTimeout: 15000,
           hookTimeout: 10000,
-          teardownTimeout: 5000, // phase 781: force worker teardown after 5s to prevent orphan vitest processes
           maxConcurrency: 20, // phase 300: lift default 5 → 20 for describe.concurrent blocks
         },
       },
@@ -392,23 +402,22 @@ export default defineConfig({
           // isolate + 低并发（2 worker）使其不与其余测试争 worker；60s 预算 =
           // 隔离峰值（~5.5s 实测 / 登记观察 ~10s）的 6-10×，防并行装载再超时。
           name: 'arch-compile',
+          sequence: { groupOrder: 1 },
           globals: true,
           environment: 'node',
           include: ARCH_COMPILE_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
-          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
-          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
-          poolOptions: { threads: { maxThreads: 2, isolate: true } },
+          maxWorkers: 2,
+          isolate: true,
           testTimeout: 60000,
           hookTimeout: 15000,
-          teardownTimeout: 5000,
         },
       },
       {
         test: {
           name: 'isolated',
+          sequence: { groupOrder: 0 },
           globals: true,
           environment: 'node',
           include: ISOLATED_FILES,
@@ -422,64 +431,55 @@ export default defineConfig({
             'tests/cli/already-running-sentinel.test.ts',
           ],
           pool: 'threads',
-          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
-          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
-          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
-          poolOptions: { threads: { maxThreads, isolate: true } },
+          maxWorkers,
+          isolate: true,
           testTimeout: 15000,
           hookTimeout: 10000,
-          teardownTimeout: 5000, // phase 781: force worker teardown after 5s to prevent orphan vitest processes
         },
       },
       {
         test: {
           name: 'integration-process',
+          sequence: { groupOrder: 1 },
           globals: true,
           environment: 'node',
           include: INTEGRATION_PROCESS_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
-          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
-          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
-          poolOptions: { threads: { maxThreads: 2, isolate: true } },
+          maxWorkers: 2,
+          isolate: true,
           testTimeout: 30000,
           hookTimeout: 15000,
-          teardownTimeout: 5000,
         },
       },
       {
         test: {
           name: 'integration-io',
+          sequence: { groupOrder: 1 },
           globals: true,
           environment: 'node',
           include: INTEGRATION_IO_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
-          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
-          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
-          poolOptions: { threads: { maxThreads: 2, isolate: true } },
+          maxWorkers: 2,
+          isolate: true,
           testTimeout: 15000,
           hookTimeout: 10000,
-          teardownTimeout: 5000,
         },
       },
       {
         test: {
           name: 'infra',
+          sequence: { groupOrder: 2 },
           globals: true,
           environment: 'node',
           include: INFRA_FILES,
           exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
-          // @ts-expect-error v3 项目级 poolOptions.threads 类型只声明 singleThread|isolate；
-          // maxThreads 是运行时真读的野键（vitest/dist/chunks/coverage.DL5VHqXY.js:2747-2748）。
-          // phase 323 并发保护依赖它；phase 1897 迁移 v4 时替换为顶层 maxWorkers 并删除本行标注。
-          poolOptions: { threads: { maxThreads: 1, isolate: true } },
+          maxWorkers: 1,
+          isolate: true,
           testTimeout: 60000,
           hookTimeout: 30000,
-          teardownTimeout: 10000,
         },
       },
     ],

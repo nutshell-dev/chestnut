@@ -50,6 +50,9 @@ describe('ProcessManager - spawn defaults', () => {
   });
 
   afterEach(() => {
+    // phase 1897: vitest 4 的 restoreAllMocks 只 restore spy（不再清 vi.fn() 调用状态）
+    // → 显式 clear，防 spawn/spawnSync 模块 mock 的 calls 跨测试累积。
+    vi.clearAllMocks();
     vi.restoreAllMocks();
     cleanupTempDirSync(tempDir);
   });

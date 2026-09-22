@@ -266,7 +266,7 @@ describe('vitest-globals-environment-invariant', () => {
 describe('vitest-projects-isolate-invariant', () => {
   /**
    * phase 658: invariant that vitest projects encode their design intent
-   * via poolOptions.threads.isolate:
+   * via top-level isolate (phase 1897: poolOptions.threads.isolate → isolate):
    * - `fast` project   → isolate=false (shared module registry, high
    *                      throughput, tests must be mock-safe)
    * - `isolated` project → isolate=true (each test file isolated, prevents
@@ -281,10 +281,11 @@ describe('vitest-projects-isolate-invariant', () => {
    * timeouts), phase 611 (exclude base patterns), phase 610 (project
    * names).
    */
+  // phase 1897: vitest 4 池重构——isolate 由 poolOptions.threads 野键升顶层。
   type Proj = {
     test?: {
       name?: string;
-      poolOptions?: { threads?: { isolate?: unknown } };
+      isolate?: unknown;
     };
   };
 
@@ -306,8 +307,8 @@ describe('vitest-projects-isolate-invariant', () => {
       expect(fast, "project named 'fast' missing").toBeDefined();
       expect(isolated, "project named 'isolated' missing").toBeDefined();
 
-      expect((fast as Proj).test?.poolOptions?.threads?.isolate).toBe(false);
-      expect((isolated as Proj).test?.poolOptions?.threads?.isolate).toBe(true);
+      expect((fast as Proj).test?.isolate).toBe(false);
+      expect((isolated as Proj).test?.isolate).toBe(true);
     });
   });
 });
