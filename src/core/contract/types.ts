@@ -370,15 +370,9 @@ export interface CreateContractOptions {
 // Phase 1145 Step B: archive payload reader types
 // ============================================================================
 
-export type ArchivePayloadLayout = 'current' | 'legacy';
-
-type ArchivePayloadState = ArchiveState | 'legacy-unresolved';
-
 export interface ArchivePayloadView {
   contractId: ContractId;
-  state: ArchivePayloadState;
   root: string;
-  layout: ArchivePayloadLayout;
   contract: PersistedContractYaml;
   progress: ProgressData;
   // Phase 1198 Step A: immutable lifecycle intents associated with this contract.

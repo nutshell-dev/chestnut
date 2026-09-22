@@ -195,8 +195,8 @@ describe('readArchivePayload unsupported subtasks/ layout (Phase 1898)', () => {
   });
 });
 
-describe('readArchivePayload legacy layout', () => {
-  it('returns verified payload view for legacy flat archive', async () => {
+describe('readArchivePayload flat layout', () => {
+  it('returns verified payload view for flat archive', async () => {
     const root = await writeLegacyArchive(makeContract(), {
       schema_version: 1,
       subtasks: {
@@ -214,15 +214,13 @@ describe('readArchivePayload legacy layout', () => {
 
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.view.layout).toBe('legacy');
-    expect(result.view.state).toBe('legacy-unresolved');
     expect(result.view.contract.id).toBe(contractId);
     expect(result.view.progress.status).toBe('completed');
     expect(result.view.progress.subtasks.t1.status).toBe('completed');
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toBe(false);
   });
 
-  it('maps legacy running status to in_progress', async () => {
+  it('maps flat progress running status to in_progress', async () => {
     const root = await writeLegacyArchive(makeContract(), {
       schema_version: 1,
       subtasks: {
@@ -586,8 +584,6 @@ describe('readArchivePayload failed state (Phase 1396 Step D)', () => {
 
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.view.layout).toBe('legacy');
-    expect(result.view.state).toBe('legacy-unresolved');
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toBe(false);
   });
 

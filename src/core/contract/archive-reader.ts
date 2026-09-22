@@ -28,7 +28,6 @@ import { contractProgressPath } from './locations.js';
 import {
   deriveProgressStatus,
   type ContractId,
-  type ArchiveState,
   type ArchivePayloadView,
   type ArchiveReadIssue,
   type ArchiveReadIssueCode,
@@ -39,16 +38,11 @@ import {
 } from './types.js';
 import { readLifecycleIntentsForContract } from './lifecycle-intent.js';
 
-export type { ArchivePayloadView, ArchiveReadIssue, ArchiveReadIssueCode };
-
 type ArchivePayloadReadResult =
   | { kind: 'found'; view: ArchivePayloadView }
   | { kind: 'issue'; issue: ArchiveReadIssue };
 
 interface ArchivePayloadLocation {
-  kind: 'archived-current' | 'archived-legacy';
-  state?: ArchiveState;
-  containerDir: string;
   contractRoot: string;
 }
 
@@ -81,7 +75,7 @@ function makeIssue(
   return { code, contractId, root, detail, cause };
 }
 
-function mapLegacySubtaskStatus(status: string | undefined): SubtaskStatus | null {
+function mapFlatSubtaskStatus(status: string | undefined): SubtaskStatus | null {
   switch (status) {
     case 'pending':
     case 'todo':
@@ -98,7 +92,7 @@ function mapLegacySubtaskStatus(status: string | undefined): SubtaskStatus | nul
   }
 }
 
-function mapLegacyCause(
+function mapFlatCause(
   cause: string | undefined,
 ): NonNullable<ProgressData['subtasks'][string]['last_failed_feedback']>['cause'] | undefined {
   if (
@@ -112,7 +106,7 @@ function mapLegacyCause(
   return undefined;
 }
 
-function projectLegacyProgress(
+function projectFlatProgress(
   contractId: ContractId,
   root: string,
   raw: Record<string, unknown>,
@@ -131,7 +125,7 @@ function projectLegacyProgress(
   const loose = parse.data;
   const subtasks: ProgressData['subtasks'] = {};
   for (const [subtaskId, st] of Object.entries(loose.subtasks)) {
-    const status = mapLegacySubtaskStatus(st.status);
+    const status = mapFlatSubtaskStatus(st.status);
     if (status === null) {
       return {
         issue: makeIssue(
@@ -152,7 +146,7 @@ function projectLegacyProgress(
       last_failed_feedback: lff
         ? {
             feedback: lff.feedback ?? '',
-            cause: mapLegacyCause(lff.cause) ?? 'llm_rejected',
+            cause: mapFlatCause(lff.cause) ?? 'llm_rejected',
           }
         : undefined,
       force_accepted: st.force_accepted,
@@ -179,7 +173,7 @@ async function readLifecycleIntents(
   return readLifecycleIntentsForContract(deps.fs, deps.audit, baseDir, contractId);
 }
 
-async function readLegacyArchivePayload(
+async function readFlatArchivePayload(
   deps: { fs: FileSystem; audit: AuditLog },
   contractId: ContractId,
   root: string,
@@ -249,7 +243,7 @@ async function readLegacyArchivePayload(
     };
   }
 
-  const projected = projectLegacyProgress(contractId, root, progressParsed as Record<string, unknown>);
+  const projected = projectFlatProgress(contractId, root, progressParsed as Record<string, unknown>);
   if ('issue' in projected) {
     return { kind: 'issue', issue: projected.issue };
   }
@@ -257,9 +251,7 @@ async function readLegacyArchivePayload(
   const { intents, issues } = await readLifecycleIntents(deps, baseDir, contractId);
   const view: ArchivePayloadView = {
     contractId,
-    state: 'legacy-unresolved',
     root,
-    layout: 'legacy',
     contract: parsed.data,
     progress: projected.progress,
     intents,
@@ -270,8 +262,8 @@ async function readLegacyArchivePayload(
 
 /**
  * Phase 1396 Step D: project the canonical execution-failure fact from an archive
- * view. `failed` has no legacy layout, so intents are the only source; returns
- * null when no failed intent is present.
+ * view. `failed` has no flat progress failure marker, so intents are the only
+ * source; returns null when no failed intent is present.
  */
 export function projectFailedFailure(view: ArchivePayloadView): {
   reason: string;
@@ -340,7 +332,7 @@ export async function readArchivePayload(
     emitArchiveReadIssue(audit, issue);
     return { kind: 'issue', issue };
   }
-  const result = await readLegacyArchivePayload({ fs, audit }, contractId, root, baseDir);
+  const result = await readFlatArchivePayload({ fs, audit }, contractId, root, baseDir);
   if (result.kind === 'issue') emitArchiveReadIssue(audit, result.issue);
   return result;
 }
