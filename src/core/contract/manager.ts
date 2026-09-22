@@ -1414,8 +1414,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
    * 读 contract progress。
    *
    * Phase 1193 Step A: active runtime uses the single `active/<id>` layout with
-   * progress.json. Archive payloads continue to support current/legacy dual-format
-   * via readArchivePayload.
+   * progress.json. Archive payloads are read via readArchivePayload (flat layout;
+   * subtasks/ layout is explicitly rejected as unsupported).
    *
    * TOCTOU mitigation: active→archive / archive→active race 通过单次重试回到顶层
    * dispatcher；持久双位置仍 fail-closed。

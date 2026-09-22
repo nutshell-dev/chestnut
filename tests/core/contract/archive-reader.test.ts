@@ -10,7 +10,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { readArchivePayload, projectFailedFailure } from '../../../src/core/contract/archive-reader.js';
-import type { PersistedContractYaml, SubtaskRuntimeRecord, ContractLocation, ArchiveState } from '../../../src/core/contract/types.js';
+import type { PersistedContractYaml, ContractLocation, ArchiveState } from '../../../src/core/contract/types.js';
 
 let tmpDir: string;
 let clawDir: string;
@@ -44,29 +44,27 @@ function makeContract(subtasks: Array<{ id: string; description: string }> = [{ 
   };
 }
 
-function makeTodoRecord(subtaskId: string): SubtaskRuntimeRecord {
-  return {
-    schema_version: 1,
-    subtask_id: subtaskId,
-    status: 'todo',
-    attempts: [],
-  };
-}
-
-function makeCompletedRecord(subtaskId: string): SubtaskRuntimeRecord {
-  return {
-    schema_version: 1,
-    subtask_id: subtaskId,
-    status: 'completed',
-    attempts: [],
-    completed_at: '2026-07-19T10:00:00Z',
-  };
-}
-
-async function writeCurrentArchive(
+/**
+ * Flat payload (contract.yaml + progress.json) at the current path form
+ * `archive/<state>/<id>` — what the live writer (active dir move) produces.
+ */
+async function writeFlatCurrentArchive(
   state: ArchiveState,
   contract: PersistedContractYaml,
-  records: Record<string, SubtaskRuntimeRecord>,
+  progress: Record<string, unknown>,
+): Promise<string> {
+  const root = path.join(clawDir, 'contract', 'archive', state, contractId);
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contract), 'utf-8');
+  await fs.writeFile(path.join(root, 'progress.json'), JSON.stringify(progress), 'utf-8');
+  return `contract/archive/${state}/${contractId}`;
+}
+
+/** Strict payload (subtasks/*.json) — no writer since Phase 1193 Step A; rejected on read. */
+async function writeStrictArchive(
+  state: ArchiveState,
+  contract: PersistedContractYaml,
+  records: Record<string, unknown>,
 ): Promise<string> {
   const root = path.join(clawDir, 'contract', 'archive', state, contractId);
   const subtasksDir = path.join(root, 'subtasks');
@@ -106,9 +104,11 @@ function legacyLocation(root: string): Extract<ContractLocation, { kind: 'archiv
   };
 }
 
-describe('readArchivePayload current layout', () => {
-  it('returns verified payload view for completed current archive', async () => {
-    const root = await writeCurrentArchive('completed', makeContract(), { t1: makeCompletedRecord('t1') });
+describe('readArchivePayload unsupported subtasks/ layout (Phase 1898)', () => {
+  it('rejects a completed subtasks/ archive with unsupported_layout', async () => {
+    const root = await writeStrictArchive('completed', makeContract(), {
+      t1: { schema_version: 1, subtask_id: 't1', status: 'completed', attempts: [], completed_at: '2026-07-19T10:00:00Z' },
+    });
     const { audit, events } = makeAudit();
 
     const result = await readArchivePayload({
@@ -118,19 +118,16 @@ describe('readArchivePayload current layout', () => {
       contractId,
     });
 
-    expect(result.kind).toBe('found');
-    if (result.kind !== 'found') return;
-    expect(result.view.layout).toBe('current');
-    expect(result.view.state).toBe('completed');
-    expect(result.view.contract.id).toBe(contractId);
-    expect(result.view.progress.contract_id).toBe(contractId);
-    expect(result.view.progress.status).toBe('completed');
-    expect(result.view.progress.subtasks.t1.status).toBe('completed');
-    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toBe(false);
+    expect(result.kind).toBe('issue');
+    if (result.kind !== 'issue') return;
+    expect(result.issue.code).toBe('unsupported_layout');
+    expect(events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toHaveLength(1);
   });
 
-  it('maps current archive state from location', async () => {
-    const root = await writeCurrentArchive('cancelled', makeContract(), { t1: makeTodoRecord('t1') });
+  it('rejects a cancelled subtasks/ archive with unsupported_layout', async () => {
+    const root = await writeStrictArchive('cancelled', makeContract(), {
+      t1: { schema_version: 1, subtask_id: 't1', status: 'todo', attempts: [] },
+    });
     const { audit } = makeAudit();
 
     const result = await readArchivePayload({
@@ -140,15 +137,32 @@ describe('readArchivePayload current layout', () => {
       contractId,
     });
 
-    expect(result.kind).toBe('found');
-    if (result.kind !== 'found') return;
-    expect(result.view.state).toBe('cancelled');
-    expect(result.view.progress.status).toBe('pending');
+    expect(result.kind).toBe('issue');
+    if (result.kind !== 'issue') return;
+    expect(result.issue.code).toBe('unsupported_layout');
   });
 
-  it('returns layout_corrupted issue for current archive with missing subtask file', async () => {
-    const root = await writeCurrentArchive('completed', makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]), { t1: makeTodoRecord('t1') });
-    const { audit, events } = makeAudit();
+  it('rejects a failed subtasks/ archive with unsupported_layout', async () => {
+    const root = await writeStrictArchive('failed', makeContract(), {
+      t1: { schema_version: 1, subtask_id: 't1', status: 'todo', attempts: [] },
+    });
+    const { audit } = makeAudit();
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('failed', root),
+      contractId,
+    });
+
+    expect(result.kind).toBe('issue');
+    if (result.kind !== 'issue') return;
+    expect(result.issue.code).toBe('unsupported_layout');
+  });
+
+  it('rejects without attempting to parse subtask record contents', async () => {
+    const root = await writeStrictArchive('completed', makeContract(), { t1: 'not-even-an-object' });
+    const { audit } = makeAudit();
 
     const result = await readArchivePayload({
       fs: nodeFs,
@@ -159,15 +173,14 @@ describe('readArchivePayload current layout', () => {
 
     expect(result.kind).toBe('issue');
     if (result.kind !== 'issue') return;
-    expect(result.issue.code).toBe('layout_corrupted');
-    // Strict reader already audited LAYOUT_CORRUPTED; archive reader must not double-emit.
-    expect(events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toHaveLength(0);
-    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED)).toBe(true);
+    expect(result.issue.code).toBe('unsupported_layout');
   });
 
-  it('returns layout_corrupted issue for current archive with unexpected subtask file', async () => {
-    const root = await writeCurrentArchive('completed', makeContract(), { t1: makeTodoRecord('t1'), t2: makeTodoRecord('t2') });
-    const { audit, events } = makeAudit();
+  it('rejects a subtasks/ archive regardless of contract.yaml validity', async () => {
+    const root = await writeStrictArchive('completed', { ...makeContract(), id: 'cid-wrong' }, {
+      t1: { schema_version: 1, subtask_id: 't1', status: 'todo', attempts: [] },
+    });
+    const { audit } = makeAudit();
 
     const result = await readArchivePayload({
       fs: nodeFs,
@@ -178,25 +191,7 @@ describe('readArchivePayload current layout', () => {
 
     expect(result.kind).toBe('issue');
     if (result.kind !== 'issue') return;
-    expect(result.issue.code).toBe('layout_corrupted');
-    expect(events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toHaveLength(0);
-  });
-
-  it('returns layout_corrupted issue for current archive with yaml id mismatch', async () => {
-    const root = await writeCurrentArchive('completed', { ...makeContract(), id: 'cid-wrong' }, { t1: makeTodoRecord('t1') });
-    const { audit, events } = makeAudit();
-
-    const result = await readArchivePayload({
-      fs: nodeFs,
-      audit,
-      location: currentLocation('completed', root),
-      contractId,
-    });
-
-    expect(result.kind).toBe('issue');
-    if (result.kind !== 'issue') return;
-    expect(result.issue.code).toBe('layout_corrupted');
-    expect(events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toHaveLength(0);
+    expect(result.issue.code).toBe('unsupported_layout');
   });
 });
 
@@ -470,7 +465,10 @@ describe('readArchivePayload layout detection', () => {
 
 describe('readArchivePayload lifecycle intents (Phase 1198 Step A)', () => {
   it('returns empty intents for archive without intent store', async () => {
-    const root = await writeCurrentArchive('completed', makeContract(), { t1: makeCompletedRecord('t1') });
+    const root = await writeFlatCurrentArchive('completed', makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-19T10:00:00Z' } },
+    });
     const { audit } = makeAudit();
 
     const result = await readArchivePayload({
@@ -488,7 +486,10 @@ describe('readArchivePayload lifecycle intents (Phase 1198 Step A)', () => {
   });
 
   it('returns intents associated with current archive', async () => {
-    const root = await writeCurrentArchive('cancelled', makeContract(), { t1: makeTodoRecord('t1') });
+    const root = await writeFlatCurrentArchive('cancelled', makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'pending' } },
+    });
     const { audit } = makeAudit();
     const intentPath = path.join(clawDir, 'contract', 'lifecycle-intents', contractId, 'req-1.json');
     await fs.mkdir(path.dirname(intentPath), { recursive: true });
@@ -542,7 +543,10 @@ describe('readArchivePayload lifecycle intents (Phase 1198 Step A)', () => {
   });
 
   it('reports malformed intent without hiding valid payload', async () => {
-    const root = await writeCurrentArchive('completed', makeContract(), { t1: makeCompletedRecord('t1') });
+    const root = await writeFlatCurrentArchive('completed', makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-19T10:00:00Z' } },
+    });
     const { audit, events } = makeAudit();
     const intentDir = path.join(clawDir, 'contract', 'lifecycle-intents', contractId);
     await fs.mkdir(intentDir, { recursive: true });
@@ -566,8 +570,11 @@ describe('readArchivePayload lifecycle intents (Phase 1198 Step A)', () => {
 });
 
 describe('readArchivePayload failed state (Phase 1396 Step D)', () => {
-  it('returns verified payload view for failed current archive', async () => {
-    const root = await writeCurrentArchive('failed', makeContract(), { t1: makeTodoRecord('t1') });
+  it('returns verified payload view for failed archive (flat read: state unresolved)', async () => {
+    const root = await writeFlatCurrentArchive('failed', makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'pending' } },
+    });
     const { audit, events } = makeAudit();
 
     const result = await readArchivePayload({
@@ -579,13 +586,16 @@ describe('readArchivePayload failed state (Phase 1396 Step D)', () => {
 
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.view.layout).toBe('current');
-    expect(result.view.state).toBe('failed');
+    expect(result.view.layout).toBe('legacy');
+    expect(result.view.state).toBe('legacy-unresolved');
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toBe(false);
   });
 
   it('projects the failure fact from failed intents', async () => {
-    const root = await writeCurrentArchive('failed', makeContract(), { t1: makeTodoRecord('t1') });
+    const root = await writeFlatCurrentArchive('failed', makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'pending' } },
+    });
     const { audit } = makeAudit();
     const intentPath = path.join(clawDir, 'contract', 'lifecycle-intents', contractId, 'req-f.json');
     await fs.mkdir(path.dirname(intentPath), { recursive: true });
@@ -626,7 +636,10 @@ describe('readArchivePayload failed state (Phase 1396 Step D)', () => {
   });
 
   it('returns null failure projection when no failed intent exists', async () => {
-    const root = await writeCurrentArchive('failed', makeContract(), { t1: makeTodoRecord('t1') });
+    const root = await writeFlatCurrentArchive('failed', makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'pending' } },
+    });
     const { audit } = makeAudit();
 
     const result = await readArchivePayload({

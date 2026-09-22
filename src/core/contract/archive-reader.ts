@@ -1,6 +1,10 @@
 /**
  * @module L4.ContractSystem.ArchiveReader
- * Phase 1145 Step B: typed dual-format archive payload reader.
+ * Phase 1145 Step B: typed archive payload reader.
+ * Phase 1898: strict subtasks/ layout read half removed (no writer since Phase
+ * 1193 Step A); the dispatcher now rejects subtasks/ with a typed
+ * `unsupported_layout` issue. Flat layout (contract.yaml + progress.json) is the
+ * sole supported payload.
  *
  * Pure read-only boundary for located archive entries. Every entry either returns
  * a verified `ArchivePayloadView` or a typed `ArchiveReadIssue`. No filesystem
@@ -19,10 +23,7 @@ import {
 import {
   getContractYamlPath,
   getContractSubtasksDir,
-  readStrictContractLayoutAtRoot,
-  projectArchivePayloadRuntime,
 } from './archive-payload-layout.js';
-import { ContractLayoutCorruptedError } from './errors.js';
 import { contractProgressPath } from './locations.js';
 import {
   deriveProgressStatus,
@@ -267,40 +268,6 @@ async function readLegacyArchivePayload(
   return { kind: 'found', view };
 }
 
-async function readCurrentArchivePayload(
-  deps: { fs: FileSystem; audit: AuditLog },
-  contractId: ContractId,
-  root: string,
-  state: ArchiveState,
-  baseDir?: string,
-): Promise<ArchivePayloadReadResult> {
-  try {
-    const layout = await readStrictContractLayoutAtRoot(deps, root, contractId);
-    const runtime = projectArchivePayloadRuntime(layout);
-    const { intents, issues } = await readLifecycleIntents(deps, baseDir, contractId);
-    const view: ArchivePayloadView = {
-      contractId,
-      state,
-      root,
-      layout: 'current',
-      contract: layout.contract,
-      progress: runtime.progress,
-      intents,
-      intentIssues: issues,
-    };
-    return { kind: 'found', view };
-  } catch (err) {
-    if (err instanceof ContractLayoutCorruptedError) {
-      // Strict reader already emitted LAYOUT_CORRUPTED; map to issue without duplicate audit.
-      return {
-        kind: 'issue',
-        issue: makeIssue('layout_corrupted', contractId, root, err.message),
-      };
-    }
-    return { kind: 'issue', issue: makeIssue('io_error', contractId, root, formatErr(err), err) };
-  }
-}
-
 /**
  * Phase 1396 Step D: project the canonical execution-failure fact from an archive
  * view. `failed` has no legacy layout, so intents are the only source; returns
@@ -361,13 +328,19 @@ export async function readArchivePayload(
     return { kind: 'issue', issue };
   }
 
-  const result = hasSubtasks
-    ? await readCurrentArchivePayload({ fs, audit }, contractId, root, location.state as ArchiveState, baseDir)
-    : await readLegacyArchivePayload({ fs, audit }, contractId, root, baseDir);
-
-  if (result.kind === 'issue' && result.issue.code !== 'layout_corrupted') {
-    // layout_corrupted was already audited by the strict current reader.
-    emitArchiveReadIssue(audit, result.issue);
+  if (hasSubtasks) {
+    // subtasks/ has no writer since Phase 1193 Step A; its presence is illegal.
+    // Detect (to reject) is not support: no parsing is attempted.
+    const issue = makeIssue(
+      'unsupported_layout',
+      contractId,
+      root,
+      'subtasks/ layout is no longer supported (no writer since Phase 1193 Step A)',
+    );
+    emitArchiveReadIssue(audit, issue);
+    return { kind: 'issue', issue };
   }
+  const result = await readLegacyArchivePayload({ fs, audit }, contractId, root, baseDir);
+  if (result.kind === 'issue') emitArchiveReadIssue(audit, result.issue);
   return result;
 }

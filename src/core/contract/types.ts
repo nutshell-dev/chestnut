@@ -78,13 +78,11 @@ import type {
   ContractYamlValidated,
   ContractProgressPersistedValidated,
   PersistedContractYamlSchema,
-  SubtaskRuntimeRecordSchema,
 } from './schemas.js';
 export type ContractYaml = ContractYamlValidated;
 
 // Phase 1134: new-layout schema-derived types
 export type PersistedContractYaml = z.infer<typeof PersistedContractYamlSchema>;
-export type SubtaskRuntimeRecord = z.infer<typeof SubtaskRuntimeRecordSchema>;
 
 // phase 282 Step B: 落盘 schema（不含 derive field）
 // phase 319: type derive from Zod schema (ML#9 优先编译器检查、broaden phase 311 pattern)
@@ -397,7 +395,7 @@ export type ArchiveReadIssueCode =
   | 'yaml_parse_error'
   | 'yaml_schema_invalid'
   | 'yaml_id_mismatch'
-  | 'layout_corrupted'
+  | 'unsupported_layout'
   | 'progress_parse_error'
   | 'progress_schema_invalid'
   | 'progress_projection_failed'
