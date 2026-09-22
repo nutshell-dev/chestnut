@@ -57,9 +57,11 @@ describe('StreamCallbacks owner boundary (phase 1504 → phase 1856 AE-D5 反向
   });
 
   it('cross-module test helpers consume owner-composed callback types', () => {
-    const legacy = read('tests/helpers/legacy-process-batch.ts');
-    expect(legacy).toContain("from '../../src/core/event-loop/index.js'");
-    expect(legacy).not.toMatch(/import type \{ StreamCallbacks \}/);
+    // Step H (phase1895): legacy-process-batch helper 已删——EventLoop 驱动测试改经
+    // test-event-loop 装配；owner 组合 callback 类型边界锁转移到该 helper 面。
+    const testLoop = read('tests/helpers/test-event-loop.ts');
+    expect(testLoop).toContain("from '../../src/core/event-loop/index.js'");
+    expect(testLoop).not.toMatch(/import type \{ StreamCallbacks \}/);
     expect(read('tests/helpers/runtime-test-internals.ts')).toContain('RuntimeTurnCallbacks');
   });
 });

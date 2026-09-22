@@ -54,8 +54,6 @@ export const MISC_COMMAND_CATALOG = [
       { flag: '-c, --claw <id>', desc: 'Target claw ID', required: true },
       { flag: '--tool-use-id <id>', desc: 'Look up by tool_use_id' },
       { flag: '--block-id <id>', desc: 'Look up by block ID (8-char short form, from context-trim suffix)' },
-      // 运行时 default = AUDIT_FILE_STEM 常量 → 注册点字面。
-      { flag: '--file <name>', desc: 'Audit file name (multi-file aware)', runtimeLiteral: true },
       { flag: '--content-hash <sha8>', desc: 'Optional sha8 hash for integrity verification (--tool-use-id mode only)' },
       { flag: '--json', desc: 'Output as JSON' },
     ],

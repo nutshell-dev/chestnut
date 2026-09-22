@@ -15,7 +15,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from '../_runtime-test-helpers.js';
-import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/index.js';
 
@@ -290,8 +290,11 @@ ${body}
       }]);
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      const count = await runLegacyBatch(runtime);
-      expect(count).toBe(3);
+      // Step H: EventLoop 单 owner 驱动一轮；旧 processBatch count 返回值的
+      // 现行等价面 = 3 条消息全部 ack 结算到 done/。
+      await createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' }).run();
+      const doneFiles = await fs.readdir(path.join(clawDir, 'inbox', 'done'));
+      expect(doneFiles.filter(f => f.endsWith('.md'))).toHaveLength(3);
 
       const callArgs = mockLLM.call.mock.calls[0][0];
       const userMessages = callArgs.messages.filter((m: { role: string }) => m.role === 'user');
@@ -337,7 +340,7 @@ ${body}
       }]);
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await runLegacyBatch(runtime);
+      await createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' }).run();
 
       const callArgs = mockLLM.call.mock.calls[0][0];
       const userMessages = callArgs.messages.filter((m: { role: string }) => m.role === 'user');

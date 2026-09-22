@@ -11,14 +11,26 @@ import { randomUUID } from 'crypto';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.js';
-import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
 import { StepAbortError } from '../../src/core/step-executor/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
-import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
+import { createTestEventLoop } from '../helpers/test-event-loop.js';
 import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
+
+// Step H (phase1895): EventLoop 驱动失败 turn 时 dispatchError fallback 有
+// UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
+vi.mock('../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/core/event-loop/constants.js')>('../../src/core/event-loop/constants.js');
+  return {
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 
 describe('Runtime SignalAudit', () => {
@@ -46,18 +58,7 @@ describe('Runtime SignalAudit', () => {
 
   describe('processBatch() — signal interrupts do not send outbox notifications', () => {
     class SignalTestRuntime extends Runtime {
-      public drainResult: {
-        injected: Message[];
-        sources: Array<{ text: string; type: string }>;
-        count: number;
-        infos: Array<{ meta: Record<string, string>; body?: string }>;
-        addressedHandles: any[];
-      } = { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
       public reactThrow: unknown = null;
-
-      protected override async _drainOwnInbox() {
-        return this.drainResult as any;
-      }
 
       protected override async _runReact(_messages: Message[]) {
         if (this.reactThrow) throw this.reactThrow;
@@ -92,21 +93,19 @@ describe('Runtime SignalAudit', () => {
       });
       signalRuntimes.push(r);
       await r.initialize();
-      r.drainResult = {
-        injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-        sources: [],
-        count: 1,
-        infos: [{
-          id: 'msg1',
-          type: 'message',
-          from: 'sender-claw',
-          to: 'sig-claw',
-          content: 'hi',
-          priority: 'normal',
-          timestamp: new Date().toISOString(),
-        } as InboxMessage],
-        addressedHandles: [],
-      };
+      // 真实 pending 消息（EventLoop drain → turn 注入信号中断）
+      const content = `---
+id: msg1
+type: message
+from: sender-claw
+to: sig-claw
+priority: normal
+timestamp: ${new Date().toISOString()}
+---
+
+hi
+`;
+      await fs.writeFile(path.join(clawDir2, 'inbox', 'pending', 'msg1.md'), content);
       return r;
     }
 
@@ -118,33 +117,35 @@ describe('Runtime SignalAudit', () => {
     it('IdleTimeoutSignal — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new StepAbortError({ kind: 'idle_timeout', ms: 30000 });
-      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(StepAbortError);
+      await createTestEventLoop({ runtime: r, clawDir: clawDir2, clawId: 'sig-claw' }).run();
       expect(await outboxFiles()).toHaveLength(0);
     });
 
     it('PriorityInboxInterrupt — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new StepAbortError({ kind: 'step_yield' });
-      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(StepAbortError);
+      await createTestEventLoop({ runtime: r, clawDir: clawDir2, clawId: 'sig-claw' }).run();
       expect(await outboxFiles()).toHaveLength(0);
     });
 
     it('UserInterrupt — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
-      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(StepAbortError);
+      await createTestEventLoop({ runtime: r, clawDir: clawDir2, clawId: 'sig-claw' }).run();
       expect(await outboxFiles()).toHaveLength(0);
     });
 
-    it('phase 71: generic Error → audit-only runtime_catch_unhandled', async () => {
+    it('phase 71: generic Error → audit-only eventloop_fatal reason=non_llm_error', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new Error('unexpected crash');
       const auditWrites: string[][] = [];
       vi.spyOn((r as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
         auditWrites.push([type, ...args]);
       });
-      await expect(runLegacyBatch(r)).rejects.toThrow('unexpected crash');
-      expect(auditWrites.some(a => a[0] === 'runtime_catch_unhandled')).toBe(true);
+      await createTestEventLoop({ runtime: r, clawDir: clawDir2, clawId: 'sig-claw' }).run();
+      // Step H: 旧 helper 的 runtime_catch_unhandled 已随 processBatch 退役；
+      // 现行等价面 = EventLoop fallbackHandler 的 FATAL 审计（error= 列含原 message）。
+      expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('reason=non_llm_error')) && a.some(c => String(c).includes('unexpected crash')))).toBe(true);
     });
   });
 

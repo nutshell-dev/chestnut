@@ -1,8 +1,9 @@
 /**
  * phase 690 Step B: Runtime 反应式 trim+retry 集成测试。
+ * Step H (phase1895): 改由真实 EventLoop 单 owner 驱动（替代 legacy-process-batch）。
  *
- * 验：LLM 抛 LLMContextExceededError → Runtime trim → 同 turn 重试 → 成功 final。
- * 验：retry 超 N 次 → 上抛 / audit REACTIVE_TRIM_EXHAUSTED。
+ * 验：LLM 抛 LLMContextExceededError → EventLoop reactiveTrim → 有界重试（下轮 run）→ 成功 final。
+ * 验：retry 预算 CONTEXT_TRIM_RETRY_MAX 耗尽 → blocked gate 持久化、不再调 LLM。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
@@ -13,13 +14,25 @@ import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-provider/errors.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
-import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import { createTestEventLoop } from '../../helpers/test-event-loop.js';
+
+// Step H: EventLoop 的 trim 重试退避（30s 起）与 dispatchError fallback 退避
+// 是生产值；测试用小值锁状态机（对齐 tests/core/event-loop/event-loop.test.ts）。
+vi.mock('../../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
+  return {
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 function createMockLLMConfig() {
   return {
@@ -36,27 +49,6 @@ function createMockLLMConfig() {
     retryDelayMs: 100,
     events: { emit: () => {} },
   };
-}
-
-function makeDrainResult(injected: Message[]) {
-  return {
-    injected,
-    sources: injected.map(m => ({
-      text: typeof m.content === 'string' ? m.content : '[content]',
-      type: 'user_chat',
-    })),
-    count: injected.length,
-    infos: [] as InboxMessage[],
-    addressedHandles: [] as any[],
-  };
-}
-
-class ReactiveTrimTestRuntime extends Runtime {
-  public drainResult = makeDrainResult([]);
-
-  protected override async _drainOwnInbox() {
-    return this.drainResult;
-  }
 }
 
 describe('runtime reactive trim+retry path', () => {
@@ -81,7 +73,7 @@ describe('runtime reactive trim+retry path', () => {
 
   async function makeRuntime() {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
-    const runtime = new ReactiveTrimTestRuntime({
+    const runtime = new Runtime({
       clawId: 'test-claw',
       clawDir: testClawDir,
       llmConfig: createMockLLMConfig(),
@@ -91,7 +83,13 @@ describe('runtime reactive trim+retry path', () => {
     });
     runtimes.push(runtime);
     await runtime.initialize();
-    return runtime as ReactiveTrimTestRuntime;
+    return runtime;
+  }
+
+  /** 真实 pending 消息：EventLoop drain 失败后会 nack 回 pending，供下轮 run 重试。 */
+  async function writePendingMsg(id: string) {
+    const content = `---\nid: ${id}\ntype: message\nfrom: sender\npriority: normal\ntimestamp: ${new Date().toISOString()}\n---\n\nhi\n`;
+    await fs.writeFile(path.join(testClawDir, 'inbox', 'pending', `${id}.md`), content);
   }
 
   it('catches LLMContextExceededError → trim → retry succeeds', async () => {
@@ -114,9 +112,13 @@ describe('runtime reactive trim+retry path', () => {
     });
 
     const runtime = await makeRuntime();
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+    await writePendingMsg('m1');
+    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
 
-    await runLegacyBatch(runtime);
+    // 第 1 轮：turn 失败 → reactiveTrim → 有界重试安排（消息 nack 回 pending）；
+    // 第 2 轮：重新 drain 同消息 → turn 成功 → ack。
+    await loop.run();
+    await loop.run();
 
     expect(runReactCalls).toBe(2);
     expect(trimSpy).toHaveBeenCalledTimes(1);
@@ -125,9 +127,9 @@ describe('runtime reactive trim+retry path', () => {
     }));
   });
 
-  it('throws after MAX_REACTIVE_TRIM_RETRIES exhausted', async () => {
+  it('bounded retry: CONTEXT_TRIM_RETRY_MAX(3) 预算耗尽后 blocked gate、不再调 LLM', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
-    vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
       status: 'target_reached',
       before: 1000,
       after: 100,
@@ -142,14 +144,29 @@ describe('runtime reactive trim+retry path', () => {
     });
 
     const runtime = await makeRuntime();
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+    await writePendingMsg('m1');
+    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
 
-    // MAX_REACTIVE_TRIM_RETRIES = 2、总共 3 次 runReact（1 原始 + 2 retry）
-    // 第 3 次仍抛、超 retry 上限、err 冒泡到 processBatch 的 turn-level catch、
-    // 走 rollback 后再 throw 出 processBatch。
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(LLMContextExceededError);
-
+    // 3 次重试预算：每轮 fail → trim → 安排下一轮；第 4 次 fail 时预算耗尽
+    // → 进入 blocked gate（persist 到 status/llm-request-blocked-state.json）。
+    await loop.run();
+    await loop.run();
+    await loop.run();
     expect(runReactCalls).toBe(3);
+    expect(trimSpy).toHaveBeenCalledTimes(3);
+
+    await loop.run();
+    expect(runReactCalls).toBe(4);
+    expect(trimSpy).toHaveBeenCalledTimes(3);
+    const blockedState = await fs.readFile(
+      path.join(testClawDir, 'status', 'llm-request-blocked-state.json'),
+      'utf-8',
+    );
+    expect(blockedState).toContain('retry_exhausted');
+
+    // blocked gate fail-closed：后续 run 在 drain 前被拦，LLM 零新增调用。
+    await loop.run();
+    expect(runReactCalls).toBe(4);
   });
 
   it('non-context-exceeded errors NOT triggering retry', async () => {
@@ -170,14 +187,22 @@ describe('runtime reactive trim+retry path', () => {
     });
 
     const runtime = await makeRuntime();
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+    await writePendingMsg('m1');
+    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
 
-    // 非 context-exceeded 错冒泡、不进 retry path
-    await expect(runLegacyBatch(runtime)).rejects.toThrow('Some other error');
+    // 非 context-exceeded 错不进 retry path；现行 EventLoop 不冒泡，
+    // 经 dispatchError 落 eventloop_fatal 审计（error= 列含原 message）。
+    const auditWrites: string[][] = [];
+    vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
+      auditWrites.push([type, ...args]);
+    });
+
+    await loop.run();
 
     // 仅一次 runReact、trim 未触发
     expect(runReactCalls).toBe(1);
     expect(trimSpy).not.toHaveBeenCalled();
+    expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('Some other error')))).toBe(true);
   });
 
   it('SDK-path context-exceeded by message regex still triggers retry', async () => {
@@ -201,9 +226,11 @@ describe('runtime reactive trim+retry path', () => {
     });
 
     const runtime = await makeRuntime();
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+    await writePendingMsg('m1');
+    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
 
-    await runLegacyBatch(runtime);
+    await loop.run();
+    await loop.run();
 
     expect(runReactCalls).toBe(2);
     expect(trimSpy).toHaveBeenCalledTimes(1);

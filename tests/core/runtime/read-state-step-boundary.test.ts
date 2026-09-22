@@ -4,6 +4,9 @@
  * Verifies that Runtime calls FileTool's persistence primitive exactly once per
  * complete step, after the dialog snapshot has been saved, and awaits it before
  * the step is considered complete.
+ *
+ * Step H (phase1895): 改由真实 EventLoop 单 owner 驱动（替代 legacy-process-batch）。
+ * 语义变迁：turn 失败不再冒泡——「rejects」断言改为 processTurn TurnResult/nack 等价面。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -19,7 +22,20 @@ import { READ_STATE_FILE } from '../../../src/foundation/file-tool/file-state-pe
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import type { InboxMessage, InboxHandle } from '../../../src/foundation/messaging/types.js';
+import type { PreparedInboxBatch, FormattedInboxBatch } from '../../../src/core/runtime/index.js';
+import { createTestEventLoop } from '../../helpers/test-event-loop.js';
+
+vi.mock('../../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
+  return {
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 function createMockLLMConfig() {
   return {
@@ -38,24 +54,42 @@ function createMockLLMConfig() {
   };
 }
 
-function makeDrainResult(injected: Message[]) {
-  return {
-    injected,
-    sources: injected.map(m => ({
-      text: typeof m.content === 'string' ? m.content : '[content]',
-      type: 'user_chat',
-    })),
-    count: injected.length,
-    infos: [] as any[],
-    addressedHandles: [] as any[],
-  };
-}
-
+/**
+ * Step H: EventLoop 走 prepareInbox/formatPreparedInbox/peekPendingTurnFacts 公开面。
+ * fake inbox batch 一次性消费（对齐旧 drain「领取后不再重复」语义）。
+ */
 class ReadStateTestRuntime extends Runtime {
-  public drainResult = makeDrainResult([]);
+  public fakeBatch: {
+    injected: Message[];
+    sources: Array<{ text: string; type: string }>;
+    infos: InboxMessage[];
+    handles: InboxHandle[];
+  } | null = null;
+  private preparedSnapshot: NonNullable<ReadStateTestRuntime['fakeBatch']> | null = null;
 
-  protected override async _drainOwnInbox() {
-    return this.drainResult;
+  protected override async prepareInbox(): Promise<PreparedInboxBatch> {
+    const batch = this.fakeBatch;
+    this.fakeBatch = null;
+    this.preparedSnapshot = batch;
+    if (!batch) return { entries: [] };
+    return {
+      entries: batch.handles.map((handle, i) => ({ message: batch.infos[i], handle })),
+    };
+  }
+
+  protected override async formatPreparedInbox(): Promise<FormattedInboxBatch> {
+    const batch = this.preparedSnapshot;
+    if (!batch) return { injected: [], sources: [], count: 0, infos: [] };
+    return {
+      injected: batch.injected,
+      sources: batch.sources,
+      count: batch.injected.length,
+      infos: batch.infos,
+    };
+  }
+
+  protected override async peekPendingTurnFacts(): Promise<{ addressed: InboxMessage[]; controls: InboxMessage[] }> {
+    return { addressed: this.fakeBatch ? this.fakeBatch.infos : [], controls: [] };
   }
 }
 
@@ -79,6 +113,22 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
+  function seedOneMessage(runtime: ReadStateTestRuntime, content = 'hi') {
+    const injected = [{ role: 'user', content } as Message];
+    runtime.fakeBatch = {
+      injected,
+      sources: injected.map(m => ({
+        text: typeof m.content === 'string' ? m.content : '[content]',
+        type: 'user_chat',
+      })),
+      infos: [{
+        id: 'msg1', type: 'user_chat', from: 'user', to: 'test-claw',
+        content, priority: 'normal', timestamp: new Date().toISOString(),
+      } as InboxMessage],
+      handles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' } as InboxHandle],
+    };
+  }
+
   async function makeRuntime() {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
     const runtime = new ReadStateTestRuntime({
@@ -91,6 +141,11 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
     runtimes.push(runtime);
     await runtime.initialize();
     return runtime as ReadStateTestRuntime;
+  }
+
+  /** EventLoop 单 owner 驱动一轮（替代已删除的 legacy-process-batch）。 */
+  function driveLoop(runtime: Runtime) {
+    return createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' }).run();
   }
 
   it('onStepComplete saves dialog before persisting read-state', async () => {
@@ -107,8 +162,8 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
 
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
-    await runLegacyBatch(runtime);
+    seedOneMessage(runtime);
+    await driveLoop(runtime);
 
     expect(capturedOnStepComplete).toBeDefined();
     expect(saveSpy).toHaveBeenCalled();
@@ -144,8 +199,8 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
 
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
-    const batchPromise = runLegacyBatch(runtime);
+    seedOneMessage(runtime);
+    const batchPromise = driveLoop(runtime);
 
     await vi.waitUntil(() => capturedOnStepComplete !== undefined, { timeout: 1000 });
     const stepPromise = capturedOnStepComplete!(1);
@@ -177,8 +232,20 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
 
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
-    await expect(runLegacyBatch(runtime)).rejects.toThrow('disk full');
+    // Step H: 现行 EventLoop 不冒泡——turn 以 failed TurnResult 结算且 error 保持
+    // 原对象身份（旧「rejects 'disk full'」断言的现行等价面）。
+    let turnError: unknown;
+    vi.spyOn(runtime, 'processTurn').mockImplementation(async (...args: any[]) => {
+      const result = await Runtime.prototype.processTurn.apply(runtime, args as any);
+      turnError = result.error;
+      return result;
+    });
+
+    seedOneMessage(runtime);
+    await driveLoop(runtime);
+
+    expect(turnError).toBe(persistError);
+    expect((turnError as Error).message).toBe('disk full');
   });
 
   it('parallel tool reads aggregate into a single step snapshot', async () => {
@@ -197,8 +264,8 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
 
-    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
-    await runLegacyBatch(runtime);
+    seedOneMessage(runtime);
+    await driveLoop(runtime);
 
     // One persist call commits the aggregated state of the whole step.
     expect(persistSpy).toHaveBeenCalledTimes(1);

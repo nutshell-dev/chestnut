@@ -1,17 +1,15 @@
 /**
- * Runtime ProcessBatch integration tests
+ * Runtime processBatch-era integration tests — Step H (phase1895) 起改由
+ * 真实 EventLoop 单 owner 驱动（替代已删除的 legacy-process-batch helper）。
  */
 
-import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { Runtime } from '../../src/core/runtime/index.js';
-import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
-import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
-import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
+import { createTestEventLoop } from '../helpers/test-event-loop.js';
 
 
 describe('Runtime ProcessBatch', () => {
@@ -38,7 +36,7 @@ describe('Runtime ProcessBatch', () => {
   });
 
   describe('processBatch()', () => {
-    it('should return 0 when inbox is empty', async () => {
+    it('should process nothing when inbox is empty', async () => {
       const runtime = trackRuntime(await createTestRuntime({
         clawId: 'test-claw',
         clawDir,
@@ -46,8 +44,16 @@ describe('Runtime ProcessBatch', () => {
       }));
       await runtime.initialize();
 
-      const count = await runLegacyBatch(runtime);
-      expect(count).toBe(0);
+      const mockLLM = createMockLLM([{
+        content: [{ type: 'text', text: 'unused' }],
+        stop_reason: 'end_turn',
+      }]);
+      (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
+
+      const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
+      await loop.run();
+      // 空箱：无 turn 触发（旧 processBatch 返回 0 的现行等价断言）
+      expect(mockLLM.call).not.toHaveBeenCalled();
     });
 
     it('should process messages in priority order', async () => {
@@ -87,11 +93,11 @@ ${msg.content}
       }]);
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      // Process batch
-      const count = await runLegacyBatch(runtime);
-      expect(count).toBe(3);
+      // Process batch（EventLoop 单 owner 驱动一轮）
+      const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
+      await loop.run();
 
-      // Verify messages moved to done/
+      // Verify messages moved to done/（3 条全部 ack 结算）
       const doneDir = path.join(clawDir, 'inbox', 'done');
       const doneFiles = await fs.readdir(doneDir);
       expect(doneFiles.length).toBe(3);
@@ -149,7 +155,8 @@ Test message
       }]);
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await runLegacyBatch(runtime);
+      const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
+      await loop.run();
 
       // Pending should be empty
       const pendingFiles = await fs.readdir(pendingDir);
@@ -161,49 +168,6 @@ Test message
       expect(doneFiles.length).toBe(1);
     });
 
-    it('onInboxMessages handler 失败 → audit inbox_handler_failed', async () => {
-      const runtime = trackRuntime(await createTestRuntime({
-        clawId: 'test-claw',
-        clawDir,
-        llmConfig: createMockLLMConfig(),
-      }));
-      await runtime.initialize();
-
-      // Seed inbox with 1 message
-      const pendingDir = path.join(clawDir, 'inbox', 'pending');
-      const content = `---
-id: test-msg
-type: message
-from: sender-claw
-priority: normal
-timestamp: ${new Date().toISOString()}
----
-
-Test message
-`;
-      await fs.writeFile(path.join(pendingDir, 'test.md'), content);
-
-      // Mock LLM
-      const mockLLM = createMockLLM([{
-        content: [{ type: 'text', text: 'Processed' }],
-        stop_reason: 'end_turn',
-      }]);
-      (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
-
-      const audit: string[] = [];
-      vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
-        audit.push([type, ...args].join('\t'));
-      });
-
-      const callbacks = {
-        onInboxMessages: vi.fn().mockRejectedValue(new Error('handler boom')),
-      };
-
-      await runLegacyBatch(runtime, callbacks);
-
-      expect(audit.some(e => /^inbox_handler_failed\thandler=onInboxMessages\treason=handler boom$/.test(e))).toBe(true);
-      expect(callbacks.onInboxMessages).toHaveBeenCalled();
-    });
   });
 
   // ─── inbox edge cases ────────────────────────────────────────────────────────

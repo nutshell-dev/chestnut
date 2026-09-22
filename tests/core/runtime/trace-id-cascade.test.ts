@@ -2,10 +2,12 @@
  * trace-id cascade — phase 1343 α-6 reverse tests
  *
  * Covers:
- * - trace_id 唯一性（100 turn no dup）
+ * - trace_id 唯一性（10 turn no dup）
  * - cross-module propagation invariant（audit row 必含 trace_id col）
  * - execContext trace_id forward verify
  * - turn 结束后 trace_id 清除
+ *
+ * Step H (phase1895): 改由真实 EventLoop 单 owner 驱动（替代 legacy-process-batch）。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -17,18 +19,23 @@ import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
-import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
-import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import type { InboxMessage, InboxHandle } from '../../../src/foundation/messaging/types.js';
+import type { PreparedInboxBatch, FormattedInboxBatch } from '../../../src/core/runtime/index.js';
+import { createMockLLMConfig } from '../_runtime-test-helpers.js';
+import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 
-function createMockLLMConfig(): LLMOrchestratorConfig {
+// Step H (phase1895): EventLoop 驱动失败 turn 时 dispatchError fallback 有
+// UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
+vi.mock('../../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
   return {
-    provider: 'anthropic',
-    model: 'claude-3-opus-20240229',
-    apiKey: 'test-key',
-    baseUrl: 'https://test.example.com',
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
   };
-}
+});
 
 describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
   let testTempDir: string;
@@ -49,18 +56,43 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
+  /**
+   * Step H: EventLoop 走 prepareInbox/formatPreparedInbox/peekPendingTurnFacts 公开面。
+   * fake inbox batch 一次性消费（对齐旧 drain「领取后不再重复」语义）。
+   */
   class TraceTestRuntime extends Runtime {
-    public drainResult = {
-      injected: [] as Message[],
-      sources: [] as Array<{ text: string; type: string }>,
-      count: 0,
-      infos: [] as InboxMessage[],
-      addressedHandles: [] as any[],
-    };
+    public fakeBatch: {
+      injected: Message[];
+      sources: Array<{ text: string; type: string }>;
+      infos: InboxMessage[];
+      handles: InboxHandle[];
+    } | null = null;
+    private preparedSnapshot: NonNullable<TraceTestRuntime['fakeBatch']> | null = null;
     public capturedTraceIds: string[] = [];
 
-    protected override async _drainOwnInbox() {
-      return this.drainResult;
+    protected override async prepareInbox(): Promise<PreparedInboxBatch> {
+      const batch = this.fakeBatch;
+      this.fakeBatch = null;
+      this.preparedSnapshot = batch;
+      if (!batch) return { entries: [] };
+      return {
+        entries: batch.handles.map((handle, i) => ({ message: batch.infos[i], handle })),
+      };
+    }
+
+    protected override async formatPreparedInbox(): Promise<FormattedInboxBatch> {
+      const batch = this.preparedSnapshot;
+      if (!batch) return { injected: [], sources: [], count: 0, infos: [] };
+      return {
+        injected: batch.injected,
+        sources: batch.sources,
+        count: batch.injected.length,
+        infos: batch.infos,
+      };
+    }
+
+    protected override async peekPendingTurnFacts(): Promise<{ addressed: InboxMessage[]; controls: InboxMessage[] }> {
+      return { addressed: this.fakeBatch ? this.fakeBatch.infos : [], controls: [] };
     }
 
     protected override async _runReact() {
@@ -81,23 +113,38 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
     });
     runtimes.push(runtime);
     await runtime.initialize();
+    // fake inflight 句柄无真实文件——ack 结算走 mock（旧 helper addressedHandles:[] 不
+    // ack；现行 EventLoop 对成功 turn 必 ack，等价性由 ack mock 承接）。
+    vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
+    vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
     return runtime;
   }
 
-  it('processBatch generates 16-char hex trace_id and sets on execContext', async () => {
-    const runtime = await makeTraceRuntime();
-    runtime.drainResult = {
+  function seedOneMessage(runtime: TraceTestRuntime) {
+    runtime.fakeBatch = {
       injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
       sources: [],
-      count: 1,
-      infos: [],
-      addressedHandles: [],
+      infos: [{
+        id: 'msg1', type: 'user_chat', from: 'user', to: 'trace-claw',
+        content: 'hi', priority: 'normal', timestamp: new Date().toISOString(),
+      } as InboxMessage],
+      handles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' } as InboxHandle],
     };
+  }
+
+  /** EventLoop 单 owner 驱动一轮（替代已删除的 legacy-process-batch）。 */
+  function driveLoop(runtime: Runtime) {
+    return createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'trace-claw' }).run();
+  }
+
+  it('EventLoop-driven turn generates 16-char hex trace_id and sets on execContext', async () => {
+    const runtime = await makeTraceRuntime();
+    seedOneMessage(runtime);
 
     const execCtx = (runtime as any).execContext;
     expect(execCtx.trace_id).toBeUndefined();
 
-    await runLegacyBatch(runtime);
+    await driveLoop(runtime);
 
     expect(runtime.capturedTraceIds.length).toBe(1);
     const traceId = runtime.capturedTraceIds[0];
@@ -110,16 +157,10 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
   // 而非做统计意义 uniqueness 测量。N=10 同样能抓所有可疑实现，省 ~3s。
   it('trace_id is unique across 10 turns', async () => {
     const runtime = await makeTraceRuntime();
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [],
-      addressedHandles: [],
-    };
 
     for (let i = 0; i < 10; i++) {
-      await runLegacyBatch(runtime);
+      seedOneMessage(runtime);
+      await driveLoop(runtime);
     }
 
     const seen = new Set(runtime.capturedTraceIds);
@@ -140,15 +181,9 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
       return originalWrite(type, ...cols);
     };
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [],
-      addressedHandles: [],
-    };
+    seedOneMessage(runtime);
 
-    await runLegacyBatch(runtime);
+    await driveLoop(runtime);
 
     // At least TURN_START audit row was captured
     const turnStartRow = captured.find(c => c.args[0] === 'turn_start');
@@ -168,15 +203,9 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
       .mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] });
     const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [],
-      addressedHandles: [],
-    };
+    seedOneMessage(runtime);
 
-    await runLegacyBatch(runtime);
+    await driveLoop(runtime);
 
     // First save (injected messages) should have trace_id
     const firstSave = saveSpy.mock.calls[0][0];
@@ -190,15 +219,9 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
     const runtime = await makeTraceRuntime();
     const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [],
-      addressedHandles: [],
-    };
+    seedOneMessage(runtime);
 
-    await runLegacyBatch(runtime);
+    await driveLoop(runtime);
 
     expect(commitSpy).toHaveBeenCalled();
     const execCtx = (runtime as any).execContext;

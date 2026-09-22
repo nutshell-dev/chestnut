@@ -1,8 +1,11 @@
 /**
- * repair invariants — mechanical merge of the following source files
- * (no assertion logic changed):
+ * repair invariants — mechanical merge of the following source files:
  *  - repair-session-load-audit.test.ts
  *  - userinterrupt-system-message-no-redrive.test.ts
+ *
+ * Step H (phase1895): userinterrupt-* 部分改由真实 EventLoop 单 owner 驱动
+ * （替代 legacy-process-batch）。语义变迁：interrupt 不冒泡——「rejects StepAbortError」
+ * 断言退役，commitTurn('user_interrupt') + ack + 0 nack 断言强度不变。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,8 +28,23 @@ import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { StepAbortError } from '../../../src/core/step-executor/index.js';
-import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
-import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import type { PreparedInboxBatch, FormattedInboxBatch } from '../../../src/core/runtime/index.js';
+import type { InboxHandle } from '../../../src/foundation/messaging/types.js';
+import { createMockLLMConfig as createSharedMockLLMConfig } from '../_runtime-test-helpers.js';
+import { createTestEventLoop } from '../../helpers/test-event-loop.js';
+
+// Step H (phase1895): EventLoop 驱动失败 turn 时 dispatchError fallback 有
+// UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
+vi.mock('../../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
+  return {
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 describe('repair-session-load-audit', () => {
   /**
@@ -135,15 +153,6 @@ describe('userinterrupt-system-message-no-redrive', () => {
    *   - 反向：保 UserInterrupt 路径不再产生 nack（捕回归）
    */
 
-  function createMockLLMConfig(): LLMOrchestratorConfig {
-    return {
-      provider: 'anthropic',
-      model: 'claude-3-opus-20240229',
-      apiKey: 'test-key',
-      baseUrl: 'https://test.example.com',
-    };
-  }
-
   describe('phase 1415: UserInterrupt → system-typed inbox no-redrive invariant', () => {
     let testTempDir: string;
     let testClawDir: string;
@@ -163,18 +172,43 @@ describe('userinterrupt-system-message-no-redrive', () => {
       await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
+    /**
+     * Step H: EventLoop 走 prepareInbox/formatPreparedInbox/peekPendingTurnFacts 公开面。
+     * fake inbox batch 一次性消费（对齐旧 drain「领取后不再重复」语义）。
+     */
     class InterruptTestRuntime extends Runtime {
-      public drainResult: {
+      public fakeBatch: {
         injected: Message[];
         sources: Array<{ text: string; type: string }>;
-        count: number;
         infos: InboxMessage[];
-        addressedHandles: any[];
-      } = { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
+        handles: InboxHandle[];
+      } | null = null;
+      private preparedSnapshot: NonNullable<InterruptTestRuntime['fakeBatch']> | null = null;
       public reactThrow: Error | null = null;
 
-      protected override async _drainOwnInbox() {
-        return this.drainResult;
+      protected override async prepareInbox(): Promise<PreparedInboxBatch> {
+        const batch = this.fakeBatch;
+        this.fakeBatch = null;
+        this.preparedSnapshot = batch;
+        if (!batch) return { entries: [] };
+        return {
+          entries: batch.handles.map((handle, i) => ({ message: batch.infos[i], handle })),
+        };
+      }
+
+      protected override async formatPreparedInbox(): Promise<FormattedInboxBatch> {
+        const batch = this.preparedSnapshot;
+        if (!batch) return { injected: [], sources: [], count: 0, infos: [] };
+        return {
+          injected: batch.injected,
+          sources: batch.sources,
+          count: batch.injected.length,
+          infos: batch.infos,
+        };
+      }
+
+      protected override async peekPendingTurnFacts(): Promise<{ addressed: InboxMessage[]; controls: InboxMessage[] }> {
+        return { addressed: this.fakeBatch ? this.fakeBatch.infos : [], controls: [] };
       }
 
       protected override async _runReact(_messages: Message[]) {
@@ -182,12 +216,25 @@ describe('userinterrupt-system-message-no-redrive', () => {
       }
     }
 
+    function makeFakeBatch(
+      injected: Message[],
+      infos: InboxMessage[],
+      handles: InboxHandle[],
+    ): NonNullable<InterruptTestRuntime['fakeBatch']> {
+      return {
+        injected,
+        sources: [],
+        infos,
+        handles,
+      };
+    }
+
     async function makeInterruptRuntime() {
       const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'edge-claw' });
       const runtime = new InterruptTestRuntime({
         clawId: 'edge-claw',
         clawDir: testClawDir,
-        llmConfig: createMockLLMConfig(),
+        llmConfig: createSharedMockLLMConfig(),
         dependencies: deps,
       });
       runtimes.push(runtime);
@@ -216,16 +263,14 @@ describe('userinterrupt-system-message-no-redrive', () => {
         const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
         const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
 
-        runtime.drainResult = {
-          injected: [{ role: 'user', content: [{ type: 'text', text: c.desc }] }],
-          sources: [],
-          count: 1,
-          infos: [makeInfo(c.type, 'msg-x', c.from)],
-          addressedHandles: [{ filePath: 'inflight/msg-x.md', originalFileName: 'msg-x.md' }],
-        };
+        runtime.fakeBatch = makeFakeBatch(
+          [{ role: 'user', content: [{ type: 'text', text: c.desc }] }],
+          [makeInfo(c.type, 'msg-x', c.from)],
+          [{ filePath: 'inflight/msg-x.md', originalFileName: 'msg-x.md' } as InboxHandle],
+        );
         runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-        await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
+        await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
 
         expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
         expect(ackSpy).toHaveBeenCalledTimes(1);
@@ -240,28 +285,26 @@ describe('userinterrupt-system-message-no-redrive', () => {
       const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
       const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
 
-      runtime.drainResult = {
-        injected: [
+      runtime.fakeBatch = makeFakeBatch(
+        [
           { role: 'user', content: [{ type: 'text', text: 'hi' }] },
           { role: 'user', content: [{ type: 'text', text: 'contract done' }] },
           { role: 'user', content: [{ type: 'text', text: 'crash detected' }] },
         ],
-        sources: [],
-        count: 3,
-        infos: [
+        [
           makeInfo('user_chat', 'u1', 'user'),
           makeInfo('message', 'm2', 'auditor'),
           makeInfo('claw_crashed', 'c3', 'watchdog'),
         ],
-        addressedHandles: [
-          { filePath: 'inflight/u1.md', originalFileName: 'u1.md' },
-          { filePath: 'inflight/m2.md', originalFileName: 'm2.md' },
-          { filePath: 'inflight/c3.md', originalFileName: 'c3.md' },
+        [
+          { filePath: 'inflight/u1.md', originalFileName: 'u1.md' } as InboxHandle,
+          { filePath: 'inflight/m2.md', originalFileName: 'm2.md' } as InboxHandle,
+          { filePath: 'inflight/c3.md', originalFileName: 'c3.md' } as InboxHandle,
         ],
-      };
+      );
       runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
+      await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
 
       expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
       expect(ackSpy).toHaveBeenCalledTimes(3);
@@ -274,16 +317,14 @@ describe('userinterrupt-system-message-no-redrive', () => {
       vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
       vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
 
-      runtime.drainResult = {
-        injected: [{ role: 'user', content: [{ type: 'text', text: 'sys' }] }],
-        sources: [],
-        count: 1,
-        infos: [makeInfo('message', 'm1', 'system')],
-        addressedHandles: [{ filePath: 'inflight/m1.md', originalFileName: 'm1.md' }],
-      };
+      runtime.fakeBatch = makeFakeBatch(
+        [{ role: 'user', content: [{ type: 'text', text: 'sys' }] }],
+        [makeInfo('message', 'm1', 'system')],
+        [{ filePath: 'inflight/m1.md', originalFileName: 'm1.md' } as InboxHandle],
+      );
       runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
+      await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
 
       // 反向守：若 UserInterrupt 分支被回退到 phase 1403 形态、nack 会被调用 → 本测 fail
       expect(nackSpy).toHaveBeenCalledTimes(0);

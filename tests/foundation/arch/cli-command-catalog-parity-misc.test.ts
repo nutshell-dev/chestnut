@@ -31,14 +31,16 @@ describe('phase 1874 Step L: skill/watchdog/audit 族 catalog parity（族 3a）
       "miscShape(watchdogCmd.command('start'), 'watchdog/start')",
       "miscShape(watchdogCmd.command('stop'), 'watchdog/stop')",
       "miscShape(auditCmd.command('query'), 'audit/query', {",
-      "miscShape(auditCmd.command('lookup'), 'audit/lookup', {",
+      "miscShape(auditCmd.command('lookup'), 'audit/lookup')",
       "miscShape(auditCmd.command('info'), 'audit/info')",
     ]) {
       expect(indexSource).toContain(anchor);
     }
     // audit 段裸字面仅 runtimeLiteral 白名单（--file / --col）
+    // Step H (phase1895) Step G: lookup 的 --file 注册已删（静默忽略退役）——
+    // 剩余 --file 仅 query 一处。
     const section = indexSource.slice(indexSource.indexOf('const auditCmd = program'), indexSource.indexOf("auditCmd.on('command:*'"));
     const literals = [...section.matchAll(/\.(?:option|requiredOption)\(\s*'([^']+)'/g)].map((m) => m[1]);
-    expect(literals.sort()).toEqual(['--col <key=val>', '--file <name>', '--file <name>']);
+    expect(literals.sort()).toEqual(['--col <key=val>', '--file <name>']);
   });
 });

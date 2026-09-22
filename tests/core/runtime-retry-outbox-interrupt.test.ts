@@ -11,14 +11,26 @@ import { randomUUID } from 'crypto';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { MaxStepsExceededError } from '../../src/core/agent-executor/errors.js';
-import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
 import { StepAbortError } from '../../src/core/step-executor/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { createMockLLMConfig } from './_runtime-test-helpers.js';
 import { handleTurnInterrupt } from '../../src/core/runtime/runtime.js';
-import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
+import { createTestEventLoop } from '../helpers/test-event-loop.js';
+
+// Step H (phase1895): EventLoop 驱动失败 turn 时 dispatchError fallback 有
+// UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
+vi.mock('../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/core/event-loop/constants.js')>('../../src/core/event-loop/constants.js');
+  return {
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 
 describe('Runtime RetryOutboxInterrupt', () => {
@@ -48,22 +60,11 @@ describe('Runtime RetryOutboxInterrupt', () => {
 
   describe('processBatch() — error propagation edge cases', () => {
     /**
-     * 子类覆盖 _drainOwnInbox 和 _runReact，
-     * 绕过真实 LLM / FS 调用，专注测试 catch 块行为。
+     * 子类覆盖 _runReact 注入 turn 失败；inbox 走真实 pending 消息 +
+     * EventLoop 单 owner 驱动（Step H 替代 legacy-process-batch）。
      */
     class TestRuntime extends Runtime {
-      public drainResult: {
-        injected: Message[];
-        sources: Array<{ text: string; type: string }>;
-        count: number;
-        infos: InboxMessage[];
-        addressedHandles: any[];
-      } = { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
       public reactError: Error | null = null;
-
-      protected override async _drainOwnInbox() {
-        return this.drainResult;
-      }
 
       protected override async _runReact(_messages: Message[]) {
         if (this.reactError) throw this.reactError;
@@ -88,6 +89,13 @@ describe('Runtime RetryOutboxInterrupt', () => {
       await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
+    async function writePendingMsg(id: string, extraFrontmatter = ''): Promise<void> {
+      const pendingDir = path.join(testClawDir, 'inbox', 'pending');
+      await fs.mkdir(pendingDir, { recursive: true });
+      const content = `---\nid: ${id}\ntype: message\nfrom: sender-claw\nto: edge-claw\npriority: normal\ntimestamp: ${new Date().toISOString()}\n${extraFrontmatter}---\n\nhello\n`;
+      await fs.writeFile(path.join(pendingDir, `${id}.md`), content);
+    }
+
     async function makeTestRuntime() {
       const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'edge-claw' });
       return new TestRuntime({
@@ -98,36 +106,26 @@ describe('Runtime RetryOutboxInterrupt', () => {
       });
     }
 
-    it('phase 1121 Step B: MaxStepsExceededError 不再 markCrashed、仍重抛错误', async () => {
+    it('phase 1121 Step B: MaxStepsExceededError 不再 markCrashed、crash 经 EventLoop 落审计', async () => {
       const runtime = await makeTestRuntime();
       edgeRuntimes.push(runtime);
       await runtime.initialize();
 
-      runtime.drainResult = {
-        injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-        sources: [],
-        count: 1,
-        infos: [{
-          id: 'msg1',
-          type: 'message',
-          from: 'sender-claw',
-          to: 'edge-claw',
-          content: 'hello',
-          priority: 'normal',
-          timestamp: new Date().toISOString(),
-          metadata: { contract_id: 'c-1' },
-        } as InboxMessage],
-        addressedHandles: [],
-      };
+      await writePendingMsg('msg1', 'contract_id: c-1\n');
       runtime.reactError = new MaxStepsExceededError(10);
 
       const markSpy = vi.spyOn((runtime as any).contractManager, 'markCorrupted').mockResolvedValue(undefined);
+      const auditWrites: string[][] = [];
+      vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
+        auditWrites.push([type, ...args]);
+      });
 
-      // 错误应被重抛
-      await expect(runLegacyBatch(runtime)).rejects.toThrow(MaxStepsExceededError);
+      await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
 
       // phase 1121 Step B: process failure 不再 mutate Contract
       expect(markSpy).not.toHaveBeenCalled();
+      // 现行 EventLoop 架构：agent-loop crash 不冒泡，ack 破热循环 + FATAL 审计留证
+      expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('reason=agent_loop_crash')))).toBe(true);
       markSpy.mockRestore();
     });
 
@@ -136,50 +134,32 @@ describe('Runtime RetryOutboxInterrupt', () => {
       edgeRuntimes.push(runtime);
       await runtime.initialize();
 
-      runtime.drainResult = {
-        injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-        sources: [],
-        count: 1,
-        infos: [{
-          id: 'msg1',
-          type: 'message',
-          from: 'sender-claw',
-          to: 'edge-claw',
-          content: 'hello',
-          priority: 'normal',
-          timestamp: new Date().toISOString(),
-        } as InboxMessage],
-        addressedHandles: [],
-      };
+      await writePendingMsg('msg1');
       const originalError = new Error('LLM exploded');
       runtime.reactError = originalError;
 
-      // 应重抛原始错误对象
-      const err = await runLegacyBatch(runtime).catch(e => e);
-      expect(err).toBe(originalError);
-      expect(err.message).toBe('LLM exploded');
+      // 现行 EventLoop 架构：turn 失败不冒泡；经 processTurn（public entry）
+      // 解析为 failed TurnResult 且 error 保持原对象身份。
+      let turnError: unknown;
+      const processTurnSpy = vi.spyOn(runtime, 'processTurn').mockImplementation(async (...args: any[]) => {
+        const result = await Runtime.prototype.processTurn.apply(runtime, args as any);
+        turnError = result.error;
+        return result;
+      });
+
+      await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
+
+      expect(processTurnSpy).toHaveBeenCalled();
+      expect(turnError).toBe(originalError);
+      expect((turnError as Error).message).toBe('LLM exploded');
     });
 
-    it('phase 71: MaxStepsExceededError 且 contract_id 缺失 → audit-only runtime_catch_unhandled', async () => {
+    it('phase 71: MaxStepsExceededError 且 contract_id 缺失 → eventloop_fatal reason=agent_loop_crash', async () => {
       const runtime = await makeTestRuntime();
       edgeRuntimes.push(runtime);
       await runtime.initialize();
 
-      runtime.drainResult = {
-        injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-        sources: [],
-        count: 1,
-        infos: [{
-          id: 'msg1',
-          type: 'message',
-          from: 'sender-claw',
-          to: 'edge-claw',
-          content: 'hello',
-          priority: 'normal',
-          timestamp: new Date().toISOString(),
-        } as InboxMessage],
-        addressedHandles: [],
-      };
+      await writePendingMsg('msg1');
       runtime.reactError = new MaxStepsExceededError(10);
 
       const audit: string[] = [];
@@ -187,32 +167,19 @@ describe('Runtime RetryOutboxInterrupt', () => {
         audit.push([type, ...args].join('\t'));
       });
 
-      await expect(runLegacyBatch(runtime)).rejects.toThrow(MaxStepsExceededError);
+      await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
 
-      expect(audit.some(e => /^runtime_catch_unhandled\tpath=agent_loop_crash_no_contract/.test(e))).toBe(true);
+      // Step H: 旧 helper 的 runtime_catch_unhandled 已随 processBatch 退役；
+      // 现行等价面 = EventLoop agentLoopCrashHandler 的 FATAL 审计。
+      expect(audit.some(e => /^eventloop_fatal\treason=agent_loop_crash/.test(e))).toBe(true);
     });
 
-    it('phase 71: non-interrupt error → audit-only runtime_catch_unhandled', async () => {
+    it('phase 71: non-interrupt error → eventloop_fatal reason=non_llm_error（audit-only）', async () => {
       const runtime = await makeTestRuntime();
       edgeRuntimes.push(runtime);
       await runtime.initialize();
 
-      runtime.drainResult = {
-        injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-        sources: [],
-        count: 1,
-        infos: [{
-          id: 'msg1',
-          type: 'message',
-          from: 'sender-claw',
-          to: 'edge-claw',
-          content: 'hello',
-          priority: 'normal',
-          timestamp: new Date().toISOString(),
-          contract_id: 'c-1',
-        } as InboxMessage],
-        addressedHandles: [],
-      };
+      await writePendingMsg('msg1', 'contract_id: c-1\n');
       const originalError = new Error('LLM crash injected');
       runtime.reactError = originalError;
 
@@ -221,10 +188,20 @@ describe('Runtime RetryOutboxInterrupt', () => {
         audit.push([type, ...args].join('\t'));
       });
 
-      const err = await runLegacyBatch(runtime).catch(e => e);
-      expect(err).toBe(originalError);
+      // Step H: 旧 helper 的 runtime_catch_unhandled 已随 processBatch 退役；
+      // 现行等价面 = EventLoop fallbackHandler 的 FATAL 审计；
+      // 原始错误对象身份经 processTurn TurnResult 保持（见上例同模式）。
+      let turnError: unknown;
+      vi.spyOn(runtime, 'processTurn').mockImplementation(async (...args: any[]) => {
+        const result = await Runtime.prototype.processTurn.apply(runtime, args as any);
+        turnError = result.error;
+        return result;
+      });
 
-      expect(audit.some(e => /^runtime_catch_unhandled\tpath=non_interrupt_error/.test(e))).toBe(true);
+      await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
+
+      expect(turnError).toBe(originalError);
+      expect(audit.some(e => /^eventloop_fatal\treason=non_llm_error/.test(e))).toBe(true);
     });
   });
 

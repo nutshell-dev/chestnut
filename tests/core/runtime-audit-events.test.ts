@@ -23,7 +23,20 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
-import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
+import { createTestEventLoop } from '../helpers/test-event-loop.js';
+
+// Step H (phase1895): EventLoop 驱动失败 turn 时 dispatchError fallback 有
+// UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
+vi.mock('../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/core/event-loop/constants.js')>('../../src/core/event-loop/constants.js');
+  return {
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 describe('Runtime audit events', () => {
   let tempDir: string;
@@ -182,7 +195,8 @@ Test message
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await runLegacyBatch(runtime);
+      const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
+      await loop.run();
       const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
       expect(calls).toContain('turn_start');
       expect(calls).toContain('turn_end');
@@ -221,7 +235,8 @@ Test message
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await runLegacyBatch(runtime);
+      const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
+      await loop.run();
       // phase 560: 加 trace_id forensic field 跨源 join 到 turn
       expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('trace_id='), expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();
@@ -258,9 +273,17 @@ Test message
       (runtime as unknown as RuntimeTestInternals).llm = failingLLM;
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await expect(runLegacyBatch(runtime)).rejects.toThrow('LLM network error');
-      // phase 560: 加 trace_id forensic field
+      const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
+      await loop.run();
+      // 现行 EventLoop 架构：turn 失败不冒泡，经 dispatchError 落 FATAL 审计；
+      // 原「rejects + runtime_catch_unhandled」的等价强度 = llm_error + FATAL 双断言。
       expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('trace_id='), expect.stringContaining('error='), expect.stringContaining('latency_ms='));
+      expect(auditSpy).toHaveBeenCalledWith(
+        'eventloop_fatal',
+        expect.stringContaining('reason=non_llm_error'),
+        expect.any(String),
+        expect.stringContaining('LLM network error'),
+      );
       auditSpy.mockRestore();
     });
   });

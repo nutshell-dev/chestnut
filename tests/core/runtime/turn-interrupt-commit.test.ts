@@ -1,6 +1,10 @@
 /**
  * Turn interrupt graceful → commit reclassify
  * Phase 1375 reverse tests
+ *
+ * Step H (phase1895): 改由真实 EventLoop 单 owner 驱动（替代 legacy-process-batch）。
+ * 语义变迁：interrupt/失败不冒泡——「rejects」断言退役；commit/nack/rollback/
+ * 消息保留断言强度不变（现行 EventLoop 结算语义与旧 helper 一致或等价）。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -11,21 +15,26 @@ import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import { StepAbortError } from '../../../src/core/step-executor/index.js';
-import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
+import type { InboxMessage, InboxHandle } from '../../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { PreparedInboxBatch, FormattedInboxBatch } from '../../../src/core/runtime/index.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
-import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import { createMockLLMConfig } from '../_runtime-test-helpers.js';
+import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 
-function createMockLLMConfig(): LLMOrchestratorConfig {
+// Step H (phase1895): EventLoop 驱动失败 turn 时 dispatchError fallback 有
+// UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
+vi.mock('../../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
   return {
-    provider: 'anthropic',
-    model: 'claude-3-opus-20240229',
-    apiKey: 'test-key',
-    baseUrl: 'https://test.example.com',
+    ...actual,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
+    INTERRUPT_RECOVERY_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
   };
-}
+});
 
 describe('turn interrupt: graceful → commit (phase 1375)', () => {
   let testTempDir: string;
@@ -46,19 +55,44 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
+  /**
+   * Step H: EventLoop 走 prepareInbox/formatPreparedInbox/peekPendingTurnFacts 公开面。
+   * fake inbox batch 一次性消费（对齐旧 drain「领取后不再重复」语义）。
+   */
   class InterruptTestRuntime extends Runtime {
-    public drainResult: {
+    public fakeBatch: {
       injected: Message[];
       sources: Array<{ text: string; type: string }>;
-      count: number;
       infos: InboxMessage[];
-      addressedHandles: any[];
-    } = { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
+      handles: InboxHandle[];
+    } | null = null;
+    private preparedSnapshot: NonNullable<InterruptTestRuntime['fakeBatch']> | null = null;
     public reactThrow: Error | null = null;
     public midTurnSaves = 0;
 
-    protected override async _drainOwnInbox() {
-      return this.drainResult;
+    protected override async prepareInbox(): Promise<PreparedInboxBatch> {
+      const batch = this.fakeBatch;
+      this.fakeBatch = null;
+      this.preparedSnapshot = batch;
+      if (!batch) return { entries: [] };
+      return {
+        entries: batch.handles.map((handle, i) => ({ message: batch.infos[i], handle })),
+      };
+    }
+
+    protected override async formatPreparedInbox(): Promise<FormattedInboxBatch> {
+      const batch = this.preparedSnapshot;
+      if (!batch) return { injected: [], sources: [], count: 0, infos: [] };
+      return {
+        injected: batch.injected,
+        sources: batch.sources,
+        count: batch.injected.length,
+        infos: batch.infos,
+      };
+    }
+
+    protected override async peekPendingTurnFacts(): Promise<{ addressed: InboxMessage[]; controls: InboxMessage[] }> {
+      return { addressed: this.fakeBatch ? this.fakeBatch.infos : [], controls: [] };
     }
 
     protected override async _runReact(_messages: Message[]) {
@@ -91,6 +125,27 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     return runtime;
   }
 
+  function seedOneMessage(runtime: InterruptTestRuntime, info: InboxMessage) {
+    runtime.fakeBatch = {
+      injected: [{ role: 'user', content: [{ type: 'text', text: info.content }] }],
+      sources: [],
+      infos: [info],
+      handles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' } as InboxHandle],
+    };
+  }
+
+  function makeInfo(type: InboxMessage['type'], from: string, content: string): InboxMessage {
+    return {
+      id: 'msg1', type, from, to: 'edge-claw',
+      content, priority: 'high', timestamp: new Date().toISOString(),
+    } as InboxMessage;
+  }
+
+  /** EventLoop 单 owner 驱动一轮（替代已删除的 legacy-process-batch）。 */
+  function driveLoop(runtime: Runtime) {
+    return createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
+  }
+
   it('UserInterrupt + user_chat: dialog retains partial messages + TURN_COMMIT reason=user_interrupt + ack (phase 1391 / 1403)', async () => {
     const runtime = await makeInterruptRuntime();
     // Pre-seed dialog so beginTurn snapshot is non-empty
@@ -111,20 +166,12 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
 
     const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [{
-        id: 'msg1', type: 'user_chat', from: 'user', to: 'edge-claw',
-        content: 'hi', priority: 'high', timestamp: new Date().toISOString(),
-      } as InboxMessage],
-      addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
-    };
+    seedOneMessage(runtime, makeInfo('user_chat', 'user', 'hi'));
     runtime.midTurnSaves = 3;
     runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
+    // Step H: interrupt 不冒泡——EventLoop 以 ack('graceful_interrupt') 结算。
+    await driveLoop(runtime);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalled();
@@ -163,20 +210,11 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     });
     const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'contract done' }] }],
-      sources: [],
-      count: 1,
-      infos: [{
-        id: 'msg1', type: 'message', from: 'dialogstore-auditor', to: 'motion',
-        content: 'contract done', priority: 'high', timestamp: new Date().toISOString(),
-      } as InboxMessage],
-      addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
-    };
+    seedOneMessage(runtime, makeInfo('message', 'dialogstore-auditor', 'contract done'));
     runtime.midTurnSaves = 1;
     runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
+    await driveLoop(runtime);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(
@@ -216,20 +254,12 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     });
     const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [{
-        id: 'msg1', type: 'message', from: 'sender', to: 'edge-claw',
-        content: 'hi', priority: 'normal', timestamp: new Date().toISOString(),
-      } as InboxMessage],
-      addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
-    };
+    seedOneMessage(runtime, makeInfo('message', 'sender', 'hi'));
     runtime.midTurnSaves = 2;
     runtime.reactThrow = new StepAbortError({ kind: 'idle_timeout', ms: 30000 });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
+    // Step H: idle_timeout interrupt 现行结算 = nack(cause=idle_timeout, graceful_interrupt)。
+    await driveLoop(runtime);
 
     expect(commitCallSpy).toHaveBeenCalledWith('idle_timeout');
     expect(nackSpy).toHaveBeenCalled();
@@ -265,20 +295,12 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     });
     const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
 
-    runtime.drainResult = {
-      injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      sources: [],
-      count: 1,
-      infos: [{
-        id: 'msg1', type: 'message', from: 'sender', to: 'edge-claw',
-        content: 'hi', priority: 'normal', timestamp: new Date().toISOString(),
-      } as InboxMessage],
-      addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
-    };
+    seedOneMessage(runtime, makeInfo('message', 'sender', 'hi'));
     runtime.midTurnSaves = 2;
     runtime.reactThrow = new Error('tool crash');
 
-    await expect(runLegacyBatch(runtime)).rejects.toThrow('tool crash');
+    // Step H: 失败 turn 不冒泡——EventLoop 以 nack + rollback 结算（断言强度不变）。
+    await driveLoop(runtime);
 
     expect(rollbackCallSpy).toHaveBeenCalled();
     expect(nackSpy).toHaveBeenCalled();
