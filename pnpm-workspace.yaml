@@ -4,3 +4,4 @@ onlyBuiltDependencies:
 
 patchedDependencies:
   '@mariozechner/pi-tui@0.58.3': patches/@mariozechner__pi-tui@0.58.3.patch
+  tsup@8.5.1: patches/tsup@8.5.1.patch

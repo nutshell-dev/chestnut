@@ -1,0 +1,15 @@
+diff --git a/dist/rollup.js b/dist/rollup.js
+index e128b61b9558318b9f86dc11d72c31f09a8eb7db..92ab352796a2943e5853de70ddf22474aa98fcec 100644
+--- a/dist/rollup.js
++++ b/dist/rollup.js
+@@ -6834,7 +6834,9 @@ var getRollupConfig = async (options) => {
+           tsconfig: options.tsconfig,
+           compilerOptions: {
+             ...compilerOptions,
+-            baseUrl: compilerOptions.baseUrl || ".",
++            // patch(chestnut phase1894): TS 6.0 rejects any explicit baseUrl (TS5101),
++            // including this injected "."; forward baseUrl only when tsconfig sets it.
++            ...(compilerOptions.baseUrl ? { baseUrl: compilerOptions.baseUrl } : {}),
+             // Ensure ".d.ts" modules are generated
+             declaration: true,
+             // Skip ".js" generation
