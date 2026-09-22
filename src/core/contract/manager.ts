@@ -569,7 +569,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         });
 
         if (activeLoc) {
-          return this.transitionLegacyVerificationAttempt(contractId, subtaskId, transition, activeLoc);
+          return this._applyVerificationAttemptTransition(contractId, subtaskId, transition, activeLoc);
         }
 
         return { kind: 'skipped', reason: `contract ${contractId} is not active` };
@@ -587,7 +587,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     activeLoc: ActiveContractLocation,
   ): Promise<ProgressData | null | 'not_active'> {
     try {
-      return await this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
+      return await this._readActiveProgress(contractId, activeLoc.contractRoot);
     } catch (err) {
       if (isFileNotFound(err)) {
         const stillActive = await resolveActiveContractLocation({
@@ -601,7 +601,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     }
   }
 
-  private async transitionLegacyVerificationAttempt(
+  private async _applyVerificationAttemptTransition(
     contractId: ContractId,
     subtaskId: SubtaskId,
     transition: VerificationAttemptTransition,
@@ -1453,7 +1453,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         );
         throw new ContractLocationAmbiguityError(contractId, locations);
       }
-      return this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
+      return this._readActiveProgress(contractId, activeLoc.contractRoot);
     }
 
     const loc = await resolveContractLocation({
@@ -1493,7 +1493,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     );
   }
 
-  private async _getLegacyActiveProgress(contractId: ContractId, contractRoot: string): Promise<ProgressData | null> {
+  private async _readActiveProgress(contractId: ContractId, contractRoot: string): Promise<ProgressData | null> {
     const progressPath = `${contractRoot}/${PROGRESS_FILE}`;
     let content: string;
     try {
@@ -1501,7 +1501,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     } catch (err) {
       // phase 1862 Step E (CT-D6)：FNF 竞态 = retryable_io（不隔离、可重读）；其余原样上抛。
       if (classifyCorruption(err, { kind: 'progress' }).disposition !== 'retryable_io') throw err;
-      // Legacy active progress.json should exist; one race retry for TOCTOU.
+      // Active progress.json should exist; one race retry for TOCTOU.
       content = await this.fs.read(progressPath);
     }
     let rawParsed: unknown;
