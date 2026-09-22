@@ -230,6 +230,19 @@ const VI_MOCK_FILES = [
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',
   'tests/cli/claw-router-root-config.test.ts',  // phase 1301 Step C: vi.mock claw/stop/ps/ensure/pid/audit factories
+  // phase 1895 Step H: EventLoop 驱动迁移补登记——11 文件 vi.mock event-loop/constants
+  // （缩 UNKNOWN_ERROR/INTERRUPT/CONTEXT_TRIM 退避常量；补登记，phase 316 invariant 抓漂移）
+  'tests/core/runtime-audit-events.test.ts',
+  'tests/core/runtime-draininbox.test.ts',
+  'tests/core/runtime-retry-outbox-interrupt.test.ts',
+  'tests/core/runtime-signal-audit.test.ts',
+  'tests/core/runtime/processbatch-orchestrator.test.ts',
+  'tests/core/runtime/reactive-trim-retry.test.ts',
+  'tests/core/runtime/read-state-step-boundary.test.ts',
+  'tests/core/runtime/repair-invariants.test.ts',
+  'tests/core/runtime/runtime-mark-crashed.test.ts',
+  'tests/core/runtime/trace-id-cascade.test.ts',
+  'tests/core/runtime/turn-interrupt-commit.test.ts',
 ];
 
 /**
