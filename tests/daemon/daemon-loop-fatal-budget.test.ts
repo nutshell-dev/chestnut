@@ -122,8 +122,10 @@ describe('phase 1873 Step I: daemon-loop fatal 有界恢复', () => {
      * 等第 3 次 run（第 2 次 fatal）落地。
      * Derivation: 20ms(tick) + 10ms(退避) + 20ms(tick) + 20ms(tick 起跑) + 余量。
      */
-    const FATAL_SEQUENCE_SETTLE_MS = 150;
-    await new Promise(r => setTimeout(r, FATAL_SEQUENCE_SETTLE_MS));
+    // Fatal audit writes are the completion evidence; do not infer progress from elapsed time.
+    while (fatalEntries(audit).length < 2) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
     stop();
     await promise.catch(() => { /* silent: teardown */ });
 

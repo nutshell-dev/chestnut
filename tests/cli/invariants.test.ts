@@ -233,16 +233,19 @@ describe('chat-viewport shutdown parallelization (B2)', () => {
     );
   });
 
-  it('Promise.all resolves 3 × SETTLE_MS stops in < 2 × SETTLE_MS (parallel vs serial)', async () => {
+  it('Promise.all waits for all parallel stops', async () => {
     // phase 1176: per-promise settle duration（test-local fixture）
     const SETTLE_MS = 100;
-    const start = Date.now();
-    await Promise.all(
-      Array.from({ length: 3 }).map(() => new Promise<void>(r => setTimeout(r, SETTLE_MS)))
-    );
-    const elapsed = Date.now() - start;
-    // parallel ≈ SETTLE_MS（1×）/ serial would be ≈ 3 × SETTLE_MS / 2 × SETTLE_MS 是区分上界
-    expect(elapsed).toBeLessThan(SETTLE_MS * 2);
+    vi.useFakeTimers();
+    try {
+      const all = Promise.all(
+        Array.from({ length: 3 }).map(() => new Promise<void>(r => setTimeout(r, SETTLE_MS)))
+      );
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      await expect(all).resolves.toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
