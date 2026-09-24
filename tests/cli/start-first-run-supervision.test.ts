@@ -66,7 +66,9 @@ vi.mock('../../src/core/contract/index.js', async (importOriginal) => {
     // phase 1879 Step B: start 的 ContractSystem 装配归 Assembly 窄 action context
     // （createMotionContractActionContext 内经 createContractSystem 工厂构造）——
     // mock 目标随装配收口从 ContractSystem 类迁到 createContractSystem 工厂。
+    // phase 1901 Step B: motion context 注册 summon-verify policy，mock 补 registerCreatePolicy。
     createContractSystem: vi.fn(async () => ({
+      registerCreatePolicy: vi.fn(),
       create: async (): Promise<string> => {
         h.order.push('contract-create');
         return 'onboarding-test';

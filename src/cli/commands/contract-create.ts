@@ -19,10 +19,18 @@ export async function contractCreateCommand(deps: { fsFactory: (baseDir: string)
   const contract = parseAndValidateContractYaml(yamlContent);
 
   // phase 1874 Step F: 装配归 Assembly 窄入口（CLI 不再构造 AuditLog/ToolRegistry/ContractSystem）
-  const action = await createContractActionContext(deps, clawId);
+  // phase 1901 Step B: 注册 summon-verify policy（policy-only，不附带 --dir 的 support tools）；
+  // task identity 经 create options 传入 policy loop（与 --dir 路径同一来源）。
+  const action = await createContractActionContext(deps, clawId, {
+    registerSummonVerifyPolicy: true,
+  });
   let contractId: string;
   try {
-    contractId = await action.system.create(contract);
+    contractId = await action.system.create({
+      contract,
+      subagentTaskId: process.env.CHESTNUT_SUBAGENT_TASK_ID,
+      clawDir: clawId,
+    });
   } finally {
     action.dispose();
   }

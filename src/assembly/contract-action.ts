@@ -61,16 +61,24 @@ interface ContractActionTarget {
 }
 
 /**
- * 完整入口：为一次 contract create/cancel/show 动作装配 ContractSystem。
- *
- * withSummonVerifyPolicy=true 时（create --dir 路径）额外装配 fileTools + ClawTopology wiring +
- * crossTargetAccess + summon-verify create policy（与迁移前 cli/index.ts 内联块逐位同序）。
- * false 时（create --file / cancel / show）保持原有裸 createToolRegistry() 形态（零行为漂移）。
+ * phase 1901 Step B：policy authority 与 support capability 分离装配。
+ * - withSummonVerifyPolicy（create --dir 路径）：policy + fileTools + ClawTopology
+ *   wiring + crossTargetAccess（与迁移前 cli/index.ts 内联块逐位同序）；
+ * - registerSummonVerifyPolicy（create --file / start onboarding 路径）：仅注册
+ *   summon-verify create policy，不附带 support tools/topology capability；
+ * - 皆否（cancel / show）保持原有裸 createToolRegistry() 形态（零行为漂移）。
  */
+export interface ContractActionOptions {
+  /** create --dir：policy + support tools（fileTools/topology/crossTargetAccess）。 */
+  withSummonVerifyPolicy?: boolean;
+  /** create --file / start：仅注册 summon-verify policy，不扩大工具能力面。 */
+  registerSummonVerifyPolicy?: boolean;
+}
+
 export async function createContractActionContext(
   deps: ContractActionFsDeps,
   clawId: string,
-  opts: { withSummonVerifyPolicy?: boolean } = {},
+  opts: ContractActionOptions = {},
 ): Promise<ContractActionContext> {
   return buildContractActionContext(
     deps,
@@ -83,12 +91,12 @@ export async function createContractActionContext(
  * motion 变体（phase 1879 Step B，cli-contract-action-residual-overassembly 收口）：
  * `start` 命令 onboarding contract 的一次性 create 动作——目标是 motion 目录
  * （getNamedSubrootDir(MOTION_CLAW_ID)，非 getClawDir），chestnutRoot 反推 isMotion=true。
- * 除目标解析外与 createContractActionContext 逐位同构；默认不装 summon verify policy
- * （与迁移前 start.ts 内联裸 createToolRegistry() 形态等价，零行为漂移）。
+ * 除目标解析外与 createContractActionContext 逐位同构；opts 语义同 ContractActionOptions
+ * （phase 1901 Step B：start onboarding 传 registerSummonVerifyPolicy——仅 policy、无 support tools）。
  */
 export async function createMotionContractActionContext(
   deps: ContractActionFsDeps,
-  opts: { withSummonVerifyPolicy?: boolean } = {},
+  opts: ContractActionOptions = {},
 ): Promise<ContractActionContext> {
   return buildContractActionContext(
     deps,
@@ -100,7 +108,7 @@ export async function createMotionContractActionContext(
 async function buildContractActionContext(
   deps: ContractActionFsDeps,
   target: ContractActionTarget,
-  opts: { withSummonVerifyPolicy?: boolean },
+  opts: ContractActionOptions,
 ): Promise<ContractActionContext> {
   const { clawDir, clawId, isMotion } = target;
   const clawFs = deps.fsFactory(clawDir);
@@ -109,7 +117,11 @@ async function buildContractActionContext(
   const toolRegistry = createToolRegistry();
 
   let summonPolicy: ReturnType<typeof createSummonVerifyPolicy> | undefined;
-  if (opts.withSummonVerifyPolicy) {
+  // phase 1901 Step B：policy 注册与 support tools 解耦——policy authority 覆盖所有
+  // 生产 create 入口（--dir/--file/start），support capability 仅 --dir 保留。
+  const shouldRegisterPolicy =
+    opts.withSummonVerifyPolicy || opts.registerSummonVerifyPolicy;
+  if (shouldRegisterPolicy) {
     // phase 1874 Step E: task 事实读取归 AsyncTaskSystem owner 窄查询
     const motionFs = deps.fsFactory(path.join(chestnutRoot, MOTION_CLAW_ID));
     summonPolicy = createSummonVerifyPolicy({
@@ -117,7 +129,8 @@ async function buildContractActionContext(
       claimStore: createSummonCreationClaimStore({ fs: deps.fsFactory(chestnutRoot) }),
       loadTask: (taskId) => loadSubAgentTask(motionFs, taskId),
     });
-
+  }
+  if (opts.withSummonVerifyPolicy) {
     for (const tool of createFileTools()) {
       toolRegistry.register(tool);
     }

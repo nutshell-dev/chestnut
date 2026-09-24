@@ -208,7 +208,11 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
 
     // phase 1879 Step B: onboarding contract 的一次性 ContractSystem 装配归 Assembly
     // 窄 action context（motion 变体）——CLI 不再直构造；audit 由 context own、终态 dispose。
-    const action = await createMotionContractActionContext(deps);
+    // phase 1901 Step B: 注册 summon-verify policy（policy-only）；onboarding 无 task
+    // identity，policy 首个无身份分支 pass-through，不写 claim。
+    const action = await createMotionContractActionContext(deps, {
+      registerSummonVerifyPolicy: true,
+    });
     let contractId: string;
     try {
       contractId = await action.system.create({
@@ -235,7 +239,10 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
     // 非首次但 not_found（极少），或 in_progress
     await daemonReady;
     if (onboarding.state === 'not_found') {
-      const action = await createMotionContractActionContext(deps);
+      // phase 1901 Step B: 同首次运行分支，注册 summon-verify policy（policy-only）。
+      const action = await createMotionContractActionContext(deps, {
+        registerSummonVerifyPolicy: true,
+      });
       let contractId: string;
       try {
         contractId = await action.system.create({

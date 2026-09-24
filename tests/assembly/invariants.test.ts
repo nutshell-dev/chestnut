@@ -893,6 +893,41 @@ describe('phase1396-summon-claim-wiring', () => {
 });
 
 
+describe('phase1901-contract-action-policy-assembly', () => {
+  /**
+   * Phase 1901 Step B: policy authority 与 support capability 分离装配。
+   * - 新增 policy-only 选项 registerSummonVerifyPolicy（--file / start 路径）；
+   * - policy 注册条件 = withSummonVerifyPolicy || registerSummonVerifyPolicy；
+   * - support tools（fileTools/topology/crossTargetAccess）仍仅由 withSummonVerifyPolicy
+   *   授予（--dir 保留，file/start 不扩大 capability）。
+   */
+  const ROOT = path.resolve(process.cwd());
+  const actionSrc = fs.readFileSync(
+    path.join(ROOT, 'src', 'assembly', 'contract-action.ts'),
+    'utf-8',
+  );
+
+  it('contract-action.ts 提供 policy-only 选项且 policy 注册条件覆盖两选项', () => {
+    expect(actionSrc).toContain('registerSummonVerifyPolicy?: boolean');
+    expect(actionSrc).toMatch(
+      /opts\.withSummonVerifyPolicy \|\| opts\.registerSummonVerifyPolicy/,
+    );
+    // policy 注册在任一选项下生效
+    expect(actionSrc).toMatch(/if \(summonPolicy\) \{\s*system\.registerCreatePolicy\('summon-verify', summonPolicy\)/);
+  });
+
+  it('support tools/topology 仍仅由 withSummonVerifyPolicy 授予（--dir 不退化、file/start 不扩大）', () => {
+    const toolsBlock = actionSrc.match(/if \(opts\.withSummonVerifyPolicy\) \{[\s\S]*?\n  \}/);
+    expect(toolsBlock).not.toBeNull();
+    expect(toolsBlock![0]).toContain('createFileTools');
+    expect(toolsBlock![0]).toContain('wireClawTopology');
+    expect(toolsBlock![0]).toContain('createCrossTargetAccess');
+    // policy 构造不绑定 support tools：createSummonVerifyPolicy 出现在该块之外
+    expect(toolsBlock![0]).not.toContain('createSummonVerifyPolicy');
+  });
+});
+
+
 describe('phase1396-execution-recovery-wiring', () => {
   /**
    * Phase 1396 Step E: Assembly 为 EventLoop 注入执行停滞恢复依赖。
