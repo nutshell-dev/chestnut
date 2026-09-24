@@ -160,15 +160,27 @@ export function createSummonCreationClaimStore(deps: { fs: FileSystem }): Summon
         if (!isAlreadyExists(err)) throw err;
       }
       // EEXIST：严格读取比较。同候选 = 重试幂等通过；不同候选 = 拒绝；损坏 = typed error。
-      let existing: SummonCreationClaim;
-      try {
-        existing = parseClaim(await fs.read(path), path);
-      } catch (err) {
-        if (isFileNotFound(err)) {
-          // 读时文件消失（外部干预）：不当成功也不当冲突，按损坏处理、保留证据。
-          throw new SummonCreationClaimCorruptedError(path, err);
+      let existing: SummonCreationClaim | undefined;
+      // O_EXCL publishes the path before the winning writer has finished its
+      // fsync.  A concurrent loser may therefore observe a partial JSON value;
+      // yield until the winner's durable contents are visible before declaring
+      // corruption.
+      for (let attempt = 0; attempt < 100 && existing === undefined; attempt++) {
+        try {
+          existing = parseClaim(await fs.read(path), path);
+        } catch (err) {
+          if (isFileNotFound(err)) {
+            throw new SummonCreationClaimCorruptedError(path, err);
+          }
+          if (err instanceof SummonCreationClaimCorruptedError && attempt < 99) {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            continue;
+          }
+          throw err;
         }
-        throw err;
+      }
+      if (existing === undefined) {
+        throw new SummonCreationClaimCorruptedError(path);
       }
       if (
         existing.summonId === input.summonId &&
