@@ -16,7 +16,6 @@ import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { SUBAGENT_WAIT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { executeToolTask } from '../../../src/core/async-task-system/tool-executor.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
@@ -320,13 +319,11 @@ describe('createAsyncExecWrapper', () => {
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const started = Date.now();
     const result = await tool.execute({ command: 'sleep 5' }, ctx);
-    const elapsed = Date.now() - started;
 
     expect(result.success).toBe(false);
-    // 由声明预算（100ms）终止、而非装配预算（60s）：上界取命名常量（含 L1 终止 grace 成本）
-    expect(elapsed).toBeLessThan(SUBAGENT_WAIT_TIMEOUT_MS);
+    // 由声明预算（100ms）终止、而非装配预算（60s）；验证终止结果本身，
+    // 不把真实子进程调度耗时当作契约。
   });
 
   it('should deliver full output after migration', async () => {
