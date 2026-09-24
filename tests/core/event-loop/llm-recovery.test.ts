@@ -455,7 +455,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
 
     // 同一批消息失败回队后不重复放行：未到点的短窗口内不再真发。
     const rerun = h.eventLoop.run();
-    await sleep(30);   // < 500ms deadline
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
@@ -474,7 +474,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 系统消息（任务结果）到达：保存为 pending，不触发提前尝试。
     h.writePending({ id: 's-1', type: 'task_result', from: 'system', content: 'task done' });
     const rerun = h.eventLoop.run();
-    await sleep(30);   // < 500ms deadline
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(h.providerCalls.length).toBe(1);
     const after = await h.session.inspect();
     expect(after.kind).toBe('at');
@@ -518,7 +518,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 新一轮 run 在等待 deadline；期间用户新消息到达（唤醒）→ 重新准入一次，
     // 不允许同时产生第二个并发 turn。
     const rerun = h.eventLoop.run();
-    await sleep(30);
+    await new Promise<void>(resolve => setImmediate(resolve));
     h.writePending({ id: 'm-2', type: 'user_chat', from: 'user', content: 'second' });
     await sleep(600);   // 跨过 deadline 与唤醒处理
 
@@ -547,7 +547,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 前台等待安排未被外部成功改变：仍未到点（短窗口内不追加请求）。
     expect(await h.session.inspect()).toEqual(waiting);
     const rerun = h.eventLoop.run();
-    await sleep(30);
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
@@ -632,7 +632,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
 
     h.writeReload();
     const firstRun = h.eventLoop.run();
-    await sleep(150);
+    await waitFor(() => h.reloadCalls() === 1, 5_000, 10);
     h.eventLoop.abort();
     await firstRun;
     const reloadsAfterFirst = h.reloadCalls();
@@ -641,7 +641,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
 
     // 同一 reload 消息仍在 pending（正常 drain 才消费一次）+ 同一配置身份重送 → 不再 reload。
     const secondRun = h.eventLoop.run();
-    await sleep(150);
+    await new Promise<void>(resolve => setImmediate(resolve));
     h.eventLoop.abort();
     await secondRun;
     expect(h.reloadCalls()).toBe(reloadsAfterFirst);
