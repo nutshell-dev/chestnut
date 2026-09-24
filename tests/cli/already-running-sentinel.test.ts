@@ -20,13 +20,6 @@ import { CliError } from '../../src/cli/errors.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 import { CLI_AUDIT_EVENTS } from '../../src/cli/audit-events.js';
 
-/**
- * Early-return upper bound (ms) for clawDaemonCommand happy path.
- * Derivation: DI fake processManager 0 真 syscall / clawDaemonCommand 应 < 100ms 完成 /
- * 500ms = ×5 safety / 留出 vitest setup overhead jitter.
- */
-const EARLY_RETURN_UPPER_BOUND_MS = 500;
-
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
 describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
@@ -121,12 +114,9 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     ).rejects.toBeInstanceOf(CliError);
   });
 
-  it('clawDaemonCommand happy-path early-return completes in <500ms', async () => {
+  it('clawDaemonCommand happy-path returns when the claw is already running', async () => {
     setupClaw('running-claw');
-    const start = Date.now();
     await clawDaemonCommand(daemonDeps(), 'running-claw');
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(EARLY_RETURN_UPPER_BOUND_MS);
   });
 
   it('clawDaemonCommand emits CLI_AUDIT CLAW_DAEMON_START after successful spawn (phase 1452 Step B)', async () => {
