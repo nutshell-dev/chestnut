@@ -146,3 +146,71 @@ describe('SummonCreationClaimStore (phase 1396 Step B)', () => {
     await expect(store.read('../escape')).rejects.toThrow(/Invalid summon id/);
   });
 });
+
+describe('SummonCreationClaimStore read-side identity binding (Phase 1908 Step E)', () => {
+  let tempDir: string;
+  let store: SummonCreationClaimStore;
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tempDir = path.join(tmpdir(), `summon-claim-binding-${randomUUID()}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    store = createSummonCreationClaimStore({ fs: new NodeFileSystem({ baseDir: tempDir }) });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  });
+
+  const writeClaimFile = async (dirSummonId: string, claim: Record<string, unknown>): Promise<void> => {
+    const dir = path.join(tempDir, SUMMON_CREATION_CLAIMS_DIR, dirSummonId);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, SUMMON_CREATION_CLAIM_FILE), JSON.stringify(claim, null, 2));
+  };
+
+  const mismatchedClaim = (contentSummonId: string): Record<string, unknown> => ({
+    schema_version: 1,
+    summonId: contentSummonId,
+    targetExecutorId: 'claw-a',
+    contractId: 'c-1',
+    claimedAt: new Date().toISOString(),
+  });
+
+  it('read: 路径 key 与内容 summonId 错配 → SummonCreationClaimCorruptedError（fail-closed）', async () => {
+    await writeClaimFile('s-dir', mismatchedClaim('s-other'));
+
+    await expect(store.read('s-dir')).rejects.toThrow(SummonCreationClaimCorruptedError);
+    // 证据保留：文件不被改写/删除
+    const raw = await fs.readFile(
+      path.join(tempDir, SUMMON_CREATION_CLAIMS_DIR, 's-dir', SUMMON_CREATION_CLAIM_FILE),
+      'utf-8',
+    );
+    expect(JSON.parse(raw).summonId).toBe('s-other');
+  });
+
+  it('read: 路径 key 与内容 summonId 一致 → 正常返回', async () => {
+    await writeClaimFile('s-dir', mismatchedClaim('s-dir'));
+    const claim = await store.read('s-dir');
+    expect(claim?.summonId).toBe('s-dir');
+    expect(claim?.contractId).toBe('c-1');
+  });
+
+  it('list: 目录名与内容 summonId 错配 → 进 unreadable，不进 claims', async () => {
+    await writeClaimFile('s-good', mismatchedClaim('s-good'));
+    await writeClaimFile('s-bad', mismatchedClaim('s-other'));
+
+    const listing = await store.list();
+    expect(listing.readable).toBe(true);
+    expect(listing.claims.map(c => c.summonId)).toEqual(['s-good']);
+    expect(listing.unreadable).toHaveLength(1);
+    expect(listing.unreadable[0].summonId).toBe('s-bad');
+    expect(listing.unreadable[0].detail).toContain('does not match path key');
+  });
+
+  it('claim(EEXIST 比较): 已有测试覆盖同候选幂等/异候选拒绝 —— 错配内容经 read 面 fail-closed 不回归', async () => {
+    const result = await store.claim({ summonId: 's-1', targetExecutorId: 'claw-a', contractId: 'c-1' });
+    expect(result.kind).toBe('claimed');
+    const retry = await store.claim({ summonId: 's-1', targetExecutorId: 'claw-a', contractId: 'c-1' });
+    expect(retry.kind).toBe('same_claim');
+  });
+});

@@ -134,6 +134,22 @@ function parseClaim(raw: string, path: string): SummonCreationClaim {
 }
 
 /**
+ * Phase 1908 Step E: 读面 identity 绑定 —— 路径 key（summonId 目录名）与内容
+ * `claim.summonId` 必须一致；错配即 corrupted（fail-closed 保留证据），绝不把
+ * 目录 A 中内容 summonId B 的 claim 交付给恢复核实。
+ */
+function parseClaimForIdentity(raw: string, path: string, expectedSummonId: string): SummonCreationClaim {
+  const claim = parseClaim(raw, path);
+  if (claim.summonId !== expectedSummonId) {
+    throw new SummonCreationClaimCorruptedError(
+      path,
+      new Error(`claim summonId '${claim.summonId}' does not match path key '${expectedSummonId}'`),
+    );
+  }
+  return claim;
+}
+
+/**
  * 创建 summon 创建 claim store。
  *
  * @param deps.fs  rooted at chestnutRoot（`.chestnut`）；store 写 `summons/<summonId>/creation-claim.json`。
@@ -202,7 +218,7 @@ export function createSummonCreationClaimStore(deps: { fs: FileSystem }): Summon
         if (isFileNotFound(err)) return undefined;
         throw err;
       }
-      return parseClaim(raw, path);
+      return parseClaimForIdentity(raw, path, summonId);
     },
 
     async list() {
@@ -220,7 +236,7 @@ export function createSummonCreationClaimStore(deps: { fs: FileSystem }): Summon
         const summonId = entry.name;
         const path = claimPath(summonId);
         try {
-          claims.push(parseClaim(await fs.read(path), path));
+          claims.push(parseClaimForIdentity(await fs.read(path), path, summonId));
         } catch (err) {
           if (isFileNotFound(err)) continue; // 目录存在但 claim 未落盘 = 无创建事实记录，非异常项
           unreadable.push({ summonId, detail: formatErr(err) });
