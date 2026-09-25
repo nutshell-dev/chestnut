@@ -87,9 +87,10 @@ export class OutboxReader {
       return;
     }
 
-    let pendingEntries: { name: string }[] = [];
+    // pending 列目录失败仍中止 reconcile（保留 audit）；快照不再用于分流决策
+    //（Stage 2 O_EXCL 取代 exists 判断）。
     try {
-      pendingEntries = await this.fs.list(pendingDir, { includeDirs: false });
+      await this.fs.list(pendingDir, { includeDirs: false });
     } catch (err) {
       emitOutboxListFailed(this.audit, {
         dir: pendingDir,
@@ -100,7 +101,6 @@ export class OutboxReader {
     }
 
     let revertedCount = 0;
-    const pendingSet = new Set(pendingEntries.map(e => e.name));
 
     const CLAIM_TOKEN_RE = /^cli_(\d+)_([0-9a-f]+)_[0-9a-z]+_(.+\.md)$/i;
     const OLD_TOKEN_RE = /^cli_(\d+)_[0-9a-z]+_(.+\.md)$/i;
@@ -177,69 +177,149 @@ export class OutboxReader {
 
       const sourcePath = path.join(processingDir, entry.name);
       const targetPath = path.join(pendingDir, originalName);
+      const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
 
-      if (pendingSet.has(originalName)) {
-        // Duplicate: compare content to decide.
-        let sourceContent: string;
-        try {
-          sourceContent = await this.fs.read(sourcePath);
-        } catch (err) {
-          emitOutboxClaimFailed(this.audit, {
-            file: entry.name,
-            op: 'reconcile_compare_read',
-            reason: formatErr(err),
-          });
-          continue;
-        }
-        let targetContent: string;
-        try {
-          targetContent = await this.fs.read(targetPath);
-        } catch (err) {
-          emitOutboxClaimFailed(this.audit, {
-            file: entry.name,
-            op: 'reconcile_compare_read',
-            reason: formatErr(err),
-          });
-          continue;
-        }
-        if (sourceContent === targetContent) {
-          // Same content → already re-delivered by another consumer; archive processing file.
-          try {
-            await this.fs.move(sourcePath, path.join(doneDir, entry.name));
-          } catch (err) {
-            emitOutboxClaimFailed(this.audit, {
-              file: entry.name,
-              op: 'reconcile_archive',
-              reason: formatErr(err),
-            });
-          }
-        } else {
-          // Different content → conflict, move to DLQ.
-          const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
-          try {
-            await this.fs.ensureDir(failedDir);
-            await this.fs.move(sourcePath, path.join(failedDir, entry.name));
-          } catch (err) {
-            emitOutboxClaimFailed(this.audit, {
-              file: entry.name,
-              op: 'reconcile_dlq',
-              reason: formatErr(err),
-            });
-          }
-        }
-        continue;
-      }
-
+      // Phase 1908 Step G（RACE-OUTBOX-RECONCILE-TARGET）：回收永远不覆盖已有
+      // pending —— 禁止 exists 快照后裸 rename（同根 rename 会替换目标）。照
+      // InboxReader._restoreToPending 三阶段协议：
+      //   Stage 1 — staging 化（唯一名不冲突）；ENOENT = race-lost，不喉非 ENOENT。
+      //   Stage 2 — 目标缺失 → O_EXCL 原子占位（快照后出现的 pending 会 EEXIST，
+      //             不被覆盖）；占位成功后删 staging。
+      //   Stage 3 — 目标存在 → 比完整内容：同 → staging 归档 done/（去重）；
+      //             异 → staging 进 failed/ DLQ（冲突，双保留）。
+      const stageName = `.tmp_${newShortUuid()}_${originalName}.staging`;
+      const stagePath = path.join(pendingDir, stageName);
       try {
-        await this.fs.move(sourcePath, targetPath);
-        revertedCount++;
+        await this.fs.move(sourcePath, stagePath);
       } catch (err) {
-        const reason = formatErr(err);
+        if (isFileNotFound(err)) continue; // race-lost: 已被并发 consumer 处理
         emitOutboxClaimFailed(this.audit, {
           file: entry.name,
           op: 'reconcile_pending',
-          reason,
+          reason: formatErr(err),
         });
+        continue;
+      }
+
+      // staging 出错时尽量搬回 processing，恢复原状等下次 reconcile，不滞留 pending。
+      const restoreStage = async (): Promise<void> => {
+        try {
+          await this.fs.move(stagePath, sourcePath);
+        } catch {
+          // silent: staging 已不在（并发清理）或搬回失败 —— 残留 .staging 不可 drain，
+          // 错误已 audit，下轮启动人工/工具可检。
+        }
+      };
+
+      let targetContent: string | null = null;
+      try {
+        targetContent = await this.fs.read(targetPath);
+      } catch (err) {
+        if (!isFileNotFound(err)) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_compare_read',
+            reason: formatErr(err),
+          });
+          await restoreStage();
+          continue;
+        }
+        targetContent = null;
+      }
+
+      if (targetContent === null) {
+        // Stage 2 — O_EXCL 原子占位
+        let stageContent: string;
+        try {
+          stageContent = await this.fs.read(stagePath);
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_compare_read',
+            reason: formatErr(err),
+          });
+          await restoreStage();
+          continue;
+        }
+        try {
+          this.fs.writeExclusiveSync(targetPath, stageContent);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+            emitOutboxClaimFailed(this.audit, {
+              file: entry.name,
+              op: 'reconcile_pending',
+              reason: formatErr(err),
+            });
+            await restoreStage();
+            continue;
+          }
+          // 目标在快照/读取后并发出现 —— 重读进 Stage 3
+          try {
+            targetContent = await this.fs.read(targetPath);
+          } catch (readErr) {
+            emitOutboxClaimFailed(this.audit, {
+              file: entry.name,
+              op: 'reconcile_compare_read',
+              reason: formatErr(readErr),
+            });
+            await restoreStage();
+            continue;
+          }
+        }
+        if (targetContent === null) {
+          // 占位成功 —— 删 staging，完成回收
+          try {
+            this.fs.deleteSync(stagePath);
+          } catch (err) {
+            if (!isFileNotFound(err)) {
+              emitOutboxClaimFailed(this.audit, {
+                file: entry.name,
+                op: 'reconcile_pending',
+                reason: formatErr(err),
+              });
+            }
+          }
+          revertedCount++;
+          continue;
+        }
+      }
+
+      // Stage 3 — 目标已存在：比完整内容分流
+      let stageContent: string;
+      try {
+        stageContent = await this.fs.read(stagePath);
+      } catch (err) {
+        emitOutboxClaimFailed(this.audit, {
+          file: entry.name,
+          op: 'reconcile_compare_read',
+          reason: formatErr(err),
+        });
+        await restoreStage();
+        continue;
+      }
+      if (stageContent === targetContent) {
+        // 同内容 → 已被其他 consumer 重投递；归档 staging 副本（去重）
+        try {
+          await this.fs.move(stagePath, path.join(doneDir, entry.name));
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_archive',
+            reason: formatErr(err),
+          });
+        }
+      } else {
+        // 异内容 → 冲突，staging 副本进 DLQ（双保留）
+        try {
+          await this.fs.ensureDir(failedDir);
+          await this.fs.move(stagePath, path.join(failedDir, entry.name));
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_dlq',
+            reason: formatErr(err),
+          });
+        }
       }
     }
 
