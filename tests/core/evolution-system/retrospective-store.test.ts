@@ -600,3 +600,119 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
   });
 
 });
+
+describe('RetrospectiveStore claim identity binding (Phase 1908 Step C)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+  let store: RetrospectiveStore;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('retro-claim-binding-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+    store = new RetrospectiveStore({ fs, audit: audit.audit });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  function writeClaim(contractId: string, overrides: Record<string, unknown>): Promise<void> {
+    return fs.writeAtomic(`${CLAIMS_DIR}/${contractId}.json`, JSON.stringify({
+      schema_version: 1,
+      contract_id: contractId,
+      task_id: '00000000-0000-0000-0000-000000000011',
+      target_executor_id: 'claw-a',
+      created_at: '2026-01-01T00:00:00.000Z',
+      ...overrides,
+    }));
+  }
+
+  function writeReadyRow(contractId: string, overrides: Record<string, unknown>): Promise<void> {
+    return fs.writeAtomic(`${READY_DIR}/${contractId}.json`, JSON.stringify({
+      schema_version: 2,
+      contract_id: contractId,
+      task_id: '00000000-0000-0000-0000-000000000011',
+      target_executor_id: 'claw-a',
+      created_at: '2026-01-01T00:00:00.000Z',
+      ...overrides,
+    }));
+  }
+
+  it('fails closed when claim content contract_id disagrees with the claim path key', async () => {
+    const input = makeInput();
+    // 路径 A 的 claim 携带 contract B 的内容 —— 不得被接受为 A 的身份
+    await writeClaim(input.contractId, { contract_id: 'contract-other' });
+
+    await expect(store.ensure(input)).rejects.toThrow(/indeterminate/);
+
+    for (const dir of [READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR]) {
+      expect(existsSync(path.join(baseDir, `${dir}/${input.contractId}.json`))).toBe(false);
+    }
+    const readFailed = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED);
+    expect(readFailed.some(e => e.includes('reason=ensure_claim_indeterminate'))).toBe(true);
+  });
+
+  it('fails closed when claim and row disagree on executor', async () => {
+    const input = makeInput({ targetExecutorId: 'claw-b' });
+    await writeClaim(input.contractId, { target_executor_id: 'claw-a' });
+    await writeReadyRow(input.contractId, { target_executor_id: 'claw-b' });
+
+    await expect(store.ensure(input)).rejects.toThrow(/claim\/row identity mismatch/);
+
+    const conflicts = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT);
+    expect(conflicts.some(e => e.includes('reason=claim_row_identity_mismatch'))).toBe(true);
+  });
+
+  it('fails closed when claim and row disagree on created_at', async () => {
+    const input = makeInput();
+    await writeClaim(input.contractId, { created_at: '2026-01-01T00:00:00.000Z' });
+    await writeReadyRow(input.contractId, { created_at: '2026-06-06T00:00:00.000Z' });
+
+    await expect(store.ensure(input)).rejects.toThrow(/claim\/row identity mismatch/);
+  });
+
+  it('claim-only rebuild refuses a claim whose executor differs from the ensure input', async () => {
+    const input = makeInput({ targetExecutorId: 'claw-b' });
+    // claim 已提交（executor claw-a）、row 从未发布；不同 executor 的重试不得接受该身份
+    await writeClaim(input.contractId, { target_executor_id: 'claw-a' });
+
+    await expect(store.ensure(input)).rejects.toThrow(/registration conflict/);
+    expect(existsSync(path.join(baseDir, `${READY_DIR}/${input.contractId}.json`))).toBe(false);
+  });
+
+  it('legacy backfill fails closed when a concurrent claim carries a different task identity', async () => {
+    const input = makeInput();
+    await writeReadyRow(input.contractId, {});
+
+    // 并发补建竞赛：loser 的 O_EXCL 之前 winner 写入异身份 claim
+    class BackfillRaceFs extends NodeFileSystem {
+      private armed = true;
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (this.armed && p.startsWith(CLAIMS_DIR)) {
+          this.armed = false;
+          await super.writeAtomic(p, JSON.stringify({
+            schema_version: 1,
+            contract_id: input.contractId,
+            task_id: '00000000-0000-0000-0000-000000000099',
+            target_executor_id: input.targetExecutorId,
+            created_at: '2026-01-01T00:00:00.000Z',
+          }));
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new BackfillRaceFs({ baseDir }), audit: audit.audit });
+    await expect(raceStore.ensure(input)).rejects.toThrow(/claim\/row identity mismatch/);
+
+    // 保留证据：原 row 与 winner claim 均不被覆盖
+    const row = JSON.parse(await fs.read(`${READY_DIR}/${input.contractId}.json`));
+    expect(row.task_id).toBe('00000000-0000-0000-0000-000000000011');
+    const claim = JSON.parse(await fs.read(`${CLAIMS_DIR}/${input.contractId}.json`));
+    expect(claim.task_id).toBe('00000000-0000-0000-0000-000000000099');
+  });
+
+});

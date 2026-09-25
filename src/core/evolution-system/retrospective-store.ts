@@ -332,7 +332,14 @@ export class RetrospectiveStore {
     row: RegisterRetrospectiveResult,
     claim: RetrospectiveIdentityClaim,
   ): RegisterRetrospectiveResult {
-    if (row.taskId !== claim.task_id) {
+    // Phase 1908 Step C: 完整 identity binding —— claim 内容、row 与 ensure
+    // 输入必须同时匹配 contract、executor、task、createdAt（RACE-RETRO-CLAIM-PATH-IDENTITY）。
+    if (
+      claim.contract_id !== input.contractId ||
+      claim.target_executor_id !== input.targetExecutorId ||
+      row.taskId !== claim.task_id ||
+      row.createdAt !== claim.created_at
+    ) {
       this.audit.write(
         RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
         `contractId=${input.contractId}`,
@@ -437,6 +444,11 @@ export class RetrospectiveStore {
         typeof r.created_at !== 'string'
       ) {
         return { kind: 'corrupt', reason: 'missing_required_fields' };
+      }
+      // Phase 1908 Step C: 路径 key 与内容 identity 绑定 —— 路径 A 的 claim
+      // 携带 contract B 的内容一律 fail-closed（RACE-RETRO-CLAIM-PATH-IDENTITY）。
+      if (r.contract_id !== contractId) {
+        return { kind: 'corrupt', reason: 'path_identity_mismatch' };
       }
       return {
         kind: 'ok',
