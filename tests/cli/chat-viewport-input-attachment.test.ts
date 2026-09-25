@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { writeUserChat } from '../../src/viewport/chat-viewport-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+// phase 1909 Step B（M15）：期望值经模板单源生成，不复制字面（防双源）
+import { userAttachmentBody } from '../../src/templates/messages/index.js';
 
 describe('writeUserChat - phase 142 attachment fallback', () => {
   let tempDir: string;
@@ -56,9 +58,15 @@ describe('writeUserChat - phase 142 attachment fallback', () => {
     const inboxFiles = fs.readdirSync(inboxPending);
     expect(inboxFiles.length).toBe(1);
     const inboxContent = fs.readFileSync(path.join(inboxPending, inboxFiles[0]), 'utf-8');
-    expect(inboxContent).toContain('[user-input attachment: 3000 chars]');
+    // 包装正文整体与模板输出一致（系统行 + preview 渲染结果；preview = 头 200 字符 + 省略号）
+    const expectedBody = userAttachmentBody({
+      sizeChars: 3000,
+      attachmentRelPath: path.join('..', 'inbox', 'attachments', attachmentFiles[0]),
+      previewHeadChars: 200,
+      preview: 'x'.repeat(200) + '…',
+    });
+    expect(inboxContent).toContain(expectedBody);
     expect(inboxContent).toContain('path: ../inbox/attachments/');
-    expect(inboxContent).toContain('preview (first 200 chars):');
     expect(inboxContent).not.toContain(longMessage);
   });
 

@@ -95,3 +95,11 @@ export {
   userChatMessageEnvelope,
 } from './envelope.js';
 export { taskQueueOverflowBody } from './task-queue-overflow.js';
+export {
+  onboardingContractCreatedBody,
+  onboardingContractResumedBody,
+  type OnboardingCreatedInput,
+  type OnboardingResumedInput,
+} from './onboarding-contract.js';
+export { CONFIG_RELOAD_NOTICE } from './config-reload.js';
+export { userAttachmentBody, type UserAttachmentInput } from './user-attachment.js';

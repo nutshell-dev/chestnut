@@ -27,6 +27,7 @@ import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
+import { CONFIG_RELOAD_NOTICE } from '../../templates/messages/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
@@ -66,7 +67,8 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
       // source must not contain '/'; it goes into the inbox file name
       source: `cli-${source}`,
       priority: 'high',
-      body: 'LLM config changed on disk; please reload.',
+      // phase 1909 Step B（M14）：正文呈现归 templates/messages 单源
+      body: CONFIG_RELOAD_NOTICE,
     });
     notified++;
   }

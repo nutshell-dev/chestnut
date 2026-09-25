@@ -86,6 +86,24 @@ const MIGRATED: MigratedSource[] = [
     id: 'M12', file: 'cli/commands/contract-helpers.ts',
     fragments: ['New contract created (', 'After each subtask, submit verification via', 'done: { "subtask"', '- ${s.id}: ${s.description}'],
   },
+  {
+    // phase 1909 Step B: onboarding 创建/恢复通知正文迁模板单源（机械迁移，逐字节不变）
+    id: 'M13', file: 'cli/commands/start.ts',
+    fragments: [
+      'New contract created (${contractId}): Onboarding. Please begin execution.',
+      'Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.',
+    ],
+  },
+  {
+    // phase 1909 Step B: LLM 配置重载通知正文迁模板单源
+    id: 'M14', file: 'cli/commands/config.ts',
+    fragments: ['LLM config changed on disk; please reload.'],
+  },
+  {
+    // phase 1909 Step B: 用户附件包装系统行迁模板单源（preview 渲染仍在 viewport owner）
+    id: 'M15', file: 'viewport/chat-viewport-utils.ts',
+    fragments: ['[user-input attachment: ${size} chars]', 'Use the read tool to fetch full or partial content'],
+  },
 ];
 
 describe('phase 1828: inbox message template boundary', () => {

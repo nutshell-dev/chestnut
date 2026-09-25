@@ -14,6 +14,7 @@ import { createClawNotifier } from '../foundation/messaging/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { userAttachmentBody } from '../templates/messages/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { persistViewportDraft, clearViewportDraft } from './chat-viewport-draft.js';
 
@@ -91,18 +92,15 @@ function persistAttachment(
   }
 }
 
-/** 长文本附件 body 模板：含 size + preview head + attachment 路径。 */
+/** 长文本附件 body：preview 截断/省略号渲染在本 owner；系统行经 templates/messages 单源（phase 1909 Step B / M15）。 */
 function formatAttachmentBody(message: string, attachmentRelPath: string): string {
-  const size = message.length;
   const preview = message.slice(0, PREVIEW_HEAD_CHARS) + (message.length > PREVIEW_HEAD_CHARS ? '…' : '');
-  return [
-    `[user-input attachment: ${size} chars]`,
-    `path: ${attachmentRelPath}`,
-    `preview (first ${PREVIEW_HEAD_CHARS} chars):`,
+  return userAttachmentBody({
+    sizeChars: message.length,
+    attachmentRelPath,
+    previewHeadChars: PREVIEW_HEAD_CHARS,
     preview,
-    '',
-    'Use the read tool to fetch full or partial content (supports offset/limit).',
-  ].join('\n');
+  });
 }
 
 /** 格式化毫秒为可读时长 / 1:1 保 chat-viewport.ts:90-95 body */

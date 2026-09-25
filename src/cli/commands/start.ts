@@ -30,6 +30,7 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { onboardingContractCreatedBody, onboardingContractResumedBody } from '../../templates/messages/index.js';
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -231,7 +232,8 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       type: 'contract_created',
       source: 'system',
       priority: 'high',
-      body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
+      // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源
+      body: onboardingContractCreatedBody({ contractId }),
       idPrefix: 'start',
     });
 
@@ -257,14 +259,19 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       }
       clawNotifier.notify(MOTION_CLAW_ID, {
         type: 'contract_created', source: 'system', priority: 'high',
-        body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
+        // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源
+        body: onboardingContractCreatedBody({ contractId }),
         idPrefix: 'start',
       });
     } else {
-      const pendingList = onboarding.pending?.join(', ') ?? '';
       clawNotifier.notify(MOTION_CLAW_ID, {
         type: 'contract_resume', source: 'system', priority: 'high',
-        body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,
+        // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源；缺省分支留在本 owner
+        body: onboardingContractResumedBody({
+          // String() 保持与原模板字面插值逐字节一致（contractId 可选，原插值 undefined 同形渲染）
+          contractId: String(onboarding.contractId),
+          pendingSubtasks: onboarding.pending ?? [],
+        }),
         idPrefix: 'start',
       });
     }
