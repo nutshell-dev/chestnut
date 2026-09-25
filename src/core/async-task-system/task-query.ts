@@ -23,6 +23,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
 } from './dirs.js';
 import { validateTaskShape } from './task-corrupt-helpers.js';
+import { deriveShortIdFromTaskId } from './types.js';
 import type { SubAgentTask, TaskId } from './types.js';
 
 /** owner 目录读取顺序（单条 task 事实首次命中即返回）。 */
@@ -48,6 +49,11 @@ export async function loadSubAgentTask(
     }
     const parsed = JSON.parse(content) as unknown;
     if (validateTaskShape(parsed) && (parsed as SubAgentTask).kind === 'subagent') {
+      // Phase 1908 Step D: 路径—内容 identity 绑定 —— 不得把路径 A 中内容
+      // id B 的 task 返回给 caller；shortId 必须是内容 id 的 canonical 派生。
+      // 错配文件不构成本查询的命中。
+      if ((parsed as SubAgentTask).id !== taskId) continue;
+      if ((parsed as SubAgentTask).shortId !== deriveShortIdFromTaskId(taskId)) continue;
       return parsed as SubAgentTask;
     }
   }

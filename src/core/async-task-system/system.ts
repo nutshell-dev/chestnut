@@ -668,6 +668,15 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       ) {
         return { kind: 'corrupt', reason: 'missing_required_fields' };
       }
+      // Phase 1908 Step D: 路径 key 与内容 identity 绑定 —— claim.id 必须等于
+      // 请求 fullId，claim.shortId 必须是其 canonical short id
+      //（RACE-ATS-CLAIM-PATH-IDENTITY）。
+      if (r.id !== fullId) {
+        return { kind: 'corrupt', reason: 'path_identity_mismatch' };
+      }
+      if (r.shortId !== deriveShortIdFromTaskId(fullId)) {
+        return { kind: 'corrupt', reason: 'short_id_mismatch' };
+      }
       return {
         kind: 'ok',
         claim: {
@@ -856,6 +865,18 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       }
 
       const existingTask = validated.data as SubAgentTask;
+      // Phase 1908 Step D: lifecycle 文件内容 identity 与路径绑定 —— 内容 id
+      // 必须等于路径 fullId，shortId 必须是 canonical 派生；错配即 identity
+      // conflict，payload hash 不能替代 identity 校验。
+      if (existingTask.id !== fullId || existingTask.shortId !== shortId) {
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: dir,
+          reason: `task file identity mismatch: content id=${existingTask.id} shortId=${existingTask.shortId}`,
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: task file identity mismatch`);
+      }
       const existingPayload = stripTaskIdentityFields(existingTask);
       const existingHash = hashTaskPayload(existingPayload);
       if (existingHash !== expectedHash) {

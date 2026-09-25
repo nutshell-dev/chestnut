@@ -122,6 +122,35 @@ describe('phase 1872 Step D: loadSubAgentTask（owner 单条查询）', () => {
     expect(found).toBeUndefined();  // shortId 不是目录文件名 → 缺失（语义：调用方用 fullId）
   });
 
+  it('路径—内容 id 错配 → 不作命中，继续回落后续目录（Phase 1908 Step D）', async () => {
+    const otherId = '550e8401-e29b-41d4-a716-446655440099';
+    const mismatched = validTask(otherId);
+    const valid = validTask(TASK_ID);
+    // pending 路径是 TASK_ID 但内容 id 是 otherId → 跳过；done 命中真身
+    const fsImpl = makeFs({
+      [`${TASK_DIRS[0]}/${TASK_ID}.json`]: JSON.stringify(mismatched),
+      [`${TASK_DIRS[2]}/${TASK_ID}.json`]: JSON.stringify(valid),
+    });
+    const found = await loadSubAgentTask(fsImpl, makeFullTaskId(TASK_ID));
+    expect(found?.id).toBe(TASK_ID);
+  });
+
+  it('路径—内容 id 错配（无后续命中）→ undefined，绝不返回错身份 task（Phase 1908 Step D）', async () => {
+    const otherId = '550e8401-e29b-41d4-a716-446655440099';
+    const fsImpl = makeFs({
+      [`${TASK_DIRS[0]}/${TASK_ID}.json`]: JSON.stringify(validTask(otherId)),
+    });
+    expect(await loadSubAgentTask(fsImpl, makeFullTaskId(TASK_ID))).toBeUndefined();
+  });
+
+  it('内容 shortId 非 canonical 派生 → 不作命中（Phase 1908 Step D）', async () => {
+    const task = { ...validTask(TASK_ID), shortId: makeShortTaskId('ffffffff') };
+    const fsImpl = makeFs({
+      [`${TASK_DIRS[0]}/${TASK_ID}.json`]: JSON.stringify(task),
+    });
+    expect(await loadSubAgentTask(fsImpl, makeFullTaskId(TASK_ID))).toBeUndefined();
+  });
+
   it('反向：Assembly 事实读取面不再直引 TASKS_QUEUES_* / validateTaskShape', () => {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const assemblyDir = path.resolve(__dirname, '../../../src/assembly');

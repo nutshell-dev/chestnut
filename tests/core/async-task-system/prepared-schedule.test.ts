@@ -623,3 +623,121 @@ describe('AsyncTaskSystem.schedulePrepared stable claim (Phase 1904 Step D)', ()
     expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_CLAIM_BACKFILLED)).toHaveLength(1);
   });
 });
+
+describe('AsyncTaskSystem.schedulePrepared path/content identity binding (Phase 1908 Step D)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('prepared-binding-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  function makeSystem(): AsyncTaskSystem {
+    return createTestTaskSystem(baseDir, fs, audit.audit as import('../../../src/foundation/audit/writer.js').AuditWriter);
+  }
+
+  async function placeClaim(fullId: string, claim: Record<string, unknown>): Promise<void> {
+    await fs.ensureDir(TASKS_QUEUES_CLAIMS_DIR);
+    await fs.writeAtomic(`${TASKS_QUEUES_CLAIMS_DIR}/${fullId}.json`, JSON.stringify(claim, null, 2));
+  }
+
+  it('fails closed when claim content id differs from the claim path key', async () => {
+    const prepared = makePrepared();
+    const otherId = randomUUID();
+    await placeClaim(prepared.id, {
+      schema_version: 1,
+      id: otherId,
+      shortId: otherId.slice(0, 8),
+      payloadHash: 'deadbeef',
+      createdAt: prepared.createdAt,
+    });
+
+    await expect(makeSystem().schedulePrepared('subagent', prepared)).rejects.toThrow(/indeterminate/);
+
+    // 不创建 task artifact、不产生 scheduled 事实，claim 证据保留
+    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+      expect(await fs.exists(`${dir}/${prepared.id}.json`)).toBe(false);
+    }
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+    const conflicts = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT);
+    expect(conflicts.some(e => e.some(c => typeof c === 'string' && c.includes('path_identity_mismatch')))).toBe(true);
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`)).toBe(true);
+  });
+
+  it('fails closed when claim shortId is not the canonical short id of the path key', async () => {
+    const prepared = makePrepared();
+    await placeClaim(prepared.id, {
+      schema_version: 1,
+      id: prepared.id,
+      shortId: 'ffffffff',
+      payloadHash: 'deadbeef',
+      createdAt: prepared.createdAt,
+    });
+
+    await expect(makeSystem().schedulePrepared('subagent', prepared)).rejects.toThrow(/indeterminate/);
+    const conflicts = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT);
+    expect(conflicts.some(e => e.some(c => typeof c === 'string' && c.includes('short_id_mismatch')))).toBe(true);
+    expect(await fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`)).toBe(false);
+  });
+
+  it('fails closed when lifecycle task file content id differs from its path', async () => {
+    const prepared = makePrepared();
+    const otherId = randomUUID();
+    // 路径是 prepared.id，内容 id 是另一个 uuid（同 payload —— hash 不能替代 identity 校验）
+    const task = {
+      ...prepared.payload,
+      id: otherId,
+      shortId: otherId.slice(0, 8),
+      createdAt: prepared.createdAt,
+    };
+    await fs.ensureDir(TASKS_QUEUES_PENDING_DIR);
+    await fs.writeAtomic(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`, JSON.stringify(task, null, 2));
+
+    await expect(makeSystem().schedulePrepared('subagent', prepared)).rejects.toThrow(/task file identity mismatch/);
+    const conflicts = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT);
+    expect(conflicts.some(e => e.some(c => typeof c === 'string' && c.includes('task file identity mismatch')))).toBe(true);
+    // 不补建 claim、不产生 scheduled 事实
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`)).toBe(false);
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+  });
+
+  it('fails closed when lifecycle task file shortId is not canonical for its path id', async () => {
+    const prepared = makePrepared();
+    const task = {
+      ...prepared.payload,
+      id: prepared.id,
+      shortId: 'ffffffff',
+      createdAt: prepared.createdAt,
+    };
+    await fs.ensureDir(TASKS_QUEUES_PENDING_DIR);
+    await fs.writeAtomic(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`, JSON.stringify(task, null, 2));
+
+    await expect(makeSystem().schedulePrepared('subagent', prepared)).rejects.toThrow(/task file identity mismatch/);
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+  });
+
+  it('claim-only rebuild with mismatched claim identity does not rebuild and does not create a second identity', async () => {
+    const prepared = makePrepared();
+    // claim 存在但身份错配、task 缺失（崩溃窗口形态）—— 不得按 claim 重建
+    const otherId = randomUUID();
+    await placeClaim(prepared.id, {
+      schema_version: 1,
+      id: otherId,
+      shortId: otherId.slice(0, 8),
+      payloadHash: 'deadbeef',
+      createdAt: prepared.createdAt,
+    });
+
+    await expect(makeSystem().schedulePrepared('subagent', prepared)).rejects.toThrow(/indeterminate/);
+    expect(await fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`)).toBe(false);
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+  });
+});
