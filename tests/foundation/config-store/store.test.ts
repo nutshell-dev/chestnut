@@ -26,6 +26,7 @@ import {
 import type { ConfigSchema } from '../../../src/foundation/config-store/store.js';
 import type { ConfigStoreErrorCode } from '../../../src/foundation/config-store/errors.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 
 interface TestConfig {
   name: string;
@@ -362,5 +363,119 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
     }
     expect(isConfigStoreError(caught)).toBe(true);
     expect((caught as ConfigStoreError).code).toBe('lock_timeout');
+  });
+});
+
+describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => {
+  const FAST = { acquireTimeoutMs: 400, staleMs: 100, pollMs: 10 } as const;
+  const OLD = new Date(Date.now() - 120_000).toISOString();
+
+  it('活 holder 超过 stale 窗口仍不被夺锁（时间只触发探测）', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    const lockRaw = JSON.stringify({
+      token: 'holder-alive',
+      pid: process.pid, // 本测试进程 = 活跃 holder
+      process_start_time: getProcessStartTime(process.pid),
+      createdAt: OLD,
+    });
+    fs.writeFileSync(`${configPath}.lock`, lockRaw);
+
+    let caught: unknown;
+    try {
+      await withYamlConfigLock({ fsFactory }, configPath, () => {
+        patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.x = 1; });
+      }, FAST);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isConfigStoreError(caught)).toBe(true);
+    expect((caught as ConfigStoreError).code).toBe('lock_timeout');
+    // 活 holder 的 lock 原样保留，config 未被 mutation 触碰
+    expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(lockRaw);
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw).toEqual({ name: 'base' });
+  });
+
+  it('死 holder（ESRCH）经活性证明后回收，mutation 正常提交且无 claim 残留', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    fs.writeFileSync(`${configPath}.lock`, JSON.stringify({
+      token: 'dead-holder',
+      pid: 99999, // 超出 macOS maxpid —— kill(0) 必 ESRCH
+      process_start_time: 'Sat Jan  1 00:00:00 2000',
+      createdAt: OLD,
+    }));
+
+    await withYamlConfigLock({ fsFactory }, configPath, () => {
+      patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recovered = true; });
+    }, FAST);
+
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw.recovered).toBe(true);
+    expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
+    // rename-claim 证据文件不残留
+    expect(
+      fs.readdirSync(tempDir).filter((n) => n.includes('.reclaim-')),
+    ).toEqual([]);
+  });
+
+  it('PID 回收（startTime 不匹配）视为原 holder 已死，可回收', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    fs.writeFileSync(`${configPath}.lock`, JSON.stringify({
+      token: 'recycled-pid',
+      pid: process.pid, // PID 活着但 startTime 对不上 = 原 holder 已死
+      process_start_time: 'Sat Jan  1 00:00:00 2000',
+      createdAt: OLD,
+    }));
+
+    await withYamlConfigLock({ fsFactory }, configPath, () => {
+      patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recycled = true; });
+    }, FAST);
+
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw.recycled).toBe(true);
+  });
+
+  it('lock 读错误（EISDIR）不删除、不进入 mutation，typed lock_timeout', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    fs.mkdirSync(`${configPath}.lock`); // 读 lock 必失败（EISDIR）
+
+    let caught: unknown;
+    try {
+      await withYamlConfigLock({ fsFactory }, configPath, () => {
+        patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.x = 1; });
+      }, { acquireTimeoutMs: 200, staleMs: 50, pollMs: 10 });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isConfigStoreError(caught)).toBe(true);
+    expect((caught as ConfigStoreError).code).toBe('lock_timeout');
+    // 不可判状态原样保留（证据），config 未被触碰
+    expect(fs.statSync(`${configPath}.lock`).isDirectory()).toBe(true);
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw).toEqual({ name: 'base' });
+  });
+
+  it('释放时 owner token 已变化：不误删新 holder 的锁，typed lock_lost 显式报告', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    const replacement = JSON.stringify({
+      token: 'new-holder',
+      pid: 99999,
+      createdAt: new Date().toISOString(),
+    });
+
+    let caught: unknown;
+    try {
+      await withYamlConfigLock({ fsFactory }, configPath, () => {
+        // 模拟 mutation 期间锁被替换（协议外干预）
+        fs.rmSync(`${configPath}.lock`, { force: true });
+        fs.writeFileSync(`${configPath}.lock`, replacement);
+      }, FAST);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isConfigStoreError(caught)).toBe(true);
+    expect((caught as ConfigStoreError).code).toBe('lock_lost');
+    // 新 holder 的锁未被误删
+    expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(replacement);
   });
 });

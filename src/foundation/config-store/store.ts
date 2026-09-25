@@ -18,6 +18,8 @@
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../fs/index.js';
+import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
+import { newShortUuid } from '../node-utils/index.js';
 import { ConfigStoreError } from './errors.js';
 
 /**
@@ -208,48 +210,164 @@ export function writeYamlConfigExclusive(
   }
 }
 
-/** lock 内容可解析但超过该年龄 → 视为 holder 崩溃残留，可回收。 */
+/** lock 内容可解析且超过该年龄 → 触发 holder 活性探测（时间只触发探测，不授予删除权）。 */
 const CONFIG_LOCK_STALE_MS = 30_000;
 /** 获取锁的总预算；超时 typed 'lock_timeout' 交给 caller（不静默等待永远）。 */
 const CONFIG_LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
 const CONFIG_LOCK_POLL_MS = 50;
 
+/**
+ * Phase 1911 Step C（RACE-CONFIG-LOCK-STALE-RECLAIM）：lock payload。
+ * - `token`：本代锁的 owner 身份（release 只删自己持有的 token；回收按代际复核）；
+ * - `pid` + `process_start_time`：holder 活性证明（PID 回收防御）；
+ * - `createdAt`：仅决定何时开始探测，时间戳本身不构成回收依据。
+ * 1910 legacy lock（无 token / 无 startTime）仍可被读：token 缺省 → 以
+ * `pid:createdAt` 为代际身份；startTime 缺省 → 活性降级为 kill(0) 判定。
+ */
 interface ConfigLockPayload {
-  pid: number;
-  createdAt: string;
+  token?: string;
+  pid?: number;
+  process_start_time?: string;
+  createdAt?: string;
 }
 
-function readLockFresh(fs: FileSystem, lockName: string, staleMs: number): boolean {
-  // 返回 true = 锁仍被有效持有；false = 可回收（不存在 / 过期）
+/** 代际身份：token 优先；legacy 退化为 pid+createdAt；不可解析以原文为身份。 */
+function lockIdentity(raw: string): string {
+  try {
+    const payload = JSON.parse(raw) as ConfigLockPayload;
+    if (typeof payload.token === 'string' && payload.token !== '') return `token:${payload.token}`;
+    return `legacy:${String(payload.pid)}:${String(payload.createdAt)}`;
+  } catch {
+    // silent: 不可解析内容以原文为代际身份（保守不授予回收权）
+    return `raw:${raw}`;
+  }
+}
+
+type LockObservation =
+  | { kind: 'absent' }                     // 读时已被释放 —— 下一轮 O_EXCL 裁决
+  | { kind: 'unreadable' }                 // EIO/EACCES 等 —— 不可判，保守持有
+  | { kind: 'malformed' }                  // 半写（O_EXCL 先发布路径）—— 保守持有
+  | { kind: 'ok'; raw: string; payload: ConfigLockPayload };
+
+function observeLock(fs: FileSystem, lockName: string): LockObservation {
   let raw: string;
   try {
     raw = fs.readSync(lockName);
-  } catch {
-    return false; // 读不到（ENOENT/竞争删除）→ 可回收
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return { kind: 'absent' };
+    return { kind: 'unreadable' }; // 读错误 ≠ 可回收（1911：不再折叠成可删）
   }
   let payload: ConfigLockPayload;
   try {
     payload = JSON.parse(raw) as ConfigLockPayload;
   } catch {
-    // O_EXCL 先发布路径再完成内容：半写 lock 视为「持有中」，下一轮重读
-    return true;
+    // silent: 半写 lock（O_EXCL 先发布路径）—— 保守持有，交超时/活性协议
+    return { kind: 'malformed' };
   }
-  const createdAt = Date.parse(payload?.createdAt ?? '');
-  if (Number.isNaN(createdAt)) return true; // 内容不可判龄 → 保守持有
-  return Date.now() - createdAt < staleMs;
+  return { kind: 'ok', raw, payload };
+}
+
+/**
+ * holder 活性证明：仅当 ESRCH（进程不存在）或 PID 已回收（startTime 不匹配）
+ * 才返回 false —— 两者都是确凿死亡证据。EPERM / ps 不可用 / 字段缺失一律
+ * 保守存活（不确定 ≠ 死亡，不授予删除权）。
+ */
+function isLockHolderAlive(payload: ConfigLockPayload): boolean {
+  if (typeof payload.pid !== 'number' || !Number.isInteger(payload.pid) || payload.pid <= 0) {
+    return true; // 无 pid 可探测 → 保守持有
+  }
+  const startTime = typeof payload.process_start_time === 'string' && payload.process_start_time !== ''
+    ? makeProcessStartTime(payload.process_start_time)
+    : undefined;
+  return isAlive(payload.pid, startTime);
+}
+
+/** 是否到达探测窗口（年龄只触发探测；判龄失败保守不探测）。 */
+function isLockProbeDue(payload: ConfigLockPayload, staleMs: number): boolean {
+  const createdAt = Date.parse(payload.createdAt ?? '');
+  if (Number.isNaN(createdAt)) return false;
+  return Date.now() - createdAt >= staleMs;
+}
+
+/**
+ * 回收已证明死亡的 holder 的 lock。原子抢占靠 rename-claim（POSIX rename 原子、
+ * 同一路径 corpse 恰好被一个 reclaimer 搬走；其余 ENOENT race-lost），抢到后
+ * 必须复核代际身份仍是刚证明死亡的那一代才删除；若不匹配（抢到更新一代、其
+ * holder 可能活跃），以 O_EXCL 写回原路径恢复，恢复受阻则保留 claim 证据并
+ * typed 'lock_indeterminate' 交 owner recovery —— 绝不静默删除不确定代际。
+ */
+async function tryReclaimDeadHolder(
+  fs: FileSystem,
+  lockName: string,
+  provedRaw: string,
+): Promise<void> {
+  const claimName = `${lockName}.reclaim-${newShortUuid()}`;
+  try {
+    await fs.move(lockName, claimName);
+  } catch {
+    return; // ENOENT race-lost / 临时 I/O 错误 —— 保持 lock，下一轮重判或超时
+  }
+  let claimedRaw: string | null = null;
+  try {
+    claimedRaw = fs.readSync(claimName);
+  } catch {
+    // silent: corpse 读不回 —— 下方以 null 走 lock_indeterminate 证据保留路径
+    claimedRaw = null;
+  }
+  if (claimedRaw !== null && lockIdentity(claimedRaw) === lockIdentity(provedRaw)) {
+    try {
+      fs.deleteSync(claimName);
+    } catch {
+      // silent: 并发回收已删除 —— corpse 消失即达成回收目标
+    }
+    return;
+  }
+  // 代际不匹配：恢复被误抢的新代 lock（O_EXCL 不覆盖更新一代）
+  if (claimedRaw !== null) {
+    try {
+      fs.writeExclusiveSync(lockName, claimedRaw);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
+        throw new ConfigStoreError(
+          'lock_indeterminate',
+          `Config lock reclaim grabbed a newer generation and restore is blocked; ` +
+          `evidence preserved at ${claimName}`,
+          { cause: err },
+        );
+      }
+      throw err;
+    }
+    try {
+      fs.deleteSync(claimName);
+    } catch {
+      // silent: 恢复已完成，claim 副本残留无害（内容与原 lock 相同）
+    }
+    return;
+  }
+  // corpse 读不回 —— 无法判定代际也无法恢复内容，保留证据 fail-closed
+  throw new ConfigStoreError(
+    'lock_indeterminate',
+    `Config lock corpse unreadable after claim; evidence preserved at ${claimName}`,
+  );
 }
 
 async function acquireConfigLock(
   fs: FileSystem,
   lockName: string,
   opts: { acquireTimeoutMs: number; staleMs: number; pollMs: number },
-): Promise<void> {
+): Promise<string> {
+  const myToken = newShortUuid();
+  const myPayload: ConfigLockPayload = {
+    token: myToken,
+    pid: process.pid,
+    process_start_time: getProcessStartTime(process.pid),
+    createdAt: new Date().toISOString(),
+  };
   const deadline = Date.now() + opts.acquireTimeoutMs;
   for (;;) {
-    const payload: ConfigLockPayload = { pid: process.pid, createdAt: new Date().toISOString() };
     try {
-      fs.writeExclusiveSync(lockName, JSON.stringify(payload));
-      return;
+      fs.writeExclusiveSync(lockName, JSON.stringify(myPayload));
+      return myToken;
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
     }
@@ -259,18 +377,50 @@ async function acquireConfigLock(
         `Config lock acquire timeout: ${lockName} held by another process`,
       );
     }
-    if (!readLockFresh(fs, lockName, opts.staleMs)) {
-      // holder 崩溃残留 —— 删除后经下一轮 O_EXCL 重新裁决（ delete+create 之间
-      // 的竞赛由 O_EXCL 仲裁，loser 会看到新鲜 lock 并继续等待）。
-      try {
-        fs.deleteSync(lockName);
-      } catch {
-        // silent: 并发回收 / 已被释放 —— 下一轮循环重新判定
-      }
+    const observed = observeLock(fs, lockName);
+    if (
+      observed.kind === 'ok' &&
+      isLockProbeDue(observed.payload, opts.staleMs) &&
+      !isLockHolderAlive(observed.payload)
+    ) {
+      // holder 已被证明死亡（ESRCH / PID 回收）—— rename-claim 回收其 corpse
+      await tryReclaimDeadHolder(fs, lockName, observed.raw);
       continue;
     }
+    // absent / unreadable / malformed / 存活 / 未到探测窗口 —— 保守等待
     await new Promise<void>(resolve => setTimeout(resolve, opts.pollMs));
   }
+}
+
+/**
+ * 释放：只删除自己持有的 token 代。锁已被替换/消失时显式 typed 'lock_lost'
+ * 报告，绝不误删新 holder 的锁。
+ */
+function releaseConfigLock(fs: FileSystem, lockName: string, myToken: string): ConfigStoreError | null {
+  const observed = observeLock(fs, lockName);
+  if (observed.kind !== 'ok') {
+    return new ConfigStoreError(
+      'lock_lost',
+      `Config lock ${lockName} ${observed.kind} at release; mutation outcome needs verification`,
+    );
+  }
+  if (lockIdentity(observed.raw) !== `token:${myToken}`) {
+    return new ConfigStoreError(
+      'lock_lost',
+      `Config lock ${lockName} was replaced during mutation; not deleting the new holder's lock`,
+    );
+  }
+  try {
+    fs.deleteSync(lockName);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null; // 锁已不在 —— 释放目标已达成
+    return new ConfigStoreError(
+      'lock_lost',
+      `Config lock ${lockName} release failed: ${formatUnknownError(err)}`,
+      { cause: err },
+    );
+  }
+  return null;
 }
 
 /**
@@ -278,9 +428,11 @@ async function acquireConfigLock(
  *
  * 在锁内组合本模块既有同步原语（loadYamlConfig / writeYamlConfig /
  * patchYamlConfig），使 read→modify→write 整体串行化：任何成功提交的字段
- * 不会被另一成功 mutation 静默抹掉。锁文件为 `<config>.lock`，O_EXCL 创建裁决；
- * holder 崩溃残留超过 CONFIG_LOCK_STALE_MS 可回收；获取超时 typed
- * 'lock_timeout'。锁不可重入、不可嵌套（CLI 一次性进程语义）。
+ * 不会被另一成功 mutation 静默抹掉。锁文件为 `<config>.lock`，O_EXCL 创建裁决。
+ * Phase 1911 Step C：holder 活性以 PID+进程启动时间证明，死亡才可回收
+ * （rename-claim 原子抢占 + 代际复核）；释放只删自己持有的 token 代；
+ * 获取超时 typed 'lock_timeout'，不可判状态 typed 'lock_indeterminate'，
+ * 锁被替换 typed 'lock_lost'。锁不可重入、不可嵌套（CLI 一次性进程语义）。
  */
 export async function withYamlConfigLock(
   deps: LoaderDeps,
@@ -291,18 +443,21 @@ export async function withYamlConfigLock(
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
   const lockName = `${path.basename(configPath)}.lock`;
-  await acquireConfigLock(fs, lockName, {
+  const myToken = await acquireConfigLock(fs, lockName, {
     acquireTimeoutMs: opts?.acquireTimeoutMs ?? CONFIG_LOCK_ACQUIRE_TIMEOUT_MS,
     staleMs: opts?.staleMs ?? CONFIG_LOCK_STALE_MS,
     pollMs: opts?.pollMs ?? CONFIG_LOCK_POLL_MS,
   });
+  let fnThrew = false;
+  let fnErr: unknown;
   try {
     fn();
-  } finally {
-    try {
-      fs.deleteSync(lockName);
-    } catch {
-      // silent: 锁残留按过期协议回收；不掩盖 fn 的结果
-    }
+  } catch (err) {
+    // silent: fn 错误暂存，释放检查后原样重抛（不被释放问题掩盖）
+    fnThrew = true;
+    fnErr = err;
   }
+  const releaseErr = releaseConfigLock(fs, lockName, myToken);
+  if (fnThrew) throw fnErr;          // fn 的业务错误优先，不被释放问题掩盖
+  if (releaseErr) throw releaseErr;  // fn 成功但锁完整性破坏 —— 显式报告
 }

@@ -70,6 +70,18 @@ function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Er
         'Global config is busy: another process is updating it (lock timeout). Retry the command.',
         { cause: err },
       );
+    case 'lock_indeterminate':
+      // 回收抢到新代且恢复受阻 / corpse 不可读 —— 证据已保留，需人工核查
+      return new Error(
+        `Global config lock state is indeterminate and requires manual recovery: ${err.message}`,
+        { cause: err },
+      );
+    case 'lock_lost':
+      // 锁在 mutation 期间被替换/消失 —— mutation 结果需人工核实
+      return new Error(
+        `Global config lock was lost during mutation: ${err.message}`,
+        { cause: err },
+      );
     default: {
       const exhaustive: never = err.code;
       throw new Error(`Unhandled ConfigStoreError code: ${String(exhaustive)}`);

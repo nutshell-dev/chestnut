@@ -16,7 +16,9 @@ export type ConfigStoreErrorCode =
   | 'invalid_schema'
   | 'expected_object'
   | 'already_exists'
-  | 'lock_timeout';
+  | 'lock_timeout'
+  | 'lock_indeterminate'
+  | 'lock_lost';
 
 export class ConfigStoreError extends Error {
   constructor(
