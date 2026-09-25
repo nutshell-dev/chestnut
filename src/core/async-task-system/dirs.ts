@@ -12,6 +12,12 @@ export const TASKS_QUEUES_RUNNING_DIR = 'tasks/queues/running' as const;
 export const TASKS_QUEUES_DONE_DIR = 'tasks/queues/done' as const;
 export const TASKS_QUEUES_FAILED_DIR = 'tasks/queues/failed' as const;
 export const TASKS_QUEUES_RESULTS_DIR = 'tasks/queues/results' as const;
+/**
+ * Phase 1904 Step D: 跨 lifecycle 稳定身份 claim 目录。
+ * claim 不随 pending→running→done/failed move，是同一 prepared fullId
+ * 的唯一原子创建点（RACE-ATS-LIFECYCLE-CLAIM 治理）。
+ */
+export const TASKS_QUEUES_CLAIMS_DIR = 'tasks/queues/claims' as const;
 
 // Phase 1396 Step J: durable post-process input + authoritative outcome envelope
 export const POST_PROCESS_INPUT_FILE = 'post-process-input.json' as const;

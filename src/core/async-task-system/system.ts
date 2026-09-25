@@ -22,6 +22,7 @@ import {
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
+  TASKS_QUEUES_CLAIMS_DIR,
 } from './dirs.js';
 import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
@@ -55,6 +56,7 @@ import {
   emitShutdownPendingCleanupsDrained,
   emitPreparedTaskReplayConfirmed,
   emitPreparedTaskIdentityConflict,
+  emitPreparedTaskClaimBackfilled,
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
@@ -518,6 +520,23 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
    * Idempotent: same id + same payload returns existing task without rewrite.
    * Fail-closed: same id + different payload, corrupt task, or duplicate
    * lifecycle files throws.
+   *
+   * Phase 1902 Step D: pending 首次提交用 writeExclusive (O_EXCL) 裁决。
+   *
+   * Phase 1904 Step D（RACE-ATS-LIFECYCLE-CLAIM 治理）：路径级 O_EXCL 在
+   * winner task 被 dispatcher move 腾空后失效，身份裁决迁到不随 lifecycle
+   * move 的稳定 claim（tasks/queues/claims/<fullId>.json，O_EXCL 创建）。
+   *
+   * 提交协议与崩溃矩阵（claim 先行、task 后发布）：
+   * - crash before claim：无事实；下次 schedulePrepared 重新裁决。
+   * - crash during claim write（半写/空 claim）：loser 有限重读后仍不可解析
+   *   → fail-closed 保留证据，绝不覆盖。
+   * - crash after claim, before task：claim 为唯一身份事实；hash 相同的重试
+   *   以 claim 身份 + 本调用 payload 完成 winner 的提交（writeExclusive 仲裁，
+   *   至多一个 task artifact、一条 scheduled 事实）。
+   * - crash after task：task+claim 一致；重试 replay，不产生第二事实。
+   * - 旧数据（无 claim 的 task file）：首次 replay 时一次性 O_EXCL 补建
+   *   claim（PREPARED_TASK_CLAIM_BACKFILLED）；冲突保留证据并 fail-closed。
    */
   async schedulePrepared(
     taskKind: 'subagent',
@@ -545,23 +564,214 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     ] as const;
 
     const replay = await this._resolvePreparedIdentity(fullId, shortId, expectedHash, lifecycleDirs, false);
-    if (replay) return replay;
+    if (replay) {
+      // replay 路径也核对/补建稳定 claim（旧 task 的一次性迁移点）。
+      await this._reconcilePreparedClaim(prepared, shortId, expectedHash);
+      return replay;
+    }
 
-    // No existing task — Phase 1902 Step D: pending 首次提交用 exclusive
-    // create (O_EXCL) 作为 durable identity claim；并发同 id 不再同时通过
-    // exists 检查再互相覆盖。EEXIST loser 重读 winner（含 move 窗口有限重读）。
+    // No existing task — 稳定 claim 是身份的唯一原子创建点；lifecycle 目录
+    // 腾空的 pending 路径不再充当裁决。
+    const claimOutcome = await this._tryCreatePreparedClaim(prepared, shortId, expectedHash);
+    if (claimOutcome === 'created') {
+      try {
+        await this._persistSubagentTask(task, taskKind, 'schedule_prepared', { exclusiveCreate: true });
+      } catch (err) {
+        if (!isAlreadyExists(err)) throw err;
+        const racedReplay = await this._resolvePreparedIdentity(fullId, shortId, expectedHash, lifecycleDirs, true);
+        if (racedReplay === null) {
+          // mustExist=true 时 helper 不会返回 null（超出重读预算已 throw）；防御性 guard。
+          throw new Error(`Prepared task identity indeterminate for ${fullId}: exclusive create conflicted but no task file is readable`);
+        }
+        return racedReplay;
+      }
+      return { taskId: fullId, disposition: 'created' };
+    }
+
+    // claim 已存在 —— winner 身份已 durable，按 canonical payload hash 比较。
+    const winnerClaim = claimOutcome;
+    if (winnerClaim.payloadHash !== expectedHash) {
+      emitPreparedTaskIdentityConflict(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        lifecycleDir: TASKS_QUEUES_CLAIMS_DIR,
+        reason: 'payload hash mismatch (stable claim)',
+      });
+      throw new Error(`Prepared task identity conflict for ${fullId}: payload hash mismatch`);
+    }
+
+    // claim 已证明身份被占用，但 task file 可能 legitimately 缺失（崩溃窗口）——
+    // 用 mustExist=false：找不到不抛 indeterminate，交由下面的重建路径以
+    // writeExclusive 仲裁（同 claim 身份 + 同 payload hash，内容一致）。
+    const resolved = await this._resolvePreparedIdentity(fullId, winnerClaim.shortId, expectedHash, lifecycleDirs, false);
+    if (resolved) return resolved;
+
+    // 崩溃窗口：claim 已提交、task 从未发布 —— 以 claim 身份 + 本调用
+    // payload（hash 相同）完成 winner 的提交；writeExclusive 保证至多一个
+    // artifact，EEXIST 时重读 winner。
+    const rebuildTask = {
+      ...prepared.payload,
+      id: fullId,
+      shortId: winnerClaim.shortId,
+      createdAt: winnerClaim.createdAt,
+    } as SubAgentTask;
     try {
-      await this._persistSubagentTask(task, taskKind, 'schedule_prepared', { exclusiveCreate: true });
+      await this._persistSubagentTask(rebuildTask, taskKind, 'schedule_prepared', { exclusiveCreate: true });
     } catch (err) {
       if (!isAlreadyExists(err)) throw err;
-      const racedReplay = await this._resolvePreparedIdentity(fullId, shortId, expectedHash, lifecycleDirs, true);
+      const racedReplay = await this._resolvePreparedIdentity(fullId, winnerClaim.shortId, expectedHash, lifecycleDirs, true);
       if (racedReplay === null) {
-        // mustExist=true 时 helper 不会返回 null（超出重读预算已 throw）；防御性 guard。
         throw new Error(`Prepared task identity indeterminate for ${fullId}: exclusive create conflicted but no task file is readable`);
       }
       return racedReplay;
     }
     return { taskId: fullId, disposition: 'created' };
+  }
+
+  private _preparedClaimPath(fullId: FullTaskId): string {
+    return `${TASKS_QUEUES_CLAIMS_DIR}/${fullId}.json`;
+  }
+
+  /**
+   * Phase 1904 Step D: 读取稳定 claim。writeExclusive 先发布路径再完成内容写，
+   * loser 可能读到半写 JSON —— 解析失败有限重读；schema 不符 / 超预算 = corrupt。
+   */
+  private async _readPreparedClaimStable(fullId: FullTaskId): Promise<PreparedClaimReadResult> {
+    const claimPath = this._preparedClaimPath(fullId);
+    for (let attempt = 0; attempt < PREPARED_IDENTITY_SCAN_ATTEMPTS; attempt++) {
+      let raw: string;
+      try {
+        raw = await this.fs.read(claimPath);
+      } catch (e) {
+        if (isFileNotFound(e)) return { kind: 'absent' };
+        throw e;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue; // 半写窗口 —— 重读
+      }
+      if (parsed === null || typeof parsed !== 'object') {
+        return { kind: 'corrupt', reason: 'not_an_object' };
+      }
+      const r = parsed as Record<string, unknown>;
+      if (r.schema_version !== 1) {
+        return { kind: 'corrupt', reason: 'unsupported_version' };
+      }
+      if (
+        typeof r.id !== 'string' ||
+        typeof r.shortId !== 'string' ||
+        typeof r.payloadHash !== 'string' ||
+        typeof r.createdAt !== 'string'
+      ) {
+        return { kind: 'corrupt', reason: 'missing_required_fields' };
+      }
+      return {
+        kind: 'ok',
+        claim: {
+          schema_version: 1,
+          id: adoptLegacyFullTaskId(r.id),
+          shortId: adoptLegacyShortTaskId(r.shortId),
+          payloadHash: r.payloadHash,
+          createdAt: r.createdAt,
+        },
+      };
+    }
+    return { kind: 'corrupt', reason: 'invalid_json' };
+  }
+
+  /**
+   * Phase 1904 Step D: O_EXCL 创建稳定 claim。返回 'created' 或 winner claim；
+   * EEXIST 后读不到有效 claim（半写/损坏/消失）→ fail-closed indeterminate。
+   */
+  private async _tryCreatePreparedClaim(
+    prepared: PreparedSubagentSchedule,
+    shortId: ShortTaskId,
+    expectedHash: string,
+  ): Promise<'created' | PreparedTaskIdentityClaim> {
+    const fullId = prepared.id;
+    const claim: PreparedTaskIdentityClaim = {
+      schema_version: 1,
+      id: fullId,
+      shortId,
+      payloadHash: expectedHash,
+      createdAt: prepared.createdAt,
+    };
+    try {
+      await this.fs.writeExclusive(this._preparedClaimPath(fullId), JSON.stringify(claim, null, 2));
+      return 'created';
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+    }
+
+    const read = await this._readPreparedClaimStable(fullId);
+    if (read.kind !== 'ok') {
+      const detail = read.kind === 'corrupt' ? `is corrupt (${read.reason})` : 'vanished after exclusive conflict';
+      emitPreparedTaskIdentityConflict(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        lifecycleDir: TASKS_QUEUES_CLAIMS_DIR,
+        reason: `stable claim ${detail}`,
+      });
+      throw new Error(`Prepared task identity indeterminate for ${fullId}: exclusive create conflicted but claim ${detail}`);
+    }
+    return read.claim;
+  }
+
+  /**
+   * Phase 1904 Step D: replay 路径的 claim↔task 一致性核对与旧数据一次性迁移。
+   * claim 缺失时以 task 身份 O_EXCL 补建（迁移只有一次）；claim 存在时必须与
+   * 本调用 payload hash 一致，冲突/损坏保留证据并 fail-closed。
+   */
+  private async _reconcilePreparedClaim(
+    prepared: PreparedSubagentSchedule,
+    shortId: ShortTaskId,
+    expectedHash: string,
+  ): Promise<void> {
+    const fullId = prepared.id;
+    const read = await this._readPreparedClaimStable(fullId);
+    if (read.kind === 'ok') {
+      if (read.claim.payloadHash !== expectedHash) {
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: TASKS_QUEUES_CLAIMS_DIR,
+          reason: 'claim/task payload hash mismatch',
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: claim/task payload hash mismatch`);
+      }
+      return;
+    }
+    if (read.kind === 'corrupt') {
+      emitPreparedTaskIdentityConflict(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        lifecycleDir: TASKS_QUEUES_CLAIMS_DIR,
+        reason: `stable claim is corrupt (${read.reason})`,
+      });
+      throw new Error(`Prepared task identity conflict for ${fullId}: stable claim is corrupt`);
+    }
+
+    // claim 缺失 = 旧 task file —— 一次性补建；并发补建 EEXIST 后重读比较。
+    const outcome = await this._tryCreatePreparedClaim(prepared, shortId, expectedHash);
+    if (outcome === 'created') {
+      emitPreparedTaskClaimBackfilled(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+      });
+      return;
+    }
+    if (outcome.payloadHash !== expectedHash) {
+      emitPreparedTaskIdentityConflict(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        lifecycleDir: TASKS_QUEUES_CLAIMS_DIR,
+        reason: 'claim/task payload hash mismatch',
+      });
+      throw new Error(`Prepared task identity conflict for ${fullId}: claim/task payload hash mismatch`);
+    }
   }
 
   /**
@@ -1954,6 +2164,24 @@ function hashTaskPayload(payload: Omit<SubAgentTask, 'id' | 'shortId' | 'created
 function isAlreadyExists(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
 }
+
+/**
+ * Phase 1904 Step D: 跨 lifecycle 稳定身份 claim —— 不随
+ * pending→running→done/failed move，是同一 prepared fullId 的唯一原子创建点。
+ * 只表达 fullId task identity（hash 比对），不解释业务 payload。
+ */
+interface PreparedTaskIdentityClaim {
+  schema_version: 1;
+  id: FullTaskId;
+  shortId: ShortTaskId;
+  payloadHash: string;
+  createdAt: string;
+}
+
+type PreparedClaimReadResult =
+  | { kind: 'absent' }
+  | { kind: 'ok'; claim: PreparedTaskIdentityClaim }
+  | { kind: 'corrupt'; reason: string };
 
 
 /**

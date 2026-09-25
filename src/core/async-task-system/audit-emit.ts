@@ -506,6 +506,18 @@ export function emitPreparedTaskIdentityConflict(
   );
 }
 
+/** phase 1904 Step D: 旧 task（无稳定 claim）首次 replay 时一次性补建 claim。 */
+export function emitPreparedTaskClaimBackfilled(
+  audit: AuditLog,
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.PREPARED_TASK_CLAIM_BACKFILLED,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  );
+}
+
 // ─── TASK_MIGRATED_EXEC_TERMINATION (phase 1269 Step E) ───
 /**
  * Termination outcome audit for migrated exec. Every L1 terminate call from

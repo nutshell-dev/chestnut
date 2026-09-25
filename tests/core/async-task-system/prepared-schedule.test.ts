@@ -13,6 +13,7 @@ import {
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
+  TASKS_QUEUES_CLAIMS_DIR,
 } from '../../../src/core/async-task-system/dirs.js';
 import { createTestTaskSystem, makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
@@ -407,5 +408,218 @@ describe('AsyncTaskSystem.schedulePrepared concurrency (Phase 1902 Step D)', () 
 
     const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
     expect(scheduledEvents).toHaveLength(1);
+  });
+});
+
+describe('AsyncTaskSystem.schedulePrepared stable claim (Phase 1904 Step D)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('prepared-claim-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  function makeSystem(raceFs?: FileSystem): AsyncTaskSystem {
+    return createTestTaskSystem(baseDir, raceFs ?? fs, audit.audit as import('../../../src/foundation/audit/writer.js').AuditWriter);
+  }
+
+  /** winner 在 claim 落盘后、task 发布前崩潰（claim 已提交、task 从未发布）。 */
+  class CrashAfterClaimFs extends NodeFileSystem {
+    override async writeExclusive(p: string, content: string): Promise<void> {
+      if (p.startsWith(TASKS_QUEUES_PENDING_DIR)) {
+        throw new Error('simulated crash before task publish');
+      }
+      return super.writeExclusive(p, content);
+    }
+  }
+
+  it('replays winner when the loser scanned empty before the winner claimed and was moved to running (barrier)', async () => {
+    const prepared = makePrepared();
+    const winner = makeSystem();
+    const won = await winner.schedulePrepared('subagent', prepared);
+    expect(won.disposition).toBe('created');
+    // dispatcher 把 winner move 到 running —— pending 路径腾空
+    await fs.move(
+      `${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`,
+      `${TASKS_QUEUES_RUNNING_DIR}/${prepared.id}.json`,
+    );
+
+    // 屏障：L 的首次四态扫描看不到任何 task file（扫描发生在 W 创建之前），
+    // 直到 L 自己的 claim O_EXCL 之后才恢复真实视图。
+    class ScanBlindFs extends NodeFileSystem {
+      private blind = true;
+      override async exists(p: string): Promise<boolean> {
+        if (this.blind && !p.startsWith(TASKS_QUEUES_CLAIMS_DIR)) return false;
+        return super.exists(p);
+      }
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(TASKS_QUEUES_CLAIMS_DIR)) this.blind = false;
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const loser = makeSystem(new ScanBlindFs({ baseDir }));
+    const result = await loser.schedulePrepared('subagent', prepared);
+
+    expect(result.taskId).toBe(prepared.id);
+    expect(result.disposition).toBe('existing');
+    // 不产生第二 task artifact：pending 不再出现同 id 文件
+    expect(await fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`)).toBe(false);
+    expect(await fs.exists(`${TASKS_QUEUES_RUNNING_DIR}/${prepared.id}.json`)).toBe(true);
+    const claimFiles = await fs.list(TASKS_QUEUES_CLAIMS_DIR, { includeDirs: false });
+    expect(claimFiles).toHaveLength(1);
+    // 不产生第二 scheduled 事实
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(1);
+  });
+
+  it('completes the winner commit from a stable claim after a crash window (claim exists, no task)', async () => {
+    const prepared = makePrepared();
+    const crashedWinner = makeSystem(new CrashAfterClaimFs({ baseDir }));
+    await expect(crashedWinner.schedulePrepared('subagent', prepared)).rejects.toThrow(/simulated crash/);
+
+    // claim 已提交、task 未发布、无 scheduled 事实
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`)).toBe(true);
+    expect(await fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`)).toBe(false);
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+
+    // 同 payload 重试以 claim 身份完成 winner 的提交，不生成第二身份
+    const retried = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(retried.taskId).toBe(prepared.id);
+    expect(retried.disposition).toBe('created');
+
+    const pendingFiles = await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
+    expect(pendingFiles).toHaveLength(1);
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(1);
+
+    // 再次重试只 replay
+    const again = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(again.disposition).toBe('existing');
+  });
+
+  it('tolerates a half-written claim that completes during the reread window', async () => {
+    const prepared = makePrepared();
+    const crashedWinner = makeSystem(new CrashAfterClaimFs({ baseDir }));
+    await expect(crashedWinner.schedulePrepared('subagent', prepared)).rejects.toThrow(/simulated crash/);
+
+    // writeExclusive 先发布路径再完成内容写：首次读到空串，重读得到完整 claim
+    class PartialClaimFs extends NodeFileSystem {
+      private servedPartial = false;
+      override async read(p: string): Promise<string> {
+        if (!this.servedPartial && p.startsWith(TASKS_QUEUES_CLAIMS_DIR)) {
+          this.servedPartial = true;
+          return '';
+        }
+        return super.read(p);
+      }
+    }
+
+    const retried = await makeSystem(new PartialClaimFs({ baseDir })).schedulePrepared('subagent', prepared);
+    expect(retried.taskId).toBe(prepared.id);
+    expect(retried.disposition).toBe('created');
+    expect(await fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`)).toBe(true);
+  });
+
+  it('fails closed on a durably corrupt claim without creating a second task', async () => {
+    const prepared = makePrepared();
+    await fs.ensureDir(TASKS_QUEUES_CLAIMS_DIR);
+    await fs.writeAtomic(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`, 'not-json');
+
+    await expect(makeSystem().schedulePrepared('subagent', prepared)).rejects.toThrow(/indeterminate/);
+
+    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+      expect(await fs.exists(`${dir}/${prepared.id}.json`)).toBe(false);
+    }
+    const conflictEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT);
+    expect(conflictEvents.some(e => e.some(c => typeof c === 'string' && c.includes('claim is corrupt')))).toBe(true);
+  });
+
+  it('fails closed with indeterminate when claim EEXIST conflicts but the claim never becomes readable', async () => {
+    const prepared = makePrepared();
+
+    class PhantomClaimFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(TASKS_QUEUES_CLAIMS_DIR)) {
+          const err = new Error('file already exists') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    await expect(makeSystem(new PhantomClaimFs({ baseDir })).schedulePrepared('subagent', prepared)).rejects.toThrow(/indeterminate/);
+
+    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+      expect(await fs.exists(`${dir}/${prepared.id}.json`)).toBe(false);
+    }
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+  });
+
+  it('fails closed when the stable claim and the lifecycle task disagree on payload hash', async () => {
+    const prepared = makePrepared();
+    await makeSystem().schedulePrepared('subagent', prepared);
+
+    // 篡改 lifecycle task（claim 保持原 payload hash）
+    const tamperedPayload = { ...prepared.payload, intent: 'tampered' };
+    await placeTaskFile(fs, TASKS_QUEUES_PENDING_DIR, prepared.id, tamperedPayload, prepared.createdAt);
+
+    // 以 tampered payload 调用：task hash 匹配、claim hash 不匹配 → fail-closed
+    const tampered = makePrepared({ id: prepared.id, payload: tamperedPayload });
+    await expect(makeSystem().schedulePrepared('subagent', tampered)).rejects.toThrow(/claim\/task payload hash mismatch/);
+  });
+
+  it('replays after terminal state with the stable claim in place', async () => {
+    const prepared = makePrepared();
+    const winner = makeSystem();
+    await winner.schedulePrepared('subagent', prepared);
+    await fs.move(
+      `${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`,
+      `${TASKS_QUEUES_DONE_DIR}/${prepared.id}.json`,
+    );
+
+    const result = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(result.disposition).toBe('existing');
+    expect(result.taskId).toBe(prepared.id);
+
+    // 终态后重试不产生第二 task 或第二 scheduled 事实
+    const pendingFiles = await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
+    expect(pendingFiles.filter(f => f.name.startsWith(prepared.id))).toHaveLength(0);
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(1);
+  });
+
+  it('backfills a stable claim once for a legacy task file and replays afterwards', async () => {
+    const prepared = makePrepared();
+    // 旧数据：task file 存在、无 claim
+    await placeTaskFile(fs, TASKS_QUEUES_DONE_DIR, prepared.id, prepared.payload, prepared.createdAt);
+
+    const first = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(first.disposition).toBe('existing');
+
+    const claim = JSON.parse(await fs.read(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`));
+    expect(claim).toMatchObject({
+      schema_version: 1,
+      id: prepared.id,
+      shortId: prepared.id.slice(0, 8),
+      createdAt: prepared.createdAt,
+    });
+    expect(typeof claim.payloadHash).toBe('string');
+
+    const backfilled = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_CLAIM_BACKFILLED);
+    expect(backfilled).toHaveLength(1);
+
+    const second = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(second.disposition).toBe('existing');
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_CLAIM_BACKFILLED)).toHaveLength(1);
   });
 });
