@@ -11,6 +11,7 @@ import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js'
 import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { STREAM_FILE, STREAM_EVENT_NAMES, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
+import { contractCreatedNotificationBody } from '../../templates/messages/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ContractId } from '../../core/contract/index.js';
 import { ContractValidationError } from '../../core/contract/index.js';
@@ -65,16 +66,15 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
 
   // 写 inbox 通知，触发 claw daemon 开始执行（best-effort）
   // phase 1419: prefix / 连接词英化（mirror phase 1404 viewport 英化）/ 业务字段保留 user 原文
-  const subtaskLines = contract.subtasks.map(s => `- ${s.id}: ${s.description}`).join('\n');
-  const lines = [`New contract created (${contractId}): ${contract.title}`];
-  if (contract.background) lines.push(`Background: ${contract.background}`);
-  lines.push(`Goal: ${contract.goal}`);
-  if (contract.expectations) lines.push(`Expectations: ${contract.expectations}`);
-  lines.push(`Subtasks:`);
-  lines.push(subtaskLines);
-  lines.push(`After each subtask, submit verification via done:`);
-  lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<output path or completion summary>" }`);
-  const body = lines.join('\n');
+  // phase 1906 Step B（M12）：正文呈现归 templates/messages 单源，此处只逐字段映射入参。
+  const body = contractCreatedNotificationBody({
+    contractId,
+    title: contract.title,
+    background: contract.background,
+    goal: contract.goal,
+    expectations: contract.expectations,
+    subtasks: contract.subtasks.map(s => ({ id: s.id, description: s.description })),
+  });
   // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
   createClawNotifier({
     fs,

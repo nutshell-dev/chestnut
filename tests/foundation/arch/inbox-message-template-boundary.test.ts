@@ -81,6 +81,11 @@ const MIGRATED: MigratedSource[] = [
     id: 'M11', file: 'core/async-task-system/system.ts',
     fragments: ['Task queue is at capacity', '因待处理队列超限被拒绝', '检查时队列数量', '系统已将该任务记为失败'],
   },
+  {
+    // phase 1906: 契约创建通知正文迁模板单源（Step B 文本不变，Step C 工具名修为 submit_subtask）；旧 done 片段保留防回潮
+    id: 'M12', file: 'cli/commands/contract-helpers.ts',
+    fragments: ['New contract created (', 'After each subtask, submit verification via', 'done: { "subtask"', '- ${s.id}: ${s.description}'],
+  },
 ];
 
 describe('phase 1828: inbox message template boundary', () => {

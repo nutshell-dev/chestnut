@@ -75,6 +75,10 @@ export {
 } from './contract-events.js';
 export { contractAuditDriftLine, contractAuditFeedbackBody } from './contract-audit.js';
 export {
+  contractCreatedNotificationBody,
+  type ContractCreatedMessageInput,
+} from './contract-created.js';
+export {
   outboxSummaryHead,
   outboxSummaryClawLine,
   outboxSummaryScopeHint,
