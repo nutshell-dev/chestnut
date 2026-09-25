@@ -8,7 +8,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import {
   type EnsureRetrospectiveInput,
 } from '../../../src/core/evolution-system/index.js';
-import { RetrospectiveStore, READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
+import { RetrospectiveStore, READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR, CLAIMS_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { makeContractId, type ContractId } from '../../../src/core/contract/types.js';
 import { makeFullTaskId, type FullTaskId } from '../../../src/core/async-task-system/types.js';
@@ -268,12 +268,20 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
   let baseDir: string;
   let fs: NodeFileSystem;
   let audit: ReturnType<typeof makeAudit>;
+  let store: RetrospectiveStore;
+  let taskIdSeq: number;
 
   beforeEach(async () => {
     baseDir = await createTempDir('retro-store-race-');
     mkdirSync(baseDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir });
     audit = makeAudit();
+    taskIdSeq = 0;
+    store = new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => makeFullTaskId(`00000000-0000-0000-0000-${String(taskIdSeq++).padStart(12, '0')}`),
+    });
   });
 
   afterEach(async () => {
@@ -329,9 +337,16 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
     expect(committedEvents).toHaveLength(1);
   });
 
-  it('replays winner identity when the winning row is dispatched during the EEXIST recovery window', async () => {
+  it('replays winner identity when the winner claims and is dispatched while the loser is mid-scan (Phase 1904 barrier)', async () => {
     const input = makeInput();
     const winnerTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000aa');
+    const winnerClaim = JSON.stringify({
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: winnerTaskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
     const winnerRow = JSON.stringify({
       schema_version: 2,
       contract_id: input.contractId,
@@ -340,35 +355,39 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
       created_at: '2026-01-01T00:00:00.000Z',
     });
 
-    // 模拟并发 winner：在 loser 的 exclusive create 时 winner 已提交 ready
-    // 且被 beginDispatch 移到 dispatching，随后报告 EEXIST。
-    class WinnerMovedFs extends NodeFileSystem {
+    // 屏障：L 初扫三态为空后，W 建 claim、写 ready row 并 move 到 dispatching
+    // （RACE-RETRO-LIFECYCLE-CLAIM 的原交错）；随后 L 的 claim O_EXCL 真实失败。
+    class WinnerClaimedAndMovedFs extends NodeFileSystem {
+      private barrierArmed = true;
       override async writeExclusive(p: string, content: string): Promise<void> {
-        if (p.startsWith(READY_DIR)) {
-          await super.writeAtomic(p, winnerRow);
-          await super.move(p, p.replace(READY_DIR, DISPATCHING_DIR));
-          const err = new Error('file already exists') as NodeJS.ErrnoException;
-          err.code = 'EEXIST';
-          throw err;
+        if (this.barrierArmed && p.startsWith(CLAIMS_DIR)) {
+          this.barrierArmed = false;
+          await super.writeAtomic(p, winnerClaim);
+          const winnerReadyPath = p.replace(CLAIMS_DIR, READY_DIR);
+          await super.writeAtomic(winnerReadyPath, winnerRow);
+          await super.move(winnerReadyPath, winnerReadyPath.replace(READY_DIR, DISPATCHING_DIR));
         }
         return super.writeExclusive(p, content);
       }
     }
 
-    const raceStore = new RetrospectiveStore({ fs: new WinnerMovedFs({ baseDir }), audit: audit.audit });
+    const raceStore = new RetrospectiveStore({ fs: new WinnerClaimedAndMovedFs({ baseDir }), audit: audit.audit });
     const result = await raceStore.ensure(input);
 
+    // L 必须 replay W 的身份，不得生成第二 task/row
     expect(result.taskId).toBe(winnerTaskId);
     expect(result.createdAt).toBe('2026-01-01T00:00:00.000Z');
-    // winner 移动期间不产生第二 task：ready 无新 row，只有 dispatching 一份
     expect(existsSync(path.join(baseDir, `${READY_DIR}/${input.contractId}.json`))).toBe(false);
     expect(existsSync(path.join(baseDir, `${DISPATCHING_DIR}/${input.contractId}.json`))).toBe(true);
+
+    const claimFiles = await fs.list(CLAIMS_DIR, { includeDirs: false });
+    expect(claimFiles).toHaveLength(1);
 
     const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
     expect(committedEvents).toHaveLength(0);
   });
 
-  it('fails closed with indeterminate when EEXIST conflicts but no row ever becomes readable', async () => {
+  it('fails closed with indeterminate when ready-row EEXIST conflicts after claim but no row ever becomes readable', async () => {
     const input = makeInput();
 
     class PhantomConflictFs extends NodeFileSystem {
@@ -392,6 +411,192 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
 
     const readFailed = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED);
     expect(readFailed.some(e => e.includes('reason=ensure_identity_indeterminate'))).toBe(true);
+  });
+
+  it('rebuilds the ready row from a committed claim after a crash window (claim exists, no row)', async () => {
+    const input = makeInput();
+    const claimTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000cc');
+    await fs.ensureDir(CLAIMS_DIR);
+    await fs.writeAtomic(`${CLAIMS_DIR}/${input.contractId}.json`, JSON.stringify({
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: claimTaskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-02-02T00:00:00.000Z',
+    }));
+
+    // 崩溃窗口：claim 已提交、row 从未发布 —— 不得生成新 task id
+    const raceStore = new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => makeFullTaskId('00000000-0000-0000-0000-0000000000ff'),
+    });
+    const result = await raceStore.ensure(input);
+
+    expect(result.taskId).toBe(claimTaskId);
+    expect(result.createdAt).toBe('2026-02-02T00:00:00.000Z');
+
+    const onDisk = JSON.parse(await fs.read(`${READY_DIR}/${input.contractId}.json`));
+    expect(onDisk).toMatchObject({
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: claimTaskId,
+      target_executor_id: input.targetExecutorId,
+    });
+
+    const rebuiltEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_ROW_REBUILT);
+    expect(rebuiltEvents).toHaveLength(1);
+    const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
+    expect(committedEvents).toHaveLength(0);
+
+    // 重建后重试幂等：同 task id，不再重建、不再 committed
+    const again = await raceStore.ensure(input);
+    expect(again.taskId).toBe(claimTaskId);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_ROW_REBUILT)).toHaveLength(1);
+  });
+
+  it('fails closed on a durably corrupt claim without creating any row', async () => {
+    const input = makeInput();
+    await fs.ensureDir(CLAIMS_DIR);
+    await fs.writeAtomic(`${CLAIMS_DIR}/${input.contractId}.json`, 'not-json');
+
+    await expect(store.ensure(input)).rejects.toThrow(/indeterminate/);
+
+    for (const dir of [READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR]) {
+      expect(existsSync(path.join(baseDir, `${dir}/${input.contractId}.json`))).toBe(false);
+    }
+
+    const readFailed = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED);
+    expect(readFailed.some(e => e.includes('reason=ensure_claim_indeterminate'))).toBe(true);
+  });
+
+  it('tolerates a half-written claim that completes during the reread window', async () => {
+    const input = makeInput();
+    const claimTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000dd');
+    await fs.ensureDir(CLAIMS_DIR);
+    // writeExclusive 先发布路径再完成内容写：首次读到空串，重读得到完整内容
+    await fs.writeAtomic(`${CLAIMS_DIR}/${input.contractId}.json`, JSON.stringify({
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: claimTaskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-03-03T00:00:00.000Z',
+    }));
+
+    class PartialClaimFs extends NodeFileSystem {
+      private servedPartial = false;
+      override async read(p: string): Promise<string> {
+        if (!this.servedPartial && p.startsWith(CLAIMS_DIR)) {
+          this.servedPartial = true;
+          return '';
+        }
+        return super.read(p);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new PartialClaimFs({ baseDir }), audit: audit.audit });
+    const result = await raceStore.ensure(input);
+
+    // claim 匹配但 row 缺失 → 以 claim 身份重建，不生成新 task id
+    expect(result.taskId).toBe(claimTaskId);
+    const rebuiltEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_ROW_REBUILT);
+    expect(rebuiltEvents).toHaveLength(1);
+  });
+
+  it('backfills a stable claim once for a legacy row and replays afterwards', async () => {
+    const input = makeInput();
+    const legacyTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000bb');
+    await fs.ensureDir(DISPATCHING_DIR);
+    await fs.writeAtomic(`${DISPATCHING_DIR}/${input.contractId}.json`, JSON.stringify({
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: legacyTaskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-01-15T00:00:00.000Z',
+    }));
+
+    const first = await store.ensure(input);
+    expect(first.taskId).toBe(legacyTaskId);
+
+    // 旧 row 一次性迁移：claim 以 row 身份补建
+    const claim = JSON.parse(await fs.read(`${CLAIMS_DIR}/${input.contractId}.json`));
+    expect(claim).toMatchObject({
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: legacyTaskId,
+      target_executor_id: input.targetExecutorId,
+    });
+    const backfilled = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_BACKFILLED);
+    expect(backfilled).toHaveLength(1);
+
+    // 再次调用只 replay，不重复补建
+    const second = await store.ensure(input);
+    expect(second.taskId).toBe(legacyTaskId);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_BACKFILLED)).toHaveLength(1);
+  });
+
+  it('fails closed when claim and row identities disagree', async () => {
+    const input = makeInput();
+    await fs.ensureDir(CLAIMS_DIR);
+    await fs.ensureDir(READY_DIR);
+    await fs.writeAtomic(`${CLAIMS_DIR}/${input.contractId}.json`, JSON.stringify({
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: '00000000-0000-0000-0000-000000000011',
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-01-01T00:00:00.000Z',
+    }));
+    await fs.writeAtomic(`${READY_DIR}/${input.contractId}.json`, JSON.stringify({
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: '00000000-0000-0000-0000-000000000022',
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-01-01T00:00:00.000Z',
+    }));
+
+    await expect(store.ensure(input)).rejects.toThrow(/claim\/row identity mismatch/);
+
+    const conflicts = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT);
+    expect(conflicts.some(e => e.includes('reason=claim_row_identity_mismatch'))).toBe(true);
+  });
+
+  it('fails closed with indeterminate when claim EEXIST conflicts but the claim never becomes readable', async () => {
+    const input = makeInput();
+
+    class PhantomClaimFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(CLAIMS_DIR)) {
+          const err = new Error('file already exists') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new PhantomClaimFs({ baseDir }), audit: audit.audit });
+    await expect(raceStore.ensure(input)).rejects.toThrow(/indeterminate/);
+
+    for (const dir of [READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR]) {
+      expect(existsSync(path.join(baseDir, `${dir}/${input.contractId}.json`))).toBe(false);
+    }
+
+    const readFailed = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED);
+    expect(readFailed.some(e => e.includes('reason=ensure_claim_indeterminate'))).toBe(true);
+  });
+
+  it('replays the same task identity after the row reaches submitted', async () => {
+    const input = makeInput();
+    const first = await store.ensure(input);
+    await store.beginDispatch(input.contractId);
+    await store.markSubmitted(input.contractId);
+
+    const again = await store.ensure(input);
+    expect(again.taskId).toBe(first.taskId);
+    expect(again.createdAt).toBe(first.createdAt);
+
+    const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
+    expect(committedEvents).toHaveLength(1);
   });
 
 });

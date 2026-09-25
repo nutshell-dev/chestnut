@@ -31,6 +31,12 @@ const RETROSPECTIVES_DIR = `${CLAWSPACE_DIR}/evolution/retrospectives`;
 export const READY_DIR = `${RETROSPECTIVES_DIR}/ready`;
 export const DISPATCHING_DIR = `${RETROSPECTIVES_DIR}/dispatching`;
 export const SUBMITTED_DIR = `${RETROSPECTIVES_DIR}/submitted`;
+/**
+ * Phase 1904 Step C: 跨 lifecycle 稳定身份 claim 目录。
+ * claim 不随 ready→dispatching→submitted move，是同一 contractId
+ * retrospective 身份的唯一原子创建点（RACE-RETRO-LIFECYCLE-CLAIM 治理）。
+ */
+export const CLAIMS_DIR = `${RETROSPECTIVES_DIR}/claims`;
 
 /**
  * Phase 1206  legacy v1 行字段（含 summon mode / source task id）。
@@ -77,6 +83,23 @@ export function executorIdOf(item: RetrospectiveWorkItem): string {
   return item.schema_version === 2 ? item.target_executor_id : item.target_claw;
 }
 
+/**
+ * Phase 1904 Step C: 稳定身份 claim。
+ * 字段与 v2 row 同形 —— claim 即身份的唯一提交事实，row 可由其确定性重建。
+ */
+interface RetrospectiveIdentityClaim {
+  schema_version: 1;
+  contract_id: ContractId;
+  task_id: FullTaskId;
+  target_executor_id: string;
+  created_at: string;
+}
+
+type ClaimReadResult =
+  | { kind: 'absent' }
+  | { kind: 'ok'; claim: RetrospectiveIdentityClaim }
+  | { kind: 'corrupt'; reason: string };
+
 type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'missing';
 
 interface RetrospectiveStoreDeps {
@@ -122,6 +145,7 @@ export class RetrospectiveStore {
     await this.fs.ensureDir(READY_DIR);
     await this.fs.ensureDir(DISPATCHING_DIR);
     await this.fs.ensureDir(SUBMITTED_DIR);
+    await this.fs.ensureDir(CLAIMS_DIR);
   }
 
   /**
@@ -131,18 +155,55 @@ export class RetrospectiveStore {
    * identity (v2); existing v1 rows are matched read-only by (contractId,
    * executor) and never rewritten.
    *
-   * Phase 1902 Step C: 首次注册改为 writeExclusive (O_EXCL) 磁盘裁决 ——
-   * 并发首次注册同一 contract 只产生一个 durable row、一个 task identity、
-   * 一条 committed 事实；EEXIST loser 重读 winner 身份 replay，绝不覆盖。
+   * Phase 1902 Step C: 首次注册改为 writeExclusive (O_EXCL) 磁盘裁决。
+   *
+   * Phase 1904 Step C（RACE-RETRO-LIFECYCLE-CLAIM 治理）：路径级 O_EXCL 在
+   * winner row 被 move 腾空后会失效，因此身份裁决迁到不随 lifecycle move 的
+   * 稳定 claim（claims/<contractId>.json，O_EXCL 创建）。row 只由 ensure 以
+   * claim 身份写入，lifecycle move 不复制身份，故 beginDispatch/markSubmitted/
+   * recovery 消费的 row 身份在创建点已被仲裁，无需重复校验。
+   *
+   * 提交协议与崩溃矩阵（claim 先行、row 后发布）：
+   * - crash before claim：无事实；下次 ensure 重新裁决。
+   * - crash during claim write（半写/空 claim）：loser 有限重读后仍不可解析
+   *   → fail-closed 保留证据，绝不覆盖。
+   * - crash after claim, before row：claim 为唯一身份事实；下次 ensure 由
+   *   claim 重建 ready row（RETRO_CLAIM_ROW_REBUILT），身份不变。
+   * - crash after row, before committed audit：row+claim 一致；下次 ensure
+   *   replay，不补发 committed（宁可少一条 audit，不多一条身份事实）。
+   * - 旧数据（无 claim 的 v1/v2 row）：首次 ensure 观察时一次性 O_EXCL 补建
+   *   claim（RETRO_CLAIM_BACKFILLED）；并发补建 EEXIST 后重读比较，冲突
+   *   保留证据并 fail-closed。
    */
   async ensure(input: EnsureRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
     await this.ensureDirs();
 
     const resolved = await this._resolveExistingIdentity(input, false);
-    if (resolved) return resolved;
+    if (resolved) {
+      // replay 路径也核对/补建稳定 claim（旧 row 的一次性迁移点）。
+      await this._reconcileClaimWithRow(input, resolved);
+      return resolved;
+    }
 
     const createdAt = new Date().toISOString();
     const taskId = this.generateTaskId();
+    const claim: RetrospectiveIdentityClaim = {
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: taskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: createdAt,
+    };
+
+    // 稳定 claim 是身份的唯一原子创建点；row 腾空的 ready 路径不再充当裁决。
+    try {
+      await this.fs.writeExclusive(this._claimPath(input.contractId), JSON.stringify(claim, null, 2));
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      return this._resolveClaimRace(input);
+    }
+
+    // claim 裁决成功 —— 以 claim 身份发布 ready row。
     const row: RetrospectiveWorkItemV2 = {
       schema_version: 2,
       contract_id: input.contractId,
@@ -150,15 +211,103 @@ export class RetrospectiveStore {
       target_executor_id: input.targetExecutorId,
       created_at: createdAt,
     };
-
     try {
       await this.fs.writeExclusive(this.rowPath(input.contractId, 'ready'), JSON.stringify(row, null, 2));
     } catch (err) {
       if (!isAlreadyExists(err)) throw err;
-      // Lost the exclusive-create race: winner 的 row 已 durable，重读 replay 其身份。
-      const winner = await this._resolveExistingIdentity(input, true);
-      if (winner) return winner;
-      // writeExclusive 已证明 row 存在过；读不到 = 持续移动/消失，显式 indeterminate。
+      // 并发 claim 持有者/重建者已发布 row —— 重读并校验与本 claim 身份一致。
+      return this._replayRowAgainstClaim(input, { taskId, createdAt });
+    }
+
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED,
+      `contractId=${input.contractId}`,
+      `taskId=${taskId}`,
+    );
+
+    return { taskId, createdAt };
+  }
+
+  /**
+   * Phase 1904 Step C: claim O_EXCL 败者路径。读取 winner claim 并比较
+   * producer input；winner row 未发布（崩溃窗口）时以 claim 身份重建。
+   */
+  private async _resolveClaimRace(input: EnsureRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
+    const read = await this._readClaimStable(input.contractId);
+    if (read.kind !== 'ok') {
+      // EEXIST 已证明 claim 存在过；读不到有效内容 = 半写/损坏/消失，fail-closed。
+      const detail = read.kind === 'corrupt' ? `is corrupt (${read.reason})` : 'vanished after exclusive conflict';
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+        `contractId=${input.contractId}`,
+        `state=claims`,
+        `reason=ensure_claim_indeterminate`,
+      );
+      throw new Error(
+        `Retrospective registration for ${input.contractId} is indeterminate: ` +
+        `exclusive create conflicted but claim ${detail}`,
+      );
+    }
+
+    const winnerClaim = read.claim;
+    if (winnerClaim.target_executor_id !== input.targetExecutorId) {
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
+        `contractId=${input.contractId}`,
+        `state=claims`,
+        `reason=producer_input_mismatch`,
+      );
+      throw new Error(`Retrospective registration conflict for ${input.contractId}`);
+    }
+
+    const existing = await this._resolveExistingIdentity(input, true);
+    if (existing) {
+      // row 已发布 —— 必须与 winner claim 同一身份。
+      return this._assertRowMatchesClaim(input, existing, winnerClaim);
+    }
+
+    // 崩溃窗口：claim 已提交、row 从未发布 —— 以 claim 身份重建 ready row。
+    const row: RetrospectiveWorkItemV2 = {
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: winnerClaim.task_id,
+      target_executor_id: winnerClaim.target_executor_id,
+      created_at: winnerClaim.created_at,
+    };
+    try {
+      await this.fs.writeExclusive(this.rowPath(input.contractId, 'ready'), JSON.stringify(row, null, 2));
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      const raced = await this._resolveExistingIdentity(input, true);
+      if (!raced) {
+        this.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+          `contractId=${input.contractId}`,
+          `reason=ensure_identity_indeterminate`,
+        );
+        throw new Error(
+          `Retrospective registration for ${input.contractId} is indeterminate: ` +
+          `exclusive create conflicted but no row is readable`,
+        );
+      }
+      return this._assertRowMatchesClaim(input, raced, winnerClaim);
+    }
+
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_CLAIM_ROW_REBUILT,
+      `contractId=${input.contractId}`,
+      `taskId=${winnerClaim.task_id}`,
+    );
+    return { taskId: winnerClaim.task_id, createdAt: winnerClaim.created_at };
+  }
+
+  /** claim 裁决成功后 ready row O_EXCL 败者路径：重读并校验与本 claim 一致。 */
+  private async _replayRowAgainstClaim(
+    input: EnsureRetrospectiveInput,
+    claimIdentity: RegisterRetrospectiveResult,
+  ): Promise<RegisterRetrospectiveResult> {
+    const existing = await this._resolveExistingIdentity(input, true);
+    if (!existing) {
       this.audit.write(
         RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
         `contractId=${input.contractId}`,
@@ -169,14 +318,138 @@ export class RetrospectiveStore {
         `exclusive create conflicted but no row is readable`,
       );
     }
+    return this._assertRowMatchesClaim(input, existing, {
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: claimIdentity.taskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: claimIdentity.createdAt,
+    });
+  }
 
-    this.audit.write(
-      RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED,
-      `contractId=${input.contractId}`,
-      `taskId=${taskId}`,
-    );
+  private _assertRowMatchesClaim(
+    input: EnsureRetrospectiveInput,
+    row: RegisterRetrospectiveResult,
+    claim: RetrospectiveIdentityClaim,
+  ): RegisterRetrospectiveResult {
+    if (row.taskId !== claim.task_id) {
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
+        `contractId=${input.contractId}`,
+        `reason=claim_row_identity_mismatch`,
+      );
+      throw new Error(`Retrospective claim/row identity mismatch for ${input.contractId}`);
+    }
+    return row;
+  }
 
-    return { taskId, createdAt };
+  /**
+   * Phase 1904 Step C: replay 路径的 claim↔row 一致性核对与旧数据一次性迁移。
+   * claim 缺失时以 row 身份 O_EXCL 补建（迁移只有一次，并发补建 EEXIST 后重读
+   * 比较）；claim 存在时必须与 row 身份一致，冲突/损坏保留证据并 fail-closed。
+   */
+  private async _reconcileClaimWithRow(
+    input: EnsureRetrospectiveInput,
+    row: RegisterRetrospectiveResult,
+  ): Promise<void> {
+    const read = await this._readClaimStable(input.contractId);
+    if (read.kind === 'ok') {
+      this._assertRowMatchesClaim(input, row, read.claim);
+      return;
+    }
+    if (read.kind === 'corrupt') {
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
+        `contractId=${input.contractId}`,
+        `state=claims`,
+        `reason=claim_${read.reason}`,
+      );
+      throw new Error(`Retrospective claim for ${input.contractId} exists but is corrupt`);
+    }
+
+    // claim 缺失 = 旧数据（v1/v2 row）—— 以 row 身份一次性补建。
+    const claim: RetrospectiveIdentityClaim = {
+      schema_version: 1,
+      contract_id: input.contractId,
+      task_id: row.taskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: row.createdAt,
+    };
+    try {
+      await this.fs.writeExclusive(this._claimPath(input.contractId), JSON.stringify(claim, null, 2));
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_CLAIM_BACKFILLED,
+        `contractId=${input.contractId}`,
+        `taskId=${row.taskId}`,
+      );
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      const reread = await this._readClaimStable(input.contractId);
+      if (reread.kind !== 'ok') {
+        this.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
+          `contractId=${input.contractId}`,
+          `state=claims`,
+          `reason=claim_backfill_race_unreadable`,
+        );
+        throw new Error(`Retrospective claim for ${input.contractId} exists but is corrupt`);
+      }
+      this._assertRowMatchesClaim(input, row, reread.claim);
+    }
+  }
+
+  private _claimPath(contractId: ContractId): string {
+    return `${CLAIMS_DIR}/${contractId}.json`;
+  }
+
+  /**
+   * Phase 1904 Step C: 读取稳定 claim。writeExclusive 先发布路径再完成内容写，
+   * loser 可能读到半写 JSON —— 解析失败有限重读；schema 不符 / 超预算 = corrupt。
+   */
+  private async _readClaimStable(contractId: ContractId): Promise<ClaimReadResult> {
+    const path = this._claimPath(contractId);
+    for (let attempt = 0; attempt < ENSURE_IDENTITY_SCAN_ATTEMPTS; attempt++) {
+      let raw: string;
+      try {
+        raw = await this.fs.read(path);
+      } catch (err) {
+        if (isFileNotFound(err)) return { kind: 'absent' };
+        throw err;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue; // 半写窗口 —— 重读
+      }
+      if (parsed === null || typeof parsed !== 'object') {
+        return { kind: 'corrupt', reason: 'not_an_object' };
+      }
+      const r = parsed as Record<string, unknown>;
+      if (r.schema_version !== 1) {
+        return { kind: 'corrupt', reason: 'unsupported_version' };
+      }
+      if (
+        typeof r.contract_id !== 'string' ||
+        typeof r.task_id !== 'string' ||
+        typeof r.target_executor_id !== 'string' ||
+        typeof r.created_at !== 'string'
+      ) {
+        return { kind: 'corrupt', reason: 'missing_required_fields' };
+      }
+      return {
+        kind: 'ok',
+        claim: {
+          schema_version: 1,
+          contract_id: makeContractId(r.contract_id),
+          task_id: adoptLegacyFullTaskId(r.task_id),
+          target_executor_id: r.target_executor_id,
+          created_at: r.created_at,
+        },
+      };
+    }
+    return { kind: 'corrupt', reason: 'invalid_json' };
   }
 
   /**

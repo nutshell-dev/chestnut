@@ -44,4 +44,7 @@ export const RETRO_AUDIT_EVENTS = {
   RETRO_STORE_READ_FAILED: 'retro_store_read_failed',
   RETRO_STORE_MULTI_STATE: 'retro_store_multi_state',
   RETRO_STORE_FUTURE_VERSION: 'retro_store_future_version',
+  // Phase 1904 Step C: 稳定身份 claim —— 旧 row 一次性补建 / claim 身份重建缺失 row
+  RETRO_CLAIM_BACKFILLED: 'retro_claim_backfilled',
+  RETRO_CLAIM_ROW_REBUILT: 'retro_claim_row_rebuilt',
 } as const;
