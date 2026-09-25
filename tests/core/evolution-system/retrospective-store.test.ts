@@ -263,3 +263,135 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
   });
 
 });
+
+describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('retro-store-race-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  function makeRaceStore(taskIdSeed: number): RetrospectiveStore {
+    return new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => makeFullTaskId(`00000000-0000-0000-0000-${String(taskIdSeed).padStart(12, '0')}`),
+    });
+  }
+
+  it('concurrent ensure with identical input commits exactly one row and one task identity', async () => {
+    const input = makeInput();
+    const stores = Array.from({ length: 5 }, (_, i) => makeRaceStore(i + 1));
+
+    const results = await Promise.all(stores.map(s => s.ensure(input)));
+
+    const taskIds = new Set(results.map(r => r.taskId));
+    expect(taskIds.size).toBe(1);
+    const createdAts = new Set(results.map(r => r.createdAt));
+    expect(createdAts.size).toBe(1);
+
+    const readyFiles = await fs.list(READY_DIR, { includeDirs: false });
+    expect(readyFiles).toHaveLength(1);
+
+    const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
+    expect(committedEvents).toHaveLength(1);
+  });
+
+  it('concurrent ensure with different executors yields exactly one winner and one conflict', async () => {
+    const contractId = makeContractId('contract-race');
+    const storeA = makeRaceStore(1);
+    const storeB = makeRaceStore(2);
+
+    const settled = await Promise.allSettled([
+      storeA.ensure({ contractId, targetExecutorId: 'claw-a' }),
+      storeB.ensure({ contractId, targetExecutorId: 'claw-b' }),
+    ]);
+
+    const fulfilled = settled.filter(r => r.status === 'fulfilled');
+    const rejected = settled.filter(r => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/registration conflict/);
+
+    const readyFiles = await fs.list(READY_DIR, { includeDirs: false });
+    expect(readyFiles).toHaveLength(1);
+
+    const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
+    expect(committedEvents).toHaveLength(1);
+  });
+
+  it('replays winner identity when the winning row is dispatched during the EEXIST recovery window', async () => {
+    const input = makeInput();
+    const winnerTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000aa');
+    const winnerRow = JSON.stringify({
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: winnerTaskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+
+    // 模拟并发 winner：在 loser 的 exclusive create 时 winner 已提交 ready
+    // 且被 beginDispatch 移到 dispatching，随后报告 EEXIST。
+    class WinnerMovedFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(READY_DIR)) {
+          await super.writeAtomic(p, winnerRow);
+          await super.move(p, p.replace(READY_DIR, DISPATCHING_DIR));
+          const err = new Error('file already exists') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new WinnerMovedFs({ baseDir }), audit: audit.audit });
+    const result = await raceStore.ensure(input);
+
+    expect(result.taskId).toBe(winnerTaskId);
+    expect(result.createdAt).toBe('2026-01-01T00:00:00.000Z');
+    // winner 移动期间不产生第二 task：ready 无新 row，只有 dispatching 一份
+    expect(existsSync(path.join(baseDir, `${READY_DIR}/${input.contractId}.json`))).toBe(false);
+    expect(existsSync(path.join(baseDir, `${DISPATCHING_DIR}/${input.contractId}.json`))).toBe(true);
+
+    const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
+    expect(committedEvents).toHaveLength(0);
+  });
+
+  it('fails closed with indeterminate when EEXIST conflicts but no row ever becomes readable', async () => {
+    const input = makeInput();
+
+    class PhantomConflictFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(READY_DIR)) {
+          const err = new Error('file already exists') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new PhantomConflictFs({ baseDir }), audit: audit.audit });
+    await expect(raceStore.ensure(input)).rejects.toThrow(/indeterminate/);
+
+    // 不静默生成新 task：任何状态目录都没有该 contract 的 row
+    for (const dir of [READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR]) {
+      expect(existsSync(path.join(baseDir, `${dir}/${input.contractId}.json`))).toBe(false);
+    }
+
+    const readFailed = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED);
+    expect(readFailed.some(e => e.includes('reason=ensure_identity_indeterminate'))).toBe(true);
+  });
+
+});

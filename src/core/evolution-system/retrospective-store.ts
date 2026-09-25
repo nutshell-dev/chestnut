@@ -90,6 +90,18 @@ interface RowLocation {
   path: string;
 }
 
+/**
+ * Phase 1902 Step C: ensure 身份解析的有限重读次数。
+ * winner row 被 beginDispatch/markSubmitted 在 find→read 窗口内移动时重读；
+ * 超过次数由 caller 显式报 indeterminate，绝不静默重写新 task。
+ */
+const ENSURE_IDENTITY_SCAN_ATTEMPTS = 3;
+
+/** writeExclusive (O_EXCL) 冲突检测 —— 对称 contract/creation.ts 的本地 helper。 */
+function isAlreadyExists(err: unknown): boolean {
+  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
+}
+
 export class RetrospectiveStore {
   private readonly fs: FileSystem;
   private readonly audit: AuditLog;
@@ -118,14 +130,74 @@ export class RetrospectiveStore {
    * mismatched re-registration. New writes only persist contract/executor/task
    * identity (v2); existing v1 rows are matched read-only by (contractId,
    * executor) and never rewritten.
+   *
+   * Phase 1902 Step C: 首次注册改为 writeExclusive (O_EXCL) 磁盘裁决 ——
+   * 并发首次注册同一 contract 只产生一个 durable row、一个 task identity、
+   * 一条 committed 事实；EEXIST loser 重读 winner 身份 replay，绝不覆盖。
    */
   async ensure(input: EnsureRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
     await this.ensureDirs();
 
-    const existing = await this._findAnyRow(input.contractId);
-    if (existing) {
+    const resolved = await this._resolveExistingIdentity(input, false);
+    if (resolved) return resolved;
+
+    const createdAt = new Date().toISOString();
+    const taskId = this.generateTaskId();
+    const row: RetrospectiveWorkItemV2 = {
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: taskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: createdAt,
+    };
+
+    try {
+      await this.fs.writeExclusive(this.rowPath(input.contractId, 'ready'), JSON.stringify(row, null, 2));
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      // Lost the exclusive-create race: winner 的 row 已 durable，重读 replay 其身份。
+      const winner = await this._resolveExistingIdentity(input, true);
+      if (winner) return winner;
+      // writeExclusive 已证明 row 存在过；读不到 = 持续移动/消失，显式 indeterminate。
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+        `contractId=${input.contractId}`,
+        `reason=ensure_identity_indeterminate`,
+      );
+      throw new Error(
+        `Retrospective registration for ${input.contractId} is indeterminate: ` +
+        `exclusive create conflicted but no row is readable`,
+      );
+    }
+
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED,
+      `contractId=${input.contractId}`,
+      `taskId=${taskId}`,
+    );
+
+    return { taskId, createdAt };
+  }
+
+  /**
+   * Phase 1902 Step C: 定位并匹配已存在 row。返回 null 表示各 lifecycle
+   * 状态都没有该 contract 的 row（caller 可尝试 exclusive create）。
+   * `mustExist=false`（首次扫描）空结果立即返回 null —— 由 writeExclusive 裁决；
+   * `mustExist=true`（EEXIST 后重读）空结果有限重试，吸收 beginDispatch/
+   * markSubmitted 的 move 窗口。corrupt/mismatch 维持 fail-closed。
+   */
+  private async _resolveExistingIdentity(input: EnsureRetrospectiveInput, mustExist: boolean): Promise<RegisterRetrospectiveResult | null> {
+    for (let attempt = 0; attempt < ENSURE_IDENTITY_SCAN_ATTEMPTS; attempt++) {
+      const existing = await this._findAnyRow(input.contractId);
+      if (existing === null) {
+        if (!mustExist) return null;
+        continue; // 移动恰好落在逐状态 exists 间隙 —— 重读
+      }
       const item = await this._readRow(existing.path, existing.dir);
       if (item === null) {
+        if (!(await this.fs.exists(existing.path).catch(() => false))) {
+          continue; // find→read 之间被 beginDispatch/markSubmitted 移动 —— 重读新位置
+        }
         // corrupt existing row — preserve and stop
         this.audit.write(
           RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
@@ -146,26 +218,7 @@ export class RetrospectiveStore {
       }
       return { taskId: item.task_id, createdAt: item.created_at };
     }
-
-    const createdAt = new Date().toISOString();
-    const taskId = this.generateTaskId();
-    const row: RetrospectiveWorkItemV2 = {
-      schema_version: 2,
-      contract_id: input.contractId,
-      task_id: taskId,
-      target_executor_id: input.targetExecutorId,
-      created_at: createdAt,
-    };
-
-    await this.fs.writeAtomic(this.rowPath(input.contractId, 'ready'), JSON.stringify(row, null, 2));
-
-    this.audit.write(
-      RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED,
-      `contractId=${input.contractId}`,
-      `taskId=${taskId}`,
-    );
-
-    return { taskId, createdAt };
+    return null;
   }
 
   /**
