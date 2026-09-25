@@ -269,6 +269,18 @@ export async function readLifecycleIntentsForContract(
       continue;
     }
 
+    // Phase 1908 Step F: 文件名 requestId 与内容 request_id 绑定 —— 错名文件
+    // 不进入恢复候选（同 identity_mismatch，保留原文件证据）。
+    if (result.data.request_id !== requestId) {
+      issues.push({
+        requestId,
+        path: filePath,
+        reason: 'identity_mismatch',
+        detail: `expected=${requestId} actual=${result.data.request_id}`,
+      });
+      continue;
+    }
+
     intents.push(result.data);
   }
 

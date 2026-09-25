@@ -181,6 +181,45 @@ describe('readLifecycleIntentsForContract', () => {
     expect(intents).toHaveLength(0);
     expect(issues).toHaveLength(0);
   });
+
+  it('reports filename requestId vs payload request_id mismatch (Phase 1908 Step F)', async () => {
+    const { audit, events } = makeAuditCapture();
+    // 文件名是 req-file，内容 request_id 是 req-payload —— 错名文件不进入恢复候选
+    const intentPath = lifecycleIntentPath(clawDir, contractId, 'req-file');
+    await fs.mkdir(path.dirname(intentPath), { recursive: true });
+    await fs.writeFile(
+      intentPath,
+      JSON.stringify({
+        schema_version: 1,
+        request_id: 'req-payload',
+        contract_id: contractId,
+        requested_state: 'cancelled',
+        requested_at: new Date().toISOString(),
+        reason: 'x',
+      }),
+      'utf-8',
+    );
+
+    const { intents, issues } = await readLifecycleIntentsForContract(nodeFs, audit, clawDir, contractId);
+    expect(intents).toHaveLength(0);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].reason).toBe('identity_mismatch');
+    expect(issues[0].requestId).toBe('req-file');
+    expect(issues[0].detail).toBe('expected=req-file actual=req-payload');
+    expect(events.some(e => e.type === CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_READ_ISSUE)).toBe(true);
+    // 原文件保留（证据不覆写）
+    const raw = await fs.readFile(intentPath, 'utf-8');
+    expect(JSON.parse(raw).request_id).toBe('req-payload');
+  });
+
+  it('filename requestId matching payload request_id still replays correctly (Phase 1908 Step F)', async () => {
+    const { audit } = makeAuditCapture();
+    await persistLifecycleIntent(nodeFs, audit, clawDir, buildCancelledIntent(contractId, 'req-ok', 'fine'));
+
+    const { intents, issues } = await readLifecycleIntentsForContract(nodeFs, audit, clawDir, contractId);
+    expect(issues).toHaveLength(0);
+    expect(intents.map(i => i.request_id)).toEqual(['req-ok']);
+  });
 });
 
 describe('buildCorruptedIntent', () => {
