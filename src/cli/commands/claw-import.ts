@@ -11,6 +11,8 @@ import * as path from 'path';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -73,18 +75,69 @@ export async function importCommand(
   }
 
   if (srcStat.isDirectory) {
-    await copyDir(deps, srcAbs, destPath, stats);
+    // Phase 1910 Step F（RACE-CLAW-IMPORT-TARGET-CHECK）：目录级目标占有 +
+    // staging 发布协议，替代 check-then-copy：
+    //   1. O_EXCL claim（`.<name>.importing`）——同一目标只有一次 import 占有，
+    //      并发/中断残留立即 typed 冲突并保留证据；
+    //   2. 复制进唯一 staging 目录（同文件系统根内）；读失败保留 staging+claim，
+    //      不触碰已存在目标；
+    //   3. 同根 rename 原子发布；目标中途出现（非空）→ rename 失败 → 显式冲突，
+    //      不覆盖。
+    const destParentFs = deps.fsFactory(destParent);
+    await destParentFs.ensureDir('.');
+    const claimName = `.${srcName}.importing`;
+    const stageName = `.import-staging-${newShortUuid()}`;
+    try {
+      destParentFs.writeExclusiveSync(claimName, JSON.stringify({
+        pid: process.pid,
+        createdAt: new Date().toISOString(),
+        source: srcAbs,
+        target: displayRel,
+      }, null, 2));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
+        throw new CliError(
+          `"${displayRel}" import already in progress or was interrupted in ${clawName}/clawspace/ ` +
+          `(claim: ${claimName}); inspect the claim/staging evidence and remove it to retry`,
+        );
+      }
+      throw err;
+    }
+    try {
+      await copyDir(deps, srcAbs, path.join(destParent, stageName), stats);
+      await destParentFs.moveDir(stageName, srcName);
+    } catch (err) {
+      // fail-closed：保留 staging + claim 证据交 owner recovery，不静默删除未完成事实
+      throw new CliError(
+        `Import of "${displayRel}" failed: ${formatErr(err)}; ` +
+        `evidence preserved at ${path.join(destParent, stageName)} and ${path.join(destParent, claimName)}`,
+      );
+    }
+    try {
+      destParentFs.deleteSync(claimName);
+    } catch (err) {
+      // best-effort：claim 释放失败不影响已发布事实，残留按中断证据由 owner recovery 处理
+      console.warn(`Warning: failed to release import claim ${claimName}: ${formatErr(err)}`);
+    }
     const sizeStr = stats.bytes >= 1024
       ? `${(stats.bytes / 1024).toFixed(1)} KB`
       : `${stats.bytes} B`;
     console.log(`✓ Copied to ${clawName}/clawspace/${displayRel}/`);
     console.log(`  ${stats.files} files, ${stats.dirs} dirs, ${sizeStr}`);
   } else {
-    // Single file
+    // Single file —— Phase 1910 Step F：O_EXCL 独占写即目标占有 + 发布提交，
+    // 同名并发 import 只有一个 winner。
     const destParentFs = deps.fsFactory(destParent);
     await destParentFs.ensureDir('.');
     const content = await srcParentFs.read(srcName);
-    await destParentFs.writeAtomic(srcName, content);
+    try {
+      destParentFs.writeExclusiveSync(srcName, content);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
+        throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
+      }
+      throw err;
+    }
     stats.files = 1;
     stats.bytes = Buffer.byteLength(content, 'utf-8');
     const sizeStr = stats.bytes >= 1024

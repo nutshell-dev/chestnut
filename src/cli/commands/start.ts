@@ -49,7 +49,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import { readOnboardingStatus, ONBOARDING_CONTRACT_ID, type OnboardingStatus } from '../../core/contract/index.js';
-import { ContractValidationError } from '../../core/contract/errors.js';
+import { ContractValidationError } from '../../core/contract/index.js';
 import type { ContractYaml } from '../../core/contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
