@@ -36,6 +36,13 @@ export const CANCEL_SETTLE_TIMEOUT_MS = 5_000;
 export const PENDING_QUEUE_MAX = 1000;
 
 /**
+ * Phase 1902 Step D: prepared schedule 身份解析的有限重读次数。
+ * winner task file 被 dispatcher/recovery 在 scan→read 窗口内移动时重读；
+ * 超过次数抛 typed indeterminate，绝不静默重建身份。
+ */
+export const PREPARED_IDENTITY_SCAN_ATTEMPTS = 3;
+
+/**
  * Phase 770: default soft timeout for async exec wrapper.
  * Commands running longer than this are migrated to background async execution
  * instead of blocking the agent turn.

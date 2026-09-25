@@ -12,7 +12,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 
-import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
+import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX, PREPARED_IDENTITY_SCAN_ATTEMPTS } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -544,31 +544,74 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       TASKS_QUEUES_FAILED_DIR,
     ] as const;
 
-    const found: Array<{ dir: string; path: string }> = [];
-    for (const dir of lifecycleDirs) {
-      const filePath = `${dir}/${fullId}.json`;
-      if (await this.fs.exists(filePath)) {
-        found.push({ dir, path: filePath });
+    const replay = await this._resolvePreparedIdentity(fullId, shortId, expectedHash, lifecycleDirs, false);
+    if (replay) return replay;
+
+    // No existing task — Phase 1902 Step D: pending 首次提交用 exclusive
+    // create (O_EXCL) 作为 durable identity claim；并发同 id 不再同时通过
+    // exists 检查再互相覆盖。EEXIST loser 重读 winner（含 move 窗口有限重读）。
+    try {
+      await this._persistSubagentTask(task, taskKind, 'schedule_prepared', { exclusiveCreate: true });
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      const racedReplay = await this._resolvePreparedIdentity(fullId, shortId, expectedHash, lifecycleDirs, true);
+      if (racedReplay === null) {
+        // mustExist=true 时 helper 不会返回 null（超出重读预算已 throw）；防御性 guard。
+        throw new Error(`Prepared task identity indeterminate for ${fullId}: exclusive create conflicted but no task file is readable`);
       }
+      return racedReplay;
     }
+    return { taskId: fullId, disposition: 'created' };
+  }
 
-    if (found.length > 1) {
-      const reason = `duplicate task files across ${found.map(f => f.dir).join(', ')}`;
-      emitPreparedTaskIdentityConflict(this.auditWriter, {
-        fullTaskId: fullId,
-        shortTaskId: shortId,
-        lifecycleDir: found.map(f => f.dir).join(';'),
-        reason,
-      });
-      throw new Error(`Prepared task identity conflict for ${fullId}: ${reason}`);
-    }
+  /**
+   * Phase 1902 Step D: 跨 lifecycle 目录定位 `fullId` 的 durable task file，
+   * 并按 canonical payload hash 校验。
+   * - 恰好一个文件且 payload 相同 → replay confirmed（'existing'）；
+   * - 恰好一个文件但不可读/损坏/schema 不符/payload 不同 → identity conflict throw；
+   * - 多个文件 → duplicate lifecycle conflict throw；
+   * - 零个文件 → `mustExist=false` 时返回 null（caller 可尝试 exclusive create）；
+   *   `mustExist=true`（EEXIST 后重读）时有限重读吸收 dispatcher/recovery 的
+   *   move 窗口，超出预算抛 typed indeterminate，绝不静默重建。
+   */
+  private async _resolvePreparedIdentity(
+    fullId: FullTaskId,
+    shortId: ShortTaskId,
+    expectedHash: string,
+    lifecycleDirs: readonly string[],
+    mustExist: boolean,
+  ): Promise<PreparedScheduleResult | null> {
+    for (let attempt = 0; attempt < PREPARED_IDENTITY_SCAN_ATTEMPTS; attempt++) {
+      const found: Array<{ dir: string; path: string }> = [];
+      for (const dir of lifecycleDirs) {
+        const filePath = `${dir}/${fullId}.json`;
+        if (await this.fs.exists(filePath)) {
+          found.push({ dir, path: filePath });
+        }
+      }
 
-    if (found.length === 1) {
+      if (found.length > 1) {
+        const reason = `duplicate task files across ${found.map(f => f.dir).join(', ')}`;
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: found.map(f => f.dir).join(';'),
+          reason,
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: ${reason}`);
+      }
+
+      if (found.length === 0) {
+        if (!mustExist) return null;
+        continue; // winner 在扫描窗口内被移动 —— 有限重读
+      }
+
       const { dir, path: filePath } = found[0];
       let raw: string;
       try {
         raw = await this.fs.read(filePath);
       } catch (e) {
+        if (isFileNotFound(e)) continue; // scan→read 之间被移动 —— 重读新位置
         emitPreparedTaskIdentityConflict(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
@@ -623,15 +666,21 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       return { taskId: fullId, disposition: 'existing' };
     }
 
-    // No existing task — create it.
-    await this._persistSubagentTask(task, taskKind, 'schedule_prepared');
-    return { taskId: fullId, disposition: 'created' };
+    // 超出重读预算：文件持续移动/消失，显式 indeterminate，绝不静默重建。
+    emitPreparedTaskIdentityConflict(this.auditWriter, {
+      fullTaskId: fullId,
+      shortTaskId: shortId,
+      lifecycleDir: lifecycleDirs.join(';'),
+      reason: 'identity indeterminate: task file moved repeatedly during schedule',
+    });
+    throw new Error(`Prepared task identity indeterminate for ${fullId}: task file moved repeatedly during schedule`);
   }
 
   private async _persistSubagentTask(
     task: SubAgentTask,
     taskKind: 'subagent',
     source: SaveSource,
+    opts?: { exclusiveCreate?: boolean },
   ): Promise<void> {
     const fullId = task.id as FullTaskId;
     const shortId = taskShortId(task);
@@ -639,7 +688,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
 
     assertTaskShapeOnSave(task, this.auditWriter, source);
 
-    await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
+    if (opts?.exclusiveCreate) {
+      // Phase 1902 Step D: prepared schedule 的 durable identity claim ——
+      // O_EXCL 裁决唯一 winner；EEXIST 由 caller 重读 winner，绝不覆盖。
+      await this.fs.writeExclusive(taskPath, JSON.stringify(task, null, 2));
+    } else {
+      await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
+    }
 
     // Only register index after successful file write to avoid dangling entries.
     // Phase 883: add() failure (collision) must propagate — the shortId is unusable.
@@ -1893,6 +1948,11 @@ function canonicalJsonStringify(value: unknown): string {
 
 function hashTaskPayload(payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>): string {
   return sha256Hex(canonicalJsonStringify(payload));
+}
+
+/** Phase 1902 Step D: writeExclusive (O_EXCL) 冲突检测 —— 对称 contract/creation.ts 的本地 helper。 */
+function isAlreadyExists(err: unknown): boolean {
+  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
 }
 
 

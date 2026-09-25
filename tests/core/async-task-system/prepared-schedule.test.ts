@@ -250,3 +250,162 @@ describe('AsyncTaskSystem.schedulePrepared (Phase 1206 Step A)', () => {
     expect(indexPersistedCol).toBe('indexPersisted=false');
   });
 });
+
+describe('AsyncTaskSystem.schedulePrepared concurrency (Phase 1902 Step D)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('prepared-schedule-race-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  function makeRaceSystem(raceFs?: FileSystem): AsyncTaskSystem {
+    return createTestTaskSystem(baseDir, raceFs ?? fs, audit.audit as import('../../../src/foundation/audit/writer.js').AuditWriter);
+  }
+
+  it('concurrent schedulePrepared with same payload yields exactly one created and one pending file', async () => {
+    const prepared = makePrepared();
+    const systems = Array.from({ length: 5 }, () => makeRaceSystem());
+
+    const results = await Promise.all(systems.map(s => s.schedulePrepared('subagent', prepared)));
+
+    expect(results.every(r => r.taskId === prepared.id)).toBe(true);
+    expect(results.filter(r => r.disposition === 'created')).toHaveLength(1);
+    expect(results.filter(r => r.disposition === 'existing')).toHaveLength(4);
+
+    const pendingFiles = await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
+    expect(pendingFiles).toHaveLength(1);
+
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(1);
+  });
+
+  it('concurrent schedulePrepared with different payloads yields exactly one created and conflicts for the rest', async () => {
+    const id = randomUUID() as import('../../../src/core/async-task-system/types.js').FullTaskId;
+    const systems = Array.from({ length: 3 }, () => makeRaceSystem());
+
+    const settled = await Promise.allSettled(systems.map((s, i) => s.schedulePrepared('subagent', makePrepared({
+      id,
+      payload: { ...makeBasePayload(), intent: `intent-${i}` },
+    }))));
+
+    const fulfilled = settled.filter(r => r.status === 'fulfilled');
+    const rejected = settled.filter(r => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect((fulfilled[0] as PromiseFulfilledResult<{ disposition: string }>).value.disposition).toBe('created');
+    expect(rejected).toHaveLength(2);
+    for (const r of rejected) {
+      expect((r as PromiseRejectedResult).reason.message).toMatch(/payload hash mismatch/);
+    }
+
+    const pendingFiles = await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
+    expect(pendingFiles).toHaveLength(1);
+
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(1);
+  });
+
+  it('replays winner identity when the winning pending file is claimed during the EEXIST window', async () => {
+    const prepared = makePrepared();
+    const winnerTask = {
+      ...prepared.payload,
+      id: prepared.id,
+      shortId: prepared.id.slice(0, 8),
+      createdAt: prepared.createdAt,
+    };
+
+    // 模拟并发 winner + dispatcher：loser exclusive create 时 winner 已提交
+    // pending 且被 claim 移到 running，随后报告 EEXIST。
+    class WinnerClaimedFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(TASKS_QUEUES_PENDING_DIR)) {
+          await super.writeAtomic(p, JSON.stringify(winnerTask, null, 2));
+          await super.move(p, p.replace(TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR));
+          const err = new Error('file already exists') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const raceSystem = makeRaceSystem(new WinnerClaimedFs({ baseDir }));
+    const result = await raceSystem.schedulePrepared('subagent', prepared);
+
+    expect(result.taskId).toBe(prepared.id);
+    expect(result.disposition).toBe('existing');
+
+    // winner 被 move 到 running 期间不重写：pending 无第二份文件
+    const pendingFiles = await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
+    expect(pendingFiles.filter(f => f.name.startsWith(prepared.id))).toHaveLength(0);
+    expect(await fs.exists(`${TASKS_QUEUES_RUNNING_DIR}/${prepared.id}.json`)).toBe(true);
+
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(0);
+    const replayEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_REPLAY_CONFIRMED);
+    expect(replayEvents).toHaveLength(1);
+  });
+
+  it('fails closed with typed indeterminate when EEXIST conflicts but the winner never becomes readable', async () => {
+    const prepared = makePrepared();
+
+    class PhantomConflictFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(TASKS_QUEUES_PENDING_DIR)) {
+          const err = new Error('file already exists') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const raceSystem = makeRaceSystem(new PhantomConflictFs({ baseDir }));
+    await expect(raceSystem.schedulePrepared('subagent', prepared)).rejects.toThrow(/indeterminate/);
+
+    // 绝不静默重建：任何 lifecycle 目录都没有该 id 的文件
+    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+      expect(await fs.exists(`${dir}/${prepared.id}.json`)).toBe(false);
+    }
+
+    const conflictEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT);
+    expect(conflictEvents.some(e => e.some(c => typeof c === 'string' && c.includes('indeterminate')))).toBe(true);
+  });
+
+  it('retry after index save failure replays existing without rewriting the winner file', async () => {
+    const prepared = makePrepared();
+    const shortIdIndex = new InMemoryShortIdIndex();
+    shortIdIndex.save = () => { throw new Error('disk full'); };
+
+    const failingSystem = new AsyncTaskSystem(baseDir, fs, {
+      auditWriter: audit.audit as import('../../../src/foundation/audit/writer.js').AuditWriter,
+      shortIdIndex,
+      ...makeTaskSystemDeps(),
+    });
+
+    const first = await failingSystem.schedulePrepared('subagent', prepared);
+    expect(first.disposition).toBe('created');
+
+    const pendingPath = path.join(baseDir, `${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`);
+    const beforeMtime = statSync(pendingPath).mtimeMs;
+    const MTIME_ADVANCE_WAIT_MS = 20;
+    await new Promise(r => setTimeout(r, MTIME_ADVANCE_WAIT_MS));
+
+    // index save 失败后的重试：exclusive create 已裁决 winner，replay 不覆盖
+    const retrySystem = makeRaceSystem();
+    const second = await retrySystem.schedulePrepared('subagent', prepared);
+    expect(second.disposition).toBe('existing');
+    expect(statSync(pendingPath).mtimeMs).toBe(beforeMtime);
+
+    const scheduledEvents = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents).toHaveLength(1);
+  });
+});
