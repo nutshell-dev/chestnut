@@ -7,7 +7,9 @@
  */
 
 /* ------------------------------------------------------------------ */
-/* phase 1906 Step B：创建通知正文迁入模板单源（结构迁移，文本逐字不变）。 */
+/* phase 1906 Step B：创建通知正文迁入模板单源（结构迁移，文本逐字不变）。  */
+/* phase 1906 Step C：指示工具名修为实际可见的 submit_subtask（claw 无       */
+/* subagent 专用 done 工具；示例参数键与工具 schema subtask/evidence 一致）。 */
 /* 入参为最小标量与已渲染行，不 import 契约实体；调用方逐字段映射。      */
 /* ------------------------------------------------------------------ */
 
@@ -30,7 +32,7 @@ export function contractCreatedNotificationBody(input: ContractCreatedMessageInp
   if (input.expectations) lines.push(`Expectations: ${input.expectations}`);
   lines.push(`Subtasks:`);
   lines.push(subtaskLines);
-  lines.push(`After each subtask, submit verification via done:`);
-  lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<output path or completion summary>" }`);
+  lines.push(`After each subtask, submit verification via submit_subtask:`);
+  lines.push(`submit_subtask: { "subtask": "<subtask-id>", "evidence": "<output path or completion summary>" }`);
   return lines.join('\n');
 }
