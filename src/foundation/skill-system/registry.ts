@@ -12,6 +12,13 @@ import { parseFrontmatterFrame } from "../messaging/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
+// phase 1909 Step C（M17）：技能段字面归 templates/messages 单源（层中性资源，foundation 可引用）
+import {
+  AVAILABLE_SKILLS_HEADING,
+  NO_SKILLS_LOADED,
+  SKILL_NO_DESCRIPTION,
+  skillLine,
+} from '../../templates/messages/index.js';
 
 // phase 1235 B.1: namespace pattern + duplicate reject
 const SKILL_NAME_NAMESPACE_PATTERN = /^[a-z0-9-]+(\/[a-z0-9-]+)?$/;
@@ -400,12 +407,13 @@ export class SkillSystem implements SkillContextSource {
     this._triggerBackgroundLoad();
     const metas = this.listMeta();
     if (metas.length === 0) {
-      return '## Available Skills\nNo skills loaded.\n';
+      return `${AVAILABLE_SKILLS_HEADING}\n${NO_SKILLS_LOADED}\n`;
     }
 
-    const lines = ['## Available Skills'];
+    const lines = [AVAILABLE_SKILLS_HEADING];
     for (const meta of metas) {
-      lines.push(`- ${meta.name}: ${meta.description || 'No description'}`);
+      // description 缺省回退分支留在本 owner；行字面经模板单源
+      lines.push(skillLine(meta.name, meta.description || SKILL_NO_DESCRIPTION));
     }
     return lines.join('\n') + '\n';
   }

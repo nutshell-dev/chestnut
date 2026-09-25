@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+// phase 1909 Step C（M19）：断言期望值经模板单源，不复制字面（防双源）
+import {
+  MOTION_GUIDANCE_CLI_HINTS_HEADING,
+  MOTION_GUIDANCE_CLI_BINARY,
+  MOTION_STATUS_GUIDANCE_VERBS,
+} from '../../../src/templates/messages/index.js';
 import { composeStatusMotionGuidance } from '../../../src/assembly/motion-guidance-composer.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { ContractSystem } from '../../../src/core/contract/index.js';
@@ -192,36 +198,37 @@ describe('status-tool motion guidance injection (phase 1472 Step D)', () => {
     const tool = createStatusTool(mockContractSystem, composeStatusMotionGuidance());
     const result = await tool.execute({}, mkCtx(MOTION_CLAW_ID));
     expect(result.success).toBe(true);
-    expect(result.content).toContain('[CLI hints for motion]');
-    expect(result.content).toContain('chestnut claw <name> status');
-    expect(result.content).toContain('chestnut claw list');
+    expect(result.content).toContain(MOTION_GUIDANCE_CLI_HINTS_HEADING);
+    for (const v of MOTION_STATUS_GUIDANCE_VERBS) {
+      expect(result.content).toContain(`${MOTION_GUIDANCE_CLI_BINARY} ${v.fragment}`);
+    }
   });
 
   it('non-motion claw + composer 注入 → 0 尾段（guard 过滤）', async () => {
     const tool = createStatusTool(mockContractSystem, composeStatusMotionGuidance());
     const result = await tool.execute({}, mkCtx('worker-claw'));
     expect(result.success).toBe(true);
-    expect(result.content).not.toContain('[CLI hints for motion]');
+    expect(result.content).not.toContain(MOTION_GUIDANCE_CLI_HINTS_HEADING);
   });
 
   it('motion claw + 0 composer → 0 尾段（无 crash）', async () => {
     const tool = createStatusTool(mockContractSystem /* no guidance */);
     const result = await tool.execute({}, mkCtx(MOTION_CLAW_ID));
     expect(result.success).toBe(true);
-    expect(result.content).not.toContain('[CLI hints for motion]');
+    expect(result.content).not.toContain(MOTION_GUIDANCE_CLI_HINTS_HEADING);
   });
 
-  it('reverse: composer 物理拼 binary `chestnut`', () => {
+  it('reverse: composer 物理拼 binary（单源字面）', () => {
     const g = composeStatusMotionGuidance();
     expect(g.commands.length).toBeGreaterThan(0);
     for (const c of g.commands) {
-      expect(c.invocation.startsWith('chestnut ')).toBe(true);
+      expect(c.invocation.startsWith(`${MOTION_GUIDANCE_CLI_BINARY} `)).toBe(true);
     }
   });
 
-  it('reverse: composer 含 `claw <name> status` verb fragment', () => {
+  it('reverse: composer 含 status verb fragment（单源字面）', () => {
     const g = composeStatusMotionGuidance();
-    const statusCmd = g.commands.find((c) => c.invocation.includes('claw <name> status'));
+    const statusCmd = g.commands.find((c) => c.invocation.includes(MOTION_STATUS_GUIDANCE_VERBS[0].fragment));
     expect(statusCmd).toBeDefined();
     expect(statusCmd!.purpose).toContain('contract');
   });

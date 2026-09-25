@@ -30,7 +30,19 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { onboardingContractCreatedBody, onboardingContractResumedBody } from '../../templates/messages/index.js';
+import {
+  onboardingContractCreatedBody,
+  onboardingContractResumedBody,
+  onboardingLangInstructionTyped,
+  onboardingLanguageSubtaskDescription,
+  ONBOARDING_LANG_INSTRUCTION_AUTO,
+  ONBOARDING_IDENTITY_SUBTASK_DESCRIPTION,
+  ONBOARDING_USER_SUBTASK_DESCRIPTION,
+  ONBOARDING_SOUL_SUBTASK_DESCRIPTION,
+  ONBOARDING_FIRST_CLAW_SUBTASK_DESCRIPTION,
+  ONBOARDING_FIRST_CONTRACT_SUBTASK_DESCRIPTION,
+  ONBOARDING_READY_SUBTASK_DESCRIPTION,
+} from '../../templates/messages/index.js';
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -39,42 +51,41 @@ import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
+// phase 1909 Step C（M13 扩）：子任务描述字面归 templates/messages 单源；
+// id 集合、顺序与 language==='auto' 分支留在本 owner。
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
-  let langInstruction: string;
-  if (language === 'auto') {
-    langInstruction = "Detect the user's preferred language from their first message and respond in it immediately.";
-  } else {
-    langInstruction = `The user typed "${language}" at the language prompt. Infer the language from this text and respond in that language immediately.`;
-  }
+  const langInstruction = language === 'auto'
+    ? ONBOARDING_LANG_INSTRUCTION_AUTO
+    : onboardingLangInstructionTyped(language);
 
   return [
     {
       id: 'language',
-      description: `${langInstruction} Write the language preference to USER.md (not inside clawspace/).`,
+      description: onboardingLanguageSubtaskDescription(langInstruction),
     },
     {
       id: 'identity',
-      description: 'You are the coordinator of Claws — "Motion" is your system role, not your name. Ask the user what they want to call you, and what kind of vibe or presence they want from you. Write the result to IDENTITY.md (not inside clawspace/).',
+      description: ONBOARDING_IDENTITY_SUBTASK_DESCRIPTION,
     },
     {
       id: 'user',
-      description: 'Learn who they are: name, how to address them, any relevant context. Write to USER.md (not inside clawspace/).',
+      description: ONBOARDING_USER_SUBTASK_DESCRIPTION,
     },
     {
       id: 'soul',
-      description: 'Open SOUL.md together. Talk about what matters to them and how they want you to behave. Update SOUL.md (not inside clawspace/) with what you learn.',
+      description: ONBOARDING_SOUL_SUBTASK_DESCRIPTION,
     },
     {
       id: 'first-claw',
-      description: 'Help the user create their first Claw. Ask what task or project they want to work on. A Claw is a separate context window for a specific ongoing task — all Claws have identical capabilities, they just handle different work. Run both commands: exec: chestnut claw <name> create, then exec: chestnut claw <name> daemon',
+      description: ONBOARDING_FIRST_CLAW_SUBTASK_DESCRIPTION,
     },
     {
       id: 'first-contract',
-      description: 'Help the user assign the first contract to their new Claw. Ask what they want to get done, then create the contract via summon: { "goal": "为 <claw-name> 创建契约：<task description>" }',
+      description: ONBOARDING_FIRST_CONTRACT_SUBTASK_DESCRIPTION,
     },
     {
       id: 'ready',
-      description: 'Onboarding is complete. Let them know everything is set up and the Claw is working on their first task.',
+      description: ONBOARDING_READY_SUBTASK_DESCRIPTION,
     },
   ];
 }

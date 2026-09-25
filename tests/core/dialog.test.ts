@@ -22,6 +22,12 @@ import { makeSession } from '../helpers/session-fixtures.js';
 import type { SessionData } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
+// phase 1909 Step C（M16/M17）：断言期望值经模板单源，不复制字面（防双源）
+import {
+  ACTIVE_CONTRACT_SECTION_HEADING,
+  AVAILABLE_SKILLS_HEADING,
+  contractSubtaskLine,
+} from '../../src/templates/messages/index.js';
 
 describe('Dialog', () => {
   describe('DialogStore', () => {
@@ -288,7 +294,7 @@ describe('Dialog', () => {
       const parts = await inj.buildParts();
 
       // assert: 真契约语义（heading + skill name + description）/ 容忍非语义文案变化
-      expect(parts.skills).toContain('## Available Skills');
+      expect(parts.skills).toContain(AVAILABLE_SKILLS_HEADING);
       expect(parts.skills).toContain('skill1');
       expect(parts.skills).toContain('Test fixture skill');
       expect(parts.contract).toBe('');
@@ -310,9 +316,9 @@ describe('Dialog', () => {
       const inj = new ContextInjector({ fs: nodeFs, loadActiveContract: () => mockContractManager.loadActive() });
 
       const parts = await inj.buildParts();
-      expect(parts.contract).toContain('## Active Contract');
-      expect(parts.contract).toContain('[x] `design`');
-      expect(parts.contract).toContain('[ ] `impl`');
+      expect(parts.contract).toContain(ACTIVE_CONTRACT_SECTION_HEADING);
+      expect(parts.contract).toContain(contractSubtaskLine(true, 'design', 'Design API'));
+      expect(parts.contract).toContain(contractSubtaskLine(false, 'impl', 'Implement'));
     });
 
     // buildParts: contractManager.loadActive 抛异常 → 静默跳过
@@ -350,8 +356,8 @@ describe('Dialog', () => {
       const prompt = await inj.buildSystemPrompt();
       expect(prompt).toContain('Agent Instructions');
       expect(prompt).toContain('## Skills');
-      expect(prompt).toContain('## Active Contract');
-      expect(prompt).toContain('[ ] `x`');
+      expect(prompt).toContain(ACTIVE_CONTRACT_SECTION_HEADING);
+      expect(prompt).toContain(contractSubtaskLine(false, 'x', 'do x'));
     });
 
   });

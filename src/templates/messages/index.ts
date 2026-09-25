@@ -98,8 +98,39 @@ export { taskQueueOverflowBody } from './task-queue-overflow.js';
 export {
   onboardingContractCreatedBody,
   onboardingContractResumedBody,
+  onboardingLangInstructionTyped,
+  onboardingLanguageSubtaskDescription,
+  ONBOARDING_LANG_INSTRUCTION_AUTO,
+  ONBOARDING_IDENTITY_SUBTASK_DESCRIPTION,
+  ONBOARDING_USER_SUBTASK_DESCRIPTION,
+  ONBOARDING_SOUL_SUBTASK_DESCRIPTION,
+  ONBOARDING_FIRST_CLAW_SUBTASK_DESCRIPTION,
+  ONBOARDING_FIRST_CONTRACT_SUBTASK_DESCRIPTION,
+  ONBOARDING_READY_SUBTASK_DESCRIPTION,
   type OnboardingCreatedInput,
   type OnboardingResumedInput,
 } from './onboarding-contract.js';
 export { CONFIG_RELOAD_NOTICE } from './config-reload.js';
 export { userAttachmentBody, type UserAttachmentInput } from './user-attachment.js';
+export {
+  ACTIVE_CONTRACT_SECTION_HEADING,
+  MEMORY_SECTION_HEADING,
+  CONTRACT_TITLE_LABEL,
+  CONTRACT_GOAL_LABEL,
+  CONTRACT_SUBTASKS_LABEL,
+  contractSubtaskLine,
+} from './runtime-prompt-sections.js';
+export {
+  AVAILABLE_SKILLS_HEADING,
+  NO_SKILLS_LOADED,
+  SKILL_NO_DESCRIPTION,
+  skillLine,
+} from './skill-context.js';
+export { AUDITOR_SYSTEM_PROMPT } from './auditor-prompt.js';
+export {
+  MOTION_GUIDANCE_CLI_HINTS_HEADING,
+  MOTION_GUIDANCE_CLI_BINARY,
+  MOTION_STATUS_GUIDANCE_VERBS,
+  MOTION_STATUS_GUIDANCE_NOTE,
+  motionGuidanceCommandLine,
+} from './motion-status-guidance.js';

@@ -26,7 +26,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContentBlock, LLMResponse, TextBlock } from '../../foundation/llm-provider/index.js';
 import { buildAuditorPrompt } from './auditor-prompt.js';
-import { contractAuditDriftLine, contractAuditFeedbackBody } from '../../templates/messages/index.js';
+import { contractAuditDriftLine, contractAuditFeedbackBody, AUDITOR_SYSTEM_PROMPT } from '../../templates/messages/index.js';
 import { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
@@ -102,8 +102,6 @@ interface AuditOutcome {
   verdict?: AuditorVerdict;
   reason?: string;  // skip 原因（audited=false 时）
 }
-
-const AUDITOR_SYSTEM_PROMPT = `You are a contract auditor for an autonomous AI agent. Read recent activity, compare to contract expectations, and report either "on_track" or specific drifts. Output strict JSON only.`;
 
 /**
  * Contract Auditor — 周期调度 + LLM 调用 + drift 反馈投递

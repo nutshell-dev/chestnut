@@ -21,6 +21,15 @@ import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { CLAW_MEMORY_FILE, CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+// phase 1909 Step C（M16）：契约/记忆段字面归 templates/messages 单源
+import {
+  ACTIVE_CONTRACT_SECTION_HEADING,
+  MEMORY_SECTION_HEADING,
+  CONTRACT_TITLE_LABEL,
+  CONTRACT_GOAL_LABEL,
+  CONTRACT_SUBTASKS_LABEL,
+  contractSubtaskLine,
+} from '../../templates/messages/index.js';
 
 /**
  * Context injector configuration
@@ -48,16 +57,16 @@ export interface ContextContractView {
  */
 function formatContractForPrompt(contract: ContextContractView): string {
   const lines = [
-    '## Active Contract',
-    `**Title:** ${contract.title}`,
-    `**Goal:** ${contract.goal}`,
+    ACTIVE_CONTRACT_SECTION_HEADING,
+    `${CONTRACT_TITLE_LABEL} ${contract.title}`,
+    `${CONTRACT_GOAL_LABEL} ${contract.goal}`,
     '',
-    '**Subtasks:**',
+    CONTRACT_SUBTASKS_LABEL,
   ];
 
   for (const subtask of contract.subtasks) {
-    const checkbox = subtask.status === 'completed' ? '[x]' : '[ ]';
-    lines.push(`${checkbox} \`${subtask.id}\`: ${subtask.description}`);
+    // 完成态判断（status === 'completed'）留在本 owner；行字面经模板单源
+    lines.push(contractSubtaskLine(subtask.status === 'completed', subtask.id, subtask.description));
   }
 
   return lines.join('\n');
@@ -137,7 +146,7 @@ export class ContextInjector {
     const memoryResult = await this.readWithCache(CLAW_MEMORY_FILE, this.cachedMemoryMd);
     this.cachedMemoryMd = memoryResult.cache;
     if (memoryResult.content.trim()) {
-      memory = '## Memory\n' + memoryResult.content.trim();
+      memory = MEMORY_SECTION_HEADING + '\n' + memoryResult.content.trim();
     }
     if (memoryResult.err && !(memoryResult.err instanceof FileNotFoundError)) {
       this.audit?.write(RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED, 'file=MEMORY.md', `reason=${formatErr(memoryResult.err)}`);

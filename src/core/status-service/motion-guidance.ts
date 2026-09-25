@@ -16,6 +16,13 @@
  * - **motion LLM 层**：从 status 工具尾段读 guidance 段、按 note 决策何时调 verb。
  */
 
+import {
+  MOTION_GUIDANCE_CLI_HINTS_HEADING,
+  MOTION_STATUS_GUIDANCE_VERBS,
+  MOTION_STATUS_GUIDANCE_NOTE,
+  motionGuidanceCommandLine,
+} from '../../templates/messages/index.js';
+
 interface StatusMotionGuidanceFacts {
   /** verb 片段、不含 binary 字面、不含 `<args>` 占位拼装（占位由 composer 拼）。 */
   readonly verbs: readonly StatusMotionGuidanceVerb[];
@@ -33,20 +40,13 @@ interface StatusMotionGuidanceVerb {
 /**
  * Status 工具相关 verb facts —— 业主自己唯一懂的 motion 视角动作集。
  *
- * 字面只含 `<name>` 占位 + verb 关键字。binary `chestnut` 由 composer 加。
+ * phase 1909 Step C（M19）：verb 片段/purpose/note 字面归 templates/messages
+ * 单源；facts 结构组装仍在本 owner（字段名与顺序不动）。binary `chestnut`
+ * 字面同在单源，由 composer 拼。
  */
 export const STATUS_MOTION_GUIDANCE_FACTS: StatusMotionGuidanceFacts = {
-  verbs: [
-    {
-      fragment: 'claw <name> status',
-      purpose: '查看其他 claw 当前 contract / tasks / storage 业务态',
-    },
-    {
-      fragment: 'claw list',
-      purpose: '列出所有 claw 加 name + alive 状态、辅助选 <name>',
-    },
-  ],
-  note: 'motion 用 status 工具查自己状态后，可通过下列 CLI 命令查其他 claw 的业务态（in-process status 工具仅观察自己）',
+  verbs: [...MOTION_STATUS_GUIDANCE_VERBS],
+  note: MOTION_STATUS_GUIDANCE_NOTE,
 } as const;
 
 /**
@@ -65,10 +65,10 @@ export interface StatusMotionGuidance {
 export function formatMotionGuidance(g: StatusMotionGuidance): string {
   const lines: string[] = [];
   lines.push(''); // blank separator
-  lines.push('[CLI hints for motion]');
+  lines.push(MOTION_GUIDANCE_CLI_HINTS_HEADING);
   lines.push(g.note);
   for (const c of g.commands) {
-    lines.push(`- ${c.invocation} — ${c.purpose}`);
+    lines.push(motionGuidanceCommandLine(c.invocation, c.purpose));
   }
   return lines.join('\n');
 }

@@ -1,5 +1,8 @@
 /**
  * Phase 1828 反向边界：inbox 系统文案单源在 src/templates/messages。
+ * phase 1909 口径扩张：单源定义从「经 inbox 进入」扩为「进入智能体上下文的系统编写
+ * 文案」（含 system prompt 内联片段，M16–M19）；**工具返回值里的系统文案暂不纳入**
+ * （用户 2026-09-25 判定，维持 phase 1828 排除）。
  * 1. 模板目录是纯静态资源：只相对 import 目录内文件；不含时钟/随机/环境变量/动态 import。
  * 2. 迁移来源文件不再定义已迁文案（注释除外——源码历史注释不是运行双源），且确实消费模板单源。
  * 范围口径：只核《消息迁移清单》登记的来源文件；非 inbox 工具结果（如 submit_subtask 工具返回文本）与 AsyncTaskSystem 异步结果不在本 phase 范围，不算双源。
@@ -88,10 +91,15 @@ const MIGRATED: MigratedSource[] = [
   },
   {
     // phase 1909 Step B: onboarding 创建/恢复通知正文迁模板单源（机械迁移，逐字节不变）
+    // phase 1909 Step C: 同文件 onboarding 子任务描述字面随迁（复用本条目扩 fragments）
     id: 'M13', file: 'cli/commands/start.ts',
     fragments: [
       'New contract created (${contractId}): Onboarding. Please begin execution.',
       'Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.',
+      "Detect the user's preferred language from their first message",
+      'You are the coordinator of Claws',
+      'Open SOUL.md together',
+      'Onboarding is complete. Let them know',
     ],
   },
   {
@@ -103,6 +111,31 @@ const MIGRATED: MigratedSource[] = [
     // phase 1909 Step B: 用户附件包装系统行迁模板单源（preview 渲染仍在 viewport owner）
     id: 'M15', file: 'viewport/chat-viewport-utils.ts',
     fragments: ['[user-input attachment: ${size} chars]', 'Use the read tool to fetch full or partial content'],
+  },
+  {
+    // phase 1909 Step C: runtime injector 契约/记忆段字面迁模板单源（段落顺序与完成态分支仍在 owner）
+    id: 'M16', file: 'core/runtime/injector.ts',
+    fragments: ['## Active Contract', '**Subtasks:**', '## Memory', '${checkbox} `${subtask.id}`: ${subtask.description}'],
+  },
+  {
+    // phase 1909 Step C: 技能段字面迁模板单源（加载状态与缺省回退分支仍在 owner）
+    id: 'M17', file: 'foundation/skill-system/registry.ts',
+    fragments: ['## Available Skills', 'No skills loaded.', 'No description'],
+  },
+  {
+    // phase 1909 Step C: 契约审计子代理系统提示词迁模板单源（逐字节）
+    id: 'M18', file: 'core/contract/contract-auditor.ts',
+    fragments: ['You are a contract auditor'],
+  },
+  {
+    // phase 1909 Step C: status 工具 motion guidance 字面迁模板单源（facts 组装仍在 owner）
+    id: 'M19', file: 'core/status-service/motion-guidance.ts',
+    fragments: ['claw <name> status', '列出所有 claw 加 name', '[CLI hints for motion]', 'motion 用 status 工具查自己状态后'],
+  },
+  {
+    // phase 1909 Step C: composer 的 CLI binary 字面迁模板单源（binary 拼接仍在 composer）
+    id: 'M19', file: 'assembly/motion-guidance-composer.ts',
+    fragments: ["CLI_BINARY = 'chestnut'"],
   },
 ];
 

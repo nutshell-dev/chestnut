@@ -4,6 +4,12 @@ import { SkillSystem, SkillDuplicateError } from '../../../src/foundation/skill-
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { ToolError } from '../../../src/foundation/tools/errors.js';
+// phase 1909 Step C（M17）：断言期望值经模板单源，不复制字面（防双源）
+import {
+  AVAILABLE_SKILLS_HEADING,
+  NO_SKILLS_LOADED,
+  skillLine,
+} from '../../../src/templates/messages/index.js';
 
 function createMockFs(partial: Partial<FileSystem> = {}): FileSystem {
   return {
@@ -191,7 +197,7 @@ describe('SkillSystem', () => {
   describe('formatForContext', () => {
     it('空 → 固定提示文本', () => {
       const registry = new SkillSystem(mockFs, SKILLS_DIR_DEFAULT, mockAudit);
-      expect(registry.formatForContext()).toBe('## Available Skills\nNo skills loaded.\n');
+      expect(registry.formatForContext()).toBe(`${AVAILABLE_SKILLS_HEADING}\n${NO_SKILLS_LOADED}\n`);
     });
 
     it('非空 → 列所有 name: description', async () => {
@@ -204,9 +210,9 @@ describe('SkillSystem', () => {
       await registry.register('skills/skill-x');
       await registry.register('skills/skill-y');
       const formatted = registry.formatForContext();
-      expect(formatted).toContain('## Available Skills');
-      expect(formatted).toContain('- skill-x: desc-x');
-      expect(formatted).toContain('- skill-y: desc-y');
+      expect(formatted).toContain(AVAILABLE_SKILLS_HEADING);
+      expect(formatted).toContain(skillLine('skill-x', 'desc-x'));
+      expect(formatted).toContain(skillLine('skill-y', 'desc-y'));
     });
   });
 });
