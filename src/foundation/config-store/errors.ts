@@ -14,7 +14,9 @@ export type ConfigStoreErrorCode =
   | 'invalid_yaml'
   | 'missing_env'
   | 'invalid_schema'
-  | 'expected_object';
+  | 'expected_object'
+  | 'already_exists'
+  | 'lock_timeout';
 
 export class ConfigStoreError extends Error {
   constructor(

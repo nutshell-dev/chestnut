@@ -171,13 +171,13 @@ export async function promptReconfigure(
       const raw = await passwordPrompt('New API key');
       if (raw === 'b') continue;
       if (!raw) { console.log('API key is required.'); continue; }
-      deps.rootConfig.patchPrimary({ api_key: raw });
+      await deps.rootConfig.patchPrimary({ api_key: raw });
 
     } else if (choice === '2') {
       const raw = await question('New model (b = back, "auto" = preset default)');
       if (raw === 'b') continue;
       if (!raw) { console.log('Model is required. Type "auto" to use preset default.'); continue; }
-      deps.rootConfig.patchPrimary({ model: raw });
+      await deps.rootConfig.patchPrimary({ model: raw });
 
     } else if (choice === '3') {
       type FmtStep = 'pick' | 'customFormat' | 'baseUrl' | 'done';
@@ -202,7 +202,7 @@ export async function promptReconfigure(
             const p = presetList[idx - 1];
             chosenPreset = p.id;
             chosenBaseUrl = p.defaultBaseUrl ?? '';
-            deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl || undefined });
+            await deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl || undefined });
             console.log(`✓ Set provider to ${p.displayName}`);
             step = 'done';
           } else if (idx === customIdx) {
@@ -227,7 +227,7 @@ export async function promptReconfigure(
           if (raw === 'b') { step = 'customFormat'; continue; }
           if (!raw) { console.log('Base URL is required.'); continue; }
           chosenBaseUrl = raw;
-          deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl });
+          await deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl });
           step = 'done';
         }
       }

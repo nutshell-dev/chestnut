@@ -5,6 +5,7 @@
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigAdmin } from '../../assembly/index.js';
+import { GlobalConfigAlreadyExistsError } from '../../assembly/index.js';
 import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
@@ -45,7 +46,7 @@ const PROVIDER_LIST = [
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary'>;
 }
 
 export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
@@ -314,7 +315,18 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     };
 
     // Save config
-    deps.rootConfig.saveGlobal(config);
+    // Phase 1910 Step D（RACE-CONFIG-INIT-LOST-UPDATE）：初始化唯一提交点 ——
+    // O_EXCL 独占创建；并发 init winner 已提交时 loser 关闭交互、重读事实返回，
+    // 绝不以后写覆盖先写。
+    try {
+      deps.rootConfig.saveGlobalExclusive(config);
+    } catch (err) {
+      if (err instanceof GlobalConfigAlreadyExistsError) {
+        console.log('✓ Already initialized (a concurrent init completed first; keeping its config)');
+        return;
+      }
+      throw err;
+    }
 
     // Phase 1288 Step B: fresh init 创建默认 workspace audit config ——
     // 唯一允许默认创建的路径（普通启动 missing 不静默创建）；root YAML 不再写 audit 段。

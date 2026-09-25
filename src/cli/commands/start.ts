@@ -201,7 +201,7 @@ interface StartCommandRuntime {
 
 interface StartCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary'>;
 }
 
 export async function startCommand(deps: StartCommandDeps, runtime: StartCommandRuntime): Promise<void> {

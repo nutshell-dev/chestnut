@@ -211,7 +211,9 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       providerConfig.base_url = baseUrl;
     }
     
-    // Apply to config
+    // Apply to config —— 交互阶段只用快照做展示/预检并记录用户选择；
+    // 真正提交在锁内对新鲜配置重放（见下方 mutateGlobalLocked）。
+    let positionFromPrompt = 0;
     if (role === 'primary') {
       const currentPrimary = config.llm.primary;
       console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset}) will become fallback #1.`);
@@ -221,12 +223,6 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         rl.close();
         return;
       }
-      
-      // Move current primary to fallbacks[0]
-      const newFallbacks = [currentPrimary, ...(config.llm.fallbacks ?? [])];
-      config.llm.fallbacks = newFallbacks;
-      config.llm.primary = providerConfig;
-      console.log(`\n✓ Provider "${label}" is now primary`);
     } else {
       // Fallback role
       const currentFallbacks = config.llm.fallbacks ?? [];
@@ -234,22 +230,40 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       currentFallbacks.forEach((f, i) => {
         console.log(`#${i + 1}: ${f.label || f.preset}`);
       });
-      
+
       const posDefault = String(currentFallbacks.length + 1);
       const posStr = await question(rl, 'Position', posDefault);
       const position = parseInt(posStr, 10) - 1;
       if (Number.isNaN(position) || position < 0 || position > currentFallbacks.length) {
         throw new CliError(`Position must be 1-${currentFallbacks.length + 1}, got: ${posStr}`);
       }
-      
-      // Insert at position
-      const newFallbacks = [...currentFallbacks];
-      newFallbacks.splice(position, 0, providerConfig);
-      config.llm.fallbacks = newFallbacks;
-      console.log(`\n✓ Provider "${label}" added as fallback #${position + 1}`);
+      positionFromPrompt = position;
     }
     
-    deps.rootConfig.saveGlobal(config);
+    // Phase 1910 Step D（RACE-CONFIG-READ-MODIFY-WRITE）：提交改为锁内
+    // 重读新鲜配置 + 重放 mutation —— 交互期间的旧快照只用于展示/预检，
+    // 并发另一成功 mutation 的字段不会被本提交抹掉。
+    await deps.rootConfig.mutateGlobalLocked((fresh) => {
+      if (findProviderIndex(fresh, label)) {
+        throw new CliError(`A provider with label "${label}" already exists`);
+      }
+      if (role === 'primary') {
+        const currentPrimary = fresh.llm.primary;
+        fresh.llm.fallbacks = [currentPrimary, ...(fresh.llm.fallbacks ?? [])];
+        fresh.llm.primary = providerConfig;
+      } else {
+        const currentFallbacks = [...(fresh.llm.fallbacks ?? [])];
+        // 并发 mutation 可能改变了 fallbacks 长度 —— clamp 到当前有效范围
+        const position = Math.min(positionFromPrompt, currentFallbacks.length);
+        currentFallbacks.splice(position, 0, providerConfig);
+        fresh.llm.fallbacks = currentFallbacks;
+      }
+    });
+    if (role === 'primary') {
+      console.log(`\n✓ Provider "${label}" is now primary`);
+    } else {
+      console.log(`\n✓ Provider "${label}" added as fallback`);
+    }
     configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
     notifyRunningDaemons(deps, 'add');
 
@@ -341,10 +355,18 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   if (found.type === 'primary') {
     throw new CliError('Cannot remove primary provider. Use "set-primary" to change it first.');
   }
-  
-  // Remove from fallbacks
-  config.llm.fallbacks!.splice(found.index, 1);
-  deps.rootConfig.saveGlobal(config);
+
+  // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
+  await deps.rootConfig.mutateGlobalLocked((fresh) => {
+    const freshFound = findProviderIndex(fresh, label);
+    if (!freshFound) {
+      throw new CliError(`Provider "${label}" not found`);
+    }
+    if (freshFound.type === 'primary') {
+      throw new CliError('Cannot remove primary provider. Use "set-primary" to change it first.');
+    }
+    fresh.llm.fallbacks!.splice(freshFound.index, 1);
+  });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_remove', `label=${label}`);
   console.log(`✓ Removed "${label}" from fallbacks`);
   notifyRunningDaemons(deps, 'remove');
@@ -365,28 +387,32 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   }
   
   const currentPrimary = config.llm.primary;
-  const target = config.llm.fallbacks![found.index];
-  
+
   console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset}) will become fallback #1.`);
   const rl = createRL();
   const confirm = await question(rl, 'Confirm? [y/N]', 'N');
   rl.close();
-  
+
   if (confirm.toLowerCase() !== 'y') {
     console.log('Cancelled');
     return;
   }
-  
-  // Remove target from fallbacks
-  config.llm.fallbacks!.splice(found.index, 1);
-  
-  // Move current primary to fallbacks[0]
-  config.llm.fallbacks!.unshift(currentPrimary);
-  
-  // Set target as primary
-  config.llm.primary = target;
 
-  deps.rootConfig.saveGlobal(config);
+  // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于确认提示）
+  await deps.rootConfig.mutateGlobalLocked((fresh) => {
+    const freshFound = findProviderIndex(fresh, label);
+    if (!freshFound) {
+      throw new CliError(`Provider "${label}" not found`);
+    }
+    if (freshFound.type === 'primary') {
+      throw new CliError(`"${label}" is already primary`);
+    }
+    const freshPrimary = fresh.llm.primary;
+    const target = fresh.llm.fallbacks![freshFound.index];
+    fresh.llm.fallbacks!.splice(freshFound.index, 1);
+    fresh.llm.fallbacks!.unshift(freshPrimary);
+    fresh.llm.primary = target;
+  });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_set_primary', `label=${label}`);
   console.log(`✓ "${label}" is now primary`);
   notifyRunningDaemons(deps, 'set-primary');
@@ -429,16 +455,25 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   
   const newPos = parseInt(position, 10) - 1;
   const fallbacks = config.llm.fallbacks!;
-  
+
   if (Number.isNaN(newPos) || newPos < 0 || newPos >= fallbacks.length) {
     throw new CliError(`Invalid position. Must be 1-${fallbacks.length}, got: ${position}`);
   }
-  
-  // Move element
-  const [removed] = fallbacks.splice(found.index, 1);
-  fallbacks.splice(newPos, 0, removed);
-  
-  deps.rootConfig.saveGlobal(config);
+
+  // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
+  await deps.rootConfig.mutateGlobalLocked((fresh) => {
+    const freshFound = findProviderIndex(fresh, label);
+    if (!freshFound) {
+      throw new CliError(`Provider "${label}" not found`);
+    }
+    if (freshFound.type === 'primary') {
+      throw new CliError('Cannot move primary provider');
+    }
+    const freshFallbacks = fresh.llm.fallbacks!;
+    const clampedPos = Math.min(newPos, freshFallbacks.length - 1);
+    const [removed] = freshFallbacks.splice(freshFound.index, 1);
+    freshFallbacks.splice(clampedPos, 0, removed);
+  });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_move', `label=${label}`, `position=${newPos + 1}`);
   console.log(`✓ "${label}" moved to fallback #${newPos + 1}`);
   notifyRunningDaemons(deps, 'move');
@@ -447,7 +482,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
 // Build the config command
 interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'mutateGlobalLocked' | 'patchPrimary'>;
 }
 
 // phase 1874 Step L（族 3b）: 形状经 CLIProtocol catalog 投影

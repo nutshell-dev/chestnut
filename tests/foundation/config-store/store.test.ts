@@ -16,7 +16,9 @@ import * as yaml from 'js-yaml';
 import {
   loadYamlConfig,
   writeYamlConfig,
+  writeYamlConfigExclusive,
   patchYamlConfig,
+  withYamlConfigLock,
   configExists,
   ConfigStoreError,
   isConfigStoreError,
@@ -255,5 +257,110 @@ describe('config-store: configExists', () => {
     expect(configExists({ fsFactory }, configPath)).toBe(false);
     writeYamlConfig({ fsFactory }, configPath, { name: 'chestnut' });
     expect(configExists({ fsFactory }, configPath)).toBe(true);
+  });
+});
+
+/* ---------- Phase 1910 Step D: 并发提交协议 ---------- */
+
+describe('config-store: writeYamlConfigExclusive (Phase 1910 Step D)', () => {
+  it('首次创建成功；第二次 typed already_exists 且不覆盖先写者', async () => {
+    writeYamlConfigExclusive({ fsFactory }, configPath, { name: 'winner' });
+    const err = catchStoreError(
+      () => writeYamlConfigExclusive({ fsFactory }, configPath, { name: 'loser' }),
+      'already_exists',
+    );
+    expect(err.message).toContain('already exists');
+    // 先写者内容原样保留
+    expect(loadYamlConfig({ fsFactory }, configPath, testSchema).name).toBe('winner');
+  });
+});
+
+describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
+  const FAST = { acquireTimeoutMs: 500, staleMs: 5_000, pollMs: 10 } as const;
+
+  it('锁内 read→patch→write 串行化：并发两 mutation 不同字段都落盘', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+
+    await Promise.all([
+      withYamlConfigLock({ fsFactory }, configPath, () => {
+        patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.fieldA = 1; });
+      }, FAST),
+      withYamlConfigLock({ fsFactory }, configPath, () => {
+        patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.fieldB = 2; });
+      }, FAST),
+    ]);
+
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw.fieldA).toBe(1);
+    expect(raw.fieldB).toBe(2);
+    // 锁已释放
+    expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
+  });
+
+  it('mutator 抛错原样传播、不提交、锁仍释放', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+
+    const boom = new Error('business reject');
+    await expect(
+      withYamlConfigLock({ fsFactory }, configPath, () => {
+        patchYamlConfig({ fsFactory }, configPath, () => { throw boom; });
+      }, FAST),
+    ).rejects.toBe(boom);
+
+    expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw).toEqual({ name: 'base' });
+  });
+
+  it('新鲜 lock 被他人持有 → typed lock_timeout，不覆盖 config', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    fs.writeFileSync(
+      `${configPath}.lock`,
+      JSON.stringify({ pid: 99999, createdAt: new Date().toISOString() }),
+    );
+
+    let caught: unknown;
+    try {
+      await withYamlConfigLock({ fsFactory }, configPath, () => {
+        patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.x = 1; });
+      }, { acquireTimeoutMs: 200, staleMs: 60_000, pollMs: 10 });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isConfigStoreError(caught)).toBe(true);
+    expect((caught as ConfigStoreError).code).toBe('lock_timeout');
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw).toEqual({ name: 'base' });
+  });
+
+  it('过期 lock（holder 崩溃残留）被回收，mutation 正常提交', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    fs.writeFileSync(
+      `${configPath}.lock`,
+      JSON.stringify({ pid: 99999, createdAt: new Date(Date.now() - 60_000).toISOString() }),
+    );
+
+    await withYamlConfigLock({ fsFactory }, configPath, () => {
+      patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recovered = true; });
+    }, FAST);
+
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    expect(raw.recovered).toBe(true);
+    expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
+  });
+
+  it('半写 lock（O_EXCL 发布窗口）视为持有中，不提前打破', async () => {
+    writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
+    fs.writeFileSync(`${configPath}.lock`, ''); // 半写空内容
+
+    let caught: unknown;
+    try {
+      await withYamlConfigLock({ fsFactory }, configPath, () => { /* no-op */ },
+        { acquireTimeoutMs: 200, staleMs: 60_000, pollMs: 10 });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isConfigStoreError(caught)).toBe(true);
+    expect((caught as ConfigStoreError).code).toBe('lock_timeout');
   });
 });

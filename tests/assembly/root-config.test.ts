@@ -110,10 +110,10 @@ describe('RootConfigReader/Admin: claw load/save', () => {
 });
 
 describe('RootConfigAdmin: patchPrimary', () => {
-  it('目标字段变化、未知字段保留、caller patch 对象不被修改', () => {
+  it('目标字段变化、未知字段保留、caller patch 对象不被修改', async () => {
     writeGlobalConfig(`  fallbacks:\n    - preset: openai\n      api_key: sk-fb\n      model: gpt-fb\n`);
     const patch: Readonly<Record<string, unknown>> = Object.freeze({ model: 'claude-new' });
-    admin.patchPrimary(patch);
+    await admin.patchPrimary(patch);
 
     const cfg = admin.loadGlobal();
     expect(cfg.llm.primary.model).toBe('claude-new');
@@ -137,13 +137,13 @@ describe('RootConfig: 无缓存语义', () => {
 });
 
 describe('RootConfig: 方法绑定（不依赖 this）', () => {
-  it('解构方法后直接调用成功', () => {
+  it('解构方法后直接调用成功', async () => {
     writeGlobalConfig();
     const { isInitialized, loadGlobal, loadClaw, patchPrimary } = admin;
     expect(isInitialized()).toBe(true);
     expect(loadGlobal().llm.primary.model).toBe('claude-test');
     expect(loadClaw(getClawConfigPath('missing'))).toBeUndefined();
-    patchPrimary({ model: 'claude-destructured' });
+    await patchPrimary({ model: 'claude-destructured' });
     expect(loadGlobal().llm.primary.model).toBe('claude-destructured');
   });
 });
@@ -173,5 +173,61 @@ describe('resolveLLMConfig resolver', () => {
     // claw 只覆盖 primary，fallback/retry/breaker 仍取 global。
     expect(withClaw.maxAttempts).toBe(globalOnly.maxAttempts);
     expect(withClaw.circuitBreaker).toEqual(globalOnly.circuitBreaker);
+  });
+});
+
+/* ---------- Phase 1910 Step D: 初始化独占提交 + 锁内 mutation ---------- */
+
+describe('RootConfigAdmin: saveGlobalExclusive (Phase 1910 Step D)', () => {
+  it('首次提交成功；并发 loser typed GlobalConfigAlreadyExistsError 且不覆盖', async () => {
+    const { GlobalConfigAlreadyExistsError } = await import('../../src/assembly/index.js');
+    admin.saveGlobalExclusive({
+      version: '1',
+      llm: { primary: { preset: 'anthropic', api_key: 'sk-winner', model: 'claude-winner' } },
+    });
+
+    expect(() => admin.saveGlobalExclusive({
+      version: '1',
+      llm: { primary: { preset: 'openai', api_key: 'sk-loser', model: 'gpt-loser' } },
+    })).toThrow(GlobalConfigAlreadyExistsError);
+
+    // 先写者内容原样保留
+    expect(admin.loadGlobal().llm.primary.api_key).toBe('sk-winner');
+  });
+});
+
+describe('RootConfigAdmin: mutateGlobalLocked (Phase 1910 Step D)', () => {
+  it('两个并发 mutation 的字段都落盘（锁内重读，不丢更新）', async () => {
+    writeGlobalConfig();
+    await Promise.all([
+      admin.mutateGlobalLocked((cfg) => { cfg.llm.primary.model = 'model-a'; }),
+      admin.mutateGlobalLocked((cfg) => { cfg.llm.retry_attempts = 9; }),
+    ]);
+    const cfg = admin.loadGlobal();
+    expect(cfg.llm.primary.model).toBe('model-a');
+    expect(cfg.llm.retry_attempts).toBe(9);
+    // 锁文件已释放
+    expect(fs.existsSync(`${globalConfigPath()}.lock`)).toBe(false);
+  });
+
+  it('mutator 业务错误原样传播且不提交', async () => {
+    writeGlobalConfig();
+    const boom = new Error('business reject');
+    await expect(admin.mutateGlobalLocked(() => { throw boom; })).rejects.toBe(boom);
+    expect(admin.loadGlobal().llm.primary.model).toBe('claude-test');
+    expect(fs.existsSync(`${globalConfigPath()}.lock`)).toBe(false);
+  });
+
+  it('mutateGlobalLocked 与 patchPrimary 互斥：并发不丢更新', async () => {
+    writeGlobalConfig();
+    await Promise.all([
+      admin.mutateGlobalLocked((cfg) => { cfg.llm.retry_delay_ms = 1234; }),
+      admin.patchPrimary({ model: 'claude-patched' }),
+    ]);
+    const cfg = admin.loadGlobal();
+    expect(cfg.llm.retry_delay_ms).toBe(1234);
+    expect(cfg.llm.primary.model).toBe('claude-patched');
+    expect(cfg.llm.primary.api_key).toBe('sk-test');
+    expect(fs.existsSync(`${globalConfigPath()}.lock`)).toBe(false);
   });
 });

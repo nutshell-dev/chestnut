@@ -156,11 +156,12 @@ describe('assembly/config-load: patchGlobalConfig', () => {
   beforeEach(setupTempDir);
   afterEach(teardownTempDir);
 
-  it('throws on array root YAML', () => {
+  it('throws on array root YAML', async () => {
     const configPath = path.join(tempDir, '.chestnut', 'config.yaml');
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, '- item1\n- item2\n');
 
-    expect(() => patchGlobalConfigPrimary({ fsFactory }, { model: 'x' })).toThrow('config parse failed');
+    // phase 1910 Step D: patchGlobalConfigPrimary 变为锁内 async
+    await expect(patchGlobalConfigPrimary({ fsFactory }, { model: 'x' })).rejects.toThrow('config parse failed');
   });
 });

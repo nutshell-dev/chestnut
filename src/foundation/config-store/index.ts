@@ -8,7 +8,9 @@
 export {
   loadYamlConfig,
   writeYamlConfig,
+  writeYamlConfigExclusive,
   patchYamlConfig,
+  withYamlConfigLock,
   configExists,
 } from './store.js';
 export {

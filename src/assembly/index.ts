@@ -30,7 +30,7 @@ export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 // 原过渡兼容备注失效移除。
 export { createRootConfig } from './config/root-config.js';
 export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config/root-config.js';
-export { resolveLLMConfig } from './config/config-load.js';
+export { resolveLLMConfig, GlobalConfigAlreadyExistsError } from './config/config-load.js';
 export { initializeClawLayout } from './claw-subdirs.js';
 export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
 export type { ClawGlobalConfig } from './config/compose-config.js';

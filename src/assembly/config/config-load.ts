@@ -18,7 +18,9 @@ import {
 import {
   loadYamlConfig,
   writeYamlConfig,
+  writeYamlConfigExclusive,
   patchYamlConfig,
+  withYamlConfigLock,
   configExists,
   isConfigStoreError,
   type ConfigStoreError,
@@ -59,6 +61,15 @@ function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Er
     case 'expected_object':
       // load 路径不产生（仅 patch root-shape）；原样传播。
       return err;
+    case 'already_exists':
+      // 由 saveGlobalConfigExclusive 自行映射为 GlobalConfigAlreadyExistsError；
+      // 其余路径不产生该 code，原样传播。
+      return err;
+    case 'lock_timeout':
+      return new Error(
+        'Global config is busy: another process is updating it (lock timeout). Retry the command.',
+        { cause: err },
+      );
     default: {
       const exhaustive: never = err.code;
       throw new Error(`Unhandled ConfigStoreError code: ${String(exhaustive)}`);
@@ -99,6 +110,63 @@ export function saveGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSys
   );
 }
 
+/**
+ * Phase 1910 Step D（RACE-CONFIG-INIT-LOST-UPDATE）：workspace 初始化的唯一
+ * 提交点。目标已存在（并发 init winner）→ GlobalConfigAlreadyExistsError，
+ * loser 重读已提交配置、不覆盖。
+ */
+export class GlobalConfigAlreadyExistsError extends Error {
+  constructor(readonly configPath: string) {
+    super(`Global config already initialized: ${configPath}`);
+    this.name = 'GlobalConfigAlreadyExistsError';
+  }
+}
+
+export function saveGlobalConfigExclusive(deps: { fsFactory: (baseDir: string) => FileSystem }, config: ClawGlobalConfigInput): void {
+  const configPath = getGlobalConfigPath();
+  try {
+    writeYamlConfigExclusive(
+      { fsFactory: deps.fsFactory },
+      configPath,
+      config,
+    );
+  } catch (err) {
+    if (isConfigStoreError(err) && err.code === 'already_exists') {
+      throw new GlobalConfigAlreadyExistsError(configPath);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Phase 1910 Step D（RACE-CONFIG-READ-MODIFY-WRITE）：global config 的
+ * 串行化 read→modify→write。锁内重新读盘（不用调用方旧快照），mutator 抛出
+ * 的业务错误原样传播且不提交。与 loadGlobal+saveGlobal 逐语义等价，仅增加
+ * 跨进程序列化。
+ */
+export async function mutateGlobalConfigLocked(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  mutator: (config: ClawGlobalConfig) => void,
+): Promise<void> {
+  const configPath = getGlobalConfigPath();
+  try {
+    await withYamlConfigLock({ fsFactory: deps.fsFactory }, configPath, () => {
+      const fresh = loadYamlConfig<ClawGlobalConfig>(
+        { fsFactory: deps.fsFactory },
+        configPath,
+        createGlobalConfigSchema(),
+      );
+      mutator(fresh);
+      writeYamlConfig({ fsFactory: deps.fsFactory }, configPath, fresh);
+    });
+  } catch (err) {
+    if (isConfigStoreError(err)) {
+      throw mapConfigStoreError(err, 'global');
+    }
+    throw err;
+  }
+}
+
 export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string): ClawConfig | undefined {
   if (!configExists({ fsFactory: deps.fsFactory }, configPath)) {
     return undefined;
@@ -117,25 +185,35 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   }
 }
 
-export function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, patch: Record<string, unknown>): void {
+export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, patch: Record<string, unknown>): Promise<void> {
   const configPath = getGlobalConfigPath();
-  patchYamlConfig(
-    { fsFactory: deps.fsFactory },
-    configPath,
-    (cfg) => {
-      const llm = cfg.llm as Record<string, unknown> | undefined;
-      if (!llm || typeof llm !== 'object') {
-        throw new Error('Invalid global config: missing llm section');
-      }
-      const primary = llm.primary as Record<string, unknown> | undefined;
-      if (!primary || typeof primary !== 'object') {
-        throw new Error('Invalid global config: missing llm.primary section');
-      }
-      for (const [k, v] of Object.entries(patch)) {
-        primary[k] = v;
-      }
-    },
-  );
+  try {
+    // Phase 1910 Step D：raw patch 同样走 per-path 锁，与全量 mutation 互斥。
+    await withYamlConfigLock({ fsFactory: deps.fsFactory }, configPath, () => {
+      patchYamlConfig(
+        { fsFactory: deps.fsFactory },
+        configPath,
+        (cfg) => {
+          const llm = cfg.llm as Record<string, unknown> | undefined;
+          if (!llm || typeof llm !== 'object') {
+            throw new Error('Invalid global config: missing llm section');
+          }
+          const primary = llm.primary as Record<string, unknown> | undefined;
+          if (!primary || typeof primary !== 'object') {
+            throw new Error('Invalid global config: missing llm.primary section');
+          }
+          for (const [k, v] of Object.entries(patch)) {
+            primary[k] = v;
+          }
+        },
+      );
+    });
+  } catch (err) {
+    if (isConfigStoreError(err)) {
+      throw mapConfigStoreError(err, 'global');
+    }
+    throw err;
+  }
 }
 
 export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string, config: ClawConfig): void {
