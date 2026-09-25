@@ -14,6 +14,16 @@ import {
 } from './dirs.js';
 import { listArchiveContractLocations, archiveContainerDir } from './locations.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import { makeContractId, type ContractId } from './types.js';
+
+/**
+ * Phase 1910 Step C: onboarding 业务唯一身份（RACE-START-ONBOARDING-SINGLETON）。
+ *
+ * onboarding contract 的稳定显式 id——创建权由 ContractSystem 既有 `.creating`
+ * O_EXCL claim 在该稳定 id 上裁决；并发 `start` 的 loser 得到 already_exists 后
+ * 重读 winner 事实转 resume，不再各自生成随机 id。普通合同保留随机 id 语义。
+ */
+export const ONBOARDING_CONTRACT_ID: ContractId = makeContractId('onboarding');
 
 type OnboardingStatusKind = 'not_found' | 'in_progress' | 'complete';
 

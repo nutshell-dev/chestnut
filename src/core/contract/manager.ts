@@ -1411,6 +1411,35 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   }
 
   /**
+   * Phase 1910 Step C: 单 contract 创建恢复 capability（onboarding singleton 等
+   * 稳定 id 创建入口的 loser/crash-retry 路径）。
+   *
+   * 语义：
+   * - 'absent'：active 下无此 id 目录（调用方可正常走 create）。
+   * - 'published'：已无 `.creating` marker（已发布或 pre-1197 legacy）——winner
+   *   事实可读，调用方重读后 resume。
+   * - 'recovered'：claim-only 崩溃窗口按 durable intent 完成 materialize+publish。
+   * - 'failed'：intent 损坏/身份错配/publish 失败 —— fail-closed 保留证据
+   *   （CONTRACT_CREATION_RECOVERY_FAILED 已 emit），调用方不得覆盖。
+   *
+   * 与 init() 的全量 boot reconcile 不同：本方法只处理指定 id，供运行期动作
+   * 调用（不触发全目录扫描/重放）。
+   */
+  async recoverCreation(contractId: ContractId): Promise<'absent' | 'published' | 'recovered' | 'failed'> {
+    const contractRoot = `${this.activeDir}/${contractId}`;
+    if (!(await this.fs.exists(contractRoot))) return 'absent';
+    if (!(await this.fs.exists(`${contractRoot}/${CREATION_CLAIM_FILE}`))) return 'published';
+    await recoverUnpublishedCreation({
+      fs: this.fs,
+      audit: this.audit,
+      activeDir: this.activeDir,
+      archiveDir: this.archiveDir,
+      contractId,
+    });
+    return (await this.fs.exists(`${contractRoot}/${CREATION_CLAIM_FILE}`)) ? 'failed' : 'recovered';
+  }
+
+  /**
    * 读 contract progress。
    *
    * Phase 1193 Step A: active runtime uses the single `active/<id>` layout with

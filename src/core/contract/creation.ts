@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ContractYamlSchema } from './schemas.js';
 import { type ContractId, type ArchiveDir, ARCHIVE_STATES } from './types.js';
@@ -287,6 +288,16 @@ export async function recoverUnpublishedCreation(opts: {
     await materializeClaimedCreation({ fs, activeDir, contractId, intent });
     await publishCreation({ fs, activeDir, contractId });
   } catch (err) {
+    // Phase 1910 Step C: 并发 recovery/adopt 下 winner 可能已先行 publish ——
+    // publish 的 claim delete 遇 ENOENT 等价于「已被同一 intent 发布」，不是失败。
+    if (isFileNotFound(err) && !(await fs.exists(claimPath))) {
+      audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED,
+        `contractId=${contractId}`,
+        `started_at=${intent.started_at}`,
+      );
+      return;
+    }
     audit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED,
       `contractId=${contractId}`,

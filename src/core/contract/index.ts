@@ -102,6 +102,7 @@ export { queryArchiveContracts } from './archive-query.js';
 
 export {
   readOnboardingStatus,
+  ONBOARDING_CONTRACT_ID,
   type OnboardingStatus,
 } from './onboarding-discovery.js';
 

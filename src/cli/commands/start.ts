@@ -48,7 +48,9 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
-import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
+import { readOnboardingStatus, ONBOARDING_CONTRACT_ID, type OnboardingStatus } from '../../core/contract/index.js';
+import { ContractValidationError } from '../../core/contract/errors.js';
+import type { ContractYaml } from '../../core/contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 // phase 1909 Step C（M13 扩）：子任务描述字面归 templates/messages 单源；
@@ -124,6 +126,65 @@ export function getInitializationSnapshot(deps: StartCommandDeps & { audit?: Aud
  */
 export function getOnboardingStatus(motionDir: string, deps: { fsFactory: (baseDir: string) => FileSystem; audit?: AuditLog }): OnboardingStatus {
   return readOnboardingStatus(motionDir, deps);
+}
+
+/**
+ * Phase 1910 Step C（RACE-START-ONBOARDING-SINGLETON）：onboarding singleton
+ * 创建 authority。业务唯一身份 = 稳定 contract id（ONBOARDING_CONTRACT_ID，
+ * owner 定义于 core/contract）；创建权由 ContractSystem `.creating` O_EXCL
+ * claim 裁决，CLI 不再从 not_found 快照直接派生随机 id 创建。
+ *
+ * - winner：正常创建，返回 created=true。
+ * - 并发 loser / 崩溃重试（already_exists）：先等待 winner publish 窗口
+ *   （有限重读），仍不可见则调 owner recoverCreation 完成 claim-only 崩溃的
+ *   winner 提交；最终重读磁盘事实——读到则 created=false 转 resume，
+ *   读不到则 fail-closed（保留证据，不覆盖、不再随机创建）。
+ */
+export async function ensureOnboardingContract(
+  deps: StartCommandDeps,
+  action: { system: Pick<ContractSystemLike, 'create' | 'recoverCreation'> },
+  motionDir: string,
+  contract: ContractYaml,
+): Promise<{ contractId: string; created: boolean }> {
+  try {
+    const contractId = await action.system.create({
+      ...contract,
+      id: ONBOARDING_CONTRACT_ID,
+    });
+    return { contractId, created: true };
+  } catch (err) {
+    if (!(err instanceof ContractValidationError) || err.field !== 'id' || err.kind !== 'already_exists') {
+      throw err;
+    }
+  }
+
+  // loser：等待 winner 完成 publish（claim→publish 正常为毫秒级窗口）
+  const ONBOARDING_REREAD_ATTEMPTS = 20;
+  const ONBOARDING_REREAD_DELAY_MS = 100;
+  for (let attempt = 0; attempt < ONBOARDING_REREAD_ATTEMPTS; attempt++) {
+    const status = readOnboardingStatus(motionDir, deps);
+    if (status.state !== 'not_found') {
+      return { contractId: status.contractId ?? ONBOARDING_CONTRACT_ID, created: false };
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, ONBOARDING_REREAD_DELAY_MS));
+  }
+
+  // winner 崩溃（claim-only）或不可读：经 owner 恢复后再重读一次
+  const recovered = await action.system.recoverCreation(ONBOARDING_CONTRACT_ID);
+  const status = readOnboardingStatus(motionDir, deps);
+  if (status.state !== 'not_found') {
+    return { contractId: status.contractId ?? ONBOARDING_CONTRACT_ID, created: false };
+  }
+  throw new Error(
+    `onboarding creation indeterminate: claim for "${ONBOARDING_CONTRACT_ID}" exists ` +
+    `but no readable onboarding contract (recovery=${recovered}); evidence preserved, not overwritten`,
+  );
+}
+
+/** start 实际消费的 ContractSystem 窄面（便于测试替换）。 */
+interface ContractSystemLike {
+  create(contract: ContractYaml): Promise<string>;
+  recoverCreation(contractId: string): Promise<'absent' | 'published' | 'recovered' | 'failed'>;
 }
 
 /* LLM connection check & reconfigure helpers moved to ../llm-connection-check.ts (phase 1470). */
@@ -225,9 +286,9 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
     const action = await createMotionContractActionContext(deps, {
       registerSummonVerifyPolicy: true,
     });
-    let contractId: string;
+    let onboardingResult: { contractId: string; created: boolean };
     try {
-      contractId = await action.system.create({
+      onboardingResult = await ensureOnboardingContract(deps, action, motionDir, {
         schema_version: 1,
         title: 'Onboarding',
         goal: 'Get to know the user and establish your identity before anything else. No interrogation — just talk.',
@@ -238,15 +299,27 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       action.dispose();
     }
 
-    
-    clawNotifier.notify(MOTION_CLAW_ID, {
-      type: 'contract_created',
-      source: 'system',
-      priority: 'high',
-      // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源
-      body: onboardingContractCreatedBody({ contractId }),
-      idPrefix: 'start',
-    });
+    // loser（并发 start 已创建/恢复 winner）不重复发 created 通知，转 resume
+    if (onboardingResult.created) {
+      clawNotifier.notify(MOTION_CLAW_ID, {
+        type: 'contract_created',
+        source: 'system',
+        priority: 'high',
+        // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源
+        body: onboardingContractCreatedBody({ contractId: onboardingResult.contractId }),
+        idPrefix: 'start',
+      });
+    } else {
+      const status = getOnboardingStatus(motionDir, deps);
+      clawNotifier.notify(MOTION_CLAW_ID, {
+        type: 'contract_resume', source: 'system', priority: 'high',
+        body: onboardingContractResumedBody({
+          contractId: String(onboardingResult.contractId),
+          pendingSubtasks: status.pending ?? [],
+        }),
+        idPrefix: 'start',
+      });
+    }
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
@@ -256,9 +329,9 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       const action = await createMotionContractActionContext(deps, {
         registerSummonVerifyPolicy: true,
       });
-      let contractId: string;
+      let onboardingResult: { contractId: string; created: boolean };
       try {
-        contractId = await action.system.create({
+        onboardingResult = await ensureOnboardingContract(deps, action, motionDir, {
           schema_version: 1,
           title: 'Onboarding',
           goal: 'Get to know the user and establish your identity before anything else.',
@@ -268,12 +341,24 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       } finally {
         action.dispose();
       }
-      clawNotifier.notify(MOTION_CLAW_ID, {
-        type: 'contract_created', source: 'system', priority: 'high',
-        // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源
-        body: onboardingContractCreatedBody({ contractId }),
-        idPrefix: 'start',
-      });
+      if (onboardingResult.created) {
+        clawNotifier.notify(MOTION_CLAW_ID, {
+          type: 'contract_created', source: 'system', priority: 'high',
+          // phase 1909 Step B（M13）：正文呈现归 templates/messages 单源
+          body: onboardingContractCreatedBody({ contractId: onboardingResult.contractId }),
+          idPrefix: 'start',
+        });
+      } else {
+        const status = getOnboardingStatus(motionDir, deps);
+        clawNotifier.notify(MOTION_CLAW_ID, {
+          type: 'contract_resume', source: 'system', priority: 'high',
+          body: onboardingContractResumedBody({
+            contractId: String(onboardingResult.contractId),
+            pendingSubtasks: status.pending ?? [],
+          }),
+          idPrefix: 'start',
+        });
+      }
     } else {
       clawNotifier.notify(MOTION_CLAW_ID, {
         type: 'contract_resume', source: 'system', priority: 'high',
