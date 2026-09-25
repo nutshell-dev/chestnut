@@ -17,6 +17,7 @@ import {
   saveGlobalConfigExclusive,
   mutateGlobalConfigLocked,
   saveClawConfig,
+  saveClawConfigExclusive,
   patchGlobalConfigPrimary,
 } from './config-load.js';
 import type {
@@ -50,6 +51,11 @@ export interface RootConfigAdmin extends RootConfigReader {
    */
   mutateGlobalLocked(mutator: (config: ClawGlobalConfig) => void): Promise<void>;
   saveClaw(configPath: string, config: ClawConfig): void;
+  /**
+   * Phase 1910 Step E：claw 创建独占发布提交（O_EXCL）；config 已存在时 throw
+   * ClawConfigAlreadyExistsError，loser 不得覆盖。
+   */
+  saveClawExclusive(configPath: string, config: ClawConfig): void;
   /** patch global config 的 llm.primary 段（锁内 raw patch）；输入 readonly，边界内复制，caller 对象不被修改。 */
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<void>;
 }
@@ -71,6 +77,7 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
     saveGlobalExclusive: (config) => saveGlobalConfigExclusive(deps, config),
     mutateGlobalLocked: (mutator) => mutateGlobalConfigLocked(deps, mutator),
     saveClaw: (configPath, config) => saveClawConfig(deps, configPath, config),
+    saveClawExclusive: (configPath, config) => saveClawConfigExclusive(deps, configPath, config),
     patchPrimary: (patch) => patchGlobalConfigPrimary(deps, { ...patch }),
   };
 }

@@ -24,5 +24,5 @@ export interface ClawCommandDeps {
 /** Create独享的最小写面；普通Claw leaf仍只接收上方Reader。 */
 export interface ClawCreateCommandDeps {
   fsFactory: ClawCommandDeps['fsFactory'];
-  rootConfig: ClawCommandDeps['rootConfig'] & Pick<RootConfigAdmin, 'saveClaw'>;
+  rootConfig: ClawCommandDeps['rootConfig'] & Pick<RootConfigAdmin, 'saveClaw' | 'saveClawExclusive'>;
 }

@@ -5,7 +5,7 @@ import type { FileSystem } from '../../src/foundation/fs/index.js';
 function makeDeps(options: {
   loadGlobal?: () => any;
   loadClaw?: () => any;
-  saveClaw?: (...args: any[]) => void;
+  saveClawExclusive?: (...args: any[]) => void;
 } = {}) {
   const fs = {
     ensureDirSync: vi.fn(),
@@ -18,14 +18,14 @@ function makeDeps(options: {
       rootConfig: {
         loadGlobal: vi.fn(options.loadGlobal ?? (() => ({}))),
         loadClaw: vi.fn(options.loadClaw ?? (() => undefined)),
-        saveClaw: vi.fn(options.saveClaw ?? (() => {})),
+        saveClawExclusive: vi.fn(options.saveClawExclusive ?? (() => {})),
       },
     },
   };
 }
 
 describe('claw create RootConfig boundary', () => {
-  it('missing claw is created through scoped saveClaw capability', async () => {
+  it('missing claw is created through scoped saveClawExclusive capability', async () => {
     const { deps, fs } = makeDeps();
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -33,7 +33,7 @@ describe('claw create RootConfig boundary', () => {
 
     expect(deps.rootConfig.loadGlobal).toHaveBeenCalledTimes(1);
     expect(deps.rootConfig.loadClaw).toHaveBeenCalledTimes(1);
-    expect(deps.rootConfig.saveClaw).toHaveBeenCalledTimes(1);
+    expect(deps.rootConfig.saveClawExclusive).toHaveBeenCalledTimes(1);
     expect(deps.fsFactory).toHaveBeenCalledTimes(1);
     expect(fs.writeAtomicSync).toHaveBeenCalledTimes(1);
   });
@@ -42,7 +42,7 @@ describe('claw create RootConfig boundary', () => {
     const { deps } = makeDeps({ loadClaw: () => ({ name: 'alice' }) });
     await expect(createCommand(deps, 'alice')).rejects.toThrow('already exists');
     expect(deps.fsFactory).not.toHaveBeenCalled();
-    expect(deps.rootConfig.saveClaw).not.toHaveBeenCalled();
+    expect(deps.rootConfig.saveClawExclusive).not.toHaveBeenCalled();
   });
 
   it('global config error propagates before existence read', async () => {
@@ -57,6 +57,6 @@ describe('claw create RootConfig boundary', () => {
     const { deps } = makeDeps({ loadClaw: () => { throw sentinel; } });
     await expect(createCommand(deps, 'alice')).rejects.toBe(sentinel);
     expect(deps.fsFactory).not.toHaveBeenCalled();
-    expect(deps.rootConfig.saveClaw).not.toHaveBeenCalled();
+    expect(deps.rootConfig.saveClawExclusive).not.toHaveBeenCalled();
   });
 });

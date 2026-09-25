@@ -224,6 +224,34 @@ export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   );
 }
 
+/**
+ * Phase 1910 Step E（RACE-CLAW-CREATE-CHECK-THEN-CREATE）：claw 创建的独占
+ * 发布提交点。claw config 是 claw 资源的身份 artifact（loadClaw 读它），
+ * O_EXCL 独占创建即创建权裁决；已存在 → ClawConfigAlreadyExistsError，
+ * loser 不得覆盖。
+ */
+export class ClawConfigAlreadyExistsError extends Error {
+  constructor(readonly configPath: string) {
+    super(`Claw config already exists: ${configPath}`);
+    this.name = 'ClawConfigAlreadyExistsError';
+  }
+}
+
+export function saveClawConfigExclusive(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string, config: ClawConfig): void {
+  try {
+    writeYamlConfigExclusive(
+      { fsFactory: deps.fsFactory },
+      configPath,
+      config,
+    );
+  } catch (err) {
+    if (isConfigStoreError(err) && err.code === 'already_exists') {
+      throw new ClawConfigAlreadyExistsError(configPath);
+    }
+    throw err;
+  }
+}
+
 export function clawExists(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string): boolean {
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
