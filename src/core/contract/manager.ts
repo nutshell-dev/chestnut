@@ -1402,6 +1402,10 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       if (assetsResult === 'incomplete') {
         throw new Error(`verification assets staging incomplete for contract "${contractId}" (fail-closed, evidence preserved)`);
       }
+      if (assetsResult === 'conflict') {
+        // Phase 1912 Step C：目标已出现且字节与 durable intent 不同——不替换、不发布
+        throw new Error(`verification assets target conflict for contract "${contractId}" (existing bytes differ; evidence preserved, not overwritten)`);
+      }
       await publishCreation({ fs: this.fs, activeDir: this.activeDir, contractId });
     } catch (err) {
       emitContractCreationInterrupted(this.audit, {

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
+import { sha256Hex, formatErr } from '../../foundation/node-utils/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ContractYamlSchema } from './schemas.js';
 import { type ContractId, type ArchiveDir, ARCHIVE_STATES } from './types.js';
@@ -30,6 +31,9 @@ export const VERIFICATION_DIR_NAME = 'verification';
 const VerificationAssetManifestEntrySchema = z.object({
   name: z.string(),
   bytes: z.number().int().nonnegative(),
+  // Phase 1912 Step C：内容 hash——size 不能判同（1911 G 教训）。
+  // optional 兼容 1911 F legacy intent（无 hash 条目降级 bytes 核验）。
+  sha256: z.string().optional(),
 }).strict();
 
 const ContractCreationIntentSchema = z.object({
@@ -116,6 +120,7 @@ export function buildCreationIntent(
           verification_assets: assets.map((a) => ({
             name: a.name,
             bytes: Buffer.byteLength(a.content, 'utf-8'),
+            sha256: sha256Hex(a.content),
           })),
         }
       : {}),
@@ -141,17 +146,23 @@ export async function stageVerificationAssets(opts: {
 }
 
 /**
- * Phase 1911 Step F：按 intent manifest 把 staging 资产发布进 verification/。
- * 幂等：已落位且 bytes 匹配的条目跳过；staging 缺失/尺寸不符 → 'incomplete'
- * （fail-closed，保留证据，不 publish）。无 manifest 的 legacy intent → 'none'
- * （但 staging 目录残留非空属异常 → 'incomplete'）。
+ * Phase 1911 Step F + 1912 Step C（RACE-CONTRACT-ASSET-NOREPLACE）：按 intent
+ * manifest 把 staging 资产发布进 verification/。
+ *
+ * 发布语义：
+ * - 落位经 `linkExclusiveSync` no-replace 提交——目标已出现（并发同 intent /
+ *   外部写入）绝不替换其字节；
+ * - 收敛：目标/Staging 缺失先复核另一处——同 hash（legacy 降级 bytes）收敛为
+ *   已提交继续；异内容 → 'conflict'（fail-closed 留证不 publish）；
+ * - staging 字节不符/两处皆无 → 'incomplete'（fail-closed，保留证据）；
+ * - 无 manifest 的 legacy intent → 'none'（staging 残留非空属异常 → 'incomplete'）。
  */
 export async function materializeVerificationAssets(opts: {
   fs: FileSystem;
   activeDir: string;
   contractId: ContractId;
   intent: ContractCreationIntent;
-}): Promise<'none' | 'ok' | 'incomplete'> {
+}): Promise<'none' | 'ok' | 'incomplete' | 'conflict'> {
   const { fs, activeDir, contractId, intent } = opts;
   const contractRoot = `${activeDir}/${contractId}`;
   const stagingDir = `${contractRoot}/${CREATION_ASSETS_STAGING_DIR}`;
@@ -163,19 +174,59 @@ export async function materializeVerificationAssets(opts: {
     return leftover.length === 0 ? 'none' : 'incomplete';
   }
 
+  // 核验路径字节与 manifest 是否同一事实：有 sha256 用内容 hash，legacy 降级 bytes
+  const matchesManifest = async (entry: { bytes: number; sha256?: string }, p: string): Promise<boolean> => {
+    if (entry.sha256 !== undefined) {
+      const content = await fs.read(p).catch(() => null);
+      return content !== null && sha256Hex(content) === entry.sha256;
+    }
+    const stat = await fs.stat(p).catch(() => null);
+    return stat !== null && stat.size === entry.bytes;
+  };
+
   await fs.ensureDir(`${contractRoot}/${VERIFICATION_DIR_NAME}`);
   for (const entry of manifest) {
     const destPath = `${contractRoot}/${VERIFICATION_DIR_NAME}/${entry.name}`;
     const stagedPath = `${stagingDir}/${entry.name}`;
+
     if (await fs.exists(destPath)) {
-      // 已落位（恢复重跑幂等）：尺寸必须匹配 manifest，否则属篡改/半成品
-      const stat = await fs.stat(destPath).catch(() => null);
-      if (!stat || stat.size !== entry.bytes) return 'incomplete';
+      // 目标已出现：同内容收敛（幂等/并发 winner），异内容冲突——绝不替换
+      if (!(await matchesManifest(entry, destPath))) return 'conflict';
+      // 清理并发/崩溃残留的同名 staged 副本，保持「恰好一处」
+      if (await fs.exists(stagedPath)) {
+        await fs.delete(stagedPath).catch(() => {
+          // silent: staged 清理失败不影响已收敛的 dest 事实；残留由下次恢复再清
+        });
+      }
       continue;
     }
-    const stagedStat = await fs.stat(stagedPath).catch(() => null);
-    if (!stagedStat || stagedStat.size !== entry.bytes) return 'incomplete';
-    await fs.move(stagedPath, destPath); // 同 fs rename，原子落位
+
+    if (!(await fs.exists(stagedPath))) {
+      // staged 缺失：并发同 intent 可能在两次读之间已发布 → 复核 dest 收敛
+      if ((await fs.exists(destPath)) && (await matchesManifest(entry, destPath))) continue;
+      return 'incomplete';
+    }
+    if (!(await matchesManifest(entry, stagedPath))) return 'incomplete';
+
+    try {
+      fs.linkExclusiveSync(stagedPath, destPath); // no-replace 原子提交
+    } catch (err) {
+      if (isAlreadyExists(err)) {
+        // 并发在 check 与 link 之间落位：同内容收敛，异内容冲突
+        if (await matchesManifest(entry, destPath)) continue;
+        return 'conflict';
+      }
+      if (isFileNotFound(err)) {
+        // staged 被并发 winner 清走：复核 dest 收敛
+        if ((await fs.exists(destPath)) && (await matchesManifest(entry, destPath))) continue;
+        return 'incomplete';
+      }
+      throw err;
+    }
+    // link 成功：dest 与 staged 同 inode，删 staged 名保持「恰好一处」
+    await fs.delete(stagedPath).catch(() => {
+      // silent: staged 名清理失败不影响已发布事实；下次恢复按 dest 收敛后再清
+    });
   }
   // staging 腾空后移除目录（恢复重跑时可能已不存在）
   if (await fs.exists(stagingDir)) {
@@ -390,6 +441,17 @@ export async function recoverUnpublishedCreation(opts: {
     );
     return;
   }
+  if (assetsResult === 'conflict') {
+    // Phase 1912 Step C：目标已出现且字节不同——冲突留证，不替换不发布
+    audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED,
+      `contractId=${contractId}`,
+      `started_at=${intent.started_at}`,
+      `reason=assets_conflict`,
+      `error=verification assets target exists with different bytes; not overwritten`,
+    );
+    return;
+  }
 
   try {
     await materializeClaimedCreation({ fs, activeDir, contractId, intent });
@@ -427,9 +489,4 @@ export async function recoverUnpublishedCreation(opts: {
     `title=${intent.contract.title}`,
     `recovered=true`,
   );
-}
-
-function formatErr(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
 }

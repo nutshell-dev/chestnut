@@ -9,6 +9,13 @@
  *   落位并 publish；staging 不完整 → fail-closed 'failed'，证据保留不发布；
  * - 资产名越界（路径分隔符/dot-file/重复）→ 创建前 typed 拒绝，不产生 claim；
  * - 已发布合同的重试仍 already_exists，不覆盖 winner 资产。
+ *
+ * Phase 1912 Step C（RACE-CONTRACT-ASSET-NOREPLACE）：
+ * - 并发双 recovery 同 intent：恰一提交者，另一方归并不失败、不替换字节；
+ * - dest 已出现且内容相同 → 幂等收敛发布；dest 异内容 → conflict fail-closed，
+ *   不 publish、双方字节与 claim 证据保留；
+ * - staged 缺失但 dest 已由并发 winner 落位 → 收敛成功；
+ * - legacy intent（无 sha256）降级 bytes 核验，恢复路径不回归。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -208,5 +215,107 @@ describe('contract-create-from-dir asset-consistent publish (phase 1911 Step F)'
     expect(
       fs.readFileSync(path.join(activeDirOf(contractId), 'verification', 'check.sh'), 'utf-8'),
     ).toBe('winner\n');
+  });
+
+  // ---- Phase 1912 Step C：no-replace 发布与恢复收敛 ----
+
+  /** 构造崩溃窗口：claim + 完整 staging，返回 root/intent。 */
+  function setupCrashWindow(contractId: string, assets: { name: string; content: string }[]): string {
+    const contract = makeContractYaml({
+      id: makeContractId(contractId),
+      title: 'Recover',
+      goal: 'Recover',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    });
+    const intent = buildCreationIntent(contract, makeContractId(contractId), new Date().toISOString(), assets);
+    const root = activeDirOf(contractId);
+    fs.mkdirSync(path.join(root, CREATION_ASSETS_STAGING_DIR), { recursive: true });
+    fs.writeFileSync(path.join(root, CREATION_CLAIM_FILE), serializeCreationIntent(intent));
+    for (const a of assets) {
+      fs.writeFileSync(path.join(root, CREATION_ASSETS_STAGING_DIR, a.name), a.content);
+    }
+    return root;
+  }
+
+  it('并发双 recovery 同 intent：恰一提交者，另一方归并不失败、字节一致', async () => {
+    const assets = [{ name: 'check.sh', content: '#!/bin/sh\nexit 0\n' }];
+    const root = setupCrashWindow('asset-double-recover', assets);
+
+    const [ra, rb] = await Promise.all([
+      makeManager().recoverCreation(makeContractId('asset-double-recover')),
+      makeManager().recoverCreation(makeContractId('asset-double-recover')),
+    ]);
+
+    // 两方都收敛到成功态（各自完成提交或发现已提交），无一方失败
+    expect([ra, rb].every(r => r === 'recovered' || r === 'published')).toBe(true);
+    expect(fs.existsSync(path.join(root, CREATION_CLAIM_FILE))).toBe(false);
+    expect(
+      fs.readFileSync(path.join(root, 'verification', 'check.sh'), 'utf-8'),
+    ).toBe(assets[0].content);
+  });
+
+  it('dest 已出现且内容相同（同 size 亦同 hash）：幂等收敛发布，不替换', async () => {
+    const assets = [{ name: 'check.sh', content: 'same-bytes\n' }];
+    const root = setupCrashWindow('asset-dest-same', assets);
+    // 模拟并发 winner 已落位：dest 存在、staging 仍保留
+    fs.mkdirSync(path.join(root, 'verification'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'verification', 'check.sh'), 'same-bytes\n');
+
+    expect(await makeManager().recoverCreation(makeContractId('asset-dest-same'))).toBe('recovered');
+    expect(fs.readFileSync(path.join(root, 'verification', 'check.sh'), 'utf-8')).toBe('same-bytes\n');
+    expect(fs.existsSync(path.join(root, CREATION_CLAIM_FILE))).toBe(false);
+  });
+
+  it('dest 已出现但内容不同（同 size 异 bytes）：conflict fail-closed，不替换不发布', async () => {
+    // 与 manifest 同长度但不同字节——size 判同陷阱（1911 G 教训）
+    const assets = [{ name: 'check.sh', content: 'AAAA\n' }];
+    const root = setupCrashWindow('asset-dest-conflict', assets);
+    fs.mkdirSync(path.join(root, 'verification'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'verification', 'check.sh'), 'BBBB\n');
+
+    expect(await makeManager().recoverCreation(makeContractId('asset-dest-conflict'))).toBe('failed');
+
+    // 双方证据原样保留：dest 字节不被替换、claim 与 staging 不删、合同不发布
+    expect(fs.readFileSync(path.join(root, 'verification', 'check.sh'), 'utf-8')).toBe('BBBB\n');
+    expect(fs.existsSync(path.join(root, CREATION_CLAIM_FILE))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'contract.yaml'))).toBe(false);
+  });
+
+  it('staged 缺失但 dest 已由并发 winner 落位（同内容）：收敛成功不报 incomplete', async () => {
+    const assets = [{ name: 'check.sh', content: 'placed\n' }];
+    const root = setupCrashWindow('asset-staged-gone', assets);
+    // winner 已 move：staging 清空、dest 落位
+    fs.rmSync(path.join(root, CREATION_ASSETS_STAGING_DIR), { recursive: true });
+    fs.mkdirSync(path.join(root, 'verification'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'verification', 'check.sh'), 'placed\n');
+
+    expect(await makeManager().recoverCreation(makeContractId('asset-staged-gone'))).toBe('recovered');
+    expect(fs.existsSync(path.join(root, CREATION_CLAIM_FILE))).toBe(false);
+  });
+
+  it('legacy intent（无 sha256 字段）：降级 bytes 核验，恢复路径不回归', async () => {
+    const contractId = makeContractId('asset-legacy-intent');
+    const contract = makeContractYaml({
+      id: contractId,
+      title: 'Legacy',
+      goal: 'Legacy',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    });
+    const assets = [{ name: 'check.sh', content: 'legacy\n' }];
+    const intent = buildCreationIntent(contract, contractId, new Date().toISOString(), assets);
+    // 构造 1911 F 形态：manifest 条目无 sha256
+    const legacyIntent = {
+      ...intent,
+      verification_assets: intent.verification_assets!.map(({ name, bytes }) => ({ name, bytes })),
+    };
+    const root = activeDirOf(contractId);
+    fs.mkdirSync(path.join(root, CREATION_ASSETS_STAGING_DIR), { recursive: true });
+    fs.writeFileSync(path.join(root, CREATION_CLAIM_FILE), serializeCreationIntent(legacyIntent));
+    fs.writeFileSync(path.join(root, CREATION_ASSETS_STAGING_DIR, 'check.sh'), assets[0].content);
+
+    expect(await makeManager().recoverCreation(contractId)).toBe('recovered');
+    expect(fs.readFileSync(path.join(root, 'verification', 'check.sh'), 'utf-8')).toBe('legacy\n');
   });
 });
