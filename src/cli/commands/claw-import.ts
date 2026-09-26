@@ -20,6 +20,61 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
+/** import 提交态 claim 文件名（owner 单一定义，读侧门控共用）。 */
+export const IMPORT_CLAIM_FILE = '.import-claim';
+
+/**
+ * clawspace 内 import 目标的发布态（Phase 1913 Step B，
+ * RACE-PUBLISH-PRECOMMIT-VISIBILITY）。
+ * - published：路径及其祖先无 import claim——完整已提交版本或普通用户内容；
+ * - in_progress：claim 在 = 落位/sweep/身份复核未完成，读者不得当已发布资源；
+ * - invalid：claim 在但不可解析——证据状态未知，fail-closed。
+ * 单向事实可从磁盘重建：claim 只在全部文件落位 + sweep + 占位身份复核后删除。
+ */
+export type ClawspaceImportVisibility =
+  | { readonly state: 'published' }
+  | { readonly state: 'in_progress'; readonly claimPath: string }
+  | { readonly state: 'invalid'; readonly claimPath: string };
+
+/**
+ * owner 发布态查询入口（claw ls/read 等普通消费者只经此入口判发布态，
+ * 不自行扫描「看起来是否完整」）。
+ *
+ * @param fs clawDir-scoped FileSystem
+ * @param clawDirRelPath resolveWorkspacePath 返回的 clawDir 相对路径；
+ *   沿路径自身与 clawspace 内各祖先目录查 import claim。
+ */
+export function importVisibility(fs: FileSystem, clawDirRelPath: string): ClawspaceImportVisibility {
+  const normalized = clawDirRelPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (normalized === '' || normalized === '.' || normalized === CLAWSPACE_DIR) {
+    return { state: 'published' };
+  }
+  const segs = normalized.split('/');
+  // claim 只可能出现在 clawspace/<target…>/<srcName>/ 级；从该级起逐级查
+  // （含路径自身：自身是未提交目标目录时也要命中）。
+  const start = segs[0] === CLAWSPACE_DIR ? 2 : 1;
+  for (let i = start; i <= segs.length; i++) {
+    const dir = segs.slice(0, i).join('/');
+    const claimRel = `${dir}/${IMPORT_CLAIM_FILE}`;
+    let claimPresent = false;
+    try {
+      claimPresent = fs.existsSync(claimRel);
+    } catch {
+      // silent: ENOTDIR —— 路径分量是文件而非目录，claim 不可能存在，视为缺席
+      continue;
+    }
+    if (!claimPresent) continue;
+    try {
+      JSON.parse(fs.readSync(claimRel));
+      return { state: 'in_progress', claimPath: claimRel };
+    } catch {
+      // silent: claim 存在但不可解析 → 归 typed invalid 状态交消费者 fail-closed 呈现
+      return { state: 'invalid', claimPath: claimRel };
+    }
+  }
+  return { state: 'published' };
+}
+
 async function tryStat(fs: FileSystem, p: string): Promise<StatInfo | null> {
   try {
     return await fs.stat(p);
@@ -75,7 +130,7 @@ export async function importCommand(
     // Phase 1912 Step D：带 claim 的目录目标不再即时拒绝——交由下方目录分支
     // 做死 holder 恢复判读（同 payload 续传 / 活 holder·异 payload 冲突留证）；
     // 用户既有目标（无 claim）拒绝语义不变
-    const hasClaim = existing.isDirectory && (await tryStat(clawspaceFs, `${relFromClawspace}/.import-claim`)) !== null;
+    const hasClaim = existing.isDirectory && (await tryStat(clawspaceFs, `${relFromClawspace}/${IMPORT_CLAIM_FILE}`)) !== null;
     if (!hasClaim) {
       throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
     }
@@ -99,7 +154,7 @@ export async function importCommand(
     // 死 holder 恢复：同 manifestHash 幂等续传；异 payload 显式冲突不覆盖。
     const destParentFs = deps.fsFactory(destParent);
     await destParentFs.ensureDir('.');
-    const claimRel = `${srcName}/.import-claim`;
+    const claimRel = `${srcName}/${IMPORT_CLAIM_FILE}`;
     const stageName = `.import-staging-${newShortUuid()}`;
     const myToken = newShortUuid();
 
@@ -185,9 +240,22 @@ export async function importCommand(
     const manifestHash = sha256Hex(JSON.stringify(manifest));
 
     if (resumedClaim !== null) {
-      // 死 holder 恢复判读：同 payload 幂等续传；异 payload 显式冲突留证
-      const sameIntent = resumedClaim.source === srcAbs &&
-        (resumedClaim.manifestHash === undefined || resumedClaim.manifestHash === manifestHash);
+      // 死 holder 恢复判读：同 payload 幂等续传；异 payload 显式冲突留证。
+      // Phase 1913 Step B（RACE-CLAW-IMPORT-RECOVERY-IDENTITY）：claim 缺
+      // manifestHash = 源快照事实未持久化（首次 claim 写入与 manifest 持久化
+      // 之间崩溃）——只有 source 路径相同不构成 payload identity，fail-closed
+      // 交 owner 显式决策，不得把变化后的 source 当旧 intent 续传。
+      if (resumedClaim.manifestHash === undefined) {
+        await destParentFs.removeDir(stageName).catch(() => {
+          // silent: 我方 staging 清理失败不掩盖冲突事实；残留 `.import-staging-*` 可人工删
+        });
+        throw new CliError(
+          `"${displayRel}" has an interrupted import whose original source payload cannot be proven ` +
+          `(claim ${claimRel} lacks manifestHash) in ${clawName}/clawspace/; ` +
+          `evidence preserved; inspect and remove the claim to retry`,
+        );
+      }
+      const sameIntent = resumedClaim.source === srcAbs && resumedClaim.manifestHash === manifestHash;
       if (!sameIntent) {
         await destParentFs.removeDir(stageName).catch(() => {
           // silent: 我方 staging 清理失败不掩盖冲突事实；残留 `.import-staging-*` 可人工删

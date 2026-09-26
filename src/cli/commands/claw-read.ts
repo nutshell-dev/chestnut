@@ -9,6 +9,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/in
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
+import { importVisibility } from './claw-import.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export async function readCommand(
@@ -33,6 +34,22 @@ export async function readCommand(
   const resolved = resolveWorkspacePath({ clawDir, workspaceDir }, filePath);
   if (resolved.startsWith('..') || resolved.startsWith('/')) {
     throw new CliError(`Path escapes claw directory: "${filePath}"`);
+  }
+
+  // Phase 1913 Step B（RACE-PUBLISH-PRECOMMIT-VISIBILITY）：读侧发布门控——
+  // 目标文件位于未提交 import 目录内 → typed not-published，不暴露半成品。
+  const visibility = importVisibility(fs, resolved);
+  if (visibility.state === 'in_progress') {
+    throw new CliError(
+      `"${filePath}" is not published yet in ${clawName}/clawspace/ ` +
+      `(import in progress; claim: ${visibility.claimPath})`,
+    );
+  }
+  if (visibility.state === 'invalid') {
+    throw new CliError(
+      `"${filePath}" has an unreadable import state in ${clawName}/clawspace/ ` +
+      `(claim: ${visibility.claimPath}); inspect the evidence before retrying`,
+    );
   }
 
   let content: string;

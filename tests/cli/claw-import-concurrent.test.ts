@@ -14,6 +14,7 @@ import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { importCommand } from '../../src/cli/commands/claw-import.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { sha256Hex } from '../../src/foundation/node-utils/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
@@ -198,7 +199,7 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
 
   // ---- Phase 1912 Step D：占位全程占有 + 死 holder 恢复 ----
 
-  it('dead-holder claim（同 source、无 manifestHash = 填装未开始）→ 接管恢复并完成发布', async () => {
+  it('dead-holder claim（无 manifestHash = 源快照事实未持久化）→ 无法证明 payload identity，冲突留证（Phase 1913 Step B）', async () => {
     const target = path.join(clawspaceDir(), 'src-bundle');
     fs.mkdirSync(target, { recursive: true });
     fs.writeFileSync(path.join(target, '.import-claim'), JSON.stringify({
@@ -207,6 +208,34 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
       createdAt: new Date().toISOString(),
       source: path.join(tmpDir, 'src-bundle'),
       target: 'src-bundle',
+    }));
+
+    // 只有 source 路径相同不构成 payload identity：源目录可能已变化，
+    // 不得把新字节归入旧 intent——fail-closed 交 owner 显式决策
+    await expect(
+      importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/cannot be proven/);
+
+    // 证据原样保留，不发布、不覆盖
+    expect(fs.existsSync(path.join(target, '.import-claim'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
+  });
+
+  it('dead-holder claim 同 payload（manifestHash 相符）→ 接管恢复并完成发布', async () => {
+    const target = path.join(clawspaceDir(), 'src-bundle');
+    fs.mkdirSync(target, { recursive: true });
+    // 与 owner manifest 构造一致：每文件 {path, bytes, sha256} 排序后 JSON 的 hash
+    const manifest = [
+      { path: 'a.txt', bytes: 5, sha256: sha256Hex('alpha') },
+      { path: 'b.txt', bytes: 4, sha256: sha256Hex('beta') },
+    ].sort((a, b) => a.path.localeCompare(b.path));
+    fs.writeFileSync(path.join(target, '.import-claim'), JSON.stringify({
+      token: 'dead-holder',
+      pid: 99999,
+      createdAt: new Date().toISOString(),
+      source: path.join(tmpDir, 'src-bundle'),
+      target: 'src-bundle',
+      manifestHash: sha256Hex(JSON.stringify(manifest)),
     }));
 
     await importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice');

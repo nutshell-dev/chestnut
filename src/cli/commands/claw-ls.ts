@@ -24,6 +24,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/in
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
+import { IMPORT_CLAIM_FILE, importVisibility } from './claw-import.js';
 import type { FileEntry } from '../../foundation/fs/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -38,22 +39,26 @@ interface LsEntryView {
   size: number;
   mtime: string;
   isDirectory: boolean;
+  /** Phase 1913 Step B：未提交 import 目标注解（可观察的非已发布结果）。 */
+  importInProgress?: boolean;
 }
 
-function toView(e: FileEntry): LsEntryView {
+function toView(e: FileEntry, unpublishedDirs: ReadonlySet<string>): LsEntryView {
   return {
     name: e.name,
     path: e.path,
     size: e.size,
     mtime: e.mtime.toISOString(),
     isDirectory: e.isDirectory,
+    ...(unpublishedDirs.has(e.path) ? { importInProgress: true } : {}),
   };
 }
 
 function formatHuman(entries: readonly LsEntryView[]): string {
   if (entries.length === 0) return '';
   const lines = entries.map(
-    (e) => `${String(e.size).padStart(8)}\t${e.mtime}\t${e.name}${e.isDirectory ? '/' : ''}`,
+    (e) => `${String(e.size).padStart(8)}\t${e.mtime}\t${e.name}${e.isDirectory ? '/' : ''}` +
+      (e.importInProgress === true ? ' (import in progress)' : ''),
   );
   return lines.join('\n') + '\n';
 }
@@ -82,6 +87,23 @@ export async function lsCommand(
     throw new CliError(`Path escapes claw directory: "${requested}"`);
   }
 
+  // Phase 1913 Step B（RACE-PUBLISH-PRECOMMIT-VISIBILITY）：读侧发布门控——
+  // 请求路径位于未提交 import 目标（自身或祖先带 claim）→ typed not-published，
+  // 不暴露半成品。
+  const visibility = importVisibility(fs, resolved);
+  if (visibility.state === 'in_progress') {
+    throw new CliError(
+      `"${requested}" is not published yet in ${clawName}/clawspace/ ` +
+      `(import in progress; claim: ${visibility.claimPath})`,
+    );
+  }
+  if (visibility.state === 'invalid') {
+    throw new CliError(
+      `"${requested}" has an unreadable import state in ${clawName}/clawspace/ ` +
+      `(claim: ${visibility.claimPath}); inspect the evidence before retrying`,
+    );
+  }
+
   let entries: FileEntry[];
   try {
     entries = await fs.list(resolved, {
@@ -92,13 +114,27 @@ export async function lsCommand(
     throw new CliError(`Error listing path: ${formatErr(err)}`, { cause: err });
   }
 
+  // 子级未提交 import 目标：目标目录本身注解保留（可观察），其内部条目
+  // （半成品内容）从结果剔除。
+  const unpublishedDirs = new Set<string>();
+  for (const e of entries) {
+    if (e.isDirectory && fs.existsSync(`${e.path}/${IMPORT_CLAIM_FILE}`)) {
+      unpublishedDirs.add(e.path);
+    }
+  }
+  if (unpublishedDirs.size > 0) {
+    entries = entries.filter((e) =>
+      [...unpublishedDirs].every((d) => e.path === d || !e.path.startsWith(`${d}/`)),
+    );
+  }
+
   // Stable sort: directories first, then alphabetical.
   entries.sort((a, b) => {
     if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 
-  const views = entries.map(toView);
+  const views = entries.map((e) => toView(e, unpublishedDirs));
 
   if (options.json === true) {
     process.stdout.write(JSON.stringify(views, null, 2) + '\n');
