@@ -19,11 +19,26 @@ import type { SubtaskStatus } from './types.js';
 
 export const CREATION_CLAIM_FILE = '.creating';
 
+/**
+ * Phase 1911 Step F：verifier 资产的 owner 控制 staging 目录（claim 目录内、
+ * 未发布合同的消费者不可见语义由 `.creating` 拓扑保证）。
+ */
+export const CREATION_ASSETS_STAGING_DIR = '.creating-assets';
+/** 资产发布目标（contractRoot 内子目录名，与 getContractVerificationDir 一致）。 */
+export const VERIFICATION_DIR_NAME = 'verification';
+
+const VerificationAssetManifestEntrySchema = z.object({
+  name: z.string(),
+  bytes: z.number().int().nonnegative(),
+}).strict();
+
 const ContractCreationIntentSchema = z.object({
   schema_version: z.literal(1),
   contract_id: z.string(),
   started_at: z.string().datetime(),
   contract: ContractYamlSchema,
+  // Phase 1911 Step F：资产 manifest（name+bytes）；缺省 = 无资产 legacy intent
+  verification_assets: z.array(VerificationAssetManifestEntrySchema).optional(),
 }).strict();
 
 type ContractCreationIntent = z.infer<typeof ContractCreationIntentSchema>;
@@ -82,18 +97,96 @@ export function isActivePublished(pub: ActivePublication): boolean {
 
 /**
  * Build a durable creation intent from a validated contract YAML.
+ * Phase 1911 Step F：assets 以 manifest（name+bytes）记入 intent，字节本体
+ * 落 `.creating-assets/` staging —— 恢复不依赖外部源路径。
  */
 export function buildCreationIntent(
   contract: z.infer<typeof ContractYamlSchema>,
   contractId: ContractId,
   startedAt: string,
+  assets?: readonly { name: string; content: string }[],
 ): ContractCreationIntent {
   return {
     schema_version: 1,
     contract_id: contractId,
     started_at: startedAt,
     contract,
+    ...(assets && assets.length > 0
+      ? {
+          verification_assets: assets.map((a) => ({
+            name: a.name,
+            bytes: Buffer.byteLength(a.content, 'utf-8'),
+          })),
+        }
+      : {}),
   };
+}
+
+/**
+ * Phase 1911 Step F：把 verifier 资产字节写入 owner 控制的 durable staging。
+ * 幂等（writeAtomic 同内容覆写本 staging 内同名文件）。
+ */
+export async function stageVerificationAssets(opts: {
+  fs: FileSystem;
+  activeDir: string;
+  contractId: ContractId;
+  assets: readonly { name: string; content: string }[],
+}): Promise<void> {
+  const { fs, activeDir, contractId, assets } = opts;
+  if (assets.length === 0) return;
+  const stagingDir = `${activeDir}/${contractId}/${CREATION_ASSETS_STAGING_DIR}`;
+  for (const asset of assets) {
+    await fs.writeAtomic(`${stagingDir}/${asset.name}`, asset.content);
+  }
+}
+
+/**
+ * Phase 1911 Step F：按 intent manifest 把 staging 资产发布进 verification/。
+ * 幂等：已落位且 bytes 匹配的条目跳过；staging 缺失/尺寸不符 → 'incomplete'
+ * （fail-closed，保留证据，不 publish）。无 manifest 的 legacy intent → 'none'
+ * （但 staging 目录残留非空属异常 → 'incomplete'）。
+ */
+export async function materializeVerificationAssets(opts: {
+  fs: FileSystem;
+  activeDir: string;
+  contractId: ContractId;
+  intent: ContractCreationIntent;
+}): Promise<'none' | 'ok' | 'incomplete'> {
+  const { fs, activeDir, contractId, intent } = opts;
+  const contractRoot = `${activeDir}/${contractId}`;
+  const stagingDir = `${contractRoot}/${CREATION_ASSETS_STAGING_DIR}`;
+  const manifest = intent.verification_assets ?? [];
+
+  if (manifest.length === 0) {
+    if (!(await fs.exists(stagingDir))) return 'none';
+    const leftover = await fs.list(stagingDir).catch(() => []);
+    return leftover.length === 0 ? 'none' : 'incomplete';
+  }
+
+  await fs.ensureDir(`${contractRoot}/${VERIFICATION_DIR_NAME}`);
+  for (const entry of manifest) {
+    const destPath = `${contractRoot}/${VERIFICATION_DIR_NAME}/${entry.name}`;
+    const stagedPath = `${stagingDir}/${entry.name}`;
+    if (await fs.exists(destPath)) {
+      // 已落位（恢复重跑幂等）：尺寸必须匹配 manifest，否则属篡改/半成品
+      const stat = await fs.stat(destPath).catch(() => null);
+      if (!stat || stat.size !== entry.bytes) return 'incomplete';
+      continue;
+    }
+    const stagedStat = await fs.stat(stagedPath).catch(() => null);
+    if (!stagedStat || stagedStat.size !== entry.bytes) return 'incomplete';
+    await fs.move(stagedPath, destPath); // 同 fs rename，原子落位
+  }
+  // staging 腾空后移除目录（恢复重跑时可能已不存在）
+  if (await fs.exists(stagingDir)) {
+    const rest = await fs.list(stagingDir).catch(() => []);
+    if (rest.length === 0) {
+      await fs.removeDir(stagingDir).catch(() => {
+        // silent: 清理失败不影响已落位事实；残留空 staging 由下次恢复再试
+      });
+    }
+  }
+  return 'ok';
 }
 
 /**
@@ -280,6 +373,20 @@ export async function recoverUnpublishedCreation(opts: {
       `reason=archive_collision`,
       `collision_path=${collision}`,
       `error=contract id already exists in archive`,
+    );
+    return;
+  }
+
+  // Phase 1911 Step F：publish 前按 intent manifest 恢复 verifier 资产 ——
+  // 不完整（staging 缺字节/尺寸不符/篡改）→ fail-closed 保留证据，不发布。
+  const assetsResult = await materializeVerificationAssets({ fs, activeDir, contractId, intent });
+  if (assetsResult === 'incomplete') {
+    audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED,
+      `contractId=${contractId}`,
+      `started_at=${intent.started_at}`,
+      `reason=assets_incomplete`,
+      `error=verification assets staging does not match durable intent manifest`,
     );
     return;
   }

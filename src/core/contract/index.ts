@@ -46,6 +46,7 @@ export {
   type ContractYaml,
   type ContractCreatePolicy,
   type CreatePolicyContext,
+  type VerificationAssetInput,
   type ContractRuntimeLifecycle,
   type ContractCloseOutcome,
   type ContractProgressReader,

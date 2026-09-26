@@ -4,8 +4,8 @@
 
 import * as path from 'path';
 import { resolveChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { CONTRACT_YAML_FILE, getContractVerificationDir } from '../../core/contract/index.js';
-import type { ContractSystem } from '../../core/contract/index.js';
+import { CONTRACT_YAML_FILE } from '../../core/contract/index.js';
+import type { ContractSystem, VerificationAssetInput } from '../../core/contract/index.js';
 import { ContractCreatePolicyViolationError } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -44,6 +44,60 @@ export async function contractCreateFromDirCommand(
   const yamlContent = srcFs.readSync(CONTRACT_YAML_FILE);
   const contract = parseAndValidateContractYaml(yamlContent);
 
+  // Phase 1911 Step F（RACE-CONTRACT-DIR-ASSET-PUBLISH-ORDER）：CLI 读取/校验
+  // 外部源（realpath/扩展/size 硬化不变），资产字节随 create intent 提交 ——
+  // ContractSystem owner 将其落 durable staging 并在 publish 前移入
+  // verification/；合同 publish/created 通知只对含资产的完整快照发出。
+  // phase 324 H10: 硬化校验防 attacker-controlled tarball 用 symlink / 危险扩展 /
+  // 超大文件 / realpath 越界注入 .sh 到 verifier 可执行处。
+  const srcDir = srcFs.existsSync('verification') ? 'verification' : srcFs.existsSync('acceptance') ? 'acceptance' : undefined;
+  const assets: VerificationAssetInput[] = [];
+  const auditContractRef = contract.id ?? '(auto)';
+  if (srcDir) {
+    const realAbsDir = await srcFs.realpath('.').catch(() => absDir);
+    const maxFileBytes = getCopyMaxFileBytes();
+    const entries = await srcFs.list(srcDir);
+    for (const entry of entries) {
+      const srcRel = path.join(srcDir, entry.name);
+      const realSrc = await srcFs.realpath(srcRel).catch(() => null);
+      if (!realSrc) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${auditContractRef}`, `skip=realpath_failed`, `entry=${entry.name}`);
+        continue;
+      }
+      // 防 symlink 出 absDir / 相对路径绕：realpath 必须仍落 absDir 内
+      const realNorm = path.resolve(realSrc);
+      const baseNorm = path.resolve(realAbsDir);
+      if (realNorm !== baseNorm && !realNorm.startsWith(baseNorm + path.sep)) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${auditContractRef}`, `skip=symlink_or_escape`, `entry=${entry.name}`);
+        continue;
+      }
+      const srcStat = await srcFs.stat(srcRel);
+      if (!srcStat.isFile) {
+        // phase 406 Step A (review N3): 嵌套子目录 skip 时 emit audit—verifier
+        // 维护者可从 audit 链溯源「`source ./lib/*.sh` 跑空」的原因。
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${auditContractRef}`, `skip=nested_dir`, `entry=${entry.name}`);
+        continue;
+      }
+      // 扩展白名单
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!COPY_ALLOWED_EXTENSIONS.has(ext)) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${auditContractRef}`, `skip=ext_not_allowed`, `entry=${entry.name}`, `ext=${ext}`);
+        continue;
+      }
+      // 单文件 size cap
+      if (srcStat.size > maxFileBytes) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${auditContractRef}`, `skip=oversize`, `entry=${entry.name}`, `size=${srcStat.size}`, `cap=${maxFileBytes}`);
+        continue;
+      }
+      // phase 406 Step A (review N2): read via realpath-resolved srcFs-relative path —
+      // realpath→read 之间 symlink swap 时间窗的 TOCTOU 修复。realNorm 已在校
+      // baseNorm 内、安全 fall in srcFs scope。
+      const realRelToBase = path.relative(baseNorm, realNorm);
+      const content = await srcFs.read(realRelToBase);
+      assets.push({ name: entry.name, content });
+    }
+  }
+
   // Phase 230: delegate to ContractSystem.create with policy iteration
   let contractId: string;
   try {
@@ -51,6 +105,7 @@ export async function contractCreateFromDirCommand(
       contract,
       subagentTaskId: process.env.CHESTNUT_SUBAGENT_TASK_ID,
       clawDir: clawId,
+      verificationAssets: assets,
     });
   } catch (err) {
     if (err instanceof ContractCreatePolicyViolationError) {
@@ -66,64 +121,6 @@ export async function contractCreateFromDirCommand(
 
   audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `mode=dir`);
   console.log(`Contract created: ${contractId} for claw ${clawId}`);
-
-  // Copy verification/ 目录（若存在；回退读取旧版 acceptance/）
-  // phase 324 H10: 硬化拷贝路径，防 attacker-controlled tarball 用 symlink / 危险扩展 / 超大文件 /
-  // realpath 越界注入 .sh 到 verifier 可执行处。
-  //   - realpath 检 source 落 absDir 内（防 symlink 出/相对路径绕）
-  //   - 扩展白名单
-  //   - 单文件 size cap
-  // .sh 仍允许（合约 verifier 脚本本就是 .sh）但必须从受信 source 内来。
-  const srcDir = srcFs.existsSync('verification') ? 'verification' : srcFs.existsSync('acceptance') ? 'acceptance' : undefined;
-  if (srcDir) {
-    const clawDir = getClawDir(clawId);
-    const clawFs = deps.fsFactory(clawDir);
-    const destRel = getContractVerificationDir('.', contractId);
-    await clawFs.ensureDir(destRel);
-    const realAbsDir = await srcFs.realpath('.').catch(() => absDir);
-    const maxFileBytes = getCopyMaxFileBytes();
-    const entries = await srcFs.list(srcDir);
-    for (const entry of entries) {
-      const srcRel = path.join(srcDir, entry.name);
-      const realSrc = await srcFs.realpath(srcRel).catch(() => null);
-      if (!realSrc) {
-        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=realpath_failed`, `entry=${entry.name}`);
-        continue;
-      }
-      // 防 symlink 出 absDir / 相对路径绕：realpath 必须仍落 absDir 内
-      const realNorm = path.resolve(realSrc);
-      const baseNorm = path.resolve(realAbsDir);
-      if (realNorm !== baseNorm && !realNorm.startsWith(baseNorm + path.sep)) {
-        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=symlink_or_escape`, `entry=${entry.name}`);
-        continue;
-      }
-      const srcStat = await srcFs.stat(srcRel);
-      if (!srcStat.isFile) {
-        // phase 406 Step A (review N3): 嵌套子目录 skip 时 emit audit—verifier
-        // 维护者可从 audit 链溯源「`source ./lib/*.sh` 跑空」的原因。
-        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=nested_dir`, `entry=${entry.name}`);
-        continue;
-      }
-      // 扩展白名单
-      const ext = path.extname(entry.name).toLowerCase();
-      if (!COPY_ALLOWED_EXTENSIONS.has(ext)) {
-        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=ext_not_allowed`, `entry=${entry.name}`, `ext=${ext}`);
-        continue;
-      }
-      // 单文件 size cap
-      if (srcStat.size > maxFileBytes) {
-        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=oversize`, `entry=${entry.name}`, `size=${srcStat.size}`, `cap=${maxFileBytes}`);
-        continue;
-      }
-      const destFileRel = path.join(destRel, entry.name);
-      // phase 406 Step A (review N2): read via realpath-resolved srcFs-relative path —
-      // realpath→read 之间 symlink swap 时间窗的 TOCTOU 修复。realNorm 已在 line 94
-      // 校 baseNorm 内、安全 fall in srcFs scope。
-      const realRelToBase = path.relative(baseNorm, realNorm);
-      const content = await srcFs.read(realRelToBase);
-      await clawFs.writeAtomic(destFileRel, content);
-    }
-  }
 
   const clawDir = getClawDir(clawId);
   const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);

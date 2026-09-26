@@ -37,7 +37,7 @@ export class ContractLocationAmbiguityError extends Error {
 export class ContractValidationError extends Error {
   readonly name = 'ContractValidationError';
   readonly field: 'id' | 'subtasks' | 'verification';
-  readonly kind: 'empty' | 'already_exists' | 'missing' | 'duplicate' | 'config_missing_field';
+  readonly kind: 'empty' | 'already_exists' | 'missing' | 'duplicate' | 'config_missing_field' | 'invalid_asset_name';
   readonly context?: Record<string, string>;
 
   constructor(

@@ -364,6 +364,20 @@ export interface CreateContractOptions {
   contract: ContractYaml;
   subagentTaskId?: string;
   clawDir?: string;
+  /**
+   * Phase 1911 Step F（RACE-CONTRACT-DIR-ASSET-PUBLISH-ORDER）：verifier 资产
+   * 作为创建 intent 的一部分提交。字节在 create 内先落 owner 控制的 durable
+   * staging（`.creating-assets/`），manifest（name+bytes）记入 `.creating`
+   * intent，全部核验并移入 `verification/` 后才 publish（删 claim）。
+   * 崩溃恢复以 intent manifest + staging 字节为唯一事实，不依赖外部源路径。
+   */
+  verificationAssets?: readonly VerificationAssetInput[];
+}
+
+/** create 输入侧的 verifier 资产（name 必须是不含路径分隔符的裸文件名）。 */
+export interface VerificationAssetInput {
+  name: string;
+  content: string;
 }
 
 // ============================================================================

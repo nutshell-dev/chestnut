@@ -121,6 +121,8 @@ import {
   findArchiveCollisionLocation,
   isAlreadyExists,
   materializeClaimedCreation,
+  materializeVerificationAssets,
+  stageVerificationAssets,
   publishCreation,
   serializeCreationIntent,
   recoverUnpublishedCreation,
@@ -1336,7 +1338,25 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     }
 
     const startedAt = new Date().toISOString();
-    const intent = buildCreationIntent(contractYaml, contractId, startedAt);
+    // Phase 1911 Step F（RACE-CONTRACT-DIR-ASSET-PUBLISH-ORDER）：verifier 资产
+    // 随创建 intent 提交。owner 侧防御性校验资产名（裸文件名、不越界、不重复），
+    // manifest 记入 durable intent，字节落 `.creating-assets/` staging。
+    const assets = opts.verificationAssets ?? [];
+    const seenAssetNames = new Set<string>();
+    for (const asset of assets) {
+      if (
+        !asset.name ||
+        asset.name !== path.basename(asset.name) ||
+        asset.name.startsWith('.') ||
+        seenAssetNames.has(asset.name)
+      ) {
+        throw new ContractValidationError('verification', 'invalid_asset_name',
+          `verification asset name "${asset.name}" must be a unique plain file name (no path separators, no dot-files)`,
+          { assetName: asset.name });
+      }
+      seenAssetNames.add(asset.name);
+    }
+    const intent = buildCreationIntent(contractYaml, contractId, startedAt, assets);
 
     // Phase 1197: exclusive claim grants creation authority.
     try {
@@ -1374,7 +1394,14 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     }
 
     try {
+      // Phase 1911 Step F：资产字节先于 publish 落 durable staging 并移入
+      // verification/；消费者见到 published 合同时 verifier 资产必然完整。
+      await stageVerificationAssets({ fs: this.fs, activeDir: this.activeDir, contractId, assets });
       await materializeClaimedCreation({ fs: this.fs, activeDir: this.activeDir, contractId, intent });
+      const assetsResult = await materializeVerificationAssets({ fs: this.fs, activeDir: this.activeDir, contractId, intent });
+      if (assetsResult === 'incomplete') {
+        throw new Error(`verification assets staging incomplete for contract "${contractId}" (fail-closed, evidence preserved)`);
+      }
       await publishCreation({ fs: this.fs, activeDir: this.activeDir, contractId });
     } catch (err) {
       emitContractCreationInterrupted(this.audit, {
