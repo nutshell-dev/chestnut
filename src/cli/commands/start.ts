@@ -48,7 +48,12 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
-import { readOnboardingStatus, ONBOARDING_CONTRACT_ID, type OnboardingStatus } from '../../core/contract/index.js';
+import {
+  readOnboardingStatus,
+  resolveOnboardingIdentity,
+  ONBOARDING_CONTRACT_ID,
+  type OnboardingStatus,
+} from '../../core/contract/index.js';
 import { ContractValidationError } from '../../core/contract/index.js';
 import type { ContractYaml } from '../../core/contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -151,6 +156,22 @@ export async function ensureOnboardingContract(
   motionDir: string,
   contract: ContractYaml,
 ): Promise<{ contractId: string; created: boolean }> {
+  // Phase 1911 Step I（RACE-ONBOARDING-LEGACY-ID-MIGRATION）：创建授权必须消费
+  // owner 唯一性裁决——不用 title 扫描快照（首个命中即返回）授权 stable create。
+  // 旧随机 active/archive、损坏证据、未发布异 id claim 都在此 fail-closed 或复用，
+  // 与 stable contract 不能静默并存。
+  const verdict = resolveOnboardingIdentity(motionDir, deps);
+  if (verdict.kind === 'conflict') {
+    throw new Error(
+      `onboarding identity conflict: ${verdict.detail}; ` +
+      `candidates=[${verdict.candidates.join(', ')}]; evidence preserved, not overwritten`,
+    );
+  }
+  if (verdict.kind === 'unique') {
+    // 既有业务身份（含 legacy 随机 id / 已完成 archive）→ 复用转 resume，不另建 stable
+    return { contractId: verdict.contractId, created: false };
+  }
+
   try {
     const contractId = await action.system.create({
       ...contract,

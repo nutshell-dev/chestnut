@@ -8,6 +8,14 @@
  * - claim-only 崩溃窗口（.creating 残留）→ owner recoverCreation 重建后 resume
  * - 损坏 claim → fail-closed（indeterminate），证据保留不覆盖
  * - ContractSystem.recoverCreation 单 id 语义：absent/published/recovered/failed
+ *
+ * Phase 1911 Step I（RACE-ONBOARDING-LEGACY-ID-MIGRATION）：唯一性裁决
+ * - legacy 随机 active in_progress → 复用转 resume，不另建 stable
+ * - stable + legacy 双候选 → typed conflict，双方证据不动
+ * - legacy archive 完成态 → 复用不重建
+ * - 损坏 legacy active → conflict fail-closed，证据字节保留
+ * - legacy 未发布 `.creating` claim（title=Onboarding）→ conflict 留证
+ * - 双 legacy active → conflict
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'fs';
@@ -161,5 +169,105 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
 
     await system.create({ ...onboardingYaml(), id: ONBOARDING_CONTRACT_ID });
     expect(await system.recoverCreation(ONBOARDING_CONTRACT_ID)).toBe('published');
+  });
+
+  // ---- Phase 1911 Step I：legacy 随机 id 唯一性治理 ----
+
+  async function writeLegacyActiveContract(id: string, opts?: { pending?: boolean; corruptProgress?: boolean }): Promise<string> {
+    const root = path.join(motionDir, 'contract', 'active', id);
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(path.join(root, 'contract.yaml'), `schema_version: 1\ntitle: Onboarding\ngoal: legacy\n`);
+    if (opts?.corruptProgress) {
+      await fs.writeFile(path.join(root, 'progress.json'), 'not-json{');
+    } else {
+      const subtasks = opts?.pending === false ? {} : { 'task-1': { status: 'pending' } };
+      await fs.writeFile(path.join(root, 'progress.json'), JSON.stringify({ subtasks }));
+    }
+    return root;
+  }
+
+  async function writeLegacyArchiveCompleted(id: string): Promise<string> {
+    const root = path.join(motionDir, 'contract', 'archive', 'completed', id);
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(path.join(root, 'contract.yaml'), `schema_version: 1\ntitle: Onboarding\ngoal: legacy\n`);
+    await fs.writeFile(path.join(root, 'progress.json'), JSON.stringify({ subtasks: {} }));
+    return root;
+  }
+
+  it('legacy 随机 active in_progress：复用转 resume，不另建 stable', async () => {
+    await writeLegacyActiveContract('legacy-random-1');
+
+    const result = await ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml());
+    expect(result.created).toBe(false);
+    expect(result.contractId).toBe('legacy-random-1');
+
+    // stable id 未被创建，legacy 物理路径保留
+    const activeEntries = await fs.readdir(path.join(motionDir, 'contract', 'active'));
+    expect(activeEntries).toEqual(['legacy-random-1']);
+  });
+
+  it('stable + legacy 双候选：typed conflict，双方证据不动', async () => {
+    const system = makeSystem();
+    await system.create({ ...onboardingYaml(), id: ONBOARDING_CONTRACT_ID });
+    const legacyRoot = await writeLegacyActiveContract('legacy-random-2');
+
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/identity conflict/);
+
+    // stable 合同与 legacy 目录均原样保留
+    const stableYaml = await fs.readFile(
+      path.join(motionDir, 'contract', 'active', ONBOARDING_CONTRACT_ID, 'contract.yaml'),
+      'utf-8',
+    );
+    expect(stableYaml).toContain('title: Onboarding');
+    expect(await fs.readFile(path.join(legacyRoot, 'contract.yaml'), 'utf-8')).toContain('goal: legacy');
+  });
+
+  it('legacy archive 完成态：复用不重建', async () => {
+    await writeLegacyArchiveCompleted('legacy-done-1');
+
+    const result = await ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml());
+    expect(result.created).toBe(false);
+    expect(result.contractId).toBe('legacy-done-1');
+
+    // active 下没有新建任何合同
+    await expect(fs.access(path.join(motionDir, 'contract', 'active'))).rejects.toThrow();
+  });
+
+  it('损坏 legacy active：conflict fail-closed，证据字节保留', async () => {
+    const root = await writeLegacyActiveContract('legacy-corrupt-1', { corruptProgress: true });
+
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/damaged/);
+
+    expect(await fs.readFile(path.join(root, 'progress.json'), 'utf-8')).toBe('not-json{');
+    await expect(fs.access(path.join(motionDir, 'contract', 'active', ONBOARDING_CONTRACT_ID))).rejects.toThrow();
+  });
+
+  it('legacy 未发布 .creating claim（title=Onboarding）：conflict 留证', async () => {
+    const root = path.join(motionDir, 'contract', 'active', 'legacy-creating-1');
+    await fs.mkdir(root, { recursive: true });
+    const claim = JSON.stringify({ contract_id: 'legacy-creating-1', contract: { title: 'Onboarding' } });
+    await fs.writeFile(path.join(root, CREATION_CLAIM_FILE), claim);
+
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/unpublished/);
+
+    expect(await fs.readFile(path.join(root, CREATION_CLAIM_FILE), 'utf-8')).toBe(claim);
+  });
+
+  it('双 legacy active 候选：conflict，不任意选择一个', async () => {
+    await writeLegacyActiveContract('legacy-dual-a');
+    await writeLegacyActiveContract('legacy-dual-b');
+
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/multiple onboarding identities/);
+
+    const activeEntries = (await fs.readdir(path.join(motionDir, 'contract', 'active'))).sort();
+    expect(activeEntries).toEqual(['legacy-dual-a', 'legacy-dual-b']);
   });
 });

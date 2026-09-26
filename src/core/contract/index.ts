@@ -103,8 +103,10 @@ export { queryArchiveContracts } from './archive-query.js';
 
 export {
   readOnboardingStatus,
+  resolveOnboardingIdentity,
   ONBOARDING_CONTRACT_ID,
   type OnboardingStatus,
+  type OnboardingIdentityVerdict,
 } from './onboarding-discovery.js';
 
 export { listArchiveContractLocations, archiveContainerDir } from './locations.js';
