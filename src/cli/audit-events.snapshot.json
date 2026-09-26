@@ -820,6 +820,7 @@
       "skill_duplicate_rejected",
       "skill_load_failed",
       "skill_namespace_invalid",
+      "skill_publish_in_progress_skipped",
       "skill_registry_loaded",
       "skill_rescan_aborted",
       "skill_version_invalid"
