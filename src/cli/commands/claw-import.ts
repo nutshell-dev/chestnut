@@ -71,53 +71,86 @@ export async function importCommand(
   const clawspaceFs = deps.fsFactory(clawspaceDir);
   const existing = await tryStat(clawspaceFs, relFromClawspace);
   if (existing) {
+    // Phase 1911 Step E：区分中断 import 的 claim 残留（证据路径可操作）与
+    // 用户既有目标（拒绝语义不变）
+    if (existing.isDirectory) {
+      const leftover = await tryStat(clawspaceFs, `${relFromClawspace}/.import-claim`);
+      if (leftover) {
+        throw new CliError(
+          `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
+          `(claim evidence: ${relFromClawspace}/.import-claim); inspect and remove it to retry`,
+        );
+      }
+    }
     throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
   }
 
   if (srcStat.isDirectory) {
-    // Phase 1910 Step F（RACE-CLAW-IMPORT-TARGET-CHECK）：目录级目标占有 +
-    // staging 发布协议，替代 check-then-copy：
-    //   1. O_EXCL claim（`.<name>.importing`）——同一目标只有一次 import 占有，
-    //      并发/中断残留立即 typed 冲突并保留证据；
-    //   2. 复制进唯一 staging 目录（同文件系统根内）；读失败保留 staging+claim，
-    //      不触碰已存在目标；
-    //   3. 同根 rename 原子发布；目标中途出现（非空）→ rename 失败 → 显式冲突，
-    //      不覆盖。
+    // Phase 1911 Step E（RACE-CLAW-IMPORT-EMPTY-TARGET-REPLACE）：no-replace
+    // 目录发布协议。POSIX/Node 无 rename-no-replace flag，唯一原子「路径不存在
+    // 才成功」的目录原语是 mkdir —— 因此目标路径本身先被 mkdir 独占（空目录
+    // 亦冲突），复制仍在隐藏 staging 进行，发布前核验 claim 未被外部写入，
+    // 最后 rename 替换的是我们自己的空 claim 目录：
+    //   1. mkdirExclusiveSync(srcName) —— 提交裁决点；任何已存在目标
+    //      （文件/空目录/非空目录）→ typed 冲突，目标原样保留；
+    //   2. claim 内写 `<target>/.import-claim`（token）—— 崩溃窗口可区分
+    //      「中断的 import claim」与「用户既有目录」；
+    //   3. 隐藏 staging 复制；读失败保留 claim+staging 证据，不触碰目标；
+    //   4. 发布前核验 claim 目录仍只含我们的 claim 文件（外部写入 → 冲突留证）；
+    //   5. 删 claim 文件 → rename staging 替换我们的空 claim 目录；目标在
+    //      核验后一旦被写入任何内容，rename 必失败（ENOTEMPTY）→ 冲突留证。
+    // 已知残余：删空 claim 目录与 rename 之间为相邻系统调用窗口，外部恰好
+    // 重建空目录才会被替换 —— 损失仅限空占位目录，无用户数据；完整 copy
+    // 窗口（秒级）已由 mkdir 独占完全关闭。
     const destParentFs = deps.fsFactory(destParent);
     await destParentFs.ensureDir('.');
-    const claimName = `.${srcName}.importing`;
+    const claimRel = `${srcName}/.import-claim`;
     const stageName = `.import-staging-${newShortUuid()}`;
+    const myToken = newShortUuid();
     try {
-      destParentFs.writeExclusiveSync(claimName, JSON.stringify({
-        pid: process.pid,
-        createdAt: new Date().toISOString(),
-        source: srcAbs,
-        target: displayRel,
-      }, null, 2));
+      destParentFs.mkdirExclusiveSync(srcName);
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
-        throw new CliError(
-          `"${displayRel}" import already in progress or was interrupted in ${clawName}/clawspace/ ` +
-          `(claim: ${claimName}); inspect the claim/staging evidence and remove it to retry`,
-        );
+        // pre-check 后目标才出现：区分中断 claim 残留与用户既有目标（不自动清理）
+        const leftover = await tryStat(destParentFs, claimRel);
+        if (leftover) {
+          throw new CliError(
+            `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
+            `(claim evidence: ${claimRel}); inspect and remove it to retry`,
+          );
+        }
+        throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
       }
       throw err;
     }
+    destParentFs.writeExclusiveSync(claimRel, JSON.stringify({
+      token: myToken,
+      pid: process.pid,
+      createdAt: new Date().toISOString(),
+      source: srcAbs,
+      target: displayRel,
+    }, null, 2));
     try {
       await copyDir(deps, srcAbs, path.join(destParent, stageName), stats);
+      // 发布前核验：claim 目录仍只含我们的 claim 文件（外部写入 → 显式冲突）
+      const claimEntries = destParentFs.listSync(srcName).map((e) => e.name).sort();
+      const claimRaw = destParentFs.readSync(claimRel);
+      const claimToken = (JSON.parse(claimRaw) as { token?: string }).token;
+      if (claimEntries.length !== 1 || claimEntries[0] !== '.import-claim' || claimToken !== myToken) {
+        throw new CliError(
+          `"${displayRel}" claim directory was modified during import in ${clawName}/clawspace/; ` +
+          `conflict — target left untouched, evidence preserved at ${path.join(destParent, srcName)}`,
+        );
+      }
+      destParentFs.deleteSync(claimRel);
       await destParentFs.moveDir(stageName, srcName);
     } catch (err) {
-      // fail-closed：保留 staging + claim 证据交 owner recovery，不静默删除未完成事实
+      if (err instanceof CliError) throw err;
+      // fail-closed：保留 claim 目录 + staging 证据交 owner recovery，不静默删除
       throw new CliError(
         `Import of "${displayRel}" failed: ${formatErr(err)}; ` +
-        `evidence preserved at ${path.join(destParent, stageName)} and ${path.join(destParent, claimName)}`,
+        `evidence preserved at ${path.join(destParent, srcName)} and ${path.join(destParent, stageName)}`,
       );
-    }
-    try {
-      destParentFs.deleteSync(claimName);
-    } catch (err) {
-      // best-effort：claim 释放失败不影响已发布事实，残留按中断证据由 owner recovery 处理
-      console.warn(`Warning: failed to release import claim ${claimName}: ${formatErr(err)}`);
     }
     const sizeStr = stats.bytes >= 1024
       ? `${(stats.bytes / 1024).toFixed(1)} KB`

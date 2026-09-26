@@ -638,6 +638,12 @@ export class NodeFileSystem implements FileSystem {
     fsSync.mkdirSync(absolute, { recursive: true });
   }
 
+  mkdirExclusiveSync(relativePath: string): void {
+    const absolute = this.resolveAndCheck(relativePath);
+    fsSync.mkdirSync(path.dirname(absolute), { recursive: true }); // 对称 writeExclusiveSync 的父目录 invariant
+    fsSync.mkdirSync(absolute); // 无 recursive：目标已存在（含空目录）→ EEXIST 原样上抛
+  }
+
   listSync(relativePath: string, options?: {
     recursive?: boolean;
     includeDirs?: boolean;

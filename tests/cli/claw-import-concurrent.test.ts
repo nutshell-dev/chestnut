@@ -73,21 +73,49 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
     // winner 发布完整快照；claim/staging 不残留
     expect(fs.readFileSync(path.join(clawspaceDir(), 'src-bundle', 'a.txt'), 'utf-8')).toBe('alpha');
     expect(fs.readFileSync(path.join(clawspaceDir(), 'src-bundle', 'b.txt'), 'utf-8')).toBe('beta');
-    expect(fs.existsSync(path.join(clawspaceDir(), '.src-bundle.importing'))).toBe(false);
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', '.import-claim'))).toBe(false);
     expect(
       fs.readdirSync(clawspaceDir()).filter((n) => n.startsWith('.import-staging-')),
     ).toEqual([]);
   });
 
+  it('empty dir target already present: no-replace conflict, empty dir preserved as-is (Phase 1911)', async () => {
+    // rename(emptySrc, emptyDest) 在 POSIX 会成功 —— mkdirExclusive 在路径占有
+    // 裁决点直接拒绝任何已存在目标（含空目录）
+    const emptyTarget = path.join(clawspaceDir(), 'src-bundle');
+    fs.mkdirSync(emptyTarget, { recursive: true });
+
+    await expect(
+      importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/already exists/);
+
+    // 空目录原样保留，未被 staging 内容替换
+    expect(fs.readdirSync(emptyTarget)).toEqual([]);
+  });
+
+  it('interrupted claim-only crash window: typed conflict with evidence path, nothing overwritten', async () => {
+    const target = path.join(clawspaceDir(), 'src-bundle');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, '.import-claim'), JSON.stringify({ token: 'crashed' }));
+
+    await expect(
+      importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/already in progress or was interrupted/);
+
+    // claim 证据保留，等待 owner recovery（不自动清理）
+    expect(fs.existsSync(path.join(target, '.import-claim'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
+  });
+
   it('target appears mid-copy (non-empty): publish rename fails closed, evidence preserved, target untouched', async () => {
-    // 包装 destParent fs：moveDir 前先在目标放入外部内容，模拟 copy 窗口内目标被创建
+    // 包装 destParent fs：moveDir 前往我们的 claim 目录里塞外部内容，模拟
+    // copy 窗口内 claim 目录被外部写入 → rename 对非空目标必失败
     const destParent = clawspaceDir();
     const racingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
       if (path.resolve(baseDir) === path.resolve(destParent)) {
         const origMoveDir = real.moveDir.bind(real);
         real.moveDir = async (from: string, to: string) => {
-          fs.mkdirSync(path.join(destParent, to), { recursive: true });
           fs.writeFileSync(path.join(destParent, to, 'external.txt'), 'external');
           return origMoveDir(from, to);
         };
@@ -97,12 +125,11 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
 
     await expect(
       importCommand(makeClawCommandDeps(racingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
-    ).rejects.toThrow(/failed.*evidence preserved/s);
+    ).rejects.toThrow(/(failed|modified).*evidence preserved/s);
 
-    // 已存在目标不被覆盖；staging + claim 证据保留，不静默删除
+    // 外部内容不被覆盖；claim + staging 证据保留，不静默删除
     expect(fs.readFileSync(path.join(destParent, 'src-bundle', 'external.txt'), 'utf-8')).toBe('external');
     expect(fs.existsSync(path.join(destParent, 'src-bundle', 'a.txt'))).toBe(false);
-    expect(fs.existsSync(path.join(destParent, '.src-bundle.importing'))).toBe(true);
     expect(
       fs.readdirSync(destParent).filter((n) => n.startsWith('.import-staging-')),
     ).toHaveLength(1);
@@ -127,8 +154,9 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
     ).rejects.toThrow(/failed.*evidence preserved/s);
 
     const destParent = clawspaceDir();
-    expect(fs.existsSync(path.join(destParent, 'src-bundle'))).toBe(false);
-    expect(fs.existsSync(path.join(destParent, '.src-bundle.importing'))).toBe(true);
+    // 不发布半成品；claim 目录 + staging 证据保留
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', 'a.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', '.import-claim'))).toBe(true);
     expect(
       fs.readdirSync(destParent).filter((n) => n.startsWith('.import-staging-')),
     ).toHaveLength(1);

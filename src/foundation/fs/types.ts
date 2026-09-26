@@ -325,6 +325,14 @@ export interface FileSystem {
   ensureDirSync(path: string): void;
 
   /**
+   * Phase 1911 Step E：no-replace 目录创建原语（目标路径独占 claim）。
+   * 目标已存在（文件/空目录/非空目录）→ throw EEXIST；父目录自动创建
+   * （对齐 writeExclusiveSync 对称 invariant）。这是平台无 rename-no-replace
+   * flag 时唯一原子「目录路径不存在才成功」的提交点。
+   */
+  mkdirExclusiveSync(path: string): void;
+
+  /**
    * List directory contents synchronously.
    * @param path - Relative path within configured baseDir
    * @param options - Listing options
