@@ -18,6 +18,13 @@
  *   marker 判定：state=published 或 publishing 且 marker 已缺席（提交完成于
  *   崩溃前）的目标绝不重写——保护 post-install 用户编辑；holder 已死且
  *   source payload 相同才自动恢复，payload 不同一律显式冲突留证；
+ * - source 先 materialize 成本次安装独占的不可变快照（Phase 1915 Step C，
+ *   RACE-DISPATCH-SOURCE-SNAPSHOT；foundation 约定目录前缀
+ *   SKILL_SOURCE_SNAPSHOT_PREFIX）：快照 manifest 经 live source 复核自一致
+ *   后才成为权威 payload（快照即 source identity，随 intent 持久化）；
+ *   快照期间 source 变化 → 有界重试，仍不稳定 → fail-closed；恢复优先复用
+ *   持久快照（编辑前完整版本），快照缺失且 live source 已偏离 intent
+ *   payload → 显式冲突留证；
  * - 成功 audit/输出只在目标集合全部 published 后发出。
  */
 
@@ -25,7 +32,7 @@ import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER } from '../../foundation/skill-system/index.js';
+import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER, SKILL_SOURCE_SNAPSHOT_PREFIX } from '../../foundation/skill-system/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { newShortUuid, sha256Hex, formatErr } from '../../foundation/node-utils/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -53,6 +60,8 @@ interface SkillInstallIntent {
   process_start_time?: string;
   startedAt: string;
   manifest: SkillSourceManifestEntry[];
+  /** Phase 1915 Step C：source snapshot 目录名（claim 同级隐藏目录）= 本次安装的 source identity。 */
+  sourceSnapshot?: string;
   // Phase 1915 Step B：publishing = 已开始向该目标写入（崩溃窗口可区分
   // 「本 intent 已提交但未来得及登记」与「本 intent 尚未触碰该目标」）。
   targets: { id: string; state: 'pending' | 'publishing' | 'published' }[];
@@ -65,6 +74,99 @@ function computeSkillSourceManifest(sourceFs: FileSystem): SkillSourceManifestEn
     .filter((e) => e.isFile)
     .map((e) => ({ path: e.path, size: e.size, sha256: sha256Hex(sourceFs.readSync(e.path)) }))
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/* ---------- Phase 1915 Step C: stable source snapshot ---------- */
+
+/** source 快照物化的有界重试次数（source 在快照期间持续变化 → fail-closed）。 */
+const SOURCE_SNAPSHOT_MAX_ATTEMPTS = 3;
+
+/**
+ * 把可变 source materialize 成本次安装独占的不可变快照目录
+ * （RACE-DISPATCH-SOURCE-SNAPSHOT）。
+ *
+ * 一致性协议（普通文件系统无目录树事务快照，两个提交点分离）：
+ * 1. copyDir live source → 快照目录；
+ * 2. 从快照计算 manifest（= 实际将发布的内容）；
+ * 3. 复核 live source manifest 仍等于快照 manifest——不等 = 快照期间 source
+ *    被编辑（Motion 合法编辑 dispatch pool），删除半成品快照并重试；
+ * 4. 超过有界重试仍不稳定 → typed fail-closed，调用方稍后重试。
+ * expectedManifest 非 null 时（恢复重建路径）快照还必须等于 intent payload，
+ * 否则显式冲突（调用方已前置判读，此处为不变量兜底）。
+ * 残余边界：source「改了又改回完全相同字节」的 ABA 在普通 FS 上不可检测，
+ * 属平台限制而非相邻检查掩盖——快照内容本身始终是自一致版本。
+ */
+async function materializeSourceSnapshot(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  srcAbs: string,
+  snapshotAbs: string,
+  expectedManifest: SkillSourceManifestEntry[] | null,
+): Promise<SkillSourceManifestEntry[]> {
+  const parentFs = deps.fsFactory(path.dirname(snapshotAbs));
+  const snapBase = path.basename(snapshotAbs);
+  await parentFs.ensureDir('.');
+  for (let attempt = 1; attempt <= SOURCE_SNAPSHOT_MAX_ATTEMPTS; attempt++) {
+    await parentFs.removeDir(snapBase).catch(() => {
+      // silent: 清理上一趟半成品快照失败不掩盖后续重试；残留可人工删
+    });
+    try {
+      await copyDir(deps, srcAbs, snapshotAbs);
+    } catch {
+      continue; // 复制中途 source 文件被改/删 → 视为快照期间变化，重试
+    }
+    const snapManifest = computeSkillSourceManifest(deps.fsFactory(snapshotAbs));
+    let liveAfter: SkillSourceManifestEntry[];
+    try {
+      liveAfter = computeSkillSourceManifest(deps.fsFactory(srcAbs));
+    } catch {
+      continue; // 复核时 source 不可读 → 视为快照期间变化，重试
+    }
+    if (JSON.stringify(snapManifest) !== JSON.stringify(liveAfter)) continue;
+    if (expectedManifest !== null &&
+        JSON.stringify(snapManifest) !== JSON.stringify(expectedManifest)) {
+      throw new CliError(
+        `Skill source "${srcAbs}" no longer matches the interrupted install payload; ` +
+        `evidence preserved, inspect and remove the claim to retry`,
+      );
+    }
+    return snapManifest;
+  }
+  await parentFs.removeDir(snapBase).catch(() => {
+    // silent: 失败快照非证据（不含目标字节），清理失败可人工删
+  });
+  throw new CliError(
+    `Skill source "${srcAbs}" kept changing while taking a consistent snapshot ` +
+    `(${SOURCE_SNAPSHOT_MAX_ATTEMPTS} attempts); retry the install`,
+  );
+}
+
+/**
+ * 清扫同名 skill 的陈旧 source snapshot（claim 已串行化同名安装，未被当前
+ * intent 引用的快照属孤儿——如「快照完成、claim 写入前崩溃」窗口的残留）。
+ * best-effort：清扫失败不影响主流程。
+ */
+function sweepStaleSourceSnapshots(
+  claimFs: FileSystem,
+  claimDirRel: string,
+  skillName: string,
+  keepName: string | undefined,
+): void {
+  const prefix = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${skillName}-`;
+  let entries: { name: string; isDirectory: boolean }[];
+  try {
+    entries = claimFs.listSync(claimDirRel);
+  } catch {
+    return; // silent: 列表失败不阻塞安装；残留快照可人工删
+  }
+  for (const e of entries) {
+    if (!e.isDirectory || !e.name.startsWith(prefix)) continue;
+    if (keepName !== undefined && e.name === keepName) continue;
+    try {
+      claimFs.removeDirSync(`${claimDirRel}/${e.name}`);
+    } catch {
+      // silent: 单条目清理失败不阻塞；残留可人工删
+    }
+  }
 }
 
 /**
@@ -87,6 +189,8 @@ async function publishSkillDirSwap(
   srcAbs: string,
   destAbs: string,
   manifest: SkillSourceManifestEntry[],
+  /** marker 证据记录的原始 source（srcAbs 可能是本方快照目录）。 */
+  originSourceAbs?: string,
 ): Promise<void> {
   const parent = path.dirname(destAbs);
   const base = path.basename(destAbs);
@@ -117,7 +221,7 @@ async function publishSkillDirSwap(
     }
     const markerRel = `${base}/${SKILL_PUBLISH_MARKER}`;
     parentFs.writeAtomicSync(markerRel, JSON.stringify({
-      source: srcAbs,
+      source: originSourceAbs ?? srcAbs,
       manifestHash: sha256Hex(JSON.stringify(manifest)),
       startedAt: new Date().toISOString(),
     }, null, 2));
@@ -194,8 +298,13 @@ async function publishSkillDirSwap(
 }
 
 /**
- * per-skill claim + durable intent 驱动的多目标一致提交。
+ * per-skill claim + durable intent 驱动的逐目标独立提交。
  * 返回各目标安装前的 exists 快照（供 Installed/Updated 输出）。
+ *
+ * Phase 1915 Step C：source 先 materialize 成不可变快照（快照即 source
+ * identity，随 intent 持久化），发布与恢复都只从快照读取——Motion 在复制
+ * 期间编辑 dispatch pool 时，Claw 要么得到编辑前/后的完整一致版本，要么
+ * 得到明确冲突/重试信号，绝不得到混合文件。
  */
 async function runSkillInstall(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -207,33 +316,109 @@ async function runSkillInstall(
     targets: { id: string; absPath: string }[];
   },
 ): Promise<{ resumed: boolean }> {
-  const sourceFs = deps.fsFactory(opts.srcAbs);
-  const manifest = computeSkillSourceManifest(sourceFs);
+  const claimDirRel = path.posix.dirname(opts.claimRel);
+  const claimParentAbs = path.dirname(opts.claimFs.resolve(opts.claimRel));
 
-  let intent: SkillInstallIntent;
+  let intent: SkillInstallIntent | undefined;
   let resumed = false;
+  let snapshotAbs: string | null = null;
+
+  // claim 是否已在场（恢复/冲突判读路径）——typed 探测：缺席之外的未知 I/O
+  // 错误原样上抛，不当「可写入」处理
+  let claimExisted = true;
   try {
-    intent = {
+    opts.claimFs.statSync(opts.claimRel);
+  } catch (err) {
+    if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') {
+      claimExisted = false;
+    } else {
+      throw err;
+    }
+  }
+
+  if (!claimExisted) {
+    // ---- fresh：先拍自一致快照（快照 manifest = 权威 payload），再独占写 claim ----
+    const token = newShortUuid();
+    const snapName = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${opts.skillName}-${token}`;
+    const snapAbs = path.join(claimParentAbs, snapName);
+    const manifest = await materializeSourceSnapshot(deps, opts.srcAbs, snapAbs, null);
+    const fresh: SkillInstallIntent = {
       schema_version: 1,
-      token: newShortUuid(),
+      token,
       skillName: opts.skillName,
       source: opts.srcAbs,
       pid: process.pid,
       process_start_time: getProcessStartTime(process.pid),
       startedAt: new Date().toISOString(),
       manifest,
+      sourceSnapshot: snapName,
       targets: opts.targets.map((t) => ({ id: t.id, state: 'pending' as const })),
     };
-    opts.claimFs.writeExclusiveSync(opts.claimRel, JSON.stringify(intent, null, 2));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
-    // claim 已存在：读 durable intent 判读 —— 活 holder 冲突；死 holder +
-    // 同 payload 恢复；死 holder + 异 payload 显式冲突留证。
-    intent = readExistingInstallIntent(opts.claimFs, opts.claimRel, opts.skillName, manifest);
-    resumed = true;
+    try {
+      opts.claimFs.writeExclusiveSync(opts.claimRel, JSON.stringify(fresh, null, 2));
+      intent = fresh;
+      snapshotAbs = snapAbs;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+      // 快照与 claim 写入之间出现并发 holder → 本方快照让位，转入恢复判读
+      await deps.fsFactory(claimParentAbs).removeDir(snapName).catch(() => {
+        // silent: 本方快照清理失败不掩盖冲突判读；残留由 winner 清扫
+      });
+    }
   }
 
-  for (const target of intent.targets) {
+  if (intent === undefined) {
+    // claim 已存在：读 durable intent 判读 —— 活 holder 冲突；死 holder +
+    // 同 source 恢复（快照身份核验在下方）；异 source 显式冲突留证。
+    intent = readExistingInstallIntent(opts.claimFs, opts.claimRel, opts.skillName);
+    resumed = true;
+    if (intent.source !== opts.srcAbs) {
+      throw new CliError(
+        `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
+        `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
+      );
+    }
+    const needsPublish = intent.targets.some((t) => t.state !== 'published');
+    if (needsPublish) {
+      // 优先复用持久快照（= 中断时的 source identity）：即使 live source 已被
+      // 合法编辑，恢复仍完成「编辑前的完整版本」，不混入新字节。
+      if (typeof intent.sourceSnapshot === 'string' && intent.sourceSnapshot !== '') {
+        const candidate = path.join(claimParentAbs, intent.sourceSnapshot);
+        if (await deps.fsFactory(candidate).stat('.').catch(() => null) !== null) {
+          const snapManifest = computeSkillSourceManifest(deps.fsFactory(candidate));
+          if (JSON.stringify(snapManifest) !== JSON.stringify(intent.manifest)) {
+            throw new CliError(
+              `Skill "${opts.skillName}" source snapshot "${intent.sourceSnapshot}" does not match ` +
+              `its install intent (claim: ${opts.claimRel}); conflict — evidence preserved`,
+            );
+          }
+          snapshotAbs = candidate;
+        }
+      }
+      if (snapshotAbs === null) {
+        // 快照缺失 → live source 必须仍等于 intent payload 才能重建；
+        // source generation 已变化 → 显式冲突，不把新字节归入旧 intent
+        const liveManifest = computeSkillSourceManifest(deps.fsFactory(opts.srcAbs));
+        if (JSON.stringify(liveManifest) !== JSON.stringify(intent.manifest)) {
+          throw new CliError(
+            `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
+            `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
+          );
+        }
+        const snapName = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${opts.skillName}-${intent.token}`;
+        snapshotAbs = path.join(claimParentAbs, snapName);
+        await materializeSourceSnapshot(deps, opts.srcAbs, snapshotAbs, intent.manifest);
+        intent.sourceSnapshot = snapName;
+        opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+      }
+    }
+  }
+
+  // 清扫同名陈旧快照（claim 串行化同名安装，未被当前 intent 引用的快照属孤儿）
+  sweepStaleSourceSnapshots(opts.claimFs, claimDirRel, opts.skillName, intent.sourceSnapshot);
+
+  if (snapshotAbs !== null) {
+    for (const target of intent.targets) {
     if (target.state === 'published') continue;
     const abs = opts.targets.find((t) => t.id === target.id)?.absPath;
     if (!abs) {
@@ -268,9 +453,15 @@ async function runSkillInstall(
     }
     target.state = 'publishing';
     opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
-    await publishSkillDirSwap(deps, intent.source, abs, intent.manifest);
+    await publishSkillDirSwap(deps, snapshotAbs, abs, intent.manifest, intent.source);
     target.state = 'published';
     opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+    }
+
+    // 全部目标发布完成 → 快照使命结束（失败/冲突路径保留快照供恢复）
+    await deps.fsFactory(claimParentAbs).removeDir(path.basename(snapshotAbs)).catch(() => {
+      // silent: 快照清理失败不影响已发布事实；残留 `.skill-srcsnap-*` 可人工删
+    });
   }
 
   try {
@@ -284,14 +475,14 @@ async function runSkillInstall(
 }
 
 /**
- * 判读既有 claim：活 holder → in-progress 冲突；死 holder + 同 manifest →
- * 恢复（沿用 intent，重写 holder 身份）；其余 → 显式冲突保留证据。
+ * 判读既有 claim：活 holder → in-progress 冲突；死 holder → 接管 holder 身份
+ * 后交调用方做 payload 判读（Phase 1915 Step C：持久快照在场时恢复不再依赖
+ * live source 未变）；claim 不可读/不可解析 → 显式留证。
  */
 function readExistingInstallIntent(
   claimFs: FileSystem,
   claimRel: string,
   skillName: string,
-  manifest: SkillSourceManifestEntry[],
 ): SkillInstallIntent {
   let raw: string;
   try {
@@ -322,13 +513,13 @@ function readExistingInstallIntent(
     );
   }
   // holder 已证明死亡
-  if (intent.skillName !== skillName || JSON.stringify(intent.manifest) !== JSON.stringify(manifest)) {
+  if (intent.skillName !== skillName) {
     throw new CliError(
       `Skill "${skillName}" has an interrupted install with a different source payload ` +
       `(claim: ${claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
     );
   }
-  // 同 payload 恢复：接管 holder 身份后继续未完成目标
+  // 接管 holder 身份；payload 判读（source 路径 + 快照身份/generation）归调用方
   intent.pid = process.pid;
   intent.process_start_time = getProcessStartTime(process.pid);
   intent.token = newShortUuid();

@@ -414,3 +414,159 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
     expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
   });
 });
+
+
+describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SNAPSHOT）', () => {
+  function makeClaw(id: string): void {
+    fs.mkdirSync(path.join(testDir, '.chestnut', 'claws', id), { recursive: true });
+  }
+  function clawSkillDir(id: string): string {
+    return path.join(testDir, '.chestnut', 'claws', id, 'skills', 'myskill');
+  }
+  function clawClaimPath(id: string): string {
+    return path.join(testDir, '.chestnut', 'claws', id, 'skills', '.myskill.installing');
+  }
+  function killHolder(claimFile: string): void {
+    const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
+  }
+  /** claw 首次落位崩溃 → claim + 持久快照 + 半落位目标（marker 在）残留。 */
+  function clawCrashFactory(clawSkills: string): (baseDir: string) => FileSystem {
+    return (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawSkills)) {
+        real.linkExclusiveSync = () => { throw new Error('simulated crash at claw publish'); };
+      }
+      return real;
+    };
+  }
+
+  it('Motion 在快照期间交错编辑 SKILL.md 与引用文件 → 重试收敛，claw 得到一致完整版本', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    const dispatchDir = dispatchSkillDir();
+    let mutated = false;
+    const racingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchDir)) {
+        const origRead = real.read.bind(real);
+        real.read = async (p: string) => {
+          const content = await origRead(p);
+          // 快照复制读到 SKILL.md（v1）后，Motion 交错升级 dispatch 两个文件
+          if (p === 'SKILL.md' && !mutated) {
+            mutated = true;
+            fs.writeFileSync(path.join(dispatchDir, 'SKILL.md'), '# myskill v2\n');
+            fs.writeFileSync(path.join(dispatchDir, 'run.sh'), 'echo v2\n');
+          }
+          return content;
+        };
+      }
+      return real;
+    };
+
+    await skillInstallClawCommand({ fsFactory: racingFactory }, 'bob', 'myskill');
+
+    // 快照自一致复核迫使重试 → claw 得到一致的 v2（绝不 SKILL.md v1 + run.sh v2 混合）
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v2\n');
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v2\n');
+    expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
+    // 快照目录随成功发布清理
+    expect(
+      fs.readdirSync(path.dirname(clawSkillDir('bob'))).filter((n) => n.startsWith('.skill-')),
+    ).toEqual([]);
+  });
+
+  it('source 持续变化 → 有界重试后 fail-closed typed，不发布不留垃圾', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    const dispatchDir = dispatchSkillDir();
+    let n = 0;
+    const churnFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchDir)) {
+        const origRead = real.read.bind(real);
+        real.read = async (p: string) => {
+          const content = await origRead(p);
+          if (p === 'SKILL.md') {
+            n++;
+            fs.writeFileSync(path.join(dispatchDir, 'SKILL.md'), `# myskill churn-${n}\n`);
+          }
+          return content;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      skillInstallClawCommand({ fsFactory: churnFactory }, 'bob', 'myskill'),
+    ).rejects.toThrow(/kept changing/);
+
+    // 快照先于 claim：未拍成一致快照 → 无 claim、无目标、无快照残留
+    expect(fs.existsSync(clawSkillDir('bob'))).toBe(false);
+    expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
+    expect(
+      fs.readdirSync(path.dirname(clawSkillDir('bob'))).filter((x) => x.startsWith('.skill-')),
+    ).toEqual([]);
+  });
+
+  it('崩溃恢复复用持久快照：dispatch 事后被编辑，恢复仍完成编辑前一致版本；显式重装才升级', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    const clawSkills = path.dirname(clawSkillDir('bob'));
+    await expect(
+      skillInstallClawCommand({ fsFactory: clawCrashFactory(clawSkills) }, 'bob', 'myskill'),
+    ).rejects.toThrow(/simulated crash/);
+    expect(fs.existsSync(clawClaimPath('bob'))).toBe(true);
+
+    // Motion 合法编辑 dispatch pool 升级到 v2
+    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# myskill v2\n');
+    fs.writeFileSync(path.join(dispatchSkillDir(), 'run.sh'), 'echo v2\n');
+
+    killHolder(clawClaimPath('bob'));
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
+
+    // 恢复完成的是快照锁定的编辑前完整版本（v1 一致），不混入 v2 字节
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v1\n');
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
+
+    // 显式重装 = update 语义 → 升级到当前 dispatch 版本
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v2\n');
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v2\n');
+  });
+
+  it('快照证据丢失 + source generation 变化 → 显式冲突留证，不发布不覆盖', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    const clawSkills = path.dirname(clawSkillDir('bob'));
+    await expect(
+      skillInstallClawCommand({ fsFactory: clawCrashFactory(clawSkills) }, 'bob', 'myskill'),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 快照证据丢失 + dispatch 升级（source generation 变化）
+    for (const n of fs.readdirSync(clawSkills).filter((x) => x.startsWith('.skill-srcsnap-'))) {
+      fs.rmSync(path.join(clawSkills, n), { recursive: true, force: true });
+    }
+    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# myskill v2\n');
+
+    killHolder(clawClaimPath('bob'));
+    await expect(
+      skillInstallClawCommand(deps, 'bob', 'myskill'),
+    ).rejects.toThrow(/different source payload/);
+
+    // 证据保留：claim + 半落位目标（marker 仍在，未提交不可消费）
+    expect(fs.existsSync(clawClaimPath('bob'))).toBe(true);
+    expect(fs.existsSync(path.join(clawSkillDir('bob'), '.skill-publishing'))).toBe(true);
+  });
+});

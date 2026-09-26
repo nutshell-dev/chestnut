@@ -30,6 +30,16 @@ export const SKILLS_DIR_DEFAULT = 'skills' as const;
  */
 export const SKILL_PUBLISH_MARKER = '.skill-publishing' as const;
 
+/**
+ * skill 安装 source snapshot 目录名前缀（Phase 1915 Step C，
+ * RACE-DISPATCH-SOURCE-SNAPSHOT）。owner = 本模块（foundation）；CLI 安装方把
+ * 可变 source（dispatch pool / 用户 source dir）先 materialize 成 claim 同级
+ * 隐藏快照目录 `<prefix><skillName>-<token>`——快照即本次安装的 source
+ * identity，随 install intent 持久化，发布与恢复都只从快照读取。registry
+ * 按隐藏目录规则（`.` 前缀）不注册快照；清扫/重建归 CLI 发布协议。
+ */
+export const SKILL_SOURCE_SNAPSHOT_PREFIX = '.skill-srcsnap-' as const;
+
 /** 源码树 bundled skills 资源目录名（非运行期 agent subdir） */
 export const BUNDLED_SKILLS_DIR_NAME = 'skills' as const;
 
