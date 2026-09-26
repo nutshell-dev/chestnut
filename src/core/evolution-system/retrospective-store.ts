@@ -571,33 +571,74 @@ export class RetrospectiveStore {
 
   /**
    * Confirm submission by atomically moving dispatching -> submitted.
+   *
+   * Phase 1912 Step F: 并发同事实提交收敛。markSubmitted 只携带 contractId、
+   * 无 payload 输入，同一 row 的并发 move 必然是同一事实；move 失败后按
+   * 三态重读而非直接失败：
+   *   - submitted 已存在   → winner 已把同一 row 落位 → 收敛为已提交；
+   *   - dispatching 仍在   → winner 在途/瞬态（如 claim 身份重建补回 row）→
+   *                           有限重试一次 move，再按三态收敛；
+   *   - 两边皆无           → 事实未知 → fail-closed 留证抛错。
+   * 非 ENOENT 失败（EPERM/EIO 等）维持原 audit + throw。
+   *
+   * 返回 typed outcome：'submitted'（本次 move 落位）/ 'already_submitted'
+   * （幂等命中或并发收敛），caller 按语义呈现；事实未知仍 throw。
    */
-  async markSubmitted(contractId: ContractId): Promise<void> {
+  async markSubmitted(contractId: ContractId): Promise<'submitted' | 'already_submitted'> {
     const dispatchingPath = this.rowPath(contractId, 'dispatching');
     const submittedPath = this.rowPath(contractId, 'submitted');
 
     if (!(await this.fs.exists(dispatchingPath).catch(() => false))) {
       if (await this.fs.exists(submittedPath).catch(() => false)) {
-        return; // already submitted
+        return 'already_submitted';
       }
       throw new Error(`Cannot mark submitted: no dispatching row for ${contractId}`);
     }
 
-    try {
-      await this.fs.move(dispatchingPath, submittedPath);
-    } catch (e) {
-      this.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED,
-        `contractId=${contractId}`,
-        `reason=${formatErr(e)}`,
-      );
-      throw e;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.fs.move(dispatchingPath, submittedPath);
+        this.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED,
+          `contractId=${contractId}`,
+        );
+        return 'submitted';
+      } catch (e) {
+        if (isFileNotFound(e)) {
+          // winner 已落位同一事实 → 收敛成功
+          if (await this.fs.exists(submittedPath).catch(() => false)) {
+            this.audit.write(
+              RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED,
+              `contractId=${contractId}`,
+              'converged=already_submitted',
+            );
+            return 'already_submitted';
+          }
+          // dispatching 仍在 → winner 在途/瞬态 → 重试一次；否则落到 fail-closed
+          if (attempt === 0 && (await this.fs.exists(dispatchingPath).catch(() => false))) {
+            continue;
+          }
+          const notFoundError = new Error(
+            `Cannot mark submitted: row vanished for ${contractId} (neither dispatching nor submitted)`,
+          );
+          this.audit.write(
+            RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED,
+            `contractId=${contractId}`,
+            `reason=${formatErr(notFoundError)}`,
+          );
+          throw notFoundError;
+        }
+        this.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED,
+          `contractId=${contractId}`,
+          `reason=${formatErr(e)}`,
+        );
+        throw e;
+      }
     }
 
-    this.audit.write(
-      RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED,
-      `contractId=${contractId}`,
-    );
+    // 不可达：循环内每条路径均 return/throw；仅为满足 TS 结束返回检查。
+    throw new Error(`Cannot mark submitted: unexpected retry exhaustion for ${contractId}`);
   }
 
   async listReady(): Promise<RetrospectiveWorkItem[]> {

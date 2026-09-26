@@ -211,8 +211,11 @@ export class EvolutionSystem {
   ): Promise<RetroResult> {
     const prepared = await this._buildPreparedRetroTask(item, ctx);
     const scheduled = await this.deps.taskSystem.schedulePrepared('subagent', prepared);
-    await this.store.markSubmitted(item.contract_id);
-    return { status: 'submitted', taskId: scheduled.taskId };
+    const outcome = await this.store.markSubmitted(item.contract_id);
+    return {
+      status: outcome === 'already_submitted' ? 'already_submitted' : 'submitted',
+      taskId: scheduled.taskId,
+    };
   }
 
   /**

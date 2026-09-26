@@ -716,3 +716,142 @@ describe('RetrospectiveStore claim identity binding (Phase 1908 Step C)', () => 
   });
 
 });
+
+
+describe('RetrospectiveStore markSubmitted concurrency (Phase 1912 Step F)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+  let store: RetrospectiveStore;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('retro-store-submit-race-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+    store = new RetrospectiveStore({ fs, audit: audit.audit });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  it('concurrent double markSubmitted: exactly one moves, the other converges without error', async () => {
+    const input = makeInput();
+    await store.ensure(input);
+    await store.beginDispatch(input.contractId);
+
+    const outcomes = await Promise.all([
+      store.markSubmitted(input.contractId),
+      store.markSubmitted(input.contractId),
+    ]);
+
+    expect([...outcomes].sort()).toEqual(['already_submitted', 'submitted']);
+    expect(existsSync(path.join(baseDir, `${DISPATCHING_DIR}/${input.contractId}.json`))).toBe(false);
+    expect(existsSync(path.join(baseDir, `${SUBMITTED_DIR}/${input.contractId}.json`))).toBe(true);
+
+    const failedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED);
+    expect(failedEvents).toHaveLength(0);
+  });
+
+  it('markSubmitted is idempotent: second call returns already_submitted', async () => {
+    const input = makeInput();
+    await store.ensure(input);
+    await store.beginDispatch(input.contractId);
+
+    expect(await store.markSubmitted(input.contractId)).toBe('submitted');
+    expect(await store.markSubmitted(input.contractId)).toBe('already_submitted');
+
+    const submittedFiles = await fs.list(SUBMITTED_DIR, { includeDirs: false });
+    expect(submittedFiles).toHaveLength(1);
+  });
+
+  it('converges to already_submitted when a winner moves the same row mid-flight', async () => {
+    const input = makeInput();
+    await store.ensure(input);
+    await store.beginDispatch(input.contractId);
+
+    // winner 在 loser 的 move 系统调用前把同一 row move 到 submitted；
+    // loser 的 move 吃 ENOENT，重读 submitted 命中同一事实 → 收敛。
+    class WinnerMovedFirstFs extends NodeFileSystem {
+      private armed = true;
+      override async move(from: string, to: string): Promise<void> {
+        if (this.armed && from.startsWith(DISPATCHING_DIR) && to.startsWith(SUBMITTED_DIR)) {
+          this.armed = false;
+          await super.move(from, to);
+        }
+        return super.move(from, to);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new WinnerMovedFirstFs({ baseDir }), audit: audit.audit });
+    const outcome = await raceStore.markSubmitted(input.contractId);
+
+    expect(outcome).toBe('already_submitted');
+    expect(existsSync(path.join(baseDir, `${SUBMITTED_DIR}/${input.contractId}.json`))).toBe(true);
+
+    const convergedEvents = audit.events.filter(
+      e => e[0] === RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED && e.includes('converged=already_submitted'),
+    );
+    expect(convergedEvents).toHaveLength(1);
+    const failedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED);
+    expect(failedEvents).toHaveLength(0);
+  });
+
+  it('retries once when the row is still dispatching after a transient move ENOENT', async () => {
+    const input = makeInput();
+    await store.ensure(input);
+    await store.beginDispatch(input.contractId);
+
+    // 瞬态 ENOENT：源文件仍在 dispatching，第一次 move 假失败，重试成功。
+    class TransientEnoentFs extends NodeFileSystem {
+      private armed = true;
+      override async move(from: string, to: string): Promise<void> {
+        if (this.armed && from.startsWith(DISPATCHING_DIR) && to.startsWith(SUBMITTED_DIR)) {
+          this.armed = false;
+          const err = new Error('no such file or directory') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return super.move(from, to);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new TransientEnoentFs({ baseDir }), audit: audit.audit });
+    const outcome = await raceStore.markSubmitted(input.contractId);
+
+    expect(outcome).toBe('submitted');
+    expect(existsSync(path.join(baseDir, `${SUBMITTED_DIR}/${input.contractId}.json`))).toBe(true);
+    const failedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED);
+    expect(failedEvents).toHaveLength(0);
+  });
+
+  it('fails closed with evidence when the row vanishes from both states', async () => {
+    const input = makeInput();
+    await store.ensure(input);
+    await store.beginDispatch(input.contractId);
+
+    // row 在 move 窗口内彻底消失（外部删除、两态皆无）→ 未知事实 fail-closed。
+    class VanishingRowFs extends NodeFileSystem {
+      private armed = true;
+      override async move(from: string, to: string): Promise<void> {
+        if (this.armed && from.startsWith(DISPATCHING_DIR) && to.startsWith(SUBMITTED_DIR)) {
+          this.armed = false;
+          await super.delete(from);
+        }
+        return super.move(from, to);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new VanishingRowFs({ baseDir }), audit: audit.audit });
+    await expect(raceStore.markSubmitted(input.contractId)).rejects.toThrow(/row vanished/);
+
+    const failedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED);
+    expect(failedEvents).toHaveLength(1);
+  });
+
+  it('still throws when no row exists in any state', async () => {
+    const input = makeInput();
+    await expect(store.markSubmitted(input.contractId)).rejects.toThrow(/no dispatching row/);
+  });
+});
