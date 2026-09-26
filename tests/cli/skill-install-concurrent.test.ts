@@ -184,7 +184,9 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     expect(crashedIntent.targets).toEqual([
       { id: 'user', state: 'published' },
-      { id: 'dispatch', state: 'pending' },
+      // Phase 1915 Step B：崩溃发生在 dispatch 发布中途 → publishing（区分
+      // 「本 intent 已触碰该目标」与「尚未触碰」）
+      { id: 'dispatch', state: 'publishing' },
     ]);
 
     // 模拟 holder 进程死亡（崩溃后 pid 不复存在）
@@ -318,5 +320,97 @@ describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PREC
     await registry.loadAll();
     // 只有正式目标注册；staging 不注册、不触发 duplicate
     expect(registry.listMeta().map(m => m.name)).toEqual(['myskill']);
+  });
+});
+
+
+describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SKILL-TARGET-PRECOMMIT）', () => {
+  it('恢复不覆盖已提交后被用户编辑的目标（publishing + marker 缺席 → 只补登记）', async () => {
+    const src = makeSkillSource('a', 'v2');
+    // 模拟崩溃窗口：user 目标删 marker 提交完成、但 intent 登记 published 前崩溃
+    // —— 对 claim 的首个「含 published 状态」写入抛错
+    const crashFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(testDir)) {
+        const origWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (p: string, content: string) => {
+          if (p.endsWith('.myskill.installing') && content.includes('"state": "published"')) {
+            throw new Error('simulated crash after user target commit');
+          }
+          return origWrite(p, content);
+        };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 崩溃现场：user 目标已完整提交（marker 缺席），intent 仍登记 publishing
+    expect(readVersion(userSkillDir())).toBe('# myskill v2\n');
+    expect(fs.existsSync(path.join(userSkillDir(), '.skill-publishing'))).toBe(false);
+    const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(crashedIntent.targets).toEqual([
+      { id: 'user', state: 'publishing' },
+      { id: 'dispatch', state: 'pending' },
+    ]);
+
+    // 用户合法 post-install 编辑 self 副本
+    fs.writeFileSync(path.join(userSkillDir(), 'SKILL.md'), '# myskill USER-EDITED\n');
+
+    // holder 死亡后恢复
+    const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
+
+    await skillInstallUserCommand(deps, src);
+
+    // self 副本的用户编辑不被恢复覆盖；dispatch 按 source 补齐；claim 释放
+    expect(readVersion(userSkillDir())).toBe('# myskill USER-EDITED\n');
+    expect(readVersion(dispatchSkillDir())).toBe('# myskill v2\n');
+    expect(fs.existsSync(claimPath())).toBe(false);
+  });
+
+  it('self 已提交即可被自身 registry 独立消费，即使 dispatch 仍 pending', async () => {
+    const src = makeSkillSource('a', 'v1');
+    // 崩溃：dispatch 首次落位失败 → user 已提交、dispatch 未提交（marker 在）
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        real.linkExclusiveSync = () => { throw new Error('simulated crash at dispatch publish'); };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // target-local：dispatch 未提交不影响 self 副本的消费
+    const userRegistry = new SkillSystem(
+      new NodeFileSystem({ baseDir: testDir }),
+      'skills',
+      { write: () => {} } as never,
+    );
+    await userRegistry.loadAll();
+    expect(userRegistry.listMeta().map((m) => m.name)).toEqual(['myskill']);
+
+    // dispatch 侧仍门控（marker 在 = 未提交）
+    const dispatchRegistry = new SkillSystem(
+      new NodeFileSystem({ baseDir: testDir }),
+      path.relative(testDir, dispatchParent),
+      { write: () => {} } as never,
+    );
+    await dispatchRegistry.loadAll();
+    expect(dispatchRegistry.listMeta()).toEqual([]);
+
+    // 死 holder 恢复后 dispatch 独立补齐
+    const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
+    await skillInstallUserCommand(deps, src);
+    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
   });
 });

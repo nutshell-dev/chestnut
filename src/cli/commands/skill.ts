@@ -4,14 +4,20 @@
  * User mode: install skill from local path to workspace
  * Internal mode: install dispatch-skill to a specific claw
  *
- * Phase 1911 Step G（RACE-CLI-SKILL-MULTIROOT-COPY）：多根一致提交协议。
+ * Phase 1911 Step G（RACE-CLI-SKILL-MULTIROOT-COPY）+ Phase 1915 Step B
+ * （RACE-SKILL-TARGET-PRECOMMIT）：初始分发 + target-local 独立提交。
  * 同一 skillName 的安装由 per-skill claim（O_EXCL durable intent）串行化：
  * - 每个目标根先复制到同父目录隐藏 staging，再以 rename 交换发布
  *   （旧版整体让位 → 新版整体落位；消费者只见完整旧版/完整新版/短暂缺失，
  *   永不见半版混合）；
- * - intent 持久记录 source manifest、target set 与逐目标 state；崩溃后凭
- *   intent 判定一致/未完成/冲突，holder 已死且 source payload 相同才自动
- *   恢复，payload 不同一律显式冲突留证；
+ * - 每个目标副本是独立资源：自身 marker（SKILL_PUBLISH_MARKER）删除前不可
+ *   消费，删除后是独立可编辑副本；intent 只承担恢复与命令结果，不是
+ *   SkillSystem 的跨目标消费锁；
+ * - intent 持久记录 source manifest、target set 与逐目标 state
+ *   （pending → publishing → published）；崩溃后凭 intent + 目标自身
+ *   marker 判定：state=published 或 publishing 且 marker 已缺席（提交完成于
+ *   崩溃前）的目标绝不重写——保护 post-install 用户编辑；holder 已死且
+ *   source payload 相同才自动恢复，payload 不同一律显式冲突留证；
  * - 成功 audit/输出只在目标集合全部 published 后发出。
  */
 
@@ -27,6 +33,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { copyDir } from '../utils/copy-dir.js';
 
 /* ---------- Phase 1911 Step G: durable install intent ---------- */
@@ -46,7 +53,9 @@ interface SkillInstallIntent {
   process_start_time?: string;
   startedAt: string;
   manifest: SkillSourceManifestEntry[];
-  targets: { id: string; state: 'pending' | 'published' }[];
+  // Phase 1915 Step B：publishing = 已开始向该目标写入（崩溃窗口可区分
+  // 「本 intent 已提交但未来得及登记」与「本 intent 尚未触碰该目标」）。
+  targets: { id: string; state: 'pending' | 'publishing' | 'published' }[];
 }
 
 /** 源快照 manifest（路径+大小+内容 hash，排序确定）。源在复制期间被改属外部源快照边界。 */
@@ -233,6 +242,32 @@ async function runSkillInstall(
         `(claim: ${opts.claimRel}); evidence preserved, not overwriting`,
       );
     }
+    // Phase 1915 Step B（RACE-SKILL-TARGET-PRECOMMIT）：恢复路径按
+    // target-local 提交事实判读——state=publishing 且目标 marker 已缺席 =
+    // 崩溃发生在「删 marker 提交」与「持久化 intent」之间，该目标已完整发布，
+    // 之后可能已被用户合法编辑；恢复只补登记 intent，绝不重写已发布副本。
+    // marker 在 = 落位/sweep 未完成，按 manifest 续传；pending = 本 intent
+    // 尚未触碰该目标（已存在目标走 existing 分支的显式 update 语义）。
+    if (target.state === 'publishing') {
+      const parentFs = deps.fsFactory(path.dirname(abs));
+      const base = path.basename(abs);
+      const targetPresent = await parentFs.stat(base).catch(() => null);
+      if (targetPresent !== null) {
+        const markerPresent = await parentFs.stat(`${base}/${SKILL_PUBLISH_MARKER}`)
+          .then(() => true)
+          .catch((err: unknown) => {
+            if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return false;
+            throw err;
+          });
+        if (!markerPresent) {
+          target.state = 'published';
+          opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+          continue;
+        }
+      }
+    }
+    target.state = 'publishing';
+    opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
     await publishSkillDirSwap(deps, intent.source, abs, intent.manifest);
     target.state = 'published';
     opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
@@ -354,7 +389,7 @@ export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: strin
   console.log(`${userExists ? 'Updated' : 'Installed'} skills/${skillName}`);
   console.log(`${dispatchExists ? 'Updated' : 'Synced'} dispatch-skills/${skillName}`);
   if (resumed) {
-    console.log(`  (resumed an interrupted install; both targets now in sync)`);
+    console.log(`  (resumed an interrupted install; remaining targets published)`);
   }
 }
 

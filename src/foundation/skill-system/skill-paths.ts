@@ -21,6 +21,12 @@ export const SKILLS_DIR_DEFAULT = 'skills' as const;
  * 立即写入、落位+sweep 通过后删除（删除=提交，单向事实可从磁盘重建）。
  * registry 只消费此 marker 的在与不在：在 = in_progress 不可消费；不在 =
  * 已提交完整版本或普通用户内容。CLI 私有 claim 文件名语义不进入本层。
+ *
+ * Phase 1915 Step B（RACE-SKILL-TARGET-PRECOMMIT）：marker 是 target-local
+ * 提交事实——只承诺本 skillsDir 下该目标自身完整发布，不推出任何其他目标
+ * （Motion self / dispatch pool / Claw copy）的状态；registry 只判断当前
+ * skillsDir 目标自身发布态，不读取跨目标 CLI install intent。发布后副本
+ * 是独立可编辑资源，post-install 编辑是合法业务动作。
  */
 export const SKILL_PUBLISH_MARKER = '.skill-publishing' as const;
 

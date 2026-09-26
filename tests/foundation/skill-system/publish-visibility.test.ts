@@ -114,4 +114,21 @@ describe('SkillSystem 发布态门控（Phase 1913 Step C）', () => {
     expect(system.listMeta()).toEqual([]);
     expect(calls.filter(c => c[0] === SKILL_AUDIT_EVENTS.PUBLISH_IN_PROGRESS_SKIPPED)).toHaveLength(1);
   });
+
+  it('registry 不读取跨目标 CLI install intent（.<name>.installing 在场不影响已提交目标注册）（Phase 1915 Step B）', async () => {
+    writeSkillDir('committed-skill');
+    // CLI 私有 intent（跨目标恢复事实）残留在同一 skillsDir —— registry 只消费
+    // target-local marker，intent 的 pending 状态不构成消费锁
+    fs.writeFileSync(
+      `${baseDir}/skills/.committed-skill.installing`,
+      JSON.stringify({ targets: [{ id: 'user', state: 'pending' }, { id: 'dispatch', state: 'pending' }] }),
+    );
+    const { audit, calls } = makeAudit();
+
+    const system = makeSystem(audit);
+    await system.loadAll();
+
+    expect(system.listMeta().map(m => m.name)).toEqual(['committed-skill']);
+    expect(calls.filter(c => c[0] === SKILL_AUDIT_EVENTS.PUBLISH_IN_PROGRESS_SKIPPED)).toEqual([]);
+  });
 });
