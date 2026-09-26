@@ -1,12 +1,18 @@
 /**
  * Phase 1910 Step E — claw create 独占创建点（RACE-CLAW-CREATE-CHECK-THEN-CREATE）
+ * Phase 1911 Step H — claw create 提前物化治理（RACE-CLAW-CREATE-PREMATERIALIZE）
  *
  * 覆盖：
  * - 同名并发双 create：恰好一个 winner 成功 + audit；loser CliError already-exists，
  *   winner 的 config 不被覆盖；
  * - 崩溃窗口自愈：layout/AGENTS.md 已建、config 未发布 → create 冪等完成；
  * - config 已存在但模板缺失 → fail-closed already-exists，不覆盖 config、不补写模板；
- * - 正常创建回归：config + AGENTS.md + layout + audit 齐全。
+ * - 正常创建回归：config + AGENTS.md + layout + audit 齐全；
+ * - 迟到 loser 不覆盖 winner/用户编辑后的 AGENTS.md 字节（1911 H 核心回归）；
+ * - claim-only crash：同 intent 幂等重放完成发布并清理 claim；
+ * - 同 intent 恢复不覆盖历史 AGENTS.md 内容；
+ * - 异 payload claim → 显式冲突留证，不写任何业务文件；
+ * - 损坏 claim → fail-closed，不写任何业务文件。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -15,8 +21,14 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import * as yaml from 'js-yaml';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { createRootConfig } from '../../src/assembly/index.js';
+import {
+  createRootConfig,
+  CLAW_CREATE_CLAIM_FILE,
+  makeClawCreationIntent,
+  serializeClawCreationClaim,
+} from '../../src/assembly/index.js';
 import { CLAW_SPEC_FILE } from '../../src/foundation/claw-identity/index.js';
+import { buildAgentsMdTemplate } from '../../src/templates/prompts/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -46,6 +58,26 @@ function makeAudit() {
     summary: (s: string) => s,
   } as unknown as import('../../src/foundation/audit/index.js').AuditLog;
   return { audit, events };
+}
+
+function claimFile(name: string): string {
+  return path.join(clawRoot(name), CLAW_CREATE_CLAIM_FILE);
+}
+
+/** 与 CLI 同参数构造 claim payload（模拟 winner 崩溃残留 / 并发 holder）。 */
+function writeClaimResidue(name: string, overrides?: { templateHash?: string }): void {
+  const root = clawRoot(name);
+  fs.mkdirSync(root, { recursive: true });
+  const intent = makeClawCreationIntent(name, buildAgentsMdTemplate(name), {
+    name,
+    tool_profile: 'full',
+    max_concurrent_tasks: 3,
+  });
+  const payload = JSON.stringify({
+    ...JSON.parse(serializeClawCreationClaim(intent)),
+    ...(overrides ?? {}),
+  }, null, 2);
+  fs.writeFileSync(claimFile(name), payload);
 }
 
 /** 最小 global config（create 前置 loadGlobal）。 */
@@ -144,5 +176,66 @@ describe('claw create 独占创建点（Phase 1910 Step E）', () => {
     // 不覆盖 config、不补写 AGENTS.md（保留现场交 recovery）
     expect(fs.existsSync(path.join(root, CLAW_SPEC_FILE))).toBe(false);
     expect(fs.readFileSync(configFile('epsilon'), 'utf8')).toContain('name: epsilon');
+  });
+
+  it('迟到 loser 不覆盖 winner 发布后被用户编辑的 AGENTS.md（1911 H 核心回归）', async () => {
+    await createCommand(makeDeps(), 'zeta', { audit: makeAudit().audit });
+
+    // winner 发布后用户自定义了 AGENTS.md
+    const specPath = path.join(clawRoot('zeta'), CLAW_SPEC_FILE);
+    fs.writeFileSync(specPath, '# user customized\n');
+
+    await expect(createCommand(makeDeps(), 'zeta', { audit: makeAudit().audit }))
+      .rejects.toThrow(/already exists/);
+
+    expect(fs.readFileSync(specPath, 'utf8')).toBe('# user customized\n');
+    expect(fs.existsSync(claimFile('zeta'))).toBe(false);
+  });
+
+  it('claim-only crash：同 intent 幂等重放完成发布并清理 claim', async () => {
+    writeClaimResidue('eta');
+
+    await createCommand(makeDeps(), 'eta', { audit: makeAudit().audit });
+
+    const config = yaml.load(fs.readFileSync(configFile('eta'), 'utf8')) as Record<string, unknown>;
+    expect(config.name).toBe('eta');
+    expect(fs.existsSync(path.join(clawRoot('eta'), CLAW_SPEC_FILE))).toBe(true);
+    expect(fs.existsSync(claimFile('eta'))).toBe(false);
+  });
+
+  it('同 intent 恢复不覆盖历史 AGENTS.md 内容', async () => {
+    writeClaimResidue('theta');
+    const specPath = path.join(clawRoot('theta'), CLAW_SPEC_FILE);
+    fs.writeFileSync(specPath, '# historical bytes\n');
+
+    await createCommand(makeDeps(), 'theta', { audit: makeAudit().audit });
+
+    expect(fs.readFileSync(specPath, 'utf8')).toBe('# historical bytes\n');
+    const config = yaml.load(fs.readFileSync(configFile('theta'), 'utf8')) as Record<string, unknown>;
+    expect(config.name).toBe('theta');
+  });
+
+  it('异 payload claim → 显式冲突留证，不写任何业务文件', async () => {
+    writeClaimResidue('iota', { templateHash: 'deadbeef'.repeat(8) });
+
+    await expect(createCommand(makeDeps(), 'iota', { audit: makeAudit().audit }))
+      .rejects.toThrow(/different intent/);
+
+    expect(fs.existsSync(configFile('iota'))).toBe(false);
+    expect(fs.existsSync(path.join(clawRoot('iota'), CLAW_SPEC_FILE))).toBe(false);
+    expect(fs.existsSync(claimFile('iota'))).toBe(true);
+  });
+
+  it('损坏 claim → fail-closed，不写任何业务文件', async () => {
+    const root = clawRoot('kappa');
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(claimFile('kappa'), 'garbage{not-json');
+
+    await expect(createCommand(makeDeps(), 'kappa', { audit: makeAudit().audit }))
+      .rejects.toThrow(/interrupted/);
+
+    expect(fs.existsSync(configFile('kappa'))).toBe(false);
+    expect(fs.existsSync(path.join(root, CLAW_SPEC_FILE))).toBe(false);
+    expect(fs.readFileSync(claimFile('kappa'), 'utf8')).toBe('garbage{not-json');
   });
 });

@@ -644,6 +644,14 @@ export class NodeFileSystem implements FileSystem {
     fsSync.mkdirSync(absolute); // 无 recursive：目标已存在（含空目录）→ EEXIST 原样上抛
   }
 
+  linkExclusiveSync(fromRelative: string, toRelative: string): void {
+    const fromAbsolute = this.resolveAndCheck(fromRelative);
+    const toAbsolute = this.resolveAndCheck(toRelative);
+    fsSync.mkdirSync(path.dirname(toAbsolute), { recursive: true }); // 对称 writeExclusiveSync 的父目录 invariant
+    // hard link = 原子 no-replace 发布：目标已存在 → EEXIST 原样上抛，绝不替换既有字节
+    fsSync.linkSync(fromAbsolute, toAbsolute);
+  }
+
   listSync(relativePath: string, options?: {
     recursive?: boolean;
     includeDirs?: boolean;

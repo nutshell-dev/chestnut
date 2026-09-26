@@ -33,6 +33,16 @@ export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config
 export { resolveLLMConfig, GlobalConfigAlreadyExistsError, ClawConfigAlreadyExistsError } from './config/config-load.js';
 export type { InitializationState } from './config/config-load.js';
 export { initializeClawLayout } from './claw-subdirs.js';
+// Phase 1911 Step H：claw 创建 claim/intent/物化 capability（owner 归 Assembly）。
+export {
+  CLAW_CREATE_CLAIM_FILE,
+  makeClawCreationIntent,
+  serializeClawCreationClaim,
+  claimClawCreation,
+  materializeClawCreation,
+  completeClawCreation,
+} from './claw-creation.js';
+export type { ClawCreationIntent, ClawCreationClaimOutcome } from './claw-creation.js';
 export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
 export type { ClawGlobalConfig } from './config/compose-config.js';
 export { wireClawTopology } from './wire-claw-topology.js';

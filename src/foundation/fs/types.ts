@@ -325,6 +325,15 @@ export interface FileSystem {
   ensureDirSync(path: string): void;
 
   /**
+   * Phase 1911 Step H：no-replace 文件发布原语（hard-link 提交点）。
+   * 把已完整落盘的 staging 内容原子发布到目标路径：目标已存在 → throw EEXIST，
+   * 绝不替换既有字节（rename/moveSync 会替换同名文件，不能表达 no-replace）。
+   * from/to 须同文件系统（同 baseDir 内天然满足）；to 的父目录自动创建
+   * （对称 writeExclusiveSync invariant）。
+   */
+  linkExclusiveSync(fromPath: string, toPath: string): void;
+
+  /**
    * Phase 1911 Step E：no-replace 目录创建原语（目标路径独占 claim）。
    * 目标已存在（文件/空目录/非空目录）→ throw EEXIST；父目录自动创建
    * （对齐 writeExclusiveSync 对称 invariant）。这是平台无 rename-no-replace

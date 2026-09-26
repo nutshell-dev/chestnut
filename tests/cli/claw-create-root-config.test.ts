@@ -10,6 +10,9 @@ function makeDeps(options: {
   const fs = {
     ensureDirSync: vi.fn(),
     writeAtomicSync: vi.fn(),
+    writeExclusiveSync: vi.fn(),
+    linkExclusiveSync: vi.fn(),
+    deleteSync: vi.fn(),
   } as unknown as FileSystem;
   return {
     fs,
@@ -34,8 +37,12 @@ describe('claw create RootConfig boundary', () => {
     expect(deps.rootConfig.loadGlobal).toHaveBeenCalledTimes(1);
     expect(deps.rootConfig.loadClaw).toHaveBeenCalledTimes(1);
     expect(deps.rootConfig.saveClawExclusive).toHaveBeenCalledTimes(1);
-    expect(deps.fsFactory).toHaveBeenCalledTimes(1);
+    // Phase 1911 Step H：claim/materialize/complete 各自取 scoped fs
+    expect(deps.fsFactory).toHaveBeenCalled();
+    // 模板经 staging 完整落盘（writeAtomicSync）后 hard-link 不可替换发布
     expect(fs.writeAtomicSync).toHaveBeenCalledTimes(1);
+    expect(fs.writeExclusiveSync).toHaveBeenCalledTimes(1);
+    expect(fs.linkExclusiveSync).toHaveBeenCalledTimes(1);
   });
 
   it('existing claw fails before filesystem mutation or save', async () => {
