@@ -46,6 +46,19 @@ export const SKILL_PUBLISH_MARKER = '.skill-publishing' as const;
  */
 export const SKILL_SOURCE_SNAPSHOT_PREFIX = '.skill-srcsnap-' as const;
 
+/**
+ * skill 安装 post-commit 身份证据（Phase 1916 Step C follow-up，
+ * RACE-SKILL-COMMITTING-ABSENT-IDENTITY）。owner = 本模块（foundation）；
+ * CLI 发布方在 absent 分支删 marker（提交点）前写入 target 根——内容
+ * {installId, manifestHash, branch, committedAt}，证明「marker 删除是本
+ * intent 的提交动作」；intent 登记 published 后由 CLI best-effort 清理
+ * （残留为惰性证据：不进 payload/manifest，下次更新随旧版入 trash）。
+ * 本工件不是技能 payload：computeSkillSourceManifest/copyDir 快照边界按本
+ * 保留名过滤（仅根级），registry 只消费 marker 在与不在、不读本工件；
+ * 普通 snapshot sweep 不得删除它（它随 target 存亡，不在 claim 同级）。
+ */
+export const SKILL_COMMIT_PROOF = '.skill-committed' as const;
+
 /** 源码树 bundled skills 资源目录名（非运行期 agent subdir） */
 export const BUNDLED_SKILLS_DIR_NAME = 'skills' as const;
 

@@ -32,7 +32,7 @@ import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER, SKILL_SOURCE_SNAPSHOT_PREFIX } from '../../foundation/skill-system/index.js';
+import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER, SKILL_SOURCE_SNAPSHOT_PREFIX, SKILL_COMMIT_PROOF } from '../../foundation/skill-system/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { newShortUuid, sha256Hex, formatErr } from '../../foundation/node-utils/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -85,8 +85,28 @@ function computeSkillSourceManifest(sourceFs: FileSystem): SkillSourceManifestEn
   return sourceFs
     .listSync('.', { recursive: true })
     .filter((e) => e.isFile)
+    // post-commit 身份证据（SKILL_COMMIT_PROOF，仅根级）是协议工件非 payload：
+    // 已提交 skill 目录作为 source/目标时必须从内容身份中排除（marker 不列入
+    // 过滤——source 侧 marker 由 probe fail-closed 拒绝入场）
+    .filter((e) => e.path !== SKILL_COMMIT_PROOF)
     .map((e) => ({ path: e.path, size: e.size, sha256: sha256Hex(sourceFs.readSync(e.path)) }))
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * 剥掉复制结果根级的 post-commit 证据（已提交 skill 目录作 source 时证据字节
+ * 会被 copyDir 带入快照/staging；它是协议工件非 payload，绝不随发布落位——
+ * 缺席是常态，仅真实存在时删除）。
+ */
+async function stripCommitProof(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  dirAbs: string,
+): Promise<void> {
+  const dirFs = deps.fsFactory(dirAbs);
+  await dirFs.delete(SKILL_COMMIT_PROOF).catch((err: unknown) => {
+    if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return;
+    throw err; // 未知 I/O fail-closed：证据残留会随快照/staging 污染下游目标
+  });
 }
 
 /* ---------- Phase 1915 Step C: stable source snapshot ---------- */
@@ -159,6 +179,7 @@ async function materializeSourceSnapshot(
     }
     try {
       await copyDir(deps, srcAbs, snapshotAbs);
+      await stripCommitProof(deps, snapshotAbs); // source 可能含 post-commit 证据，不进快照
     } catch {
       lastFailure = 'unstable';
       continue; // 复制中途 source 文件被改/删 → 视为快照期间变化，重试
@@ -295,6 +316,7 @@ async function publishSkillDirSwap(
   const stageName = `.skill-staging-${newShortUuid()}`;
   const trashName = `.skill-trash-${newShortUuid()}`;
   await copyDir(deps, srcAbs, path.join(parent, stageName));
+  await stripCommitProof(deps, path.join(parent, stageName)); // 证据不随 staging 落位
 
   if (!(await parentFs.stat(base).catch(() => null))) {
     // ---- absent 目标：占位 + no-replace 逐文件落位 ----
@@ -351,9 +373,19 @@ async function publishSkillDirSwap(
         `conflict — evidence preserved`,
       );
     }
-    // 提交点（Phase 1916 Step C）：先持久化 committing（恢复可证明「marker
-    // 删除是本 intent 的提交动作」），再删 marker（marker 缺席 = 已提交完整
-    // 版本，单向事实）→ 清 staging
+    // 提交点（Phase 1916 Step C + follow-up）：
+    // 1. 先写 post-commit 身份证据（SKILL_COMMIT_PROOF，target-local 协议工件，
+    //    证明「其后的 marker 删除是本 intent 的提交动作」——必须先于提交点
+    //    持久化，否则 committing+marker 缺席窗口无磁盘事实可重建）；
+    // 2. 再持久化 committing（恢复可区分提交窗口）；
+    // 3. 最后删 marker（marker 缺席 = 已提交完整版本，单向事实）→ 清 staging
+    const proofRel = `${base}/${SKILL_COMMIT_PROOF}`;
+    parentFs.writeAtomicSync(proofRel, JSON.stringify({
+      installId: identity.installId,
+      manifestHash: sha256Hex(JSON.stringify(manifest)),
+      branch: 'absent',
+      committedAt: new Date().toISOString(),
+    }, null, 2));
     identity.beforeCommit?.('absent');
     parentFs.deleteSync(markerRel);
     await parentFs.removeDir(stageName).catch(() => {
@@ -431,6 +463,45 @@ function readSkillPublishMarker(
 
 type RecoveryAction = 'publish' | 'commit-finish' | 'skip-published';
 
+/** post-commit 身份证据内容（SKILL_COMMIT_PROOF，foundation skill-system owner）。 */
+interface SkillCommitProof {
+  installId?: string;
+  manifestHash?: string;
+  branch?: string;
+  committedAt?: string;
+}
+
+/**
+ * 类型化读取 post-commit 证据；缺席 → null，不可解析 → typed 冲突，未知 I/O
+ * 原样上抛（fail-closed，不当缺席——证据缺席与不可读必须可区分）。
+ */
+function readSkillCommitProof(parentFs: FileSystem, proofRel: string): SkillCommitProof | null {
+  let raw: string;
+  try {
+    raw = parentFs.readSync(proofRel);
+  } catch (err) {
+    if (isFileNotFound(err)) return null;
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return null;
+    throw err;
+  }
+  try {
+    return JSON.parse(raw) as SkillCommitProof;
+  } catch (err) {
+    throw new CliError(
+      `Skill commit proof ${proofRel} is unreadable; conflict — evidence preserved (${formatErr(err)})`,
+    );
+  }
+}
+
+/** 证据与 intent 的占有关联：installId + manifestHash 必须同时相符。 */
+function commitProofMatches(
+  proof: SkillCommitProof | null,
+  intent: SkillInstallIntent,
+  manifestHash: string,
+): boolean {
+  return proof !== null && proof.installId === intent.id && proof.manifestHash === manifestHash;
+}
+
 /**
  * 恢复路径 target 身份判读（Phase 1916 Step C，
  * RACE-SKILL-RECOVERY-TARGET-IDENTITY）：只续传/补登记能证明属于本 intent 的
@@ -438,14 +509,16 @@ type RecoveryAction = 'publish' | 'commit-finish' | 'skip-published';
  * 外部出现的目录。
  *
  * 判读事实（全部可从磁盘重建）：intent 逐目标 state / preState（崩溃前先态）
- * / commitBranch，目标内容 hash，marker 的 installId + manifestHash。
+ * / commitBranch，目标内容 hash，marker 的 installId + manifestHash，
+ * post-commit 证据（SKILL_COMMIT_PROOF）的 installId + manifestHash。
  * - pending：本 intent 未触碰该目标——目标缺席可发布；目标在场须等于
  *   preState（合法 update 目标未被触碰），preState=absent 或内容偏离 → 冲突；
  * - publishing：marker 在场须携带本 intent 的 installId + manifestHash（本方
  *   半成品）；marker 缺席时 v2 协议下提交前必经 committing——内容恰等于
  *   manifest 幂等收敛、等于 preState 则旧版未被触碰可重做 update，其余冲突；
- * - committing：commitBranch=absent 且 marker 缺席 = marker 删除是本 intent
- *   的提交动作 → 补登记（其后用户编辑合法保留）；marker 在 → 完成提交；
+ * - committing：commitBranch=absent 且 marker 在场 → 完成提交；marker 缺席时
+ *   须目标仍在且 post-commit 证据属于本 intent 才补登记（证据不核验 payload
+ *   hash，其后用户编辑合法保留）；目标删除/证据缺席/身份不符 → 冲突留证；
  *   commitBranch=existing 按 swap 是否生效（内容 hash）判读。
  */
 async function classifyRecoveryTarget(
@@ -510,7 +583,19 @@ async function classifyRecoveryTarget(
     throw conflict('committing state with an unexpected publish marker');
   }
   if (target.commitBranch === 'absent') {
-    // marker 删除是本 intent 的提交动作 → 已提交；其后的用户编辑合法保留
+    // Phase 1916 Step C follow-up（RACE-SKILL-COMMITTING-ABSENT-IDENTITY）：
+    // marker 缺席只是单向事实，不能单独证明「删除是本 intent 的提交动作」——
+    // 必须目标仍在且具备本 intent 的 post-commit 证据才补登记；目标删除、
+    // 外部替换（证据缺席）或证据身份不符 → typed 冲突留证，不误接受。
+    if (targetPresent === null) {
+      throw conflict('target was deleted after the commit point (post-commit proof lost with it)');
+    }
+    const proof = readSkillCommitProof(parentFs, `${base}/${SKILL_COMMIT_PROOF}`);
+    if (!commitProofMatches(proof, intent, manifestHash)) {
+      throw conflict('post-commit proof is missing or does not belong to this install intent');
+    }
+    // 证据只证明本 intent 已完成发布，不核验 payload hash——其后的用户编辑
+    // 合法保留（skip-published 不重写任何字节）
     return 'skip-published';
   }
   if (target.commitBranch === 'existing') {
@@ -534,7 +619,8 @@ function finishAbsentBranchCommit(
   const parentFs = deps.fsFactory(path.dirname(abs));
   const base = path.basename(abs);
   const markerRel = `${base}/${SKILL_PUBLISH_MARKER}`;
-  const expected = new Set([...intent.manifest.map((e) => `${base}/${e.path}`), markerRel]);
+  const proofRel = `${base}/${SKILL_COMMIT_PROOF}`;
+  const expected = new Set([...intent.manifest.map((e) => `${base}/${e.path}`), markerRel, proofRel]);
   const actual = parentFs.listSync(base, { recursive: true }).filter((e) => e.isFile).map((e) => e.path);
   const extra = actual.filter((p) => !expected.has(p));
   const missing = intent.manifest.filter((e) => !actual.includes(`${base}/${e.path}`));
@@ -550,7 +636,36 @@ function finishAbsentBranchCommit(
       `mismatched: ${mismatched.map((e) => e.path).join(', ') || '-'}); conflict — evidence preserved`,
     );
   }
+  // 落位证据完整后还必须核验 post-commit 身份证据（committing 登记前已写入）——
+  // 缺席/身份不符 = 提交窗口被外部干预，拒绝删 marker（拒绝即未提交，留证）
+  const proof = readSkillCommitProof(parentFs, proofRel);
+  if (!commitProofMatches(proof, intent, sha256Hex(JSON.stringify(intent.manifest)))) {
+    throw new CliError(
+      `Skill target "${abs}" post-commit proof is missing or does not belong to this install intent ` +
+      `at commit finish; conflict — evidence preserved`,
+    );
+  }
   parentFs.deleteSync(markerRel); // 提交：marker 缺席 = 已提交完整版本
+}
+
+/**
+ * 清理 target 根的 post-commit 身份证据（Phase 1916 Step C follow-up）：证据
+ * 只服务 committing 窗口的恢复判读，intent 登记 published 后使命结束。
+ * best-effort：缺席是常态（existing 分支不写证据/上次已清理）；清理失败
+ * console.warn 留证，残留证据不进 payload/manifest，由下次恢复或更新收敛。
+ */
+function cleanupCommitProof(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  abs: string,
+): void {
+  const parentFs = deps.fsFactory(path.dirname(abs));
+  const proofRel = `${path.basename(abs)}/${SKILL_COMMIT_PROOF}`;
+  try {
+    parentFs.deleteSync(proofRel);
+  } catch (err) {
+    if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return;
+    console.warn(`Warning: failed to clean up skill commit proof ${proofRel}: ${err}`);
+  }
 }
 
 /**
@@ -704,7 +819,12 @@ async function runSkillInstall(
       opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
     };
     for (const target of intent.targets) {
-      if (target.state === 'published') continue;
+      if (target.state === 'published') {
+        // 崩溃于「published 登记后、证据清理前」的残留 post-commit 证据收敛
+        const doneAbs = opts.targets.find((t) => t.id === target.id)?.absPath;
+        if (doneAbs !== undefined) cleanupCommitProof(deps, doneAbs);
+        continue;
+      }
       const abs = opts.targets.find((t) => t.id === target.id)?.absPath;
       if (!abs) {
         throw new CliError(
@@ -721,6 +841,7 @@ async function runSkillInstall(
           target.state = 'published';
           delete target.commitBranch;
           persistIntent();
+          cleanupCommitProof(deps, abs);
           continue;
         }
         if (action === 'commit-finish') {
@@ -728,6 +849,7 @@ async function runSkillInstall(
           target.state = 'published';
           delete target.commitBranch;
           persistIntent();
+          cleanupCommitProof(deps, abs);
           continue;
         }
       }
@@ -745,6 +867,8 @@ async function runSkillInstall(
       target.state = 'published';
       delete target.commitBranch;
       persistIntent();
+      // published 已持久化 → post-commit 证据使命结束（崩溃残留由下次恢复收敛）
+      cleanupCommitProof(deps, abs);
     }
 
     // 全部目标发布完成 → 快照使命结束（失败/冲突路径保留快照供恢复）

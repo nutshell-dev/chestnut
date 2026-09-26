@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/commands/skill.js';
-import { SkillSystem, SKILL_PUBLISH_MARKER } from '../../src/foundation/skill-system/index.js';
+import { SkillSystem, SKILL_PUBLISH_MARKER, SKILL_COMMIT_PROOF } from '../../src/foundation/skill-system/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 
@@ -860,6 +860,144 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     // marker 仍在（未提交），证据保留
     expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
     expect(fs.existsSync(claimPath())).toBe(true);
+  });
+});
+
+describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SKILL-COMMITTING-ABSENT-IDENTITY）', () => {
+  function killHolder(claimFile: string): void {
+    const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
+  }
+  /**
+   * 崩溃窗口：user 目标删 marker 提交完成（committing+absent、marker 缺席、
+   * post-commit 证据在场）、published 登记前崩溃 → 对首个含 published 的
+   * claim 写入抛错。
+   */
+  function crashAfterCommitFactory(): (baseDir: string) => FileSystem {
+    return (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(testDir)) {
+        const origWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (p: string, content: string) => {
+          if (p.endsWith('.myskill.installing') && content.includes('"state": "published"')) {
+            throw new Error('simulated crash after commit, before published registration');
+          }
+          return origWrite(p, content);
+        };
+      }
+      return real;
+    };
+  }
+  /** 构造崩溃现场：user 目标 committing+absent、marker 缺席、证据在场。 */
+  async function crashAfterCommit(src: string): Promise<void> {
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashAfterCommitFactory() }, src),
+    ).rejects.toThrow(/simulated crash/);
+    const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(crashedIntent.targets).toEqual([
+      { id: 'user', state: 'committing', preState: 'absent', commitBranch: 'absent' },
+      { id: 'dispatch', state: 'pending', preState: 'absent' },
+    ]);
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_PUBLISH_MARKER))).toBe(false);
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_COMMIT_PROOF))).toBe(true);
+  }
+
+  it('提交点证据相符 + 用户合法编辑 → 补登记 published，编辑不覆盖、证据随登记清理', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await crashAfterCommit(src);
+
+    // 用户合法 post-install 编辑（证据不核验 payload hash）
+    fs.writeFileSync(path.join(userSkillDir(), 'SKILL.md'), '# myskill USER-EDITED\n');
+    killHolder(claimPath());
+
+    await skillInstallUserCommand(deps, src);
+
+    expect(readVersion(userSkillDir())).toBe('# myskill USER-EDITED\n');
+    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(fs.existsSync(claimPath())).toBe(false);
+    // published 登记后证据使命结束，目标根无协议工件残留
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_COMMIT_PROOF))).toBe(false);
+    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_COMMIT_PROOF))).toBe(false);
+  });
+
+  it('目标在提交后被外部删除 → typed 冲突留证，不误接受缺席、claim 保留', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await crashAfterCommit(src);
+
+    fs.rmSync(userSkillDir(), { recursive: true, force: true }); // 证据随目标一起消失
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
+
+    expect(fs.existsSync(userSkillDir())).toBe(false);
+    expect(fs.existsSync(claimPath())).toBe(true); // claim/intent 现场保留待显式处置
+  });
+
+  it('目标被外部替换成无证据目录 → typed 冲突留证，外部字节不覆盖不接受', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await crashAfterCommit(src);
+
+    fs.rmSync(userSkillDir(), { recursive: true, force: true });
+    fs.mkdirSync(userSkillDir(), { recursive: true });
+    fs.writeFileSync(path.join(userSkillDir(), 'SKILL.md'), '# external-replacement\n');
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
+
+    expect(fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# external-replacement\n');
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('证据 installId 不符（占有证据不属于本 intent）→ typed 冲突留证', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await crashAfterCommit(src);
+
+    const proofAbs = path.join(userSkillDir(), SKILL_COMMIT_PROOF);
+    const proof = JSON.parse(fs.readFileSync(proofAbs, 'utf-8'));
+    proof.installId = 'someone-else';
+    fs.writeFileSync(proofAbs, JSON.stringify(proof, null, 2));
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
+
+    expect(fs.existsSync(proofAbs)).toBe(true); // 证据原样保留
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('证据损坏（不可解析）→ typed 冲突留证，不清理 claim', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await crashAfterCommit(src);
+
+    const proofAbs = path.join(userSkillDir(), SKILL_COMMIT_PROOF);
+    fs.writeFileSync(proofAbs, '{corrupted');
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/unreadable/);
+
+    expect(fs.existsSync(proofAbs)).toBe(true);
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('协议工件边界：source 侧残留证据不进 snapshot/payload，claw 目标零污染', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+
+    // 模拟 source（dispatch pool）残留上一次安装的 post-commit 证据
+    const staleProof = path.join(dispatchSkillDir(), SKILL_COMMIT_PROOF);
+    fs.writeFileSync(staleProof, JSON.stringify({ installId: 'stale', manifestHash: 'stale' }));
+
+    const clawDir = path.join(testDir, '.chestnut', 'claws', 'bob');
+    fs.mkdirSync(clawDir, { recursive: true });
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
+
+    const clawSkill = path.join(clawDir, 'skills', 'myskill');
+    expect(readVersion(clawSkill)).toBe('# myskill v1\n');
+    // 证据字节不随快照/staging 落位；claw 自身安装的证据随 published 登记清理
+    expect(fs.readdirSync(clawSkill).sort()).toEqual(['SKILL.md', 'run.sh']);
+    // source 侧证据原样保留（strip 只作用于快照/staging 副本，不动 source）
+    expect(fs.existsSync(staleProof)).toBe(true);
   });
 });
 
