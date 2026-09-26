@@ -32,10 +32,15 @@ describe('phase 1368: claw layout ownership boundary', () => {
   it('CLI create continues to use the same Assembly owner action', () => {
     const barrel = read('src/assembly/index.ts');
     const clawCreate = read('src/cli/commands/claw-create.ts');
+    const clawCreation = read('src/assembly/claw-creation.ts');
 
     expect(barrel).toContain("export { initializeClawLayout } from './claw-subdirs.js';");
-    expect(clawCreate).toContain("import { initializeClawLayout } from '../../assembly/index.js';");
-    expect(clawCreate).toContain('initializeClawLayout(fileSystem);');
+    // Phase 1911 Step H：CLI 不再直接物化 layout；创建 claim/物化/发布归
+    // Assembly owner capability（claw-creation.ts），owner 内部仍调同一 layout action。
+    expect(clawCreate).toContain('materializeClawCreation');
+    expect(clawCreate).not.toContain('initializeClawLayout');
+    expect(clawCreation).toContain("import { initializeClawLayout } from './claw-subdirs.js';");
+    expect(clawCreation).toContain('initializeClawLayout(fs);');
   });
 });
 
