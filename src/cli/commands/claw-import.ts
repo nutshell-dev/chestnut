@@ -14,7 +14,7 @@ import { CliError } from '../errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
-import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem, type StatInfo } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';
@@ -34,7 +34,27 @@ export const IMPORT_CLAIM_FILE = '.import-claim';
 export type ClawspaceImportVisibility =
   | { readonly state: 'published' }
   | { readonly state: 'in_progress'; readonly claimPath: string }
-  | { readonly state: 'invalid'; readonly claimPath: string };
+  | { readonly state: 'invalid'; readonly claimPath: string; readonly reason: string };
+
+/**
+ * 类型化 claim 探测（Phase 1915 Step D，RACE-IMPORT-VISIBILITY-ERROR-FAILOPEN）：
+ * `existsSync` 布尔接口无法区分「不存在」与「不可访问」（Node fs.existsSync
+ * 对 EACCES/EIO 等也返回 false = fail-open）；改用 statSync 类型化错误：
+ * - absent：ENOENT/ENOTDIR（路径分量是文件时 claim 不可能存在）；
+ * - present：claim 文件在；
+ * - unknown：其余 I/O 错误——读者必须 fail-closed，不得当 published。
+ */
+export type ImportClaimProbe = 'absent' | 'present' | 'unknown';
+export function probeImportClaim(fs: FileSystem, claimRel: string): ImportClaimProbe {
+  try {
+    fs.statSync(claimRel);
+    return 'present';
+  } catch (err) {
+    if (isFileNotFound(err)) return 'absent';
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return 'absent';
+    return 'unknown';
+  }
+}
 
 /**
  * owner 发布态查询入口（claw ls/read 等普通消费者只经此入口判发布态，
@@ -56,20 +76,27 @@ export function importVisibility(fs: FileSystem, clawDirRelPath: string): Clawsp
   for (let i = start; i <= segs.length; i++) {
     const dir = segs.slice(0, i).join('/');
     const claimRel = `${dir}/${IMPORT_CLAIM_FILE}`;
-    let claimPresent = false;
-    try {
-      claimPresent = fs.existsSync(claimRel);
-    } catch {
-      // silent: ENOTDIR —— 路径分量是文件而非目录，claim 不可能存在，视为缺席
-      continue;
+    // Phase 1915 Step D：类型化探测——未知 I/O fail-closed 为 invalid，
+    // 不再把「不可访问」当「无 claim = published」。
+    const probe = probeImportClaim(fs, claimRel);
+    if (probe === 'unknown') {
+      return { state: 'invalid', claimPath: claimRel, reason: 'claim probe I/O error' };
     }
-    if (!claimPresent) continue;
+    if (probe === 'absent') continue;
+    let raw: string;
     try {
-      JSON.parse(fs.readSync(claimRel));
+      raw = fs.readSync(claimRel);
+    } catch (err) {
+      // 探测与读取之间 claim 被删（提交完成的并发窗口）→ 按缺席继续向上查
+      if (isFileNotFound(err)) continue;
+      return { state: 'invalid', claimPath: claimRel, reason: `claim unreadable: ${formatErr(err)}` };
+    }
+    try {
+      JSON.parse(raw);
       return { state: 'in_progress', claimPath: claimRel };
     } catch {
       // silent: claim 存在但不可解析 → 归 typed invalid 状态交消费者 fail-closed 呈现
-      return { state: 'invalid', claimPath: claimRel };
+      return { state: 'invalid', claimPath: claimRel, reason: 'claim malformed' };
     }
   }
   return { state: 'published' };
@@ -129,8 +156,18 @@ export async function importCommand(
   if (existing) {
     // Phase 1912 Step D：带 claim 的目录目标不再即时拒绝——交由下方目录分支
     // 做死 holder 恢复判读（同 payload 续传 / 活 holder·异 payload 冲突留证）；
-    // 用户既有目标（无 claim）拒绝语义不变
-    const hasClaim = existing.isDirectory && (await tryStat(clawspaceFs, `${relFromClawspace}/${IMPORT_CLAIM_FILE}`)) !== null;
+    // 用户既有目标（无 claim）拒绝语义不变。
+    // Phase 1915 Step D：claim 探测类型化——未知 I/O fail-closed，不把
+    // 「不可访问」当「无 claim = 用户既有目标」。
+    const claimRelTop = `${relFromClawspace}/${IMPORT_CLAIM_FILE}`;
+    const topProbe = probeImportClaim(clawspaceFs, claimRelTop);
+    if (topProbe === 'unknown') {
+      throw new CliError(
+        `"${displayRel}" has an unreadable import state in ${clawName}/clawspace/ ` +
+        `(claim: ${claimRelTop}); inspect the evidence before retrying`,
+      );
+    }
+    const hasClaim = existing.isDirectory && topProbe === 'present';
     if (!hasClaim) {
       throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
     }
@@ -213,9 +250,16 @@ export async function importCommand(
       writeClaim();
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
-      // 目标已存在：无 claim → 用户既有目标（拒绝语义不变）；有 claim → 恢复判读
-      const leftover = await tryStat(destParentFs, claimRel);
-      if (!leftover) {
+      // 目标已存在：无 claim → 用户既有目标（拒绝语义不变）；有 claim → 恢复判读。
+      // Phase 1915 Step D：claim 探测类型化——未知 I/O fail-closed。
+      const leftoverProbe = probeImportClaim(destParentFs, claimRel);
+      if (leftoverProbe === 'unknown') {
+        throw new CliError(
+          `"${displayRel}" has an unreadable import state in ${clawName}/clawspace/ ` +
+          `(claim: ${claimRel}); inspect the evidence before retrying`,
+        );
+      }
+      if (leftoverProbe === 'absent') {
         throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
       }
       resumedClaim = readClaim();

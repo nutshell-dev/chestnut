@@ -24,7 +24,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/in
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
-import { IMPORT_CLAIM_FILE, importVisibility } from './claw-import.js';
+import { IMPORT_CLAIM_FILE, importVisibility, probeImportClaim } from './claw-import.js';
 import type { FileEntry } from '../../foundation/fs/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -114,11 +114,33 @@ export async function lsCommand(
     throw new CliError(`Error listing path: ${formatErr(err)}`, { cause: err });
   }
 
+  // Phase 1915 Step D（RACE-VISIBILITY-CHECK-TOCTOU）：普通文件系统不能提供
+  // 目录树事务快照——检查与 list 是两次独立观察。list 后复验发布态：若期间
+  // claim 出现/状态变化（含 ABA 后的非 published 态），本结果可能观察到未提交
+  // 目录，丢弃并返回 typed unknown/retry，绝不把两次相邻观察当事务结果呈现。
+  // 残余平台限制：复验之后新出现的 claim 不可检测（已声明边界，非掩盖）。
+  const after = importVisibility(fs, resolved);
+  if (after.state !== 'published') {
+    throw new CliError(
+      `"${requested}" import state changed while listing in ${clawName}/clawspace/ ` +
+      `(now ${after.state}; claim: ${after.claimPath}); result discarded — retry`,
+    );
+  }
+
   // 子级未提交 import 目标：目标目录本身注解保留（可观察），其内部条目
-  // （半成品内容）从结果剔除。
+  // （半成品内容）从结果剔除。claim 探测类型化（Phase 1915 Step D）：
+  // 未知 I/O fail-closed，不把「不可访问」当无 claim 列出半成品。
   const unpublishedDirs = new Set<string>();
   for (const e of entries) {
-    if (e.isDirectory && fs.existsSync(`${e.path}/${IMPORT_CLAIM_FILE}`)) {
+    if (!e.isDirectory) continue;
+    const probe = probeImportClaim(fs, `${e.path}/${IMPORT_CLAIM_FILE}`);
+    if (probe === 'unknown') {
+      throw new CliError(
+        `Clawspace entry "${e.path}" has an unreadable import state in ${clawName}/clawspace/ ` +
+        `(claim: ${e.path}/${IMPORT_CLAIM_FILE}); inspect the evidence before retrying`,
+      );
+    }
+    if (probe === 'present') {
       unpublishedDirs.add(e.path);
     }
   }

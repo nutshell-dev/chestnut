@@ -59,6 +59,18 @@ export async function readCommand(
     throw new CliError(`Error reading file: ${formatErr(error)}`, { cause: error });
   }
 
+  // Phase 1915 Step D（RACE-VISIBILITY-CHECK-TOCTOU）：检查与 read 是两次独立
+  // 观察，普通文件系统无事务快照。read 后复验发布态——期间 claim 出现/状态
+  // 变化则本次读取可能观察到未提交内容：丢弃并返回 typed unknown/retry，
+  // 不写入 stdout。残余平台限制：复验之后新出现的 claim 不可检测（已声明边界）。
+  const after = importVisibility(fs, resolved);
+  if (after.state !== 'published') {
+    throw new CliError(
+      `"${filePath}" import state changed while reading in ${clawName}/clawspace/ ` +
+      `(now ${after.state}; claim: ${after.claimPath}); result discarded — retry`,
+    );
+  }
+
   if (options?.offset !== undefined || options?.limit !== undefined) {
     const lines = content.split('\n');
     let start = (options.offset ?? 1) - 1;

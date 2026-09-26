@@ -288,3 +288,35 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
     ).rejects.toThrow(/placeholder identity was lost/);
   });
 });
+
+
+describe('claw import claim 探测 fail-closed（Phase 1915 Step D：RACE-IMPORT-VISIBILITY-ERROR-FAILOPEN）', () => {
+  it('既有目标的 claim 探测遇未知 I/O → typed unreadable，不再误报 already exists', async () => {
+    // 目标目录带 claim（中断的 import）；探测 claim 时发生未知 I/O 错误——
+    // existsSync/tryStat 布尔接口会吞成「无 claim」→ 误报 already exists（fail-open）。
+    const target = path.join(clawspaceDir(), 'src-bundle');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, '.import-claim'), JSON.stringify({ token: 'crashed' }));
+
+    const ioErrFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawspaceDir())) {
+        real.statSync = (p: string) => {
+          if (p.endsWith('.import-claim')) {
+            throw Object.assign(new Error('simulated EIO'), { code: 'EIO' });
+          }
+          return NodeFileSystem.prototype.statSync.call(real, p);
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(ioErrFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/unreadable import state/);
+
+    // 证据原样保留
+    expect(fs.existsSync(path.join(target, '.import-claim'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
+  });
+});
