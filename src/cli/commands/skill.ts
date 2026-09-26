@@ -164,7 +164,13 @@ async function materializeSourceSnapshot(
       continue; // 复制中途 source 文件被改/删 → 视为快照期间变化，重试
     }
     const snapFs = deps.fsFactory(snapshotAbs);
-    const snapManifest = computeSkillSourceManifest(snapFs);
+    let snapManifest: SkillSourceManifestEntry[];
+    try {
+      snapManifest = computeSkillSourceManifest(snapFs);
+    } catch {
+      lastFailure = 'unstable';
+      continue; // 快照目录被并发同名安装的孤儿 sweep 清掉 → 视为环境变化，重试
+    }
     // 3a. 复制窗口内 marker 出现并被复制 → 本趟快照含协议工件，丢弃重试
     if (snapManifest.some((e) => e.path === SKILL_PUBLISH_MARKER)) {
       lastFailure = 'mid_publish';
@@ -219,8 +225,10 @@ async function materializeSourceSnapshot(
 
 /**
  * 清扫同名 skill 的陈旧 source snapshot（claim 已串行化同名安装，未被当前
- * intent 引用的快照属孤儿——如「快照完成、claim 写入前崩溃」窗口的残留）。
- * best-effort：清扫失败不影响主流程。
+ * intent 引用或引用已随全目标 published 失效的快照属孤儿——如「快照完成、
+ * claim 写入前崩溃」或「全发布后清理前崩溃」窗口的残留）。
+ * Phase 1916 Step D：best-effort 但失败可观察（console.warn 留证），下一次
+ * 同名安装的 sweep 可安全重试。
  */
 function sweepStaleSourceSnapshots(
   claimFs: FileSystem,
@@ -231,17 +239,19 @@ function sweepStaleSourceSnapshots(
   const prefix = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${skillName}-`;
   let entries: { name: string; isDirectory: boolean }[];
   try {
-    entries = claimFs.listSync(claimDirRel);
-  } catch {
-    return; // silent: 列表失败不阻塞安装；残留快照可人工删
+    // includeDirs：快照是目录，不带 includeDirs 的 listSync 不返回目录条目
+    entries = claimFs.listSync(claimDirRel, { includeDirs: true });
+  } catch (err) {
+    console.warn(`Warning: failed to list skill source snapshots in ${claimDirRel}: ${err}`);
+    return;
   }
   for (const e of entries) {
     if (!e.isDirectory || !e.name.startsWith(prefix)) continue;
     if (keepName !== undefined && e.name === keepName) continue;
     try {
       claimFs.removeDirSync(`${claimDirRel}/${e.name}`);
-    } catch {
-      // silent: 单条目清理失败不阻塞；残留可人工删
+    } catch (err) {
+      console.warn(`Warning: failed to sweep stale skill source snapshot ${e.name}: ${err}`);
     }
   }
 }
@@ -678,8 +688,16 @@ async function runSkillInstall(
     }
   }
 
-  // 清扫同名陈旧快照（claim 串行化同名安装，未被当前 intent 引用的快照属孤儿）
-  sweepStaleSourceSnapshots(opts.claimFs, claimDirRel, opts.skillName, intent.sourceSnapshot);
+  // 清扫同名陈旧快照（Phase 1916 Step D，HYGIENE-SKILL-SOURCE-SNAPSHOT-ORPHAN）：
+  // claim 串行化同名安装，唯一 live intent 就是本方——仅当快照仍将用于发布
+  // （snapshotAbs 已核验绑定）才保留引用；all-published 恢复（上次崩溃于
+  // 快照清理/claim 释放前）不再引用快照，一并清扫收敛，不留无引用孤儿。
+  sweepStaleSourceSnapshots(
+    opts.claimFs,
+    claimDirRel,
+    opts.skillName,
+    snapshotAbs !== null ? intent.sourceSnapshot : undefined,
+  );
 
   if (snapshotAbs !== null) {
     const persistIntent = (): void => {
@@ -730,8 +748,10 @@ async function runSkillInstall(
     }
 
     // 全部目标发布完成 → 快照使命结束（失败/冲突路径保留快照供恢复）
-    await deps.fsFactory(claimParentAbs).removeDir(path.basename(snapshotAbs)).catch(() => {
-      // silent: 快照清理失败不影响已发布事实；残留 `.skill-srcsnap-*` 可人工删
+    await deps.fsFactory(claimParentAbs).removeDir(path.basename(snapshotAbs)).catch((err) => {
+      // Phase 1916 Step D：清理失败保留可观察证据（不静默丢失责任）——
+      // 残留 `.skill-srcsnap-*` 由下一次同名安装的 sweep 收敛
+      console.warn(`Warning: failed to clean up skill source snapshot ${snapshotAbs}: ${err}`);
     });
   }
 

@@ -862,3 +862,109 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     expect(fs.existsSync(claimPath())).toBe(true);
   });
 });
+
+
+describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL-SOURCE-SNAPSHOT-ORPHAN）', () => {
+  function killHolder(claimFile: string): void {
+    const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
+  }
+  function skillDirSnapshots(): string[] {
+    return fs.readdirSync(path.join(testDir, 'skills')).filter((n) => n.startsWith('.skill-srcsnap-'));
+  }
+
+  it('all-published 恢复（崩溃于 claim 释放前）→ 收敛释放 claim，快照零残留', async () => {
+    const src = makeSkillSource('a', 'v1');
+    // claim 释放失败（此刻快照已正常清理、全目标已 published）
+    let crashed = false;
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(testDir)) {
+        const origDelete = real.deleteSync.bind(real);
+        real.deleteSync = (p: string) => {
+          if (!crashed && p.endsWith('.myskill.installing')) {
+            crashed = true;
+            throw new Error('simulated claim release failure');
+          }
+          return origDelete(p);
+        };
+      }
+      return real;
+    };
+    await skillInstallUserCommand({ fsFactory: crashingFactory }, src);
+
+    // claim 残留（intent 全 published），快照已清理
+    expect(fs.existsSync(claimPath())).toBe(true);
+    const leftover = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(leftover.targets.every((t: { state: string }) => t.state === 'published')).toBe(true);
+    expect(skillDirSnapshots()).toEqual([]);
+
+    killHolder(claimPath());
+    await skillInstallUserCommand(deps, src);
+
+    // all-published 恢复快速收敛：claim 释放、无快照孤儿
+    expect(fs.existsSync(claimPath())).toBe(false);
+    expect(skillDirSnapshots()).toEqual([]);
+    expect(logSpy.mock.calls.flat().join('\n')).toContain('resumed');
+  });
+
+  it('快照清理失败 → warn 可观察留证；下一次同名安装 sweep 收敛孤儿', async () => {
+    const src = makeSkillSource('a', 'v1');
+    const warnSpy = vi.mocked(console.warn);
+    const skillsParent = path.join(testDir, 'skills');
+    const failingCleanupFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(skillsParent)) {
+        const origRemoveDir = real.removeDir.bind(real);
+        real.removeDir = async (p: string) => {
+          if (p.startsWith('.skill-srcsnap-')) throw new Error('simulated snapshot cleanup failure');
+          return origRemoveDir(p);
+        };
+      }
+      return real;
+    };
+
+    // 发布成功，但快照清理失败 → 孤儿残留 + warn 证据
+    await skillInstallUserCommand({ fsFactory: failingCleanupFactory }, src);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+    expect(warnSpy.mock.calls.flat().join(' ')).toContain('skill source snapshot');
+    expect(skillDirSnapshots()).toHaveLength(1);
+
+    // 下一次同名安装：sweep 收敛孤儿（当前引用受保护、发布后清理）
+    await skillInstallUserCommand(deps, src);
+    expect(skillDirSnapshots()).toEqual([]);
+  });
+
+  it('恢复：当前 intent 引用的快照不被 sweep，同名孤儿被清扫', async () => {
+    const src = makeSkillSource('a', 'v1');
+    // 崩溃：dispatch 落位中途 → claim + 被引用快照残留
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        real.linkExclusiveSync = () => { throw new Error('simulated crash mid-landing'); };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+    expect(skillDirSnapshots()).toHaveLength(1); // 被 intent 引用的快照在场
+
+    // 同名孤儿快照（claim 写入前崩溃窗口的残留，无 intent 引用）
+    const orphan = path.join(testDir, 'skills', '.skill-srcsnap-myskill-orphan00');
+    fs.mkdirSync(orphan, { recursive: true });
+    fs.writeFileSync(path.join(orphan, 'SKILL.md'), 'orphan');
+
+    killHolder(claimPath());
+    await skillInstallUserCommand(deps, src);
+
+    // 孤儿被清扫；引用快照完成恢复并随发布清理
+    expect(fs.existsSync(orphan)).toBe(false);
+    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(skillDirSnapshots()).toEqual([]);
+    expect(fs.existsSync(claimPath())).toBe(false);
+  });
+});
