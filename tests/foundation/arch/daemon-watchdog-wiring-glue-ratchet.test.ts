@@ -44,9 +44,11 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
     // 两模块）随存量废弃删除——白名单回收。
     const expected = [
       'assembly/business-systems.ts',
+      // Phase 1911 Step D：watchdog wiring 归位 assembly/config/config-load.ts，
+      // cli/commands/init.ts 不再 deep-import watchdog。
+      'assembly/config/config-load.ts',
       'assembly/file-routing-aggregator.ts',
       // Phase 1396 Step H: claw-watch command retired; motion-facing failure bindings removed.
-      'cli/commands/init.ts',
       'cli/commands/status.ts',
       'cli/commands/stop.ts',
       'cli/commands/watchdog-cli.ts',

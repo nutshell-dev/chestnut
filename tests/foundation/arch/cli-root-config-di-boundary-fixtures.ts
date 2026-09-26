@@ -50,4 +50,5 @@ export function configLoadImporters(): string[] {
 export const REMAINING_BASELINE: string[] = [];
 
 export const NARROW_PICK = /rootConfig:\s*Pick<RootConfigReader,\s*'loadGlobal'\s*\|\s*'loadClaw'>/;
-export const CREATE_ADMIN_PICK = /Pick<RootConfigAdmin,\s*'saveClaw'>/;
+// Phase 1911 Step G 起 create 写面扩为 saveClaw + saveClawExclusive（先取 claim 再写）。
+export const CREATE_ADMIN_PICK = /Pick<RootConfigAdmin,\s*'saveClaw'\s*\|\s*'saveClawExclusive'>/;

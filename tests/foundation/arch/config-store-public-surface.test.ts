@@ -47,7 +47,10 @@ const EXPECTED_BARREL_SURFACE = [
   'isConfigStoreError',
   'loadYamlConfig',
   'patchYamlConfig',
+  // Phase 1910/1911 起 no-replace 写与跨调用 lock 序列化显式 ratify 进公开面
+  'withYamlConfigLock',
   'writeYamlConfig',
+  'writeYamlConfigExclusive',
 ];
 
 describe('phase 1297: ConfigStore 唯一 caller 经 barrel', () => {

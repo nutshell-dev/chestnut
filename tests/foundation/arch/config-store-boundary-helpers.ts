@@ -19,6 +19,8 @@ export const PROJECT_ROOT = path.join(SRC_ROOT, '..');
 export const CONFIG_STORE_DIR = path.join(SRC_ROOT, 'foundation', 'config-store');
 export const CONFIG_STORE_BARREL = path.join(CONFIG_STORE_DIR, 'index');
 export const FS_BARREL = path.join(SRC_ROOT, 'foundation', 'fs', 'index');
+export const PROCESS_EXEC_BARREL = path.join(SRC_ROOT, 'foundation', 'process-exec', 'index');
+export const NODE_UTILS_BARREL = path.join(SRC_ROOT, 'foundation', 'node-utils', 'index');
 export const OLD_LOADER_PATH = path.join(SRC_ROOT, 'assembly', 'config', 'config-loader.ts');
 
 /** 剥离 .js/.ts 扩展名，供模块级比较。 */

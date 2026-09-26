@@ -21,21 +21,28 @@ import {
   PROJECT_ROOT,
   CONFIG_STORE_DIR,
   FS_BARREL,
+  PROCESS_EXEC_BARREL,
+  NODE_UTILS_BARREL,
   OLD_LOADER_PATH,
   stripExtension,
   collectRelativeImportEdges,
 } from './config-store-boundary-helpers.js';
 
-const BUSINESS_TOKEN_RE = /assembly|root|claw|watchdog|audit|llm/i;
+// 词边界化（Phase 1912 Step G）：pollMs / rootConfig 等标识符内的子串不命中；
+// 业务 token 作为独立词出现才判违规。
+const BUSINESS_TOKEN_RE = /\b(?:assembly|root|claw|watchdog|audit|llm)\b/i;
 
 /**
  * ConfigStore 内部文件的一条相对 import 是否合法：
- * 只允许模块内部文件（./store.js、./errors.js）与 FileSystem barrel。
+ * 只允许模块内部文件（./store.js、./errors.js）与 foundation barrel
+ * （fs；Phase 1911 起 lock 活性证明/claim token 显式 ratify 消费
+ * process-exec 与 node-utils barrel，同为 L1/L2a 同层依赖）。
  */
 function isAllowedConfigStoreRelative(resolved: string): boolean {
   if ((resolved + path.sep).startsWith(CONFIG_STORE_DIR + path.sep)) return true;
   if (resolved === CONFIG_STORE_DIR) return true;
-  return stripExtension(resolved) === FS_BARREL;
+  const stripped = stripExtension(resolved);
+  return stripped === FS_BARREL || stripped === PROCESS_EXEC_BARREL || stripped === NODE_UTILS_BARREL;
 }
 
 describe('phase 1297: ConfigStore 物理归属', () => {
@@ -48,15 +55,17 @@ describe('phase 1297: ConfigStore 物理归属', () => {
 });
 
 describe('phase 1297: ConfigStore 依赖方向', () => {
-  it('production 相对 import 只允许模块内部与 foundation/fs barrel', () => {
+  it('production 相对 import 只允许模块内部与 foundation fs/process-exec/node-utils barrel', () => {
     const edges = collectRelativeImportEdges(CONFIG_STORE_DIR);
     const violations = edges.filter((e) => !isAllowedConfigStoreRelative(e.resolved));
     expect(violations).toEqual([]);
   });
 
-  it('正向自证：确实消费 foundation/fs barrel 且存在模块内部边（scanner 非恒真）', () => {
+  it('正向自证：确实消费 foundation barrel 且存在模块内部边（scanner 非恒真）', () => {
     const edges = collectRelativeImportEdges(CONFIG_STORE_DIR);
     expect(edges.some((e) => stripExtension(e.resolved) === FS_BARREL)).toBe(true);
+    expect(edges.some((e) => stripExtension(e.resolved) === PROCESS_EXEC_BARREL)).toBe(true);
+    expect(edges.some((e) => stripExtension(e.resolved) === NODE_UTILS_BARREL)).toBe(true);
     expect(edges.some((e) =>
       (e.resolved + path.sep).startsWith(CONFIG_STORE_DIR + path.sep),
     )).toBe(true);
@@ -66,8 +75,10 @@ describe('phase 1297: ConfigStore 依赖方向', () => {
     const fakeFile = path.join(CONFIG_STORE_DIR, 'store.ts');
     const dir = path.dirname(fakeFile);
     expect(isAllowedConfigStoreRelative(path.resolve(dir, '../../assembly/config/config-load.js'))).toBe(false);
-    expect(isAllowedConfigStoreRelative(path.resolve(dir, '../node-utils/index.js'))).toBe(false);
+    expect(isAllowedConfigStoreRelative(path.resolve(dir, '../messaging/index.js'))).toBe(false);
     expect(isAllowedConfigStoreRelative(path.resolve(dir, '../fs/index.js'))).toBe(true);
+    expect(isAllowedConfigStoreRelative(path.resolve(dir, '../process-exec/index.js'))).toBe(true);
+    expect(isAllowedConfigStoreRelative(path.resolve(dir, '../node-utils/index.js'))).toBe(true);
     expect(isAllowedConfigStoreRelative(path.resolve(dir, './errors.js'))).toBe(true);
   });
 });
@@ -91,5 +102,8 @@ describe('phase 1297: ConfigStore 零上层业务符号', () => {
     expect(BUSINESS_TOKEN_RE.test('L6 Assembly')).toBe(true);
     expect(BUSINESS_TOKEN_RE.test('patch llm.primary')).toBe(true);
     expect(BUSINESS_TOKEN_RE.test('schema 参数化的 generic persistence')).toBe(false);
+    // Phase 1912 Step G：词边界化后标识符子串（pollMs/rootConfig）不再误报
+    expect(BUSINESS_TOKEN_RE.test('pollMs: opts?.pollMs ?? CONFIG_LOCK_POLL_MS')).toBe(false);
+    expect(BUSINESS_TOKEN_RE.test('rootConfig: Pick<RootConfigReader>')).toBe(false);
   });
 });

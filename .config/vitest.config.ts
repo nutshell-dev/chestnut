@@ -56,6 +56,7 @@ const VI_MOCK_FILES = [
   'tests/cli/contract.test.ts',
   'tests/cli/daemon-command.test.ts',
   'tests/cli/daemon-loop.test.ts',
+  'tests/cli/init-concurrent.test.ts',  // phase 1911 Step I: vi.mock readline + llm-connection-check
   'tests/cli/init-envvar.test.ts',
   'tests/cli/motion-steps-action-error.test.ts',
   'tests/cli/password-restore-reverse.test.ts',
