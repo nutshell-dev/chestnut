@@ -183,10 +183,11 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
     const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     expect(crashedIntent.targets).toEqual([
-      { id: 'user', state: 'published' },
+      { id: 'user', state: 'published', preState: 'absent' },
       // Phase 1915 Step B：崩溃发生在 dispatch 发布中途 → publishing（区分
-      // 「本 intent 已触碰该目标」与「尚未触碰」）
-      { id: 'dispatch', state: 'publishing' },
+      // 「本 intent 已触碰该目标」与「尚未触碰」）；Phase 1916 Step C：preState
+      // 记录崩溃前先态作 recovery 身份证据
+      { id: 'dispatch', state: 'publishing', preState: 'absent' },
     ]);
 
     // 模拟 holder 进程死亡（崩溃后 pid 不复存在）
@@ -346,13 +347,14 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
       skillInstallUserCommand({ fsFactory: crashFactory }, src),
     ).rejects.toThrow(/simulated crash/);
 
-    // 崩溃现场：user 目标已完整提交（marker 缺席），intent 仍登记 publishing
+    // 崩溃现场：user 目标已完整提交（committing 登记后删 marker、published
+    // 登记前崩溃 → marker 缺席），intent 仍登记 committing
     expect(readVersion(userSkillDir())).toBe('# myskill v2\n');
     expect(fs.existsSync(path.join(userSkillDir(), '.skill-publishing'))).toBe(false);
     const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     expect(crashedIntent.targets).toEqual([
-      { id: 'user', state: 'publishing' },
-      { id: 'dispatch', state: 'pending' },
+      { id: 'user', state: 'committing', preState: 'absent', commitBranch: 'absent' },
+      { id: 'dispatch', state: 'pending', preState: 'absent' },
     ]);
 
     // 用户合法 post-install 编辑 self 副本
@@ -658,5 +660,205 @@ describe('dispatch source 协议工件边界（Phase 1916 Step B：RACE-DISPATCH
 
     expect(fs.readFileSync(path.join(clawSkillDir('bob'), '.env-example'), 'utf-8')).toBe('KEY=\n');
     expect(fs.existsSync(path.join(clawSkillDir('bob'), SKILL_PUBLISH_MARKER))).toBe(false);
+  });
+});
+
+
+describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY-TARGET-IDENTITY）', () => {
+  function killHolder(claimFile: string): void {
+    const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
+  }
+  /** claim 写入后、首个目标 publishing 登记时崩溃 → 所有 target 仍 pending。 */
+  function crashBeforeTargetsFactory(): (baseDir: string) => FileSystem {
+    let crashed = false;
+    return (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(testDir)) {
+        const origWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (p: string, content: string) => {
+          if (!crashed && p.endsWith('.myskill.installing') && content.includes('"state": "publishing"')) {
+            crashed = true;
+            throw new Error('simulated crash before target publish');
+          }
+          return origWrite(p, content);
+        };
+      }
+      return real;
+    };
+  }
+
+  it('pending target 崩溃后被外部新建空目录 → typed 冲突留证，外部目录原样保留', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashBeforeTargetsFactory() }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 崩溃窗口后外部新建空目录（非本 intent 占有）
+    fs.mkdirSync(userSkillDir(), { recursive: true });
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
+
+    // 外部目录字节不变；claim/intent 证据保留
+    expect(fs.readdirSync(userSkillDir())).toEqual([]);
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('pending target（合法 update 目标）崩溃后被外部编辑 → 冲突不覆盖，字节保留', async () => {
+    const srcV1 = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, srcV1);
+
+    const srcV2 = makeSkillSource('b', 'v2');
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashBeforeTargetsFactory() }, srcV2),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 崩溃后 dispatch 目标内容被外部改变（preState 不再相符）
+    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# externally-changed\n');
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, srcV2)).rejects.toThrow(/identity cannot be proven/);
+
+    // 外部字节不被恢复覆盖；证据保留
+    expect(fs.readFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# externally-changed\n');
+    expect(fs.existsSync(claimPath())).toBe(true);
+    // user 目标（preState 相符、未被触碰）已由恢复按 update 语义正常升级
+    expect(readVersion(userSkillDir())).toBe('# myskill v2\n');
+  });
+
+  it('publishing target 被外部替换成无 marker 目录 → 不误判已提交，typed 冲突留证', async () => {
+    const src = makeSkillSource('a', 'v1');
+    // 崩溃：dispatch 落位中途（marker 在场、本 intent 占有）
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        real.linkExclusiveSync = () => { throw new Error('simulated crash mid-landing'); };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 外部删除半成品占位，重建无 marker 的目录（内容既非 manifest 亦非 preState）
+    fs.rmSync(dispatchSkillDir(), { recursive: true, force: true });
+    fs.mkdirSync(dispatchSkillDir(), { recursive: true });
+    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# external-replacement\n');
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
+
+    // 外部目录不被覆盖、不被误接受；claim 保留待显式处置
+    expect(fs.readFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# external-replacement\n');
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('publishing target 的 marker installId 不符（非本 intent 占有）→ typed 冲突留证', async () => {
+    const src = makeSkillSource('a', 'v1');
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        real.linkExclusiveSync = () => { throw new Error('simulated crash mid-landing'); };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // marker 在场但 installId 被改写（占有证据不符）
+    const markerAbs = path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER);
+    const marker = JSON.parse(fs.readFileSync(markerAbs, 'utf-8'));
+    marker.installId = 'someone-else';
+    fs.writeFileSync(markerAbs, JSON.stringify(marker, null, 2));
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
+    expect(fs.existsSync(markerAbs)).toBe(true);
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('committing + 本方 marker 在场（提交点崩溃）→ 恢复完成提交：删 marker、目标完整可消费', async () => {
+    const src = makeSkillSource('a', 'v1');
+    // 崩溃：dispatch 提交点（committing 已登记、删 marker 时失败）
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    let crashed = false;
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        const origDelete = real.deleteSync.bind(real);
+        real.deleteSync = (p: string) => {
+          if (!crashed && p === `myskill/${SKILL_PUBLISH_MARKER}`) {
+            crashed = true;
+            throw new Error('simulated crash at commit point');
+          }
+          return origDelete(p);
+        };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(crashedIntent.targets).toEqual([
+      { id: 'user', state: 'published', preState: 'absent' },
+      { id: 'dispatch', state: 'committing', preState: 'absent', commitBranch: 'absent' },
+    ]);
+    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
+
+    killHolder(claimPath());
+    await skillInstallUserCommand(deps, src);
+
+    // commit-finish：marker 删除 = 提交完成；registry 可消费完整版本
+    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(false);
+    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(fs.existsSync(claimPath())).toBe(false);
+    const registry = new SkillSystem(
+      new NodeFileSystem({ baseDir: testDir }),
+      path.relative(testDir, dispatchParent),
+      { write: () => {} } as never,
+    );
+    await registry.loadAll();
+    expect(registry.listMeta().map((m) => m.name)).toEqual(['myskill']);
+  });
+
+  it('committing + marker 在场但落位证据已破坏 → commit-finish 拒绝，冲突留证', async () => {
+    const src = makeSkillSource('a', 'v1');
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    let crashed = false;
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        const origDelete = real.deleteSync.bind(real);
+        real.deleteSync = (p: string) => {
+          if (!crashed && p === `myskill/${SKILL_PUBLISH_MARKER}`) {
+            crashed = true;
+            throw new Error('simulated crash at commit point');
+          }
+          return origDelete(p);
+        };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 提交点崩溃后落位证据被外部破坏（额外文件混入）
+    fs.writeFileSync(path.join(dispatchSkillDir(), 'external.txt'), 'x');
+    killHolder(claimPath());
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/landing evidence is broken/);
+
+    // marker 仍在（未提交），证据保留
+    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
+    expect(fs.existsSync(claimPath())).toBe(true);
   });
 });

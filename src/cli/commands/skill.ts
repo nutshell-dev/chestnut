@@ -52,8 +52,12 @@ interface SkillSourceManifestEntry {
 }
 
 interface SkillInstallIntent {
-  schema_version: 1;
+  // schema 2（Phase 1916 Step C）：+ id（稳定 install 身份，marker 占有证据）、
+  // targets[].preState（崩溃前目标先态）、committing 状态与 commitBranch。
+  schema_version: 1 | 2;
   token: string;
+  /** 稳定 install 身份：holder 接管不 rewrite，写入 target marker 作占有证据。 */
+  id: string;
   skillName: string;
   source: string;
   pid: number;
@@ -63,8 +67,17 @@ interface SkillInstallIntent {
   /** Phase 1915 Step C：source snapshot 目录名（claim 同级隐藏目录）= 本次安装的 source identity。 */
   sourceSnapshot?: string;
   // Phase 1915 Step B：publishing = 已开始向该目标写入（崩溃窗口可区分
-  // 「本 intent 已提交但未来得及登记」与「本 intent 尚未触碰该目标」）。
-  targets: { id: string; state: 'pending' | 'publishing' | 'published' }[];
+  // 「本 intent 已触碰该目标」与「尚未触碰」）。
+  // Phase 1916 Step C：committing = 落位/swap 证据已齐、提交点进行中
+  // （absent 分支：marker 删除前；existing 分支：trash rename 前）。
+  targets: {
+    id: string;
+    state: 'pending' | 'publishing' | 'committing' | 'published';
+    /** 崩溃前观察到的目标先态：'absent' 或既有目标内容 hash——recovery 身份证据。 */
+    preState?: 'absent' | { contentHash: string };
+    /** committing 时记录提交分支（absent=marker 删除 / existing=staging swap）。 */
+    commitBranch?: 'absent' | 'existing';
+  }[];
 }
 
 /** 源快照 manifest（路径+大小+内容 hash，排序确定）。源在复制期间被改属外部源快照边界。 */
@@ -253,8 +266,17 @@ async function publishSkillDirSwap(
   srcAbs: string,
   destAbs: string,
   manifest: SkillSourceManifestEntry[],
-  /** marker 证据记录的原始 source（srcAbs 可能是本方快照目录）。 */
-  originSourceAbs?: string,
+  identity: {
+    /** marker 证据记录的原始 source（srcAbs 可能是本方快照目录）。 */
+    originSourceAbs?: string;
+    /** Phase 1916 Step C：写入 marker 的 install 占有证据。 */
+    installId: string;
+    /**
+     * 提交点前回调（持久化 committing 状态）：absent 分支在 sweep 后、删 marker
+     * 前调用；existing 分支在 staging 就绪后、旧版让位前调用。
+     */
+    beforeCommit?: (branch: 'absent' | 'existing') => void;
+  },
 ): Promise<void> {
   const parent = path.dirname(destAbs);
   const base = path.basename(destAbs);
@@ -285,8 +307,9 @@ async function publishSkillDirSwap(
     }
     const markerRel = `${base}/${SKILL_PUBLISH_MARKER}`;
     parentFs.writeAtomicSync(markerRel, JSON.stringify({
-      source: originSourceAbs ?? srcAbs,
+      source: identity.originSourceAbs ?? srcAbs,
       manifestHash: sha256Hex(JSON.stringify(manifest)),
+      installId: identity.installId,
       startedAt: new Date().toISOString(),
     }, null, 2));
     for (const entry of manifest) {
@@ -318,7 +341,10 @@ async function publishSkillDirSwap(
         `conflict — evidence preserved`,
       );
     }
-    // 提交：删 marker（marker 缺席 = 已提交完整版本，单向事实）→ 清 staging
+    // 提交点（Phase 1916 Step C）：先持久化 committing（恢复可证明「marker
+    // 删除是本 intent 的提交动作」），再删 marker（marker 缺席 = 已提交完整
+    // 版本，单向事实）→ 清 staging
+    identity.beforeCommit?.('absent');
     parentFs.deleteSync(markerRel);
     await parentFs.removeDir(stageName).catch(() => {
       // silent: staging 清理失败不影响已发布事实；残留 `.skill-staging-*` 可人工删
@@ -327,6 +353,9 @@ async function publishSkillDirSwap(
   }
 
   // ---- existing 目标：旧版让位 + 身份核验的显式 replace ----
+  // 提交点（Phase 1916 Step C）：staging 就绪后先持久化 committing（恢复可
+  // 区分「swap 前崩溃：旧版未被触碰」与「swap 后崩溃：新版已生效」），再让位。
+  identity.beforeCommit?.('existing');
   await parentFs.moveDir(base, trashName); // 旧版整体让位（rename 原子）
   if (await parentFs.stat(base).catch(() => null)) {
     // 让位窗口内目标被外部重建 → 还原旧版，冲突留证
@@ -359,6 +388,159 @@ async function publishSkillDirSwap(
   await parentFs.removeDir(trashName).catch(() => {
     // silent: trash 清理失败不影响已发布事实；残留 `.skill-trash-*` 可人工删
   });
+}
+
+/* ---------- Phase 1916 Step C: recovery target identity ---------- */
+
+/** 目标目录内容 hash（与 source manifest 同构造），作 recovery 身份证据。 */
+function targetContentHash(targetFs: FileSystem): string {
+  return sha256Hex(JSON.stringify(computeSkillSourceManifest(targetFs)));
+}
+
+/** 类型化读取目标 marker；缺席 → null，不可解析/未知 I/O → 原样用于判读。 */
+function readSkillPublishMarker(
+  parentFs: FileSystem,
+  markerRel: string,
+): { installId?: string; manifestHash?: string } | null {
+  let raw: string;
+  try {
+    raw = parentFs.readSync(markerRel);
+  } catch (err) {
+    if (isFileNotFound(err)) return null;
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return null;
+    throw err; // 未知 I/O：fail-closed 上抛，不当缺席
+  }
+  try {
+    return JSON.parse(raw) as { installId?: string; manifestHash?: string };
+  } catch (err) {
+    throw new CliError(
+      `Skill publish marker ${markerRel} is unreadable; conflict — evidence preserved (${formatErr(err)})`,
+    );
+  }
+}
+
+type RecoveryAction = 'publish' | 'commit-finish' | 'skip-published';
+
+/**
+ * 恢复路径 target 身份判读（Phase 1916 Step C，
+ * RACE-SKILL-RECOVERY-TARGET-IDENTITY）：只续传/补登记能证明属于本 intent 的
+ * target；证据缺失或外部字节出现 → typed 冲突留证，绝不覆盖或误接受崩溃后
+ * 外部出现的目录。
+ *
+ * 判读事实（全部可从磁盘重建）：intent 逐目标 state / preState（崩溃前先态）
+ * / commitBranch，目标内容 hash，marker 的 installId + manifestHash。
+ * - pending：本 intent 未触碰该目标——目标缺席可发布；目标在场须等于
+ *   preState（合法 update 目标未被触碰），preState=absent 或内容偏离 → 冲突；
+ * - publishing：marker 在场须携带本 intent 的 installId + manifestHash（本方
+ *   半成品）；marker 缺席时 v2 协议下提交前必经 committing——内容恰等于
+ *   manifest 幂等收敛、等于 preState 则旧版未被触碰可重做 update，其余冲突；
+ * - committing：commitBranch=absent 且 marker 缺席 = marker 删除是本 intent
+ *   的提交动作 → 补登记（其后用户编辑合法保留）；marker 在 → 完成提交；
+ *   commitBranch=existing 按 swap 是否生效（内容 hash）判读。
+ */
+async function classifyRecoveryTarget(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  intent: SkillInstallIntent,
+  target: SkillInstallIntent['targets'][number],
+  abs: string,
+): Promise<RecoveryAction> {
+  const parentFs = deps.fsFactory(path.dirname(abs));
+  const base = path.basename(abs);
+  const markerRel = `${base}/${SKILL_PUBLISH_MARKER}`;
+  const manifestHash = sha256Hex(JSON.stringify(intent.manifest));
+  const conflict = (detail: string): CliError => new CliError(
+    `Skill target "${abs}" identity cannot be proven for the interrupted install ` +
+    `(${detail}); conflict — target/claim/snapshot evidence preserved, not overwritten`,
+  );
+
+  const targetPresent = await parentFs.stat(base).catch((err: unknown) => {
+    if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return null;
+    throw err;
+  });
+
+  // legacy schema-1 intent（1915 及更早：无 installId/preState/committing 事实）：
+  // 沿用 1915 判读——publishing + marker 缺席补登记，其余续传/发布。
+  if (intent.schema_version !== 2 || target.preState === undefined) {
+    if (target.state !== 'publishing') return 'publish';
+    if (targetPresent === null) return 'publish';
+    const marker = readSkillPublishMarker(parentFs, markerRel);
+    return marker === null ? 'skip-published' : 'publish';
+  }
+
+  const preHash = target.preState === 'absent' ? null : target.preState.contentHash;
+  const currentHash = targetPresent !== null ? targetContentHash(deps.fsFactory(abs)) : null;
+  const marker = targetPresent !== null ? readSkillPublishMarker(parentFs, markerRel) : null;
+  const markerOurs = marker !== null && marker.installId === intent.id && marker.manifestHash === manifestHash;
+
+  if (target.state === 'pending') {
+    if (targetPresent === null) return 'publish'; // 目标缺席：无外部字节可伤
+    if (preHash === null) {
+      throw conflict('target appeared externally after the crash (preState=absent)');
+    }
+    if (currentHash === preHash) return 'publish'; // 合法 update 目标未被触碰
+    throw conflict('target bytes changed externally after the crash');
+  }
+
+  if (target.state === 'publishing') {
+    if (targetPresent === null) return 'publish'; // existing swap 窗口/占位前崩溃
+    if (marker !== null) {
+      if (markerOurs) return 'publish'; // 本方半成品（marker 占有证据相符）
+      throw conflict('publish marker does not belong to this install intent');
+    }
+    // marker 缺席 + publishing：v2 协议下提交前必经 committing，故此组合绝非
+    // 本 intent 已提交——内容与 manifest 一致仅作幂等收敛，其余必冲突。
+    if (currentHash === manifestHash) return 'skip-published';
+    if (preHash !== null && currentHash === preHash) return 'publish'; // 旧版未被触碰，重做 update
+    throw conflict('target was replaced externally with a marker-free directory');
+  }
+
+  // committing：提交点进行中崩溃
+  if (marker !== null) {
+    if (target.commitBranch === 'absent' && markerOurs) return 'commit-finish';
+    throw conflict('committing state with an unexpected publish marker');
+  }
+  if (target.commitBranch === 'absent') {
+    // marker 删除是本 intent 的提交动作 → 已提交；其后的用户编辑合法保留
+    return 'skip-published';
+  }
+  if (target.commitBranch === 'existing') {
+    if (targetPresent === null) return 'publish'; // swap 窗口内崩溃（trash 留证）
+    if (currentHash === manifestHash) return 'skip-published'; // swap 已生效
+    if (preHash !== null && currentHash === preHash) return 'publish'; // committing 登记后、swap 前崩溃
+    throw conflict('committing state with unrecognized target bytes');
+  }
+  throw conflict('committing state without a recorded commit branch');
+}
+
+/**
+ * 完成 absent 分支提交（committing + 本方 marker 在场）：复核落位证据后删
+ * marker。证据已破坏（文件缺失/异内容/外部混入）→ typed 冲突留证。
+ */
+function finishAbsentBranchCommit(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  intent: SkillInstallIntent,
+  abs: string,
+): void {
+  const parentFs = deps.fsFactory(path.dirname(abs));
+  const base = path.basename(abs);
+  const markerRel = `${base}/${SKILL_PUBLISH_MARKER}`;
+  const expected = new Set([...intent.manifest.map((e) => `${base}/${e.path}`), markerRel]);
+  const actual = parentFs.listSync(base, { recursive: true }).filter((e) => e.isFile).map((e) => e.path);
+  const extra = actual.filter((p) => !expected.has(p));
+  const missing = intent.manifest.filter((e) => !actual.includes(`${base}/${e.path}`));
+  const mismatched = intent.manifest.filter((e) => {
+    if (!actual.includes(`${base}/${e.path}`)) return false; // missing 单独报告
+    const content = parentFs.readSync(`${base}/${e.path}`);
+    return sha256Hex(content) !== e.sha256;
+  });
+  if (extra.length > 0 || missing.length > 0 || mismatched.length > 0) {
+    throw new CliError(
+      `Skill target "${abs}" landing evidence is broken at commit finish ` +
+      `(extra: ${extra.join(', ') || '-'}; missing: ${missing.map((e) => e.path).join(', ') || '-'}; ` +
+      `mismatched: ${mismatched.map((e) => e.path).join(', ') || '-'}); conflict — evidence preserved`,
+    );
+  }
+  parentFs.deleteSync(markerRel); // 提交：marker 缺席 = 已提交完整版本
 }
 
 /**
@@ -406,9 +588,27 @@ async function runSkillInstall(
     const snapName = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${opts.skillName}-${token}`;
     const snapAbs = path.join(claimParentAbs, snapName);
     const manifest = await materializeSourceSnapshot(deps, opts.srcAbs, snapAbs, null);
+    // Phase 1916 Step C：登记逐目标先态（recovery 身份证据）——类型化探测，
+    // 未知 I/O 原样上抛；目标在场则记录其内容 hash（合法 update 目标判读基准）
+    const targetsWithPreState: SkillInstallIntent['targets'] = [];
+    for (const t of opts.targets) {
+      const present = await deps.fsFactory(path.dirname(t.absPath)).stat(path.basename(t.absPath))
+        .catch((err: unknown) => {
+          if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return null;
+          throw err;
+        });
+      targetsWithPreState.push({
+        id: t.id,
+        state: 'pending',
+        preState: present === null
+          ? 'absent'
+          : { contentHash: targetContentHash(deps.fsFactory(t.absPath)) },
+      });
+    }
     const fresh: SkillInstallIntent = {
-      schema_version: 1,
+      schema_version: 2,
       token,
+      id: newShortUuid(),
       skillName: opts.skillName,
       source: opts.srcAbs,
       pid: process.pid,
@@ -416,7 +616,7 @@ async function runSkillInstall(
       startedAt: new Date().toISOString(),
       manifest,
       sourceSnapshot: snapName,
-      targets: opts.targets.map((t) => ({ id: t.id, state: 'pending' as const })),
+      targets: targetsWithPreState,
     };
     try {
       opts.claimFs.writeExclusiveSync(opts.claimRel, JSON.stringify(fresh, null, 2));
@@ -482,44 +682,51 @@ async function runSkillInstall(
   sweepStaleSourceSnapshots(opts.claimFs, claimDirRel, opts.skillName, intent.sourceSnapshot);
 
   if (snapshotAbs !== null) {
+    const persistIntent = (): void => {
+      opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+    };
     for (const target of intent.targets) {
-    if (target.state === 'published') continue;
-    const abs = opts.targets.find((t) => t.id === target.id)?.absPath;
-    if (!abs) {
-      throw new CliError(
-        `Install intent for skill "${opts.skillName}" references unknown target "${target.id}" ` +
-        `(claim: ${opts.claimRel}); evidence preserved, not overwriting`,
-      );
-    }
-    // Phase 1915 Step B（RACE-SKILL-TARGET-PRECOMMIT）：恢复路径按
-    // target-local 提交事实判读——state=publishing 且目标 marker 已缺席 =
-    // 崩溃发生在「删 marker 提交」与「持久化 intent」之间，该目标已完整发布，
-    // 之后可能已被用户合法编辑；恢复只补登记 intent，绝不重写已发布副本。
-    // marker 在 = 落位/sweep 未完成，按 manifest 续传；pending = 本 intent
-    // 尚未触碰该目标（已存在目标走 existing 分支的显式 update 语义）。
-    if (target.state === 'publishing') {
-      const parentFs = deps.fsFactory(path.dirname(abs));
-      const base = path.basename(abs);
-      const targetPresent = await parentFs.stat(base).catch(() => null);
-      if (targetPresent !== null) {
-        const markerPresent = await parentFs.stat(`${base}/${SKILL_PUBLISH_MARKER}`)
-          .then(() => true)
-          .catch((err: unknown) => {
-            if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return false;
-            throw err;
-          });
-        if (!markerPresent) {
+      if (target.state === 'published') continue;
+      const abs = opts.targets.find((t) => t.id === target.id)?.absPath;
+      if (!abs) {
+        throw new CliError(
+          `Install intent for skill "${opts.skillName}" references unknown target "${target.id}" ` +
+          `(claim: ${opts.claimRel}); evidence preserved, not overwriting`,
+        );
+      }
+      // Phase 1915 Step B + 1916 Step C：恢复路径按 target-local 提交事实与
+      // 占有证据判读——只续传/补登记能证明属于本 intent 的 target；证据缺失或
+      // 外部字节 → typed 冲突留证，绝不覆盖或误接受崩溃后外部出现的目录。
+      if (resumed) {
+        const action = await classifyRecoveryTarget(deps, intent, target, abs);
+        if (action === 'skip-published') {
           target.state = 'published';
-          opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+          delete target.commitBranch;
+          persistIntent();
+          continue;
+        }
+        if (action === 'commit-finish') {
+          finishAbsentBranchCommit(deps, intent, abs);
+          target.state = 'published';
+          delete target.commitBranch;
+          persistIntent();
           continue;
         }
       }
-    }
-    target.state = 'publishing';
-    opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
-    await publishSkillDirSwap(deps, snapshotAbs, abs, intent.manifest, intent.source);
-    target.state = 'published';
-    opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+      target.state = 'publishing';
+      persistIntent();
+      await publishSkillDirSwap(deps, snapshotAbs, abs, intent.manifest, {
+        originSourceAbs: intent.source,
+        installId: intent.id,
+        beforeCommit: (branch) => {
+          target.commitBranch = branch;
+          target.state = 'committing';
+          persistIntent();
+        },
+      });
+      target.state = 'published';
+      delete target.commitBranch;
+      persistIntent();
     }
 
     // 全部目标发布完成 → 快照使命结束（失败/冲突路径保留快照供恢复）
