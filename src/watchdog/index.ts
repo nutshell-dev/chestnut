@@ -27,4 +27,5 @@ export type { WatchdogProcessDeps } from './types.js';
 export {
   initWorkspaceWatchdogConfig,
   publishWatchdogLayout,
+  loadWorkspaceWatchdogConfig,
 } from './workspace-config.js';

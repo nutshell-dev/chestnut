@@ -36,8 +36,17 @@ function writeConfig(tempDir: string): void {
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.yaml'),
-    `llm:\n  preset: custom-anthropic\n  api_key: test-key\n`,
+    'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    api_key: test\n    model: claude\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n',
   );
+}
+
+/**
+ * Phase 1911 Step D：root YAML exists ≠ ready。ready 需要 ready marker +
+ * 必需布局核验；测试经真实 completeInitialization 能力构造 ready workspace。
+ */
+function makeReady(tempDir: string): void {
+  writeConfig(tempDir);
+  createRootConfig({ fsFactory }).completeInitialization();
 }
 
 function writeContract(
@@ -68,14 +77,15 @@ describe('getInitializationSnapshot', () => {
   });
 
   it('一致性: 无 contract → isInitialized=false, onboarding=not_found', () => {
-    writeConfig(tmpDir);
+    makeReady(tmpDir);
     const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     expect(snapshot.isInitialized).toBe(true);
+    expect(snapshot.initialization).toBe('ready');
     expect(snapshot.onboarding).toEqual({ state: 'not_found' });
   });
 
   it('一致性: active Onboarding pending → isInitialized=true, onboarding=in_progress', () => {
-    writeConfig(tmpDir);
+    makeReady(tmpDir);
     writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'pending' },
@@ -86,7 +96,7 @@ describe('getInitializationSnapshot', () => {
   });
 
   it('一致性: archive Onboarding 全部完成 → isInitialized=true, onboarding=complete', () => {
-    writeConfig(tmpDir);
+    makeReady(tmpDir);
     writeContract(tmpDir, 'archive', 'ob1', 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'completed' },
@@ -97,7 +107,7 @@ describe('getInitializationSnapshot', () => {
   });
 
   it('反向 1: snapshot 与独立调用结果一致', () => {
-    writeConfig(tmpDir);
+    makeReady(tmpDir);
     writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
       language: { status: 'pending' },
     });
@@ -107,7 +117,7 @@ describe('getInitializationSnapshot', () => {
   });
 
   it('反向 2: snapshot 是单次同步调用，JS event loop 不会打断', () => {
-    writeConfig(tmpDir);
+    makeReady(tmpDir);
     writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
       language: { status: 'pending' },
     });
@@ -115,6 +125,27 @@ describe('getInitializationSnapshot', () => {
     // 只要返回值结构正确即证明 atomic snapshot 机制存在
     expect(snapshot).toHaveProperty('isInitialized');
     expect(snapshot).toHaveProperty('onboarding');
+  });
+
+  it('Phase 1911 Step D: config-only（崩溃窗口/legacy 无 marker）→ in_progress，恢复后 ready', () => {
+    writeConfig(tmpDir);
+    const before = getInitializationSnapshot(snapshotDeps, tmpDir);
+    expect(before.isInitialized).toBe(false);
+    expect(before.initialization).toBe('in_progress');
+
+    createRootConfig({ fsFactory }).completeInitialization();
+    const after = getInitializationSnapshot(snapshotDeps, tmpDir);
+    expect(after.isInitialized).toBe(true);
+    expect(after.initialization).toBe('ready');
+  });
+
+  it('Phase 1911 Step D: marker 声称 ready 但布局损坏 → invalid（fail-closed）', () => {
+    makeReady(tmpDir);
+    // 损坏 audit config（owner typed load → invalid）
+    fs.writeFileSync(path.join(tmpDir, '.chestnut', 'audit', 'config.yaml'), ': : broken');
+    const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
+    expect(snapshot.isInitialized).toBe(false);
+    expect(snapshot.initialization).toBe('invalid');
   });
 });
 
@@ -130,8 +161,8 @@ describe('start.ts _start snapshot integration (structural)', () => {
     const startMatch = content.match(/async function _start[\s\S]*?(?=\nasync function|\nexport function|$)/);
     expect(startMatch).toBeTruthy();
     const startBody = startMatch![0];
-    // 确认 snapshot 被解构使用
-    expect(startBody).toContain('snapshot.isInitialized');
+    // 确认 snapshot 被解构使用（Phase 1911 Step D：typed initialization 状态）
+    expect(startBody).toContain('snapshot.initialization');
     expect(startBody).toContain('snapshot.onboarding');
   });
 });

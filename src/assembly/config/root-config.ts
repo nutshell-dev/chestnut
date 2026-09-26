@@ -19,7 +19,10 @@ import {
   saveClawConfig,
   saveClawConfigExclusive,
   patchGlobalConfigPrimary,
+  getInitializationState,
+  completeInitialization,
 } from './config-load.js';
+import type { InitializationState } from './config-load.js';
 import type {
   ClawGlobalConfig,
   ClawGlobalConfigInput,
@@ -58,6 +61,17 @@ export interface RootConfigAdmin extends RootConfigReader {
   saveClawExclusive(configPath: string, config: ClawConfig): void;
   /** patch global config 的 llm.primary 段（锁内 raw patch）；输入 readonly，边界内复制，caller 对象不被修改。 */
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<void>;
+  /**
+   * Phase 1911 Step D：typed 初始化状态（诊断读）。'initialized' 的对外可见
+   * 依据是 ready marker + 必需布局核验，不是 root YAML exists。
+   */
+  getInitializationState(): InitializationState;
+  /**
+   * Phase 1911 Step D：幂等完成 bootstrap（audit/watchdog config、layout、logs
+   * 归各 owner 幂等物化），核验后发布 ready marker。崩溃窗口/legacy 无 marker
+   * 布局均经此恢复；owner 遇 invalid 配置 throw fail-loud，不覆盖。
+   */
+  completeInitialization(): void;
 }
 
 export interface RootConfigDeps {
@@ -79,5 +93,7 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
     saveClaw: (configPath, config) => saveClawConfig(deps, configPath, config),
     saveClawExclusive: (configPath, config) => saveClawConfigExclusive(deps, configPath, config),
     patchPrimary: (patch) => patchGlobalConfigPrimary(deps, { ...patch }),
+    getInitializationState: () => getInitializationState(deps),
+    completeInitialization: () => completeInitialization(deps),
   };
 }

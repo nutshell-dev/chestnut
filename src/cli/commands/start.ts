@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
-import type { RootConfigAdmin } from '../../assembly/index.js';
+import type { RootConfigAdmin, InitializationState } from '../../assembly/index.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { initCommand } from './init.js';
@@ -112,10 +112,15 @@ export async function pickLanguage(): Promise<string> {
  */
 export function getInitializationSnapshot(deps: StartCommandDeps & { audit?: AuditLog }, motionDir: string): {
   isInitialized: boolean;
+  initialization: InitializationState;
   onboarding: OnboardingStatus;
 } {
+  // Phase 1911 Step D：typed 初始化状态（root YAML exists ≠ ready）；
+  // isInitialized 布尔面保留给既有消费者，语义 = ready。
+  const initialization = deps.rootConfig.getInitializationState();
   return {
-    isInitialized: deps.rootConfig.isInitialized(),
+    isInitialized: initialization === 'ready',
+    initialization,
     onboarding: getOnboardingStatus(motionDir, deps),
   };
 }
@@ -201,7 +206,7 @@ interface StartCommandRuntime {
 
 interface StartCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary' | 'getInitializationState' | 'completeInitialization'>;
 }
 
 export async function startCommand(deps: StartCommandDeps, runtime: StartCommandRuntime): Promise<void> {
@@ -217,9 +222,18 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
   // Step 1: workspace init
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
-  const wasFirstRun = !snapshot.isInitialized;
+  const wasFirstRun = snapshot.initialization === 'absent';
   if (wasFirstRun) {
     await initCommand(deps, true);
+  } else if (snapshot.initialization === 'in_progress') {
+    // Phase 1911 Step D：崩溃窗口/legacy 无 marker —— 幂等恢复完整 bootstrap
+    // 后继续，不消费 config-only 半成品状态。
+    deps.rootConfig.completeInitialization();
+  } else if (snapshot.initialization === 'invalid') {
+    throw new CliError(
+      'Workspace initialization state is invalid: root config or workspace layout ' +
+      'is corrupted. Inspect .chestnut/ manually; start will not overwrite it.',
+    );
   }
   // phase 1280: workspace bootstrap（config 完整落盘）后才恢复 Watchdog；
   // 之后的 Motion init / daemon spawn / contract / chat 均位于监督之下。

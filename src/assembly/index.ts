@@ -31,6 +31,7 @@ export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 export { createRootConfig } from './config/root-config.js';
 export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config/root-config.js';
 export { resolveLLMConfig, GlobalConfigAlreadyExistsError, ClawConfigAlreadyExistsError } from './config/config-load.js';
+export type { InitializationState } from './config/config-load.js';
 export { initializeClawLayout } from './claw-subdirs.js';
 export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
 export type { ClawGlobalConfig } from './config/compose-config.js';

@@ -6,7 +6,6 @@ import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigAdmin } from '../../assembly/index.js';
 import { GlobalConfigAlreadyExistsError } from '../../assembly/index.js';
-import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
@@ -24,8 +23,6 @@ import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index
 import { HEARTBEAT_DEFAULT_INTERVAL_MS } from '../../core/heartbeat/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { initWorkspaceAuditConfig, publishAuditLayout } from '../../foundation/audit/index.js';
-import { initWorkspaceWatchdogConfig, publishWatchdogLayout } from '../../watchdog/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
@@ -46,14 +43,29 @@ const PROVIDER_LIST = [
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary' | 'getInitializationState' | 'completeInitialization'>;
 }
 
 export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
-  // Check if already initialized
-  if (deps.rootConfig.isInitialized()) {
+  // Phase 1911 Step D（RACE-CONFIG-INIT-PARTIAL-PUBLISH）：typed 初始化状态。
+  // ready 依据 = root config + ready marker + 必需布局核验，不是 root YAML exists。
+  const initState = deps.rootConfig.getInitializationState();
+  if (initState === 'ready') {
     console.log('✓ Already initialized (.chestnut/config.yaml exists)');
+    return;
+  }
+  if (initState === 'invalid') {
+    throw new CliError(
+      'Workspace initialization state is invalid: root config or workspace layout ' +
+      'is corrupted. Inspect .chestnut/ manually; init will not overwrite it.',
+    );
+  }
+  if (initState === 'in_progress') {
+    // 崩溃窗口 / legacy 无 marker 布局：幂等补建后发布 ready，不重新交互、
+    // 不覆盖合法配置；LLM probe 不属于 ready，恢复路径不重跑（可用 config 命令修复）。
+    deps.rootConfig.completeInitialization();
+    console.log('✓ Initialization completed (resumed an interrupted bootstrap; existing config kept)');
     return;
   }
 
@@ -322,27 +334,19 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       deps.rootConfig.saveGlobalExclusive(config);
     } catch (err) {
       if (err instanceof GlobalConfigAlreadyExistsError) {
+        // Phase 1911 Step D：winner 可能仍在 bootstrap 窗口 —— loser 幂等协助
+        // 收敛（owner 物化幂等，不覆盖 winner 配置），随后按事实返回。
+        deps.rootConfig.completeInitialization();
         console.log('✓ Already initialized (a concurrent init completed first; keeping its config)');
         return;
       }
       throw err;
     }
 
-    // Phase 1288 Step B: fresh init 创建默认 workspace audit config ——
-    // 唯一允许默认创建的路径（普通启动 missing 不静默创建）；root YAML 不再写 audit 段。
-    const chestnutRootFs = deps.fsFactory(getChestnutRoot());
-    initWorkspaceAuditConfig(chestnutRootFs);
-    publishAuditLayout(chestnutRootFs);
-    // Phase 1289 Step B/D: fresh init 创建默认 workspace watchdog config（同型协议；
-    // Step D 起 root YAML 的 watchdog: 块同步退役，不再写入）。
-    // phase 1890 Step K：迁移协议退役；fresh init 直调 live 创建面（等价原 migration.init()+finalizeLayout()）。
-    initWorkspaceWatchdogConfig(chestnutRootFs);
-    publishWatchdogLayout(chestnutRootFs);
-
-    // Create logs directory
-    const root = getWorkspaceRoot();
-    const fs = deps.fsFactory(root);
-    fs.ensureDirSync('.chestnut/logs');
+    // Phase 1911 Step D：完整 bootstrap（audit/watchdog config、layout、logs）
+    // 由各 owner 幂等物化并核验后，才发布 ready marker —— initialized 对外
+    // 可见性不再先于必需布局。
+    deps.rootConfig.completeInitialization();
 
     // ── Verify LLM API reachable ─────────────────────────────────────────────
     // Per DP「事后审计」+ DP「智能体是决策主体」(init 阶段 user 主体):

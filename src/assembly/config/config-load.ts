@@ -26,6 +26,17 @@ import {
   type ConfigStoreError,
 } from '../../foundation/config-store/index.js';
 import { getGlobalConfigPath } from './global-config-path.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import {
+  loadWorkspaceAuditConfig,
+  initWorkspaceAuditConfig,
+  publishAuditLayout,
+} from '../../foundation/audit/index.js';
+import {
+  loadWorkspaceWatchdogConfig,
+  initWorkspaceWatchdogConfig,
+  publishWatchdogLayout,
+} from '../../watchdog/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -111,6 +122,83 @@ export function isInitialized(deps: { fsFactory: (baseDir: string) => FileSystem
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
   return fs.existsSync(path.basename(configPath));
+}
+
+/* ---------- Phase 1911 Step D: init 完整 bootstrap 发布 ---------- */
+
+/**
+ * Phase 1911 Step D（RACE-CONFIG-INIT-PARTIAL-PUBLISH）：ready marker。
+ * root config YAML 的 O_EXCL 提交只是 bootstrap 的 durable intent；
+ * 「workspace initialized」对消费者可见的唯一依据是本 marker，且只在
+ * audit/watchdog config 与 logs 等必需布局核验完整后发布。LLM probe
+ * 不属于 ready（transient 网络失败不得阻断布局完整性判定）。
+ */
+export const INITIALIZATION_MARKER = '.initialized' as const;
+
+export type InitializationState =
+  | 'absent'       // 无 root config —— 从未初始化
+  | 'in_progress'  // root config 在、marker 缺 —— 崩溃窗口或 legacy 无 marker 布局
+  | 'ready'        // root config + marker + 必需布局核验完整
+  | 'invalid';     // root config 损坏 / marker 声称 ready 但布局损坏 —— fail-closed
+
+type BootstrapCheck = 'complete' | 'incomplete' | 'broken';
+
+/** 必需布局核验：audit/watchdog config（owner typed load）+ logs 目录。 */
+function checkWorkspaceBootstrap(deps: { fsFactory: (baseDir: string) => FileSystem }): BootstrapCheck {
+  const chestnutRootFs = deps.fsFactory(getChestnutRoot());
+  const audit = loadWorkspaceAuditConfig(chestnutRootFs);
+  const watchdog = loadWorkspaceWatchdogConfig(chestnutRootFs);
+  if (audit.kind === 'invalid' || watchdog.kind === 'invalid') return 'broken';
+  if (audit.kind !== 'ok' || watchdog.kind !== 'ok') return 'incomplete';
+  return chestnutRootFs.existsSync('logs') ? 'complete' : 'incomplete';
+}
+
+/**
+ * typed 初始化状态（诊断读，不授予任何创建权）。marker 缺 + 布局完整 =
+ * legacy/崩溃窗口一律 in_progress，由 completeInitialization 幂等补建
+ * （不重新交互、不覆盖合法配置）；布局损坏不给 ready。
+ */
+export function getInitializationState(deps: { fsFactory: (baseDir: string) => FileSystem }): InitializationState {
+  if (!isInitialized(deps)) return 'absent';
+  try {
+    loadGlobalConfig(deps);
+  } catch {
+    // silent: root YAML 存在但不可消费 —— 以 typed 'invalid' 状态上报（fail-closed）
+    return 'invalid';
+  }
+  const chestnutRootFs = deps.fsFactory(getChestnutRoot());
+  const markerPresent = chestnutRootFs.existsSync(INITIALIZATION_MARKER);
+  const bootstrap = checkWorkspaceBootstrap(deps);
+  if (markerPresent) {
+    // marker 不得把损坏布局标 ready
+    return bootstrap === 'complete' ? 'ready' : 'invalid';
+  }
+  return bootstrap === 'broken' ? 'invalid' : 'in_progress';
+}
+
+/**
+ * 幂等完成 bootstrap：各 owner 幂等物化（合法已存在 → 'already' 不覆盖，
+ * invalid → owner throw fail-loud），核验后最后发布 ready marker。
+ * 覆盖三条路径：fresh init winner、并发 loser 协助收敛、崩溃/legacy 恢复。
+ */
+export function completeInitialization(deps: { fsFactory: (baseDir: string) => FileSystem }): void {
+  const chestnutRootFs = deps.fsFactory(getChestnutRoot());
+  initWorkspaceAuditConfig(chestnutRootFs);
+  publishAuditLayout(chestnutRootFs);
+  initWorkspaceWatchdogConfig(chestnutRootFs);
+  publishWatchdogLayout(chestnutRootFs);
+  chestnutRootFs.ensureDirSync('logs');
+  if (checkWorkspaceBootstrap(deps) !== 'complete') {
+    throw new Error(
+      'Workspace bootstrap verification failed after materialization; ' +
+      'ready marker NOT published (evidence preserved)',
+    );
+  }
+  const marker = {
+    schema_version: 1,
+    owner: 'assembly-root-config',
+  } as const;
+  chestnutRootFs.writeAtomicSync(INITIALIZATION_MARKER, `${JSON.stringify(marker, null, 2)}\n`);
 }
 
 export function saveGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, config: ClawGlobalConfigInput): void {

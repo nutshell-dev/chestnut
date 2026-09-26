@@ -134,3 +134,71 @@ describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('model-winner');
   });
 });
+
+describe('initCommand — 完整 bootstrap 发布（Phase 1911 Step D）', () => {
+  const winnerConfig = {
+    version: '1',
+    llm: {
+      primary: {
+        preset: 'anthropic',
+        api_key: '${ANTHROPIC_API_KEY}',
+        model: 'claude',
+        temperature: 0.7,
+        timeout_ms: 60000,
+      },
+      retry_attempts: 3,
+      retry_delay_ms: 1000,
+    },
+  };
+
+  it('崩溃窗口（config-only、无 marker）：重试不重新交互，幂等补建布局后发布 ready', async () => {
+    // 模拟 init 在 config 提交后、辅助布局前崩溃
+    commandDeps.rootConfig.saveGlobalExclusive(winnerConfig);
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    // 不重问用户（resume 无交互）
+    expect(mockRl.question).not.toHaveBeenCalled();
+    // 布局补齐 + ready marker 发布；winner 配置不覆盖
+    const root = path.join(tempDir, '.chestnut');
+    expect(fs.existsSync(path.join(root, '.initialized'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'audit', 'config.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'watchdog', 'config.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'logs'))).toBe(true);
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('claude');
+    // resume 不伪装成完整 fresh init（无 INIT_DONE / 无 probe）
+    expect(auditCalls.entries.filter(e => e[0] === 'cli_init_done')).toHaveLength(0);
+    expect(connMock.checkLLMConnection).not.toHaveBeenCalled();
+    // 状态收敛为 ready
+    expect(commandDeps.rootConfig.getInitializationState()).toBe('ready');
+  });
+
+  it('legacy 无 marker 完整布局：一次性补建 marker，不重新交互', async () => {
+    commandDeps.rootConfig.saveGlobalExclusive(winnerConfig);
+    commandDeps.rootConfig.completeInitialization();
+    // 删除 marker 模拟 1910 时代的 legacy workspace
+    fs.rmSync(path.join(tempDir, '.chestnut', '.initialized'));
+    expect(commandDeps.rootConfig.getInitializationState()).toBe('in_progress');
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    expect(mockRl.question).not.toHaveBeenCalled();
+    expect(commandDeps.rootConfig.getInitializationState()).toBe('ready');
+  });
+
+  it('invalid（布局损坏）：fail-closed typed error，不覆盖、不发布 marker', async () => {
+    commandDeps.rootConfig.saveGlobalExclusive(winnerConfig);
+    const auditDir = path.join(tempDir, '.chestnut', 'audit');
+    fs.mkdirSync(auditDir, { recursive: true });
+    fs.writeFileSync(path.join(auditDir, 'config.yaml'), ': : broken');
+
+    await expect(
+      initCommand(commandDeps, true, { audit: mockAudit }),
+    ).rejects.toThrow(/invalid/i);
+
+    expect(mockRl.question).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', '.initialized'))).toBe(false);
+    // 损坏证据保留
+    expect(fs.readFileSync(path.join(auditDir, 'config.yaml'), 'utf8')).toBe(': : broken');
+  });
+});
