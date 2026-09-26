@@ -26,9 +26,13 @@ import {
 type Run = (deps: FakeClawCommandDeps) => Promise<void>;
 
 // read/ls 共用同一边界矩阵；fs stub 只够各命令走完正常路径（存在性判定之后）。
+// Phase 1915 Step D：发布态探测改类型化 statSync（ENOENT = claim 缺席），stub 同步补齐该面。
+const absentClaimStatSync = (): never => {
+  throw Object.assign(new Error('claim absent'), { code: 'ENOENT' });
+};
 const CASES: ReadonlyArray<readonly [verb: string, run: Run, fsStub: unknown]> = [
-  ['read', (deps) => readCommand(deps, 'test-claw', 'a.md'), { read: async () => 'x\n' }],
-  ['ls', (deps) => lsCommand(deps, 'test-claw', undefined, {}), { list: async () => [] }],
+  ['read', (deps) => readCommand(deps, 'test-claw', 'a.md'), { read: async () => 'x\n', statSync: absentClaimStatSync }],
+  ['ls', (deps) => lsCommand(deps, 'test-claw', undefined, {}), { list: async () => [], statSync: absentClaimStatSync }],
 ];
 
 describe('clawspace read/ls RootConfig 边界 (phase 1324)', () => {
