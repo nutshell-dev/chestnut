@@ -30,6 +30,7 @@ vi.mock('readline', () => ({
 
 const { buildOnboardingSubtasks, pickLanguage, getOnboardingStatus } =
   await import('../../src/cli/commands/start.js');
+const { ONBOARDING_CONTRACT_ID } = await import('../../src/core/contract/index.js');
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,8 @@ describe('pickLanguage', () => {
 });
 
 // ── getOnboardingStatus ────────────────────────────────────────────────────────
+// Phase 1912 Step E：start 门控消费 owner 身份裁决——只有 stable id 可复用；
+// 随机 id title=Onboarding 是歧义迁移候选 → conflict 抛出（停止自动采用）。
 
 describe('getOnboardingStatus', () => {
   let tmpDir: string;
@@ -144,8 +147,8 @@ describe('getOnboardingStatus', () => {
     expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'not_found' });
   });
 
-  it('active/ 中 Onboarding 有 pending subtask → in_progress', () => {
-    writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
+  it('active/ 中 stable Onboarding 有 pending subtask → in_progress', () => {
+    writeContract(tmpDir, 'active', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'pending' },
       user: { status: 'pending' },
@@ -153,23 +156,23 @@ describe('getOnboardingStatus', () => {
     const result = getOnboardingStatus(tmpDir, { fsFactory });
     expect(result.state).toBe('in_progress');
     if (result.state === 'in_progress') {
-      expect(result.contractId).toBe('ob1');
+      expect(result.contractId).toBe(ONBOARDING_CONTRACT_ID);
       expect(result.pending).toContain('identity');
       expect(result.pending).toContain('user');
       expect(result.pending).not.toContain('language');
     }
   });
 
-  it('active/ 中 Onboarding 全部完成 → in_progress（archive 才算 complete）', () => {
-    writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
+  it('active/ 中 stable Onboarding 全部完成 → in_progress（archive 才算 complete）', () => {
+    writeContract(tmpDir, 'active', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'completed' },
     });
     expect(getOnboardingStatus(tmpDir, { fsFactory }).state).toBe('in_progress');
   });
 
-  it('archive/ 中 Onboarding 全部完成 → complete', () => {
-    writeContract(tmpDir, 'archive', 'ob1', 'Onboarding', {
+  it('archive/ 中 stable Onboarding 全部完成 → complete', () => {
+    writeContract(tmpDir, 'archive', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'completed' },
       user: { status: 'completed' },
@@ -177,8 +180,8 @@ describe('getOnboardingStatus', () => {
     expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'complete' });
   });
 
-  it('archive/ 中 Onboarding 有 pending → in_progress', () => {
-    writeContract(tmpDir, 'archive', 'ob1', 'Onboarding', {
+  it('archive/ 中 stable Onboarding 有 pending → in_progress', () => {
+    writeContract(tmpDir, 'archive', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'completed' },
       soul: { status: 'pending' },
     });
@@ -196,11 +199,18 @@ describe('getOnboardingStatus', () => {
     expect(getOnboardingStatus(tmpDir, { fsFactory }).state).toBe('not_found');
   });
 
-  it('progress.json 损坏 → 跳过该契约，返回 not_found', () => {
+  it('随机 id 同名合同（歧义迁移候选）→ conflict 抛出，不得冒充 start onboarding', () => {
+    writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
+      language: { status: 'pending' },
+    });
+    expect(() => getOnboardingStatus(tmpDir, { fsFactory })).toThrow(/onboarding identity conflict/);
+  });
+
+  it('progress.json 损坏 → damaged 证据 fail-closed（conflict 抛出，不静默跳过）', () => {
     const dir = path.join(tmpDir, 'contract', 'active', 'bad');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'contract.yaml'), 'title: "Onboarding"\n');
     fs.writeFileSync(path.join(dir, 'progress.json'), '{broken json}}}');
-    expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'not_found' });
+    expect(() => getOnboardingStatus(tmpDir, { fsFactory })).toThrow(/damaged/);
   });
 });

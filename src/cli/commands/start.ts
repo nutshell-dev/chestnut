@@ -49,9 +49,9 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import {
-  readOnboardingStatus,
   resolveOnboardingIdentity,
   ONBOARDING_CONTRACT_ID,
+  type OnboardingIdentityVerdict,
   type OnboardingStatus,
 } from '../../core/contract/index.js';
 import { ContractValidationError } from '../../core/contract/index.js';
@@ -132,10 +132,34 @@ export function getInitializationSnapshot(deps: StartCommandDeps & { audit?: Aud
 
 /**
  * Find the Onboarding contract and determine its completion state.
- * Wrapper around L4 readOnboardingStatus pure helper (static-phase path).
+ *
+ * Phase 1912 Step E（RACE-ONBOARDING-CROSS-ID，业务边界用户裁决）：start 门控
+ * 消费 owner 身份裁决（resolveOnboardingIdentity），不再是 title 首个命中快照
+ * （readOnboardingStatus）——title 是展示字段不是身份字段，随机 id 同名合同
+ * 只是歧义迁移候选，不得冒充 start onboarding：
+ * - absent → not_found（准 stable create）；
+ * - unique → in_progress/complete（只有 stable id 身份可复用）；
+ * - conflict → throw（歧义/损坏证据 fail-closed，留证不覆盖）。
  */
 export function getOnboardingStatus(motionDir: string, deps: { fsFactory: (baseDir: string) => FileSystem; audit?: AuditLog }): OnboardingStatus {
-  return readOnboardingStatus(motionDir, deps);
+  const verdict = resolveOnboardingIdentity(motionDir, deps);
+  if (verdict.kind === 'absent') return { state: 'not_found' };
+  if (verdict.kind === 'unique') {
+    return verdict.state === 'complete'
+      ? { state: 'complete' }
+      : { state: 'in_progress', contractId: verdict.contractId, pending: verdict.pending };
+  }
+  throw onboardingIdentityConflictError(verdict);
+}
+
+/** conflict verdict → 统一错误文本（start 门控与 ensureOnboardingContract 共用）。 */
+function onboardingIdentityConflictError(
+  verdict: Extract<OnboardingIdentityVerdict, { kind: 'conflict' }>,
+): Error {
+  return new Error(
+    `onboarding identity conflict: ${verdict.detail}; ` +
+    `candidates=[${verdict.candidates.join(', ')}]; evidence preserved, not overwritten`,
+  );
 }
 
 /**
@@ -158,17 +182,14 @@ export async function ensureOnboardingContract(
 ): Promise<{ contractId: string; created: boolean }> {
   // Phase 1911 Step I（RACE-ONBOARDING-LEGACY-ID-MIGRATION）：创建授权必须消费
   // owner 唯一性裁决——不用 title 扫描快照（首个命中即返回）授权 stable create。
-  // 旧随机 active/archive、损坏证据、未发布异 id claim 都在此 fail-closed 或复用，
-  // 与 stable contract 不能静默并存。
+  // Phase 1912 Step E：title 匹配降级为迁移候选/冲突检测；unique 只可能是
+  // stable id 身份，随机 id 同名合同一律 conflict（停止自动采用）。
   const verdict = resolveOnboardingIdentity(motionDir, deps);
   if (verdict.kind === 'conflict') {
-    throw new Error(
-      `onboarding identity conflict: ${verdict.detail}; ` +
-      `candidates=[${verdict.candidates.join(', ')}]; evidence preserved, not overwritten`,
-    );
+    throw onboardingIdentityConflictError(verdict);
   }
   if (verdict.kind === 'unique') {
-    // 既有业务身份（含 legacy 随机 id / 已完成 archive）→ 复用转 resume，不另建 stable
+    // 既有 stable 业务身份（含已完成 archive）→ 复用转 resume，不另建
     return { contractId: verdict.contractId, created: false };
   }
 
@@ -184,22 +205,30 @@ export async function ensureOnboardingContract(
     }
   }
 
-  // loser：等待 winner 完成 publish（claim→publish 正常为毫秒级窗口）
+  // loser：等待 winner 完成 publish（claim→publish 正常为毫秒级窗口）。
+  // Phase 1912 Step E：重读经同一身份裁决（unique 只可能 stable；歧义 conflict
+  // fail-closed），不用 title 快照——同名普通合同不得在窗口内被误认为 winner。
   const ONBOARDING_REREAD_ATTEMPTS = 20;
   const ONBOARDING_REREAD_DELAY_MS = 100;
   for (let attempt = 0; attempt < ONBOARDING_REREAD_ATTEMPTS; attempt++) {
-    const status = readOnboardingStatus(motionDir, deps);
-    if (status.state !== 'not_found') {
-      return { contractId: status.contractId ?? ONBOARDING_CONTRACT_ID, created: false };
+    const reread = resolveOnboardingIdentity(motionDir, deps);
+    if (reread.kind === 'unique') {
+      return { contractId: reread.contractId, created: false };
+    }
+    if (reread.kind === 'conflict') {
+      throw onboardingIdentityConflictError(reread);
     }
     await new Promise<void>(resolve => setTimeout(resolve, ONBOARDING_REREAD_DELAY_MS));
   }
 
-  // winner 崩溃（claim-only）或不可读：经 owner 恢复后再重读一次
+  // winner 崩溃（claim-only）或不可读：经 owner 恢复后再裁决一次
   const recovered = await action.system.recoverCreation(ONBOARDING_CONTRACT_ID);
-  const status = readOnboardingStatus(motionDir, deps);
-  if (status.state !== 'not_found') {
-    return { contractId: status.contractId ?? ONBOARDING_CONTRACT_ID, created: false };
+  const finalVerdict = resolveOnboardingIdentity(motionDir, deps);
+  if (finalVerdict.kind === 'unique') {
+    return { contractId: finalVerdict.contractId, created: false };
+  }
+  if (finalVerdict.kind === 'conflict') {
+    throw onboardingIdentityConflictError(finalVerdict);
   }
   throw new Error(
     `onboarding creation indeterminate: claim for "${ONBOARDING_CONTRACT_ID}" exists ` +

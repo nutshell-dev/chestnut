@@ -125,12 +125,16 @@ export function readOnboardingStatus(
 // stable create——旧随机 active/archive、多候选、损坏证据、未发布 `.creating`
 // claim 都可能被快照掩盖而与 stable contract 静默并存。
 //
-// 本 owner capability 在创建前枚举全部候选并分类：
-// - 零候选 → absent（准 stable create）；
-// - 恰好一个 → unique（复用既有业务身份转 resume，旧随机 id 只做读取映射、
-//   保留物理路径，不改名/不迁移）；
-// - 多候选 / 损坏 / 未发布异 id onboarding claim → conflict，fail-closed 留证，
-//   绝不覆盖。
+// Phase 1912 Step E（RACE-ONBOARDING-CROSS-ID，业务边界用户裁决）：
+// `title: Onboarding` 不是全系统唯一业务身份——title 是展示字段，不是身份
+// 字段；onboarding 的稳定身份只有 motion 流程内的 ONBOARDING_CONTRACT_ID。
+// 历史随机 id 的 title 匹配因此降级为「迁移候选/冲突检测」线索：
+// - stable id 候选（按 id 判定，防御 title 漂移）是唯一可复用身份；
+// - 随机 id title=Onboarding（已发布或未发布 claim）= 歧义迁移候选：无法
+//   区分旧版 onboarding 与用户同名普通合同 → 一律 conflict，停止自动采用；
+// - 通用 create 入口建同名 title 属用户自由（caller-owned policy），不在此
+//   全局拒绝；但 start 在歧义证据下 fail-closed，同名合同不得冒充 start
+//   onboarding。
 // stable id 自己的 `.creating` claim 不计候选——创建权仍由 ContractSystem
 // `.creating` O_EXCL + recoverCreation 裁决（1910 Step C 不变）。
 // ============================================================================
@@ -150,6 +154,11 @@ interface OnboardingCandidate {
   readonly location: 'active' | 'archive' | 'creating';
   readonly state: 'in_progress' | 'complete' | 'unpublished' | 'damaged';
   readonly pending: string[];
+  /**
+   * Phase 1912 Step E：stable = 稳定业务身份（按 id 判定）；migration = 随机 id
+   * title 匹配的歧义迁移候选（只做冲突检测线索，不作自动采用 authority）。
+   */
+  readonly identity: 'stable' | 'migration';
 }
 
 /** 读 contract.yaml title；不可读返回 undefined（无法识别身份，不当候选）。 */
@@ -178,9 +187,17 @@ function readPendingSubtasks(fs: FileSystem, progressPath: string): string[] | u
   }
 }
 
-function isOnboardingIdentity(contractId: string, title: string | undefined): boolean {
-  // title 只用于历史识别；stable id 自身即业务身份（防御 title 漂移）
-  return contractId === ONBOARDING_CONTRACT_ID || title === 'Onboarding';
+/**
+ * 候选分类（Phase 1912 Step E）：stable id 自身即业务身份（防御 title 漂移）；
+ * 随机 id 的 title=Onboarding 只是迁移识别线索，不是身份。
+ */
+function classifyOnboardingCandidate(
+  contractId: string,
+  title: string | undefined,
+): 'stable' | 'migration' | undefined {
+  if (contractId === ONBOARDING_CONTRACT_ID) return 'stable';
+  if (title === 'Onboarding') return 'migration';
+  return undefined;
 }
 
 /**
@@ -215,7 +232,7 @@ export function resolveOnboardingIdentity(
       const published = fs.existsSync(contractYaml) && fs.existsSync(progressJson);
       if (!published) {
         // 未发布 `.creating` claim：stable id 归创建 authority 裁决（不计候选）；
-        // 异 id 且 intent 可识别为 onboarding → 未发布候选（fail-closed）；
+        // 异 id 且 intent title=Onboarding → 歧义迁移候选（fail-closed）；
         // intent 不可读 → 无法判定归属，不识别也不阻塞（不覆盖证据）。
         if (contractId === ONBOARDING_CONTRACT_ID) continue;
         const claimPath = path.join(contractRoot, CREATION_CLAIM_FILE);
@@ -223,21 +240,22 @@ export function resolveOnboardingIdentity(
         try {
           const intent = JSON.parse(fs.readSync(claimPath)) as { contract?: { title?: string } };
           if (intent.contract?.title === 'Onboarding') {
-            candidates.push({ contractId, location: 'creating', state: 'unpublished', pending: [] });
+            candidates.push({ contractId, location: 'creating', state: 'unpublished', pending: [], identity: 'migration' });
           }
         } catch { /* silent: 不可读随机 claim 身份不可判定——留证但不冒充 onboarding 候选 */ }
         continue;
       }
       const title = readContractTitle(fs, contractYaml);
-      if (!isOnboardingIdentity(contractId, title)) continue;
+      const identity = classifyOnboardingCandidate(contractId, title);
+      if (!identity) continue;
       const pending = readPendingSubtasks(fs, progressJson);
       if (pending === undefined) {
         auditDamaged(progressJson);
-        candidates.push({ contractId, location: 'active', state: 'damaged', pending: [] });
+        candidates.push({ contractId, location: 'active', state: 'damaged', pending: [], identity });
         continue;
       }
       // 与 readOnboardingStatus 语义对齐：active 恒 in_progress（全完成是归档前瞬态）
-      candidates.push({ contractId, location: 'active', state: 'in_progress', pending });
+      candidates.push({ contractId, location: 'active', state: 'in_progress', pending, identity });
     }
   }
 
@@ -247,11 +265,12 @@ export function resolveOnboardingIdentity(
     const progressJson = path.join(entry.contractRoot, PROGRESS_FILE);
     if (!fs.existsSync(contractYaml) || !fs.existsSync(progressJson)) continue;
     const title = readContractTitle(fs, contractYaml);
-    if (!isOnboardingIdentity(entry.contractId, title)) continue;
+    const identity = classifyOnboardingCandidate(entry.contractId, title);
+    if (!identity) continue;
     const pending = readPendingSubtasks(fs, progressJson);
     if (pending === undefined) {
       auditDamaged(progressJson);
-      candidates.push({ contractId: entry.contractId, location: 'archive', state: 'damaged', pending: [] });
+      candidates.push({ contractId: entry.contractId, location: 'archive', state: 'damaged', pending: [], identity });
       continue;
     }
     candidates.push({
@@ -259,34 +278,44 @@ export function resolveOnboardingIdentity(
       location: 'archive',
       state: pending.length === 0 ? 'complete' : 'in_progress',
       pending,
+      identity,
     });
   }
 
   if (candidates.length === 0) return { kind: 'absent' };
   const describe = (c: OnboardingCandidate): string => `${c.location}/${c.contractId}(${c.state})`;
+  const conflict = (detail: string): OnboardingIdentityVerdict => ({
+    kind: 'conflict',
+    candidates: candidates.map(describe),
+    detail,
+  });
   const damaged = candidates.filter(c => c.state === 'damaged');
   if (damaged.length > 0) {
-    return {
-      kind: 'conflict',
-      candidates: candidates.map(describe),
-      detail: `damaged onboarding evidence present: ${damaged.map(describe).join(', ')}`,
-    };
+    return conflict(`damaged onboarding evidence present: ${damaged.map(describe).join(', ')}`);
   }
-  if (candidates.length > 1) {
-    return {
-      kind: 'conflict',
-      candidates: candidates.map(describe),
-      detail: `multiple onboarding identities coexist: ${candidates.map(describe).join(', ')}`,
-    };
+
+  // Phase 1912 Step E：stable id 是唯一可复用身份；随机 id title 匹配只做
+  // 迁移候选/冲突检测——无法区分旧版 onboarding 与用户同名普通合同，停止
+  // 自动采用，报告冲突并保留证据。
+  const stable = candidates.filter(c => c.identity === 'stable');
+  const migrations = candidates.filter(c => c.identity === 'migration');
+  const MIGRATION_GUIDANCE =
+    'title is a display field, not an identity; cannot distinguish a legacy ' +
+    'onboarding contract from a user contract with the same title, auto-adoption stopped; ' +
+    `resolve manually (archive/remove the legacy one, or rename the user contract's title) and retry`;
+  if (stable.length > 0 && migrations.length > 0) {
+    return conflict(
+      `stable onboarding identity coexists with ambiguous title-matched contract(s): ` +
+      `${migrations.map(describe).join(', ')}; ${MIGRATION_GUIDANCE}`,
+    );
   }
-  const only = candidates[0];
-  if (only.state === 'unpublished') {
-    return {
-      kind: 'conflict',
-      candidates: [describe(only)],
-      detail: `unpublished legacy onboarding creation claim: ${describe(only)}`,
-    };
+  if (migrations.length > 0) {
+    const multiple = migrations.length > 1 ? 'multiple ' : '';
+    return conflict(
+      `${multiple}ambiguous onboarding migration candidate(s): ${migrations.map(describe).join(', ')}; ${MIGRATION_GUIDANCE}`,
+    );
   }
+  const only = stable[0];
   return {
     kind: 'unique',
     contractId: only.contractId,

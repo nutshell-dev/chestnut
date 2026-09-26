@@ -10,12 +10,16 @@
  * - ContractSystem.recoverCreation 单 id 语义：absent/published/recovered/failed
  *
  * Phase 1911 Step I（RACE-ONBOARDING-LEGACY-ID-MIGRATION）：唯一性裁决
- * - legacy 随机 active in_progress → 复用转 resume，不另建 stable
  * - stable + legacy 双候选 → typed conflict，双方证据不动
- * - legacy archive 完成态 → 复用不重建
  * - 损坏 legacy active → conflict fail-closed，证据字节保留
  * - legacy 未发布 `.creating` claim（title=Onboarding）→ conflict 留证
  * - 双 legacy active → conflict
+ *
+ * Phase 1912 Step E（RACE-ONBOARDING-CROSS-ID，业务边界用户裁决）：
+ * title=Onboarding 不是全系统身份——随机 id 同名合同降级为歧义迁移候选：
+ * - legacy 随机 active/archive 单候选 → conflict 停止自动采用（不再复用转 resume）
+ * - 通用 create 同标题不被全局拒绝，但不得冒充 start onboarding（start 冲突）
+ * - stable id 仍是 start 唯一可复用身份
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'fs';
@@ -171,7 +175,7 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
     expect(await system.recoverCreation(ONBOARDING_CONTRACT_ID)).toBe('published');
   });
 
-  // ---- Phase 1911 Step I：legacy 随机 id 唯一性治理 ----
+  // ---- Phase 1911 Step I / 1912 Step E：legacy 随机 id 唯一性治理 ----
 
   async function writeLegacyActiveContract(id: string, opts?: { pending?: boolean; corruptProgress?: boolean }): Promise<string> {
     const root = path.join(motionDir, 'contract', 'active', id);
@@ -194,16 +198,17 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
     return root;
   }
 
-  it('legacy 随机 active in_progress：复用转 resume，不另建 stable', async () => {
-    await writeLegacyActiveContract('legacy-random-1');
+  it('legacy 随机 active in_progress 单候选：歧义迁移候选 → conflict 停止自动采用（Phase 1912 E）', async () => {
+    const legacyRoot = await writeLegacyActiveContract('legacy-random-1');
 
-    const result = await ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml());
-    expect(result.created).toBe(false);
-    expect(result.contractId).toBe('legacy-random-1');
+    // title 是展示字段不是身份：无法区分旧版 onboarding 与用户同名普通合同
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/identity conflict[\s\S]*ambiguous/);
 
-    // stable id 未被创建，legacy 物理路径保留
-    const activeEntries = await fs.readdir(path.join(motionDir, 'contract', 'active'));
-    expect(activeEntries).toEqual(['legacy-random-1']);
+    // stable id 未被创建，legacy 证据原样保留
+    await expect(fs.access(path.join(motionDir, 'contract', 'active', ONBOARDING_CONTRACT_ID))).rejects.toThrow();
+    expect(await fs.readFile(path.join(legacyRoot, 'contract.yaml'), 'utf-8')).toContain('goal: legacy');
   });
 
   it('stable + legacy 双候选：typed conflict，双方证据不动', async () => {
@@ -224,15 +229,34 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
     expect(await fs.readFile(path.join(legacyRoot, 'contract.yaml'), 'utf-8')).toContain('goal: legacy');
   });
 
-  it('legacy archive 完成态：复用不重建', async () => {
-    await writeLegacyArchiveCompleted('legacy-done-1');
+  it('legacy archive 完成态单候选：同样歧义 → conflict 停止自动采用（Phase 1912 E）', async () => {
+    const legacyRoot = await writeLegacyArchiveCompleted('legacy-done-1');
 
-    const result = await ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml());
-    expect(result.created).toBe(false);
-    expect(result.contractId).toBe('legacy-done-1');
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/identity conflict[\s\S]*ambiguous/);
 
-    // active 下没有新建任何合同
+    // active 下没有新建任何合同，archive 证据原样保留
     await expect(fs.access(path.join(motionDir, 'contract', 'active'))).rejects.toThrow();
+    expect(await fs.readFile(path.join(legacyRoot, 'contract.yaml'), 'utf-8')).toContain('goal: legacy');
+  });
+
+  it('通用 create 同标题不被全局拒绝，但不得冒充 start onboarding（Phase 1912 E 业务边界）', async () => {
+    // 普通合同可同标题：通用 create 入口 caller-owned policy，不做全局唯一拒绝
+    const system = makeSystem();
+    const userContractId = await system.create(onboardingYaml()); // 随机 id、title=Onboarding
+    expect(userContractId).not.toBe(ONBOARDING_CONTRACT_ID);
+
+    // 但 start 流程不得把它误认为 onboarding 身份 → conflict fail-closed
+    await expect(
+      ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
+    ).rejects.toThrow(/identity conflict[\s\S]*ambiguous/);
+
+    // 用户合同原样保留，stable 未创建
+    expect(await fs.readFile(
+      path.join(motionDir, 'contract', 'active', userContractId, 'contract.yaml'), 'utf-8',
+    )).toContain('title: Onboarding');
+    await expect(fs.access(path.join(motionDir, 'contract', 'active', ONBOARDING_CONTRACT_ID))).rejects.toThrow();
   });
 
   it('损坏 legacy active：conflict fail-closed，证据字节保留', async () => {
@@ -265,7 +289,7 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
 
     await expect(
       ensureOnboardingContract(deps, { system: makeSystem() }, motionDir, onboardingYaml()),
-    ).rejects.toThrow(/multiple onboarding identities/);
+    ).rejects.toThrow(/multiple ambiguous/);
 
     const activeEntries = (await fs.readdir(path.join(motionDir, 'contract', 'active'))).sort();
     expect(activeEntries).toEqual(['legacy-dual-a', 'legacy-dual-b']);

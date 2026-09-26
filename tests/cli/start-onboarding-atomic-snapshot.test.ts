@@ -5,6 +5,10 @@
  *   snapshot consistency (isInitialized + onboarding aligned)
  *   reverse: double-read split → race detect
  *   reverse: first-run integration path uses snapshot
+ *
+ * Phase 1912 Step E：onboarding 门控改消费 owner 身份裁决——只有 stable id
+ * （ONBOARDING_CONTRACT_ID）是可复用身份；随机 id title=Onboarding 为歧义
+ * 迁移候选 → snapshot fail-closed 抛 identity conflict（停止自动采用）。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -23,6 +27,7 @@ const snapshotDeps = {
 
 const { getInitializationSnapshot, getOnboardingStatus } =
   await import('../../src/cli/commands/start.js');
+const { ONBOARDING_CONTRACT_ID } = await import('../../src/core/contract/index.js');
 
 function makeTempDir(): string {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -86,18 +91,19 @@ describe('getInitializationSnapshot', () => {
 
   it('一致性: active Onboarding pending → isInitialized=true, onboarding=in_progress', () => {
     makeReady(tmpDir);
-    writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
+    writeContract(tmpDir, 'active', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'pending' },
     });
     const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     expect(snapshot.isInitialized).toBe(true);
     expect(snapshot.onboarding.state).toBe('in_progress');
+    expect(snapshot.onboarding.contractId).toBe(ONBOARDING_CONTRACT_ID);
   });
 
   it('一致性: archive Onboarding 全部完成 → isInitialized=true, onboarding=complete', () => {
     makeReady(tmpDir);
-    writeContract(tmpDir, 'archive', 'ob1', 'Onboarding', {
+    writeContract(tmpDir, 'archive', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'completed' },
       identity: { status: 'completed' },
     });
@@ -106,9 +112,18 @@ describe('getInitializationSnapshot', () => {
     expect(snapshot.onboarding).toEqual({ state: 'complete' });
   });
 
-  it('反向 1: snapshot 与独立调用结果一致', () => {
+  it('Phase 1912 Step E: 随机 id 同名合同是歧义迁移候选 → snapshot fail-closed 抛 conflict', () => {
     makeReady(tmpDir);
     writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
+      language: { status: 'pending' },
+    });
+    expect(() => getInitializationSnapshot(snapshotDeps, tmpDir)).toThrow(/onboarding identity conflict/);
+    expect(() => getOnboardingStatus(tmpDir, { fsFactory })).toThrow(/ambiguous/);
+  });
+
+  it('反向 1: snapshot 与独立调用结果一致', () => {
+    makeReady(tmpDir);
+    writeContract(tmpDir, 'active', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'pending' },
     });
     const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
@@ -118,7 +133,7 @@ describe('getInitializationSnapshot', () => {
 
   it('反向 2: snapshot 是单次同步调用，JS event loop 不会打断', () => {
     makeReady(tmpDir);
-    writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
+    writeContract(tmpDir, 'active', ONBOARDING_CONTRACT_ID, 'Onboarding', {
       language: { status: 'pending' },
     });
     const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
