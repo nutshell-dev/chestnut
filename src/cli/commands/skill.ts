@@ -59,14 +59,23 @@ function computeSkillSourceManifest(sourceFs: FileSystem): SkillSourceManifestEn
 }
 
 /**
- * 单目标 staged 发布：复制到同父目录隐藏 staging，然后 rename 交换
- * （旧版 → 唯一 trash 名 → 新版落位 → 删 trash）。任何中途失败保留
- * staging/trash 证据；发布窗口内目标只可能短暂缺失，绝不半版。
+ * 单目标发布（Phase 1911 G + 1912 Step D / RACE-SKILL-SWAP-EMPTY-TARGET）：
+ * - absent 目标：mkdirExclusiveSync 占位 + 逐文件 linkExclusiveSync no-replace
+ *   落位——rename 不再接触目标路径，并发出现的占位（含空目录）必冲突；
+ *   落位后扫描目标恰含 manifest 文件（外部混入 → 冲突留证）；
+ * - existing 目标（更新语义，显式 replace）：旧版 rename 入唯一 trash →
+ *   探测目标必须缺席（窗口内被外部重建 → 还原旧版 + 冲突留证）→
+ *   rename staging 落位 → 以 SKILL.md 内容 hash 核验落位的是我们的 staging。
+ *   残余边界：探测与 rename 相邻 syscall 间外部重建的空占位仍会被替换——
+ *   仅限空目录、无字节损失；Chestnut 安装调用方已由 per-skill claim 串行化。
+ * 任何中途失败保留 staging/trash 证据；发布窗口内目标只可能短暂缺失，
+ * 绝不半版混合（existing 分支）。
  */
 async function publishSkillDirSwap(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   srcAbs: string,
   destAbs: string,
+  manifest: SkillSourceManifestEntry[],
 ): Promise<void> {
   const parent = path.dirname(destAbs);
   const base = path.basename(destAbs);
@@ -75,26 +84,90 @@ async function publishSkillDirSwap(
   const stageName = `.skill-staging-${newShortUuid()}`;
   const trashName = `.skill-trash-${newShortUuid()}`;
   await copyDir(deps, srcAbs, path.join(parent, stageName));
-  let oldMoved = false;
+
+  if (!(await parentFs.stat(base).catch(() => null))) {
+    // ---- absent 目标：占位 + no-replace 逐文件落位 ----
+    try {
+      parentFs.mkdirExclusiveSync(base);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
+        await parentFs.removeDir(stageName).catch(() => {
+          // silent: 我方 staging 清理失败不掩盖冲突事实；残留可人工删
+        });
+        throw new CliError(
+          `Skill target "${destAbs}" appeared concurrently; conflict — not overwritten`,
+        );
+      }
+      throw err;
+    }
+    for (const entry of manifest) {
+      const destRel = `${base}/${entry.path}`;
+      try {
+        parentFs.linkExclusiveSync(`${stageName}/${entry.path}`, destRel);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+        // 已落位：同 hash 收敛（恢复续传）；异内容冲突留证
+        const destContent = await parentFs.read(destRel).catch(() => null);
+        if (destContent === null || sha256Hex(destContent) !== entry.sha256) {
+          throw new CliError(
+            `Skill target "${destAbs}" file "${entry.path}" exists with different bytes; ` +
+            `conflict — evidence preserved, not overwritten`,
+          );
+        }
+      }
+    }
+    // 外部混入扫描：目标必须恰含 manifest 文件
+    const expected = new Set(manifest.map((e) => `${base}/${e.path}`));
+    const extra = parentFs
+      .listSync(base, { recursive: true })
+      .filter((e) => e.isFile)
+      .map((e) => e.path)
+      .filter((p) => !expected.has(p));
+    if (extra.length > 0) {
+      throw new CliError(
+        `Skill target "${destAbs}" was modified during install (unexpected: ${extra.join(', ')}); ` +
+        `conflict — evidence preserved`,
+      );
+    }
+    await parentFs.removeDir(stageName).catch(() => {
+      // silent: staging 清理失败不影响已发布事实；残留 `.skill-staging-*` 可人工删
+    });
+    return;
+  }
+
+  // ---- existing 目标：旧版让位 + 身份核验的显式 replace ----
+  await parentFs.moveDir(base, trashName); // 旧版整体让位（rename 原子）
   if (await parentFs.stat(base).catch(() => null)) {
-    await parentFs.moveDir(base, trashName); // 旧版整体让位（rename 原子）
-    oldMoved = true;
+    // 让位窗口内目标被外部重建 → 还原旧版，冲突留证
+    await parentFs.moveDir(trashName, base).catch(() => {
+      // silent: 还原失败（外部目录非空）—— trash 保留旧版证据，错误原样上抛
+    });
+    throw new CliError(
+      `Skill target "${destAbs}" was recreated externally during update; ` +
+      `conflict — previous version restored where possible, evidence preserved`,
+    );
   }
   try {
     await parentFs.moveDir(stageName, base);
   } catch (err) {
-    if (oldMoved) {
-      await parentFs.moveDir(trashName, base).catch(() => {
-        // silent: 还原失败 —— trash 目录保留旧版证据，错误原样上抛
-      });
-    }
+    await parentFs.moveDir(trashName, base).catch(() => {
+      // silent: 还原失败 —— trash 目录保留旧版证据，错误原样上抛
+    });
     throw err;
   }
-  if (oldMoved) {
-    await parentFs.removeDir(trashName).catch(() => {
-      // silent: trash 清理失败不影响已发布事实；残留 `.skill-trash-*` 可人工删
-    });
+  // 落位核验：目标内 SKILL.md（或 manifest 首文件）hash 必须等于源快照——
+  // 证明落位的是我们的 staging 而非窗口内被换入的外部目录
+  const probe = manifest.find((e) => e.path === 'SKILL.md') ?? manifest[0];
+  const probeContent = await parentFs.read(`${base}/${probe.path}`).catch(() => null);
+  if (probeContent === null || sha256Hex(probeContent) !== probe.sha256) {
+    throw new CliError(
+      `Skill target "${destAbs}" post-publish identity check failed; ` +
+      `conflict — evidence preserved (old version trash: ${path.join(parent, trashName)})`,
+    );
   }
+  await parentFs.removeDir(trashName).catch(() => {
+    // silent: trash 清理失败不影响已发布事实；残留 `.skill-trash-*` 可人工删
+  });
 }
 
 /**
@@ -146,7 +219,7 @@ async function runSkillInstall(
         `(claim: ${opts.claimRel}); evidence preserved, not overwriting`,
       );
     }
-    await publishSkillDirSwap(deps, intent.source, abs);
+    await publishSkillDirSwap(deps, intent.source, abs, intent.manifest);
     target.state = 'published';
     opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
   }

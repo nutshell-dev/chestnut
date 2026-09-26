@@ -64,6 +64,63 @@ function readVersion(dir: string): string {
   return fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8');
 }
 
+describe('skill install target occupancy (phase 1912 Step D)', () => {
+  it('absent 目标并发出现占位：mkdirExclusive 冲突，不替换不混入', async () => {
+    const src = makeSkillSource('a', 'vX');
+    const userParent = path.dirname(userSkillDir());
+    // 占位裁决前外部抢先建空目录 → mkdirExclusiveSync EEXIST → typed 冲突
+    const racingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
+        const origMkdir = real.mkdirExclusiveSync.bind(real);
+        real.mkdirExclusiveSync = (p: string) => {
+          if (p === 'myskill') fs.mkdirSync(path.join(userParent, 'myskill'), { recursive: true });
+          return origMkdir(p);
+        };
+      }
+      return real;
+    };
+
+    await expect(skillInstallUserCommand({ fsFactory: racingFactory }, src))
+      .rejects.toThrow(/appeared concurrently/);
+
+    // 外部空占位原样保留，未混入我们的文件
+    expect(fs.readdirSync(userSkillDir())).toEqual([]);
+  });
+
+  it('existing 目标让位窗口被外部重建：还原旧版 + 冲突留证', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+
+    // 更新安装：旧版 rename 入 trash 后，外部立刻重建空目标目录
+    const srcV2 = makeSkillSource('b', 'v2');
+    const userParent = path.dirname(userSkillDir());
+    let moved = false;
+    const racingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
+        const origMoveDir = real.moveDir.bind(real);
+        real.moveDir = async (from: string, to: string) => {
+          const r = await origMoveDir(from, to);
+          if (from === 'myskill' && to.startsWith('.skill-trash-') && !moved) {
+            moved = true;
+            fs.mkdirSync(path.join(userParent, 'myskill'));
+          }
+          return r;
+        };
+      }
+      return real;
+    };
+
+    await expect(skillInstallUserCommand({ fsFactory: racingFactory }, srcV2))
+      .rejects.toThrow(/recreated externally/);
+
+    // 旧版还原，外部空占位被还原替换；内容仍是 v1
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+  });
+});
+
 describe('skill install multi-root consistent commit (phase 1911 Step G)', () => {
   it('user install：两目标完整发布、无残留、audit 在完成后一次', async () => {
     const src = makeSkillSource('a', 'v1');
@@ -106,12 +163,13 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
 
   it('崩溃窗口：holder 已死 + 同 payload → 恢复未完成目标并释放 claim', async () => {
     const src = makeSkillSource('a', 'v1');
-    // 模拟崩溃：dispatch 发布失败 → claim 残留（user=published, dispatch=pending）
+    // 模拟崩溃：dispatch 首次 no-replace 落位失败 → claim 残留
+    // （user=published，dispatch=pending，占位目录可能已建）
     const dispatchParent = path.dirname(dispatchSkillDir());
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
       if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
-        real.moveDir = async () => { throw new Error('simulated crash at dispatch publish'); };
+        real.linkExclusiveSync = () => { throw new Error('simulated crash at dispatch publish'); };
       }
       return real;
     };
@@ -119,10 +177,14 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
       skillInstallUserCommand({ fsFactory: crashingFactory }, src),
     ).rejects.toThrow(/simulated crash/);
 
-    // claim 残留、user 已发布、dispatch 未完成
+    // claim 残留、user 已发布、dispatch 未完成（intent 状态为据）
     expect(fs.existsSync(claimPath())).toBe(true);
     expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
-    expect(fs.existsSync(dispatchSkillDir())).toBe(false);
+    const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(crashedIntent.targets).toEqual([
+      { id: 'user', state: 'published' },
+      { id: 'dispatch', state: 'pending' },
+    ]);
 
     // 模拟 holder 进程死亡（崩溃后 pid 不复存在）
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
@@ -143,7 +205,7 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
       if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
-        real.moveDir = async () => { throw new Error('simulated crash'); };
+        real.linkExclusiveSync = () => { throw new Error('simulated crash'); };
       }
       return real;
     };
@@ -152,11 +214,11 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     claim.pid = 99999;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
 
-    // 不同版本源重试 → 冲突，claim 证据保留，dispatch 不发布
+    // 不同版本源重试 → 冲突，claim 证据保留，dispatch 未发布（无 SKILL.md）
     const srcB = makeSkillSource('b', 'vB');
     await expect(skillInstallUserCommand(deps, srcB)).rejects.toThrow(/different source payload/);
     expect(fs.existsSync(claimPath())).toBe(true);
-    expect(fs.existsSync(dispatchSkillDir())).toBe(false);
+    expect(fs.existsSync(path.join(dispatchSkillDir(), 'SKILL.md'))).toBe(false);
     expect(readVersion(userSkillDir())).toBe('# myskill vA\n');
   });
 

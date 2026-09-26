@@ -12,7 +12,8 @@ import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/in
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { newShortUuid } from '../../foundation/node-utils/index.js';
+import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
+import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -71,87 +72,183 @@ export async function importCommand(
   const clawspaceFs = deps.fsFactory(clawspaceDir);
   const existing = await tryStat(clawspaceFs, relFromClawspace);
   if (existing) {
-    // Phase 1911 Step E：区分中断 import 的 claim 残留（证据路径可操作）与
-    // 用户既有目标（拒绝语义不变）
-    if (existing.isDirectory) {
-      const leftover = await tryStat(clawspaceFs, `${relFromClawspace}/.import-claim`);
-      if (leftover) {
-        throw new CliError(
-          `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
-          `(claim evidence: ${relFromClawspace}/.import-claim); inspect and remove it to retry`,
-        );
-      }
+    // Phase 1912 Step D：带 claim 的目录目标不再即时拒绝——交由下方目录分支
+    // 做死 holder 恢复判读（同 payload 续传 / 活 holder·异 payload 冲突留证）；
+    // 用户既有目标（无 claim）拒绝语义不变
+    const hasClaim = existing.isDirectory && (await tryStat(clawspaceFs, `${relFromClawspace}/.import-claim`)) !== null;
+    if (!hasClaim) {
+      throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
     }
-    throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
   }
 
   if (srcStat.isDirectory) {
-    // Phase 1911 Step E（RACE-CLAW-IMPORT-EMPTY-TARGET-REPLACE）：no-replace
-    // 目录发布协议。POSIX/Node 无 rename-no-replace flag，唯一原子「路径不存在
-    // 才成功」的目录原语是 mkdir —— 因此目标路径本身先被 mkdir 独占（空目录
-    // 亦冲突），复制仍在隐藏 staging 进行，发布前核验 claim 未被外部写入，
-    // 最后 rename 替换的是我们自己的空 claim 目录：
-    //   1. mkdirExclusiveSync(srcName) —— 提交裁决点；任何已存在目标
-    //      （文件/空目录/非空目录）→ typed 冲突，目标原样保留；
-    //   2. claim 内写 `<target>/.import-claim`（token）—— 崩溃窗口可区分
-    //      「中断的 import claim」与「用户既有目录」；
-    //   3. 隐藏 staging 复制；读失败保留 claim+staging 证据，不触碰目标；
-    //   4. 发布前核验 claim 目录仍只含我们的 claim 文件（外部写入 → 冲突留证）；
-    //   5. 删 claim 文件 → rename staging 替换我们的空 claim 目录；目标在
-    //      核验后一旦被写入任何内容，rename 必失败（ENOTEMPTY）→ 冲突留证。
-    // 已知残余：删空 claim 目录与 rename 之间为相邻系统调用窗口，外部恰好
-    // 重建空目录才会被替换 —— 损失仅限空占位目录，无用户数据；完整 copy
-    // 窗口（秒级）已由 mkdir 独占完全关闭。
+    // Phase 1911 Step E + 1912 Step D（RACE-CLAW-IMPORT-EMPTY-TARGET-REPLACE /
+    // RACE-CLAW-IMPORT-EMPTY-PLACEHOLDER）：占位 + no-replace 逐文件落位协议。
+    // 目标路径全程由本调用占有，任何阶段都不替换外部字节：
+    //   1. mkdirExclusiveSync(srcName) —— 占有裁决点；任何已存在目标（文件/
+    //      空目录/非空目录）→ typed 冲突，目标原样保留；
+    //   2. claim `<target>/.import-claim`（token+pid+startTime+source）——
+    //      中断窗口可区分「中断的 import」与「用户既有目录」，死 holder 可判；
+    //   3. 隐藏 staging 复制并计算 manifest（每文件 bytes+sha256，manifestHash
+    //      写回 claim）——source 快照事实；
+    //   4. 逐文件 linkExclusiveSync no-replace 落位：EEXIST → hash 判同收敛
+    //      （恢复续传）/ 异内容冲突留证；rename 从不再接触目标路径；
+    //   5. 落位后扫描目标必须恰含 manifest 文件 + claim（外部混入 → 冲突）；
+    //   6. 复核 claim 身份（占位被外部删重建 → claim 丢失 → 冲突留证）；
+    //   7. 删 claim = 提交；清 staging。claim 缺席即已提交（单向事实）。
+    // 死 holder 恢复：同 manifestHash 幂等续传；异 payload 显式冲突不覆盖。
     const destParentFs = deps.fsFactory(destParent);
     await destParentFs.ensureDir('.');
     const claimRel = `${srcName}/.import-claim`;
     const stageName = `.import-staging-${newShortUuid()}`;
     const myToken = newShortUuid();
-    try {
-      destParentFs.mkdirExclusiveSync(srcName);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') {
-        // pre-check 后目标才出现：区分中断 claim 残留与用户既有目标（不自动清理）
-        const leftover = await tryStat(destParentFs, claimRel);
-        if (leftover) {
-          throw new CliError(
-            `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
-            `(claim evidence: ${claimRel}); inspect and remove it to retry`,
-          );
-        }
-        throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
-      }
-      throw err;
+
+    interface ImportClaim {
+      token: string;
+      pid?: number;
+      process_start_time?: string;
+      createdAt: string;
+      source: string;
+      target: string;
+      manifestHash?: string;
     }
-    destParentFs.writeExclusiveSync(claimRel, JSON.stringify({
-      token: myToken,
-      pid: process.pid,
-      createdAt: new Date().toISOString(),
-      source: srcAbs,
-      target: displayRel,
-    }, null, 2));
-    try {
-      await copyDir(deps, srcAbs, path.join(destParent, stageName), stats);
-      // 发布前核验：claim 目录仍只含我们的 claim 文件（外部写入 → 显式冲突）
-      const claimEntries = destParentFs.listSync(srcName).map((e) => e.name).sort();
-      const claimRaw = destParentFs.readSync(claimRel);
-      const claimToken = (JSON.parse(claimRaw) as { token?: string }).token;
-      if (claimEntries.length !== 1 || claimEntries[0] !== '.import-claim' || claimToken !== myToken) {
+    interface ImportManifestEntry { path: string; bytes: number; sha256: string }
+
+    const writeClaim = (manifestHash?: string): void => {
+      destParentFs.writeAtomicSync(claimRel, JSON.stringify({
+        token: myToken,
+        pid: process.pid,
+        process_start_time: getProcessStartTime(process.pid),
+        createdAt: new Date().toISOString(),
+        source: srcAbs,
+        target: displayRel,
+        ...(manifestHash !== undefined ? { manifestHash } : {}),
+      } satisfies ImportClaim, null, 2));
+    };
+
+    const readClaim = (): ImportClaim => {
+      let claim: ImportClaim;
+      try {
+        claim = JSON.parse(destParentFs.readSync(claimRel)) as ImportClaim;
+      } catch {
         throw new CliError(
-          `"${displayRel}" claim directory was modified during import in ${clawName}/clawspace/; ` +
-          `conflict — target left untouched, evidence preserved at ${path.join(destParent, srcName)}`,
+          `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
+          `(claim evidence: ${claimRel}); inspect and remove it to retry`,
         );
       }
-      destParentFs.deleteSync(claimRel);
-      await destParentFs.moveDir(stageName, srcName);
+      // holder 活性：证死才允许接管；探测不确定 → fail-closed 视为进行中
+      const holderAlive = typeof claim.pid === 'number'
+        ? isAlive(claim.pid, typeof claim.process_start_time === 'string' && claim.process_start_time !== ''
+          ? makeProcessStartTime(claim.process_start_time)
+          : undefined)
+        : undefined;
+      if (holderAlive !== false) {
+        throw new CliError(
+          `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
+          `(claim evidence: ${claimRel}, pid=${claim.pid ?? 'unknown'}); inspect and remove it to retry`,
+        );
+      }
+      return claim;
+    };
+
+    // 1. 占有裁决
+    let resumedClaim: ImportClaim | null = null;
+    try {
+      destParentFs.mkdirExclusiveSync(srcName);
+      writeClaim();
     } catch (err) {
-      if (err instanceof CliError) throw err;
+      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+      // 目标已存在：无 claim → 用户既有目标（拒绝语义不变）；有 claim → 恢复判读
+      const leftover = await tryStat(destParentFs, claimRel);
+      if (!leftover) {
+        throw new CliError(`"${displayRel}" already exists in ${clawName}/clawspace/`);
+      }
+      resumedClaim = readClaim();
+    }
+
+    // 2. staging 复制 + manifest（源快照事实）
+    try {
+      await copyDir(deps, srcAbs, path.join(destParent, stageName), stats);
+    } catch (err) {
       // fail-closed：保留 claim 目录 + staging 证据交 owner recovery，不静默删除
       throw new CliError(
         `Import of "${displayRel}" failed: ${formatErr(err)}; ` +
         `evidence preserved at ${path.join(destParent, srcName)} and ${path.join(destParent, stageName)}`,
       );
     }
+    const stageFs = deps.fsFactory(path.join(destParent, stageName));
+    const manifest: ImportManifestEntry[] = stageFs
+      .listSync('.', { recursive: true })
+      .filter((e) => e.isFile)
+      .map((e) => ({ path: e.path, bytes: e.size, sha256: sha256Hex(stageFs.readSync(e.path)) }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const manifestHash = sha256Hex(JSON.stringify(manifest));
+
+    if (resumedClaim !== null) {
+      // 死 holder 恢复判读：同 payload 幂等续传；异 payload 显式冲突留证
+      const sameIntent = resumedClaim.source === srcAbs &&
+        (resumedClaim.manifestHash === undefined || resumedClaim.manifestHash === manifestHash);
+      if (!sameIntent) {
+        await destParentFs.removeDir(stageName).catch(() => {
+          // silent: 我方 staging 清理失败不掩盖冲突事实；残留 `.import-staging-*` 可人工删
+        });
+        throw new CliError(
+          `"${displayRel}" has an interrupted import with a different source payload in ${clawName}/clawspace/ ` +
+          `(claim: ${claimRel}, source: ${resumedClaim.source}); evidence preserved, not overwritten`,
+        );
+      }
+    }
+    writeClaim(manifestHash);
+
+    // 3. 逐文件 no-replace 落位（恢复重跑按 hash 收敛）
+    for (const entry of manifest) {
+      const destRel = `${srcName}/${entry.path}`;
+      const stagedRel = `${stageName}/${entry.path}`;
+      try {
+        destParentFs.linkExclusiveSync(stagedRel, destRel);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+        // 已落位：同 hash = 本方/并发同 intent 已提交 → 收敛；异内容 → 冲突留证
+        const destContent = await destParentFs.read(destRel).catch(() => null);
+        if (destContent === null || sha256Hex(destContent) !== entry.sha256) {
+          throw new CliError(
+            `"${displayRel}" target file "${entry.path}" exists with different bytes in ${clawName}/clawspace/; ` +
+            `conflict — evidence preserved, not overwritten`,
+          );
+        }
+      }
+    }
+
+    // 4. 外部混入扫描：目标必须恰含 manifest 文件 + claim
+    // （listSync 的 e.path 相对 destParentFs baseDir，故带 srcName 前缀）
+    const expected = new Set([...manifest.map((e) => `${srcName}/${e.path}`), claimRel]);
+    const actualFiles = destParentFs
+      .listSync(srcName, { recursive: true })
+      .filter((e) => e.isFile)
+      .map((e) => e.path);
+    const extra = actualFiles.filter((p) => !expected.has(p));
+    if (extra.length > 0) {
+      throw new CliError(
+        `"${displayRel}" claim directory was modified during import in ${clawName}/clawspace/ ` +
+        `(unexpected: ${extra.join(', ')}); conflict — evidence preserved at ${path.join(destParent, srcName)}`,
+      );
+    }
+
+    // 5. 占位身份复核（被外部删重建 → claim 丢失/token 不符 → 冲突留证）
+    const finalClaimRaw = await destParentFs.read(claimRel).catch(() => null);
+    if (finalClaimRaw === null || (JSON.parse(finalClaimRaw) as ImportClaim).token !== myToken) {
+      throw new CliError(
+        `"${displayRel}" placeholder identity was lost during import in ${clawName}/clawspace/; ` +
+        `conflict — evidence preserved at ${path.join(destParent, srcName)}`,
+      );
+    }
+
+    // 6. 提交：删 claim（claim 缺席即已提交）+ 清 staging
+    destParentFs.deleteSync(claimRel);
+    await destParentFs.removeDir(stageName).catch(() => {
+      // silent: staging 清理失败不影响已提交事实；残留 `.import-staging-*` 可人工删
+    });
+
     const sizeStr = stats.bytes >= 1024
       ? `${(stats.bytes / 1024).toFixed(1)} KB`
       : `${stats.bytes} B`;
