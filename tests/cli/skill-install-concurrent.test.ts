@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/commands/skill.js';
-import { SkillSystem } from '../../src/foundation/skill-system/index.js';
+import { SkillSystem, SKILL_PUBLISH_MARKER } from '../../src/foundation/skill-system/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 
@@ -568,5 +568,95 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     // 证据保留：claim + 半落位目标（marker 仍在，未提交不可消费）
     expect(fs.existsSync(clawClaimPath('bob'))).toBe(true);
     expect(fs.existsSync(path.join(clawSkillDir('bob'), '.skill-publishing'))).toBe(true);
+  });
+});
+
+
+describe('dispatch source 协议工件边界（Phase 1916 Step B：RACE-DISPATCH-SOURCE-PROTOCOL-ARTIFACT）', () => {
+  function makeClaw(id: string): void {
+    fs.mkdirSync(path.join(testDir, '.chestnut', 'claws', id), { recursive: true });
+  }
+  function clawSkillDir(id: string): string {
+    return path.join(testDir, '.chestnut', 'claws', id, 'skills', 'myskill');
+  }
+  function clawSkillsParent(id: string): string {
+    return path.dirname(clawSkillDir(id));
+  }
+
+  it('source 发布未提交（marker 持续在场）→ typed mid-publish 失败，snapshot/target 零污染', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    // dispatch source 正处于初次发布窗口（marker 在 = 未提交）
+    fs.writeFileSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER), JSON.stringify({ source: 'x' }));
+
+    await expect(
+      skillInstallClawCommand(deps, 'bob', 'myskill'),
+    ).rejects.toThrow(/mid-publish/);
+
+    // marker 未被复制成技能 payload：无目标、无 claim、无残留快照
+    expect(fs.existsSync(clawSkillDir('bob'))).toBe(false);
+    expect(fs.existsSync(path.join(clawSkillsParent('bob'), '.myskill.installing'))).toBe(false);
+    expect(
+      fs.readdirSync(clawSkillsParent('bob')).filter((n) => n.startsWith('.skill-')),
+    ).toEqual([]);
+    // source marker 证据原样保留（不由 consumer 删除）
+    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
+  });
+
+  it('复制窗口内 marker 出现（交错 publish）→ 本趟快照丢弃重试；marker 消失后收敛，payload 完整无 marker', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    const dispatchDir = dispatchSkillDir();
+    const markerAbs = path.join(dispatchDir, SKILL_PUBLISH_MARKER);
+    let markerProbes = 0;
+    const racingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchDir)) {
+        const origRead = real.read.bind(real);
+        real.read = async (p: string) => {
+          const content = await origRead(p);
+          // 快照复制读到 SKILL.md 后，source 进入新一轮发布（marker 落位）
+          if (p === 'SKILL.md' && markerProbes >= 0 && !fs.existsSync(markerAbs) && markerProbes < 2) {
+            fs.writeFileSync(markerAbs, JSON.stringify({ source: 'race' }));
+          }
+          return content;
+        };
+        const origStatSync = real.statSync.bind(real);
+        real.statSync = (p: string) => {
+          if (p === SKILL_PUBLISH_MARKER) {
+            markerProbes++;
+            // 第三次探测（第二趟 pre-check）前发布完成：marker 删除
+            if (markerProbes >= 3) fs.rmSync(markerAbs, { force: true });
+          }
+          return origStatSync(p);
+        };
+      }
+      return real;
+    };
+
+    await skillInstallClawCommand({ fsFactory: racingFactory }, 'bob', 'myskill');
+
+    // 收敛后 claw 得到完整 payload，marker 不作为技能内容传播
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v1\n');
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(fs.existsSync(path.join(clawSkillDir('bob'), SKILL_PUBLISH_MARKER))).toBe(false);
+    expect(markerProbes).toBeGreaterThanOrEqual(3); // 确实经历了重试
+  });
+
+  it('稳定 source 的用户合法隐藏文件（非协议保留名）照常进入 payload', async () => {
+    const src = makeSkillSource('a', 'v1');
+    // 用户 payload 中的普通隐藏文件（非 owner 保留名）不得被宽泛过滤吞掉
+    fs.writeFileSync(path.join(src, '.env-example'), 'KEY=\n');
+    await skillInstallUserCommand(deps, src);
+    makeClaw('bob');
+
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
+
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), '.env-example'), 'utf-8')).toBe('KEY=\n');
+    expect(fs.existsSync(path.join(clawSkillDir('bob'), SKILL_PUBLISH_MARKER))).toBe(false);
   });
 });

@@ -27,6 +27,12 @@ export const SKILLS_DIR_DEFAULT = 'skills' as const;
  * （Motion self / dispatch pool / Claw copy）的状态；registry 只判断当前
  * skillsDir 目标自身发布态，不读取跨目标 CLI install intent。发布后副本
  * 是独立可编辑资源，post-install 编辑是合法业务动作。
+ *
+ * Phase 1916 Step B（RACE-DISPATCH-SOURCE-PROTOCOL-ARTIFACT）：本 marker 同时
+ * 是 source 侧协议工件边界——skill install 拍 source snapshot 时，source 根
+ * 含本 marker = source 发布未提交，必须 fail-closed/retry，marker 字节绝不
+ * 进入 snapshot/manifest/target payload。过滤边界只含本 owner 声明的保留名
+ * （不含其他隐藏文件——用户合法 payload 如 `.env` 模板照常复制）。
  */
 export const SKILL_PUBLISH_MARKER = '.skill-publishing' as const;
 

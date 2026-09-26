@@ -82,15 +82,35 @@ function computeSkillSourceManifest(sourceFs: FileSystem): SkillSourceManifestEn
 const SOURCE_SNAPSHOT_MAX_ATTEMPTS = 3;
 
 /**
+ * source 根发布态 marker 的类型化探测（Phase 1916 Step B，
+ * RACE-DISPATCH-SOURCE-PROTOCOL-ARTIFACT）：marker 在 = source 发布未提交；
+ * 未知 I/O 不当缺席（fail-open 会把 marker 静默复制成技能 payload）。
+ */
+function probeSourcePublishMarker(sourceFs: FileSystem): 'absent' | 'present' | 'unknown' {
+  try {
+    sourceFs.statSync(SKILL_PUBLISH_MARKER);
+    return 'present';
+  } catch (err) {
+    if (isFileNotFound(err)) return 'absent';
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return 'absent';
+    return 'unknown';
+  }
+}
+
+/**
  * 把可变 source materialize 成本次安装独占的不可变快照目录
  * （RACE-DISPATCH-SOURCE-SNAPSHOT）。
  *
  * 一致性协议（普通文件系统无目录树事务快照，两个提交点分离）：
+ * 0. source 根 marker（SKILL_PUBLISH_MARKER，owner = foundation skill-system）
+ *    在场 = source 发布未提交 → 重试； marker 绝不进入快照/payload（Phase 1916
+ *    Step B）；探测遇未知 I/O → fail-closed typed；
  * 1. copyDir live source → 快照目录；
  * 2. 从快照计算 manifest（= 实际将发布的内容）；
- * 3. 复核 live source manifest 仍等于快照 manifest——不等 = 快照期间 source
- *    被编辑（Motion 合法编辑 dispatch pool），删除半成品快照并重试；
- * 4. 超过有界重试仍不稳定 → typed fail-closed，调用方稍后重试。
+ * 3. 复核：快照不得含 marker（复制窗口内 marker 出现被复制）、live source 此时
+ *    不得带 marker（复制后进入新一轮发布）、live manifest 仍等于快照 manifest
+ *    ——任一不满足 = 快照期间 source 被编辑/发布，删除半成品快照并重试；
+ * 4. 超过有界重试仍不稳定/未提交 → typed fail-closed，调用方稍后重试。
  * expectedManifest 非 null 时（恢复重建路径）快照还必须等于 intent payload，
  * 否则显式冲突（调用方已前置判读，此处为不变量兜底）。
  * 残余边界：source「改了又改回完全相同字节」的 ABA 在普通 FS 上不可检测，
@@ -104,24 +124,62 @@ async function materializeSourceSnapshot(
 ): Promise<SkillSourceManifestEntry[]> {
   const parentFs = deps.fsFactory(path.dirname(snapshotAbs));
   const snapBase = path.basename(snapshotAbs);
+  const sourceFs = deps.fsFactory(srcAbs);
   await parentFs.ensureDir('.');
+  // 追踪失败原因：mid-publish（source 未提交）与 unstable（内容变化）报错语义不同
+  let lastFailure: 'mid_publish' | 'unstable' = 'unstable';
   for (let attempt = 1; attempt <= SOURCE_SNAPSHOT_MAX_ATTEMPTS; attempt++) {
     await parentFs.removeDir(snapBase).catch(() => {
       // silent: 清理上一趟半成品快照失败不掩盖后续重试；残留可人工删
     });
+    // 0. source 发布态：未提交 → 等不到本趟一致快照，重试
+    const preMarker = probeSourcePublishMarker(sourceFs);
+    if (preMarker === 'unknown') {
+      throw new CliError(
+        `Skill source "${srcAbs}" publish state is unreadable (${SKILL_PUBLISH_MARKER} probe failed); ` +
+        `fail-closed — inspect the source before retrying`,
+      );
+    }
+    if (preMarker === 'present') {
+      lastFailure = 'mid_publish';
+      continue;
+    }
     try {
       await copyDir(deps, srcAbs, snapshotAbs);
     } catch {
+      lastFailure = 'unstable';
       continue; // 复制中途 source 文件被改/删 → 视为快照期间变化，重试
     }
-    const snapManifest = computeSkillSourceManifest(deps.fsFactory(snapshotAbs));
+    const snapFs = deps.fsFactory(snapshotAbs);
+    const snapManifest = computeSkillSourceManifest(snapFs);
+    // 3a. 复制窗口内 marker 出现并被复制 → 本趟快照含协议工件，丢弃重试
+    if (snapManifest.some((e) => e.path === SKILL_PUBLISH_MARKER)) {
+      lastFailure = 'mid_publish';
+      continue;
+    }
+    // 3b. 复制后 source 进入新一轮发布 → 快照取自未提交边界，丢弃重试
+    const postMarker = probeSourcePublishMarker(sourceFs);
+    if (postMarker === 'unknown') {
+      throw new CliError(
+        `Skill source "${srcAbs}" publish state is unreadable (${SKILL_PUBLISH_MARKER} probe failed); ` +
+        `fail-closed — inspect the source before retrying`,
+      );
+    }
+    if (postMarker === 'present') {
+      lastFailure = 'mid_publish';
+      continue;
+    }
     let liveAfter: SkillSourceManifestEntry[];
     try {
-      liveAfter = computeSkillSourceManifest(deps.fsFactory(srcAbs));
+      liveAfter = computeSkillSourceManifest(sourceFs);
     } catch {
+      lastFailure = 'unstable';
       continue; // 复核时 source 不可读 → 视为快照期间变化，重试
     }
-    if (JSON.stringify(snapManifest) !== JSON.stringify(liveAfter)) continue;
+    if (JSON.stringify(snapManifest) !== JSON.stringify(liveAfter)) {
+      lastFailure = 'unstable';
+      continue;
+    }
     if (expectedManifest !== null &&
         JSON.stringify(snapManifest) !== JSON.stringify(expectedManifest)) {
       throw new CliError(
@@ -134,6 +192,12 @@ async function materializeSourceSnapshot(
   await parentFs.removeDir(snapBase).catch(() => {
     // silent: 失败快照非证据（不含目标字节），清理失败可人工删
   });
+  if (lastFailure === 'mid_publish') {
+    throw new CliError(
+      `Skill source "${srcAbs}" is still mid-publish (${SKILL_PUBLISH_MARKER} present after ` +
+      `${SOURCE_SNAPSHOT_MAX_ATTEMPTS} attempts); retry after the source publish completes`,
+    );
+  }
   throw new CliError(
     `Skill source "${srcAbs}" kept changing while taking a consistent snapshot ` +
     `(${SOURCE_SNAPSHOT_MAX_ATTEMPTS} attempts); retry the install`,
