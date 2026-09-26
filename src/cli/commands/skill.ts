@@ -19,7 +19,7 @@ import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-import { SKILLS_DIR_DEFAULT } from '../../foundation/skill-system/index.js';
+import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER } from '../../foundation/skill-system/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { newShortUuid, sha256Hex, formatErr } from '../../foundation/node-utils/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -60,9 +60,11 @@ function computeSkillSourceManifest(sourceFs: FileSystem): SkillSourceManifestEn
 
 /**
  * 单目标发布（Phase 1911 G + 1912 Step D / RACE-SKILL-SWAP-EMPTY-TARGET）：
- * - absent 目标：mkdirExclusiveSync 占位 + 逐文件 linkExclusiveSync no-replace
+ * - absent 目标：mkdirExclusiveSync 占位 + 写发布态 marker（Phase 1913 C：
+ *   marker 在 = 未提交不可消费）+ 逐文件 linkExclusiveSync no-replace
  *   落位——rename 不再接触目标路径，并发出现的占位（含空目录）必冲突；
- *   落位后扫描目标恰含 manifest 文件（外部混入 → 冲突留证）；
+ *   落位后扫描目标恰含 manifest 文件 + marker（外部混入 → 冲突留证）；
+ *   sweep 通过后删 marker = 提交（单向事实）；
  * - existing 目标（更新语义，显式 replace）：旧版 rename 入唯一 trash →
  *   探测目标必须缺席（窗口内被外部重建 → 还原旧版 + 冲突留证）→
  *   rename staging 落位 → 以 SKILL.md 内容 hash 核验落位的是我们的 staging。
@@ -87,6 +89,10 @@ async function publishSkillDirSwap(
 
   if (!(await parentFs.stat(base).catch(() => null))) {
     // ---- absent 目标：占位 + no-replace 逐文件落位 ----
+    // Phase 1913 Step C（RACE-PUBLISH-PRECOMMIT-VISIBILITY）：占位后立即写
+    // 发布态 marker（foundation skill-system owner 约定），落位+sweep 通过后
+    // 才删除（删除=提交）——marker 在 = SkillSystem 不可消费，消费者不再凭
+    // SKILL.md 存在猜测版本完整。
     try {
       parentFs.mkdirExclusiveSync(base);
     } catch (err) {
@@ -100,6 +106,12 @@ async function publishSkillDirSwap(
       }
       throw err;
     }
+    const markerRel = `${base}/${SKILL_PUBLISH_MARKER}`;
+    parentFs.writeAtomicSync(markerRel, JSON.stringify({
+      source: srcAbs,
+      manifestHash: sha256Hex(JSON.stringify(manifest)),
+      startedAt: new Date().toISOString(),
+    }, null, 2));
     for (const entry of manifest) {
       const destRel = `${base}/${entry.path}`;
       try {
@@ -116,8 +128,8 @@ async function publishSkillDirSwap(
         }
       }
     }
-    // 外部混入扫描：目标必须恰含 manifest 文件
-    const expected = new Set(manifest.map((e) => `${base}/${e.path}`));
+    // 外部混入扫描：目标必须恰含 manifest 文件 + 发布态 marker
+    const expected = new Set([...manifest.map((e) => `${base}/${e.path}`), markerRel]);
     const extra = parentFs
       .listSync(base, { recursive: true })
       .filter((e) => e.isFile)
@@ -129,6 +141,8 @@ async function publishSkillDirSwap(
         `conflict — evidence preserved`,
       );
     }
+    // 提交：删 marker（marker 缺席 = 已提交完整版本，单向事实）→ 清 staging
+    parentFs.deleteSync(markerRel);
     await parentFs.removeDir(stageName).catch(() => {
       // silent: staging 清理失败不影响已发布事实；残留 `.skill-staging-*` 可人工删
     });

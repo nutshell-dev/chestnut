@@ -11,4 +11,5 @@ export const SKILL_AUDIT_EVENTS = {
   DIR_NOT_FOUND: 'skill_dir_not_found',
   VERSION_INVALID: 'skill_version_invalid',   // NEW phase 59 / skillsystem-auditor §P4
   RESCAN_ABORTED: 'skill_rescan_aborted',     // NEW phase 1084
+  PUBLISH_IN_PROGRESS_SKIPPED: 'skill_publish_in_progress_skipped', // Phase 1913 Step C: marker 在 = 未提交，不注册半版本
 } as const;

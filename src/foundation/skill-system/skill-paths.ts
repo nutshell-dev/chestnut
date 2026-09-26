@@ -15,6 +15,15 @@
 /** per-agent 自身 skills 目录默认值（motion 自有 + 各 claw 各自 skills） */
 export const SKILLS_DIR_DEFAULT = 'skills' as const;
 
+/**
+ * skill 目录发布态 marker（Phase 1913 Step C，RACE-PUBLISH-PRECOMMIT-VISIBILITY）。
+ * owner = 本模块（foundation）；发布方（CLI skill install）在 absent 目标占位后
+ * 立即写入、落位+sweep 通过后删除（删除=提交，单向事实可从磁盘重建）。
+ * registry 只消费此 marker 的在与不在：在 = in_progress 不可消费；不在 =
+ * 已提交完整版本或普通用户内容。CLI 私有 claim 文件名语义不进入本层。
+ */
+export const SKILL_PUBLISH_MARKER = '.skill-publishing' as const;
+
 /** 源码树 bundled skills 资源目录名（非运行期 agent subdir） */
 export const BUNDLED_SKILLS_DIR_NAME = 'skills' as const;
 

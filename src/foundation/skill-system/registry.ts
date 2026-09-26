@@ -12,6 +12,7 @@ import { parseFrontmatterFrame } from "../messaging/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
+import { SKILL_PUBLISH_MARKER } from './skill-paths.js';
 // phase 1909 Step C（M17）：技能段字面归 templates/messages 单源（层中性资源，foundation 可引用）
 import {
   AVAILABLE_SKILLS_HEADING,
@@ -147,9 +148,35 @@ export class SkillSystem implements SkillContextSource {
 
     for (const entry of entries) {
       if (!entry.isDirectory) continue;
+      // Phase 1913 Step C：隐藏目录（`.skill-staging-*` / `.skill-trash-*` 等
+      // 发布/恢复证据工件）不参与注册——staging 含完整 SKILL.md 副本，不跳过
+      // 会被当作正式版本注册（甚至触发 duplicate）。
+      if (entry.name.startsWith('.')) continue;
 
       const skillDir = `${this.skillsDir}/${entry.name}`;
       const skillMdPath = `${skillDir}/SKILL.md`;
+
+      // Phase 1913 Step C（RACE-PUBLISH-PRECOMMIT-VISIBILITY）：发布态门控——
+      // owner marker 在 = 目标未提交（落位/sweep 未完成或恢复中），audit 留证
+      // 并跳过，不把半版本注册进快照；marker 缺席才是已提交/普通内容。
+      let publishInProgress = false;
+      try {
+        publishInProgress = await this.fs.exists(`${skillDir}/${SKILL_PUBLISH_MARKER}`);
+      } catch (err) {
+        if (!isFileNotFound(err)) {
+          this.audit.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+            `op=exists`, `path=${skillDir}/${SKILL_PUBLISH_MARKER}`, `reason=${formatErr(err)}`);
+          return; // 保留旧 Map
+        }
+      }
+      if (publishInProgress) {
+        this.audit.write(SKILL_AUDIT_EVENTS.PUBLISH_IN_PROGRESS_SKIPPED,
+          `skill_dir=${skillDir}`,
+          `skills_dir=${this.skillsDir}`,
+          `marker=${SKILL_PUBLISH_MARKER}`,
+        );
+        continue;
+      }
 
       // 检查 SKILL.md 是否存在；I/O 错误纳入统一错误边界
       let hasSkillMd = false;

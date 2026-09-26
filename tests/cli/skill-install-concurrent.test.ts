@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/commands/skill.js';
+import { SkillSystem } from '../../src/foundation/skill-system/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 
@@ -240,5 +241,82 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     await skillInstallClawCommand(deps, 'bob', 'myskill');
     expect(readVersion(clawSkill)).toBe('# myskill v2\n');
     expect(fs.existsSync(path.join(clawSkill, 'run.sh'))).toBe(true); // 旧版文件随新版保留（同源快照）
+  });
+});
+
+
+describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PRECOMMIT-VISIBILITY）', () => {
+  it('SKILL.md 先落位、引用文件未落位的崩溃窗口：SkillSystem 不注册半版本；恢复后注册完整版本', async () => {
+    // manifest 按 localeCompare 排序：'SKILL.md' < 'zzz.sh'，SKILL.md 先落位
+    const src = path.join(testDir, 'a', 'myskill');
+    fs.mkdirSync(src, { recursive: true });
+    fs.writeFileSync(path.join(src, 'SKILL.md'), '# myskill v1\n');
+    fs.writeFileSync(path.join(src, 'zzz.sh'), 'echo v1\n');
+    const dispatchParent = path.dirname(dispatchSkillDir());
+
+    // 模拟崩溃：SKILL.md 落位后，第二文件 link 失败 —— 目标目录含
+    // SKILL.md + marker，属半版本
+    const crashingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        const origLink = real.linkExclusiveSync.bind(real);
+        real.linkExclusiveSync = (from: string, to: string) => {
+          if (to === 'myskill/zzz.sh') throw new Error('simulated crash mid-landing');
+          return origLink(from, to);
+        };
+      }
+      return real;
+    };
+    await expect(
+      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+    ).rejects.toThrow(/simulated crash/);
+
+    // 半版本证据：SKILL.md 已落位 + 引用文件未落位 + marker 在（= 未提交）
+    expect(fs.existsSync(path.join(dispatchSkillDir(), 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(dispatchSkillDir(), 'zzz.sh'))).toBe(false);
+    expect(fs.existsSync(path.join(dispatchSkillDir(), '.skill-publishing'))).toBe(true);
+
+    // SkillSystem 读侧：不注册半版本 + audit 留证
+    const auditCalls: string[][] = [];
+    const registry = new SkillSystem(
+      new NodeFileSystem({ baseDir: testDir }),
+      path.relative(testDir, dispatchParent),
+      { write: (...args: string[]) => { auditCalls.push(args); } } as never,
+    );
+    await registry.loadAll();
+    expect(registry.listMeta()).toEqual([]);
+    expect(auditCalls.some(c => c[0] === 'skill_publish_in_progress_skipped')).toBe(true);
+
+    // 死 holder 同 payload 恢复 → 提交 → registry 注册完整版本
+    const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
+    await skillInstallUserCommand(deps, src);
+
+    expect(fs.existsSync(path.join(dispatchSkillDir(), '.skill-publishing'))).toBe(false);
+    expect(fs.readFileSync(path.join(dispatchSkillDir(), 'zzz.sh'), 'utf-8')).toBe('echo v1\n');
+    await registry.loadAll();
+    expect(registry.listMeta().map(m => m.name)).toEqual(['myskill']);
+  });
+
+  it('staging 目录（含完整 SKILL.md 副本）不被 registry 注册', async () => {
+    const src = makeSkillSource('a', 'v1');
+    const userParent = path.dirname(userSkillDir());
+    await skillInstallUserCommand(deps, src);
+
+    // 构造证据形态：staging 目录含完整副本（registry 只认非隐藏目录）
+    const staging = path.join(userParent, '.skill-staging-test');
+    fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(path.join(staging, 'SKILL.md'), '# myskill v9\n');
+
+    const registry = new SkillSystem(
+      new NodeFileSystem({ baseDir: testDir }),
+      path.relative(testDir, userParent),
+      { write: () => {} } as never,
+    );
+    await registry.loadAll();
+    // 只有正式目标注册；staging 不注册、不触发 duplicate
+    expect(registry.listMeta().map(m => m.name)).toEqual(['myskill']);
   });
 });
