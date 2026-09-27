@@ -19,6 +19,13 @@ export const MISC_COMMAND_CATALOG = [
       { flag: '--skill <name>', desc: 'Skill name (required with --claw)' },
     ],
   },
+  {
+    id: 'skill/list',
+    summary: 'List skills of Motion or a claw (read-only, same format as system prompt)',
+    options: [
+      { flag: '-c, --claw <id>', desc: 'Target claw ID (default: motion)' },
+    ],
+  },
   { id: 'watchdog/start', summary: 'Start watchdog' },
   { id: 'watchdog/stop', summary: 'Stop watchdog' },
   {

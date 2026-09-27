@@ -29,6 +29,7 @@ import {
 } from './commands/motion.js';
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
+import { skillListCommand } from './commands/skill-list.js';
 import { startCommand as watchdogStart, stopCommand as watchdogStop } from './commands/watchdog-cli.js';
 import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
@@ -322,6 +323,11 @@ miscShape(skillCmd.command('install [source]'), 'skill/install')
       const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
       await skillInstallUserCommand({ fsFactory }, source, { audit });
     }
+  }));
+
+miscShape(skillCmd.command('list'), 'skill/list')
+  .action(action('observe_only', async (opts: { claw?: string }) => {
+    await skillListCommand({ fsFactory, rootConfig }, opts);
   }));
 
 skillCmd.on('command:*', (ops) => {
