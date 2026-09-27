@@ -435,10 +435,15 @@ class GitVersionStore implements VersionStore {
     const base = await this.requireCommit(input.base, 'base');
     const workspaceId = `ws-${sha256ShortHex(`begin:${input.operationId}`, 24)}`;
 
-    // 幂等重开：记录在场 → 校验分支仍解析 → 原样返回（不触碰工作区目录，保留未保存编辑）
+    // 幂等重开：记录在场 → 逐字段校验 operationId 绑定输入未漂移（phase 1920：含 base）→
+    // 校验分支仍解析 → 原样返回（不触碰工作区目录，保留未保存编辑）
     const existing = await this.readRecord(this.workspaceRecordPath(workspaceId));
     if (existing !== undefined) {
       const rec = this.assertWorkspaceRecord(existing, workspaceId);
+      if (rec.operationId !== input.operationId || rec.base !== base) {
+        // 输入漂移 = 调用方契约错误：不覆盖旧工作区、不静默采用新基准
+        throw new VersionStoreError('invalid_argument', 'operationId replayed with different begin inputs');
+      }
       const tip = await this.gitExec(['rev-parse', '--verify', '--quiet', `${rec.branch}^{commit}`]);
       if (!tip.ok) {
         throw new VersionStoreError('record_corrupt', `workspace branch missing: ${rec.branch}`);

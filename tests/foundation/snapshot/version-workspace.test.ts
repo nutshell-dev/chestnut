@@ -404,6 +404,37 @@ describe.skipIf(!gitAvailable)('version-store 分支工作区（phase 1918 Step 
       .rejects.toMatchObject({ kind: 'invalid_argument' });
   });
 
+  it('begin 输入漂移：同 operationId 不同 base 明确拒绝，旧工作区/分支/记录原样保留（phase 1920）', async () => {
+    const { store, repositoryDir, published } = await makeStore();
+    const ws = await store.begin({ operationId: 'op-drift', base: published as VersionId });
+    fsSync.writeFileSync(path.join(ws.path, 'draft.txt'), 'unsaved\n');
+    // 制造另一个合法 commit 作为漂移 base
+    const other = await store.save({ workspaceId: ws.id, operationId: 'save-drift', message: 'm' });
+    expect(other).not.toBe(published);
+
+    await expect(store.begin({ operationId: 'op-drift', base: other }))
+      .rejects.toMatchObject({ kind: 'invalid_argument' });
+    // 同 base 重放仍幂等成功
+    const ws2 = await store.begin({ operationId: 'op-drift', base: published as VersionId });
+    expect(ws2.id).toBe(ws.id);
+    expect(fsSync.readFileSync(path.join(ws2.path, 'draft.txt'), 'utf8')).toBe('unsaved\n');
+
+    // 重启（新实例）后漂移仍拒绝，工作区记录与分支不变
+    const fs2 = new NodeFileSystem({ baseDir: repositoryDir });
+    const { audit } = makeAudit();
+    const store2 = await createVersionStore({
+      repositoryDir, workspaceParent: path.join(tmpDir, 'ws-parent'), fs: fs2, audit,
+    });
+    await expect(store2.begin({ operationId: 'op-drift', base: other }))
+      .rejects.toMatchObject({ kind: 'invalid_argument' });
+    const ws3 = await store2.begin({ operationId: 'op-drift', base: published as VersionId });
+    expect(ws3).toEqual(ws2);
+    expect(git(repositoryDir, 'rev-parse', ws.branch)).toBe(other);
+    const recRaw = JSON.parse(fsSync.readFileSync(
+      path.join(repositoryDir, '.git', 'version-store', 'workspaces', `${ws.id}.json`), 'utf8')) as Record<string, unknown>;
+    expect(recRaw.base).toBe(published);
+  });
+
   it('save 未知工作区抛 unknown_workspace；非法 base 抛 invalid_argument/unknown_version', async () => {
     const { store } = await makeStore();
     await expect(store.save({ workspaceId: 'ws-nonexistent', operationId: 'x', message: 'm' }))
