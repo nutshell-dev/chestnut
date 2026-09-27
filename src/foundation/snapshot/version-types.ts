@@ -91,6 +91,8 @@ export type OperationInspection =
       status: 'prepared' | 'completed';
       attempts: readonly string[];
       result?: PublishResult;
+      /** 发布依据原文；null = 旧记录（pre-1920）无持久原文，不可完整恢复（不伪造） */
+      metadata: string | null;
     }
   | { kind: 'unknown'; operationId: string };
 

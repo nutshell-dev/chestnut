@@ -12,6 +12,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
+import { createHash } from 'crypto';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { createVersionStore } from '../../../src/foundation/snapshot/index.js';
@@ -351,5 +352,35 @@ describe.skipIf(!gitAvailable)('version-store 按路径条件发布（phase 1918
         store.publish({ operationId: `pub-pbad-${bad}`, candidate, prefix: bad, expectedPathRevision: null, metadata: 'm' }),
       ).rejects.toMatchObject({ kind: 'invalid_argument' });
     }
+  });
+
+  it('metadata 原文随 prepare 持久化：记录原文与 hash 自洽，发布提交携带 metadata-sha256（phase 1920）', async () => {
+    const f = await makeFixture();
+    const { pathRev } = await f.seed('skills/a', { 'skills/a/SKILL.md': 'v1\n' }, 'seed-mrec');
+    const base = f.published();
+    const store = await f.makeStore();
+    const { candidate } = await f.beginEdit(base as VersionId, 'mrec', { 'skills/a/SKILL.md': 'v2\n' });
+    const metadata = 'basis: retro task-42\n依据原文 多行 ✓';
+    const r = await store.publish({ operationId: 'pub-mrec', candidate, prefix: 'skills/a', expectedPathRevision: pathRev as VersionId, metadata });
+    expect(r.kind).toBe('published');
+
+    // 发布提交与操作记录互证：提交消息携带 metadata hash，记录持有原文
+    const head = f.published();
+    const expectedSha = createHash('sha256').update(metadata, 'utf8').digest('hex');
+    expect(git(f.repositoryDir, 'log', '-1', '--format=%B', head)).toContain(`metadata-sha256: ${expectedSha}`);
+    const dir = path.join(f.repositoryDir, '.git', 'version-store', 'publishes');
+    const file = fsSync.readdirSync(dir).filter(n => n.endsWith('.json'))
+      .map(n => JSON.parse(fsSync.readFileSync(path.join(dir, n), 'utf8')) as Record<string, unknown>)
+      .find(rec => rec.operationId === 'pub-mrec');
+    expect(file).toBeDefined();
+    expect(file?.metadata).toBe(metadata);
+    expect(file?.metadataSha256).toBe(expectedSha);
+
+    // 重放逐字校验原文：同 hash 不可能构造（hash 已含原文），不同原文 typed 拒绝
+    await expect(
+      store.publish({ operationId: 'pub-mrec', candidate, prefix: 'skills/a', expectedPathRevision: pathRev as VersionId, metadata: `${metadata} ` }),
+    ).rejects.toMatchObject({ kind: 'invalid_argument' });
+    const replay = await store.publish({ operationId: 'pub-mrec', candidate, prefix: 'skills/a', expectedPathRevision: pathRev as VersionId, metadata });
+    expect(replay).toEqual(r);
   });
 });

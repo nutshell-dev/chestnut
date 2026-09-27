@@ -226,6 +226,58 @@ describe.skipIf(!gitAvailable)('version-store 固定版本读取与恢复（phas
       .rejects.toMatchObject({ kind: 'invalid_argument' });
   });
 
+  it('metadata 原文恢复：发布后重启可读取；CAS 后回执丢失恢复同版本同依据；旧记录显式 null（phase 1920）', async () => {
+    const holder = { events: [] as Array<[string, ...(string | number)[]]> };
+    const metadata = 'basis: retro 依据原文\n多行 ✓';
+
+    // 第一实例：CAS 后完成记录写失败（回执丢失）
+    fsSync.mkdirSync(repositoryDir(), { recursive: true });
+    const baseFs = new NodeFileSystem({ baseDir: repositoryDir() });
+    let failCompleted = true;
+    const flakyFs = Object.create(baseFs) as FileSystem;
+    const origWrite = baseFs.writeAtomic.bind(baseFs);
+    flakyFs.writeAtomic = (rel: string, content: string) => {
+      if (failCompleted && rel.includes('publishes') && content.includes('"status":"completed"')) {
+        return Promise.reject(new Error('injected: crash after CAS before receipt'));
+      }
+      return origWrite(rel, content);
+    };
+    const store1 = await makeStore(holder, flakyFs);
+    const v0 = await store1.readPublished();
+    const candidate = await beginEdit(store1, v0, 'meta-rec', { 'skills/a/SKILL.md': 'v1\n' });
+    await expect(
+      store1.publish({ operationId: 'pub-meta-rec', candidate, prefix: 'skills/a', expectedPathRevision: null, metadata }),
+    ).rejects.toThrow('injected: crash after CAS before receipt');
+    const committed = git(repositoryDir(), 'rev-parse', 'refs/version/published');
+
+    // 重启（新实例）：识别已提交，同一版本；metadata 原文仍在
+    failCompleted = false;
+    const store2 = await makeStore(holder);
+    const healed = await store2.publish({ operationId: 'pub-meta-rec', candidate, prefix: 'skills/a', expectedPathRevision: null, metadata });
+    expect(healed).toEqual({ kind: 'published', version: committed as VersionId });
+    const insp = await store2.inspectOperation('pub-meta-rec');
+    expect(insp.kind).toBe('publish');
+    expect(insp.kind === 'publish' && insp.metadata).toBe(metadata);
+
+    // 旧记录（pre-1920，无 metadata 字段）：重放按 hash 兼容，inspect 显式 null 不伪造依据
+    const dir = path.join(repositoryDir(), '.git', 'version-store', 'publishes');
+    const name = fsSync.readdirSync(dir).filter(n => n.endsWith('.json'))
+      .find(n => (JSON.parse(fsSync.readFileSync(path.join(dir, n), 'utf8')) as Record<string, unknown>).operationId === 'pub-meta-rec');
+    expect(name).toBeDefined();
+    const full = path.join(dir, name as string);
+    const rec = JSON.parse(fsSync.readFileSync(full, 'utf8')) as Record<string, unknown>;
+    delete rec.metadata;
+    fsSync.writeFileSync(full, JSON.stringify(rec));
+    const legacyInsp = await store2.inspectOperation('pub-meta-rec');
+    expect(legacyInsp.kind === 'publish' && legacyInsp.metadata).toBe(null);
+    const legacyReplay = await store2.publish({ operationId: 'pub-meta-rec', candidate, prefix: 'skills/a', expectedPathRevision: null, metadata });
+    expect(legacyReplay).toEqual(healed);
+    // 记录原文与 hash 不自洽 → loud record_corrupt，不静默接受
+    rec.metadata = 'tampered 原文';
+    fsSync.writeFileSync(full, JSON.stringify(rec));
+    await expect(store2.inspectOperation('pub-meta-rec')).rejects.toMatchObject({ kind: 'record_corrupt' });
+  });
+
   it('inspectOperation：unknown / workspace / publish 各形态只暴露持久事实', async () => {
     const store = await makeStore();
     expect(await store.inspectOperation('op-nothing')).toEqual({ kind: 'unknown', operationId: 'op-nothing' });

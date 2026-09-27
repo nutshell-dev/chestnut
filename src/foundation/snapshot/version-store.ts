@@ -113,6 +113,11 @@ interface PublishRecord {
   prefix: string;
   expectedPathRevision: string | null;
   metadataSha256: string;
+  /**
+   * phase 1920：metadata 原文持久化（大小上限校验同输入）。旧记录（pre-1920）无此字段：
+   * 原文不可完整恢复，重放只能比 hash，inspectOperation 以 null 显式标记，绝不伪造依据。
+   */
+  metadata?: string;
   status: 'prepared' | 'completed';
   attempts: Array<{ commit: string; base: string }>;
   result?: PublishRecordResult;
@@ -718,6 +723,7 @@ class GitVersionStore implements VersionStore {
       typeof r.candidate !== 'string' || !SHA1_RE.test(r.candidate) ||
       typeof r.prefix !== 'string' ||
       (r.expectedPathRevision !== null && (typeof r.expectedPathRevision !== 'string' || !SHA1_RE.test(r.expectedPathRevision))) ||
+      typeof r.metadataSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(r.metadataSha256) ||
       (r.status !== 'prepared' && r.status !== 'completed') ||
       !Array.isArray(r.attempts) ||
       !r.attempts.every(a => typeof a?.commit === 'string' && SHA1_RE.test(a.commit) && typeof a?.base === 'string' && SHA1_RE.test(a.base))
@@ -733,17 +739,22 @@ class GitVersionStore implements VersionStore {
         throw new VersionStoreError('record_corrupt', `publish record result invalid: ${opHash}`);
       }
     }
+    // metadata 原文持久化后必须与记录 hash 自洽（防记录篡改/半截写入被当作合法依据）
+    if (r.metadata !== undefined && (typeof r.metadata !== 'string' || sha256Hex(r.metadata) !== r.metadataSha256)) {
+      throw new VersionStoreError('record_corrupt', `publish record metadata inconsistent with its hash: ${opHash}`);
+    }
     return r as PublishRecord;
   }
 
-  /** 幂等键输入漂移 = 调用方契约错误（重放必须带相同输入） */
+  /** 幂等键输入漂移 = 调用方契约错误（重放必须带相同输入；原文在场时逐字比较，不只比 hash） */
   private assertPublishInputsMatch(rec: PublishRecord, input: PublishInput, metadataSha: string): void {
     if (
       rec.operationId !== input.operationId ||
       rec.candidate !== input.candidate ||
       rec.prefix !== input.prefix ||
       rec.expectedPathRevision !== (input.expectedPathRevision as string | null) ||
-      rec.metadataSha256 !== metadataSha
+      rec.metadataSha256 !== metadataSha ||
+      (rec.metadata !== undefined && rec.metadata !== input.metadata)
     ) {
       throw new VersionStoreError('invalid_argument', 'operationId replayed with different publish inputs');
     }
@@ -866,6 +877,8 @@ class GitVersionStore implements VersionStore {
         prefix,
         expectedPathRevision: input.expectedPathRevision as string | null,
         metadataSha256: metadataSha,
+        // 原文随 prepare 一并持久化：回执丢失/重启后依据仍可恢复，重放逐字校验
+        metadata: input.metadata,
         status: 'prepared',
         attempts: [],
       };
@@ -920,8 +933,10 @@ class GitVersionStore implements VersionStore {
         return this.completePublish(recPath, rec, { kind: 'published', version: head });
       }
 
+      // 提交消息携带 metadata hash：版本历史中的发布提交可与操作记录中的原文互证
       const commit = (await this.git([
-        'commit-tree', newTree, '-p', head, '-m', `publish ${prefix}\n\noperation-id: ${input.operationId}\n`,
+        'commit-tree', newTree, '-p', head, '-m',
+        `publish ${prefix}\n\noperation-id: ${input.operationId}\nmetadata-sha256: ${metadataSha}\n`,
       ])).stdout;
       // 每次发布尝试均以 refs 保持可达；prepare 记录候选、旧 ref、目标 commit、operationId
       await this.git(['update-ref', `${PUBLISH_ATTEMPT_REF_PREFIX}${opHash.slice(0, 16)}-${rec.attempts.length}`, commit]);
@@ -1104,6 +1119,8 @@ class GitVersionStore implements VersionStore {
         status: rec.status,
         attempts: rec.attempts.map(a => a.commit),
         result,
+        // 旧记录无原文：null 显式标记不可完整恢复，绝不伪造依据
+        metadata: rec.metadata ?? null,
       };
     }
     return { kind: 'unknown', operationId };
