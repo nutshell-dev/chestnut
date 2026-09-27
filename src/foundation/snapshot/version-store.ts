@@ -25,6 +25,8 @@ import { isFileNotFound, type FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { GitExecError } from './git-errors.js';
 import {
+  emitSnapshotVersionExported,
+  emitSnapshotVersionExportFailed,
   emitSnapshotVersionInitFailed,
   emitSnapshotVersionPublishBusy,
   emitSnapshotVersionPublishConflict,
@@ -38,8 +40,10 @@ import {
   VersionStoreError,
   type EditWorkspace,
   type OperationId,
+  type OperationInspection,
   type PublishInput,
   type PublishResult,
+  type VersionHistoryEntry,
   type VersionId,
   type VersionStore,
 } from './version-types.js';
@@ -172,10 +176,11 @@ class GitVersionStore implements VersionStore {
   /**
    * @param discovery true 时不显式传 --git-dir（init/归属验证/worktree 探测专用，
    *                  调用前必须已确认目标目录自身持有 .git，不会向上发现外来 repo）
+   * @param raw true 时 stdout 不 trim（blob 等字节内容读取专用）
    */
   private async gitExec(
     args: string[],
-    opts?: { cwd?: string; gitDir?: string; discovery?: boolean; indexFile?: string; stdin?: string },
+    opts?: { cwd?: string; gitDir?: string; discovery?: boolean; indexFile?: string; stdin?: string; raw?: boolean },
   ): Promise<GitResult> {
     const env: Record<string, string> = { GIT_CONFIG_NOSYSTEM: '1' };
     if (opts?.indexFile !== undefined) env.GIT_INDEX_FILE = opts.indexFile;
@@ -191,7 +196,7 @@ class GitVersionStore implements VersionStore {
         env,
         stdin: opts?.stdin,
       });
-      return { ok: true, stdout: r.output.trim(), stderr: r.stderr?.trim() ?? '' };
+      return { ok: true, stdout: opts?.raw ? r.output : r.output.trim(), stderr: r.stderr?.trim() ?? '' };
     } catch (e) {
       const ne = e as NodeExecError;
       if (typeof ne.exitCode === 'number') {
@@ -204,7 +209,7 @@ class GitVersionStore implements VersionStore {
 
   private async git(
     args: string[],
-    opts?: { cwd?: string; gitDir?: string; discovery?: boolean; indexFile?: string; stdin?: string },
+    opts?: { cwd?: string; gitDir?: string; discovery?: boolean; indexFile?: string; stdin?: string; raw?: boolean },
   ): Promise<{ stdout: string; stderr: string }> {
     const r = await this.gitExec(args, opts);
     if (!r.ok) {
@@ -587,26 +592,20 @@ class GitVersionStore implements VersionStore {
     return path.join(STATE_DIR, 'publishes', `${opHash}.json`);
   }
 
-  private assertPublishRecord(raw: unknown, input: PublishInput, opHash: string, metadataSha: string): PublishRecord {
+  private assertPublishRecordShape(raw: unknown, opHash: string): PublishRecord {
     const r = raw as Partial<PublishRecord> | undefined;
     if (
       r === null || typeof r !== 'object' ||
       r.schema !== 1 || r.kind !== 'publish' ||
-      r.operationId !== input.operationId ||
+      typeof r.operationId !== 'string' ||
+      typeof r.candidate !== 'string' || !SHA1_RE.test(r.candidate) ||
+      typeof r.prefix !== 'string' ||
+      (r.expectedPathRevision !== null && (typeof r.expectedPathRevision !== 'string' || !SHA1_RE.test(r.expectedPathRevision))) ||
       (r.status !== 'prepared' && r.status !== 'completed') ||
       !Array.isArray(r.attempts) ||
       !r.attempts.every(a => typeof a?.commit === 'string' && SHA1_RE.test(a.commit) && typeof a?.base === 'string' && SHA1_RE.test(a.base))
     ) {
       throw new VersionStoreError('record_corrupt', `publish record invalid: ${opHash}`);
-    }
-    // 幂等键输入漂移 = 调用方契约错误（重放必须带相同输入）
-    if (
-      r.candidate !== input.candidate ||
-      r.prefix !== input.prefix ||
-      r.expectedPathRevision !== (input.expectedPathRevision as string | null) ||
-      r.metadataSha256 !== metadataSha
-    ) {
-      throw new VersionStoreError('invalid_argument', 'operationId replayed with different publish inputs');
     }
     if (r.status === 'completed') {
       const res = r.result as Partial<PublishRecordResult> | undefined;
@@ -618,6 +617,19 @@ class GitVersionStore implements VersionStore {
       }
     }
     return r as PublishRecord;
+  }
+
+  /** 幂等键输入漂移 = 调用方契约错误（重放必须带相同输入） */
+  private assertPublishInputsMatch(rec: PublishRecord, input: PublishInput, metadataSha: string): void {
+    if (
+      rec.operationId !== input.operationId ||
+      rec.candidate !== input.candidate ||
+      rec.prefix !== input.prefix ||
+      rec.expectedPathRevision !== (input.expectedPathRevision as string | null) ||
+      rec.metadataSha256 !== metadataSha
+    ) {
+      throw new VersionStoreError('invalid_argument', 'operationId replayed with different publish inputs');
+    }
   }
 
   /** 该 prefix 最近一次发布变更的版本身份（TREESAME 简化，改后改回仍产生新身份） */
@@ -633,11 +645,8 @@ class GitVersionStore implements VersionStore {
   private async findOperationCommit(head: string, operationId: string): Promise<string | null> {
     const r = await this.gitExec(['log', '--first-parent', '-n', String(TWIN_SCAN_DEPTH), '--format=%H%x00%B%x00', head]);
     if (!r.ok || r.stdout === '') return null;
-    const parts = r.stdout.split('\0');
-    for (let i = 0; i + 1 < parts.length; i += 2) {
-      const sha = parts[i].replace(/^\n+/, '');
-      const body = parts[i + 1];
-      if (SHA1_RE.test(sha) && body.split('\n').includes(`operation-id: ${operationId}`)) {
+    for (const { sha, body } of this.parseLogPairs(r.stdout)) {
+      if (body.split('\n').includes(`operation-id: ${operationId}`)) {
         return sha;
       }
     }
@@ -706,7 +715,8 @@ class GitVersionStore implements VersionStore {
     let rec: PublishRecord;
     const existing = await this.readRecord(recPath);
     if (existing !== undefined) {
-      rec = this.assertPublishRecord(existing, input, opHash, metadataSha);
+      rec = this.assertPublishRecordShape(existing, opHash);
+      this.assertPublishInputsMatch(rec, input, metadataSha);
       if (rec.status === 'completed') {
         // 反复提交同 operationId 重放相同持久结果
         const res = rec.result as PublishRecordResult;
@@ -819,6 +829,167 @@ class GitVersionStore implements VersionStore {
     });
     // 有界耗尽返回 busy；记录保持 prepared，同 operationId 重试可续作
     return { kind: 'busy', operationId: input.operationId };
+  }
+
+  // ========================================================================
+  // 固定版本读取 / 导出 / 恢复事实查询（phase 1918 Step D）
+  // ========================================================================
+
+  async readPublished(): Promise<VersionId> {
+    return asVersionId((await this.git(['rev-parse', '--verify', `${PUBLISHED_REF}^{commit}`])).stdout);
+  }
+
+  async pathRevision(version: VersionId, prefix: string): Promise<VersionId | null> {
+    const v = await this.requireCommit(version, 'version');
+    return this.pathRevisionOf(v, validatePrefix(prefix));
+  }
+
+  /** 解析 `git log --format=%H%x00%B%x00` 输出为 [sha, body] 对（body 不含 NUL） */
+  private parseLogPairs(stdout: string): Array<{ sha: string; body: string }> {
+    const parts = stdout.split('\0');
+    const pairs: Array<{ sha: string; body: string }> = [];
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+      const sha = parts[i].replace(/^\n+/, '');
+      if (SHA1_RE.test(sha)) pairs.push({ sha, body: parts[i + 1] });
+    }
+    return pairs;
+  }
+
+  async history(prefix: string): Promise<VersionHistoryEntry[]> {
+    const p = validatePrefix(prefix);
+    const r = await this.gitExec(['log', '--first-parent', '--format=%H%x00%B%x00', PUBLISHED_REF, '--', p]);
+    if (!r.ok) {
+      throw new VersionStoreError('git_error', `git log failed: ${r.output.slice(0, 300)}`);
+    }
+    if (r.stdout === '') return [];
+    return this.parseLogPairs(r.stdout).map(({ sha, body }) => {
+      const opLine = body.split('\n').find(l => l.startsWith('operation-id: '));
+      return {
+        version: asVersionId(sha),
+        operationId: opLine !== undefined ? opLine.slice('operation-id: '.length) : null,
+      };
+    });
+  }
+
+  /**
+   * symlink 安全策略：拒绝绝对链接与逃逸导出根（prefix）的相对链接；
+   * 根内相对链接允许并由 checkout-index 按原样物化。
+   */
+  private validateSymlinkTarget(entryPath: string, target: string, prefix: string): void {
+    if (target.length === 0 || target.includes('\0') || path.posix.isAbsolute(target)) {
+      throw new VersionStoreError('symlink_escape', `symlink ${entryPath} has forbidden target: ${target}`);
+    }
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entryPath), target));
+    if (resolved !== prefix && !resolved.startsWith(`${prefix}/`)) {
+      throw new VersionStoreError('symlink_escape', `symlink ${entryPath} escapes export root: ${target}`);
+    }
+  }
+
+  async exportVersion(version: VersionId, prefix: string, destination: string): Promise<void> {
+    const v = await this.requireCommit(version, 'version');
+    const p = validatePrefix(prefix);
+    if (!path.isAbsolute(destination)) {
+      throw new VersionStoreError('invalid_argument', `destination must be absolute: ${destination}`);
+    }
+    const dest = path.normalize(destination);
+    const realRepoDir = path.dirname(this.realGitDir);
+    // 同时按原始路径与 realpath 解析两种形式校验（macOS /var → /private/var 等别名）；
+    // destination 不得位于版本库目录内（含 .git 与工作树投影区）
+    const rawGitDir = path.join(path.resolve(this.repositoryDir), '.git');
+    const forbidden = [realRepoDir, this.realGitDir, path.resolve(this.repositoryDir), rawGitDir];
+    for (const root of forbidden) {
+      if (dest === root || dest.startsWith(root + path.sep)) {
+        throw new VersionStoreError('invalid_argument', 'destination must not be inside the repository directory');
+      }
+    }
+
+    // 枚举条目：gitlink 拒绝；symlink 按已定义安全策略校验（不默默当普通文本）
+    const lst = await this.gitExec(['ls-tree', '-r', '-z', v, '--', p]);
+    if (!lst.ok) {
+      throw new VersionStoreError('git_error', `git ls-tree failed: ${lst.output.slice(0, 300)}`);
+    }
+    const entries = lst.stdout.split('\0').filter(s => s.length > 0).map(line => {
+      const m = line.match(/^(\d{6}) (\w+) ([0-9a-f]{40})\t(.*)$/);
+      if (m === null) {
+        throw new VersionStoreError('git_error', `unparseable ls-tree entry: ${line.slice(0, 200)}`);
+      }
+      return { mode: m[1], oid: m[3], path: m[4] };
+    });
+    if (entries.length === 0) {
+      throw new VersionStoreError('not_found', `prefix ${p} does not exist at version ${v}`);
+    }
+    for (const entry of entries) {
+      if (entry.mode === '160000') {
+        emitSnapshotVersionExportFailed(this.audit, {
+          dir: this.repositoryDir, reason: `gitlink entry cannot be materialized: ${entry.path}`, version: v, prefix: p, destination: dest,
+        });
+        throw new VersionStoreError('unsupported_entry', `gitlink entry cannot be materialized: ${entry.path}`);
+      }
+      if (entry.mode === '120000') {
+        const blob = await this.git(['cat-file', 'blob', entry.oid], { raw: true });
+        try {
+          this.validateSymlinkTarget(entry.path, blob.stdout, p);
+        } catch (e) {
+          emitSnapshotVersionExportFailed(this.audit, {
+            dir: this.repositoryDir, reason: (e as Error).message, version: v, prefix: p, destination: dest,
+          });
+          throw e;
+        }
+      }
+    }
+
+    // 私有 index 读固定 commit 子树并 checkout（不 checkout 共享根、不写全局 index）
+    const sub = (await this.git(['rev-parse', `${v}:${p}`])).stdout;
+    await this.fs.ensureDir(path.join(STATE_DIR, 'index'));
+    const indexFile = path.join(
+      this.realGitDir, 'version-store', 'index', `export-${sha256ShortHex(`${v}:${p}:${dest}`, 16)}.index`,
+    );
+    await this.git(['read-tree', sub], { indexFile });
+    const checkout = await this.gitExec(['checkout-index', '-f', '-a', `--prefix=${dest}/`], { indexFile });
+    if (!checkout.ok) {
+      emitSnapshotVersionExportFailed(this.audit, {
+        dir: this.repositoryDir, reason: checkout.output, version: v, prefix: p, destination: dest,
+      });
+      throw new VersionStoreError('git_error', `git checkout-index failed: ${checkout.output.slice(0, 300)}`);
+    }
+    emitSnapshotVersionExported(this.audit, { dir: this.repositoryDir, version: v, prefix: p, destination: dest });
+  }
+
+  async inspectOperation(operationId: string): Promise<OperationInspection> {
+    validateOperationId(operationId);
+    const workspaceId = `ws-${sha256ShortHex(`begin:${operationId}`, 24)}`;
+    const wsRaw = await this.readRecord(this.workspaceRecordPath(workspaceId));
+    if (wsRaw !== undefined) {
+      const rec = this.assertWorkspaceRecord(wsRaw, workspaceId);
+      return {
+        kind: 'workspace',
+        operationId: rec.operationId,
+        workspaceId: rec.workspaceId,
+        path: rec.path,
+        branch: rec.branch,
+        base: asVersionId(rec.base),
+      };
+    }
+    const opHash = sha256Hex(`publish:${operationId}`);
+    const pubRaw = await this.readRecord(this.publishRecordPath(opHash));
+    if (pubRaw !== undefined) {
+      const rec = this.assertPublishRecordShape(pubRaw, opHash);
+      let result: PublishResult | undefined;
+      if (rec.status === 'completed') {
+        const res = rec.result as PublishRecordResult;
+        result = res.kind === 'published'
+          ? { kind: 'published', version: asVersionId(res.version) }
+          : { kind: 'conflict', current: asVersionId(res.current), retainedCandidate: asVersionId(res.retainedCandidate) };
+      }
+      return {
+        kind: 'publish',
+        operationId: rec.operationId,
+        status: rec.status,
+        attempts: rec.attempts.map(a => a.commit),
+        result,
+      };
+    }
+    return { kind: 'unknown', operationId };
   }
 }
 

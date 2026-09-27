@@ -872,7 +872,9 @@
       "snapshot_version_published",
       "snapshot_version_publish_conflict",
       "snapshot_version_publish_busy",
-      "snapshot_version_publish_failed"
+      "snapshot_version_publish_failed",
+      "snapshot_version_exported",
+      "snapshot_version_export_failed"
     ],
     "foundation_stream_audit-events": [
       "stream_append_failed",

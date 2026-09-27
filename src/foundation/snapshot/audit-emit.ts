@@ -257,3 +257,34 @@ export function emitSnapshotVersionPublishFailed(audit: AuditLog, opts: {
   if (opts.operationId !== undefined) cols.push(`operationId=${audit.message(opts.operationId)}`);
   audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_FAILED, ...cols);
 }
+
+// === VERSION_EXPORTED (phase 1918 Step D) ===
+export function emitSnapshotVersionExported(audit: AuditLog, opts: {
+  dir: string;
+  version: string;
+  prefix: string;
+  destination: string;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.VERSION_EXPORTED,
+    `dir=${opts.dir}`,
+    `version=${opts.version}`,
+    `prefix=${opts.prefix}`,
+    `destination=${opts.destination}`,
+  );
+}
+
+// === VERSION_EXPORT_FAILED (phase 1918 Step D) ===
+export function emitSnapshotVersionExportFailed(audit: AuditLog, opts: {
+  dir: string;
+  reason: string;
+  version?: string;
+  prefix?: string;
+  destination?: string;
+}): void {
+  const cols: (string | number)[] = [`dir=${opts.dir}`, `reason=${audit.message(opts.reason)}`];
+  if (opts.version !== undefined) cols.push(`version=${opts.version}`);
+  if (opts.prefix !== undefined) cols.push(`prefix=${opts.prefix}`);
+  if (opts.destination !== undefined) cols.push(`destination=${opts.destination}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_EXPORT_FAILED, ...cols);
+}

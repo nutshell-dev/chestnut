@@ -32,6 +32,21 @@ export interface VersionStore {
   begin(input: { operationId: OperationId; base: VersionId }): Promise<EditWorkspace>;
   save(input: { workspaceId: string; operationId: OperationId; message: string }): Promise<VersionId>;
   publish(input: PublishInput): Promise<PublishResult>;
+  /** 当前 published 版本身份（Git ref 是权威，根目录投影可能滞后，不得借投影当已发布状态） */
+  readPublished(): Promise<VersionId>;
+  /** 该 prefix 在 version 祖先链上最近一次发布变更的版本身份；从未变更为 null */
+  pathRevision(version: VersionId, prefix: string): Promise<VersionId | null>;
+  /** 已发布历史（新→旧）；冲突候选的独立操作历史经 inspectOperation 查询，不混为已发布版本 */
+  history(prefix: string): Promise<VersionHistoryEntry[]>;
+  /**
+   * 导出固定版本完整内容（二进制、模式位、目录结构）到 destination（调用方独占提供；
+   * 覆盖同名文件、不清理多余文件）。symlink 策略：拒绝绝对链接与逃逸导出根的相对
+   * 链接（symlink_escape），根内相对链接按原样物化；gitlink 等不可物化条目拒绝
+   * （unsupported_entry）。读固定 commit，不 checkout 共享根、不写全局 index。
+   */
+  exportVersion(version: VersionId, prefix: string, destination: string): Promise<void>;
+  /** 操作持久事实查询（恢复判读）：unknown / workspace / publish prepared|completed */
+  inspectOperation(operationId: string): Promise<OperationInspection>;
 }
 
 export type PublishResult =
@@ -53,6 +68,31 @@ export interface PublishInput {
   /** caller 原样提供的不透明内容，模块只校验大小/编码 */
   metadata: string;
 }
+
+/** history(prefix) 条目：已发布版本及其发布操作 id（若有），新→旧排序。 */
+export interface VersionHistoryEntry {
+  version: VersionId;
+  operationId: string | null;
+}
+
+/** inspectOperation 结果：只暴露持久事实，冲突候选不混为已发布版本。 */
+export type OperationInspection =
+  | {
+      kind: 'workspace';
+      operationId: string;
+      workspaceId: string;
+      path: string;
+      branch: string;
+      base: VersionId;
+    }
+  | {
+      kind: 'publish';
+      operationId: string;
+      status: 'prepared' | 'completed';
+      attempts: readonly string[];
+      result?: PublishResult;
+    }
+  | { kind: 'unknown'; operationId: string };
 
 export type VersionStoreErrorKind =
   /** 参数契约错误（prefix/version/message/metadata/operationId 校验失败、幂等键输入漂移） */

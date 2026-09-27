@@ -31,6 +31,9 @@ export const SNAPSHOT_AUDIT_EVENTS = {
   VERSION_PUBLISH_CONFLICT: 'snapshot_version_publish_conflict',
   VERSION_PUBLISH_BUSY: 'snapshot_version_publish_busy',
   VERSION_PUBLISH_FAILED: 'snapshot_version_publish_failed',
+  // phase 1918 Step D: 固定版本导出
+  VERSION_EXPORTED: 'snapshot_version_exported',
+  VERSION_EXPORT_FAILED: 'snapshot_version_export_failed',
 } as const;
 
 
@@ -64,4 +67,6 @@ export const SNAPSHOT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   snapshot_version_publish_conflict: 'audit',
   snapshot_version_publish_busy: 'audit',
   snapshot_version_publish_failed: 'audit',
+  snapshot_version_exported: 'audit',
+  snapshot_version_export_failed: 'audit',
 } as const;

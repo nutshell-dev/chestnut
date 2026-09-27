@@ -10,6 +10,8 @@ import {
   emitSnapshotSyncCleanFailed,
   emitSnapshotSyncRestoreFailed,
   emitSnapshotVersionInitFailed,
+  emitSnapshotVersionExported,
+  emitSnapshotVersionExportFailed,
   emitSnapshotVersionPublishBusy,
   emitSnapshotVersionPublishConflict,
   emitSnapshotVersionPublished,
@@ -271,5 +273,26 @@ describe('version-store publish typed audit emit (phase 1918 Step C)', () => {
     const audit2 = makeMockAuditLocal();
     emitSnapshotVersionPublishFailed(audit2, { dir: '/x', reason: 'r' });
     expect(audit2.write).toHaveBeenCalledWith(SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_FAILED, 'dir=/x', 'reason=r');
+  });
+});
+
+describe('version-store export typed audit emit (phase 1918 Step D)', () => {
+  const makeMockAuditLocal = makeMockAudit;
+
+  it('emitSnapshotVersionExported serialize 顺序正确', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionExported(audit, { dir: '/x', version: 'v', prefix: 'skills/a', destination: '/d' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_EXPORTED, 'dir=/x', 'version=v', 'prefix=skills/a', 'destination=/d');
+  });
+
+  it('emitSnapshotVersionExportFailed 含 optional 字段；缺省不输出', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionExportFailed(audit, { dir: '/x', reason: 'r', version: 'v', prefix: 'skills/a', destination: '/d' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_EXPORT_FAILED, 'dir=/x', 'reason=r', 'version=v', 'prefix=skills/a', 'destination=/d');
+    const audit2 = makeMockAuditLocal();
+    emitSnapshotVersionExportFailed(audit2, { dir: '/x', reason: 'r' });
+    expect(audit2.write).toHaveBeenCalledWith(SNAPSHOT_AUDIT_EVENTS.VERSION_EXPORT_FAILED, 'dir=/x', 'reason=r');
   });
 });

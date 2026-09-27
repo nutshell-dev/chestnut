@@ -19,8 +19,10 @@ export { VersionStoreError } from './version-types.js';
 export type {
   EditWorkspace,
   OperationId,
+  OperationInspection,
   PublishInput,
   PublishResult,
+  VersionHistoryEntry,
   VersionId,
   VersionStore,
   VersionStoreErrorKind,
