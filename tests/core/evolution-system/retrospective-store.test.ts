@@ -337,6 +337,38 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
     expect(committedEvents).toHaveLength(1);
   });
 
+  it('claim winner 的 row 发布被同身份并发重建者抢先：replay 匹配仍恰好登记一次 committed（phase 1920）', async () => {
+    const input = makeInput();
+    // 确定性屏障：winner 首次写 ready row 时，先由「同身份重建者」抢先发布同一内容，
+    // winner 的 writeExclusive 必现 EEXIST → 走 _replayRowAgainstClaim 路径。
+    let armed = true;
+    const rigged = new (class extends NodeFileSystem {
+      override async writeExclusive(relativePath: string, content: string): Promise<void> {
+        if (armed && relativePath.startsWith(READY_DIR)) {
+          armed = false;
+          await super.writeExclusive(relativePath, content); // 重建者抢先发布（同身份字节）
+        }
+        return super.writeExclusive(relativePath, content); // winner 写 → EEXIST
+      }
+    })({ baseDir });
+    const raceStore = new RetrospectiveStore({
+      fs: rigged,
+      audit: audit.audit,
+      generateTaskId: () => makeFullTaskId('00000000-0000-0000-0000-0000000000cc'),
+    });
+
+    const result = await raceStore.ensure(input);
+    expect(result.taskId).toBe(makeFullTaskId('00000000-0000-0000-0000-0000000000cc'));
+    const readyFiles = await fs.list(READY_DIR, { includeDirs: false });
+    expect(readyFiles).toHaveLength(1);
+    // committed 恰好一次：row 由本 claim 代数提交，winner 路径不缺席
+    const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
+    expect(committedEvents).toHaveLength(1);
+    // 后续同输入 ensure 走 replay，不再补发 committed
+    await raceStore.ensure(input);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toHaveLength(1);
+  });
+
   it('replays winner identity when the winner claims and is dispatched while the loser is mid-scan (Phase 1904 barrier)', async () => {
     const input = makeInput();
     const winnerTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000aa');

@@ -120,6 +120,15 @@ interface RowLocation {
  */
 const ENSURE_IDENTITY_SCAN_ATTEMPTS = 3;
 
+/**
+ * phase 1920: loser 读 claim 的半写窗口退让预算。O_EXCL 先发布路径再完成内容写，
+ * live winner 的在途写入需要有限时间落笔——无延迟的立即重读在高负载下会耗尽预算、
+ * 把正常并发误判为 indeterminate。解析失败带微延迟重读；超过预算仍不可解析
+ * = 崩溃半写/真损坏，维持 fail-closed。
+ */
+const CLAIM_STABLE_READ_ATTEMPTS = 8;
+const CLAIM_STABLE_READ_DELAY_MS = 5;
+
 /** writeExclusive (O_EXCL) 冲突检测 —— 对称 contract/creation.ts 的本地 helper。 */
 function isAlreadyExists(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
@@ -318,13 +327,22 @@ export class RetrospectiveStore {
         `exclusive create conflicted but no row is readable`,
       );
     }
-    return this._assertRowMatchesClaim(input, existing, {
+    const row = this._assertRowMatchesClaim(input, existing, {
       schema_version: 1,
       contract_id: input.contractId,
       task_id: claimIdentity.taskId,
       target_executor_id: input.targetExecutorId,
       created_at: claimIdentity.createdAt,
     });
+    // phase 1920：row 被同身份并发重建者抢先发布时，注册事实上仍由本 claim 代数提交。
+    // 只有 claim O_EXCL 创建者能到达本路径（claim 永不删除、每 contract 至多创建一次），
+    // 故恰好一次的 committed 登记在此补发，不多发、不缺席。
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED,
+      `contractId=${input.contractId}`,
+      `taskId=${row.taskId}`,
+    );
+    return row;
   }
 
   private _assertRowMatchesClaim(
@@ -411,11 +429,12 @@ export class RetrospectiveStore {
 
   /**
    * Phase 1904 Step C: 读取稳定 claim。writeExclusive 先发布路径再完成内容写，
-   * loser 可能读到半写 JSON —— 解析失败有限重读；schema 不符 / 超预算 = corrupt。
+   * loser 可能读到半写 JSON —— 解析失败带微延迟有限重读（phase 1920：退让给
+   * 在途写入落笔时间）；schema 不符 / 超预算 = corrupt。
    */
   private async _readClaimStable(contractId: ContractId): Promise<ClaimReadResult> {
     const path = this._claimPath(contractId);
-    for (let attempt = 0; attempt < ENSURE_IDENTITY_SCAN_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < CLAIM_STABLE_READ_ATTEMPTS; attempt++) {
       let raw: string;
       try {
         raw = await this.fs.read(path);
@@ -428,7 +447,11 @@ export class RetrospectiveStore {
       try {
         parsed = JSON.parse(raw);
       } catch {
-        continue; // 半写窗口 —— 重读
+        // 半写窗口 —— 退让后重读（live writer 有限时间内落笔；崩溃半写最终 fail-closed）
+        if (attempt + 1 < CLAIM_STABLE_READ_ATTEMPTS) {
+          await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_STABLE_READ_DELAY_MS); });
+        }
+        continue;
       }
       if (parsed === null || typeof parsed !== 'object') {
         return { kind: 'corrupt', reason: 'not_an_object' };
