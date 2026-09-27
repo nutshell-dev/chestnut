@@ -10,6 +10,10 @@ import {
   emitSnapshotSyncCleanFailed,
   emitSnapshotSyncRestoreFailed,
   emitSnapshotVersionInitFailed,
+  emitSnapshotVersionPublishBusy,
+  emitSnapshotVersionPublishConflict,
+  emitSnapshotVersionPublished,
+  emitSnapshotVersionPublishFailed,
   emitSnapshotVersionSaved,
   emitSnapshotVersionSaveFailed,
   emitSnapshotVersionWorkspaceBegan,
@@ -227,5 +231,45 @@ describe('version-store typed audit emit (phase 1918 Step B)', () => {
     // @ts-expect-error: typo 'msg' (should be 'reason')
     emitSnapshotVersionSaveFailed(audit, { dir: '/x', msg: 'r' });
     expect(audit.write).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('version-store publish typed audit emit (phase 1918 Step C)', () => {
+  const makeMockAuditLocal = makeMockAudit;
+
+  it('emitSnapshotVersionPublished serialize 顺序正确（含 outcome=recovered）', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionPublished(audit, { dir: '/x', prefix: 'skills/a', version: 'v', operationId: 'op', outcome: 'recovered' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISHED, 'dir=/x', 'prefix=skills/a', 'version=v', 'operationId=op', 'outcome=recovered');
+    const audit2 = makeMockAuditLocal();
+    emitSnapshotVersionPublished(audit2, { dir: '/x', prefix: 'skills/a', version: 'v', operationId: 'op' });
+    expect(audit2.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISHED, 'dir=/x', 'prefix=skills/a', 'version=v', 'operationId=op');
+  });
+
+  it('emitSnapshotVersionPublishConflict serialize 顺序正确', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionPublishConflict(audit, { dir: '/x', prefix: 'skills/a', current: 'c', candidate: 'k', operationId: 'op' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_CONFLICT,
+      'dir=/x', 'prefix=skills/a', 'current=c', 'candidate=k', 'operationId=op');
+  });
+
+  it('emitSnapshotVersionPublishBusy serialize 顺序正确', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionPublishBusy(audit, { dir: '/x', prefix: 'skills/a', operationId: 'op', attempts: 3 });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_BUSY, 'dir=/x', 'prefix=skills/a', 'operationId=op', 'attempts=3');
+  });
+
+  it('emitSnapshotVersionPublishFailed 含 optional prefix/operationId；缺省不输出', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionPublishFailed(audit, { dir: '/x', reason: 'r', prefix: 'skills/a', operationId: 'op' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_FAILED, 'dir=/x', 'reason=r', 'prefix=skills/a', 'operationId=op');
+    const audit2 = makeMockAuditLocal();
+    emitSnapshotVersionPublishFailed(audit2, { dir: '/x', reason: 'r' });
+    expect(audit2.write).toHaveBeenCalledWith(SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_FAILED, 'dir=/x', 'reason=r');
   });
 });

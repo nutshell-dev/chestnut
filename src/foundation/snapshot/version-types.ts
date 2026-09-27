@@ -31,6 +31,27 @@ export interface EditWorkspace {
 export interface VersionStore {
   begin(input: { operationId: OperationId; base: VersionId }): Promise<EditWorkspace>;
   save(input: { workspaceId: string; operationId: OperationId; message: string }): Promise<VersionId>;
+  publish(input: PublishInput): Promise<PublishResult>;
+}
+
+export type PublishResult =
+  /** CAS 推进成功（或候选内容已在最新 published 中），version 为 published 版本身份 */
+  | { kind: 'published'; version: VersionId }
+  /** 路径基准已过期：current 为当前 published，retainedCandidate 为保留的候选版本 */
+  | { kind: 'conflict'; current: VersionId; retainedCandidate: VersionId }
+  /** CAS 有界重试耗尽（含 lock 竞争），记录保持 prepared，同 operationId 重试可续作 */
+  | { kind: 'busy'; operationId: string };
+
+export interface PublishInput {
+  operationId: string;
+  candidate: VersionId;
+  /** 一般子目录路径（字面相对路径，模块不解释业务名）；候选只允许修改该子树 */
+  prefix: string;
+  /** 调用方观察到的该 prefix 最近一次发布变更版本身份；创建首发为 null。
+   *  按版本身份比较而非 tree hash（改了又改回仍算过期） */
+  expectedPathRevision: VersionId | null;
+  /** caller 原样提供的不透明内容，模块只校验大小/编码 */
+  metadata: string;
 }
 
 export type VersionStoreErrorKind =

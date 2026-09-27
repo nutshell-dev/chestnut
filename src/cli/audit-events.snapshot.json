@@ -868,7 +868,11 @@
       "snapshot_version_init_failed",
       "snapshot_version_workspace_began",
       "snapshot_version_saved",
-      "snapshot_version_save_failed"
+      "snapshot_version_save_failed",
+      "snapshot_version_published",
+      "snapshot_version_publish_conflict",
+      "snapshot_version_publish_busy",
+      "snapshot_version_publish_failed"
     ],
     "foundation_stream_audit-events": [
       "stream_append_failed",

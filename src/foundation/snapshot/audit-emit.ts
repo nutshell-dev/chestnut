@@ -191,3 +191,69 @@ export function emitSnapshotVersionSaveFailed(audit: AuditLog, opts: {
   if (opts.operationId !== undefined) cols.push(`operationId=${audit.message(opts.operationId)}`);
   audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_SAVE_FAILED, ...cols);
 }
+
+// === VERSION_PUBLISHED (phase 1918 Step C) ===
+export function emitSnapshotVersionPublished(audit: AuditLog, opts: {
+  dir: string;
+  prefix: string;
+  version: string;
+  operationId: string;
+  /** recovered = CAS 已成功但回执丢失，按 ref 历史识别已提交（未再次发布） */
+  outcome?: 'recovered';
+}): void {
+  const cols: (string | number)[] = [
+    `dir=${opts.dir}`,
+    `prefix=${opts.prefix}`,
+    `version=${opts.version}`,
+    `operationId=${audit.message(opts.operationId)}`,
+  ];
+  if (opts.outcome !== undefined) cols.push(`outcome=${opts.outcome}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISHED, ...cols);
+}
+
+// === VERSION_PUBLISH_CONFLICT (phase 1918 Step C) ===
+export function emitSnapshotVersionPublishConflict(audit: AuditLog, opts: {
+  dir: string;
+  prefix: string;
+  current: string;
+  candidate: string;
+  operationId: string;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_CONFLICT,
+    `dir=${opts.dir}`,
+    `prefix=${opts.prefix}`,
+    `current=${opts.current}`,
+    `candidate=${opts.candidate}`,
+    `operationId=${audit.message(opts.operationId)}`,
+  );
+}
+
+// === VERSION_PUBLISH_BUSY (phase 1918 Step C) ===
+export function emitSnapshotVersionPublishBusy(audit: AuditLog, opts: {
+  dir: string;
+  prefix: string;
+  operationId: string;
+  attempts: number;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_BUSY,
+    `dir=${opts.dir}`,
+    `prefix=${opts.prefix}`,
+    `operationId=${audit.message(opts.operationId)}`,
+    `attempts=${opts.attempts}`,
+  );
+}
+
+// === VERSION_PUBLISH_FAILED (phase 1918 Step C) ===
+export function emitSnapshotVersionPublishFailed(audit: AuditLog, opts: {
+  dir: string;
+  reason: string;
+  prefix?: string;
+  operationId?: string;
+}): void {
+  const cols: (string | number)[] = [`dir=${opts.dir}`, `reason=${audit.message(opts.reason)}`];
+  if (opts.prefix !== undefined) cols.push(`prefix=${opts.prefix}`);
+  if (opts.operationId !== undefined) cols.push(`operationId=${audit.message(opts.operationId)}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_PUBLISH_FAILED, ...cols);
+}

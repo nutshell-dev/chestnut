@@ -26,6 +26,10 @@ import type { AuditLog } from '../audit/index.js';
 import type { GitExecError } from './git-errors.js';
 import {
   emitSnapshotVersionInitFailed,
+  emitSnapshotVersionPublishBusy,
+  emitSnapshotVersionPublishConflict,
+  emitSnapshotVersionPublished,
+  emitSnapshotVersionPublishFailed,
   emitSnapshotVersionSaved,
   emitSnapshotVersionSaveFailed,
   emitSnapshotVersionWorkspaceBegan,
@@ -34,6 +38,8 @@ import {
   VersionStoreError,
   type EditWorkspace,
   type OperationId,
+  type PublishInput,
+  type PublishResult,
   type VersionId,
   type VersionStore,
 } from './version-types.js';
@@ -44,11 +50,18 @@ type NodeExecError = Error & Partial<GitExecError>;
 const PUBLISHED_REF = 'refs/version/published';
 const WORKSPACE_REF_PREFIX = 'refs/version/workspaces/';
 const SAVE_ATTEMPT_REF_PREFIX = 'refs/version/attempts/save-';
+const PUBLISH_ATTEMPT_REF_PREFIX = 'refs/version/attempts/publish-';
 const STATE_DIR = '.git/version-store';
 const ZERO_SHA = '0000000000000000000000000000000000000000';
 const SHA1_RE = /^[0-9a-f]{40}$/;
 /** save message 上限（argv 安全 + commit 对象尺寸护栏）；不透明内容原样写入 */
 const MAX_MESSAGE_CHARS = 32_000;
+/** publish metadata 上限：caller 原样提供的不透明内容，只校验大小/编码 */
+const MAX_METADATA_CHARS = 16_000;
+/** publish CAS 有界重试上限（耗尽返回 busy，不伪造语义冲突） */
+const PUBLISH_MAX_ATTEMPTS = 3;
+/** 孪生胜检测：published 首父链回扫深度上限 */
+const TWIN_SCAN_DEPTH = 32;
 
 interface WorkspaceRecord {
   schema: 1;
@@ -69,6 +82,23 @@ interface SaveRecord {
   version: string;
   messageSha256: string;
   noChange: boolean;
+}
+
+type PublishRecordResult =
+  | { kind: 'published'; version: string }
+  | { kind: 'conflict'; current: string; retainedCandidate: string };
+
+interface PublishRecord {
+  schema: 1;
+  kind: 'publish';
+  operationId: string;
+  candidate: string;
+  prefix: string;
+  expectedPathRevision: string | null;
+  metadataSha256: string;
+  status: 'prepared' | 'completed';
+  attempts: Array<{ commit: string; base: string }>;
+  result?: PublishRecordResult;
 }
 
 type GitResult =
@@ -93,6 +123,29 @@ function validateOperationId(operationId: string): void {
   if (typeof operationId !== 'string' || operationId.length === 0) {
     throw new VersionStoreError('invalid_argument', 'operationId must be a non-empty string');
   }
+}
+
+/**
+ * prefix 校验：字面相对子目录路径（模块不解释业务名）。拒绝绝对/越界/规范化
+ * 段与 git pathspec / rev:path 语法元字符，保证 `-- <prefix>` 与 `<rev>:<prefix>`
+ * 两处字面语义安全。
+ */
+function validatePrefix(prefix: string): string {
+  if (typeof prefix !== 'string' || prefix.length === 0) {
+    throw new VersionStoreError('invalid_argument', 'prefix must be a non-empty relative subdirectory path');
+  }
+  if (/[\0\\:*?[\]]/.test(prefix)) {
+    throw new VersionStoreError('invalid_argument', `prefix contains forbidden character: ${prefix}`);
+  }
+  if (prefix.startsWith('/') || prefix.endsWith('/')) {
+    throw new VersionStoreError('invalid_argument', `prefix must not start/end with '/': ${prefix}`);
+  }
+  for (const seg of prefix.split('/')) {
+    if (seg === '' || seg === '.' || seg === '..') {
+      throw new VersionStoreError('invalid_argument', `prefix has invalid segment: ${prefix}`);
+    }
+  }
+  return prefix;
 }
 
 class GitVersionStore implements VersionStore {
@@ -524,6 +577,248 @@ class GitVersionStore implements VersionStore {
       outcome: noChange ? 'no_change' : undefined,
     });
     return asVersionId(version);
+  }
+
+  // ========================================================================
+  // publish（phase 1918 Step C）：按路径条件发布，CAS 是唯一提交点
+  // ========================================================================
+
+  private publishRecordPath(opHash: string): string {
+    return path.join(STATE_DIR, 'publishes', `${opHash}.json`);
+  }
+
+  private assertPublishRecord(raw: unknown, input: PublishInput, opHash: string, metadataSha: string): PublishRecord {
+    const r = raw as Partial<PublishRecord> | undefined;
+    if (
+      r === null || typeof r !== 'object' ||
+      r.schema !== 1 || r.kind !== 'publish' ||
+      r.operationId !== input.operationId ||
+      (r.status !== 'prepared' && r.status !== 'completed') ||
+      !Array.isArray(r.attempts) ||
+      !r.attempts.every(a => typeof a?.commit === 'string' && SHA1_RE.test(a.commit) && typeof a?.base === 'string' && SHA1_RE.test(a.base))
+    ) {
+      throw new VersionStoreError('record_corrupt', `publish record invalid: ${opHash}`);
+    }
+    // 幂等键输入漂移 = 调用方契约错误（重放必须带相同输入）
+    if (
+      r.candidate !== input.candidate ||
+      r.prefix !== input.prefix ||
+      r.expectedPathRevision !== (input.expectedPathRevision as string | null) ||
+      r.metadataSha256 !== metadataSha
+    ) {
+      throw new VersionStoreError('invalid_argument', 'operationId replayed with different publish inputs');
+    }
+    if (r.status === 'completed') {
+      const res = r.result as Partial<PublishRecordResult> | undefined;
+      const validPublished = res?.kind === 'published' && typeof res.version === 'string' && SHA1_RE.test(res.version);
+      const validConflict = res?.kind === 'conflict' && typeof res.current === 'string' && SHA1_RE.test(res.current)
+        && typeof (res as { retainedCandidate?: unknown }).retainedCandidate === 'string';
+      if (!validPublished && !validConflict) {
+        throw new VersionStoreError('record_corrupt', `publish record result invalid: ${opHash}`);
+      }
+    }
+    return r as PublishRecord;
+  }
+
+  /** 该 prefix 最近一次发布变更的版本身份（TREESAME 简化，改后改回仍产生新身份） */
+  private async pathRevisionOf(version: string, prefix: string): Promise<VersionId | null> {
+    const r = await this.gitExec(['rev-list', '--first-parent', '-n', '1', version, '--', prefix]);
+    if (!r.ok) {
+      throw new VersionStoreError('git_error', `git rev-list failed: ${r.output.slice(0, 300)}`);
+    }
+    return r.stdout === '' ? null : asVersionId(r.stdout);
+  }
+
+  /** published 首父链有界回扫：本 operation-id 的发布提交是否已在历史中（孪生胜检测） */
+  private async findOperationCommit(head: string, operationId: string): Promise<string | null> {
+    const r = await this.gitExec(['log', '--first-parent', '-n', String(TWIN_SCAN_DEPTH), '--format=%H%x00%B%x00', head]);
+    if (!r.ok || r.stdout === '') return null;
+    const parts = r.stdout.split('\0');
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+      const sha = parts[i].replace(/^\n+/, '');
+      const body = parts[i + 1];
+      if (SHA1_RE.test(sha) && body.split('\n').includes(`operation-id: ${operationId}`)) {
+        return sha;
+      }
+    }
+    return null;
+  }
+
+  /** 私有 index 组合：最新 published tree 替换该子树，其他子树原样保留 */
+  private async composeTree(published: string, candidate: string, prefix: string, indexFile: string): Promise<string> {
+    await this.git(['read-tree', published], { indexFile });
+    await this.git(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', prefix], { indexFile });
+    const sub = await this.gitExec(['rev-parse', '--verify', '--quiet', `${candidate}:${prefix}`]);
+    if (sub.ok && sub.stdout !== '') {
+      await this.git(['read-tree', `--prefix=${prefix}/`, sub.stdout], { indexFile });
+    }
+    return (await this.git(['write-tree'], { indexFile })).stdout;
+  }
+
+  /** 完整结果记录后返回（成功 CAS 之外的唯一事实出口）；replay 亦走此路径 */
+  private async completePublish(
+    recPath: string,
+    rec: PublishRecord,
+    result: PublishRecordResult,
+    outcome?: 'recovered',
+  ): Promise<PublishResult> {
+    rec.status = 'completed';
+    rec.result = result;
+    await this.writeRecord(recPath, rec);
+    if (result.kind === 'published') {
+      emitSnapshotVersionPublished(this.audit, {
+        dir: this.repositoryDir,
+        prefix: rec.prefix,
+        version: result.version,
+        operationId: rec.operationId,
+        outcome,
+      });
+      return { kind: 'published', version: asVersionId(result.version) };
+    }
+    emitSnapshotVersionPublishConflict(this.audit, {
+      dir: this.repositoryDir,
+      prefix: rec.prefix,
+      current: result.current,
+      candidate: result.retainedCandidate,
+      operationId: rec.operationId,
+    });
+    return {
+      kind: 'conflict',
+      current: asVersionId(result.current),
+      retainedCandidate: asVersionId(result.retainedCandidate),
+    };
+  }
+
+  async publish(input: PublishInput): Promise<PublishResult> {
+    validateOperationId(input.operationId);
+    const prefix = validatePrefix(input.prefix);
+    const candidate = await this.requireCommit(input.candidate, 'candidate');
+    if (input.expectedPathRevision !== null) {
+      await this.requireCommit(input.expectedPathRevision, 'expectedPathRevision');
+    }
+    if (typeof input.metadata !== 'string' || input.metadata.length > MAX_METADATA_CHARS) {
+      throw new VersionStoreError('invalid_argument', `metadata must be a string of at most ${MAX_METADATA_CHARS} chars`);
+    }
+    const metadataSha = sha256Hex(input.metadata);
+    const opHash = sha256Hex(`publish:${input.operationId}`);
+    const recPath = this.publishRecordPath(opHash);
+
+    let rec: PublishRecord;
+    const existing = await this.readRecord(recPath);
+    if (existing !== undefined) {
+      rec = this.assertPublishRecord(existing, input, opHash, metadataSha);
+      if (rec.status === 'completed') {
+        // 反复提交同 operationId 重放相同持久结果
+        const res = rec.result as PublishRecordResult;
+        if (res.kind === 'published') return { kind: 'published', version: asVersionId(res.version) };
+        return {
+          kind: 'conflict',
+          current: asVersionId(res.current),
+          retainedCandidate: asVersionId(res.retainedCandidate),
+        };
+      }
+      // 恢复：最近尝试已赢得 CAS（线性 CAS 历史下 祖先 ⟺ 曾 published 充要）→
+      // 按 ref 历史识别已提交，不再次发布；未赢则保持待重试进入新尝试
+      const last = rec.attempts[rec.attempts.length - 1];
+      if (last !== undefined) {
+        const won = await this.gitExec(['merge-base', '--is-ancestor', last.commit, PUBLISHED_REF]);
+        if (won.ok) {
+          return this.completePublish(recPath, rec, { kind: 'published', version: last.commit }, 'recovered');
+        }
+        if (won.exitCode !== 1) {
+          throw new VersionStoreError('git_error', `git merge-base failed: ${won.output.slice(0, 300)}`);
+        }
+      }
+    } else {
+      // 先持久化分支候选及通用 operation 记录，再进入尝试（prepare→CAS→receipt）
+      rec = {
+        schema: 1,
+        kind: 'publish',
+        operationId: input.operationId,
+        candidate,
+        prefix,
+        expectedPathRevision: input.expectedPathRevision as string | null,
+        metadataSha256: metadataSha,
+        status: 'prepared',
+        attempts: [],
+      };
+      await this.writeRecord(recPath, rec);
+    }
+
+    for (let attempt = 0; attempt < PUBLISH_MAX_ATTEMPTS; attempt++) {
+      const head = (await this.git(['rev-parse', '--verify', `${PUBLISHED_REF}^{commit}`])).stdout;
+
+      // 孪生胜：同 operationId 的发布提交已在 published 首父链 → 重放其结果
+      const twin = await this.findOperationCommit(head, input.operationId);
+      if (twin !== null) {
+        return this.completePublish(recPath, rec, { kind: 'published', version: twin });
+      }
+
+      // 路径基准：该 prefix 最近一次发布变更的版本身份（非 tree hash，改后改回仍过期）
+      const currentRevision = await this.pathRevisionOf(head, prefix);
+      if (currentRevision !== input.expectedPathRevision) {
+        return this.completePublish(recPath, rec, {
+          kind: 'conflict',
+          current: head,
+          retainedCandidate: candidate,
+        });
+      }
+
+      // 候选范围：相对其与其与 published 的分叉点，候选只许修改 prefix 子树
+      const forkPoint = (await this.git(['merge-base', candidate, head])).stdout;
+      const diff = await this.git(['diff', '--name-only', '-z', forkPoint, candidate]);
+      const changedPaths = diff.stdout.split('\0').filter(s => s.length > 0);
+      for (const p of changedPaths) {
+        if (p !== prefix && !p.startsWith(`${prefix}/`)) {
+          emitSnapshotVersionPublishFailed(this.audit, {
+            dir: this.repositoryDir,
+            reason: `candidate modifies path outside prefix: ${p}`,
+            prefix,
+            operationId: input.operationId,
+          });
+          // 拒绝并保留候选（工作区分支 ref 可达，绝不删除分支清理失败尝试）
+          throw new VersionStoreError('candidate_out_of_scope', `candidate modifies path outside prefix: ${p}`);
+        }
+      }
+
+      const indexFile = path.join(
+        this.realGitDir, 'version-store', 'index', `publish-${opHash.slice(0, 16)}-${rec.attempts.length}.index`,
+      );
+      await this.fs.ensureDir(path.join(STATE_DIR, 'index'));
+      const newTree = await this.composeTree(head, candidate, prefix, indexFile);
+
+      const headTree = (await this.git(['rev-parse', `${head}^{tree}`])).stdout;
+      if (newTree === headTree) {
+        // 候选内容已完整反映在当前 published：真实结果即 published(head)，无需推进 ref
+        return this.completePublish(recPath, rec, { kind: 'published', version: head });
+      }
+
+      const commit = (await this.git([
+        'commit-tree', newTree, '-p', head, '-m', `publish ${prefix}\n\noperation-id: ${input.operationId}\n`,
+      ])).stdout;
+      // 每次发布尝试均以 refs 保持可达；prepare 记录候选、旧 ref、目标 commit、operationId
+      await this.git(['update-ref', `${PUBLISH_ATTEMPT_REF_PREFIX}${opHash.slice(0, 16)}-${rec.attempts.length}`, commit]);
+      rec.attempts.push({ commit, base: head });
+      await this.writeRecord(recPath, rec);
+
+      // 唯一提交点：带旧值的 update-ref 原子推进（无默认无条件 force）
+      const cas = await this.gitExec(['update-ref', PUBLISHED_REF, commit, head]);
+      if (cas.ok) {
+        return this.completePublish(recPath, rec, { kind: 'published', version: commit });
+      }
+      // CAS 失败：下轮循环顶部重读 head 并重新判路径基准（路径未变可系统重试，
+      // 已变返回 conflict）；ref 未动的 transient lock/IO 占用一次有界额度，
+      // 不归为语义冲突
+    }
+
+    emitSnapshotVersionPublishBusy(this.audit, {
+      dir: this.repositoryDir,
+      prefix,
+      operationId: input.operationId,
+      attempts: rec.attempts.length,
+    });
+    // 有界耗尽返回 busy；记录保持 prepared，同 operationId 重试可续作
+    return { kind: 'busy', operationId: input.operationId };
   }
 }
 
