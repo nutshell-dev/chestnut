@@ -16,6 +16,7 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { createVersionStore, VersionStoreError } from '../../../src/foundation/snapshot/index.js';
 import type { VersionId, VersionStore } from '../../../src/foundation/snapshot/index.js';
+import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -49,11 +50,11 @@ describe.skipIf(!gitAvailable)('version-store 分支工作区（phase 1918 Step 
     await cleanupTempDir(tmpDir);
   });
 
-  async function makeStore(opts?: { exec?: Parameters<typeof createVersionStore>[0]['exec'] }): Promise<Fixture> {
+  async function makeStore(opts?: { exec?: Parameters<typeof createVersionStore>[0]['exec']; fs?: FileSystem }): Promise<Fixture> {
     const repositoryDir = path.join(tmpDir, 'repo');
     const workspaceParent = path.join(tmpDir, 'ws-parent');
     fsSync.mkdirSync(repositoryDir, { recursive: true });
-    const fs = new NodeFileSystem({ baseDir: repositoryDir });
+    const fs = opts?.fs ?? new NodeFileSystem({ baseDir: repositoryDir });
     const { audit, events } = makeAudit();
     const store = await createVersionStore({ repositoryDir, workspaceParent, fs, audit, exec: opts?.exec });
     const published = git(repositoryDir, 'rev-parse', 'refs/version/published');
@@ -262,6 +263,145 @@ describe.skipIf(!gitAvailable)('version-store 分支工作区（phase 1918 Step 
     failAdd = false;
     const v = await store.save({ workspaceId: ws.id, operationId: 'save-fail', message: 'm' });
     expect(git(repositoryDir, 'rev-parse', ws.branch)).toBe(v);
+  });
+
+  it('save 回执丢失（CAS 后完成记录写失败）：重试返回首次版本，绝不重新捕获可变工作区（phase 1920）', async () => {
+    const repositoryDir = path.join(tmpDir, 'repo');
+    fsSync.mkdirSync(repositoryDir, { recursive: true });
+    const baseFs = new NodeFileSystem({ baseDir: repositoryDir });
+    let failCompleted = true;
+    const flakyFs = Object.create(baseFs) as FileSystem;
+    const origWrite = baseFs.writeAtomic.bind(baseFs);
+    flakyFs.writeAtomic = (rel: string, content: string) => {
+      if (failCompleted && rel.includes('saves') && content.includes('"status":"completed"')) {
+        return Promise.reject(new Error('injected: crash after CAS before save receipt'));
+      }
+      return origWrite(rel, content);
+    };
+    const { store, repositoryDir: repo, published } = await makeStore({ fs: flakyFs });
+    const ws = await store.begin({ operationId: 'op-rcpt', base: published as VersionId });
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v1\n');
+
+    await expect(store.save({ workspaceId: ws.id, operationId: 'save-rcpt', message: 'm' }))
+      .rejects.toThrow('injected: crash after CAS before save receipt');
+
+    // CAS 已真实发生：分支尖 = 首次提交；记录停在 prepared
+    const firstTip = git(repo, 'rev-parse', ws.branch);
+    expect(firstTip).not.toBe(published);
+    const commitsBefore = git(repo, 'rev-list', '--count', ws.branch);
+
+    // 工作区继续改写：重试不得重新捕获这些内容，只能返回首次保存版本
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v2-after-crash\n');
+    failCompleted = false;
+    const healed = await store.save({ workspaceId: ws.id, operationId: 'save-rcpt', message: 'm' });
+    expect(healed).toBe(firstTip);
+    expect(git(repo, 'rev-parse', ws.branch)).toBe(firstTip);
+    expect(git(repo, 'rev-list', '--count', ws.branch)).toBe(commitsBefore);
+    expect(git(repo, 'show', `${healed}:a.txt`)).toBe('v1');
+    // 再次重放稳定
+    const again = await store.save({ workspaceId: ws.id, operationId: 'save-rcpt', message: 'm' });
+    expect(again).toBe(firstTip);
+    void repositoryDir;
+  });
+
+  it('save CAS 暂态失败：候选已持久，重试续作同一候选、版本身份不变、不纳入后续改写（phase 1920）', async () => {
+    const realExec = (await import('../../../src/foundation/process-exec/index.js')).exec;
+    let failCas = true;
+    const injectExec = (async (file: string, args: string[], opts: unknown) => {
+      // 只拦截工作区分支的推进 CAS（保留 begin 的 create-only 与 attempt ref 更新）
+      if (
+        failCas && args.includes('update-ref') &&
+        args.some(a => a.startsWith('refs/version/workspaces/')) &&
+        !args.includes('0000000000000000000000000000000000000000')
+      ) {
+        const e = new Error('fatal: cannot lock ref') as Error & { exitCode: number; output: string };
+        e.exitCode = 128;
+        e.output = 'fatal: cannot lock ref';
+        throw e;
+      }
+      return realExec(file as 'git', args, opts as never);
+    }) as typeof realExec;
+
+    const { store, repositoryDir, published } = await makeStore({ exec: injectExec });
+    const ws = await store.begin({ operationId: 'op-casflaky', base: published as VersionId });
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v1\n');
+
+    await expect(store.save({ workspaceId: ws.id, operationId: 'save-cas', message: 'm' }))
+      .rejects.toMatchObject({ kind: 'git_error' });
+    // 候选已持久：确定性 attempt ref 可达，分支尖未推进
+    const attemptRefs = git(repositoryDir, 'for-each-ref', '--format=%(refname)', 'refs/version/attempts/')
+      .split('\n').filter(Boolean);
+    expect(attemptRefs.length).toBe(1);
+    const candidate = git(repositoryDir, 'rev-parse', attemptRefs[0]);
+    expect(git(repositoryDir, 'rev-parse', ws.branch)).toBe(published);
+
+    failCas = false;
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v2-late\n');
+    const v = await store.save({ workspaceId: ws.id, operationId: 'save-cas', message: 'm' });
+    expect(v).toBe(candidate);
+    expect(git(repositoryDir, 'rev-parse', ws.branch)).toBe(candidate);
+    expect(git(repositoryDir, 'show', `${v}:a.txt`)).toBe('v1');
+  });
+
+  it('save 候选记录补全前崩溃：重试经确定性 attempt ref 恢复同一候选（phase 1920）', async () => {
+    const repositoryDir = path.join(tmpDir, 'repo');
+    fsSync.mkdirSync(repositoryDir, { recursive: true });
+    const baseFs = new NodeFileSystem({ baseDir: repositoryDir });
+    let failCandidate = true;
+    const flakyFs = Object.create(baseFs) as FileSystem;
+    const origWrite = baseFs.writeAtomic.bind(baseFs);
+    flakyFs.writeAtomic = (rel: string, content: string) => {
+      if (failCandidate && rel.includes('saves') && content.includes('"candidate"')) {
+        return Promise.reject(new Error('injected: crash after commit-tree before candidate receipt'));
+      }
+      return origWrite(rel, content);
+    };
+    const { store, repositoryDir: repo, published } = await makeStore({ fs: flakyFs });
+    const ws = await store.begin({ operationId: 'op-candrec', base: published as VersionId });
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v1\n');
+
+    await expect(store.save({ workspaceId: ws.id, operationId: 'save-candrec', message: 'm' }))
+      .rejects.toThrow('injected: crash after commit-tree before candidate receipt');
+    // 候选仅存于确定性 attempt ref；分支尖未推进；记录停在 prepared（无 candidate）
+    const attemptRefs = git(repo, 'for-each-ref', '--format=%(refname)', 'refs/version/attempts/')
+      .split('\n').filter(Boolean);
+    expect(attemptRefs.length).toBe(1);
+    const candidate = git(repo, 'rev-parse', attemptRefs[0]);
+    expect(git(repo, 'rev-parse', ws.branch)).toBe(published);
+
+    failCandidate = false;
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v2-late\n');
+    const v = await store.save({ workspaceId: ws.id, operationId: 'save-candrec', message: 'm' });
+    expect(v).toBe(candidate);
+    expect(git(repo, 'show', `${v}:a.txt`)).toBe('v1');
+    void repositoryDir;
+  });
+
+  it('旧 schema（pre-1920，无 status 字段）save 记录兼容读取：重放返回同一版本（phase 1920）', async () => {
+    const { store, repositoryDir, published } = await makeStore();
+    const ws = await store.begin({ operationId: 'op-legacy', base: published as VersionId });
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'a\n');
+    const v1 = await store.save({ workspaceId: ws.id, operationId: 'save-legacy', message: 'm' });
+
+    // 重写为 pre-1920 记录形态（只有完成态字段，无 status/tree/baseTip/candidate）
+    const dir = path.join(repositoryDir, '.git', 'version-store', 'saves', ws.id);
+    const file = fsSync.readdirSync(dir)[0];
+    const full = path.join(dir, file);
+    const rec = JSON.parse(fsSync.readFileSync(full, 'utf8')) as Record<string, unknown>;
+    fsSync.writeFileSync(full, JSON.stringify({
+      schema: 1,
+      kind: 'save',
+      operationId: rec.operationId,
+      workspaceId: rec.workspaceId,
+      version: rec.version,
+      messageSha256: rec.messageSha256,
+      noChange: rec.noChange,
+    }));
+
+    const v2 = await store.save({ workspaceId: ws.id, operationId: 'save-legacy', message: 'm' });
+    expect(v2).toBe(v1);
+    await expect(store.save({ workspaceId: ws.id, operationId: 'save-legacy', message: 'drift' }))
+      .rejects.toMatchObject({ kind: 'invalid_argument' });
   });
 
   it('save 未知工作区抛 unknown_workspace；非法 base 抛 invalid_argument/unknown_version', async () => {

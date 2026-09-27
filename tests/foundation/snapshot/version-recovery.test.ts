@@ -186,6 +186,46 @@ describe.skipIf(!gitAvailable)('version-store 固定版本读取与恢复（phas
     expect(git(repositoryDir(), 'show', 'refs/version/published:skills/a/SKILL.md')).toBe('v1');
   });
 
+  it('save 回执丢失后重启（新实例）：按持久事实恢复首次保存版本，不二次捕获（phase 1920）', async () => {
+    const holder = { events: [] as Array<[string, ...(string | number)[]]> };
+    fsSync.mkdirSync(repositoryDir(), { recursive: true });
+    const baseFs = new NodeFileSystem({ baseDir: repositoryDir() });
+    let failCompleted = true;
+    const flakyFs = Object.create(baseFs) as FileSystem;
+    const origWrite = baseFs.writeAtomic.bind(baseFs);
+    flakyFs.writeAtomic = (rel: string, content: string) => {
+      if (failCompleted && rel.includes('saves') && content.includes('"status":"completed"')) {
+        return Promise.reject(new Error('injected: crash after CAS before save receipt'));
+      }
+      return origWrite(rel, content);
+    };
+    const store1 = await makeStore(holder, flakyFs);
+    const v0 = await store1.readPublished();
+    const ws = await store1.begin({ operationId: 'rec-save-begin', base: v0 });
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v1\n');
+
+    await expect(store1.save({ workspaceId: ws.id, operationId: 'rec-save', message: 'm' }))
+      .rejects.toThrow('injected: crash after CAS before save receipt');
+    // CAS 已真实发生：分支尖 = 首次提交
+    const firstTip = git(repositoryDir(), 'rev-parse', ws.branch);
+    expect(firstTip).not.toBe(v0);
+
+    // 重启：全新实例（无注入）；工作区在崩溃后继续被改写
+    failCompleted = false;
+    fsSync.writeFileSync(path.join(ws.path, 'a.txt'), 'v2-after-crash\n');
+    const store2 = await makeStore(holder);
+    const healed = await store2.save({ workspaceId: ws.id, operationId: 'rec-save', message: 'm' });
+    expect(healed).toBe(firstTip);
+    // 不二次捕获：分支历史仍是 init + 首次提交两个提交
+    expect(git(repositoryDir(), 'rev-list', '--count', ws.branch)).toBe('2');
+    expect(git(repositoryDir(), 'show', `${healed}:a.txt`)).toBe('v1');
+    // 重放稳定；消息漂移仍 typed 拒绝
+    const replay = await store2.save({ workspaceId: ws.id, operationId: 'rec-save', message: 'm' });
+    expect(replay).toBe(firstTip);
+    await expect(store2.save({ workspaceId: ws.id, operationId: 'rec-save', message: 'drift' }))
+      .rejects.toMatchObject({ kind: 'invalid_argument' });
+  });
+
   it('inspectOperation：unknown / workspace / publish 各形态只暴露持久事实', async () => {
     const store = await makeStore();
     expect(await store.inspectOperation('op-nothing')).toEqual({ kind: 'unknown', operationId: 'op-nothing' });

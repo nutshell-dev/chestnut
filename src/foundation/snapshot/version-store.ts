@@ -12,7 +12,7 @@
  *   <repositoryDir>/.git                     版本库（HEAD → refs/version/published）
  *   <repositoryDir>/.git/version-store/
  *     workspaces/<wsId>.json                 工作区记录（begin 幂等）
- *     saves/<wsId>/<opHash>.json             保存记录（save 幂等）
+ *     saves/<wsId>/<opHash>.json             保存记录（save 幂等；prepared→completed 分阶段事实）
  *   refs/version/published                   已发布 ref（Step C 唯一提交点）
  *   refs/version/workspaces/<wsId>           候选分支（失败候选保留可达，不靠 reflog）
  *   refs/version/attempts/save-<wsId>-<h>    save 孤儿提交留存 ref
@@ -83,9 +83,22 @@ interface SaveRecord {
   kind: 'save';
   operationId: string;
   workspaceId: string;
-  version: string;
   messageSha256: string;
-  noChange: boolean;
+  /**
+   * phase 1920：分阶段持久事实。旧记录（pre-1920）无此字段 ⟺ completed（旧实现只在
+   * 完成时落记录）。prepared 期间 tree/baseTip/candidate 按写入先后逐步补全：
+   * 每个不可逆步骤（捕获/建提交/CAS）之前先把足以恢复的事实落盘。
+   */
+  status?: 'prepared' | 'completed';
+  /** prepared：已捕获 tree（重试绝不重新 add 可变工作区） */
+  tree?: string;
+  /** 候选 CAS 的旧值（捕获/建提交时的分支尖） */
+  baseTip?: string;
+  /** prepared：已建提交（确定性 attempt ref 亦可达），CAS 结果未定 */
+  candidate?: string;
+  /** completed：首次保存版本（唯一事实出口，重试只能返回它） */
+  version?: string;
+  noChange?: boolean;
 }
 
 type PublishRecordResult =
@@ -484,6 +497,171 @@ class GitVersionStore implements VersionStore {
   // save：无节流持久保存完整候选内容（独立 index + commit-tree + 分支 CAS）
   // ========================================================================
 
+  /** save 记录形态校验：旧记录（无 status）按 completed 判读；prepared 各阶段字段完整性强校验 */
+  private assertSaveRecordShape(raw: unknown, savePath: string, rec: WorkspaceRecord, operationId: string): SaveRecord {
+    const r = raw as Partial<SaveRecord> | undefined;
+    if (
+      r === null || typeof r !== 'object' ||
+      r.schema !== 1 || r.kind !== 'save' ||
+      r.operationId !== operationId ||
+      r.workspaceId !== rec.workspaceId ||
+      typeof r.messageSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(r.messageSha256)
+    ) {
+      throw new VersionStoreError('record_corrupt', `save record invalid: ${savePath}`);
+    }
+    const status = r.status ?? 'completed';
+    if (status === 'completed') {
+      if (typeof r.version !== 'string' || !SHA1_RE.test(r.version)) {
+        throw new VersionStoreError('record_corrupt', `save record completed without version: ${savePath}`);
+      }
+    } else if (status === 'prepared') {
+      const badTree = r.tree !== undefined && (typeof r.tree !== 'string' || !SHA1_RE.test(r.tree));
+      const badBaseTip = r.baseTip !== undefined && (typeof r.baseTip !== 'string' || !SHA1_RE.test(r.baseTip));
+      const badCandidate = r.candidate !== undefined &&
+        (typeof r.candidate !== 'string' || !SHA1_RE.test(r.candidate) || r.baseTip === undefined);
+      if (r.version !== undefined || badTree || badBaseTip || badCandidate) {
+        throw new VersionStoreError('record_corrupt', `save record prepared shape invalid: ${savePath}`);
+      }
+    } else {
+      throw new VersionStoreError('record_corrupt', `save record unknown status: ${savePath}`);
+    }
+    return r as SaveRecord;
+  }
+
+  /** completed 结果落盘是唯一事实出口；重放与恢复亦走此路径 */
+  private async completeSave(savePath: string, record: SaveRecord, version: string, noChange: boolean): Promise<VersionId> {
+    record.status = 'completed';
+    record.version = version;
+    record.noChange = noChange;
+    await this.writeRecord(savePath, record);
+    emitSnapshotVersionSaved(this.audit, {
+      dir: this.repositoryDir,
+      workspace: record.workspaceId,
+      version,
+      operationId: record.operationId,
+      outcome: noChange ? 'no_change' : undefined,
+    });
+    return asVersionId(version);
+  }
+
+  /**
+   * phase 1920：prepared 记录的可恢复续作。不变量：同一 operationId 只能返回首次保存
+   * 版本——候选（或捕获 tree）一旦持久化，重试绝不重新 add 可变工作区；CAS 后回执
+   * 丢失按分支祖先关系识别已提交（线性分支历史下 祖先 ⟺ 曾 CAS 成功）。
+   */
+  private async resumeSave(
+    savePath: string,
+    record: SaveRecord,
+    rec: WorkspaceRecord,
+    opHash: string,
+    message: string,
+  ): Promise<VersionId> {
+    const attemptRef = `${SAVE_ATTEMPT_REF_PREFIX}${rec.workspaceId}-${opHash.slice(0, 16)}`;
+
+    // (a) 候选已建立（记录或确定性 attempt ref 可达）→ 判定 CAS 结果，绝不重新捕获
+    let candidate = record.candidate;
+    if (candidate === undefined) {
+      const probe = await this.gitExec(['rev-parse', '--verify', '--quiet', attemptRef]);
+      if (probe.ok && SHA1_RE.test(probe.stdout)) {
+        // 崩溃发生在建提交之后、记录补全之前：候选由 attempt ref 恢复并先落盘
+        candidate = probe.stdout;
+        record.candidate = candidate;
+        if (record.baseTip === undefined) {
+          throw new VersionStoreError('record_corrupt', `save record candidate without baseTip: ${savePath}`);
+        }
+        await this.writeRecord(savePath, record);
+      }
+    }
+    if (candidate !== undefined) {
+      const won = await this.gitExec(['merge-base', '--is-ancestor', candidate, rec.branch]);
+      if (won.ok) {
+        return this.completeSave(savePath, record, candidate, false);
+      }
+      if (won.exitCode !== 1) {
+        throw new VersionStoreError('git_error', `git merge-base failed: ${won.output.slice(0, 300)}`);
+      }
+      // CAS 从未成功：以记录的 baseTip 重试同一 CAS（候选身份不变，不产生第二次捕获）
+      const cas = await this.gitExec(['update-ref', rec.branch, candidate, record.baseTip as string]);
+      if (cas.ok) {
+        return this.completeSave(savePath, record, candidate, false);
+      }
+      const now = await this.gitExec(['rev-parse', '--verify', '--quiet', rec.branch]);
+      if (now.ok && now.stdout !== record.baseTip) {
+        emitSnapshotVersionSaveFailed(this.audit, {
+          dir: this.repositoryDir,
+          reason: `branch advanced concurrently: ${record.baseTip as string} -> ${now.stdout}`,
+          workspace: rec.workspaceId,
+          operationId: record.operationId,
+        });
+        throw new VersionStoreError('save_conflict', `workspace branch advanced concurrently: ${rec.branch}`);
+      }
+      emitSnapshotVersionSaveFailed(this.audit, {
+        dir: this.repositoryDir,
+        reason: cas.output,
+        workspace: rec.workspaceId,
+        operationId: record.operationId,
+      });
+      throw new VersionStoreError('git_error', `branch update failed: ${cas.output.slice(0, 300)}`);
+    }
+
+    // (b) 捕获（或复用已持久 tree）：tree+baseTip 先落盘，再建提交，再 CAS
+    let tree = record.tree;
+    if (tree === undefined) {
+      // 完整捕获：-f 覆盖 ignore 规则，候选内容不静默缺字节（独立 index 在工作区 admin dir 内）
+      const add = await this.gitExec(['--work-tree', rec.path, 'add', '-A', '-f'], { cwd: rec.path, gitDir: rec.gitDir });
+      if (!add.ok) {
+        emitSnapshotVersionSaveFailed(this.audit, {
+          dir: this.repositoryDir,
+          reason: add.output,
+          workspace: rec.workspaceId,
+          operationId: record.operationId,
+        });
+        throw new VersionStoreError('git_error', `git add failed (exit ${add.exitCode}): ${add.output.slice(0, 300)}`);
+      }
+      tree = (await this.git(['--work-tree', rec.path, 'write-tree'], { cwd: rec.path, gitDir: rec.gitDir })).stdout;
+      record.tree = tree;
+      record.baseTip = (await this.git(['rev-parse', '--verify', rec.branch])).stdout;
+      await this.writeRecord(savePath, record);
+    }
+
+    const tip = (await this.git(['rev-parse', '--verify', rec.branch])).stdout;
+    const tipTree = (await this.git(['rev-parse', `${tip}^{tree}`])).stdout;
+    if (tree === tipTree) {
+      // 空修改：稳定提交身份（当前分支尖），不制造新提交
+      return this.completeSave(savePath, record, tip, true);
+    }
+
+    const commitMessage = `${message}\n\nworkspace: ${rec.workspaceId}\noperation-id: ${record.operationId}\n`;
+    const newCommit = (await this.git(['commit-tree', tree, '-p', tip, '-m', commitMessage])).stdout;
+    // 孤儿留存：分支 CAS 失败也不丢提交（确定性 attempt ref 可达，不靠 reflog）
+    await this.git(['update-ref', attemptRef, newCommit]);
+    record.candidate = newCommit;
+    record.baseTip = tip;
+    await this.writeRecord(savePath, record);
+
+    const cas = await this.gitExec(['update-ref', rec.branch, newCommit, tip]);
+    if (!cas.ok) {
+      const now = await this.gitExec(['rev-parse', '--verify', '--quiet', rec.branch]);
+      if (now.ok && now.stdout !== tip) {
+        emitSnapshotVersionSaveFailed(this.audit, {
+          dir: this.repositoryDir,
+          reason: `branch advanced concurrently: ${tip} -> ${now.stdout}`,
+          workspace: rec.workspaceId,
+          operationId: record.operationId,
+        });
+        throw new VersionStoreError('save_conflict', `workspace branch advanced concurrently: ${rec.branch}`);
+      }
+      emitSnapshotVersionSaveFailed(this.audit, {
+        dir: this.repositoryDir,
+        reason: cas.output,
+        workspace: rec.workspaceId,
+        operationId: record.operationId,
+      });
+      throw new VersionStoreError('git_error', `branch update failed: ${cas.output.slice(0, 300)}`);
+    }
+    return this.completeSave(savePath, record, newCommit, false);
+  }
+
   async save(input: { workspaceId: string; operationId: OperationId; message: string }): Promise<VersionId> {
     validateOperationId(input.operationId);
     if (typeof input.message !== 'string' || input.message.length === 0) {
@@ -495,93 +673,32 @@ class GitVersionStore implements VersionStore {
     const rec = await this.loadWorkspaceRecord(input.workspaceId);
     const opHash = sha256Hex(`save:${rec.workspaceId}:${input.operationId}`);
     const savePath = this.saveRecordPath(rec.workspaceId, opHash);
+    const messageSha = sha256Hex(input.message);
 
-    // 幂等重放：记录在场 → 校验输入未漂移 → 返回相同持久结果
+    // 幂等重放/恢复：记录在场 → 校验输入未漂移 → 完成态直接返回首次版本，prepared 续作
     const existing = await this.readRecord(savePath);
     if (existing !== undefined) {
-      const r = existing as Partial<SaveRecord>;
-      if (
-        r === null || typeof r !== 'object' ||
-        r.schema !== 1 || r.kind !== 'save' ||
-        r.operationId !== input.operationId ||
-        r.workspaceId !== rec.workspaceId ||
-        typeof r.version !== 'string' || !SHA1_RE.test(r.version)
-      ) {
-        throw new VersionStoreError('record_corrupt', `save record invalid: ${savePath}`);
-      }
-      if (r.messageSha256 !== sha256Hex(input.message)) {
+      const record = this.assertSaveRecordShape(existing, savePath, rec, input.operationId);
+      if (record.messageSha256 !== messageSha) {
         throw new VersionStoreError('invalid_argument', 'operationId replayed with a different message');
       }
-      return asVersionId(r.version);
-    }
-
-    // 完整捕获：-f 覆盖 ignore 规则，候选内容不静默缺字节（独立 index 在工作区 admin dir 内）
-    const add = await this.gitExec(['--work-tree', rec.path, 'add', '-A', '-f'], { cwd: rec.path, gitDir: rec.gitDir });
-    if (!add.ok) {
-      emitSnapshotVersionSaveFailed(this.audit, {
-        dir: this.repositoryDir,
-        reason: add.output,
-        workspace: rec.workspaceId,
-        operationId: input.operationId,
-      });
-      throw new VersionStoreError('git_error', `git add failed (exit ${add.exitCode}): ${add.output.slice(0, 300)}`);
-    }
-    const tree = (await this.git(['--work-tree', rec.path, 'write-tree'], { cwd: rec.path, gitDir: rec.gitDir })).stdout;
-
-    const tip = (await this.git(['rev-parse', '--verify', rec.branch])).stdout;
-    const tipTree = (await this.git(['rev-parse', `${tip}^{tree}`])).stdout;
-
-    let version = tip;
-    let noChange = false;
-    if (tree === tipTree) {
-      // 空修改：稳定提交身份（当前分支尖），不制造新提交
-      noChange = true;
-    } else {
-      const commitMessage = `${input.message}\n\nworkspace: ${rec.workspaceId}\noperation-id: ${input.operationId}\n`;
-      const newCommit = (await this.git(['commit-tree', tree, '-p', tip, '-m', commitMessage])).stdout;
-      // 孤儿留存：分支 CAS 失败也不丢提交（可达 ref，不靠 reflog）
-      await this.git(['update-ref', `${SAVE_ATTEMPT_REF_PREFIX}${rec.workspaceId}-${opHash.slice(0, 16)}`, newCommit]);
-      const cas = await this.gitExec(['update-ref', rec.branch, newCommit, tip]);
-      if (!cas.ok) {
-        const now = await this.gitExec(['rev-parse', '--verify', '--quiet', rec.branch]);
-        if (now.ok && now.stdout !== tip) {
-          emitSnapshotVersionSaveFailed(this.audit, {
-            dir: this.repositoryDir,
-            reason: `branch advanced concurrently: ${tip} -> ${now.stdout}`,
-            workspace: rec.workspaceId,
-            operationId: input.operationId,
-          });
-          throw new VersionStoreError('save_conflict', `workspace branch advanced concurrently: ${rec.branch}`);
-        }
-        emitSnapshotVersionSaveFailed(this.audit, {
-          dir: this.repositoryDir,
-          reason: cas.output,
-          workspace: rec.workspaceId,
-          operationId: input.operationId,
-        });
-        throw new VersionStoreError('git_error', `branch update failed: ${cas.output.slice(0, 300)}`);
+      if (record.status !== 'prepared') {
+        return asVersionId(record.version as string);
       }
-      version = newCommit;
+      return this.resumeSave(savePath, record, rec, opHash, input.message);
     }
 
-    const record: SaveRecord = {
+    // 首次调用：先把 operationId 绑定的输入落盘（prepared），再进入捕获/CAS 流程
+    const prepared: SaveRecord = {
       schema: 1,
       kind: 'save',
       operationId: input.operationId,
       workspaceId: rec.workspaceId,
-      version,
-      messageSha256: sha256Hex(input.message),
-      noChange,
+      messageSha256: messageSha,
+      status: 'prepared',
     };
-    await this.writeRecord(savePath, record);
-    emitSnapshotVersionSaved(this.audit, {
-      dir: this.repositoryDir,
-      workspace: rec.workspaceId,
-      version,
-      operationId: input.operationId,
-      outcome: noChange ? 'no_change' : undefined,
-    });
-    return asVersionId(version);
+    await this.writeRecord(savePath, prepared);
+    return this.resumeSave(savePath, prepared, rec, opHash, input.message);
   }
 
   // ========================================================================
