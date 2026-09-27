@@ -10,3 +10,16 @@ export type { SnapshotCommitter, SnapshotCommitResult } from './snapshot.js';
 
 export { createSnapshot } from './snapshot.js';
 export { SNAPSHOT_FILE_ROUTING } from './audit-events.js';
+
+// phase 1918 Step B: 通用目录版本库（分支工作区 begin/save；publish 与固定版本读取
+// 在 Step C/D 顺序扩展）。窄出口：factory + 类型契约，内部 Git 协议不外泄。
+export { createVersionStore } from './version-store.js';
+export type { VersionStoreOptions } from './version-store.js';
+export { VersionStoreError } from './version-types.js';
+export type {
+  EditWorkspace,
+  OperationId,
+  VersionId,
+  VersionStore,
+  VersionStoreErrorKind,
+} from './version-types.js';

@@ -9,6 +9,10 @@ import {
   emitSnapshotStatusStderr,
   emitSnapshotSyncCleanFailed,
   emitSnapshotSyncRestoreFailed,
+  emitSnapshotVersionInitFailed,
+  emitSnapshotVersionSaved,
+  emitSnapshotVersionSaveFailed,
+  emitSnapshotVersionWorkspaceBegan,
 } from '../../../src/foundation/snapshot/audit-emit.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../../src/foundation/snapshot/audit-events.js';
 import { makeMockAudit } from '../../helpers/audit.js';
@@ -170,5 +174,58 @@ describe('snapshot typed audit emit (phase 1127)', () => {
     expect(audit.write).toHaveBeenCalledWith(SNAPSHOT_AUDIT_EVENTS.INIT_FAILED, 'dir=/x');
     // 确认 cols 数 = 1（仅 dir）
     expect((audit.write.mock.calls[0] as unknown as unknown[]).length).toBe(2); // event + dir col
+  });
+});
+
+describe('version-store typed audit emit (phase 1918 Step B)', () => {
+  const makeMockAuditLocal = makeMockAudit;
+
+  it('emitSnapshotVersionInitFailed serialize 顺序正确（含 reason）', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionInitFailed(audit, { dir: '/x', kind: 'repo_invalid', reason: 'boom' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_INIT_FAILED, 'dir=/x', 'kind=repo_invalid', 'reason=boom');
+  });
+
+  it('emitSnapshotVersionInitFailed 无 reason 时不输出 col', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionInitFailed(audit, { dir: '/x', kind: 'repo_init_failed' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_INIT_FAILED, 'dir=/x', 'kind=repo_init_failed');
+  });
+
+  it('emitSnapshotVersionWorkspaceBegan serialize 顺序正确', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionWorkspaceBegan(audit, {
+      dir: '/x', workspace: 'ws-1', base: 'b', branch: 'refs/version/workspaces/ws-1', operationId: 'op',
+    });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_WORKSPACE_BEGAN,
+      'dir=/x', 'workspace=ws-1', 'base=b', 'branch=refs/version/workspaces/ws-1', 'operationId=op');
+  });
+
+  it('emitSnapshotVersionSaved 含 outcome=no_change；缺省不输出', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionSaved(audit, { dir: '/x', workspace: 'ws-1', version: 'v', operationId: 'op', outcome: 'no_change' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_SAVED, 'dir=/x', 'workspace=ws-1', 'version=v', 'operationId=op', 'outcome=no_change');
+    const audit2 = makeMockAuditLocal();
+    emitSnapshotVersionSaved(audit2, { dir: '/x', workspace: 'ws-1', version: 'v', operationId: 'op' });
+    expect(audit2.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_SAVED, 'dir=/x', 'workspace=ws-1', 'version=v', 'operationId=op');
+  });
+
+  it('emitSnapshotVersionSaveFailed 含 optional workspace/operationId', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotVersionSaveFailed(audit, { dir: '/x', reason: 'r', workspace: 'ws-1', operationId: 'op' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.VERSION_SAVE_FAILED, 'dir=/x', 'reason=r', 'workspace=ws-1', 'operationId=op');
+  });
+
+  it('反向：typed payload key TS enforce', () => {
+    const audit = makeMockAuditLocal();
+    // @ts-expect-error: typo 'msg' (should be 'reason')
+    emitSnapshotVersionSaveFailed(audit, { dir: '/x', msg: 'r' });
+    expect(audit.write).toHaveBeenCalledTimes(1);
   });
 });

@@ -21,6 +21,11 @@ export const SNAPSHOT_AUDIT_EVENTS = {
   STATE_CROSS_SOURCE_MISMATCH: 'snapshot_state_cross_source_mismatch',
   STATE_CROSS_SOURCE_SKIPPED: 'snapshot_state_cross_source_skipped',
   LEGACY_SCHEMA_MIGRATED: 'snapshot_legacy_schema_migrated',
+  // phase 1918 Step B: 通用版本库（version-store）事件族
+  VERSION_INIT_FAILED: 'snapshot_version_init_failed',
+  VERSION_WORKSPACE_BEGAN: 'snapshot_version_workspace_began',
+  VERSION_SAVED: 'snapshot_version_saved',
+  VERSION_SAVE_FAILED: 'snapshot_version_save_failed',
 } as const;
 
 
@@ -46,4 +51,8 @@ export const SNAPSHOT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   snapshot_state_cross_source_mismatch: 'audit',
   snapshot_state_cross_source_skipped: 'audit',
   snapshot_legacy_schema_migrated: 'audit',
+  snapshot_version_init_failed: 'audit',
+  snapshot_version_workspace_began: 'audit',
+  snapshot_version_saved: 'audit',
+  snapshot_version_save_failed: 'audit',
 } as const;

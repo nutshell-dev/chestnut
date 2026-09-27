@@ -864,7 +864,11 @@
       "snapshot_status_stderr",
       "snapshot_sync_clean_failed",
       "snapshot_sync_restore_failed",
-      "snapshot_try_clear_failed"
+      "snapshot_try_clear_failed",
+      "snapshot_version_init_failed",
+      "snapshot_version_workspace_began",
+      "snapshot_version_saved",
+      "snapshot_version_save_failed"
     ],
     "foundation_stream_audit-events": [
       "stream_append_failed",

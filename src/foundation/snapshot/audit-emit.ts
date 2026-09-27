@@ -131,3 +131,63 @@ export function emitSnapshotLegacySchemaMigrated(audit: AuditLog, opts: {
   if (opts.degradedAt !== undefined) cols.push(`degradedAt=${opts.degradedAt}`);
   audit.write(SNAPSHOT_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED, ...cols);
 }
+
+// === VERSION_INIT_FAILED (phase 1918 Step B) ===
+export function emitSnapshotVersionInitFailed(audit: AuditLog, opts: {
+  dir: string;
+  kind: string;
+  reason?: string;
+}): void {
+  const cols: (string | number)[] = [`dir=${opts.dir}`, `kind=${opts.kind}`];
+  if (opts.reason !== undefined) cols.push(`reason=${audit.message(opts.reason)}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_INIT_FAILED, ...cols);
+}
+
+// === VERSION_WORKSPACE_BEGAN (phase 1918 Step B) ===
+export function emitSnapshotVersionWorkspaceBegan(audit: AuditLog, opts: {
+  dir: string;
+  workspace: string;
+  base: string;
+  branch: string;
+  operationId: string;
+}): void {
+  audit.write(
+    SNAPSHOT_AUDIT_EVENTS.VERSION_WORKSPACE_BEGAN,
+    `dir=${opts.dir}`,
+    `workspace=${opts.workspace}`,
+    `base=${opts.base}`,
+    `branch=${opts.branch}`,
+    `operationId=${audit.message(opts.operationId)}`,
+  );
+}
+
+// === VERSION_SAVED (phase 1918 Step B) ===
+export function emitSnapshotVersionSaved(audit: AuditLog, opts: {
+  dir: string;
+  workspace: string;
+  version: string;
+  operationId: string;
+  outcome?: 'no_change';
+}): void {
+  const cols: (string | number)[] = [
+    `dir=${opts.dir}`,
+    `workspace=${opts.workspace}`,
+    `version=${opts.version}`,
+    `operationId=${audit.message(opts.operationId)}`,
+  ];
+  if (opts.outcome !== undefined) cols.push(`outcome=${opts.outcome}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_SAVED, ...cols);
+}
+
+// === VERSION_SAVE_FAILED (phase 1918 Step B) ===
+export function emitSnapshotVersionSaveFailed(audit: AuditLog, opts: {
+  dir: string;
+  reason: string;
+  workspace?: string;
+  operationId?: string;
+}): void {
+  const cols: (string | number)[] = [`dir=${opts.dir}`, `reason=${audit.message(opts.reason)}`];
+  if (opts.workspace !== undefined) cols.push(`workspace=${opts.workspace}`);
+  if (opts.operationId !== undefined) cols.push(`operationId=${audit.message(opts.operationId)}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.VERSION_SAVE_FAILED, ...cols);
+}
