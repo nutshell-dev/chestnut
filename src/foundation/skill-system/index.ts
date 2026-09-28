@@ -27,6 +27,7 @@ export type {
   SubmitEditResult,
   SkillEditInfo,
   RetryEditInput,
+  AmendEditBasisInput,
   ExportSkillVersionInput,
   SkillHistoryEntry,
   SkillVersionErrorKind,

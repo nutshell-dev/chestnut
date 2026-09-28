@@ -98,6 +98,16 @@ exec: { "command": "chestnut skill edit submit <edit-id>" }
      阅读其中的最新内容，把你的经验重新应用进去后再次 submit。
      冲突不是提交成功，不得伪报技能已更新。
    - busy（退出码 4）：重跑同一条 submit 命令续作。
+   - 依据缺失（退出码 5，kind=basis_required）：来源任务未能自动关联时发布被
+     拒绝（未归因占位身份不能作为发布依据；候选已保留，不会丢失）。用本任务的
+     真实身份补依据后重新提交（不得编造任务 id 或他人身份）：
+
+\`\`\`
+exec: { "command": "chestnut skill edit basis <edit-id> --actor \"subagent:<你的任务短 id>\" --reason \"<一句话说明本次经验>\" --ref \"subagent-task:<你的任务 id>\"" }
+\`\`\`
+
+     然后重跑 \`chestnut skill edit submit <edit-id>\`。basis 命令只补依据，
+     不会改动候选内容，也不会自动发布。
 
 如需查看某技能的编辑历史与依据：
 

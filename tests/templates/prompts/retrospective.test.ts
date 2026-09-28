@@ -37,6 +37,9 @@ subtasks:
     expect(result).toContain('chestnut skill history <skill-name>');
     expect(result).toContain('kind=conflict');
     expect(result).toContain('不得伪报技能已更新');
+    // Phase 1923 Step C：依据缺失拒绝发布的补依据指引
+    expect(result).toContain('kind=basis_required');
+    expect(result).toContain('chestnut skill edit basis <edit-id>');
     // 旧共享写指令零命中（反向）
     expect(result).not.toContain('用 write 工具写入 dispatch-skill');
     expect(result).not.toContain('dispatch-skills/<skill-name>/');

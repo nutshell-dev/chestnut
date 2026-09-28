@@ -17,8 +17,10 @@ import { execFileSync, execSync, spawn } from 'child_process';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import {
+  EXIT_EDIT_BASIS_REQUIRED,
   EXIT_EDIT_BUSY,
   EXIT_EDIT_CONFLICT,
+  skillEditBasisCommand,
   skillEditBeginCommand,
   skillEditRetryCommand,
   skillEditStatusCommand,
@@ -226,6 +228,50 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
       cap.restore();
     }
     expect(cap.stdout.join('')).toContain(`Edit ${editId} published: `);
+  });
+
+  it('依据准入（phase 1923 Step C）：未归因 submit 退出码 5 + kind=basis_required；补依据后重提发布', async () => {
+    seedDispatchSkill('alpha', '# Alpha orig\n');
+
+    // 来源任务不可解析 → begin 依据为未归因占位（stderr note 已留证）
+    process.env.CHESTNUT_SUBAGENT_TASK_ID = newUuid();
+    const { editId, workspace } = await beginEdit('alpha', 'orphan retro improvement');
+    writeWs(workspace, 'SKILL.md', SKILL_MD('alpha', '# Alpha orphan\n'));
+
+    // submit：typed 拒发布（退出码 5），候选保留 + 补依据/重提指令
+    const err = await skillEditSubmitCommand(deps, editId).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CliError);
+    const cliErr = err as CliError;
+    expect(cliErr.code).toBe(EXIT_EDIT_BASIS_REQUIRED);
+    expect(cliErr.message).toContain('kind=basis_required');
+    expect(cliErr.message).toMatch(/candidate retained.*[0-9a-f]{40}/);
+    expect(cliErr.message).toContain(`chestnut skill edit basis ${editId} --actor`);
+    expect(cliErr.message).toContain(`chestnut skill edit submit ${editId}`);
+
+    // 补依据：--actor/--reason 必填（不隐式补默认理由）
+    await expect(skillEditBasisCommand(deps, editId, { reason: 'x' })).rejects.toThrow(CliError);
+    await expect(skillEditBasisCommand(deps, editId, { actor: 'user' })).rejects.toThrow(CliError);
+
+    const taskId = process.env.CHESTNUT_SUBAGENT_TASK_ID;
+    const cap = captureOutput();
+    try {
+      await skillEditBasisCommand(deps, editId, {
+        actor: 'subagent:retro1',
+        reason: 'orphan retro improvement',
+        ref: [`subagent-task:${taskId}`, 'retro:contract-orphan'],
+      });
+      await skillEditSubmitCommand(deps, editId);
+      await skillHistoryCommand(deps, 'alpha');
+    } finally {
+      cap.restore();
+    }
+    const text = cap.stdout.join('');
+    expect(text).toContain(`Basis amended: ${editId}`);
+    expect(text).toContain(`Edit ${editId} published: `);
+    expect(text).toContain('Actor: subagent:retro1');
+    expect(text).toContain(`subagent-task:${taskId}`);
+    expect(text).toContain('retro:contract-orphan');
+    expect(text).toContain(`Operation: edit-publish-${editId}-amend0`);
   });
 
   it('retry：新分支链接 parent，从最新基准重做发布', async () => {

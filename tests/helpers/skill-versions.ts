@@ -29,6 +29,10 @@ export function makeMockSkillVersions(overrides?: Partial<SkillVersions>): Skill
     cancelEdit: vi.fn(async (editId: string) => {
       throw new Error(`mock skill versions: no such edit: ${editId}`);
     }),
+    // Phase 1923 Step C: 原地补依据（默认无事务）
+    amendEditBasis: vi.fn(async (input: { editId: string }) => {
+      throw new Error(`mock skill versions: no such edit: ${input.editId}`);
+    }),
     editStatus: vi.fn(async (editId: string) => {
       throw new Error(`mock skill versions: no such edit: ${editId}`);
     }),

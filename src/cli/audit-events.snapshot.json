@@ -824,6 +824,8 @@
       "skill_registry_loaded",
       "skill_rescan_aborted",
       "skill_version_baseline_created",
+      "skill_version_edit_basis_amended",
+      "skill_version_edit_basis_required",
       "skill_version_edit_began",
       "skill_version_edit_cancelled",
       "skill_version_edit_conflict",

@@ -40,6 +40,8 @@ import { createDispatchVersions } from './skill.js';
 export const EXIT_EDIT_CONFLICT = 3;
 /** publish busy（CAS 有界重试耗尽）退出码：持久待重试，重跑同一命令续作 */
 export const EXIT_EDIT_BUSY = 4;
+/** 依据准入失败退出码（Phase 1923 Step C）：候选保留，补依据后重提 */
+export const EXIT_EDIT_BASIS_REQUIRED = 5;
 
 export interface SkillEditCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -166,6 +168,17 @@ export async function skillEditSubmitCommand(
     process.stdout.write(`Edit ${editId} published: ${result.version}\n`);
     return;
   }
+  if (result.kind === 'basis_required') {
+    throw new CliError(
+      `Edit ${editId} cannot be published (kind=basis_required): the recorded basis is not attributable\n` +
+      `(placeholder actors like 'unattributed'/'unspecified' are never a valid publish basis; basis is never fabricated)\n` +
+      `candidate retained (saved, not published, not overwritten): ${result.candidate}\n` +
+      `supply a complete basis, then re-submit:\n` +
+      `  chestnut skill edit basis ${editId} --actor <identity> --reason <text> [--ref <source-ref>]...\n` +
+      `  chestnut skill edit submit ${editId}`,
+      EXIT_EDIT_BASIS_REQUIRED,
+    );
+  }
   if (result.kind === 'conflict') {
     throw new CliError(
       `Edit ${editId} failed (kind=conflict): the skill was updated concurrently\n` +
@@ -181,6 +194,44 @@ export async function skillEditSubmitCommand(
     `resume with the same command: chestnut skill edit submit ${editId}`,
     EXIT_EDIT_BUSY,
   );
+}
+
+/**
+ * `chestnut skill edit basis <edit-id> --actor <identity> --reason <text> [--ref <source-ref>]...`
+ * （Phase 1923 Step C：依据准入被拒后的唯一补依据入口）。
+ * 只更新 saved 编辑的依据记录并派生新发布幂等键；候选内容不变、不自动发布。
+ * --actor/--reason 必填：补充的依据必须完整可归因，绝不隐式补默认理由。
+ */
+export async function skillEditBasisCommand(
+  deps: SkillEditCommandDeps,
+  editId: string,
+  opts: { actor?: string; reason?: string; ref?: string[] },
+  extraDeps?: SkillEditExtraDeps,
+): Promise<void> {
+  if (typeof opts.actor !== 'string' || opts.actor.trim() === '') {
+    throw new CliError('--actor <identity> is required: the amended basis must be attributable (never fabricated)');
+  }
+  if (typeof opts.reason !== 'string' || opts.reason.trim() === '') {
+    throw new CliError('--reason <text> is required: the amended basis is recorded permanently and never fabricated');
+  }
+  const basis: SkillBasis = { actor: opts.actor.trim(), reason: opts.reason, sourceRefs: opts.ref ?? [] };
+  const versions = await openVersions(deps, extraDeps);
+  let info: SkillEditInfo;
+  try {
+    info = await versions.amendEditBasis({ editId, requestId: `cli-basis-${newUuid()}`, basis });
+  } catch (e) {
+    throw toCliError(e);
+  }
+  process.stdout.write([
+    `Basis amended: ${info.editId}`,
+    `Skill: ${info.skillName}`,
+    `Actor: ${info.basis.actor}`,
+    `Reason: ${info.basis.reason}`,
+    `Source refs: ${info.basis.sourceRefs.length > 0 ? info.basis.sourceRefs.join(', ') : 'none'}`,
+    `Candidate unchanged: ${info.candidate ?? 'none'}`,
+    `Next: re-submit with: chestnut skill edit submit ${info.editId}`,
+    '',
+  ].join('\n'));
 }
 
 /**

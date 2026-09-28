@@ -89,7 +89,13 @@ export type SubmitEditResult =
   /** 技能路径基准已过期：base 为编辑基准，current 为当前 published，candidate 为保留候选 */
   | { kind: 'conflict'; editId: string; base: string; current: string; candidate: string }
   /** CAS 有界重试耗尽：持久呈现为待重试（候选与 publishOperationId 保留），不得伪装成语义冲突 */
-  | { kind: 'busy'; editId: string; operationId: string };
+  | { kind: 'busy'; editId: string; operationId: string }
+  /**
+   * Phase 1923 Step C：依据准入失败——记录的 basis 不可归因（actor 为
+   * unattributed/unspecified 占位或 reason 空白），不得以占位依据完成发布。
+   * 候选与 saved 状态保留（不重建/不覆盖）；经 amendEditBasis 补依据后重提。
+   */
+  | { kind: 'basis_required'; editId: string; candidate: string };
 
 /** 编辑事务持久事实视图（status/history 返回；按状态呈现 version/current，不伪造） */
 export interface SkillEditInfo {
@@ -119,6 +125,16 @@ export interface RetryEditInput {
   editId: string;
   /** 新编辑的幂等键（不得复用旧 requestId；输入漂移 typed 拒绝） */
   requestId: string;
+}
+
+/** Phase 1923 Step C：依据缺失被拒后的原地补依据输入（不重建候选、不覆盖旧尝试） */
+export interface AmendEditBasisInput {
+  /** 处于 saved（发布未决、依据不可归因）的编辑 id（其他状态 typed 拒绝） */
+  editId: string;
+  /** 幂等键：同一 requestId 重放返回首次补充事实；输入漂移 typed 拒绝 */
+  requestId: string;
+  /** 补充后的完整依据（必须可归因：非空 reason、actor 不得为占位身份） */
+  basis: SkillBasis;
 }
 
 /**
@@ -190,6 +206,14 @@ export interface SkillVersions {
   editStatus(editId: string): Promise<SkillEditInfo>;
   /** 事务历史（新→旧；skillName 缺席返回全部技能） */
   editHistory(skillName?: string): Promise<readonly SkillEditInfo[]>;
+
+  /**
+   * Phase 1923 Step C：原地补依据——只更新 saved 编辑的依据记录并派生新的
+   * publishOperationId（与旧失败尝试区分，避免 Snapshot 幂等键输入漂移），
+   * 候选内容不变、旧尝试不删除；补依据不等于自动发布，随后仍经 submitEdit
+   * 从已保存 candidate 继续。同 requestId 重放幂等。
+   */
+  amendEditBasis(input: AmendEditBasisInput): Promise<SkillEditInfo>;
 
   /**
    * Phase 1923 Step B：技能版本提交历史（新→旧）。

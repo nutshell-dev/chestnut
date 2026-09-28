@@ -39,6 +39,7 @@ import {
 } from './edit-store.js';
 import {
   SkillVersionError,
+  type AmendEditBasisInput,
   type BeginEditInput,
   type ExportSkillVersionInput,
   type ImportSkillInput,
@@ -57,6 +58,18 @@ import {
 const SKILL_DIR_NAME_PATTERN = /^[a-z0-9-]+$/;
 /** publish metadata 上限与 Snapshot 对齐（basis 序列化后不得超过） */
 const MAX_BASIS_CHARS = 16_000;
+
+/**
+ * Phase 1923 Step C：不得作为成功发布依据的占位身份（Phase 1922 业务决策冻结）。
+ * 依据是发布前置条件——未归因占位（attribution 解析失败的明确标记）不得完成
+ * publish；发布前 typed 拒绝、候选保留，补依据后重提。
+ */
+const UNPUBLISHABLE_BASIS_ACTORS: ReadonlySet<string> = new Set(['unattributed', 'unspecified']);
+
+/** 依据准入判定：reason 非空白且 actor 可归因（非占位身份，大小写/首尾空白不敏感） */
+function isPublishableBasis(basis: SkillBasis): boolean {
+  return basis.reason.trim() !== '' && !UNPUBLISHABLE_BASIS_ACTORS.has(basis.actor.trim().toLowerCase());
+}
 
 const STATE_FILE = 'state.json';
 /**
@@ -961,7 +974,23 @@ export class SkillVersionService implements SkillVersions {
     // 2. 候选校验（范围违规在发布侧 typed 拒绝；两处失败候选都保留）
     await this.validateCandidateSkill(record);
 
-    // 3. 条件发布（稳定 publishOperationId 先落盘：业务状态可经 Snapshot 记录重建）
+    // 3. 依据准入（Phase 1923 Step C）：未归因占位依据不得完成发布——typed
+    // basis_required，候选与 saved 状态保留（不重建/不覆盖），补依据后重提。
+    // 准入先于 publishOperationId 落盘：被拒尝试不占用发布幂等键。
+    const basis = JSON.parse(record.metadata) as SkillBasis;
+    if (!isPublishableBasis(basis)) {
+      this.opts.audit.write(
+        SKILL_AUDIT_EVENTS.VERSION_EDIT_BASIS_REQUIRED,
+        `dir=${this.opts.repositoryDir}`,
+        `skill=${record.skillName}`,
+        `editId=${record.editId}`,
+        `candidate=${record.candidate}`,
+        `actor=${basis.actor}`,
+      );
+      return { kind: 'basis_required', editId: record.editId, candidate: record.candidate as string };
+    }
+
+    // 4. 条件发布（稳定 publishOperationId 先落盘：业务状态可经 Snapshot 记录重建）
     if (record.publishOperationId === null) {
       record.publishOperationId = `edit-publish-${record.editId}`;
       record.updatedAt = new Date().toISOString();
@@ -1070,8 +1099,71 @@ export class SkillVersionService implements SkillVersions {
     );
   }
 
-  async cancelEdit(editId: string): Promise<SkillEditInfo> {
-    const record = await this.requireEdit(editId);
+  /**
+   * Phase 1923 Step C：原地补依据。只更新 saved（依据不可归因、发布未决）编辑的
+   * 依据记录并派生新 publishOperationId——与旧失败尝试区分，避免 Snapshot 幂等键
+   * 输入漂移（同 operationId 不同 metadata = 调用方契约错误）。候选内容不变、
+   * 不重新捕获、不覆盖旧尝试；补依据不等于自动发布，随后经 submitEdit 从已保存
+   * candidate 继续。同 requestId 重放返回首次补充事实（含已发布后的重放）。
+   */
+  async amendEditBasis(input: AmendEditBasisInput): Promise<SkillEditInfo> {
+    if (typeof input.requestId !== 'string' || input.requestId.length === 0) {
+      throw new SkillVersionError('invalid_argument', 'requestId must be a non-empty string');
+    }
+    const metadata = validateBasis(input.basis);
+    if (!isPublishableBasis(input.basis)) {
+      throw new SkillVersionError(
+        'invalid_argument',
+        'amended basis must be attributable (non-empty reason, attributed actor); placeholder identities are never a valid publish basis',
+      );
+    }
+    const record = await this.requireEdit(input.editId);
+
+    // 重放（先于状态门禁）：同 requestId 逐字校验后返回首次补充事实
+    const prior = (record.amendments ?? []).find(a => a.requestId === input.requestId);
+    if (prior !== undefined) {
+      if (prior.metadata !== metadata) {
+        throw new SkillVersionError('invalid_argument', 'basis amendment requestId replayed with different basis');
+      }
+      return this.toInfo(record);
+    }
+    if (record.status !== 'saved') {
+      throw new SkillVersionError(
+        'invalid_argument',
+        `only saved edits blocked on basis can be amended: ${input.editId} (status=${record.status})`,
+      );
+    }
+    if (isPublishableBasis(JSON.parse(record.metadata) as SkillBasis)) {
+      // 依据已可发布（busy 待重试/并发窗口）：改依据会漂移既有发布幂等键输入，拒绝
+      throw new SkillVersionError(
+        'invalid_argument',
+        `skill edit ${input.editId} already has an attributable basis; re-submit instead of amending`,
+      );
+    }
+
+    const amendments = record.amendments ?? [];
+    const publishOperationId = `edit-publish-${record.editId}-amend${amendments.length}`;
+    record.metadata = metadata;
+    record.publishOperationId = publishOperationId;
+    record.amendments = [...amendments, {
+      requestId: input.requestId,
+      metadata,
+      publishOperationId,
+      at: new Date().toISOString(),
+    }];
+    record.updatedAt = new Date().toISOString();
+    await this.editStore.save(record);
+    this.opts.audit.write(
+      SKILL_AUDIT_EVENTS.VERSION_EDIT_BASIS_AMENDED,
+      `dir=${this.opts.repositoryDir}`,
+      `skill=${record.skillName}`,
+      `editId=${record.editId}`,
+      `operationId=${publishOperationId}`,
+    );
+    return this.toInfo(record);
+  }
+
+  async cancelEdit(editId: string): Promise<SkillEditInfo> {    const record = await this.requireEdit(editId);
     if (record.status === 'published' || record.status === 'conflict') {
       throw new SkillVersionError('invalid_argument', `skill edit ${editId} already ${record.status}`);
     }

@@ -36,7 +36,18 @@ export const MISC_COMMAND_CATALOG = [
   },
   {
     id: 'skill/edit/submit',
-    summary: 'Submit a branch edit (save candidate + conditional publish; conflict exits 3, busy exits 4)',
+    summary: 'Submit a branch edit (save candidate + conditional publish; conflict exits 3, busy exits 4, basis_required exits 5)',
+  },
+  // Phase 1923 Step C：依据准入被拒后的唯一补依据入口（候选不变、不自动发布）
+  {
+    id: 'skill/edit/basis',
+    summary: 'Supply a complete attributable basis for a saved edit blocked by basis_required, then re-submit',
+    options: [
+      { flag: '--actor <identity>', desc: 'Who makes this edit (required; attributable, never fabricated)', required: true },
+      { flag: '--reason <text>', desc: 'Why this edit is made (recorded as permanent basis)', required: true },
+      // fn parser（collect）+ [] default → 注册点字面（repeatable）。
+      { flag: '--ref <source-ref>', desc: 'Source reference locating the origin task/log (repeatable)', runtimeLiteral: true },
+    ],
   },
   {
     id: 'skill/edit/retry',

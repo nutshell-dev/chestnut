@@ -33,6 +33,7 @@ import { skillListCommand } from './commands/skill-list.js';
 import {
   skillEditBeginCommand,
   skillEditSubmitCommand,
+  skillEditBasisCommand,
   skillEditRetryCommand,
   skillEditStatusCommand,
   skillHistoryCommand,
@@ -352,6 +353,18 @@ miscShape(skillEditCmd.command('submit <editId>'), 'skill/edit/submit')
   .action(action('required', async (editId: string) => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await skillEditSubmitCommand({ fsFactory }, editId, { audit });
+  }));
+
+// Phase 1923 Step C：依据准入被拒后的补依据入口（--ref 为 repeatable 收集器字面）
+miscShape(skillEditCmd.command('basis <editId>'), 'skill/edit/basis', {
+  // runtimeLiteral：repeatable fn parser + [] default——就地注册（audit/query --col 同款）
+  '--ref <source-ref>': (c) => {
+    c.option('--ref <source-ref>', 'Source reference locating the origin task/log (repeatable)', (v: string, acc: string[]) => [...acc, v], []);
+  },
+})
+  .action(action('required', async (editId: string, opts: { actor?: string; reason?: string; ref?: string[] }) => {
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillEditBasisCommand({ fsFactory }, editId, opts, { audit });
   }));
 
 miscShape(skillEditCmd.command('retry <editId>'), 'skill/edit/retry')

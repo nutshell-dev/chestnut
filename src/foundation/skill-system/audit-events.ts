@@ -23,4 +23,6 @@ export const SKILL_AUDIT_EVENTS = {
   VERSION_EDIT_CONFLICT: 'skill_version_edit_conflict',         // Phase 1919 Step C: 编辑事务路径基准过期（候选保留）
   VERSION_EDIT_CANCELLED: 'skill_version_edit_cancelled',       // Phase 1919 Step C: 编辑事务取消（可保存内容已先保存）
   VERSION_EDIT_VALIDATION_FAILED: 'skill_version_edit_validation_failed', // Phase 1919 Step C: 候选 SKILL.md 缺失/非法（候选保留）
+  VERSION_EDIT_BASIS_REQUIRED: 'skill_version_edit_basis_required',     // Phase 1923 Step C: 依据不可归因 typed 拒发布（候选/saved 保留）
+  VERSION_EDIT_BASIS_AMENDED: 'skill_version_edit_basis_amended',       // Phase 1923 Step C: 原地补依据（新 publishOperationId，候选不变）
 } as const;

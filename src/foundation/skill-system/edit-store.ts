@@ -20,6 +20,17 @@ const EDITS_DIR = 'edits';
 /** 事务记录目录（stateDir 相对路径）；服务启动时确保存在 */
 export const SKILL_EDITS_DIR = EDITS_DIR;
 
+/** Phase 1923 Step C：补依据持久记录（依据准入被拒后原地补充；旧失败尝试可追溯） */
+export interface SkillBasisAmendment {
+  /** 补充幂等键（重放定位首次补充事实） */
+  requestId: string;
+  /** 新依据序列化原文（重放逐字比较） */
+  metadata: string;
+  /** 新发布幂等键（与旧失败尝试区分，避免 Snapshot 幂等键输入漂移） */
+  publishOperationId: string;
+  at: string;
+}
+
 /** 编辑事务记录（磁盘形态）。字段语义见 version-types.ts SkillEditInfo。 */
 export interface SkillEditRecord {
   schema: 1;
@@ -46,6 +57,9 @@ export interface SkillEditRecord {
   version: string | null;
   /** conflict：当前 published 版本身份 */
   current: string | null;
+  /** Phase 1923 Step C：补依据链（追加式；旧记录无此字段 = 从未补充）。可选字段——
+   *  旧版二进制读新记录时整对象回写不丢字段，schema 保持 1 双向兼容 */
+  amendments?: SkillBasisAmendment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +72,18 @@ export function skillEditId(requestId: string): string {
 const STATUS_VALUES: readonly SkillEditStatus[] = [
   'preparing', 'editing', 'saved', 'published', 'conflict', 'cancelled',
 ];
+
+function assertAmendmentsShape(amendments: SkillBasisAmendment[] | undefined, pathHint: string): void {
+  if (amendments === undefined) return;
+  const valid = Array.isArray(amendments) && amendments.every(
+    a => a !== null && typeof a === 'object' &&
+      typeof a.requestId === 'string' && typeof a.metadata === 'string' &&
+      typeof a.publishOperationId === 'string' && typeof a.at === 'string',
+  );
+  if (!valid) {
+    throw new SkillVersionError('store_error', `corrupt skill edit record amendments: ${pathHint}`);
+  }
+}
 
 function assertRecordShape(r: SkillEditRecord, pathHint: string): void {
   const strOrNull = (v: unknown) => v === null || typeof v === 'string';
@@ -74,6 +100,7 @@ function assertRecordShape(r: SkillEditRecord, pathHint: string): void {
   ) {
     throw new SkillVersionError('store_error', `corrupt skill edit record: ${pathHint}`);
   }
+  assertAmendmentsShape(r.amendments, pathHint);
 }
 
 export interface SkillEditStore {
