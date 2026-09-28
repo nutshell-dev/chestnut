@@ -1148,6 +1148,29 @@ class GitVersionStore implements VersionStore {
     emitSnapshotVersionExported(this.audit, { dir: this.repositoryDir, version: v, prefix: p, destination: dest });
   }
 
+  /**
+   * Phase 1921 Step C：列出固定版本顶层目录名（排序确定）。调用方从 published
+   * tree 派生索引，不把外部缓存/投影当权威。只读固定 commit；顶层普通文件与
+   * gitlink 不是 prefix。
+   */
+  async listPrefixes(version: VersionId): Promise<string[]> {
+    const v = await this.requireCommit(version, 'version');
+    const lst = await this.gitExec(['ls-tree', '-z', v], { raw: true });
+    if (!lst.ok) {
+      throw new VersionStoreError('git_error', `git ls-tree failed: ${lst.output.slice(0, 300)}`);
+    }
+    const names: string[] = [];
+    for (const line of lst.stdout.split('\0').filter((s) => s.length > 0)) {
+      const m = line.match(/^(\d{6}) (\w+) ([0-9a-f]{40})\t(.*)$/);
+      if (m === null) {
+        throw new VersionStoreError('git_error', `unparseable ls-tree entry: ${line.slice(0, 200)}`);
+      }
+      if (m[2] !== 'tree') continue; // 顶层文件/gitlink 不是 prefix
+      names.push(m[4]);
+    }
+    return names.sort((a, b) => a.localeCompare(b));
+  }
+
   async inspectOperation(operationId: string): Promise<OperationInspection> {
     validateOperationId(operationId);
     const workspaceId = `ws-${sha256ShortHex(`begin:${operationId}`, 24)}`;

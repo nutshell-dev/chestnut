@@ -45,6 +45,12 @@ export interface VersionStore {
    * （unsupported_entry）。读固定 commit，不 checkout 共享根、不写全局 index。
    */
   exportVersion(version: VersionId, prefix: string, destination: string): Promise<void>;
+  /**
+   * 列出固定版本顶层目录（tree 条目）名，排序确定。调用方借此从 published
+   * tree 派生索引（Git 是唯一权威，不把外部缓存当索引事实）。只读固定 commit；
+   * 顶层普通文件/gitlink 不是 prefix，不列入。
+   */
+  listPrefixes(version: VersionId): Promise<string[]>;
   /** 操作持久事实查询（恢复判读）：unknown / workspace / publish prepared|completed */
   inspectOperation(operationId: string): Promise<OperationInspection>;
 }

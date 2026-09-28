@@ -26,7 +26,7 @@ import {
   type VersionId,
   type VersionStore,
 } from '../snapshot/index.js';
-import { exec as defaultExec } from '../process-exec/index.js';
+import { exec as defaultExec, isAlive } from '../process-exec/index.js';
 import { parseFrontmatterFrame } from '../messaging/index.js';
 import { SkillSystem } from './registry.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
@@ -58,6 +58,15 @@ const SKILL_DIR_NAME_PATTERN = /^[a-z0-9-]+$/;
 const MAX_BASIS_CHARS = 16_000;
 
 const STATE_FILE = 'state.json';
+/**
+ * Phase 1921 Step C：state.json 多实例写串行化锁（O_EXCL 锁文件）。
+ * 整文件 read-modify-write 无锁会丢技能清单（两个实例分别发布会互相覆盖）；
+ * 临界区 = 重读磁盘 + 并集合并 + 原子写。崩溃遗留锁按 holder 存活/年龄接管。
+ */
+const STATE_LOCK_FILE = 'state.lock';
+const STATE_LOCK_ATTEMPTS = 100; // 100×10ms = 1s 上限，远超临界区实测窗口
+const STATE_LOCK_DELAY_MS = 10;
+const STATE_LOCK_STALE_MS = 30_000;
 const IMPORTS_DIR = 'imports';
 const PROJECTION_DIR = 'projection';
 const PROJECTION_MANIFEST = 'projection-manifest.json';
@@ -228,8 +237,87 @@ export class SkillVersionService implements SkillVersions {
     return parsed;
   }
 
+  /** writeExclusive (O_EXCL) 冲突检测（state 锁接管判读用）。 */
+  private static isAlreadyExists(err: unknown): boolean {
+    return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
+  }
+
+  /**
+   * Phase 1921 Step C：state 锁 stale 判读——holder 进程已死、锁龄超预算或
+   * 锁文件损坏且超龄 → 可接管；其余（含同进程另一实例持锁）不退让。
+   */
+  private async stateLockStealable(): Promise<boolean> {
+    let raw: string;
+    try {
+      raw = await this.stateFs.read(STATE_LOCK_FILE);
+    } catch (e) {
+      if (isFileNotFound(e)) return true; // 恰被释放/接管
+      throw e;
+    }
+    let pid: number | null = null;
+    let at = 0;
+    try {
+      const j = JSON.parse(raw) as { pid?: unknown; at?: unknown };
+      if (typeof j.pid === 'number') pid = j.pid;
+      if (typeof j.at === 'number') at = j.at;
+    } catch {
+      // silent: 损坏锁内容不可解析——按文件年龄兜底判读（下文 at===0 分支）
+    }
+    if (pid !== null && pid !== process.pid && !isAlive(pid)) return true;
+    if (at > 0) return Date.now() - at > STATE_LOCK_STALE_MS;
+    const st = await this.stateFs.stat(STATE_LOCK_FILE).catch(() => null);
+    if (st === null) return true; // 读统计失败/消失——可接管重试
+    return Date.now() - st.mtime.getTime() > STATE_LOCK_STALE_MS;
+  }
+
+  /**
+   * Phase 1921 Step C：state.json 临界区（O_EXCL 锁互斥 + 崩溃 stale 接管）。
+   * 超尝试预算 loud 失败（store_error），绝不无锁裸写。
+   */
+  private async withStateLock<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.stateFs.writeExclusive(
+          STATE_LOCK_FILE,
+          JSON.stringify({ pid: process.pid, at: Date.now() }),
+        );
+        break;
+      } catch (e) {
+        if (!SkillVersionService.isAlreadyExists(e)) throw e;
+        if (attempt + 1 >= STATE_LOCK_ATTEMPTS) {
+          throw new SkillVersionError('store_error', `version service state lock contention exhausted: ${STATE_LOCK_FILE}`);
+        }
+        if (await this.stateLockStealable()) {
+          await this.stateFs.delete(STATE_LOCK_FILE).catch(() => {
+            // silent: 接管删除失败=已被他方释放/接管，下趟重试重新判读
+          });
+          continue;
+        }
+        await new Promise<void>((resolve) => { setTimeout(resolve, STATE_LOCK_DELAY_MS); });
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      await this.stateFs.delete(STATE_LOCK_FILE).catch(() => {
+        // silent: 锁释放失败不影响临界区已提交事实；残留锁由 stale 判读接管
+      });
+    }
+  }
+
   private async writeState(): Promise<void> {
-    await this.stateFs.writeAtomic(STATE_FILE, JSON.stringify(this.state, null, 2));
+    await this.withStateLock(async () => {
+      // 锁内重读磁盘并并集合并：skills 只增不减，并集即多实例正确收敛；
+      // migration 段以内存为准（baseline 状态机不在多实例间漂移）。
+      // 磁盘损坏 → readState loud（baseline_failed），绝不覆盖证据。
+      const disk = await SkillVersionService.readState(this.stateFs);
+      if (disk !== null) {
+        const merged = new Set<string>(disk.skills);
+        for (const s of this.state.skills) merged.add(s);
+        this.state.skills = [...merged].sort((a, b) => a.localeCompare(b));
+      }
+      await this.stateFs.writeAtomic(STATE_FILE, JSON.stringify(this.state, null, 2));
+    });
   }
 
   private static async openState(
@@ -407,13 +495,31 @@ export class SkillVersionService implements SkillVersions {
    * 投影同步：published 版本变化时逐技能重物化。投影是服务私有派生物
    * （清单按 published 版本判新）；导出/落位失败保留旧投影并 audit，
    * 清单不推进（下次重试），绝不把 live 工作区字节当已发布内容。
+   *
+   * Phase 1921 Step C：技能集合从 published tree 派生（Git 是唯一索引权威），
+   * 不依赖可被多实例整文件覆盖的 state 清单——任一实例（含重启/投影删除后）
+   * 都能看到完整已发布集合。
    */
   private async syncProjection(): Promise<void> {
     const published = await this.store.readPublished();
     const manifest = await this.readProjectionManifest();
     if (manifest.version === (published as string)) return;
 
-    for (const name of this.state.skills) {
+    const names: string[] = [];
+    for (const name of await this.store.listPrefixes(published)) {
+      try {
+        names.push(validateSkillName(name));
+      } catch {
+        this.opts.audit.write(
+          SKILL_AUDIT_EVENTS.VERSION_SYNC_FAILED,
+          `dir=${this.opts.repositoryDir}`,
+          `skill=${name}`,
+          'reason=invalid_prefix_in_published_tree',
+        );
+      }
+    }
+
+    for (const name of names) {
       const rev = await this.store.pathRevision(published, name);
       if (rev === null) continue; // 尚未发布（baseline 中途），保持旧投影
       if (manifest.skills[name] === (rev as string)) continue;
