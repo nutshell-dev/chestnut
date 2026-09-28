@@ -129,6 +129,16 @@ const ENSURE_IDENTITY_SCAN_ATTEMPTS = 3;
 const CLAIM_STABLE_READ_ATTEMPTS = 8;
 const CLAIM_STABLE_READ_DELAY_MS = 5;
 
+/**
+ * Phase 1921 Step B: lifecycle row（ready/dispatching/submitted）的半写窗口退让
+ * 预算（与 claim 同理：writeExclusive 先发布路径再落笔，loser 可读到位数
+ * 不全的内容）。仅 JSON 解析失败退让——截断/半写绝不会产生结构合法但字段
+ * 漂移的 JSON，schema 不符立即 corrupt 不退让；超预算仍不可解析 = 崩溃半写/
+ * 真损坏，维持 fail-closed。
+ */
+const ROW_STABLE_READ_ATTEMPTS = 8;
+const ROW_STABLE_READ_DELAY_MS = 5;
+
 /** writeExclusive (O_EXCL) 冲突检测 —— 对称 contract/creation.ts 的本地 helper。 */
 function isAlreadyExists(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
@@ -736,25 +746,43 @@ export class RetrospectiveStore {
     return found[0] ?? null;
   }
 
+  /**
+   * Phase 1921 Step B: 稳定读取 row。writeExclusive 先发布路径再完成内容写，
+   * find→read 窗口内 loser 可能读到半写 JSON——解析失败带微延迟有限重读
+   * （退让给在途写入落笔）；I/O 错误、schema 不符不退让，超预算仍不可解析
+   * = 崩溃半写/真损坏，audit + null（caller 维持 fail-closed）。
+   */
   private async _readRow(path: string, dir: RowLocation['dir']): Promise<RetrospectiveWorkItem | null> {
-    let raw: string;
-    try {
-      raw = await this.fs.read(path);
-    } catch (err) {
-      if (isFileNotFound(err)) return null;
-      this.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
-        `path=${path}`,
-        `state=${dir}`,
-        `reason=${formatErr(err)}`,
-      );
-      return null;
-    }
+    let parsed: unknown = null;
+    let parseOk = false;
+    for (let attempt = 0; attempt < ROW_STABLE_READ_ATTEMPTS; attempt++) {
+      let raw: string;
+      try {
+        raw = await this.fs.read(path);
+      } catch (err) {
+        if (isFileNotFound(err)) return null;
+        this.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+          `path=${path}`,
+          `state=${dir}`,
+          `reason=${formatErr(err)}`,
+        );
+        return null;
+      }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
+      try {
+        parsed = JSON.parse(raw);
+        parseOk = true;
+        break;
+      } catch {
+        // silent: 半写窗口退让后重读——live writer 有限时间内落笔；超预算由循环外
+        // invalid_json corrupt 显式登记（崩溃半写/真损坏 fail-closed），此处非吞错
+        if (attempt + 1 < ROW_STABLE_READ_ATTEMPTS) {
+          await new Promise<void>((resolve) => { setTimeout(resolve, ROW_STABLE_READ_DELAY_MS); });
+        }
+      }
+    }
+    if (!parseOk) {
       this.audit.write(
         RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
         `path=${path}`,

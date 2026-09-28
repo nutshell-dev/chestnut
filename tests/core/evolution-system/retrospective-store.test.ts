@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { rmSync, mkdirSync, writeFileSync, existsSync, promises as fsp } from 'node:fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import {
@@ -629,6 +629,144 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
 
     const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
     expect(committedEvents).toHaveLength(1);
+  });
+
+});
+
+describe('RetrospectiveStore ready row stable read (Phase 1921 Step B)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+  let store: RetrospectiveStore;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('retro-row-stable-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+    store = new RetrospectiveStore({ fs, audit: audit.audit });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  it('tolerates a half-written ready row that completes during the reread window', async () => {
+    const input = makeInput();
+    const winnerTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000cc');
+    await fs.ensureDir(READY_DIR);
+    // winner row 内容在盘上已完整；loser 首次读取落在在途写入窗口（空串）
+    await fs.writeAtomic(`${READY_DIR}/${input.contractId}.json`, JSON.stringify({
+      schema_version: 2,
+      contract_id: input.contractId,
+      task_id: winnerTaskId,
+      target_executor_id: input.targetExecutorId,
+      created_at: '2026-03-03T00:00:00.000Z',
+    }));
+
+    class PartialRowFs extends NodeFileSystem {
+      private servedPartial = false;
+      override async read(p: string): Promise<string> {
+        if (!this.servedPartial && p.startsWith(READY_DIR)) {
+          this.servedPartial = true;
+          return '';
+        }
+        return super.read(p);
+      }
+    }
+
+    const raceStore = new RetrospectiveStore({ fs: new PartialRowFs({ baseDir }), audit: audit.audit });
+    const result = await raceStore.ensure(input);
+
+    // 退让内读到完整 row → replay winner 身份，不生成新 task id、不误判 corrupt
+    expect(result.taskId).toBe(winnerTaskId);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT)).toEqual([]);
+  });
+
+  it('creator ready row 写入暂停（路径已发布、内容未落笔）时 loser ensure 收敛同一身份', async () => {
+    const input = makeInput();
+    const winnerTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000a1');
+    let release!: () => void;
+    let opened!: () => void;
+    let loserSawPartial!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const pathPublished = new Promise<void>((r) => { opened = r; });
+    const partialSeen = new Promise<void>((r) => { loserSawPartial = r; });
+
+    // fd 级屏障（z-row-probe 场景）：O_EXCL 先发布路径，内容写入被暂停
+    class HeldRowFs extends NodeFileSystem {
+      private armed = true;
+      partialReads = 0;
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (this.armed && p.startsWith(`${READY_DIR}/`)) {
+          this.armed = false;
+          const fd = await fsp.open(path.join(baseDir, p), 'wx');
+          opened();
+          await held;
+          try {
+            await fd.writeFile(content);
+            await fd.sync();
+          } finally {
+            await fd.close();
+          }
+          return;
+        }
+        return super.writeExclusive(p, content);
+      }
+      override async read(p: string): Promise<string> {
+        const out = await super.read(p);
+        if (!this.armed && p.startsWith(`${READY_DIR}/`) && out === '') {
+          this.partialReads += 1;
+          if (this.partialReads >= 2) loserSawPartial();
+        }
+        return out;
+      }
+    }
+
+    const heldFs = new HeldRowFs({ baseDir });
+    const winnerStore = new RetrospectiveStore({
+      fs: heldFs,
+      audit: audit.audit,
+      generateTaskId: () => winnerTaskId,
+    });
+    // loser 共享 rigged fs（读计数在 rig 上）；writeExclusive rig 已 disarmed，
+    // loser 若走到 claim/row 写路径一律直通
+    const loserStore = new RetrospectiveStore({ fs: heldFs, audit: audit.audit });
+
+    const winner = winnerStore.ensure(input);
+    await pathPublished; // winner 已发布 ready 路径、内容被暂停
+    const loser = loserStore.ensure(input);
+    // 等 loser 确实读到过半写内容（确定性交错证明），再放行 winner 落笔
+    await Promise.race([
+      partialSeen,
+      new Promise<void>((r) => { setTimeout(r, 5000); }),
+    ]);
+    release();
+
+    const [w, l] = await Promise.all([winner, loser]);
+    expect(heldFs.partialReads).toBeGreaterThanOrEqual(2); // loser 亲历半写窗口
+    expect(w.taskId).toBe(winnerTaskId);
+    expect(l.taskId).toBe(winnerTaskId); // 同一身份，绝不生成第二身份
+
+    expect(await fs.list(READY_DIR, { includeDirs: false })).toHaveLength(1);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT)).toEqual([]);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toHaveLength(1);
+  });
+
+  it('永久半写 ready row 超预算仍 fail-closed：不覆盖、audit corrupt、证据原样保留', async () => {
+    const input = makeInput();
+    await store.ensureDirs();
+    const rel = `${READY_DIR}/${input.contractId}.json`;
+    const partial = '{"schema_version":2,"contract_id":"truncated';
+    await fs.writeExclusive(rel, partial); // 崩溃半写现场：路径在、内容永远不完整
+
+    await expect(store.ensure(input)).rejects.toThrow(/exists but is corrupt/);
+
+    // 证据原样保留；不生成新身份、不登记 committed
+    expect(await fs.read(rel)).toBe(partial);
+    const corrupt = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT);
+    expect(corrupt.some(e => e.includes('reason=register_existing_corrupt'))).toBe(true);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toEqual([]);
   });
 
 });
