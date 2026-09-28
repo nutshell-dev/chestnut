@@ -189,7 +189,12 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     const failed = results.filter((r) => r.status === 'rejected');
     expect(ok).toHaveLength(1);
     expect(failed).toHaveLength(1);
-    expect((failed[0] as PromiseRejectedResult).reason.message).toMatch(/in progress|claim|conflict/i);
+    // loser 的合法失败语义两类：per-skill claim 冲突（in progress/conflict），或
+    // 版本库首次建立的并发初始化互斥 fail-closed（Phase 1919 Step B open 锁：
+    // 锁释放后 probe 瞬时失败/超时 → loud repo_init_failed，站点保留）
+    expect((failed[0] as PromiseRejectedResult).reason.message).toMatch(
+      /in progress|claim|conflict|concurrent initializer|timed out waiting for concurrent git init/i,
+    );
 
     // 两目标都是同一完整版本（不混写）
     const userVersion = readVersion(userSkillDir());

@@ -733,13 +733,18 @@ describe('RetrospectiveStore ready row stable read (Phase 1921 Step B)', () => {
     // loser 若走到 claim/row 写路径一律直通
     const loserStore = new RetrospectiveStore({ fs: heldFs, audit: audit.audit });
 
+    // 屏障放行兜底（命名常量，playbook §零容忍立法）：远大于 loser 稳定读预算
+    // （ROW_STABLE_READ_ATTEMPTS 8 × 5ms 退让 + exists/claim 开销）与 CI 调度抖动，
+    // 仅防测试悬挂——正常路径由 partialSeen（loser 亲历 ≥2 次半写）先行放行
+    const BARRIER_RELEASE_FALLBACK_MS = 5_000;
+
     const winner = winnerStore.ensure(input);
     await pathPublished; // winner 已发布 ready 路径、内容被暂停
     const loser = loserStore.ensure(input);
     // 等 loser 确实读到过半写内容（确定性交错证明），再放行 winner 落笔
     await Promise.race([
       partialSeen,
-      new Promise<void>((r) => { setTimeout(r, 5000); }),
+      new Promise<void>((r) => { setTimeout(r, BARRIER_RELEASE_FALLBACK_MS); }),
     ]);
     release();
 
