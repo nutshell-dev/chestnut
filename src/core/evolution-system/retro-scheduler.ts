@@ -88,6 +88,10 @@ export async function buildRetroSubagentPayload(
     kind: 'subagent',
     mode: 'standard',
     intent: retroPrompt,
+    // Phase 1919 Step D：持久复盘来源引用（correlation = ATS opaque 来源事实）。
+    // 复盘子代理编辑 dispatch 技能时经 CHESTNUT_SUBAGENT_TASK_ID + owner 窄查询
+    // （loadSubAgentTask）解析回本任务与本 contract，依据可追溯、不伪造。
+    correlation: { source: 'retro', ref: input.contractId },
     timeoutMs: input.retroSubagentTimeoutMs ?? RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
     // phase 1490: maxSteps 不传、task.maxSteps optional / undefined → SubAgent boundary fallback
     parentClawId: MOTION_CLAW_ID,

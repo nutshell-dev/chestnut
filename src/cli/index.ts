@@ -30,6 +30,13 @@ import {
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
 import { skillListCommand } from './commands/skill-list.js';
+import {
+  skillEditBeginCommand,
+  skillEditSubmitCommand,
+  skillEditRetryCommand,
+  skillEditStatusCommand,
+  skillHistoryCommand,
+} from './commands/skill-edit.js';
 import { startCommand as watchdogStart, stopCommand as watchdogStop } from './commands/watchdog-cli.js';
 import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
@@ -329,6 +336,48 @@ miscShape(skillCmd.command('list'), 'skill/list')
   .action(action('observe_only', async (opts: { claw?: string }) => {
     await skillListCommand({ fsFactory, rootConfig }, opts);
   }));
+
+// Phase 1919 Step D：技能分支编辑事务唯一 CLI 入口（形状经 misc catalog 投影）
+const skillEditCmd = skillCmd
+  .command('edit')
+  .description('Branch edit transactions for dispatch skills');
+
+miscShape(skillEditCmd.command('begin <name>'), 'skill/edit/begin')
+  .action(action('required', async (name: string, opts: { reason?: string }) => {
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillEditBeginCommand({ fsFactory }, name, opts, { audit });
+  }));
+
+miscShape(skillEditCmd.command('submit <editId>'), 'skill/edit/submit')
+  .action(action('required', async (editId: string) => {
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillEditSubmitCommand({ fsFactory }, editId, { audit });
+  }));
+
+miscShape(skillEditCmd.command('retry <editId>'), 'skill/edit/retry')
+  .action(action('required', async (editId: string) => {
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillEditRetryCommand({ fsFactory }, editId, { audit });
+  }));
+
+miscShape(skillEditCmd.command('status <editId>'), 'skill/edit/status')
+  .action(action('observe_only', async (editId: string) => {
+    await skillEditStatusCommand({ fsFactory }, editId);
+  }));
+
+miscShape(skillCmd.command('history <name>'), 'skill/history')
+  .action(action('observe_only', async (name: string) => {
+    await skillHistoryCommand({ fsFactory }, name);
+  }));
+
+skillEditCmd.on('command:*', (ops) => {
+  console.error(`error: unknown command '${ops[0]}'\n`);
+  console.error('Available commands:');
+  for (const c of skillEditCmd.commands) {
+    console.error(`  ${c.name().padEnd(12)}  ${c.description()}`);
+  }
+  process.exitCode = 1;
+});
 
 skillCmd.on('command:*', (ops) => {
   console.error(`error: unknown command '${ops[0]}'\n`);

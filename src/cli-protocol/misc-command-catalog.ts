@@ -26,6 +26,30 @@ export const MISC_COMMAND_CATALOG = [
       { flag: '-c, --claw <id>', desc: 'Target claw ID (default: motion)' },
     ],
   },
+  // Phase 1919 Step D：技能分支编辑事务唯一 CLI 入口（begin/submit/retry/status/history）
+  {
+    id: 'skill/edit/begin',
+    summary: 'Begin a branch edit transaction for a dispatch skill',
+    options: [
+      { flag: '--reason <text>', desc: 'Why this edit is made (recorded as permanent basis; never fabricated)', required: true },
+    ],
+  },
+  {
+    id: 'skill/edit/submit',
+    summary: 'Submit a branch edit (save candidate + conditional publish; conflict exits 3, busy exits 4)',
+  },
+  {
+    id: 'skill/edit/retry',
+    summary: 'Retry a conflicted edit on the latest published base (new linked branch)',
+  },
+  {
+    id: 'skill/edit/status',
+    summary: 'Show a branch edit transaction (read-only: status, candidate, basis)',
+  },
+  {
+    id: 'skill/history',
+    summary: 'List branch edit transactions of a dispatch skill (read-only, newest first)',
+  },
   { id: 'watchdog/start', summary: 'Start watchdog' },
   { id: 'watchdog/stop', summary: 'Stop watchdog' },
   {

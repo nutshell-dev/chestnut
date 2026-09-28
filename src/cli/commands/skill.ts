@@ -680,7 +680,8 @@ function cleanupCommitProof(
 /**
  * dispatch 版本服务装配（Phase 1919 Step B）：repo root 保持 clawspace/dispatch-skills，
  * 候选工作区与服务状态在 clawspace 隐藏目录。迁移阻断（旧活动 intent/marker）
- * loud 失败，不绕过。
+ * loud 失败，不绕过。Phase 1919 Step D：export 供 skill-edit 命令族复用（CLI 不直接
+ * new Git wrapper，全部版本操作经 SkillVersions owner 服务）。
  */
 /** CLI extraDeps.audit 是宽松 sink（测试常只给 write）；补齐 AuditLog 全表面 */
 function toFullAudit(audit: AuditLog | undefined): AuditLog {
@@ -695,7 +696,7 @@ function toFullAudit(audit: AuditLog | undefined): AuditLog {
   };
 }
 
-async function createDispatchVersions(
+export async function createDispatchVersions(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   root: string,
   audit?: AuditLog,
