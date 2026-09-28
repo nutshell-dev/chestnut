@@ -681,7 +681,9 @@ describe('exec-context-narrow-audit-invariant', () => {
         const src = fsSync.readFileSync(file, 'utf-8');
         const fields = getCtxFields(src);
         const dims = Array.from(new Set(fields.map(classifyField))).sort();
-        if (dims.length > 0) report[file] = dims;
+        // Phase 1919 Step B：完全 DI 化的 tool（如 skill.ts，ctx 零消费）也入
+        // 快照——空 dim set 是 narrow 的终态，不应被过滤成「未 narrow」
+        report[file] = dims;
       }
       // 基线 assertion：至少存在已 narrow demo 3 个（phase 1459 α-5）+ notify-claw（本 phase 续）
       // 这些 file 真依赖 dim set 应 ≤ 2 个 dim

@@ -68,6 +68,10 @@ describe('Phase 1218 Step B: DialogStore mutation authority ratchet', () => {
       'blockIdIndex.save',
       'DialogStore.save',       // JSDoc references
       'DialogStore.archive',
+      // Phase 1919: skill-system 版本服务持有的 Snapshot VersionStore（this.store）
+      // 与 EditStore（this.editStore）不是 DialogStore——宽正则误伤排除
+      'this.store.save',
+      'editStore.save',
     ];
     const mutationLines = lines.filter(line => {
       const text = line.split(':').slice(2).join(':');
