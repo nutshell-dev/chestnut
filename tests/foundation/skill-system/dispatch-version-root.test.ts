@@ -100,7 +100,7 @@ describe.skipIf(!gitAvailable)('dispatch 独立版本根与入口切换（phase 
     const svc = await makeService();
     const a = await svc.readPublished('alpha');
     expect(a.sourceVersion).toMatch(/^[0-9a-f]{40}$/);
-    expect(fsSync.readFileSync(path.join(a.materializedPath, 'SKILL.md'), 'utf8')).toContain('# Alpha v1');
+    expect(await svc.loadPublished('alpha')).toContain('# Alpha v1');
     const formatted = await svc.formatPublishedForContext();
     expect(formatted).toContain('alpha');
     expect(formatted).toContain('beta');
@@ -118,8 +118,13 @@ describe.skipIf(!gitAvailable)('dispatch 独立版本根与入口切换（phase 
     expect(fsSync.readFileSync(path.join(stateDir(), backups[0], 'alpha', 'SKILL.md'), 'utf8')).toContain('# Alpha v1');
     // repo 根旧字节原样保留（不删历史/字节）
     expect(fsSync.readFileSync(path.join(repositoryDir(), 'alpha', 'SKILL.md'), 'utf8')).toContain('# Alpha v1');
-    // 库根工作区不是读取路径：materializedPath 在 stateDir 投影
-    expect(a.materializedPath.startsWith(stateDir())).toBe(true);
+    // Phase 1921 Step D：读取结果只含不可变身份（不再有共享投影路径句柄）；
+    // 物化经 exportSkillVersion 到调用方独占目录，且绝不落在库内
+    expect('materializedPath' in a).toBe(false);
+    const exportDir = path.join(tmpDir, 'export-alpha');
+    await svc.exportSkillVersion({ name: 'alpha', version: a.sourceVersion, destination: exportDir });
+    expect(fsSync.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf8')).toContain('# Alpha v1');
+    expect(exportDir.startsWith(repositoryDir())).toBe(false);
   });
 
   it('嵌套 agent repo 内仍建独立 Git 根', async () => {
@@ -201,10 +206,12 @@ describe.skipIf(!gitAvailable)('dispatch 独立版本根与入口切换（phase 
     fsSync.writeFileSync(path.join(repositoryDir(), 'alpha', 'stray.txt'), 'dirty\n');
 
     const a = await svc.readPublished('alpha');
-    const content = fsSync.readFileSync(path.join(a.materializedPath, 'SKILL.md'), 'utf8');
+    const exportDir = path.join(tmpDir, 'export-dirty-check');
+    await svc.exportSkillVersion({ name: 'alpha', version: a.sourceVersion, destination: exportDir });
+    const content = fsSync.readFileSync(path.join(exportDir, 'SKILL.md'), 'utf8');
     expect(content).toContain('# Alpha committed');
     expect(content).not.toContain('DIRTY');
-    expect(fsSync.existsSync(path.join(a.materializedPath, 'stray.txt'))).toBe(false);
+    expect(fsSync.existsSync(path.join(exportDir, 'stray.txt'))).toBe(false);
     expect(await svc.loadPublished('alpha')).toContain('# Alpha committed');
   });
 
@@ -217,8 +224,32 @@ describe.skipIf(!gitAvailable)('dispatch 独立版本根与入口切换（phase 
       .rejects.toMatchObject({ kind: 'invalid_argument' });
 
     const e = await svc.readPublished('epsilon');
-    expect(fsSync.existsSync(path.join(e.materializedPath, '.git'))).toBe(false);
+    const exportDir = path.join(tmpDir, 'export-epsilon');
+    await svc.exportSkillVersion({ name: 'epsilon', version: e.sourceVersion, destination: exportDir });
+    expect(fsSync.existsSync(path.join(exportDir, '.git'))).toBe(false);
     expect(await svc.formatPublishedForContext()).not.toContain('.git');
+  });
+
+  it('Phase 1921 Step D：读取 v1 后发布 v2，v1 身份导出仍得 v1（版本身份=不可变句柄）', async () => {
+    seedLiveSkill('alpha', '# Alpha v1\n');
+    const svc = await makeService();
+    const v1 = (await svc.readPublished('alpha')).sourceVersion;
+
+    // 后续发布推进到 v2
+    const r = await svc.importSkill({ name: 'alpha', source: writeSource('alpha', '# Alpha v2\n'), operationId: 'imp-a2', basis });
+    expect(r.kind).toBe('published');
+    expect((await svc.readPublished('alpha')).sourceVersion).not.toBe(v1);
+
+    // 旧版本身份导出仍得 v1 字节（不受后续发布影响）；当前读取是 v2
+    const dirV1 = path.join(tmpDir, 'export-v1');
+    await svc.exportSkillVersion({ name: 'alpha', version: v1, destination: dirV1 });
+    expect(fsSync.readFileSync(path.join(dirV1, 'SKILL.md'), 'utf8')).toContain('# Alpha v1');
+    expect(await svc.loadPublished('alpha')).toContain('# Alpha v2');
+    // 重启后旧身份依然可导出（不可变 commit 跨重启有效）
+    const svc2 = await makeService();
+    const dirV1b = path.join(tmpDir, 'export-v1-restart');
+    await svc2.exportSkillVersion({ name: 'alpha', version: v1, destination: dirV1b });
+    expect(fsSync.readFileSync(path.join(dirV1b, 'SKILL.md'), 'utf8')).toContain('# Alpha v1');
   });
 
   it('import 参数校验：病态技能名/无 SKILL.md/空依据 typed 拒绝', async () => {

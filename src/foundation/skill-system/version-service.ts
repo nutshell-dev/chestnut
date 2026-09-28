@@ -570,7 +570,7 @@ export class SkillVersionService implements SkillVersions {
     if (rev === undefined || !(await this.stateFs.exists(`${this.projectionRel(name)}/SKILL.md`))) {
       throw new SkillVersionError('not_found', `dispatch skill "${name}" has no published version`);
     }
-    return { name, sourceVersion: rev, materializedPath: this.projectionAbs(name) };
+    return { name, sourceVersion: rev };
   }
 
   async loadPublished(name: string): Promise<string> {

@@ -20,12 +20,16 @@ export interface SkillBasis {
   sourceRefs: readonly string[];
 }
 
-/** 固定版本读取结果：materializedPath 为该版本物化投影的绝对路径（只读消费）。 */
+/**
+ * 固定版本读取结果（Phase 1921 Step D：不再对外暴露共享投影路径——
+ * 旧 materializedPath 指向可被后续发布替换的可变目录，冒充不可变句柄是
+ * 契约欺骗）。固定版本承诺一律经不可变 version 身份兑现：内容读取用
+ * loadPublished(name)，子树物化用 exportSkillVersion({ name, version: sourceVersion, … })。
+ */
 export interface PublishedSkill {
   name: string;
-  /** 该技能最近一次发布变更的版本身份（VersionId 字符串形态） */
+  /** 该技能最近一次发布变更的版本身份（40-hex commit；不可变、可持久化） */
   sourceVersion: string;
-  materializedPath: string;
 }
 
 export type SkillPublishResult =

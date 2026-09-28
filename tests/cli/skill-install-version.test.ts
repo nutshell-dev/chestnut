@@ -266,17 +266,17 @@ describe('Phase 1919 Step F: 安装来源版本固定（sourceVersion pinning）
 
   it('固定 commit 缺失/损坏 → fail-closed 不回退 live，claim 与目标留证', async () => {
     await publishDispatch('a', 'v1');
-    const projectionPath = (await (await dispatchVersions()).readPublished('myskill')).materializedPath;
     makeClaw('bob');
 
     // 手工 fixture：pinned intent 指向版本库中不存在的 commit，快照缺失
+    // （Phase 1921 Step D：source 是逻辑标签 dispatch://<name>，不再是投影路径）
     const bogus = '1'.repeat(40);
     const intent = {
       schema_version: 3,
       token: 'tok-bogus',
       id: 'install-bogus',
       skillName: 'myskill',
-      source: projectionPath,
+      source: 'dispatch://myskill',
       sourceVersion: bogus,
       pid: 99999, // holder 已死
       startedAt: new Date().toISOString(),
@@ -299,17 +299,22 @@ describe('Phase 1919 Step F: 安装来源版本固定（sourceVersion pinning）
 
   it('旧 schema-2 intent（无 sourceVersion）恢复保持 manifest 校验，不追认当前 commit', async () => {
     await publishDispatch('a', 'v1');
-    const published = await (await dispatchVersions()).readPublished('myskill');
-    const v1Manifest = manifestOf(published.materializedPath);
+    // Phase 1921 Step D：manifest 经 exportSkillVersion 物化计算（不再有共享投影路径）
+    const versions = await dispatchVersions();
+    const v1 = (await versions.readPublished('myskill')).sourceVersion;
+    const exportDir = path.join(testDir, 'export-v1-manifest');
+    await versions.exportSkillVersion({ name: 'myskill', version: v1, destination: exportDir });
+    const v1Manifest = manifestOf(exportDir);
     makeClaw('bob');
 
-    // 手工 fixture：旧协议中断安装（schema 2，无 sourceVersion，快照缺失）
+    // 手工 fixture：旧协议中断安装（schema 2，无 sourceVersion，快照缺失）；
+    // source 字段是 1919 B–E 时代的历史投影路径（恢复不再依赖它读字节）
     const intent = {
       schema_version: 2,
       token: 'tok-legacy',
       id: 'install-legacy',
       skillName: 'myskill',
-      source: published.materializedPath,
+      source: path.join(testDir, '.chestnut', 'motion', 'clawspace', '.dispatch-version-state', 'projection', 'myskill'),
       pid: 99999,
       startedAt: new Date().toISOString(),
       manifest: v1Manifest,

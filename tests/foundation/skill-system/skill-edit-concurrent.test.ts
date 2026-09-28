@@ -141,8 +141,11 @@ describe.skipIf(!gitAvailable)('技能分支编辑事务：并发（phase 1919 S
     }
 
     // 晚提交不覆盖：published 的 extra.md 仍是原版，SKILL.md 是 A 的版本
+    // （Phase 1921 Step D：固定版本物化经 exportSkillVersion 到独占目录）
     const pub = await svcA.readPublished('alpha');
-    expect(fsSync.readFileSync(path.join(pub.materializedPath, 'extra.md'), 'utf8')).toBe('EXTRA-ORIG\n');
+    const exportDir = path.join(tmpDir, 'export-alpha-published');
+    await svcA.exportSkillVersion({ name: 'alpha', version: pub.sourceVersion, destination: exportDir });
+    expect(fsSync.readFileSync(path.join(exportDir, 'extra.md'), 'utf8')).toBe('EXTRA-ORIG\n');
     expect(await svcA.loadPublished('alpha')).toContain('# Alpha by A');
 
     // 重复 submit 幂等：同一冲突结果（不重复发布、不伪造）

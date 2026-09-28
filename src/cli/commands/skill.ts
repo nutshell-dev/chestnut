@@ -29,6 +29,11 @@
  *   published，sourceVersion 随 durable intent（schema 3）先于第一次复制
  *   持久化；恢复只按 intent 内固定 commit 重建/核验快照，commit 缺失/损坏
  *   fail-closed 不回读 live；成功安装 audit 记录来源 commit；
+ * - Phase 1921 Step D（固定版本读取契约收敛）：claw 安装不再持有共享投影
+ *   路径（可变目录冒充固定句柄）；payload 一律经 exportSkillVersion 按
+ *   commit 物化，intent.source 降为逻辑标签 dispatch://<name>，pinned 模式
+ *   恢复跳过路径字面漂移比较（身份由 skillName + sourceVersion/manifest 承担），
+ *   旧无 sourceVersion intent 的 live 等价比对也改经当前 published 导出物；
  * - 成功 audit/输出只在目标集合全部 published 后发出。
  */
 
@@ -918,7 +923,11 @@ async function runSkillInstall(
     // 同 source 恢复（快照身份核验在下方）；异 source 显式冲突留证。
     intent = readExistingInstallIntent(opts.claimFs, opts.claimRel, opts.skillName);
     resumed = true;
-    if (intent.source !== opts.srcAbs) {
+    // Phase 1921 Step D：pinned（dispatch 来源）模式下 source 只是逻辑标签
+    // （dispatch://<name>；1919 B–F 窗口的旧 intent 记录的是历史投影绝对路径）——
+    // 身份核验由 skillName + sourceVersion/manifest 承担，跳过路径字面比较；
+    // user 模式（文件系统 source）保持严格漂移拒绝。
+    if (opts.pinnedSource === undefined && intent.source !== opts.srcAbs) {
       throw new CliError(
         `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
         `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
@@ -1006,16 +1015,43 @@ async function runSkillInstall(
       if (snapshotAbs === null) {
         // 快照缺失 → live source 必须仍等于 intent payload 才能重建；
         // source generation 已变化 → 显式冲突，不把新字节归入旧 intent
-        const liveManifest = computeSkillSourceManifest(deps.fsFactory(opts.srcAbs));
-        if (JSON.stringify(liveManifest) !== JSON.stringify(intent.manifest)) {
-          throw new CliError(
-            `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
-            `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
-          );
-        }
         const snapName = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${opts.skillName}-${intent.token}`;
-        snapshotAbs = path.join(claimParentAbs, snapName);
-        await materializeSourceSnapshot(deps, opts.srcAbs, snapshotAbs, intent.manifest);
+        const candidate = path.join(claimParentAbs, snapName);
+        if (opts.pinnedSource !== undefined) {
+          // Phase 1921 Step D：pinned 模式下 srcAbs 是逻辑标签不是路径——「live
+          // 等价物」= 当前 published commit 的导出物（不可变读，不碰共享投影）。
+          // 与 intent payload 相符才恢复；不符 = source generation 已变，显式冲突。
+          const pinned = opts.pinnedSource;
+          try {
+            await pinned.exportTo(pinned.version, candidate);
+          } catch (e) {
+            throw new CliError(
+              `Skill "${opts.skillName}" current published version ${pinned.version} cannot be exported ` +
+              `(${formatErr(e)}); fail-closed — install claim ${opts.claimRel} preserved`,
+            );
+          }
+          const liveManifest = computeSkillSourceManifest(deps.fsFactory(candidate));
+          if (JSON.stringify(liveManifest) !== JSON.stringify(intent.manifest)) {
+            await deps.fsFactory(claimParentAbs).removeDir(snapName).catch(() => {
+              // silent: 比对失败的导出物可从版本库重建，非证据；残留由 sweep 收敛
+            });
+            throw new CliError(
+              `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
+              `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
+            );
+          }
+          snapshotAbs = candidate;
+        } else {
+          const liveManifest = computeSkillSourceManifest(deps.fsFactory(opts.srcAbs));
+          if (JSON.stringify(liveManifest) !== JSON.stringify(intent.manifest)) {
+            throw new CliError(
+              `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
+              `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
+            );
+          }
+          snapshotAbs = candidate;
+          await materializeSourceSnapshot(deps, opts.srcAbs, snapshotAbs, intent.manifest);
+        }
         intent.sourceSnapshot = snapName;
         opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
       }
@@ -1272,17 +1308,16 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
   const clawDir = getClawDir(clawId);
   const dest = path.join(clawDir, SKILLS_DIR_DEFAULT, skillName);
 
-  // Phase 1919 Step B：source = 版本服务固定版本物化投影（committed view），
-  // 不再从 live dispatch 目录复制；未发布 = not found。
+  // Phase 1919 Step B：source = 版本服务固定版本（committed view），未发布 = not found。
   // Phase 1919 Step F：选版点 = 本命令 begin 读 published——sourceVersion 随
   // durable intent 先于第一次复制持久化，重启/并发发布都不改变本次来源。
+  // Phase 1921 Step D：契约收敛——不再持有共享投影路径（可变目录冒充固定句柄）；
+  // payload 一律经 exportSkillVersion 按 commit 物化，intent.source 只是
+  // 稳定逻辑标签（dispatch://<name>），不再承载文件系统路径语义。
   const versions = await createDispatchVersions(deps, root, audit, extraDeps?.createSkillVersions);
-  let source: string;
   let sourceVersion: string;
   try {
-    const published = await versions.readPublished(skillName);
-    source = published.materializedPath;
-    sourceVersion = published.sourceVersion;
+    sourceVersion = (await versions.readPublished(skillName)).sourceVersion;
   } catch (e) {
     if (e instanceof SkillVersionError && e.kind === 'not_found') {
       throw new CliError(`dispatch-skill "${skillName}" not found`);
@@ -1296,7 +1331,7 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
 
   const { sourceVersion: installedVersion } = await runSkillInstall(deps, {
     skillName,
-    srcAbs: source,
+    srcAbs: `dispatch://${skillName}`,
     claimFs: clawFs,
     claimRel: path.join(SKILLS_DIR_DEFAULT, `.${skillName}.installing`),
     targets: [{ id: 'claw', absPath: dest }],
