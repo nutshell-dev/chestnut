@@ -25,6 +25,10 @@
  *   快照期间 source 变化 → 有界重试，仍不稳定 → fail-closed；恢复优先复用
  *   持久快照（编辑前完整版本），快照缺失且 live source 已偏离 intent
  *   payload → 显式冲突留证；
+ * - Phase 1919 Step F（claw 模式安装来源版本固定）：选版点 = 安装 begin 读
+ *   published，sourceVersion 随 durable intent（schema 3）先于第一次复制
+ *   持久化；恢复只按 intent 内固定 commit 重建/核验快照，commit 缺失/损坏
+ *   fail-closed 不回读 live；成功安装 audit 记录来源 commit；
  * - 成功 audit/输出只在目标集合全部 published 后发出。
  */
 
@@ -63,12 +67,18 @@ interface SkillSourceManifestEntry {
 interface SkillInstallIntent {
   // schema 2（Phase 1916 Step C）：+ id（稳定 install 身份，marker 占有证据）、
   // targets[].preState（崩溃前目标先态）、committing 状态与 commitBranch。
-  schema_version: 1 | 2;
+  // schema 3（Phase 1919 Step F）：+ sourceVersion（claw 模式安装 begin 选定的
+  // dispatch 已发布 commit）——来源 pinning 先于第一次复制持久化；恢复只按该
+  // commit 重建/核验快照，绝不回读 live。manifest 为空的 schema-3 intent =
+  // 「claim 已持久化、来源导出未登记」窗口，恢复时重导出补齐。
+  schema_version: 1 | 2 | 3;
   token: string;
   /** 稳定 install 身份：holder 接管不 rewrite，写入 target marker 作占有证据。 */
   id: string;
   skillName: string;
   source: string;
+  /** Phase 1919 Step F：安装 begin 选定的来源 commit（仅 schema 3 / claw 模式）。 */
+  sourceVersion?: string;
   pid: number;
   process_start_time?: string;
   startedAt: string;
@@ -552,7 +562,8 @@ async function classifyRecoveryTarget(
 
   // legacy schema-1 intent（1915 及更早：无 installId/preState/committing 事实）：
   // 沿用 1915 判读——publishing + marker 缺席补登记，其余续传/发布。
-  if (intent.schema_version !== 2 || target.preState === undefined) {
+  // schema 3（Phase 1919 Step F：+ sourceVersion）沿用 schema 2 现代判读。
+  if (intent.schema_version < 2 || target.preState === undefined) {
     if (target.state !== 'publishing') return 'publish';
     if (targetPresent === null) return 'publish';
     const marker = readSkillPublishMarker(parentFs, markerRel);
@@ -775,8 +786,21 @@ async function runSkillInstall(
      * 注入后该 target 不走目录 swap/marker/proof 协议，由钩子幂等发布。
      */
     dispatchPublish?: (ctx: { snapshotAbs: string; intent: SkillInstallIntent }) => Promise<void>;
+    /**
+     * Phase 1919 Step F：安装来源版本固定（claw 模式注入）。fresh 路径先把
+     * sourceVersion 持久化进 durable intent（schema 3），再按该 commit 导出
+     * 技能子树作快照；恢复路径只按 intent 内 sourceVersion 重建/核验快照，
+     * commit 缺失/损坏 fail-closed，绝不回读 live。注入后选版点 = 调用方
+     * 安装 begin 读 published 的时刻。
+     */
+    pinnedSource?: {
+      /** 安装 begin 选定的已发布 commit（40-hex；仅 fresh 路径使用，恢复以 intent 为准）。 */
+      version: string;
+      /** 按 commit 导出技能子树到独占空目录（owner = SkillVersions）。 */
+      exportTo: (version: string, destAbs: string) => Promise<void>;
+    };
   },
-): Promise<{ resumed: boolean }> {
+): Promise<{ resumed: boolean; sourceVersion?: string }> {
   const claimDirRel = path.posix.dirname(opts.claimRel);
   const claimParentAbs = path.dirname(opts.claimFs.resolve(opts.claimRel));
 
@@ -798,11 +822,11 @@ async function runSkillInstall(
   }
 
   if (!claimExisted) {
-    // ---- fresh：先拍自一致快照（快照 manifest = 权威 payload），再独占写 claim ----
+    // ---- fresh：schema 3（pinned）先把来源 commit 持久化进 claim，再导出该
+    // commit 的技能子树；schema 2（unpinned）先拍自一致快照再独占写 claim ----
     const token = newShortUuid();
     const snapName = `${SKILL_SOURCE_SNAPSHOT_PREFIX}${opts.skillName}-${token}`;
     const snapAbs = path.join(claimParentAbs, snapName);
-    const manifest = await materializeSourceSnapshot(deps, opts.srcAbs, snapAbs, null);
     // Phase 1916 Step C：登记逐目标先态（recovery 身份证据）——类型化探测，
     // 未知 I/O 原样上抛；目标在场则记录其内容 hash（合法 update 目标判读基准）
     const targetsWithPreState: SkillInstallIntent['targets'] = [];
@@ -820,29 +844,72 @@ async function runSkillInstall(
           : { contentHash: targetContentHash(deps.fsFactory(t.absPath)) },
       });
     }
-    const fresh: SkillInstallIntent = {
-      schema_version: 2,
-      token,
-      id: newShortUuid(),
-      skillName: opts.skillName,
-      source: opts.srcAbs,
-      pid: process.pid,
-      process_start_time: getProcessStartTime(process.pid),
-      startedAt: new Date().toISOString(),
-      manifest,
-      sourceSnapshot: snapName,
-      targets: targetsWithPreState,
-    };
-    try {
-      opts.claimFs.writeExclusiveSync(opts.claimRel, JSON.stringify(fresh, null, 2));
-      intent = fresh;
-      snapshotAbs = snapAbs;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
-      // 快照与 claim 写入之间出现并发 holder → 本方快照让位，转入恢复判读
-      await deps.fsFactory(claimParentAbs).removeDir(snapName).catch(() => {
-        // silent: 本方快照清理失败不掩盖冲突判读；残留由 winner 清扫
-      });
+    if (opts.pinnedSource !== undefined) {
+      // pinning 必须早于第一次复制并有 durable intent（先复制后记版本会失去
+      // 崩溃归属）：claim 独占写入成功 = 本次安装来源已固定为 pinned.version
+      const pinned = opts.pinnedSource;
+      const fresh: SkillInstallIntent = {
+        schema_version: 3,
+        token,
+        id: newShortUuid(),
+        skillName: opts.skillName,
+        source: opts.srcAbs,
+        sourceVersion: pinned.version,
+        pid: process.pid,
+        process_start_time: getProcessStartTime(process.pid),
+        startedAt: new Date().toISOString(),
+        manifest: [], // 导出登记前为空：恢复时按 sourceVersion 重导出补齐
+        sourceSnapshot: snapName,
+        targets: targetsWithPreState,
+      };
+      try {
+        opts.claimFs.writeExclusiveSync(opts.claimRel, JSON.stringify(fresh, null, 2));
+        intent = fresh;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+        // 并发 holder 抢先：本方选版作废，转入恢复判读（以在场 intent 为准）
+      }
+      if (intent !== undefined) {
+        // 导出固定 commit 的技能子树作快照；commit 缺失/损坏 → claim 已留证，
+        // fail-closed 上抛（不读 live、不释放 claim）
+        try {
+          await pinned.exportTo(pinned.version, snapAbs);
+        } catch (e) {
+          throw new CliError(
+            `Skill "${opts.skillName}" pinned source version ${pinned.version} cannot be exported ` +
+            `(${formatErr(e)}); fail-closed — install claim ${opts.claimRel} preserved, not falling back to live bytes`,
+          );
+        }
+        fresh.manifest = computeSkillSourceManifest(deps.fsFactory(snapAbs));
+        opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(fresh, null, 2));
+        snapshotAbs = snapAbs;
+      }
+    } else {
+      const manifest = await materializeSourceSnapshot(deps, opts.srcAbs, snapAbs, null);
+      const fresh: SkillInstallIntent = {
+        schema_version: 2,
+        token,
+        id: newShortUuid(),
+        skillName: opts.skillName,
+        source: opts.srcAbs,
+        pid: process.pid,
+        process_start_time: getProcessStartTime(process.pid),
+        startedAt: new Date().toISOString(),
+        manifest,
+        sourceSnapshot: snapName,
+        targets: targetsWithPreState,
+      };
+      try {
+        opts.claimFs.writeExclusiveSync(opts.claimRel, JSON.stringify(fresh, null, 2));
+        intent = fresh;
+        snapshotAbs = snapAbs;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+        // 快照与 claim 写入之间出现并发 holder → 本方快照让位，转入恢复判读
+        await deps.fsFactory(claimParentAbs).removeDir(snapName).catch(() => {
+          // silent: 本方快照清理失败不掩盖冲突判读；残留由 winner 清扫
+        });
+      }
     }
   }
 
@@ -858,7 +925,69 @@ async function runSkillInstall(
       );
     }
     const needsPublish = intent.targets.some((t) => t.state !== 'published');
-    if (needsPublish) {
+    if (needsPublish && intent.sourceVersion !== undefined) {
+      // ---- Phase 1919 Step F：schema 3 pinned 恢复——只按 intent 内固定 commit
+      // 重建/核验快照，绝不读 live（commit 缺失/损坏 fail-closed 不回退 live）
+      if (opts.pinnedSource === undefined) {
+        throw new CliError(
+          `Skill "${opts.skillName}" has an interrupted pinned install (claim: ${opts.claimRel}) ` +
+          `but this command mode cannot export pinned versions; evidence preserved`,
+        );
+      }
+      const sourceVersion = intent.sourceVersion;
+      const pinnedExport = async (destAbs: string): Promise<void> => {
+        try {
+          await opts.pinnedSource?.exportTo(sourceVersion, destAbs);
+        } catch (e) {
+          throw new CliError(
+            `Skill "${opts.skillName}" pinned source version ${sourceVersion} cannot be exported ` +
+            `(${formatErr(e)}); fail-closed — install claim ${opts.claimRel} preserved, not falling back to live bytes`,
+          );
+        }
+      };
+      const snapName = typeof intent.sourceSnapshot === 'string' && intent.sourceSnapshot !== ''
+        ? intent.sourceSnapshot
+        : `${SKILL_SOURCE_SNAPSHOT_PREFIX}${opts.skillName}-${intent.token}`;
+      const candidate = path.join(claimParentAbs, snapName);
+      const snapPresent = await deps.fsFactory(candidate).stat('.').catch(() => null) !== null;
+      if (intent.manifest.length === 0) {
+        // 「claim 已持久化、导出未登记」窗口：残留半成品快照非权威，重导出补齐
+        if (snapPresent) {
+          await deps.fsFactory(claimParentAbs).removeDir(snapName).catch(() => {
+            // silent: 半成品快照清理失败不掩盖重导出；残留由 sweep 收敛
+          });
+        }
+        await pinnedExport(candidate);
+        intent.manifest = computeSkillSourceManifest(deps.fsFactory(candidate));
+        intent.sourceSnapshot = snapName;
+        opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+        snapshotAbs = candidate;
+      } else if (snapPresent) {
+        // 快照在场：必须仍等于 intent payload（= 固定 commit 字节）才复用
+        const snapManifest = computeSkillSourceManifest(deps.fsFactory(candidate));
+        if (JSON.stringify(snapManifest) !== JSON.stringify(intent.manifest)) {
+          throw new CliError(
+            `Skill "${opts.skillName}" source snapshot "${snapName}" does not match ` +
+            `its install intent (claim: ${opts.claimRel}); conflict — evidence preserved`,
+          );
+        }
+        snapshotAbs = candidate;
+      } else {
+        // 快照缺失：按固定 commit 重建（commit 不可变，重建字节即原 payload）；
+        // 重建结果偏离 intent manifest = 版本库损坏，显式冲突留证
+        await pinnedExport(candidate);
+        const rebuilt = computeSkillSourceManifest(deps.fsFactory(candidate));
+        if (JSON.stringify(rebuilt) !== JSON.stringify(intent.manifest)) {
+          throw new CliError(
+            `Skill "${opts.skillName}" pinned source version ${intent.sourceVersion} no longer matches ` +
+            `its install intent payload (claim: ${opts.claimRel}); conflict — evidence preserved, not overwritten`,
+          );
+        }
+        intent.sourceSnapshot = snapName;
+        opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
+        snapshotAbs = candidate;
+      }
+    } else if (needsPublish) {
       // 优先复用持久快照（= 中断时的 source identity）：即使 live source 已被
       // 合法编辑，恢复仍完成「编辑前的完整版本」，不混入新字节。
       if (typeof intent.sourceSnapshot === 'string' && intent.sourceSnapshot !== '') {
@@ -987,7 +1116,9 @@ async function runSkillInstall(
     // 下次同名安装按恢复路径快速收敛
     console.warn(`Warning: failed to release skill install claim ${opts.claimRel}: ${err}`);
   }
-  return { resumed };
+  // 成功安装记录实际使用的来源版本（恢复时以 intent 内固定版本为准，可能与
+  // 本次 begin 读到的 published 不同——旧 intent 无 sourceVersion 则 undefined）
+  return { resumed, sourceVersion: intent.sourceVersion };
 }
 
 /**
@@ -1143,10 +1274,15 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
 
   // Phase 1919 Step B：source = 版本服务固定版本物化投影（committed view），
   // 不再从 live dispatch 目录复制；未发布 = not found。
+  // Phase 1919 Step F：选版点 = 本命令 begin 读 published——sourceVersion 随
+  // durable intent 先于第一次复制持久化，重启/并发发布都不改变本次来源。
   const versions = await createDispatchVersions(deps, root, audit, extraDeps?.createSkillVersions);
   let source: string;
+  let sourceVersion: string;
   try {
-    source = (await versions.readPublished(skillName)).materializedPath;
+    const published = await versions.readPublished(skillName);
+    source = published.materializedPath;
+    sourceVersion = published.sourceVersion;
   } catch (e) {
     if (e instanceof SkillVersionError && e.kind === 'not_found') {
       throw new CliError(`dispatch-skill "${skillName}" not found`);
@@ -1158,14 +1294,25 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
     throw new CliError(`claw "${clawId}" does not exist`);
   }
 
-  await runSkillInstall(deps, {
+  const { sourceVersion: installedVersion } = await runSkillInstall(deps, {
     skillName,
     srcAbs: source,
     claimFs: clawFs,
     claimRel: path.join(SKILLS_DIR_DEFAULT, `.${skillName}.installing`),
     targets: [{ id: 'claw', absPath: dest }],
+    pinnedSource: {
+      version: sourceVersion,
+      exportTo: (version, destAbs) => versions.exportSkillVersion({ name: skillName, version, destination: destAbs }),
+    },
   });
 
-  audit?.write(CLI_AUDIT_EVENTS.SKILL_INSTALL, `mode=claw`, `claw=${clawId}`, `skill=${skillName}`);
+  // 成功安装 audit 记录来源 commit（恢复完成旧 intent 时为其固定版本）
+  audit?.write(
+    CLI_AUDIT_EVENTS.SKILL_INSTALL,
+    `mode=claw`,
+    `claw=${clawId}`,
+    `skill=${skillName}`,
+    `source_version=${installedVersion ?? 'unpinned'}`,
+  );
   console.log(`Installed ${skillName} to claw ${clawId}`);
 }

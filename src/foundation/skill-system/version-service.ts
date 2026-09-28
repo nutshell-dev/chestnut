@@ -40,6 +40,7 @@ import {
 import {
   SkillVersionError,
   type BeginEditInput,
+  type ExportSkillVersionInput,
   type ImportSkillInput,
   type PublishedSkill,
   type RetryEditInput,
@@ -1032,6 +1033,38 @@ export class SkillVersionService implements SkillVersions {
       infos.push(this.toInfo(record));
     }
     return infos;
+  }
+
+  // ========================================================================
+  // Phase 1919 Step F：安装来源版本固定——按已发布 commit 导出技能子树
+  // ========================================================================
+
+  /**
+   * 安装 pinning 导出：commit 缺失/损坏/子树缺席 typed 失败（fail-closed，
+   * 绝不回退 live 字节）；destination 独占性/库外约束由 Snapshot owner 强制。
+   */
+  async exportSkillVersion(input: ExportSkillVersionInput): Promise<void> {
+    const name = validateSkillName(input.name);
+    if (!/^[0-9a-f]{40}$/.test(input.version)) {
+      throw new SkillVersionError('invalid_argument', `version must be a 40-hex commit id: ${input.version}`);
+    }
+    if (!path.isAbsolute(input.destination)) {
+      throw new SkillVersionError('invalid_argument', `destination must be an absolute path: ${input.destination}`);
+    }
+    try {
+      await this.store.exportVersion(input.version as VersionId, name, input.destination);
+    } catch (e) {
+      if (e instanceof VersionStoreError) {
+        const kind = e.kind === 'not_found' ? 'not_found'
+          : e.kind === 'invalid_argument' ? 'invalid_argument'
+            : 'store_error';
+        throw new SkillVersionError(
+          kind,
+          `export skill "${name}" at version ${input.version} failed: ${e.message}`,
+        );
+      }
+      throw e;
+    }
   }
 }
 

@@ -117,6 +117,16 @@ export interface RetryEditInput {
   requestId: string;
 }
 
+/** Phase 1919 Step F：安装来源 pinning 的按版本导出输入 */
+export interface ExportSkillVersionInput {
+  /** 技能名（版本库顶层前缀） */
+  name: string;
+  /** 已发布版本身份（40-hex commit；来源选定后跨重启不变） */
+  version: string;
+  /** 独占空目标绝对目录（覆盖同名文件、不清理多余文件；不得在版本库内） */
+  destination: string;
+}
+
 export interface SkillVersions {
   /** 读取某技能的已发布固定版本（物化投影 + 版本身份）；未发布 typed not_found */
   readPublished(name: string): Promise<PublishedSkill>;
@@ -155,6 +165,15 @@ export interface SkillVersions {
   editStatus(editId: string): Promise<SkillEditInfo>;
   /** 事务历史（新→旧；skillName 缺席返回全部技能） */
   editHistory(skillName?: string): Promise<readonly SkillEditInfo[]>;
+
+  // ---- Phase 1919 Step F：安装来源版本固定 ----
+
+  /**
+   * 导出指定已发布版本的技能子树到独占空目录（安装 pinning：来源 commit 选定后
+   * 跨重启/并发发布不变）。commit 缺失/损坏 typed 失败（不回退 live）；
+   * version 必须是 40-hex commit 身份。
+   */
+  exportSkillVersion(input: ExportSkillVersionInput): Promise<void>;
 }
 
 export type SkillVersionErrorKind =

@@ -27,6 +27,7 @@ export type {
   SubmitEditResult,
   SkillEditInfo,
   RetryEditInput,
+  ExportSkillVersionInput,
   SkillVersionErrorKind,
 } from './version-types.js';
 export { SkillVersionError } from './version-types.js';

@@ -545,7 +545,7 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v2\n');
   });
 
-  it('快照证据丢失 + source generation 变化 → 显式冲突留证，不发布不覆盖', async () => {
+  it('快照证据丢失 → 按 intent 固定 commit 重建恢复（Phase 1919 Step F），不读 live 不升级', async () => {
     const src = makeSkillSource('a', 'v1');
     await skillInstallUserCommand(deps, src);
     makeClaw('bob');
@@ -555,7 +555,10 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
       skillInstallClawCommand({ fsFactory: clawCrashFactory(clawSkills) }, 'bob', 'myskill'),
     ).rejects.toThrow(/simulated crash/);
 
-    // 快照证据丢失 + dispatch 升级（source generation 变化，经 owner import 发布 v2）
+    // 快照证据丢失 + dispatch 升级（经 owner import 发布 v2）——Phase 1919 Step F：
+    // schema-3 intent 固定了 sourceVersion，快照缺失按该 commit 重建（commit 不可变，
+    // 重建字节即原 payload），旧「live manifest 校验冲突」语义仅适用无 sourceVersion
+    // 的旧 intent；恢复不升级到最新、不回读 live。
     for (const n of fs.readdirSync(clawSkills).filter((x) => x.startsWith('.skill-srcsnap-'))) {
       fs.rmSync(path.join(clawSkills, n), { recursive: true, force: true });
     }
@@ -563,13 +566,13 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     await skillInstallUserCommand(deps, srcV2);
 
     killHolder(clawClaimPath('bob'));
-    await expect(
-      skillInstallClawCommand(deps, 'bob', 'myskill'),
-    ).rejects.toThrow(/different source payload/);
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
 
-    // 证据保留：claim + 半落位目标（marker 仍在，未提交不可消费）
-    expect(fs.existsSync(clawClaimPath('bob'))).toBe(true);
-    expect(fs.existsSync(path.join(clawSkillDir('bob'), '.skill-publishing'))).toBe(true);
+    // 恢复完成固定版本 v1（半落位目标续传收敛），不混入/不升级到 v2
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v1\n');
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
+    expect(fs.existsSync(path.join(clawSkillDir('bob'), '.skill-publishing'))).toBe(false);
   });
 });
 
