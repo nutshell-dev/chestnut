@@ -16,6 +16,23 @@ export function makeMockSkillVersions(overrides?: Partial<SkillVersions>): Skill
     }),
     formatPublishedForContext: vi.fn(async () => 'No skills loaded'),
     importSkill: vi.fn(async () => ({ kind: 'published', version: '0'.repeat(40) }) as const),
+    // Phase 1919 Step C: 分支编辑事务（默认无事务：begin 拒绝、查询 not_found）
+    beginEdit: vi.fn(async () => {
+      throw new Error('mock skill versions: beginEdit not configured');
+    }),
+    submitEdit: vi.fn(async (editId: string) => {
+      throw new Error(`mock skill versions: no such edit: ${editId}`);
+    }),
+    retryEdit: vi.fn(async () => {
+      throw new Error('mock skill versions: retryEdit not configured');
+    }),
+    cancelEdit: vi.fn(async (editId: string) => {
+      throw new Error(`mock skill versions: no such edit: ${editId}`);
+    }),
+    editStatus: vi.fn(async (editId: string) => {
+      throw new Error(`mock skill versions: no such edit: ${editId}`);
+    }),
+    editHistory: vi.fn(async () => [] as const),
     ...overrides,
   } as unknown as SkillVersions;
 }

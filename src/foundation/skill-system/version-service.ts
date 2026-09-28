@@ -2,9 +2,12 @@
  * Phase 1919 Step B: dispatch 技能版本服务（SkillVersions 实现）。
  *
  * 职责边界：
- * - 本服务 own：技能名校验、迁移/baseline、固定版本物化投影、import 的
- *   分支保存与条件发布编排、迁移状态与技能清单持久化（stateDir）。
- * - Snapshot VersionStore own：git 分支/提交/CAS/导出/操作记录。
+ * - 本服务 own：技能名校验、迁移/baseline、固定版本物化投影、import 与分支编辑
+ *   事务（begin/submit/retry/cancel/status/history）的编排、迁移状态/技能清单/
+ *   事务记录持久化（stateDir）。
+ * - Snapshot VersionStore own：git 分支/提交/CAS/导出/操作记录（发布结果唯一权威；
+ *   业务事务的 saved 未决状态经稳定 publishOperationId + inspectOperation 对账重建）。
+ * - edit-store own：编辑事务记录的持久化/校验（editId 由 requestId 确定性派生）。
  * - 既有 registry own：SKILL.md 元信息解析与上下文格式化（本服务固定版本后调用）。
  *
  * 读取权威 = published ref + 不可变提交；库根工作区只是历史遗留投影，消费者
@@ -18,20 +21,34 @@ import type { AuditLog } from '../audit/index.js';
 import { formatErr, newUuid, sha256Hex } from '../node-utils/index.js';
 import {
   createVersionStore,
+  VersionStoreError,
   type PublishResult,
   type VersionId,
   type VersionStore,
 } from '../snapshot/index.js';
 import { exec as defaultExec } from '../process-exec/index.js';
+import { parseFrontmatterFrame } from '../messaging/index.js';
 import { SkillSystem } from './registry.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
 import {
+  createSkillEditStore,
+  SKILL_EDITS_DIR,
+  skillEditId,
+  type SkillEditRecord,
+  type SkillEditStore,
+} from './edit-store.js';
+import {
   SkillVersionError,
+  type BeginEditInput,
   type ImportSkillInput,
   type PublishedSkill,
+  type RetryEditInput,
   type SkillBasis,
+  type SkillEditHandle,
+  type SkillEditInfo,
   type SkillPublishResult,
   type SkillVersions,
+  type SubmitEditResult,
 } from './version-types.js';
 
 /** dispatch 技能名：扁平 kebab 目录名（版本库顶层前缀，不含嵌套/命名空间段） */
@@ -153,6 +170,7 @@ export class SkillVersionService implements SkillVersions {
     private readonly opts: SkillVersionsOptions,
     private readonly store: VersionStore,
     private readonly stateFs: FileSystem,
+    private readonly editStore: SkillEditStore,
     private state: ServiceState,
   ) {}
 
@@ -162,6 +180,7 @@ export class SkillVersionService implements SkillVersions {
     }
     const stateFs = opts.fsFactory(opts.stateDir);
     await stateFs.ensureDir(IMPORTS_DIR);
+    await stateFs.ensureDir(SKILL_EDITS_DIR);
     await stateFs.ensureDir(PROJECTION_DIR);
     await stateFs.ensureDir(TMP_DIR);
     await stateFs.ensureDir(TRASH_DIR);
@@ -177,7 +196,13 @@ export class SkillVersionService implements SkillVersions {
       audit: opts.audit,
       exec: opts.exec,
     });
-    const service = new SkillVersionService(opts, store, stateFs, state);
+    const service = new SkillVersionService(
+      opts,
+      store,
+      stateFs,
+      createSkillEditStore(stateFs, opts.repositoryDir),
+      state,
+    );
     await service.finishBaselineIfNeeded();
     await service.syncProjection();
     return service;
@@ -611,6 +636,402 @@ export class SkillVersionService implements SkillVersions {
     }
     // busy：CAS 有界重试耗尽，不伪造语义冲突；记录保持 prepared，重试续作
     return { kind: 'busy', operationId: result.operationId };
+  }
+
+  // ========================================================================
+  // Phase 1919 Step C：技能分支编辑事务
+  // （业务事务记录 own 状态机；发布权威唯一 = Snapshot 操作记录，
+  //   saved 未决经稳定 publishOperationId + inspectOperation 对账重建）
+  // ========================================================================
+
+  private async requireEdit(editId: string): Promise<SkillEditRecord> {
+    const record = await this.editStore.load(editId);
+    if (record === null) {
+      throw new SkillVersionError('not_found', `no such skill edit: ${editId}`);
+    }
+    return record;
+  }
+
+  private toInfo(record: SkillEditRecord): SkillEditInfo {
+    return {
+      editId: record.editId,
+      requestId: record.requestId,
+      skillName: record.skillName,
+      base: record.base,
+      basePathRevision: record.basePathRevision,
+      candidate: record.candidate,
+      status: record.status,
+      parentEditId: record.parentEditId,
+      publishOperationId: record.publishOperationId,
+      version: record.version,
+      current: record.current,
+      basis: JSON.parse(record.metadata) as SkillBasis,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  private toHandle(record: SkillEditRecord): SkillEditHandle {
+    if (record.workspaceId === null) {
+      throw new SkillVersionError('store_error', `skill edit ${record.editId} has no workspace (status=${record.status})`);
+    }
+    return {
+      editId: record.editId,
+      skillName: record.skillName,
+      path: path.join(this.opts.workspaceParent, record.workspaceId, record.skillName),
+      base: record.base,
+      basePathRevision: record.basePathRevision,
+    };
+  }
+
+  /** 开工作区分支（幂等：operationId 确定性派生，store.begin 重放返回首次工作区） */
+  private async openEditWorkspace(record: SkillEditRecord): Promise<void> {
+    const ws = await this.store.begin({ operationId: `edit-begin-${record.editId}`, base: record.base as VersionId });
+    record.workspaceId = ws.id;
+    record.status = 'editing';
+    record.updatedAt = new Date().toISOString();
+    await this.editStore.save(record);
+  }
+
+  /**
+   * begin 编排（fresh + 重放续作共用）：记录先于工作区落盘（preparing 可重建）；
+   * 同 requestId 重放逐字校验输入后返回首次事实；preparing 中断记录补齐工作区。
+   */
+  private async beginEditInternal(
+    input: BeginEditInput,
+    metadata: string,
+    parentEditId: string | null,
+  ): Promise<SkillEditHandle> {
+    const editId = skillEditId(input.requestId);
+    const existing = await this.editStore.load(editId);
+    if (existing !== null) {
+      if (
+        existing.requestId !== input.requestId ||
+        existing.skillName !== input.skillName ||
+        existing.metadata !== metadata ||
+        existing.parentEditId !== parentEditId
+      ) {
+        throw new SkillVersionError('invalid_argument', 'requestId replayed with different edit inputs');
+      }
+      if (existing.workspaceId === null) {
+        await this.openEditWorkspace(existing); // preparing 中断续作
+      }
+      return this.toHandle(existing);
+    }
+
+    const published = await this.store.readPublished();
+    const basePathRevision = await this.store.pathRevision(published, input.skillName);
+    const now = new Date().toISOString();
+    const record: SkillEditRecord = {
+      schema: 1,
+      editId,
+      requestId: input.requestId,
+      skillName: input.skillName,
+      repositoryDir: this.opts.repositoryDir,
+      metadata,
+      base: published as string,
+      basePathRevision: basePathRevision as string | null,
+      workspaceId: null,
+      candidate: null,
+      status: 'preparing',
+      parentEditId,
+      publishOperationId: null,
+      version: null,
+      current: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.editStore.save(record); // 记录先于工作区：中断可重建
+    await this.openEditWorkspace(record);
+    if (parentEditId !== null) {
+      this.opts.audit.write(
+        SKILL_AUDIT_EVENTS.VERSION_EDIT_RETRIED,
+        `dir=${this.opts.repositoryDir}`,
+        `skill=${record.skillName}`,
+        `editId=${record.editId}`,
+        `parent=${parentEditId}`,
+        `base=${record.base}`,
+      );
+    } else {
+      this.opts.audit.write(
+        SKILL_AUDIT_EVENTS.VERSION_EDIT_BEGAN,
+        `dir=${this.opts.repositoryDir}`,
+        `skill=${record.skillName}`,
+        `editId=${record.editId}`,
+        `base=${record.base}`,
+      );
+    }
+    return this.toHandle(record);
+  }
+
+  async beginEdit(input: BeginEditInput): Promise<SkillEditHandle> {
+    if (typeof input.requestId !== 'string' || input.requestId.length === 0) {
+      throw new SkillVersionError('invalid_argument', 'requestId must be a non-empty string');
+    }
+    const metadata = validateBasis(input.basis);
+    const skillName = validateSkillName(input.skillName);
+    return this.beginEditInternal({ ...input, skillName }, metadata, null);
+  }
+
+  /**
+   * 候选 SKILL.md 校验（候选字节权威：exportVersion 只读固定候选 commit，
+   * 不判读可变工作区）。缺失/解析失败 typed 拒绝 + audit，候选保留。
+   */
+  private async validateCandidateSkill(record: SkillEditRecord): Promise<void> {
+    const tmpRel = `${TMP_DIR}/validate-${record.editId}-${newUuid()}`;
+    const tmpAbs = path.join(this.opts.stateDir, tmpRel);
+    let content: string | null = null;
+    let failReason: string | null = null;
+    try {
+      await this.store.exportVersion(record.candidate as VersionId, record.skillName, tmpAbs);
+      content = await this.opts.fsFactory(tmpAbs).read('SKILL.md');
+    } catch (e) {
+      // 捕获为判定事实：下方统一 audit + typed 拒绝（候选保留），不吞咽
+      failReason = `candidate for skill "${record.skillName}" has no readable SKILL.md: ${formatErr(e)}`;
+    }
+    await this.stateFs.removeDir(tmpRel).catch(() => undefined);
+
+    if (failReason === null) {
+      try {
+        parseFrontmatterFrame(content as string, { eofTolerant: true });
+      } catch (e) {
+        // 同上：解析失败判定事实，下方统一 audit + typed 拒绝
+        failReason = `candidate SKILL.md for skill "${record.skillName}" failed to parse: ${formatErr(e)}`;
+      }
+    }
+    if (failReason !== null) {
+      this.opts.audit.write(
+        SKILL_AUDIT_EVENTS.VERSION_EDIT_VALIDATION_FAILED,
+        `dir=${this.opts.repositoryDir}`,
+        `skill=${record.skillName}`,
+        `editId=${record.editId}`,
+        `candidate=${record.candidate}`,
+        `reason=${failReason}`,
+      );
+      throw new SkillVersionError('invalid_argument', `${failReason} (candidate ${record.candidate} retained)`);
+    }
+  }
+
+  async submitEdit(editId: string): Promise<SubmitEditResult> {
+    const record = await this.requireEdit(editId);
+    // 终态重放：返回首次发布事实（重启后亦不重复发布）
+    if (record.status === 'published') {
+      return { kind: 'published', editId, version: record.version as string };
+    }
+    if (record.status === 'conflict') {
+      return {
+        kind: 'conflict',
+        editId,
+        base: record.base,
+        current: record.current as string,
+        candidate: record.candidate as string,
+      };
+    }
+    if (record.status === 'cancelled') {
+      throw new SkillVersionError('invalid_argument', `skill edit ${editId} is cancelled`);
+    }
+    if (record.workspaceId === null) {
+      throw new SkillVersionError(
+        'invalid_argument',
+        `skill edit ${editId} has no workspace (begin did not complete); re-run beginEdit with the same requestId`,
+      );
+    }
+
+    // 1. 保存候选（幂等：候选已持久绝不重新 save）
+    if (record.candidate === null) {
+      const candidate = await this.store.save({
+        workspaceId: record.workspaceId,
+        operationId: `edit-save-${record.editId}`,
+        message: `edit ${record.skillName}\n\n${(JSON.parse(record.metadata) as SkillBasis).reason}`,
+      });
+      record.candidate = candidate as string;
+      record.status = 'saved';
+      record.updatedAt = new Date().toISOString();
+      await this.editStore.save(record);
+    }
+
+    // 2. 候选校验（范围违规在发布侧 typed 拒绝；两处失败候选都保留）
+    await this.validateCandidateSkill(record);
+
+    // 3. 条件发布（稳定 publishOperationId 先落盘：业务状态可经 Snapshot 记录重建）
+    if (record.publishOperationId === null) {
+      record.publishOperationId = `edit-publish-${record.editId}`;
+      record.updatedAt = new Date().toISOString();
+      await this.editStore.save(record);
+    }
+    let result: PublishResult;
+    try {
+      result = await this.store.publish({
+        operationId: record.publishOperationId,
+        candidate: record.candidate as VersionId,
+        prefix: record.skillName,
+        expectedPathRevision: record.basePathRevision as VersionId | null,
+        metadata: record.metadata,
+      });
+    } catch (e) {
+      if (e instanceof VersionStoreError && e.kind === 'candidate_out_of_scope') {
+        const reason = `candidate for skill "${record.skillName}" modifies paths outside its subtree: ${e.message}`;
+        this.opts.audit.write(
+          SKILL_AUDIT_EVENTS.VERSION_EDIT_VALIDATION_FAILED,
+          `dir=${this.opts.repositoryDir}`,
+          `skill=${record.skillName}`,
+          `editId=${record.editId}`,
+          `candidate=${record.candidate}`,
+          `reason=${reason}`,
+        );
+        throw new SkillVersionError('invalid_argument', `${reason} (candidate ${record.candidate} retained)`);
+      }
+      throw e;
+    }
+    return this.finalizeEdit(record, result);
+  }
+
+  /** 发布结果落定：事务记录迁移 + 技能清单/审计/投影推进；busy 保持 saved 待重试 */
+  private async finalizeEdit(record: SkillEditRecord, result: PublishResult): Promise<SubmitEditResult> {
+    if (result.kind === 'published') {
+      await this.markEditPublished(record, result.version as string);
+      return { kind: 'published', editId: record.editId, version: record.version as string };
+    }
+    if (result.kind === 'conflict') {
+      await this.markEditConflict(record, result.current as string);
+      return {
+        kind: 'conflict',
+        editId: record.editId,
+        base: record.base,
+        current: record.current as string,
+        candidate: record.candidate as string,
+      };
+    }
+    // busy：CAS 有界重试耗尽——持久呈现为待重试（saved + publishOperationId 在场，
+    // 候选保留），绝不伪装成语义冲突；同 editId 重提续作
+    return { kind: 'busy', editId: record.editId, operationId: result.operationId };
+  }
+
+  private async markEditPublished(record: SkillEditRecord, version: string): Promise<void> {
+    record.status = 'published';
+    record.version = version;
+    record.updatedAt = new Date().toISOString();
+    if (!this.state.skills.includes(record.skillName)) {
+      this.state.skills.push(record.skillName);
+      this.state.skills.sort();
+      await this.writeState();
+    }
+    await this.editStore.save(record);
+    this.opts.audit.write(
+      SKILL_AUDIT_EVENTS.VERSION_EDIT_PUBLISHED,
+      `dir=${this.opts.repositoryDir}`,
+      `skill=${record.skillName}`,
+      `editId=${record.editId}`,
+      `version=${version}`,
+    );
+    await this.syncProjection();
+  }
+
+  private async markEditConflict(record: SkillEditRecord, current: string): Promise<void> {
+    record.status = 'conflict';
+    record.current = current;
+    record.updatedAt = new Date().toISOString();
+    await this.editStore.save(record);
+    this.opts.audit.write(
+      SKILL_AUDIT_EVENTS.VERSION_EDIT_CONFLICT,
+      `dir=${this.opts.repositoryDir}`,
+      `skill=${record.skillName}`,
+      `editId=${record.editId}`,
+      `current=${current}`,
+      `candidate=${record.candidate}`,
+    );
+  }
+
+  async retryEdit(input: RetryEditInput): Promise<SkillEditHandle> {
+    if (typeof input.requestId !== 'string' || input.requestId.length === 0) {
+      throw new SkillVersionError('invalid_argument', 'requestId must be a non-empty string');
+    }
+    const old = await this.requireEdit(input.editId);
+    if (old.status !== 'conflict') {
+      throw new SkillVersionError(
+        'invalid_argument',
+        `only conflict edits can be retried: ${input.editId} (status=${old.status})`,
+      );
+    }
+    // 从最新 published 新建分支并链接旧编辑；依据沿用旧记录原文。
+    // 绝不 reset 原分支/自动 merge/强推旧候选字节——新工作区只含已发布内容。
+    return this.beginEditInternal(
+      { skillName: old.skillName, requestId: input.requestId, basis: JSON.parse(old.metadata) as SkillBasis },
+      old.metadata,
+      old.editId,
+    );
+  }
+
+  async cancelEdit(editId: string): Promise<SkillEditInfo> {
+    const record = await this.requireEdit(editId);
+    if (record.status === 'published' || record.status === 'conflict') {
+      throw new SkillVersionError('invalid_argument', `skill edit ${editId} already ${record.status}`);
+    }
+    if (record.status !== 'cancelled') {
+      // 先保存可保存内容再登记；保存失败 loud 拒绝，工作区明确保留
+      if (record.status === 'editing' && record.workspaceId !== null && record.candidate === null) {
+        let candidate: VersionId;
+        try {
+          candidate = await this.store.save({
+            workspaceId: record.workspaceId,
+            operationId: `edit-save-${record.editId}`,
+            message: `cancel edit ${record.skillName}`,
+          });
+        } catch (e) {
+          throw new SkillVersionError(
+            'store_error',
+            `failed to save workspace before cancel; workspace retained at ${path.join(this.opts.workspaceParent, record.workspaceId)}: ${formatErr(e)}`,
+          );
+        }
+        record.candidate = candidate as string;
+      }
+      record.status = 'cancelled';
+      record.updatedAt = new Date().toISOString();
+      await this.editStore.save(record);
+      this.opts.audit.write(
+        SKILL_AUDIT_EVENTS.VERSION_EDIT_CANCELLED,
+        `dir=${this.opts.repositoryDir}`,
+        `skill=${record.skillName}`,
+        `editId=${record.editId}`,
+        `candidate=${record.candidate}`,
+      );
+    }
+    return this.toInfo(record);
+  }
+
+  /**
+   * 对账：saved + publishOperationId（busy/崩溃窗口）经稳定幂等键查询 Snapshot
+   * 操作记录，以发布权威结果重建业务状态（completed published/conflict → 迁移
+   * 事务记录）；prepared/unknown 保持 saved 待重试，不误报。
+   */
+  private async reconcileEdit(record: SkillEditRecord): Promise<void> {
+    if (record.status !== 'saved' || record.publishOperationId === null) return;
+    const insp = await this.store.inspectOperation(record.publishOperationId);
+    if (insp.kind !== 'publish' || insp.status !== 'completed' || insp.result === undefined) return;
+    if (insp.result.kind === 'published') {
+      await this.markEditPublished(record, insp.result.version as string);
+    } else if (insp.result.kind === 'conflict') {
+      await this.markEditConflict(record, insp.result.current as string);
+    }
+  }
+
+  async editStatus(editId: string): Promise<SkillEditInfo> {
+    const record = await this.requireEdit(editId);
+    await this.reconcileEdit(record);
+    return this.toInfo(record);
+  }
+
+  async editHistory(skillName?: string): Promise<readonly SkillEditInfo[]> {
+    if (skillName !== undefined) validateSkillName(skillName);
+    const records = await this.editStore.list();
+    const infos: SkillEditInfo[] = [];
+    for (let i = records.length - 1; i >= 0; i--) {
+      const record = records[i];
+      if (skillName !== undefined && record.skillName !== skillName) continue;
+      await this.reconcileEdit(record);
+      infos.push(this.toInfo(record));
+    }
+    return infos;
   }
 }
 

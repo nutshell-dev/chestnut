@@ -21,7 +21,16 @@ export type {
   SkillBasis,
   SkillPublishResult,
   ImportSkillInput,
+  BeginEditInput,
+  SkillEditHandle,
+  SkillEditStatus,
+  SubmitEditResult,
+  SkillEditInfo,
+  RetryEditInput,
   SkillVersionErrorKind,
 } from './version-types.js';
 export { SkillVersionError } from './version-types.js';
+// Phase 1919 Step C: 分支编辑事务记录存储（editId 派生 + 持久化）
+export { createSkillEditStore, skillEditId } from './edit-store.js';
+export type { SkillEditRecord, SkillEditStore } from './edit-store.js';
 export { DISPATCH_WORKSPACES_DIR_NAME, DISPATCH_VERSION_STATE_DIR_NAME } from './skill-paths.js';

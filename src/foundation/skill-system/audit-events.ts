@@ -17,4 +17,10 @@ export const SKILL_AUDIT_EVENTS = {
   VERSION_IMPORT_PUBLISHED: 'skill_version_import_published',   // Phase 1919 Step B: owner import 条件发布成功
   VERSION_IMPORT_CONFLICT: 'skill_version_import_conflict',     // Phase 1919 Step B: 晚发布者冲突（候选保留）
   VERSION_SYNC_FAILED: 'skill_version_sync_failed',             // Phase 1919 Step B: 固定版本投影同步失败（已发布事实不受影响）
+  VERSION_EDIT_BEGAN: 'skill_version_edit_began',               // Phase 1919 Step C: 分支编辑事务开启（含 retry 派生）
+  VERSION_EDIT_RETRIED: 'skill_version_edit_retried',           // Phase 1919 Step C: 冲突编辑从最新版本重做（链接 parentEditId）
+  VERSION_EDIT_PUBLISHED: 'skill_version_edit_published',       // Phase 1919 Step C: 编辑事务条件发布成功
+  VERSION_EDIT_CONFLICT: 'skill_version_edit_conflict',         // Phase 1919 Step C: 编辑事务路径基准过期（候选保留）
+  VERSION_EDIT_CANCELLED: 'skill_version_edit_cancelled',       // Phase 1919 Step C: 编辑事务取消（可保存内容已先保存）
+  VERSION_EDIT_VALIDATION_FAILED: 'skill_version_edit_validation_failed', // Phase 1919 Step C: 候选 SKILL.md 缺失/非法（候选保留）
 } as const;
