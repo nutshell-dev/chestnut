@@ -27,4 +27,24 @@ subtasks:
     const result = buildRetroPrompt('my-claw', 'c-001', sampleYaml, '## Skills\n- gen-report');
     expect(result).toContain('gen-report');
   });
+
+  // Phase 1919 Step E：第四步改为分支编辑事务工作流
+  it('Step 4 instructs branch edit workflow (begin/submit/retry), not direct dispatch writes', () => {
+    const result = buildRetroPrompt('my-claw', 'c-001', sampleYaml, '## Skills\n- gen-report');
+    expect(result).toContain('chestnut skill edit begin <skill-name> --reason');
+    expect(result).toContain('chestnut skill edit submit <edit-id>');
+    expect(result).toContain('chestnut skill edit retry <edit-id>');
+    expect(result).toContain('chestnut skill history <skill-name>');
+    expect(result).toContain('kind=conflict');
+    expect(result).toContain('不得伪报技能已更新');
+    // 旧共享写指令零命中（反向）
+    expect(result).not.toContain('用 write 工具写入 dispatch-skill');
+    expect(result).not.toContain('dispatch-skills/<skill-name>/');
+  });
+
+  it('Step 5 requires published version reference or explicit unpublished note', () => {
+    const result = buildRetroPrompt('my-claw', 'c-001', sampleYaml);
+    expect(result).toContain('published version');
+    expect(result).toContain('未发布');
+  });
 });

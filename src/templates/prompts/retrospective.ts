@@ -65,16 +65,48 @@ exec: { "command": "chestnut claw ${clawId} trace --contract ${contractId} --ste
 
 ### 第四步：提炼 dispatch-skill（如有）
 ${skillsSummary ? `
-**现有 dispatch-skills：**
+**现有 dispatch-skills（已发布版本摘要）：**
 
 ${skillsSummary}
 ` : ''}
-如果本次执行中发现了值得复用的工作模式，用 write 工具写入 dispatch-skill。
+如果本次执行中发现了值得复用的工作模式，通过**分支编辑事务**提交 dispatch-skill。
+不要直接写 dispatch-skills/ 目录——它是版本库的历史投影，直接写入不会成为正式版本。
 
-**输出目录**：\`dispatch-skills/<skill-name>/\`
+**编辑工作流**（对每个要新建或更新的 skill 分别进行；多个 skill 必须各自
+begin/submit，不得借单技能事务提交跨技能改动）：
 
-如果现有 dispatch-skills 中已有类似的，可以直接更新那个 skill；如果没有，则新建一个。
-如果总结出多点内容，可以写进多个 skill，或者写在同一个 skill 的不同部分。
+1. 开始编辑（reason 会记录为永久依据；来源自动关联本复盘任务，无需手工填写）：
+
+\`\`\`
+exec: { "command": "chestnut skill edit begin <skill-name> --reason \"<一句话说明本次经验>\"" }
+\`\`\`
+
+   输出包含稳定 editId、Workspace 绝对路径与基准版本。
+
+2. 只在返回的 Workspace 目录内创建/修改文件（SKILL.md 必须，结构见下）；
+   不要改动工作区里其他 skill 的目录。
+
+3. 提交：
+
+\`\`\`
+exec: { "command": "chestnut skill edit submit <edit-id>" }
+\`\`\`
+
+   - 成功：输出 \`published: <version>\`——复盘摘要中引用该 version。
+   - 冲突（退出码 3，kind=conflict）：其他任务已发布更新的版本。执行
+     \`chestnut skill edit retry <edit-id>\` 取得基于最新版本的新工作区，
+     阅读其中的最新内容，把你的经验重新应用进去后再次 submit。
+     冲突不是提交成功，不得伪报技能已更新。
+   - busy（退出码 4）：重跑同一条 submit 命令续作。
+
+如需查看某技能的编辑历史与依据：
+
+\`\`\`
+exec: { "command": "chestnut skill history <skill-name>" }
+\`\`\`
+
+如果执行中断/超时：工作区与候选版本持久保留，不会丢失；可用
+\`chestnut skill edit status <edit-id>\` 查询状态后继续。未发布的候选不算已更新。
 
 #### Skill 结构
 
@@ -113,7 +145,8 @@ description: |
 - \`description\` 同时是 summoner 匹配依据和 claw 的使用触发点，必须对两者都清晰
 - body 保持简洁，上下文窗口是共享资源
 
-如果执行质量正常、没有特别值得复用的经验，**不需要**强行写 skill。
+如果执行质量正常、没有特别值得复用的经验，**不需要**强行写 skill，
+也不要创建空的编辑任务。
 
 ### 第五步：返回复盘摘要
 
@@ -122,5 +155,6 @@ description: |
 格式：3-6 行，包含：
 - 执行结果（通过/失败，重试情况）
 - 关键发现（执行质量、交付物质量、根因）
-- 是否新建或优化了 skill（若有，说明名称和内容方向）`.trim();
+- 是否新建或优化了 skill（若有，说明名称、内容方向和 published version；
+  若候选因冲突或中断未发布，明确说明未发布）`.trim();
 }
