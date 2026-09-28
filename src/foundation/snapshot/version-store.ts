@@ -832,9 +832,9 @@ class GitVersionStore implements VersionStore {
 
   /** published 首父链有界回扫：本 operation-id 的发布提交是否已在历史中（孪生胜检测） */
   private async findOperationCommit(head: string, operationId: string): Promise<string | null> {
-    const r = await this.gitExec(['log', '--first-parent', '-n', String(TWIN_SCAN_DEPTH), '--format=%H%x00%B%x00', head]);
+    const r = await this.gitExec(['log', '--first-parent', '-n', String(TWIN_SCAN_DEPTH), '--format=%H%x00%cI%x00%B%x00', head]);
     if (!r.ok || r.stdout === '') return null;
-    for (const { sha, body } of this.parseLogPairs(r.stdout)) {
+    for (const { sha, body } of this.parseLogTriples(r.stdout)) {
       if (body.split('\n').includes(`operation-id: ${operationId}`)) {
         return sha;
       }
@@ -1037,29 +1037,30 @@ class GitVersionStore implements VersionStore {
     return this.pathRevisionOf(v, validatePrefix(prefix));
   }
 
-  /** 解析 `git log --format=%H%x00%B%x00` 输出为 [sha, body] 对（body 不含 NUL） */
-  private parseLogPairs(stdout: string): Array<{ sha: string; body: string }> {
+  /** 解析 `git log --format=%H%x00%cI%x00%B%x00` 输出为 {sha, committedAt, body}（body 不含 NUL） */
+  private parseLogTriples(stdout: string): Array<{ sha: string; committedAt: string; body: string }> {
     const parts = stdout.split('\0');
-    const pairs: Array<{ sha: string; body: string }> = [];
-    for (let i = 0; i + 1 < parts.length; i += 2) {
+    const triples: Array<{ sha: string; committedAt: string; body: string }> = [];
+    for (let i = 0; i + 2 < parts.length; i += 3) {
       const sha = parts[i].replace(/^\n+/, '');
-      if (SHA1_RE.test(sha)) pairs.push({ sha, body: parts[i + 1] });
+      if (SHA1_RE.test(sha)) triples.push({ sha, committedAt: parts[i + 1], body: parts[i + 2] });
     }
-    return pairs;
+    return triples;
   }
 
   async history(prefix: string): Promise<VersionHistoryEntry[]> {
     const p = validatePrefix(prefix);
-    const r = await this.gitExec(['log', '--first-parent', '--format=%H%x00%B%x00', PUBLISHED_REF, '--', p]);
+    const r = await this.gitExec(['log', '--first-parent', '--format=%H%x00%cI%x00%B%x00', PUBLISHED_REF, '--', p]);
     if (!r.ok) {
       throw new VersionStoreError('git_error', `git log failed: ${r.output.slice(0, 300)}`);
     }
     if (r.stdout === '') return [];
-    return this.parseLogPairs(r.stdout).map(({ sha, body }) => {
+    return this.parseLogTriples(r.stdout).map(({ sha, committedAt, body }) => {
       const opLine = body.split('\n').find(l => l.startsWith('operation-id: '));
       return {
         version: asVersionId(sha),
         operationId: opLine !== undefined ? opLine.slice('operation-id: '.length) : null,
+        committedAt,
       };
     });
   }

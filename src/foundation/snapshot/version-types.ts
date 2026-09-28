@@ -79,6 +79,8 @@ export interface PublishInput {
 export interface VersionHistoryEntry {
   version: VersionId;
   operationId: string | null;
+  /** Phase 1923 Step B：该发布的 commit 时间（ISO 8601，git committer date；只读固定提交） */
+  committedAt: string;
 }
 
 /** inspectOperation 结果：只暴露持久事实，冲突候选不混为已发布版本。 */

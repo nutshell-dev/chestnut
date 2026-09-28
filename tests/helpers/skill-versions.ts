@@ -33,6 +33,8 @@ export function makeMockSkillVersions(overrides?: Partial<SkillVersions>): Skill
       throw new Error(`mock skill versions: no such edit: ${editId}`);
     }),
     editHistory: vi.fn(async () => [] as const),
+    // Phase 1923 Step B: 技能版本提交历史（默认无历史）
+    skillHistory: vi.fn(async () => [] as const),
     // Phase 1919 Step F: 安装来源版本固定（默认无已发布版本：导出 not_found）
     exportSkillVersion: vi.fn(async (input: { name: string }) => {
       throw new Error(`mock skill versions: no published version of "${input.name}" to export`);

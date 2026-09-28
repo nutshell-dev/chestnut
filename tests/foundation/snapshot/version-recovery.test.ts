@@ -98,6 +98,11 @@ describe.skipIf(!gitAvailable)('version-store 固定版本读取与恢复（phas
       r1.kind === 'published' ? r1.version : '',
     ]);
     expect(hist.map(h => h.operationId)).toEqual(['pub-h2', 'pub-h1']);
+    // Phase 1923 Step B：commit 时间随历史条目返回（ISO 8601 可解析，新→旧单调不增）
+    for (const h of hist) {
+      expect(Number.isNaN(Date.parse(h.committedAt))).toBe(false);
+    }
+    expect(Date.parse(hist[0].committedAt)).toBeGreaterThanOrEqual(Date.parse(hist[1].committedAt));
     // 冲突候选不在已发布历史；其操作事实经 inspectOperation 独立查询
     expect(hist.some(h => h.operationId === 'pub-h3')).toBe(false);
     const insp = await store.inspectOperation('pub-h3');

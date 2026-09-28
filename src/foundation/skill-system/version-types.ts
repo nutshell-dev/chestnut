@@ -121,6 +121,27 @@ export interface RetryEditInput {
   requestId: string;
 }
 
+/**
+ * Phase 1923 Step B：技能版本提交历史条目。
+ * 事实源 = Snapshot 已发布历史（commit/操作记录）与 SkillSystem 编辑事务记录，
+ * 按 publishOperationId 对账去重并保留两侧身份（version/operationId + editId）；
+ * 缺失字段显式 null，绝不伪造。
+ */
+export interface SkillHistoryEntry {
+  /** 已发布版本身份（40-hex；未发布的事务条目为 null） */
+  version: string | null;
+  /** 条目时间（ISO 8601）：published = commit 时间；事务条目 = 记录 updatedAt */
+  at: string;
+  /** 发布操作幂等键（旧记录无持久 operationId 为 null，显式呈现） */
+  operationId: string | null;
+  /** 提交状态：published 或编辑事务当前状态（conflict/saved/cancelled/...） */
+  status: SkillEditStatus;
+  /** 编辑事务 id（编辑工作流条目在场；import/baseline 发布为 null） */
+  editId: string | null;
+  /** 发布/事务依据；null = 旧记录（pre-1920）无持久原文——缺失事实显式呈现，不伪造 */
+  basis: SkillBasis | null;
+}
+
 /** Phase 1919 Step F：安装来源 pinning 的按版本导出输入 */
 export interface ExportSkillVersionInput {
   /** 技能名（版本库顶层前缀） */
@@ -169,6 +190,15 @@ export interface SkillVersions {
   editStatus(editId: string): Promise<SkillEditInfo>;
   /** 事务历史（新→旧；skillName 缺席返回全部技能） */
   editHistory(skillName?: string): Promise<readonly SkillEditInfo[]>;
+
+  /**
+   * Phase 1923 Step B：技能版本提交历史（新→旧）。
+   * 每次已发布版本变更展示 version/operationId/commit 时间/依据（actor/reason/
+   * sourceRefs——复盘/日志引用只含定位，不复制日志正文）；编辑事务按
+   * publishOperationId 对账并入（保留 editId 身份），未发布事务（conflict/
+   * saved/cancelled/...）作独立条目呈现；依据缺失（pre-1920 旧记录）显式 null。
+   */
+  skillHistory(name: string): Promise<readonly SkillHistoryEntry[]>;
 
   // ---- Phase 1919 Step F：安装来源版本固定 ----
 

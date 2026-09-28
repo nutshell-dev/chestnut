@@ -139,7 +139,12 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(text).toContain('Actor: user');
     expect(text).toContain('Reason: improve alpha wording');
     expect(text).toContain('Source refs: none');
-    expect(text).toContain(`Edit history for skill "alpha" (newest first):`);
+    expect(text).toContain(`History for skill "alpha" (newest first):`);
+    // Phase 1923 Step B：提交信息完整——版本/操作/commit 时间/编辑事务身份
+    expect(text).toMatch(/Version: [0-9a-f]{40}/);
+    expect(text).toContain(`Operation: edit-publish-${editId}`);
+    expect(text).toMatch(/At: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(text).toContain(`Edit: ${editId}`);
 
     // 固定版本读取反映新内容（经 owner 服务复核）
     const versions = await createSkillVersions({

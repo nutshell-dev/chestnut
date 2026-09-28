@@ -47,6 +47,7 @@ import {
   type SkillBasis,
   type SkillEditHandle,
   type SkillEditInfo,
+  type SkillHistoryEntry,
   type SkillPublishResult,
   type SkillVersions,
   type SubmitEditResult,
@@ -1139,6 +1140,93 @@ export class SkillVersionService implements SkillVersions {
       infos.push(this.toInfo(record));
     }
     return infos;
+  }
+
+  // ========================================================================
+  // Phase 1923 Step B：技能版本提交历史（Snapshot 发布事实 × 编辑事务对账）
+  // ========================================================================
+
+  /**
+   * Snapshot publish metadata 原文 → SkillBasis（1920 起持久化的均为 basis JSON）。
+   * 解析失败 = 记录损坏/非本服务依据格式：loud store_error，不静默降级为缺失。
+   */
+  private static parseBasisMetadata(metadata: string, operationId: string): SkillBasis {
+    try {
+      const basis = JSON.parse(metadata) as SkillBasis;
+      validateBasis(basis); // 形状校验（非空 actor/reason、string[] sourceRefs）
+      return basis;
+    } catch (e) {
+      // 持久化记录形状/JSON 损坏 = 存储事实损坏（store_error），不静默降级为缺失
+      throw new SkillVersionError(
+        'store_error',
+        `publish metadata for operation ${operationId} is not a valid basis record: ${formatErr(e)}`,
+      );
+    }
+  }
+
+  /** 新→旧稳定排序：时间降序；同刻按 version/operationId/editId 字典序决胜（确定性） */
+  private static compareHistoryEntries(a: SkillHistoryEntry, b: SkillHistoryEntry): number {
+    const t = Date.parse(b.at) - Date.parse(a.at);
+    if (t !== 0) return t;
+    return (b.version ?? '').localeCompare(a.version ?? '')
+      || (b.operationId ?? '').localeCompare(a.operationId ?? '')
+      || (b.editId ?? '').localeCompare(a.editId ?? '');
+  }
+
+  async skillHistory(name: string): Promise<readonly SkillHistoryEntry[]> {
+    validateSkillName(name);
+    const entries: SkillHistoryEntry[] = [];
+    const publishedOperationIds = new Set<string>();
+
+    // 事实源 1：Snapshot 已发布历史（新→旧）+ 操作记录中的依据原文。
+    // metadata null（pre-1920 旧记录/记录丢失）→ basis null 显式缺失，不伪造。
+    for (const h of await this.store.history(name)) {
+      let basis: SkillBasis | null = null;
+      if (h.operationId !== null) {
+        publishedOperationIds.add(h.operationId);
+        const insp = await this.store.inspectOperation(h.operationId);
+        if (insp.kind === 'publish' && insp.metadata !== null) {
+          basis = SkillVersionService.parseBasisMetadata(insp.metadata, h.operationId);
+        }
+      }
+      entries.push({
+        version: h.version as string,
+        at: h.committedAt,
+        operationId: h.operationId,
+        status: 'published',
+        editId: null,
+        basis,
+      });
+    }
+
+    // 事实源 2：编辑事务记录——已发布事务按 publishOperationId 对账并入（补 editId
+    // 身份，不重复条目）；未发布事务（conflict/saved/cancelled/...）独立呈现。
+    for (const record of await this.editStore.list()) {
+      if (record.skillName !== name) continue;
+      await this.reconcileEdit(record);
+      if (
+        record.status === 'published' &&
+        record.publishOperationId !== null &&
+        publishedOperationIds.has(record.publishOperationId)
+      ) {
+        const target = entries.find(e => e.operationId === record.publishOperationId);
+        if (target !== undefined) {
+          target.editId = record.editId;
+          continue;
+        }
+      }
+      entries.push({
+        version: record.version,
+        at: record.updatedAt,
+        operationId: record.publishOperationId,
+        status: record.status,
+        editId: record.editId,
+        basis: JSON.parse(record.metadata) as SkillBasis,
+      });
+    }
+
+    entries.sort(SkillVersionService.compareHistoryEntries);
+    return entries;
   }
 
   // ========================================================================

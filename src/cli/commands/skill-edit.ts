@@ -26,6 +26,7 @@ import {
   SkillVersionError,
   type SkillBasis,
   type SkillEditInfo,
+  type SkillHistoryEntry,
   type SkillVersions,
   type createSkillVersions,
 } from '../../foundation/skill-system/index.js';
@@ -258,23 +259,55 @@ export async function skillEditStatusCommand(
   process.stdout.write(`${formatEditInfo(info).join('\n')}\n`);
 }
 
-/** `chestnut skill history <name>`（只读）：编辑事务历史（新→旧，含候选与依据）。 */
+/**
+ * Phase 1923 Step B：提交历史条目渲染——version/operationId/commit 时间/提交状态/
+ * 编辑事务身份/依据（actor/reason/sourceRefs）。sourceRefs 只含任务/对象定位，
+ * 可交给既有日志 owner 查询；缺失字段显式呈现，绝不伪造。
+ */
+function formatHistoryEntry(entry: SkillHistoryEntry): string[] {
+  const lines = [
+    `Version: ${entry.version ?? 'none (not published)'}`,
+    `At: ${entry.at}`,
+    `Operation: ${entry.operationId ?? 'none (not recorded)'}`,
+    `Status: ${entry.status}`,
+    `Edit: ${entry.editId ?? 'none'}`,
+  ];
+  if (entry.basis !== null) {
+    lines.push(
+      `Actor: ${entry.basis.actor}`,
+      `Reason: ${entry.basis.reason}`,
+      `Source refs: ${entry.basis.sourceRefs.length > 0 ? entry.basis.sourceRefs.join(', ') : 'none'}`,
+    );
+  } else {
+    lines.push(
+      'Actor: missing (legacy record without persisted basis; not fabricated)',
+      'Reason: missing',
+      'Source refs: missing',
+    );
+  }
+  return lines;
+}
+
+/**
+ * `chestnut skill history <name>`（只读）：技能版本提交历史（新→旧）——
+ * Snapshot 已发布事实与编辑事务按 publishOperationId 对账后的完整提交信息。
+ */
 export async function skillHistoryCommand(
   deps: SkillEditCommandDeps,
   name: string,
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
   const versions = await openVersions(deps, extraDeps);
-  let infos: readonly SkillEditInfo[];
+  let entries: readonly SkillHistoryEntry[];
   try {
-    infos = await versions.editHistory(name);
+    entries = await versions.skillHistory(name);
   } catch (e) {
     throw toCliError(e);
   }
-  if (infos.length === 0) {
-    process.stdout.write(`No edit history for skill "${name}".\n`);
+  if (entries.length === 0) {
+    process.stdout.write(`No history for skill "${name}".\n`);
     return;
   }
-  const blocks = infos.map((info) => formatEditInfo(info).join('\n'));
-  process.stdout.write(`Edit history for skill "${name}" (newest first):\n\n${blocks.join('\n\n')}\n`);
+  const blocks = entries.map((entry) => formatHistoryEntry(entry).join('\n'));
+  process.stdout.write(`History for skill "${name}" (newest first):\n\n${blocks.join('\n\n')}\n`);
 }
