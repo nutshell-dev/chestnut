@@ -26,6 +26,11 @@ import { AUDIT_SNAPSHOT_IGNORE } from '../../foundation/audit/index.js';
 import { TASK_SNAPSHOT_IGNORE } from '../../core/async-task-system/index.js';
 import { SUBAGENT_SNAPSHOT_IGNORE } from '../../core/subagent/index.js';
 import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
+import { DISPATCH_SKILLS_PATH } from '../../core/evolution-system/index.js';
+import {
+  DISPATCH_WORKSPACES_DIR_NAME,
+  DISPATCH_VERSION_STATE_DIR_NAME,
+} from '../../foundation/skill-system/index.js';
 
 export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
   ...STREAM_SNAPSHOT_IGNORE,
@@ -33,4 +38,10 @@ export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
   `${TASKS_SYNC_DIR}/`,
   ...TASK_SNAPSHOT_IGNORE,
   ...SUBAGENT_SNAPSHOT_IGNORE,
+  // Phase 1919 Step B：dispatch 版本库 Git 元数据、候选工作区与版本服务状态
+  // 绝不进入 Motion agent repo 快照（payload 字节仍按普通内容快照；路径由
+  // 各 owner 声明名组合，不由 Snapshot 预设上层语义）
+  `${DISPATCH_SKILLS_PATH}/.git/`,
+  `clawspace/${DISPATCH_WORKSPACES_DIR_NAME}/`,
+  `clawspace/${DISPATCH_VERSION_STATE_DIR_NAME}/`,
 ];

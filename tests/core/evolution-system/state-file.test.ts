@@ -13,11 +13,11 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/retro-scheduler.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 
-const { mockSkillFactory } = vi.hoisted(() => {
-  const loadAll = vi.fn().mockResolvedValue(undefined);
+const { mockSkillVersions } = vi.hoisted(() => {
   const format = vi.fn().mockReturnValue('No skills loaded');
   return {
-    mockSkillFactory: vi.fn(() => ({ loadAll, formatForContext: format })),
+    // Phase 1919 Step B：retro 摘要读 SkillVersions 固定版本（registry 工厂注入退役）
+    mockSkillVersions: { formatPublishedForContext: format },
   };
 });
 
@@ -60,7 +60,7 @@ async function setupFixtures(overrides?: {
     taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
     contractManager: {} as any,
     retroSubagentTimeoutMs: overrides?.retroSubagentTimeoutMs,
-    createSkillSystem: mockSkillFactory as any,
+    skillVersions: mockSkillVersions as any,
   });
 
   const store = new RetrospectiveStore({ fs: motionFs, audit: mockAudit as any });

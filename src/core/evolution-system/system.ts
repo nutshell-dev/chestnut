@@ -4,7 +4,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { PreparedSubAgentTaskScheduler } from '../async-task-system/index.js';
 import { ContractSystem } from '../contract/index.js';
-import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
+import type { SkillVersions } from '../../foundation/skill-system/index.js';
 import { buildRetroSubagentPayload } from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
@@ -24,7 +24,8 @@ interface EvolutionSystemDeps {
   taskSystem: PreparedSubAgentTaskScheduler;
   contractManager: ContractSystem;
   retroSubagentTimeoutMs?: number;   // default 600000ms (10 min)
-  createSkillSystem?: typeof defaultCreateSkillSystem;
+  /** Phase 1919 Step B：retro 摘要的 dispatch 技能唯一来源（固定版本读取） */
+  skillVersions?: SkillVersions;
   /**
    * phase 1445 Step D（裁定②）：boot reconcile（init）内化进 createEvolutionSystem 工厂，
    *  ctx 经工厂参数传入（原 Assembly 直调 evolutionSystem.init(ctx) 已删）。
@@ -333,7 +334,7 @@ export class EvolutionSystem {
       motionFs: ctx.motionFs,
       audit: this.deps.audit,
       retroSubagentTimeoutMs: this.deps.retroSubagentTimeoutMs,
-      createSkillSystem: this.deps.createSkillSystem,
+      skillVersions: this.deps.skillVersions,
     });
 
     return {

@@ -251,16 +251,59 @@ class GitVersionStore implements VersionStore {
       throw new VersionStoreError('invalid_argument', `workspaceParent must be absolute: ${this.workspaceParent}`);
     }
 
-    if (!(await this.fs.exists('.git'))) {
-      const init = await this.gitExec(['init'], { discovery: true });
-      if (!init.ok) {
-        emitSnapshotVersionInitFailed(this.audit, {
-          dir: this.repositoryDir,
-          kind: 'repo_init_failed',
-          reason: init.output,
-        });
-        // phase 1918: 持久版本库不适用 Snapshot.init 的 tryCleanupGit——现场保留
-        throw new VersionStoreError('repo_init_failed', `git init failed: ${init.output.slice(0, 300)}`);
+    // 并发 open 串行化（phase 1919 Step B）：git init 非原子（.git 目录先建、
+    // 模板后填充），`.git` 在场 ≠ init 完成。初始化段由 O_EXCL 锁文件互斥；
+    // 败者有界轮询等待胜者完成。崩溃遗留锁/半成品 .git → loud 失败，现场保留
+    // （绝不清理 .git）；锁文件不含字节语义，仅互斥。
+    const INIT_LOCK = '.version-store-init.lock';
+    const probeGitReady = async (): Promise<boolean> =>
+      (await this.fs.exists('.git')) &&
+      (await this.gitExec(['rev-parse', '--git-dir'], { discovery: true })).ok;
+    if (!(await probeGitReady())) {
+      let isInitializer = false;
+      try {
+        await this.fs.writeExclusive(INIT_LOCK, String(process.pid));
+        isInitializer = true;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException)?.code !== 'EEXIST') throw e;
+      }
+      if (isInitializer) {
+        try {
+          if (!(await this.fs.exists('.git'))) {
+            const init = await this.gitExec(['init'], { discovery: true });
+            if (!init.ok) {
+              emitSnapshotVersionInitFailed(this.audit, {
+                dir: this.repositoryDir,
+                kind: 'repo_init_failed',
+                reason: init.output,
+              });
+              // phase 1918: 持久版本库不适用 Snapshot.init 的 tryCleanupGit——现场保留
+              throw new VersionStoreError('repo_init_failed', `git init failed: ${init.output.slice(0, 300)}`);
+            }
+          }
+          // .git 在场但 probe 不过（损坏现场）→ 不 reinit，落入下方归属验证 loud 拒绝
+        } finally {
+          await this.fs.delete(INIT_LOCK).catch(() => {
+            // silent: 锁释放失败留下残留；后续 open 按「锁在场但 .git 就绪」路径收敛
+          });
+        }
+      } else {
+        const deadline = Date.now() + 10_000;
+        while (!(await probeGitReady())) {
+          if (!(await this.fs.exists(INIT_LOCK))) {
+            throw new VersionStoreError(
+              'repo_init_failed',
+              'concurrent initializer released its lock without a valid .git; manual recovery required (site preserved)',
+            );
+          }
+          if (Date.now() > deadline) {
+            throw new VersionStoreError(
+              'repo_init_failed',
+              `timed out waiting for concurrent git init (lock: ${INIT_LOCK}); site preserved`,
+            );
+          }
+          await new Promise((r) => setTimeout(r, 20));
+        }
       }
     }
 
@@ -305,10 +348,23 @@ class GitVersionStore implements VersionStore {
     }
     this.realGitDir = resolvedGitDir;
 
-    // 本地身份 + 归属标记（幂等写入）
-    await this.git(['config', 'user.name', 'chestnut']);
-    await this.git(['config', 'user.email', 'chestnut@local']);
-    await this.git(['config', 'chestnut.versionstore', '1918']);
+    // 本地身份 + 归属标记（幂等）：先读后写——并发 open 时败者读到胜者写入的
+    // 同值即收敛；写遇 config 锁竞争则重读终值判定（值相同 = 语义幂等，不视为失败）
+    for (const [key, value] of [
+      ['user.name', 'chestnut'],
+      ['user.email', 'chestnut@local'],
+      ['chestnut.versionstore', '1918'],
+    ] as const) {
+      const cur = await this.gitExec(['config', '--get', key]);
+      if (cur.ok && cur.stdout === value) continue;
+      const set = await this.gitExec(['config', key, value]);
+      if (!set.ok) {
+        const recheck = await this.gitExec(['config', '--get', key]);
+        if (!(recheck.ok && recheck.stdout === value)) {
+          throw new VersionStoreError('repo_init_failed', `git config ${key} failed: ${set.output.slice(0, 300)}`);
+        }
+      }
+    }
 
     // published ref：缺失则建空初始提交；create-only CAS 保证并发 init 只有一方创建，
     // 败者重读已存在的 ref 视为成功（不清理、不覆盖）

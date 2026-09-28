@@ -669,10 +669,9 @@ Content.
 
   describe('audit events', () => {
     it('should audit when loadSkills fails with non-ENOENT error', async () => {
+      // Phase 1919 Step B：摘要唯一来源 = SkillVersions 固定版本服务；失败降级
+      // 语义保持（audit 留证 + 空摘要继续）。
       const auditWriter = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-      const existsSpy = vi.spyOn(mockFs, 'exists').mockRejectedValue(
-        Object.assign(new Error('permission denied'), { code: 'EACCES' }),
-      );
       const ctx = new ExecContextImpl({
         clawId: 'test-claw',
         clawDir: tempDir,
@@ -682,18 +681,21 @@ Content.
         llm: {} as unknown as LLMOrchestrator,
         auditWriter: auditWriter as any,
       });
-      const testTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter as any) });
+      const testTool = new SummonTool({
+        scheduler: createMockTaskSystem(mockFs, auditWriter as any),
+        skillVersions: {
+          formatPublishedForContext: async () => {
+            throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+          },
+        } as any,
+      });
 
       await testTool.execute({ goal: 'test task' }, ctx);
 
       expect(auditWriter.write).toHaveBeenCalledWith(
-        'skill_rescan_aborted',
-        'op=list_dir',
-        'dir=clawspace/dispatch-skills',
-        'reason=[EACCES] permission denied',
+        'summon_load_skills_failed',
+        expect.stringContaining('permission denied'),
       );
-
-      existsSpy.mockRestore();
     });
 
     it('should audit when dialogMessages is empty', async () => {

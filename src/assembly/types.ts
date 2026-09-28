@@ -7,6 +7,7 @@ import type { Heartbeat } from '../core/heartbeat/index.js';
 import type { EventLoopExecutionRecoveryDeps, EventLoop } from '../core/event-loop/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
 import type { createSkillSystem as defaultCreateSkillSystem } from '../foundation/skill-system/index.js';
+import type { createSkillVersions as defaultCreateSkillVersions } from '../foundation/skill-system/index.js';
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
 import type { AuditFileRoutingContribution } from '../foundation/audit/index.js';
 
@@ -14,6 +15,8 @@ export type Identity = 'motion' | 'claw';
 
 export interface AssembleOverrides {
   createSkillSystem?: typeof defaultCreateSkillSystem;
+  /** Phase 1919 Step B：dispatch 版本服务工厂（测试注入 mock，避免真实嵌套 Git） */
+  createSkillVersions?: typeof defaultCreateSkillVersions;
 }
 
 /**

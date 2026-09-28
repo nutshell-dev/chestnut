@@ -823,7 +823,12 @@
       "skill_publish_in_progress_skipped",
       "skill_registry_loaded",
       "skill_rescan_aborted",
-      "skill_version_invalid"
+      "skill_version_baseline_created",
+      "skill_version_import_conflict",
+      "skill_version_import_published",
+      "skill_version_invalid",
+      "skill_version_migration_blocked",
+      "skill_version_sync_failed"
     ],
     "foundation_command-tool_audit-events": [
       "exec_guard_rejected",

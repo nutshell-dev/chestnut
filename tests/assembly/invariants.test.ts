@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
+import { makeMockCreateSkillVersions } from '../helpers/skill-versions.js';
 
 // 重依赖延迟加载：collect 段不执行 assembly 大图顶层代码
 let assemble: typeof import('../../src/assembly/assemble.js').assemble;
@@ -39,6 +40,9 @@ const { mockSkillFactory } = vi.hoisted(() => ({
     };
   }),
 }));
+
+// Phase 1919 Step B：dispatch 版本服务 DI 注入（隔离真实嵌套 Git / mock fs）
+const mockCreateSkillVersions = makeMockCreateSkillVersions();
 
 const mockAuditWrite = vi.fn();
 const mockRuntime = {
@@ -545,7 +549,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
   });
 
   it('clawContractManagerFactory passes main toolRegistry to createContractSystem', async () => {
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     // Phase 1396 Step M：retrospective 触发入口改为 ContractObserver bridge
     // （motion manager 的进程内 onContractCompleted 订阅已删除，避免双 producer）
@@ -619,7 +623,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
   it('handler returns early when memorySystem is undefined (non-motion claw)', async () => {
     (createMemorySystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(undefined);
 
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     const jobs = (CronRunner as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
     const dreamJob = jobs.find((j: any) => j.name === 'dream-trigger');
@@ -633,7 +637,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
   });
 
   it('handler invokes memorySystem methods when motion claw assembles', async () => {
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     const jobs = (CronRunner as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
     const dreamJob = jobs.find((j: any) => j.name === 'dream-trigger');
@@ -688,7 +692,7 @@ describe('contract observer bridge → evolution guard (phase 620 / phase 1396 S
   it('does not throw when evolutionSystem missing (defensive guard)', async () => {
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(undefined);
 
-    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).resolves.toBeDefined();
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions })).resolves.toBeDefined();
   });
 
   it('observer bridge calls observeContractCompleted when evolutionSystem present (phase 1396 Step M)', async () => {
@@ -700,7 +704,7 @@ describe('contract observer bridge → evolution guard (phase 620 / phase 1396 S
       init: vi.fn().mockResolvedValue(undefined),
     });
 
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     expect(capturedContractObserverDeps).toBeDefined();
     expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
@@ -730,7 +734,7 @@ describe('contract observer bridge → evolution guard (phase 620 / phase 1396 S
       init: vi.fn().mockResolvedValue(undefined),
     });
 
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     expect(capturedContractObserverDeps).toBeDefined();
     expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
@@ -832,7 +836,7 @@ describe('assemble-evolution-stepE-boundaries', () => {
       return undefined;
     });
 
-    await assemble(clawBaseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(clawBaseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     const taskSystem = capturedTaskSystems.at(-1);
     expect(taskSystem).toBeDefined();
@@ -848,7 +852,7 @@ describe('assemble-evolution-stepE-boundaries', () => {
       return makeEvolutionSystemMock({ observeContractCompleted: mockObserve });
     });
 
-    await assemble(motionBaseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(motionBaseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     expect(capturedContractObserverDeps).toBeDefined();
     expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
@@ -962,7 +966,7 @@ describe('phase1396-execution-recovery-wiring', () => {
   });
 
   it('assemble 输出 executionRecovery：无 failureSink 属性，failActiveForExecutor 未被提醒装配调用', async () => {
-    const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     expect(instances.executionRecovery).toBeDefined();
     expect(instances.executionRecovery).not.toHaveProperty('failureSink');
@@ -972,7 +976,7 @@ describe('phase1396-execution-recovery-wiring', () => {
   });
 
   it('probeActivity / isAsyncTaskInFlight 已接线（mock fs 无 active contract → undefined）', async () => {
-    const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
     const probe = await instances.executionRecovery!.probeActivity();
     expect(probe.activeContractId).toBeUndefined();
@@ -980,14 +984,14 @@ describe('phase1396-execution-recovery-wiring', () => {
   });
 
   it('phase 1869 Step G: contractTerminalFact capability 已注入（消费适用性判定接线）', async () => {
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
     const deps = capturedRuntimeDeps.at(-1);
     expect(deps).toBeDefined();
     expect(typeof deps.contractTerminalFact).toBe('function');
   });
 
   it('phase 1869 Step H: execution_recovery rendering 已装配（真实 registry resolve 命中）', async () => {
-    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
     const deps = capturedRuntimeDeps.at(-1);
     expect(deps.formatterRegistry.resolve('execution_recovery')).toEqual({
       kind: 'standard',

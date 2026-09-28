@@ -20,3 +20,6 @@ export { NodeFileSystem } from './node-fs.js';
 
 // Atomic file operations
 export { IGNORE_PATTERN } from './atomic.js';
+
+// Byte-faithful recursive directory copy (absolute paths, Phase 1919 Step B)
+export { copyDirAbsolute } from './copy-dir.js';

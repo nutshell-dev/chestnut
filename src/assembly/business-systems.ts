@@ -1,7 +1,8 @@
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { resolveChestnutRoot } from '../foundation/claw-identity/index.js';
-import { DISPATCH_SKILLS_PATH } from '../core/evolution-system/index.js';
+import { DISPATCH_SKILLS_SUBDIR } from '../core/evolution-system/index.js';
+import { CLAWSPACE_DIR } from '../foundation/claw-identity/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 
 import { createClawPermissionChecker } from '../core/permissions/index.js';
@@ -32,6 +33,12 @@ import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/index.js';
+import {
+  createSkillVersions as defaultCreateSkillVersions,
+  DISPATCH_WORKSPACES_DIR_NAME,
+  DISPATCH_VERSION_STATE_DIR_NAME,
+  type SkillVersions,
+} from '../foundation/skill-system/index.js';
 import { CLAWS_DIR } from '../foundation/claw-identity/index.js';
 import { createSendTool } from '../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
@@ -70,6 +77,8 @@ interface BusinessSysInput {
   core: CoreInfraOutput;
   /** phase 1243 Step B: external production contributions（inbox message type declarations 等） */
   contributions?: AssemblyContributions;
+  /** Phase 1919 Step B：dispatch 版本服务工厂覆盖（测试注入；生产缺省真实工厂） */
+  createSkillVersions?: typeof defaultCreateSkillVersions;
 }
 
 export interface BusinessSysOutput {
@@ -164,6 +173,26 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   // --- 10. EvolutionSystem (motion only / phase411 Step B) ---
   let evolutionSystem: EvolutionSystem | undefined;
   let motionReviewContext: MotionReviewContext | undefined;
+  // Phase 1919 Step B：dispatch 技能版本服务（Motion 专属）——正式发布/读取唯一入口，
+  // 供 EvolutionSystem retro 摘要、SummonTool 摘要与 skill tool dispatch scope 共享。
+  // 迁移阻断/基线失败 = 装配失败（loud，不降级为 live 目录读取）。
+  let skillVersions: SkillVersions | undefined;
+  if (isMotion) {
+    const motionClawspace = path.join(clawDir, CLAWSPACE_DIR);
+    const createSkillVersionsFn = input.createSkillVersions ?? defaultCreateSkillVersions;
+    try {
+      skillVersions = await createSkillVersionsFn({
+        repositoryDir: path.join(motionClawspace, DISPATCH_SKILLS_SUBDIR),
+        workspaceParent: path.join(motionClawspace, DISPATCH_WORKSPACES_DIR_NAME),
+        stateDir: path.join(motionClawspace, DISPATCH_VERSION_STATE_DIR_NAME),
+        fsFactory,
+        audit: auditWriter,
+      });
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=skill_versions`, `phase=construct`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: SkillVersions construct failed: ${formatErr(e)}`, { cause: e });
+    }
+  }
   if (isMotion) {
     // phase 1445 Step D（裁定②）：init(motionReviewContext) 内化进 createEvolutionSystem 工厂，
     // motionReviewContext 提前构造、经工厂参数传入；init 失败由工厂抛错、并入 construct catch。
@@ -206,6 +235,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         taskSystem,
         contractManager,
         motionReviewContext,
+        skillVersions,
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -260,13 +290,13 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   toolRegistry.register(
     createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
   );
-  toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { dispatchSkillsDir: DISPATCH_SKILLS_PATH } : {}));
+  toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { skillVersions } : {}));
   toolRegistry.register(createSendTool(outboxWriter, MOTION_CLAW_ID));
 
   // phase 757: spawn/summon 工具改由 DI 注入 taskSystem，不再从 ExecContext 读取。
   // 注册放在 AsyncTaskSystem 构造完成后，确保 taskSystem 可用。
   toolRegistry.register(createSpawnTool({ taskSystem, originClawId: clawId, subagentMaxSteps: maxSteps }));
-  toolRegistry.register(new SummonTool({ scheduler: taskSystem, correlation: { originClawId: clawId } }));
+  toolRegistry.register(new SummonTool({ scheduler: taskSystem, correlation: { originClawId: clawId }, skillVersions }));
 
   let toolExecutor: IToolExecutor;
   try {

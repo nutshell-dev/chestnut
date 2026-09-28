@@ -13,8 +13,9 @@ const barrelSource = readFileSync(
 describe('SkillSystem SkillToolOptions deep surface', () => {
   it('keeps the factory options shape local behind the public factory', () => {
     expect(skillToolSource).not.toMatch(/export\s+interface\s+SkillToolOptions\b/);
+    // phase 1919 Step B：dispatch scope 改读 SkillVersions 固定版本服务（不再收 live 目录路径）
     expect(skillToolSource).toMatch(
-      /(?:^|\n)interface\s+SkillToolOptions\s*\{[\s\S]*?dispatchSkillsDir\?:\s*string;[\s\S]*?\}/,
+      /(?:^|\n)interface\s+SkillToolOptions\s*\{[\s\S]*?skillVersions\?:\s*SkillVersions;[\s\S]*?\}/,
     );
     expect(skillToolSource).toMatch(
       /createSkillTool\(skillRegistry:\s*SkillSystem,\s*opts:\s*SkillToolOptions\s*=\s*\{\}\)/,

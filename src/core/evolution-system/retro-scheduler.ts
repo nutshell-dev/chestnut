@@ -13,8 +13,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { SubAgentTaskScheduler } from '../async-task-system/index.js';
 import type { SubAgentTask } from '../async-task-system/index.js';
-import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
-import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from './dispatch-skills-paths.js';
+import type { SkillVersions } from '../../foundation/skill-system/index.js';
 // phase 1490: 不再传 maxSteps、task.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -42,7 +41,11 @@ export interface RetroConfig {
   audit: AuditLog;  // claw audit (for skill failure log)
   retroSubagentTimeoutMs?: number;   // default 600000ms
   taskSystem: SubAgentTaskScheduler;
-  createSkillSystem?: typeof defaultCreateSkillSystem;
+  /**
+   * Phase 1919 Step B：dispatch 技能摘要唯一来源 = 版本服务固定版本读取。
+   * 未注入（非 Motion 装配/测试窄 fixture）= 无摘要，绝不回退 live 目录扫描。
+   */
+  skillVersions?: SkillVersions;
 }
 
 interface RetroSubagentPayloadInput {
@@ -52,7 +55,7 @@ interface RetroSubagentPayloadInput {
   motionFs: FileSystem;
   audit: AuditLog;
   retroSubagentTimeoutMs?: number;
-  createSkillSystem?: typeof defaultCreateSkillSystem;
+  skillVersions?: SkillVersions;
 }
 
 /**
@@ -62,20 +65,18 @@ interface RetroSubagentPayloadInput {
 export async function buildRetroSubagentPayload(
   input: RetroSubagentPayloadInput,
 ): Promise<Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>> {
-  // 加载 dispatch-skills（A.5 / best-effort）
+  // 加载 dispatch-skills 摘要（Phase 1919 Step B：committed view 唯一入口 / best-effort）
   let skillsSummary = '';
-  try {
-    const createSkillFn = input.createSkillSystem ?? defaultCreateSkillSystem;
-    // phase 1872 Step G: 工厂内完成首载（owner 自决）——此处 await 工厂即可用。
-    const reg = await createSkillFn(input.motionFs, DISPATCH_SKILLS_DIR, input.audit);
-    await reg.loadAll();
-    const formatted = reg.formatForContext();
-    if (!formatted.includes('No skills loaded')) {
-      skillsSummary = formatted;
+  if (input.skillVersions) {
+    try {
+      const formatted = await input.skillVersions.formatPublishedForContext();
+      if (!formatted.includes('No skills loaded')) {
+        skillsSummary = formatted;
+      }
+    } catch (e) {
+      input.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
+        `error=${formatErr(e)}`);
     }
-  } catch (e) {
-    input.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
-      `error=${formatErr(e)}`);
   }
 
   // 构建 retroPrompt（A.3）
@@ -110,7 +111,7 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
     motionFs: config.motionFs,
     audit: config.audit,
     retroSubagentTimeoutMs: config.retroSubagentTimeoutMs,
-    createSkillSystem: config.createSkillSystem,
+    skillVersions: config.skillVersions,
   });
   await config.taskSystem.schedule('subagent', payload);
 }

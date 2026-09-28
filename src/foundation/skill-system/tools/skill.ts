@@ -6,10 +6,11 @@
  * Loaded on-demand when this tool is called.
  */
 
-import type { Tool, ExecContext, ExecutionInfra, ExecutionAudit } from '../../tools/index.js';
+import type { Tool, ExecContext } from '../../tools/index.js';
 import { formatErr } from "../../node-utils/index.js";
 import type { ToolResult } from '../../tool-protocol/index.js';
-import { createSkillSystem, type SkillSystem } from '../registry.js';
+import type { SkillVersions } from '../version-types.js';
+import type { SkillSystem } from '../registry.js';
 
 /**
  * Skill tool implementation
@@ -22,14 +23,14 @@ type SkillScope = 'self' | 'dispatch';
 
 interface SkillToolOptions {
   /**
-   * Dispatch skills 物理目录（clawDir-relative）。仅 Motion 装配传入。
-   * 不传 = 当前身份无 dispatch 池，scope='dispatch' 运行期 reject。
+   * dispatch 技能版本服务（Phase 1919 Step B：固定版本读取唯一入口）。
+   * 仅 Motion 装配传入。不传 = 当前身份无 dispatch 池，scope='dispatch' 运行期 reject。
    */
-  dispatchSkillsDir?: string;
+  skillVersions?: SkillVersions;
 }
 
 export function createSkillTool(skillRegistry: SkillSystem, opts: SkillToolOptions = {}): Tool {
-  const { dispatchSkillsDir } = opts;
+  const { skillVersions } = opts;
   return {
     name: SKILL_TOOL_NAME,
     profiles: ['full', 'subagent', 'miner'],
@@ -53,37 +54,22 @@ export function createSkillTool(skillRegistry: SkillSystem, opts: SkillToolOptio
     readonly: true,
     idempotent: true,
 
-    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-      // phase 1459 α-5: skill 真依赖仅 `ctx.fs + ctx.auditWriter` → `ExecutionInfra & ExecutionAudit` 子接口 sufficient。
-      // 编译期标 narrow scope / 测试 fixture 可只 mock `{ fs, auditWriter }` / 不消费 identity/permissions/control dim。
-      const deps: ExecutionInfra & ExecutionAudit = ctx;
+    async execute(args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
       const name = String(args.name);
       const scope = (args.scope as SkillScope | undefined) ?? 'self';
 
       if (scope === 'dispatch') {
-        if (!dispatchSkillsDir) {
+        if (!skillVersions) {
           return {
             success: false,
             content: `scope="dispatch" unavailable: this identity has no dispatch skill pool (Motion only).`,
             error: 'dispatch_scope_unavailable',
           };
         }
-        // 临时二级 registry：本次调用 own 实例、加载指定目录后即用即弃、生命周期不溢出本 execute。
-        // phase 382 ratify「二级 registry 机制 = 显式设计、非应急 fallback」。
-        // phase 1474 Step B: SkillSystem audit 依赖已收紧为 required——ctx 缺 auditWriter
-        // 属执行环境缺陷，fail-loud（不再静默降级为无 audit registry）。
-        if (!deps.auditWriter) {
-          return {
-            success: false,
-            content: `scope="dispatch" unavailable: execution context has no audit writer.`,
-            error: 'audit_writer_required',
-          };
-        }
+        // Phase 1919 Step B：dispatch 池只读已发布固定版本（owner 物化投影），
+        // 不再临时扫 live 目录；版本服务自身持有 audit。
         try {
-          // phase 1872 Step G: 工厂内完成首载（owner 自决）——此处 await 工厂即可用。
-          const tempRegistry = await createSkillSystem(deps.fs, dispatchSkillsDir, deps.auditWriter);
-          await tempRegistry.loadAll();
-          const content = await tempRegistry.loadFull(name);
+          const content = await skillVersions.loadPublished(name);
           return { success: true, content, metadata: { name: name } };
         } catch (error) {
           const errorMsg = formatErr(error);

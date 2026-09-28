@@ -1,16 +1,12 @@
-import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../../evolution-system/index.js';
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 
-
-import { createSkillSystem } from '../../../foundation/skill-system/index.js';
 
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../../foundation/llm-orchestrator/index.js';
 import { buildSummonContractTask } from '../../../templates/prompts/index.js';
 
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';
-import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
 import type { SummonToolDeps } from '../types.js';
@@ -35,6 +31,7 @@ export class SummonTool implements Tool {
   private readonly scheduler?: SummonToolDeps['scheduler'];
   private readonly originClawId?: string;
   private readonly allowFromShadow?: boolean;
+  private readonly skillVersions?: SummonToolDeps['skillVersions'];
 
   readonly name = SUMMON_TOOL_NAME;
   readonly description = `异步创建契约（contract）来完成用户目标。
@@ -66,6 +63,7 @@ export class SummonTool implements Tool {
     this.scheduler = deps.scheduler;
     this.originClawId = deps.correlation?.originClawId;
     this.allowFromShadow = deps.allowFromShadow ?? true;
+    this.skillVersions = deps.skillVersions;
   }
 
   schema = {
@@ -93,24 +91,17 @@ export class SummonTool implements Tool {
       };
     }
 
-    // 扫描 clawspace/dispatch-skills/ 生成简介（结构同普通 skill：子目录 + SKILL.md）
-    // phase 1474 Step B: SkillSystem audit 依赖收紧为 required——ctx 缺 auditWriter 时
-    // 跳过简介（生产 ExecContext 恒有 auditWriter；缺失即 best-effort 降级、不 throw）。
+    // dispatch-skills 摘要（Phase 1919 Step B：committed view 唯一入口 / best-effort）。
+    // 未注入版本服务（非 Motion 装配）= 无摘要，不回退 live 目录扫描。
     let skillsSummary = '';
-    if (ctx.auditWriter) {
+    if (this.skillVersions) {
       try {
-        // phase 1872 Step G: 工厂内完成首载（owner 自决）——此处 await 工厂即可用。
-        const dispatchSkillRegistry = await createSkillSystem(ctx.fs, DISPATCH_SKILLS_DIR, ctx.auditWriter);
-        await dispatchSkillRegistry.loadAll();
-        const formatted = dispatchSkillRegistry.formatForContext();
+        const formatted = await this.skillVersions.formatPublishedForContext();
         if (!formatted.includes('No skills loaded')) {
           skillsSummary = formatted;
         }
       } catch (e) {
-        const code = (e as NodeJS.ErrnoException).code;
-        if (!isFileNotFound(e) && code !== 'ENOTDIR') {
-          ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.LOAD_SKILLS_FAILED, `error=${String(e)}`);
-        }
+        ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.LOAD_SKILLS_FAILED, `error=${String(e)}`);
       }
     }
 

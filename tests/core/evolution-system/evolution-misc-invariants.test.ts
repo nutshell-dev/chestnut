@@ -4,15 +4,14 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockSkillLoadAll, mockSkillFormat, mockSchedule, mockSchedulePrepared, mockSkillFactory } = vi.hoisted(() => {
-  const loadAll = vi.fn().mockResolvedValue(undefined);
+const { mockSkillFormat, mockSchedule, mockSchedulePrepared, mockSkillVersions } = vi.hoisted(() => {
   const format = vi.fn().mockReturnValue('No skills loaded');
   return {
-    mockSkillLoadAll: loadAll,
     mockSkillFormat: format,
     mockSchedule: vi.fn().mockResolvedValue('mock-task-id'),
     mockSchedulePrepared: vi.fn().mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' }),
-    mockSkillFactory: vi.fn(() => ({ loadAll, formatForContext: format })),
+    // Phase 1919 Step B：retro 摘要读 SkillVersions 固定版本（registry 工厂注入退役）
+    mockSkillVersions: { formatPublishedForContext: format },
   };
 });
 
@@ -77,7 +76,7 @@ async function setupFixtures(overrides?: {
     audit: mockAudit as any,
     taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
     contractManager: {} as any,
-    createSkillSystem: mockSkillFactory as any,
+    skillVersions: mockSkillVersions as any,
   });
 
   const store = new RetrospectiveStore({ fs: motionFs, audit: mockAudit as any });
@@ -340,14 +339,13 @@ describe('retro-scheduler', () => {
       motionBaseDir: '/tmp/motion',
       audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog,
       taskSystem: { schedule: mockSchedule } as unknown as RetroConfig['taskSystem'],
-      createSkillSystem: mockSkillFactory,
+      skillVersions: mockSkillVersions as any,
       ...overrides,
     };
   }
 
   describe('scheduleRetro (phase 990 / phase 1206)', () => {
     beforeEach(() => {
-      mockSkillLoadAll.mockClear();
       mockSkillFormat.mockClear().mockReturnValue('No skills loaded');
       mockSchedule.mockClear().mockResolvedValue('mock-task-id');
     });
@@ -355,7 +353,7 @@ describe('retro-scheduler', () => {
     it('schedules retro with default timeout when skills empty', async () => {
       const config = makeConfig();
       await scheduleRetro(config);
-      expect(mockSkillLoadAll).toHaveBeenCalled();
+      expect(mockSkillFormat).toHaveBeenCalled();
       expect(mockSchedule).toHaveBeenCalledWith(
         'subagent',
         expect.objectContaining({
@@ -380,8 +378,8 @@ describe('retro-scheduler', () => {
       );
     });
 
-    it('logs skill failure and continues when loadAll throws', async () => {
-      mockSkillLoadAll.mockRejectedValue(new Error('disk full'));
+    it('logs skill failure and continues when formatPublishedForContext throws', async () => {
+      mockSkillFormat.mockImplementationOnce(() => { throw new Error('disk full'); });
       const config = makeConfig();
       await scheduleRetro(config);
       expect(config.audit.write).toHaveBeenCalledWith(

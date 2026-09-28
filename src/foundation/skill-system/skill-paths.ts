@@ -62,4 +62,18 @@ export const SKILL_COMMIT_PROOF = '.skill-committed' as const;
 /** 源码树 bundled skills 资源目录名（非运行期 agent subdir） */
 export const BUNDLED_SKILLS_DIR_NAME = 'skills' as const;
 
+/**
+ * dispatch 版本库候选编辑工作区 parent 目录名（Phase 1919 Step B）。
+ * owner = 本模块；位于 Motion clawspace 内（`.` 前缀：registry 不扫描、
+ * 快照 ignore 由 Assembly 组合）。内容 = Snapshot VersionStore 管理的
+ * git worktree，绝不当作技能目录消费。
+ */
+export const DISPATCH_WORKSPACES_DIR_NAME = '.dispatch-workspaces' as const;
+
+/**
+ * dispatch 版本服务自有状态目录名（Phase 1919 Step B）。owner = 本模块；
+ * 内含迁移记录/技能清单/投影清单/固定版本物化投影/迁移备份，均非技能 payload。
+ */
+export const DISPATCH_VERSION_STATE_DIR_NAME = '.dispatch-version-state' as const;
+
 // dispatch-skills const 物理迁 evolution-system/dispatch-skills-paths.ts (phase411 / 资源归属 EvolutionSystem)

@@ -134,7 +134,11 @@ export async function assemble(
 
     // §A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
     // 详 src/assembly/business-systems.ts (phase 37 rename motionInbox{Dir} → selfInbox{Dir} 命名 hygiene)
-    const business = await createBusinessSystems({ core: coreInfra, contributions });
+    const business = await createBusinessSystems({
+      core: coreInfra,
+      contributions,
+      createSkillVersions: overrides?.createSkillVersions,
+    });
     rollback.register('task_system', () => business.taskSystem.shutdown());
 
     const { snapshot, streamWriter: sw, runtime, executionRecovery, recoverySession, eventLoop } = await createRuntimeAssembly({ core: coreInfra, business, config });

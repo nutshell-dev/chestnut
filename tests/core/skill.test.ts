@@ -7,6 +7,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { createSkillTool } from '../../src/foundation/skill-system/tools/skill.js';
+import type { SkillVersions } from '../../src/foundation/skill-system/index.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -42,21 +43,22 @@ describe('skill tool scope parameter', () => {
     });
   }
 
+  /** Phase 1919 Step B：dispatch 读取唯一入口 = SkillVersions 固定版本服务 */
+  function makeSkillVersions(contents: Record<string, string>): SkillVersions {
+    return {
+      loadPublished: async (name: string) => {
+        const c = contents[name];
+        if (c === undefined) throw new Error(`dispatch skill "${name}" has no published version`);
+        return c;
+      },
+    } as unknown as SkillVersions;
+  }
+
   it('should load skill from dispatch pool when scope="dispatch" and Motion identity', async () => {
-    await fs.mkdir(path.join(tempDir, 'clawspace', 'dispatch-skills', 'my-skill'), { recursive: true });
-    await fs.writeFile(
-      path.join(tempDir, 'clawspace', 'dispatch-skills', 'my-skill', 'SKILL.md'),
-      `---
-name: my-skill
-description: My dispatch skill
----
-# My Skill
-Full content.
-`
-    );
+    const skillVersions = makeSkillVersions({ 'my-skill': `# My Skill\nFull content.` });
 
     const ctx = makeCtx();
-    const skillTool = createSkillTool({} as any, { dispatchSkillsDir: 'clawspace/dispatch-skills' });
+    const skillTool = createSkillTool({} as any, { skillVersions });
     const result = await skillTool.execute(
       { name: 'my-skill', scope: 'dispatch' },
       ctx
@@ -67,10 +69,10 @@ Full content.
   });
 
   it('should return error (not throw) when skill not found in dispatch pool', async () => {
-    await fs.mkdir(path.join(tempDir, 'clawspace', 'dispatch-skills'), { recursive: true });
+    const skillVersions = makeSkillVersions({});
 
     const ctx = makeCtx();
-    const skillTool = createSkillTool({} as any, { dispatchSkillsDir: 'clawspace/dispatch-skills' });
+    const skillTool = createSkillTool({} as any, { skillVersions });
     const result = await skillTool.execute(
       { name: 'non-existent', scope: 'dispatch' },
       ctx
@@ -82,7 +84,7 @@ Full content.
 
   it('should reject scope="dispatch" when identity has no dispatch pool (non-Motion claw)', async () => {
     const ctx = makeCtx();
-    const skillTool = createSkillTool({} as any);  // no dispatchSkillsDir
+    const skillTool = createSkillTool({} as any);  // no skillVersions
     const result = await skillTool.execute(
       { name: 'my-skill', scope: 'dispatch' },
       ctx

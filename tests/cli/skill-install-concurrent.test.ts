@@ -8,15 +8,21 @@
  * - 崩溃窗口：holder 已死 + 同 payload → 自动恢复未完成目标；异 payload →
  *   显式冲突留证不覆盖；
  * - claw install：staging/swap 发布，消费者只见完整版本。
+ *
+ * Phase 1919 Step B：dispatch 目标改经 SkillVersions owner import 原子发布
+ * （分支保存 + 条件 CAS），不再走目录 swap/marker/proof 协议——dispatch 侧无
+ * 半落位/提交点窗口，marker/证据类验收落在仍走 swap 协议的 user/claw 目标上；
+ * dispatch 读取断言一律经版本服务固定版本（live 目录不是读取权威）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/commands/skill.js';
-import { SkillSystem, SKILL_PUBLISH_MARKER, SKILL_COMMIT_PROOF } from '../../src/foundation/skill-system/index.js';
+import { SkillSystem, SKILL_PUBLISH_MARKER, SKILL_COMMIT_PROOF, createSkillVersions } from '../../src/foundation/skill-system/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
+import { makeAudit } from '../helpers/audit.js';
 
 let testDir: string;
 let originalRoot: string | undefined;
@@ -63,6 +69,35 @@ function claimPath(): string {
 
 function readVersion(dir: string): string {
   return fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8');
+}
+
+/**
+ * Phase 1919 Step B：dispatch 已发布内容经版本服务固定版本读取——live 目录
+ * （库根工作区）只是历史遗留投影，不是读取/写入权威。
+ */
+async function readDispatchPublished(skill = 'myskill'): Promise<string> {
+  const clawspace = path.join(testDir, '.chestnut', 'motion', 'clawspace');
+  const versions = await createSkillVersions({
+    repositoryDir: path.join(clawspace, 'dispatch-skills'),
+    workspaceParent: path.join(clawspace, '.dispatch-workspaces'),
+    stateDir: path.join(clawspace, '.dispatch-version-state'),
+    fsFactory,
+    audit: makeAudit().audit,
+  });
+  return versions.loadPublished(skill);
+}
+
+/** dispatch 发布中途崩溃注入（DI 缝）：真实迁移/开启 + importSkill 抛错；恢复用真实工厂。 */
+function crashDispatchPublish(): typeof createSkillVersions {
+  return async (opts) => {
+    const real = await createSkillVersions(opts);
+    return {
+      readPublished: real.readPublished.bind(real),
+      loadPublished: real.loadPublished.bind(real),
+      formatPublishedForContext: real.formatPublishedForContext.bind(real),
+      importSkill: async () => { throw new Error('simulated crash at dispatch publish'); },
+    };
+  };
 }
 
 describe('skill install target occupancy (phase 1912 Step D)', () => {
@@ -130,13 +165,15 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     await skillInstallUserCommand(deps, src, { audit: audit as never });
 
     expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
     expect(fs.existsSync(claimPath())).toBe(false);
     for (const parent of [path.dirname(userSkillDir()), path.dirname(dispatchSkillDir())]) {
       expect(fs.readdirSync(parent).filter((n) => n.startsWith('.skill-'))).toEqual([]);
     }
-    expect(audit.write).toHaveBeenCalledTimes(1);
-    expect(audit.write).toHaveBeenCalledWith('cli_skill_install', 'mode=user', 'skill=myskill');
+    // Phase 1919 Step B：版本服务自有事件经同一 sink；CLI 安装完成回执仍恰一次
+    const installAudits = audit.write.mock.calls.filter((c: unknown[]) => c[0] === 'cli_skill_install');
+    expect(installAudits).toHaveLength(1);
+    expect(installAudits[0]).toEqual(['cli_skill_install', 'mode=user', 'skill=myskill']);
   });
 
   it('并发同名不同版本安装：恰一 winner，loser 冲突，目录为单一完整版本', async () => {
@@ -152,30 +189,22 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     const failed = results.filter((r) => r.status === 'rejected');
     expect(ok).toHaveLength(1);
     expect(failed).toHaveLength(1);
-    expect((failed[0] as PromiseRejectedResult).reason.message).toMatch(/in progress|claim/i);
+    expect((failed[0] as PromiseRejectedResult).reason.message).toMatch(/in progress|claim|conflict/i);
 
     // 两目标都是同一完整版本（不混写）
     const userVersion = readVersion(userSkillDir());
     expect(['# myskill vA\n', '# myskill vB\n']).toContain(userVersion);
-    expect(readVersion(dispatchSkillDir())).toBe(userVersion);
+    expect(await readDispatchPublished()).toBe(userVersion);
     const runSh = fs.readFileSync(path.join(userSkillDir(), 'run.sh'), 'utf-8');
     expect(runSh).toBe(userVersion.includes('vA') ? 'echo vA\n' : 'echo vB\n');
   });
 
   it('崩溃窗口：holder 已死 + 同 payload → 恢复未完成目标并释放 claim', async () => {
     const src = makeSkillSource('a', 'v1');
-    // 模拟崩溃：dispatch 首次 no-replace 落位失败 → claim 残留
-    // （user=published，dispatch=pending，占位目录可能已建）
-    const dispatchParent = path.dirname(dispatchSkillDir());
-    const crashingFactory = (baseDir: string): FileSystem => {
-      const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
-        real.linkExclusiveSync = () => { throw new Error('simulated crash at dispatch publish'); };
-      }
-      return real;
-    };
+    // 模拟崩溃：dispatch 版本发布中途（owner import 未决）→ claim 残留
+    // （user=published，dispatch=publishing）
     await expect(
-      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
     ).rejects.toThrow(/simulated crash/);
 
     // claim 残留、user 已发布、dispatch 未完成（intent 状态为据）
@@ -198,31 +227,25 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
 
     await skillInstallUserCommand(deps, src);
 
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
     expect(fs.existsSync(claimPath())).toBe(false);
     expect(logSpy.mock.calls.flat().join('\n')).toContain('resumed');
   });
 
   it('崩溃窗口：holder 已死 + 异 payload → 显式冲突留证，不覆盖', async () => {
     const srcA = makeSkillSource('a', 'vA');
-    const dispatchParent = path.dirname(dispatchSkillDir());
-    const crashingFactory = (baseDir: string): FileSystem => {
-      const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
-        real.linkExclusiveSync = () => { throw new Error('simulated crash'); };
-      }
-      return real;
-    };
-    await expect(skillInstallUserCommand({ fsFactory: crashingFactory }, srcA)).rejects.toThrow();
+    await expect(
+      skillInstallUserCommand(deps, srcA, { createSkillVersions: crashDispatchPublish() }),
+    ).rejects.toThrow();
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
 
-    // 不同版本源重试 → 冲突，claim 证据保留，dispatch 未发布（无 SKILL.md）
+    // 不同版本源重试 → 冲突，claim 证据保留，dispatch 未发布（无固定版本）
     const srcB = makeSkillSource('b', 'vB');
     await expect(skillInstallUserCommand(deps, srcB)).rejects.toThrow(/different source payload/);
     expect(fs.existsSync(claimPath())).toBe(true);
-    expect(fs.existsSync(path.join(dispatchSkillDir(), 'SKILL.md'))).toBe(false);
+    await expect(readDispatchPublished()).rejects.toThrow(/no published version/);
     expect(readVersion(userSkillDir())).toBe('# myskill vA\n');
   });
 
@@ -239,11 +262,12 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     expect(readVersion(clawSkill)).toBe('# myskill v1\n');
     expect(fs.existsSync(path.join(clawDir, 'skills', '.myskill.installing'))).toBe(false);
 
-    // 更新：dispatch 源升级后重装 → 整体替换为完整新版
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# myskill v2\n');
+    // 更新：dispatch 源经 owner import 升级（live 目录不是写入口）后重装 → 整体替换为完整新版
+    const srcV2 = makeSkillSource('b', 'v2');
+    await skillInstallUserCommand(deps, srcV2);
     await skillInstallClawCommand(deps, 'bob', 'myskill');
     expect(readVersion(clawSkill)).toBe('# myskill v2\n');
-    expect(fs.existsSync(path.join(clawSkill, 'run.sh'))).toBe(true); // 旧版文件随新版保留（同源快照）
+    expect(fs.existsSync(path.join(clawSkill, 'run.sh'))).toBe(true); // 同源快照整体替换
   });
 });
 
@@ -251,17 +275,19 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
 describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PRECOMMIT-VISIBILITY）', () => {
   it('SKILL.md 先落位、引用文件未落位的崩溃窗口：SkillSystem 不注册半版本；恢复后注册完整版本', async () => {
     // manifest 按 localeCompare 排序：'SKILL.md' < 'zzz.sh'，SKILL.md 先落位
+    // Phase 1919 Step B：swap/marker 提交协议仅剩 user 目标（dispatch 走 owner
+    // import 原子发布），半版本门控验收落在 user 目标上。
     const src = path.join(testDir, 'a', 'myskill');
     fs.mkdirSync(src, { recursive: true });
     fs.writeFileSync(path.join(src, 'SKILL.md'), '# myskill v1\n');
     fs.writeFileSync(path.join(src, 'zzz.sh'), 'echo v1\n');
-    const dispatchParent = path.dirname(dispatchSkillDir());
+    const userParent = path.dirname(userSkillDir());
 
     // 模拟崩溃：SKILL.md 落位后，第二文件 link 失败 —— 目标目录含
     // SKILL.md + marker，属半版本
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
         const origLink = real.linkExclusiveSync.bind(real);
         real.linkExclusiveSync = (from: string, to: string) => {
           if (to === 'myskill/zzz.sh') throw new Error('simulated crash mid-landing');
@@ -275,30 +301,31 @@ describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PREC
     ).rejects.toThrow(/simulated crash/);
 
     // 半版本证据：SKILL.md 已落位 + 引用文件未落位 + marker 在（= 未提交）
-    expect(fs.existsSync(path.join(dispatchSkillDir(), 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(dispatchSkillDir(), 'zzz.sh'))).toBe(false);
-    expect(fs.existsSync(path.join(dispatchSkillDir(), '.skill-publishing'))).toBe(true);
+    expect(fs.existsSync(path.join(userSkillDir(), 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(userSkillDir(), 'zzz.sh'))).toBe(false);
+    expect(fs.existsSync(path.join(userSkillDir(), '.skill-publishing'))).toBe(true);
 
     // SkillSystem 读侧：不注册半版本 + audit 留证
     const auditCalls: string[][] = [];
     const registry = new SkillSystem(
       new NodeFileSystem({ baseDir: testDir }),
-      path.relative(testDir, dispatchParent),
+      'skills',
       { write: (...args: string[]) => { auditCalls.push(args); } } as never,
     );
     await registry.loadAll();
     expect(registry.listMeta()).toEqual([]);
     expect(auditCalls.some(c => c[0] === 'skill_publish_in_progress_skipped')).toBe(true);
 
-    // 死 holder 同 payload 恢复 → 提交 → registry 注册完整版本
+    // 死 holder 同 payload 恢复 → 提交 → registry 注册完整版本（dispatch 由 import 补齐）
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
     delete claim.process_start_time;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
     await skillInstallUserCommand(deps, src);
 
-    expect(fs.existsSync(path.join(dispatchSkillDir(), '.skill-publishing'))).toBe(false);
-    expect(fs.readFileSync(path.join(dispatchSkillDir(), 'zzz.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(fs.existsSync(path.join(userSkillDir(), '.skill-publishing'))).toBe(false);
+    expect(fs.readFileSync(path.join(userSkillDir(), 'zzz.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
     await registry.loadAll();
     expect(registry.listMeta().map(m => m.name)).toEqual(['myskill']);
   });
@@ -370,26 +397,18 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
 
     // self 副本的用户编辑不被恢复覆盖；dispatch 按 source 补齐；claim 释放
     expect(readVersion(userSkillDir())).toBe('# myskill USER-EDITED\n');
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v2\n');
+    expect(await readDispatchPublished()).toBe('# myskill v2\n');
     expect(fs.existsSync(claimPath())).toBe(false);
   });
 
   it('self 已提交即可被自身 registry 独立消费，即使 dispatch 仍 pending', async () => {
     const src = makeSkillSource('a', 'v1');
-    // 崩溃：dispatch 首次落位失败 → user 已提交、dispatch 未提交（marker 在）
-    const dispatchParent = path.dirname(dispatchSkillDir());
-    const crashingFactory = (baseDir: string): FileSystem => {
-      const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
-        real.linkExclusiveSync = () => { throw new Error('simulated crash at dispatch publish'); };
-      }
-      return real;
-    };
+    // 崩溃：dispatch 版本发布中途 → user 已提交、dispatch 未发布
     await expect(
-      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
     ).rejects.toThrow(/simulated crash/);
 
-    // target-local：dispatch 未提交不影响 self 副本的消费
+    // target-local：dispatch 未发布不影响 self 副本的消费
     const userRegistry = new SkillSystem(
       new NodeFileSystem({ baseDir: testDir }),
       'skills',
@@ -398,14 +417,8 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
     await userRegistry.loadAll();
     expect(userRegistry.listMeta().map((m) => m.name)).toEqual(['myskill']);
 
-    // dispatch 侧仍门控（marker 在 = 未提交）
-    const dispatchRegistry = new SkillSystem(
-      new NodeFileSystem({ baseDir: testDir }),
-      path.relative(testDir, dispatchParent),
-      { write: () => {} } as never,
-    );
-    await dispatchRegistry.loadAll();
-    expect(dispatchRegistry.listMeta()).toEqual([]);
+    // dispatch 侧仍门控（无固定版本 = 不可消费）
+    await expect(readDispatchPublished()).rejects.toThrow(/no published version/);
 
     // 死 holder 恢复后 dispatch 独立补齐
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
@@ -413,7 +426,7 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
     delete claim.process_start_time;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
     await skillInstallUserCommand(deps, src);
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
   });
 });
 
@@ -445,36 +458,24 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     };
   }
 
-  it('Motion 在快照期间交错编辑 SKILL.md 与引用文件 → 重试收敛，claw 得到一致完整版本', async () => {
+  it('Motion 交错编辑 live dispatch 目录 → claw 仍得固定版本一致字节（dirty live 不漏入）', async () => {
     const src = makeSkillSource('a', 'v1');
     await skillInstallUserCommand(deps, src);
     makeClaw('bob');
 
+    // Phase 1919 Step B：claw source = 版本服务固定版本物化投影；旧语义的
+    // 「快照自一致复核重试收敛」由 committed view 构造性取代——live 目录的
+    // 并发脏写绝不漏入 payload。
     const dispatchDir = dispatchSkillDir();
-    let mutated = false;
-    const racingFactory = (baseDir: string): FileSystem => {
-      const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchDir)) {
-        const origRead = real.read.bind(real);
-        real.read = async (p: string) => {
-          const content = await origRead(p);
-          // 快照复制读到 SKILL.md（v1）后，Motion 交错升级 dispatch 两个文件
-          if (p === 'SKILL.md' && !mutated) {
-            mutated = true;
-            fs.writeFileSync(path.join(dispatchDir, 'SKILL.md'), '# myskill v2\n');
-            fs.writeFileSync(path.join(dispatchDir, 'run.sh'), 'echo v2\n');
-          }
-          return content;
-        };
-      }
-      return real;
-    };
+    fs.mkdirSync(dispatchDir, { recursive: true });
+    fs.writeFileSync(path.join(dispatchDir, 'SKILL.md'), '# myskill DIRTY\n');
+    fs.writeFileSync(path.join(dispatchDir, 'run.sh'), 'echo DIRTY\n');
 
-    await skillInstallClawCommand({ fsFactory: racingFactory }, 'bob', 'myskill');
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
 
-    // 快照自一致复核迫使重试 → claw 得到一致的 v2（绝不 SKILL.md v1 + run.sh v2 混合）
-    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v2\n');
-    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v2\n');
+    // 一致版本 = 发布时的固定版本 v1（绝不 SKILL.md v1 + run.sh v2 混合，也绝不漏入 DIRTY）
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v1\n');
+    expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v1\n');
     expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
     // 快照目录随成功发布清理
     expect(
@@ -483,21 +484,19 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
   });
 
   it('source 持续变化 → 有界重试后 fail-closed typed，不发布不留垃圾', async () => {
+    // Phase 1919 Step B：claw source 已是固定版本（不可 churn）；churn 防护的
+    // 剩余 live-source 路径 = user install 的调用方 source 快照。
     const src = makeSkillSource('a', 'v1');
-    await skillInstallUserCommand(deps, src);
-    makeClaw('bob');
-
-    const dispatchDir = dispatchSkillDir();
     let n = 0;
     const churnFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchDir)) {
+      if (path.resolve(baseDir) === path.resolve(src)) {
         const origRead = real.read.bind(real);
         real.read = async (p: string) => {
           const content = await origRead(p);
           if (p === 'SKILL.md') {
             n++;
-            fs.writeFileSync(path.join(dispatchDir, 'SKILL.md'), `# myskill churn-${n}\n`);
+            fs.writeFileSync(path.join(src, 'SKILL.md'), `# myskill churn-${n}\n`);
           }
           return content;
         };
@@ -506,14 +505,14 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     };
 
     await expect(
-      skillInstallClawCommand({ fsFactory: churnFactory }, 'bob', 'myskill'),
+      skillInstallUserCommand({ fsFactory: churnFactory }, src),
     ).rejects.toThrow(/kept changing/);
 
     // 快照先于 claim：未拍成一致快照 → 无 claim、无目标、无快照残留
-    expect(fs.existsSync(clawSkillDir('bob'))).toBe(false);
-    expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
+    expect(fs.existsSync(userSkillDir())).toBe(false);
+    expect(fs.existsSync(claimPath())).toBe(false);
     expect(
-      fs.readdirSync(path.dirname(clawSkillDir('bob'))).filter((x) => x.startsWith('.skill-')),
+      fs.readdirSync(path.join(testDir, 'skills')).filter((x) => x.startsWith('.skill-')),
     ).toEqual([]);
   });
 
@@ -528,9 +527,9 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     ).rejects.toThrow(/simulated crash/);
     expect(fs.existsSync(clawClaimPath('bob'))).toBe(true);
 
-    // Motion 合法编辑 dispatch pool 升级到 v2
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# myskill v2\n');
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'run.sh'), 'echo v2\n');
+    // Motion 升级 dispatch pool 到 v2（Phase 1919 Step B：经 owner import，live 目录不是写入口）
+    const srcV2 = makeSkillSource('b', 'v2');
+    await skillInstallUserCommand(deps, srcV2);
 
     killHolder(clawClaimPath('bob'));
     await skillInstallClawCommand(deps, 'bob', 'myskill');
@@ -556,11 +555,12 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
       skillInstallClawCommand({ fsFactory: clawCrashFactory(clawSkills) }, 'bob', 'myskill'),
     ).rejects.toThrow(/simulated crash/);
 
-    // 快照证据丢失 + dispatch 升级（source generation 变化）
+    // 快照证据丢失 + dispatch 升级（source generation 变化，经 owner import 发布 v2）
     for (const n of fs.readdirSync(clawSkills).filter((x) => x.startsWith('.skill-srcsnap-'))) {
       fs.rmSync(path.join(clawSkills, n), { recursive: true, force: true });
     }
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# myskill v2\n');
+    const srcV2 = makeSkillSource('b', 'v2');
+    await skillInstallUserCommand(deps, srcV2);
 
     killHolder(clawClaimPath('bob'));
     await expect(
@@ -585,68 +585,61 @@ describe('dispatch source 协议工件边界（Phase 1916 Step B：RACE-DISPATCH
     return path.dirname(clawSkillDir(id));
   }
 
-  it('source 发布未提交（marker 持续在场）→ typed mid-publish 失败，snapshot/target 零污染', async () => {
+  it('source live 目录残留旧协议 marker → 固定版本读取不受影响，marker 不进 payload', async () => {
     const src = makeSkillSource('a', 'v1');
     await skillInstallUserCommand(deps, src);
     makeClaw('bob');
 
-    // dispatch source 正处于初次发布窗口（marker 在 = 未提交）
+    // Phase 1919 Step B：marker 是旧目录 swap 协议的工件。迁移后它不再参与任何
+    // 读路径——claw source 是 committed 投影，live 目录 marker 字节构造性不进 payload。
+    // （迁移边界上的旧活动 marker 阻断由 dispatch-version-root 迁移测试验收。）
+    fs.mkdirSync(dispatchSkillDir(), { recursive: true });
     fs.writeFileSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER), JSON.stringify({ source: 'x' }));
 
-    await expect(
-      skillInstallClawCommand(deps, 'bob', 'myskill'),
-    ).rejects.toThrow(/mid-publish/);
+    await skillInstallClawCommand(deps, 'bob', 'myskill');
 
-    // marker 未被复制成技能 payload：无目标、无 claim、无残留快照
-    expect(fs.existsSync(clawSkillDir('bob'))).toBe(false);
+    // payload 完整干净：无 marker、无 claim/快照残留
+    expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v1\n');
+    expect(fs.existsSync(path.join(clawSkillDir('bob'), SKILL_PUBLISH_MARKER))).toBe(false);
     expect(fs.existsSync(path.join(clawSkillsParent('bob'), '.myskill.installing'))).toBe(false);
     expect(
       fs.readdirSync(clawSkillsParent('bob')).filter((n) => n.startsWith('.skill-')),
     ).toEqual([]);
-    // source marker 证据原样保留（不由 consumer 删除）
+    // source 侧 marker 证据原样保留（不由 consumer 删除）
     expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
   });
 
-  it('复制窗口内 marker 出现（交错 publish）→ 本趟快照丢弃重试；marker 消失后收敛，payload 完整无 marker', async () => {
+  it('复制窗口内 marker 出现（交错旧协议 publish）→ 固定版本 payload 不受影响', async () => {
     const src = makeSkillSource('a', 'v1');
     await skillInstallUserCommand(deps, src);
     makeClaw('bob');
 
-    const dispatchDir = dispatchSkillDir();
-    const markerAbs = path.join(dispatchDir, SKILL_PUBLISH_MARKER);
-    let markerProbes = 0;
+    // Phase 1919 Step B：快照复制自 committed 投影；复制窗口内 live 目录出现
+    // marker（旧协议交错发布）不再触发丢弃重试——投影字节与 live 工件无关。
+    const markerAbs = path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER);
+    let copied = false;
     const racingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchDir)) {
-        const origRead = real.read.bind(real);
-        real.read = async (p: string) => {
-          const content = await origRead(p);
-          // 快照复制读到 SKILL.md 后，source 进入新一轮发布（marker 落位）
-          if (p === 'SKILL.md' && markerProbes >= 0 && !fs.existsSync(markerAbs) && markerProbes < 2) {
-            fs.writeFileSync(markerAbs, JSON.stringify({ source: 'race' }));
-          }
-          return content;
-        };
-        const origStatSync = real.statSync.bind(real);
-        real.statSync = (p: string) => {
-          if (p === SKILL_PUBLISH_MARKER) {
-            markerProbes++;
-            // 第三次探测（第二趟 pre-check）前发布完成：marker 删除
-            if (markerProbes >= 3) fs.rmSync(markerAbs, { force: true });
-          }
-          return origStatSync(p);
-        };
-      }
+      const origRead = real.read.bind(real);
+      real.read = async (p: string) => {
+        const content = await origRead(p);
+        if (p === 'SKILL.md' && !copied) {
+          copied = true;
+          fs.mkdirSync(dispatchSkillDir(), { recursive: true });
+          fs.writeFileSync(markerAbs, JSON.stringify({ source: 'race' }));
+        }
+        return content;
+      };
       return real;
     };
 
     await skillInstallClawCommand({ fsFactory: racingFactory }, 'bob', 'myskill');
 
-    // 收敛后 claw 得到完整 payload，marker 不作为技能内容传播
+    // claw 得到完整 payload，marker 不作为技能内容传播
+    expect(copied).toBe(true); // 确实经历了复制窗口内 marker 出现
     expect(readVersion(clawSkillDir('bob'))).toBe('# myskill v1\n');
     expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v1\n');
     expect(fs.existsSync(path.join(clawSkillDir('bob'), SKILL_PUBLISH_MARKER))).toBe(false);
-    expect(markerProbes).toBeGreaterThanOrEqual(3); // 确实经历了重试
   });
 
   it('稳定 source 的用户合法隐藏文件（非协议保留名）照常进入 payload', async () => {
@@ -716,26 +709,29 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
       skillInstallUserCommand({ fsFactory: crashBeforeTargetsFactory() }, srcV2),
     ).rejects.toThrow(/simulated crash/);
 
-    // 崩溃后 dispatch 目标内容被外部改变（preState 不再相符）
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# externally-changed\n');
+    // 崩溃后 user 目标内容被外部改变（preState 不再相符）
+    // （Phase 1919 Step B：身份判读验收落在仍走 swap 协议的 user 目标；dispatch
+    // 的版本身份锚是 git 历史，live 字节编辑不构成身份证据）
+    fs.writeFileSync(path.join(userSkillDir(), 'SKILL.md'), '# externally-changed\n');
     killHolder(claimPath());
 
     await expect(skillInstallUserCommand(deps, srcV2)).rejects.toThrow(/identity cannot be proven/);
 
     // 外部字节不被恢复覆盖；证据保留
-    expect(fs.readFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# externally-changed\n');
+    expect(fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# externally-changed\n');
     expect(fs.existsSync(claimPath())).toBe(true);
-    // user 目标（preState 相符、未被触碰）已由恢复按 update 语义正常升级
-    expect(readVersion(userSkillDir())).toBe('# myskill v2\n');
+    // dispatch 已发布的 v1 不被崩溃的 v2 intent 覆盖
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
   });
 
   it('publishing target 被外部替换成无 marker 目录 → 不误判已提交，typed 冲突留证', async () => {
     const src = makeSkillSource('a', 'v1');
-    // 崩溃：dispatch 落位中途（marker 在场、本 intent 占有）
-    const dispatchParent = path.dirname(dispatchSkillDir());
+    // 崩溃：user 目标落位中途（marker 在场、本 intent 占有）——Phase 1919 Step B
+    // 起占有判读验收在 user 目标（dispatch 由 owner import 原子发布，无半落位窗口）
+    const userParent = path.dirname(userSkillDir());
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
         real.linkExclusiveSync = () => { throw new Error('simulated crash mid-landing'); };
       }
       return real;
@@ -745,24 +741,24 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     ).rejects.toThrow(/simulated crash/);
 
     // 外部删除半成品占位，重建无 marker 的目录（内容既非 manifest 亦非 preState）
-    fs.rmSync(dispatchSkillDir(), { recursive: true, force: true });
-    fs.mkdirSync(dispatchSkillDir(), { recursive: true });
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), '# external-replacement\n');
+    fs.rmSync(userSkillDir(), { recursive: true, force: true });
+    fs.mkdirSync(userSkillDir(), { recursive: true });
+    fs.writeFileSync(path.join(userSkillDir(), 'SKILL.md'), '# external-replacement\n');
     killHolder(claimPath());
 
     await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/identity cannot be proven/);
 
     // 外部目录不被覆盖、不被误接受；claim 保留待显式处置
-    expect(fs.readFileSync(path.join(dispatchSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# external-replacement\n');
+    expect(fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# external-replacement\n');
     expect(fs.existsSync(claimPath())).toBe(true);
   });
 
   it('publishing target 的 marker installId 不符（非本 intent 占有）→ typed 冲突留证', async () => {
     const src = makeSkillSource('a', 'v1');
-    const dispatchParent = path.dirname(dispatchSkillDir());
+    const userParent = path.dirname(userSkillDir());
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
         real.linkExclusiveSync = () => { throw new Error('simulated crash mid-landing'); };
       }
       return real;
@@ -772,7 +768,7 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     ).rejects.toThrow(/simulated crash/);
 
     // marker 在场但 installId 被改写（占有证据不符）
-    const markerAbs = path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER);
+    const markerAbs = path.join(userSkillDir(), SKILL_PUBLISH_MARKER);
     const marker = JSON.parse(fs.readFileSync(markerAbs, 'utf-8'));
     marker.installId = 'someone-else';
     fs.writeFileSync(markerAbs, JSON.stringify(marker, null, 2));
@@ -785,12 +781,13 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
 
   it('committing + 本方 marker 在场（提交点崩溃）→ 恢复完成提交：删 marker、目标完整可消费', async () => {
     const src = makeSkillSource('a', 'v1');
-    // 崩溃：dispatch 提交点（committing 已登记、删 marker 时失败）
-    const dispatchParent = path.dirname(dispatchSkillDir());
+    // 崩溃：user 目标提交点（committing 已登记、删 marker 时失败）
+    // （Phase 1919 Step B：提交点恢复验收在 user 目标；dispatch 由 import 原子发布）
+    const userParent = path.dirname(userSkillDir());
     let crashed = false;
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
         const origDelete = real.deleteSync.bind(real);
         real.deleteSync = (p: string) => {
           if (!crashed && p === `myskill/${SKILL_PUBLISH_MARKER}`) {
@@ -808,21 +805,22 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
 
     const crashedIntent = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     expect(crashedIntent.targets).toEqual([
-      { id: 'user', state: 'published', preState: 'absent' },
-      { id: 'dispatch', state: 'committing', preState: 'absent', commitBranch: 'absent' },
+      { id: 'user', state: 'committing', preState: 'absent', commitBranch: 'absent' },
+      { id: 'dispatch', state: 'pending', preState: 'absent' },
     ]);
-    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
 
     killHolder(claimPath());
     await skillInstallUserCommand(deps, src);
 
     // commit-finish：marker 删除 = 提交完成；registry 可消费完整版本
-    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(false);
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_PUBLISH_MARKER))).toBe(false);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
     expect(fs.existsSync(claimPath())).toBe(false);
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
     const registry = new SkillSystem(
       new NodeFileSystem({ baseDir: testDir }),
-      path.relative(testDir, dispatchParent),
+      'skills',
       { write: () => {} } as never,
     );
     await registry.loadAll();
@@ -831,11 +829,11 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
 
   it('committing + marker 在场但落位证据已破坏 → commit-finish 拒绝，冲突留证', async () => {
     const src = makeSkillSource('a', 'v1');
-    const dispatchParent = path.dirname(dispatchSkillDir());
+    const userParent = path.dirname(userSkillDir());
     let crashed = false;
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+      if (path.resolve(baseDir) === path.resolve(userParent)) {
         const origDelete = real.deleteSync.bind(real);
         real.deleteSync = (p: string) => {
           if (!crashed && p === `myskill/${SKILL_PUBLISH_MARKER}`) {
@@ -852,13 +850,13 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     ).rejects.toThrow(/simulated crash/);
 
     // 提交点崩溃后落位证据被外部破坏（额外文件混入）
-    fs.writeFileSync(path.join(dispatchSkillDir(), 'external.txt'), 'x');
+    fs.writeFileSync(path.join(userSkillDir(), 'external.txt'), 'x');
     killHolder(claimPath());
 
     await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/landing evidence is broken/);
 
     // marker 仍在（未提交），证据保留
-    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_PUBLISH_MARKER))).toBe(true);
     expect(fs.existsSync(claimPath())).toBe(true);
   });
 });
@@ -915,11 +913,11 @@ describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SK
     await skillInstallUserCommand(deps, src);
 
     expect(readVersion(userSkillDir())).toBe('# myskill USER-EDITED\n');
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
     expect(fs.existsSync(claimPath())).toBe(false);
-    // published 登记后证据使命结束，目标根无协议工件残留
+    // published 登记后证据使命结束，目标根无协议工件残留（dispatch 走 owner
+    // import，本无 commit proof 工件）
     expect(fs.existsSync(path.join(userSkillDir(), SKILL_COMMIT_PROOF))).toBe(false);
-    expect(fs.existsSync(path.join(dispatchSkillDir(), SKILL_COMMIT_PROOF))).toBe(false);
   });
 
   it('目标在提交后被外部删除 → typed 冲突留证，不误接受缺席、claim 保留', async () => {
@@ -984,7 +982,9 @@ describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SK
     const src = makeSkillSource('a', 'v1');
     await skillInstallUserCommand(deps, src);
 
-    // 模拟 source（dispatch pool）残留上一次安装的 post-commit 证据
+    // 模拟 source（dispatch pool live 目录）残留上一次安装的 post-commit 证据——
+    // Phase 1919 Step B：claw source 是 committed 投影，live 残留字节构造性不入场
+    fs.mkdirSync(dispatchSkillDir(), { recursive: true });
     const staleProof = path.join(dispatchSkillDir(), SKILL_COMMIT_PROOF);
     fs.writeFileSync(staleProof, JSON.stringify({ installId: 'stale', manifestHash: 'stale' }));
 
@@ -1077,17 +1077,9 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
 
   it('恢复：当前 intent 引用的快照不被 sweep，同名孤儿被清扫', async () => {
     const src = makeSkillSource('a', 'v1');
-    // 崩溃：dispatch 落位中途 → claim + 被引用快照残留
-    const dispatchParent = path.dirname(dispatchSkillDir());
-    const crashingFactory = (baseDir: string): FileSystem => {
-      const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
-        real.linkExclusiveSync = () => { throw new Error('simulated crash mid-landing'); };
-      }
-      return real;
-    };
+    // 崩溃：dispatch 版本发布中途 → claim + 被引用快照残留
     await expect(
-      skillInstallUserCommand({ fsFactory: crashingFactory }, src),
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
     ).rejects.toThrow(/simulated crash/);
     expect(skillDirSnapshots()).toHaveLength(1); // 被 intent 引用的快照在场
 
@@ -1101,7 +1093,7 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
 
     // 孤儿被清扫；引用快照完成恢复并随发布清理
     expect(fs.existsSync(orphan)).toBe(false);
-    expect(readVersion(dispatchSkillDir())).toBe('# myskill v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
     expect(skillDirSnapshots()).toEqual([]);
     expect(fs.existsSync(claimPath())).toBe(false);
   });

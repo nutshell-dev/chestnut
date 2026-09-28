@@ -47,9 +47,12 @@ export interface SummonCorrelation {
  * - `correlation`：来源事实（旧第 2 位置参 `originClawId`）。
  * - `allowFromShadow`：shadow 调用防御（restricted registry 注入 false；
  *   旧第 3 位置参，缺省 true）。
+ * - `skillVersions`：dispatch 技能摘要唯一来源（Phase 1919 Step B，固定版本
+ *   读取；未注入 = 无摘要，绝不回退 live 目录扫描）。
  */
 export interface SummonToolDeps {
   scheduler?: SummonSchedulerCapability;
   correlation?: SummonCorrelation;
   allowFromShadow?: boolean;
+  skillVersions?: import('../../foundation/skill-system/index.js').SkillVersions;
 }

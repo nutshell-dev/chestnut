@@ -33,6 +33,15 @@ import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER, SKILL_SOURCE_SNAPSHOT_PREFIX, SKILL_COMMIT_PROOF } from '../../foundation/skill-system/index.js';
+import {
+  createSkillVersions,
+  DISPATCH_WORKSPACES_DIR_NAME,
+  DISPATCH_VERSION_STATE_DIR_NAME,
+  SkillVersionError,
+  type SkillBasis,
+  type SkillVersions,
+} from '../../foundation/skill-system/index.js';
+import { noopAuditLog } from '../../foundation/audit/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { newShortUuid, sha256Hex, formatErr } from '../../foundation/node-utils/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -669,6 +678,81 @@ function cleanupCommitProof(
 }
 
 /**
+ * dispatch 版本服务装配（Phase 1919 Step B）：repo root 保持 clawspace/dispatch-skills，
+ * 候选工作区与服务状态在 clawspace 隐藏目录。迁移阻断（旧活动 intent/marker）
+ * loud 失败，不绕过。
+ */
+/** CLI extraDeps.audit 是宽松 sink（测试常只给 write）；补齐 AuditLog 全表面 */
+function toFullAudit(audit: AuditLog | undefined): AuditLog {
+  if (audit === undefined) return noopAuditLog;
+  const identity = (s: string): string => s;
+  return {
+    ...noopAuditLog,
+    write: audit.write.bind(audit),
+    preview: typeof audit.preview === 'function' ? audit.preview.bind(audit) : identity,
+    message: typeof audit.message === 'function' ? audit.message.bind(audit) : identity,
+    summary: typeof audit.summary === 'function' ? audit.summary.bind(audit) : identity,
+  };
+}
+
+async function createDispatchVersions(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  root: string,
+  audit?: AuditLog,
+  factory?: typeof createSkillVersions,
+): Promise<SkillVersions> {
+  const motionClawspace = path.join(root, '.chestnut', 'motion', CLAWSPACE_DIR);
+  const createFn = factory ?? createSkillVersions;
+  return createFn({
+    repositoryDir: path.join(motionClawspace, DISPATCH_SKILLS_SUBDIR),
+    workspaceParent: path.join(motionClawspace, DISPATCH_WORKSPACES_DIR_NAME),
+    stateDir: path.join(motionClawspace, DISPATCH_VERSION_STATE_DIR_NAME),
+    fsFactory: deps.fsFactory,
+    audit: toFullAudit(audit),
+  });
+}
+
+/**
+ * dispatch 目标经 owner import 发布（Phase 1919 Step B：不再目录 swap）。
+ * 幂等：operationId 由稳定 intent.id 派生，重放返回首次操作事实；冲突 = 他人
+ * 已发布更新版本——typed 留证不覆盖（显式重装才是 update 语义）；busy（CAS
+ * 有界重试耗尽）换 operationId 在新基准上重发同一不可变快照，仍不成则 loud
+ * 失败——intent 保持该 target 未 published，恢复续作。
+ */
+async function importDispatchTarget(
+  versions: SkillVersions,
+  opts: { skillName: string; snapshotAbs: string; intent: SkillInstallIntent },
+): Promise<void> {
+  const basis: SkillBasis = {
+    actor: 'user-install',
+    reason: `skill install ${opts.skillName} from ${opts.intent.source}`,
+    sourceRefs: [opts.intent.source],
+  };
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const suffix = attempt === 0 ? '' : `-retry${attempt}`;
+    const result = await versions.importSkill({
+      name: opts.skillName,
+      source: opts.snapshotAbs,
+      operationId: `install-${opts.intent.id}-dispatch${suffix}`,
+      basis,
+    });
+    if (result.kind === 'published') return;
+    if (result.kind === 'conflict') {
+      throw new CliError(
+        `Skill "${opts.skillName}" dispatch publish conflict: a newer version ${result.current} was published concurrently ` +
+        `(candidate ${result.retainedCandidate} retained, not overwritten); retry the command to update on the new base`,
+      );
+    }
+    // busy：transient CAS 耗尽，换幂等键在新基准重发同一快照
+  }
+  throw new CliError(
+    `Skill "${opts.skillName}" dispatch publish stayed busy after ${MAX_ATTEMPTS} attempts; ` +
+    `install intent preserved, retry the command to resume`,
+  );
+}
+
+/**
  * per-skill claim + durable intent 驱动的逐目标独立提交。
  * 返回各目标安装前的 exists 快照（供 Installed/Updated 输出）。
  *
@@ -685,6 +769,11 @@ async function runSkillInstall(
     claimFs: FileSystem;
     claimRel: string;
     targets: { id: string; absPath: string }[];
+    /**
+     * Phase 1919 Step B：dispatch target 的 owner import 发布钩子（user mode 注入）。
+     * 注入后该 target 不走目录 swap/marker/proof 协议，由钩子幂等发布。
+     */
+    dispatchPublish?: (ctx: { snapshotAbs: string; intent: SkillInstallIntent }) => Promise<void>;
   },
 ): Promise<{ resumed: boolean }> {
   const claimDirRel = path.posix.dirname(opts.claimRel);
@@ -832,6 +921,17 @@ async function runSkillInstall(
           `(claim: ${opts.claimRel}); evidence preserved, not overwriting`,
         );
       }
+      // Phase 1919 Step B：dispatch target 经 owner import 发布——幂等重放首次
+      // 操作事实，不做 target-local marker/proof 判读（那些是目录 swap 协议）。
+      if (target.id === 'dispatch' && opts.dispatchPublish !== undefined) {
+        target.state = 'publishing';
+        persistIntent();
+        await opts.dispatchPublish({ snapshotAbs, intent });
+        target.state = 'published';
+        delete target.commitBranch;
+        persistIntent();
+        continue;
+      }
       // Phase 1915 Step B + 1916 Step C：恢复路径按 target-local 提交事实与
       // 占有证据判读——只续传/补登记能证明属于本 intent 的 target；证据缺失或
       // 外部字节 → typed 冲突留证，绝不覆盖或误接受崩溃后外部出现的目录。
@@ -947,7 +1047,11 @@ function readExistingInstallIntent(
  * - Copy to root/skills/{skillName}/
  * - Sync to motion/clawspace/dispatch-skills/{skillName}/
  */
-export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, sourcePath: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function skillInstallUserCommand(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  sourcePath: string,
+  extraDeps?: { audit?: AuditLog; createSkillVersions?: typeof createSkillVersions },
+): Promise<void> {
   const audit = extraDeps?.audit;
   const root = getWorkspaceRoot();
   const absSource = path.resolve(sourcePath);
@@ -974,10 +1078,20 @@ export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: strin
   const destUser = path.join(root, SKILLS_DIR_DEFAULT, skillName);
   const destDispatch = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
 
+  // Phase 1919 Step B：dispatch 发布经 owner 版本服务（先构造——旧活动 intent/
+  // marker 阻断迁移时 loud 失败，不进入本 install 流程）；user 副本仍走
+  // target-local swap，两目标 intent 独立提交，失败不回滚已提交副本。
+  const versions = await createDispatchVersions(deps, root, audit, extraDeps?.createSkillVersions);
+  let dispatchExists = false;
+  try {
+    await versions.readPublished(skillName);
+    dispatchExists = true;
+  } catch (e) {
+    if (!(e instanceof SkillVersionError && e.kind === 'not_found')) throw e;
+  }
+
   const rootFs = deps.fsFactory(root);
-  const motionFs = deps.fsFactory(motionDir);
   const userExists = rootFs.existsSync(path.join(SKILLS_DIR_DEFAULT, skillName));
-  const dispatchExists = motionFs.existsSync(path.join(CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName));
 
   const { resumed } = await runSkillInstall(deps, {
     skillName,
@@ -988,6 +1102,8 @@ export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: strin
       { id: 'user', absPath: destUser },
       { id: 'dispatch', absPath: destDispatch },
     ],
+    dispatchPublish: ({ snapshotAbs, intent }) =>
+      importDispatchTarget(versions, { skillName, snapshotAbs, intent }),
   });
 
   // 成功 audit/输出只在两个目标都 published 后发出
@@ -1004,7 +1120,7 @@ export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: strin
  * - Copy from motion/clawspace/dispatch-skills/{skillName}/
  * - To clawDir/skills/{skillName}/
  */
-export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, skillName: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, skillName: string, extraDeps?: { audit?: AuditLog; createSkillVersions?: typeof createSkillVersions }): Promise<void> {
   const audit = extraDeps?.audit;
   // Phase 537 — traversal guard for both identifier params
   if (
@@ -1021,14 +1137,20 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
   }
 
   const root = getWorkspaceRoot();
-  const motionDir = path.join(root, '.chestnut', 'motion');
-  const source = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
   const clawDir = getClawDir(clawId);
   const dest = path.join(clawDir, SKILLS_DIR_DEFAULT, skillName);
 
-  const motionFs = deps.fsFactory(motionDir);
-  if (!motionFs.existsSync(path.join(CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName))) {
-    throw new CliError(`dispatch-skill "${skillName}" not found`);
+  // Phase 1919 Step B：source = 版本服务固定版本物化投影（committed view），
+  // 不再从 live dispatch 目录复制；未发布 = not found。
+  const versions = await createDispatchVersions(deps, root, audit, extraDeps?.createSkillVersions);
+  let source: string;
+  try {
+    source = (await versions.readPublished(skillName)).materializedPath;
+  } catch (e) {
+    if (e instanceof SkillVersionError && e.kind === 'not_found') {
+      throw new CliError(`dispatch-skill "${skillName}" not found`);
+    }
+    throw e;
   }
   const clawFs = deps.fsFactory(clawDir);
   if (!clawFs.existsSync('.')) {
