@@ -28,8 +28,10 @@ vi.mock('readline', () => ({
 // phase 1470: init now probes LLM after save. Stub to no-op so this test focuses
 // on password prompt restore behavior, not probe network.
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
-  checkLLMConnection: async () => ({ ok: true, model: 'mock-model' }),
-  promptReconfigure: async () => true,
+  // Phase 1926 Step C：init probe 缝改 probeLLMConnection（snapshot 身份协议）
+  probeLLMConnection: async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
+    ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }),
+  promptReconfigure: async () => null,
   formatLLMError: () => [],
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',

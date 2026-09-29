@@ -8,7 +8,8 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import { resolveLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
+import { snapshotLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
+import type { LLMConfigSnapshot } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
@@ -19,6 +20,17 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { storeKeyAsCredential } from './credentials-prompt.js';
 
 export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'quota' | 'unknown';
+
+/**
+ * Phase 1926 Step C：已通过 probe 的配置事实（init ↔ start 门控交接契约）。
+ * 取代 Phase 1925 的无主 boolean `probeVerified`——复用条件只有一条：
+ * `verified.snapshot.identity` 与消费时当前快照身份相等。
+ */
+export interface VerifiedLLMConfig {
+  snapshot: LLMConfigSnapshot;
+  probe: { model: string };
+  via: 'init' | 'start';
+}
 
 interface LLMConfigDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -90,17 +102,14 @@ export function formatLLMError(
 }
 
 /**
- * Test LLM connectivity with a minimal call.
- * Returns { ok: true, model } on success, { ok: false, errorType, message } on failure.
+ * Phase 1926 Step C：对**给定快照**做真实 probe——probe 内不得再隐式读取另一份
+ * 配置；返回结果携带被测 identity，调用方据此丢弃漂移结果。
  */
-export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
-  { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
+export async function probeLLMConnection(snapshot: LLMConfigSnapshot): Promise<
+  { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
-  const globalConfig = deps.rootConfig.loadGlobal();
-  const llmConfig = resolveLLMConfig(globalConfig);
   const svc = createLLMOrchestrator({
-    primary: llmConfig.primary,
-    fallbacks: [],
+    ...snapshot.config,
     maxAttempts: 1,
     retryDelayMs: 0,
     events: { emit: () => {} },
@@ -110,10 +119,23 @@ export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
       messages: [{ role: 'user', content: 'Hi' }],
       maxTokens: 1,
     });
-    return { ok: true, model: llmConfig.primary.model };
+    return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
   } catch (err) {
-    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err), provider: llmConfig.primary.name };
+    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err), provider: snapshot.config.primary.name, identity: snapshot.identity };
   }
+}
+
+/**
+ * Test LLM connectivity with a minimal call.
+ * Returns { ok: true, model } on success, { ok: false, errorType, message } on failure.
+ * Phase 1926 Step C：读取即快照后委托 probeLLMConnection（读取与 probe 同一份
+ * resolved object）；需要身份协议的调用方（init/start 门控）应自行 snapshot 后
+ * 直接调 probeLLMConnection。
+ */
+export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
+  { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
+> {
+  return probeLLMConnection(snapshotLLMConfig(deps.rootConfig.loadGlobal()));
 }
 
 /**
@@ -143,7 +165,8 @@ export async function checkLLMConnectionFor(provider: ProviderConfig): Promise<
 
 /**
  * Interactive reconfigure prompt shown when LLM connection fails.
- * Returns true if user successfully reconfigured, false if they exit.
+ * Phase 1926 Step C：成功时返回**已 probe 的配置快照**（身份证据；probe 与快照
+ * 同一 resolved object），用户退出返回 null。调用方复用前必须比对当前身份。
  *
  * Menu: 1=API key, 2=model, 3=format+baseURL, n=exit
  * After any change, re-tests the connection automatically.
@@ -152,7 +175,7 @@ export async function promptReconfigure(
   deps: LLMConfigDeps,
   rl: readline.Interface,
   _errorType: LLMErrorType,
-): Promise<boolean> {
+): Promise<LLMConfigSnapshot | null> {
   const question = (prompt: string): Promise<string> =>
     new Promise(resolve => rl.question(`${prompt}: `, ans => resolve(ans.trim())));
 
@@ -169,7 +192,7 @@ export async function promptReconfigure(
     console.log('n. Exit');
     const choice = await question('\n> ');
 
-    if (choice === 'n' || choice === 'N') return false;
+    if (choice === 'n' || choice === 'N') return null;
 
     if (choice === '1') {
       const raw = await passwordPrompt('New API key');
@@ -251,10 +274,11 @@ export async function promptReconfigure(
     }
 
     console.log('Testing connection...');
-    const result = await checkLLMConnection(deps);
+    const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
+    const result = await probeLLMConnection(snapshot);
     if (result.ok) {
       console.log('✓ Connection successful!');
-      return true;
+      return snapshot;
     }
     formatLLMError({
       errorType: result.errorType,

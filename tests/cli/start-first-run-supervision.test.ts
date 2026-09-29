@@ -34,17 +34,20 @@ vi.mock('../../src/cli/commands/init.js', () => ({
     const chestnutDir = path.join(h.workspaceRoot, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     fs.writeFileSync(path.join(chestnutDir, 'config.yaml'), 'version: "1"\n');
-    // Phase 1925 Step E：initCommand 返回 typed 结果（probeVerified 供 start 门控复用）
-    return { kind: 'configured_probe_ok', probeVerified: true };
+    // Phase 1926 Step C：initCommand 返回带身份的验证事实（早退缺席）
+    return { verified: undefined };
   }),
 }));
 
-// Phase 1925 Step E：LLM 验证门控独立 own 测试；本文件治监督边界，门控降为
-// 顺序见证（init 后、ensure 前各一次）。
+// Phase 1925 Step E / 1926 Step C：LLM 验证门控独立 own 测试；本文件治监督边界，
+// 门控降为顺序见证（init 后、ensure 前各一次），返回假身份供 spawn options 消费。
 vi.mock('../../src/cli/start-llm-gate.js', () => ({
   validateStartLLMOptions: vi.fn(),
   applyStartLLMOptions: vi.fn(async () => {}),
-  ensureStartLLMVerified: vi.fn(async () => { h.order.push('llm-gate'); }),
+  ensureStartLLMVerified: vi.fn(async () => {
+    h.order.push('llm-gate');
+    return { snapshot: { config: {}, identity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'start' };
+  }),
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({

@@ -5,7 +5,7 @@
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigAdmin } from '../../assembly/index.js';
-import { GlobalConfigAlreadyExistsError } from '../../assembly/index.js';
+import { GlobalConfigAlreadyExistsError, snapshotLLMConfig } from '../../assembly/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
@@ -25,7 +25,7 @@ import { HEARTBEAT_DEFAULT_INTERVAL_MS } from '../../core/heartbeat/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
+import { probeLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS, type VerifiedLLMConfig } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from '../credentials-prompt.js';
 
@@ -49,13 +49,14 @@ interface InitCommandDeps {
 }
 
 /**
- * init 结果（Phase 1925 Step E）：probeVerified=true 表示本次 init 已对当前
- * 有效配置完成真实 LLM 调用验证；start 门控复用该事实避免同快照重复 probe。
- * 早退（already ready / 并发 loser / transient warn-continue / 用户退出 reconfigure）
- * 一律 false —— 未验证事实不猜。
+ * init 结果（Phase 1926 Step C）：`verified` 是带配置身份的已验证事实——
+ * init 本次对**该快照**完成真实 LLM 调用验证；start 门控仅在 identity 与当前
+ * 快照相等时复用（取代 Phase 1925 的无主 boolean）。早退（already ready /
+ * 并发 loser / transient warn-continue / 用户退出 reconfigure）一律缺席——
+ * 未验证事实不猜。
  */
 export interface InitCommandResult {
-  probeVerified: boolean;
+  verified?: VerifiedLLMConfig;
 }
 
 /**
@@ -107,7 +108,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
   const initState = deps.rootConfig.getInitializationState();
   if (initState === 'ready') {
     console.log('✓ Already initialized (.chestnut/config.yaml exists)');
-    return { probeVerified: false };
+    return {};
   }
   if (initState === 'invalid') {
     throw new CliError(
@@ -120,7 +121,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     // 不覆盖合法配置；LLM probe 不属于 ready，恢复路径不重跑（可用 config 命令修复）。
     deps.rootConfig.completeInitialization();
     console.log('✓ Initialization completed (resumed an interrupted bootstrap; existing config kept)');
-    return { probeVerified: false };
+    return {};
   }
 
   console.log('Initializing chestnut...\n');
@@ -362,8 +363,8 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
         // 收敛（owner 物化幂等，不覆盖 winner 配置），随后按事实返回。
         deps.rootConfig.completeInitialization();
         console.log('✓ Already initialized (a concurrent init completed first; keeping its config)');
-        // 并发 loser：未验证 winner 配置——probeVerified=false 交由 start 门控重读重验
-        return { probeVerified: false };
+        // 并发 loser：未验证 winner 配置——verified 缺席交由 start 门控重读重验
+        return {};
       }
       throw err;
     }
@@ -379,12 +380,14 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     console.log('\nTesting LLM connection...');
     audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_ATTEMPTED, `preset=${presetId}`, `model=${model}`);
     const t0 = Date.now();
-    const probe = await checkLLMConnection(deps);
+    // Phase 1926 Step C：读取即快照，probe 只消费该快照——结果携带身份证据
+    const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
+    const probe = await probeLLMConnection(snapshot);
     const latencyMs = Date.now() - t0;
-    // Phase 1925 Step E：probe 事实经返回值交给 start 门控（同快照免重复 probe）。
-    let probeVerified = false;
+    // Phase 1926 Step C：probe 事实（带 identity）经返回值交给 start 门控
+    let verified: VerifiedLLMConfig | undefined;
     if (probe.ok) {
-      probeVerified = true;
+      verified = { snapshot, probe: { model: probe.model }, via: 'init' };
       audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED, `preset=${presetId}`, `model=${probe.model}`, `latency_ms=${latencyMs}`);
       console.log(`✓ ${probe.model} (${latencyMs}ms)`);
     } else {
@@ -401,10 +404,10 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       }).forEach(line => console.log(line));
 
       if (probe.errorType === 'auth' || probe.errorType === 'model') {
-        // actionable errors → 提供 reconfigure 选项
+        // actionable errors → 提供 reconfigure 选项（成功返回已 probe 的新快照）
         const fixed = await promptReconfigure(deps, rl, probe.errorType);
         if (fixed) {
-          probeVerified = true;
+          verified = { snapshot: fixed, probe: { model: fixed.config.primary.model }, via: 'init' };
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `preset=${presetId}`);
         } else {
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=user_exit_reconfigure`);
@@ -431,7 +434,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       console.log('1. Create a Claw: chestnut claw <name> create');
       console.log('2. Start chatting: chestnut claw <name> chat');
     }
-    return { probeVerified };
+    return { verified };
 
   } catch (error) {
     // phase 446 (review N3-H2): 内部已是 CliError 时直接重抛、不双包污染原文案

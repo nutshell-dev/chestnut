@@ -34,14 +34,15 @@ vi.mock('readline', () => ({
 
 // ── llm-connection-check mock ─────────────────────────────────────────────────
 const { connMock } = vi.hoisted(() => ({
+  // Phase 1926 Step C：init probe 缝改 probeLLMConnection（snapshot 身份协议）
   connMock: {
-    checkLLMConnection: vi.fn(),
+    probeLLMConnection: vi.fn(),
     promptReconfigure: vi.fn(),
   },
 }));
 
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
-  checkLLMConnection: connMock.checkLLMConnection,
+  probeLLMConnection: connMock.probeLLMConnection,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),
   LLM_ERROR_LABELS: {},
@@ -81,7 +82,7 @@ beforeEach(() => {
   mockRl.close.mockClear();
   rlAnswers.queue = [];
   auditCalls.entries = [];
-  connMock.checkLLMConnection.mockReset();
+  connMock.probeLLMConnection.mockReset();
   connMock.promptReconfigure.mockReset();
 });
 
@@ -94,14 +95,14 @@ describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
   it('交错双 init：winner 配置保留，loser already_exists 返回、不覆盖、不写 INIT_DONE', async () => {
     // winner 的 probe 挂起，保证 loser 在 winner 提交后、probe 完成前进入
     let releaseProbe: (v: { ok: true; model: string }) => void = () => {};
-    connMock.checkLLMConnection.mockImplementation(
+    connMock.probeLLMConnection.mockImplementation(
       () => new Promise((resolve) => { releaseProbe = resolve; }),
     );
 
     rlAnswers.queue = ['1', '1', 'model-winner'];
     const winner = initCommand(commandDeps, true, { audit: mockAudit });
     // 等 winner 完成交互 + 独占提交、进入 probe 等待
-    await vi.waitUntil(() => connMock.checkLLMConnection.mock.calls.length > 0);
+    await vi.waitUntil(() => connMock.probeLLMConnection.mock.calls.length > 0);
 
     rlAnswers.queue = ['1', '1', 'model-loser'];
     await initCommand(commandDeps, true, { audit: mockAudit }); // loser 同步完成
@@ -122,7 +123,7 @@ describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
   });
 
   it('事后重放：已初始化 → 直接返回（pre-check 不回归）', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: true, model: 'model-winner' });
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'model-winner' });
     rlAnswers.queue = ['1', '1', 'model-winner'];
     await initCommand(commandDeps, true, { audit: mockAudit });
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('model-winner');
@@ -169,7 +170,7 @@ describe('initCommand — 完整 bootstrap 发布（Phase 1911 Step D）', () =>
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('claude');
     // resume 不伪装成完整 fresh init（无 INIT_DONE / 无 probe）
     expect(auditCalls.entries.filter(e => e[0] === 'cli_init_done')).toHaveLength(0);
-    expect(connMock.checkLLMConnection).not.toHaveBeenCalled();
+    expect(connMock.probeLLMConnection).not.toHaveBeenCalled();
     // 状态收敛为 ready
     expect(commandDeps.rootConfig.getInitializationState()).toBe('ready');
   });

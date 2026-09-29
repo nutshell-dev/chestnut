@@ -248,6 +248,7 @@ import {
   ensureStartLLMVerified,
   validateStartLLMOptions,
   type StartLLMOptions,
+  type VerifiedLLMConfig,
 } from '../start-llm-gate.js';
 
 /* LLM connection check & reconfigure helpers moved to ../llm-connection-check.ts (phase 1470). */
@@ -290,8 +291,8 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
   const wasFirstRun = snapshot.initialization === 'absent';
-  // Phase 1925 Step E：init 刚对同一配置 probe 成功时复用事实，免同快照重复 probe
-  let preVerified = false;
+  // Phase 1926 Step C：init 交接带身份的验证事实；门控只在 identity 相等时复用
+  let preVerified: VerifiedLLMConfig | undefined;
   if (wasFirstRun) {
     if (llmOptions.nonInteractive) {
       // 非交互首次配置：参数完整校验 → 写盘（O_EXCL，并发 loser 落 AlreadyExists 分支）
@@ -305,7 +306,7 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
       }
     } else {
       const initResult = await initCommand(deps, true);
-      preVerified = initResult.probeVerified;
+      preVerified = initResult.verified;
     }
   } else if (snapshot.initialization === 'in_progress') {
     // Phase 1911 Step D：崩溃窗口/legacy 无 marker —— 幂等恢复完整 bootstrap
@@ -322,11 +323,12 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
     await applyStartLLMOptions(deps, llmOptions, 'initialized');
   }
 
-  // Step 1.5（Phase 1925 Step E）：LLM 验证门控 —— 对当前有效配置的真实调用
-  // 成功前不进入 supervision / motion / onboarding / chat。交互失败留在向导
-  // retry/edit/cancel；非交互缺参/失败抛 CliError（非零退出）。
+  // Step 1.5（Phase 1925 Step E / 1926 Step C）：LLM 验证门控 —— 对当前有效配置的
+  // 真实调用成功前不进入 supervision / motion / onboarding / chat。交互失败留在向导
+  // retry/edit/cancel；非交互缺参/失败抛 CliError（非零退出）。返回带身份的
+  // 验证事实，identity 随 spawn options 交给 daemon 装配前复核（消费侧协议）。
   const interactive = !llmOptions.nonInteractive && process.stdin.isTTY !== false;
-  await ensureStartLLMVerified(deps, { audit, interactive, preVerified });
+  const verified = await ensureStartLLMVerified(deps, { audit, interactive, preVerified });
 
   // phase 1280: workspace bootstrap（config 完整落盘）后才恢复 Watchdog；
   // 之后的 Motion init / daemon spawn / contract / chat 均位于监督之下。
@@ -348,6 +350,8 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
     clawId: MOTION_CLAW_ID,
     agentDir: motionDir,
     workspaceRoot: getWorkspaceRoot(),
+    // Phase 1926 Step C：daemon 装配前复核该身份，不等即 typed invalidation 退出
+    expectedLLMIdentity: verified.snapshot.identity,
   });
   const motionFs = deps.fsFactory(motionDir);
   if (!motionFs.existsSync(CLAW_SPEC_FILE)) {

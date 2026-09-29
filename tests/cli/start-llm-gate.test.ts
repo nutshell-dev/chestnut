@@ -1,14 +1,17 @@
 /**
  * Phase 1925 Step E — start LLM 验证门控 + 非交互参数。
+ * Phase 1926 Step C — 验证身份绑定（LLMConfigSnapshot.identity）。
  *
- * 覆盖（计划 §测试与验收）：
- * A. probe 成功：audit attempted→succeeded 顺序可重建；
+ * 覆盖（计划 §测试与验收 + 1926 Step A 两个复现场景的修复锁）：
+ * A. probe 成功：audit attempted→succeeded 顺序可重建，返回带身份的验证事实；
+ * A2. preVerified 身份相等：零 probe 复用；
+ * A3. preVerified 身份漂移（stale_init_boolean 修复锁）：全量重验，不零 probe 放行；
  * B. 非交互 probe 失败：CliError code=3、不进 readline、audit aborted(non_interactive)；
  * C. 交互 retry：失败留在向导内，retry 成功后放行；
- * D. 交互 reconfigure：promptReconfigure 成功后放行；
+ * D. 交互 reconfigure：返回快照身份相等 → 放行；
  * E. 交互 cancel：CliError code=3、audit aborted(user_cancel)；
- * F. 指纹漂移：probe 后配置并发改写 → 重验一次，稳定后放行；
- * G. 持续漂移：fail-closed（不猜哪个配置进 chat）；
+ * F. probe 期间配置漂移（change_during_probe 修复锁）：丢弃结果重验，新配置重新 probe；
+ * G. 持续漂移：有界后 fail-closed；
  * H. 参数校验：配置参数缺 --non-interactive → code=2；
  * I. 非交互首次配置落盘：key 只写 ${VAR} 引用；缺参 → code=2 零落盘；
  * J. start 接线：非交互 probe 失败 → 零 supervision/daemon/onboarding/chat、退出码 3；
@@ -25,6 +28,7 @@ import {
   START_GATE_EXIT_CODE,
   START_USAGE_EXIT_CODE,
 } from '../../src/cli/start-llm-gate.js';
+import { snapshotLLMConfig } from '../../src/assembly/index.js';
 
 // ── readline mock（答案队列；非交互路径必须零调用）────────────────────────────
 const h = vi.hoisted(() => ({
@@ -44,14 +48,14 @@ vi.mock('readline', () => ({
   }),
 }));
 
-// ── llm-connection-check mock（probe 缝）──────────────────────────────────────
+// ── llm-connection-check mock（probe 缝；echo snapshot.identity 模拟真实回带）──
 const conn = vi.hoisted(() => ({
-  checkLLMConnection: vi.fn(),
+  probeLLMConnection: vi.fn(),
   promptReconfigure: vi.fn(),
 }));
 
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
-  checkLLMConnection: conn.checkLLMConnection,
+  probeLLMConnection: conn.probeLLMConnection,
   promptReconfigure: conn.promptReconfigure,
   formatLLMError: vi.fn((probe: { errorType: string; message: string }) => [
     `✗ ${probe.errorType}`,
@@ -71,7 +75,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 
 // ── start 接线测试的下游 mock（全部必须零调用）────────────────────────────────
 const downstream = vi.hoisted(() => ({
-  init: vi.fn(async () => ({ probeVerified: false })),
+  init: vi.fn(async () => ({})),
   motionInit: vi.fn(async () => {}),
   chat: vi.fn(async () => {}),
   ensureRunning: vi.fn(async () => ({ kind: 'spawned', pid: 4242 })),
@@ -109,12 +113,29 @@ const mockAudit = {
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
-/** 门控 deps：loadGlobal 每次调用经 primaryOf 取当前 primary（可脚本化漂移）。 */
-function makeGateDeps(primaryOf: () => Record<string, unknown>) {
+/** 合法 global config fixture（真实 snapshotLLMConfig/resolveLLMConfig 参与身份派生）。 */
+function makeGlobal(model: string) {
+  return {
+    llm: {
+      primary: {
+        preset: 'anthropic',
+        api_key: '${ANTHROPIC_API_KEY}',
+        model,
+        temperature: 0.7,
+        timeout_ms: 30000,
+      },
+      retry_attempts: 2,
+      retry_delay_ms: 1000,
+    },
+  };
+}
+
+/** 门控 deps：loadGlobal 每次调用经 globalOf 取当前配置（可脚本化漂移）。 */
+function makeGateDeps(globalOf: () => ReturnType<typeof makeGlobal>) {
   return {
     fsFactory,
     rootConfig: {
-      loadGlobal: vi.fn(() => ({ llm: { primary: primaryOf() } })),
+      loadGlobal: vi.fn(() => globalOf()),
       saveGlobalExclusive: vi.fn(),
       patchPrimary: vi.fn(async () => {}),
       completeInitialization: vi.fn(),
@@ -122,9 +143,19 @@ function makeGateDeps(primaryOf: () => Record<string, unknown>) {
   };
 }
 
-const STABLE_PRIMARY = { preset: 'anthropic', api_key: '${ANTHROPIC_API_KEY}', model: 'claude-x' };
 const PROBE_FAIL = { ok: false as const, errorType: 'auth' as const, message: 'invalid key', provider: 'anthropic' };
-const PROBE_OK = { ok: true as const, model: 'claude-x' };
+
+/** probe mock：成功并回带被测快照 identity（真实实现的回声行为）。 */
+function mockProbeOk() {
+  conn.probeLLMConnection.mockImplementation(async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
+    ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }));
+}
+
+/** probe mock：失败并回带 identity。 */
+function mockProbeFail(failure: typeof PROBE_FAIL = PROBE_FAIL) {
+  conn.probeLLMConnection.mockImplementation(async (snapshot: { identity: string }) =>
+    ({ ...failure, identity: snapshot.identity }));
+}
 
 function auditTypes(): string[] {
   return auditRec.entries.map(e => e[0]);
@@ -137,13 +168,13 @@ beforeEach(() => {
   h.rlAnswers.queue = [];
   h.rlCreateCalls = 0;
   auditRec.entries = [];
-  conn.checkLLMConnection.mockReset();
+  conn.probeLLMConnection.mockReset();
   conn.promptReconfigure.mockReset();
   downstream.init.mockClear();
   downstream.motionInit.mockClear();
   downstream.chat.mockClear();
   downstream.ensureRunning.mockClear();
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1925-gate-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1926-gate-'));
   savedRoot = process.env.CHESTNUT_ROOT;
   process.env.CHESTNUT_ROOT = tmpDir;
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -160,36 +191,70 @@ afterEach(() => {
 });
 
 describe('start LLM gate (unit)', () => {
-  it('A. probe 成功：audit attempted→succeeded 顺序可重建', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_OK);
+  it('A. probe 成功：audit attempted→succeeded，返回带身份的验证事实', async () => {
+    mockProbeOk();
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    await ensureStartLLMVerified(makeGateDeps(() => ({ ...STABLE_PRIMARY })), {
-      audit: mockAudit, interactive: true, preVerified: false,
+    const verified = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('claude-x')), {
+      audit: mockAudit, interactive: true,
     });
 
-    expect(conn.checkLLMConnection).toHaveBeenCalledTimes(1);
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(1);
     expect(auditTypes()).toEqual(['cli_start_probe_attempted', 'cli_start_probe_succeeded']);
+    expect(verified.via).toBe('start');
+    expect(verified.probe.model).toBe('claude-x');
+    expect(verified.snapshot.identity).toBe(snapshotLLMConfig(makeGlobal('claude-x')).identity);
     expect(h.rlCreateCalls).toBe(0);
   });
 
-  it('A2. preVerified（init 同快照已验）：probe 零次直接放行', async () => {
+  it('A2. preVerified 身份相等：零 probe 复用 init 验证事实', async () => {
+    const initVerified = {
+      snapshot: snapshotLLMConfig(makeGlobal('claude-x')),
+      probe: { model: 'claude-x' },
+      via: 'init' as const,
+    };
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    await ensureStartLLMVerified(makeGateDeps(() => ({ ...STABLE_PRIMARY })), {
-      audit: mockAudit, interactive: true, preVerified: true,
+    const verified = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('claude-x')), {
+      audit: mockAudit, interactive: true, preVerified: initVerified,
     });
 
-    expect(conn.checkLLMConnection).not.toHaveBeenCalled();
+    expect(conn.probeLLMConnection).not.toHaveBeenCalled();
+    expect(verified).toBe(initVerified);
     expect(auditTypes()).toEqual([]);
   });
 
-  it('B. 非交互 probe 失败：code=3、不进 readline、audit aborted(non_interactive)', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_FAIL);
+  it('A3. preVerified 身份漂移（stale_init_boolean 修复锁）：全量重验不零 probe 放行', async () => {
+    mockProbeOk();
+    const staleVerified = {
+      snapshot: snapshotLLMConfig(makeGlobal('model-A')),
+      probe: { model: 'model-A' },
+      via: 'init' as const,
+    };
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    const err = await ensureStartLLMVerified(makeGateDeps(() => ({ ...STABLE_PRIMARY })), {
-      audit: mockAudit, interactive: false, preVerified: false,
+    const verified = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('model-B')), {
+      audit: mockAudit, interactive: true, preVerified: staleVerified,
+    });
+
+    // init 验证的是 A、当前是 B → 不得复用；B 经真实 probe 后才放行
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(1);
+    expect(verified.via).toBe('start');
+    expect(verified.snapshot.identity).toBe(snapshotLLMConfig(makeGlobal('model-B')).identity);
+    expect(auditTypes()).toEqual([
+      'cli_start_probe_failed',      // reason=stale_preverified_identity
+      'cli_start_probe_attempted',
+      'cli_start_probe_succeeded',
+    ]);
+    expect(auditRec.entries[0][1]).toBe('reason=stale_preverified_identity');
+  });
+
+  it('B. 非交互 probe 失败：code=3、不进 readline、audit aborted(non_interactive)', async () => {
+    mockProbeFail();
+    const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
+
+    const err = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('claude-x')), {
+      audit: mockAudit, interactive: false,
     }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(CliError);
@@ -204,37 +269,43 @@ describe('start LLM gate (unit)', () => {
   });
 
   it('C. 交互 retry：失败留在向导内，retry 成功后放行', async () => {
-    conn.checkLLMConnection
-      .mockResolvedValueOnce(PROBE_FAIL)
-      .mockResolvedValueOnce(PROBE_OK);
+    conn.probeLLMConnection
+      .mockImplementationOnce(async (snapshot: { identity: string }) => ({ ...PROBE_FAIL, identity: snapshot.identity }))
+      .mockImplementation(async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
+        ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }));
     h.rlAnswers.queue = ['1'];
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    await ensureStartLLMVerified(makeGateDeps(() => ({ ...STABLE_PRIMARY })), {
-      audit: mockAudit, interactive: true, preVerified: false,
+    const verified = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('claude-x')), {
+      audit: mockAudit, interactive: true,
     });
 
-    expect(conn.checkLLMConnection).toHaveBeenCalledTimes(2);
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(2);
+    expect(verified.via).toBe('start');
     expect(auditTypes()).toEqual([
       'cli_start_probe_attempted',
       'cli_start_probe_failed',
+      'cli_start_probe_attempted',
       'cli_start_probe_succeeded',
     ]);
-    expect(auditRec.entries[2][1]).toBe('via=retry');
+    expect(auditRec.entries[3][1]).toBe('via=retry');
   });
 
-  it('D. 交互 reconfigure：promptReconfigure 成功后放行', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_FAIL);
-    conn.promptReconfigure.mockResolvedValue(true);
+  it('D. 交互 reconfigure：返回快照身份相等 → 放行', async () => {
+    mockProbeFail();
+    conn.promptReconfigure.mockImplementation(async () => snapshotLLMConfig(makeGlobal('claude-x')));
     h.rlAnswers.queue = ['2'];
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    await ensureStartLLMVerified(makeGateDeps(() => ({ ...STABLE_PRIMARY })), {
-      audit: mockAudit, interactive: true, preVerified: false,
+    const verified = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('claude-x')), {
+      audit: mockAudit, interactive: true,
     });
 
     expect(conn.promptReconfigure).toHaveBeenCalledTimes(1);
     expect(conn.promptReconfigure.mock.calls[0][2]).toBe('auth');
+    // reconfigure 已对新快照 probe 成功 → 身份复核通过即放行，不重复 probe
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(1);
+    expect(verified.probe.model).toBe('claude-x');
     expect(auditTypes()).toEqual([
       'cli_start_probe_attempted',
       'cli_start_probe_failed',
@@ -244,12 +315,12 @@ describe('start LLM gate (unit)', () => {
   });
 
   it('E. 交互 cancel：code=3、audit aborted(user_cancel)', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_FAIL);
+    mockProbeFail();
     h.rlAnswers.queue = ['n'];
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    const err = await ensureStartLLMVerified(makeGateDeps(() => ({ ...STABLE_PRIMARY })), {
-      audit: mockAudit, interactive: true, preVerified: false,
+    const err = await ensureStartLLMVerified(makeGateDeps(() => makeGlobal('claude-x')), {
+      audit: mockAudit, interactive: true,
     }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(CliError);
@@ -262,41 +333,44 @@ describe('start LLM gate (unit)', () => {
     expect(auditRec.entries[2][1]).toBe('reason=user_cancel');
   });
 
-  it('F. 指纹漂移：probe 后配置并发改写 → 重验一次，稳定后放行', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_OK);
-    // loadGlobal 读序列：验后指纹 a → 收尾比对 b（漂移）→ 重验 c → 收尾 c（稳定）
-    const models = ['a', 'b', 'c'];
-    const primaryOf = () => ({ ...STABLE_PRIMARY, model: models.shift() ?? 'c' });
+  it('F. probe 期间配置漂移（change_during_probe 修复锁）：丢弃结果，新配置重新 probe', async () => {
+    mockProbeOk();
+    // loadGlobal 读序列：初读 A → probe 后复核 B（漂移）→ 复核 B（稳定）
+    const models = ['model-A', 'model-B'];
+    const globalOf = () => makeGlobal(models.length > 1 ? models.shift()! : 'model-B');
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    await ensureStartLLMVerified(makeGateDeps(primaryOf), {
-      audit: mockAudit, interactive: true, preVerified: false,
+    const verified = await ensureStartLLMVerified(makeGateDeps(globalOf), {
+      audit: mockAudit, interactive: true,
     });
 
-    expect(conn.checkLLMConnection).toHaveBeenCalledTimes(2);
+    // A 的 probe 结果被丢弃（audit 留痕），B 经自己的 probe 才放行
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(2);
+    expect(verified.snapshot.identity).toBe(snapshotLLMConfig(makeGlobal('model-B')).identity);
     expect(auditTypes()).toEqual([
       'cli_start_probe_attempted',
-      'cli_start_probe_succeeded',
+      'cli_start_probe_failed',      // reason=snapshot_drift
       'cli_start_probe_attempted',
       'cli_start_probe_succeeded',
     ]);
+    expect(auditRec.entries[1][1]).toBe('reason=snapshot_drift');
   });
 
-  it('G. 持续漂移：fail-closed（不猜哪个配置进 chat）', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_OK);
+  it('G. 持续漂移：有界后 fail-closed（不猜哪个配置进 chat）', async () => {
+    mockProbeOk();
     let seq = 0;
-    const primaryOf = () => ({ ...STABLE_PRIMARY, model: `m${seq++}` });
+    const globalOf = () => makeGlobal(`model-${seq++}`);
     const { ensureStartLLMVerified } = await import('../../src/cli/start-llm-gate.js');
 
-    const err = await ensureStartLLMVerified(makeGateDeps(primaryOf), {
-      audit: mockAudit, interactive: true, preVerified: false,
+    const err = await ensureStartLLMVerified(makeGateDeps(globalOf), {
+      audit: mockAudit, interactive: true,
     }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe(START_GATE_EXIT_CODE);
     expect((err as CliError).message).toMatch(/concurrently/);
-    // 首验 + 复验各一次 probe，不无限循环
-    expect(conn.checkLLMConnection).toHaveBeenCalledTimes(2);
+    // 漂移重验有界（MAX_SNAPSHOT_DRIFT_ATTEMPTS=3），不无限循环
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(3);
   });
 
   it('H. 参数校验：配置参数缺 --non-interactive → code=2', async () => {
@@ -323,7 +397,7 @@ describe('start LLM gate (unit)', () => {
     const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
 
     // 完整参数：落盘且 api_key 是引用而非明文
-    const deps = makeGateDeps(() => ({ ...STABLE_PRIMARY }));
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
     await applyStartLLMOptions(deps, {
       provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'ANTHROPIC_API_KEY', nonInteractive: true,
     }, 'first-run');
@@ -336,7 +410,7 @@ describe('start LLM gate (unit)', () => {
     expect(deps.rootConfig.completeInitialization).toHaveBeenCalledTimes(1);
 
     // 缺 key（无 --api-key-env 且无 CHESTNUT_LLM_API_KEY）→ code=2 零落盘
-    const deps2 = makeGateDeps(() => ({ ...STABLE_PRIMARY }));
+    const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
     const err = await applyStartLLMOptions(deps2, {
       provider: 'anthropic', model: 'claude-x', nonInteractive: true,
     }, 'first-run').catch((e: unknown) => e);
@@ -354,7 +428,7 @@ describe('start command gate wiring', () => {
       fsFactory,
       rootConfig: {
         isInitialized: () => true,
-        loadGlobal: vi.fn(() => ({ llm: { primary: { ...STABLE_PRIMARY } } })),
+        loadGlobal: vi.fn(() => makeGlobal('claude-x')),
         saveGlobal: vi.fn(),
         saveGlobalExclusive: vi.fn(),
         patchPrimary: vi.fn(async () => {}),
@@ -365,7 +439,7 @@ describe('start command gate wiring', () => {
   }
 
   it('J. 非交互 probe 失败：零 supervision/daemon/onboarding/chat、退出码 3', async () => {
-    conn.checkLLMConnection.mockResolvedValue(PROBE_FAIL);
+    mockProbeFail();
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const ensureSupervision = vi.fn(async () => {});
 
@@ -396,7 +470,7 @@ describe('start command gate wiring', () => {
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe(START_USAGE_EXIT_CODE);
-    expect(conn.checkLLMConnection).not.toHaveBeenCalled();
+    expect(conn.probeLLMConnection).not.toHaveBeenCalled();
     expect(deps.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
     expect(ensureSupervision).not.toHaveBeenCalled();
     expect(downstream.init).not.toHaveBeenCalled();

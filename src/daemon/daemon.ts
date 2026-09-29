@@ -12,6 +12,8 @@ import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { RootConfigReader } from '../assembly/index.js';
+import { resolveLLMConfig, llmConfigIdentity, LLMConfigIdentityMismatchError } from '../assembly/index.js';
+import type { ClawGlobalConfig } from '../assembly/index.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
@@ -24,6 +26,7 @@ import { createInboxReader } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
+import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
@@ -69,6 +72,23 @@ interface DaemonCommandDeps {
   };
 }
 
+/**
+ * Phase 1926 Step C（start 验证身份绑定）：spawn 方声明的「已 probe 配置身份」
+ * 与 daemon 启动实际读到的配置身份必须相等。不等 → typed invalidation
+ * （LLMConfigIdentityMismatchError）——probe 后被改写的配置不得冒充已验证配置。
+ * expected 缺省（watchdog 重启等无身份 spawn）不检查。
+ */
+export function verifyExpectedLLMIdentity(
+  globalConfig: ClawGlobalConfig,
+  expectedIdentity: string | undefined,
+): void {
+  if (!expectedIdentity) return;
+  const actual = llmConfigIdentity(resolveLLMConfig(globalConfig));
+  if (actual !== expectedIdentity) {
+    throw new LLMConfigIdentityMismatchError(expectedIdentity, actual);
+  }
+}
+
 export function createDaemonCommand(deps: DaemonCommandDeps) {
   return async function daemonCommand(name: string): Promise<void> {
     const clawId = name;
@@ -83,6 +103,19 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
     const preAssembleFs = deps.fsFactory(dir);
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
+
+    // Phase 1926 Step C：start 携带的已验证 LLM 配置身份复核（motion 专属协议；
+    // 与下方 assemble 消费同一 globalConfig object，复核事实即装配事实）。
+    if (isMotion) {
+      try {
+        verifyExpectedLLMIdentity(globalConfig, process.env[EXPECTED_LLM_IDENTITY_ENV]);
+      } catch (e) {
+        const reason = formatErr(e);
+        preAssembleAudit.write(deps.auditEvents.preRuntimeFailed, 'stage=llm_identity', 'phase=preconstruct', `reason=${reason}`);
+        preAssembleAudit.dispose?.();
+        process.exit(1);
+      }
+    }
 
     // ProcessManager 由 Assembly 构造；daemon.ts 主要用 instances.processManager
     // 做 generation 激活与 shutdown retire。

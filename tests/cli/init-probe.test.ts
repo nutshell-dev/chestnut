@@ -30,15 +30,17 @@ vi.mock('readline', () => ({
 
 // ── llm-connection-check mock ─────────────────────────────────────────────────
 // 由 caller per-test 重设 mock 行为
+// Phase 1926 Step C：init probe 缝改 probeLLMConnection（snapshot 身份协议）；
+// promptReconfigure 成功返回已 probe 的快照对象（不再是 boolean）。
 const { connMock } = vi.hoisted(() => ({
   connMock: {
-    checkLLMConnection: vi.fn(),
+    probeLLMConnection: vi.fn(),
     promptReconfigure: vi.fn(),
   },
 }));
 
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
-  checkLLMConnection: connMock.checkLLMConnection,
+  probeLLMConnection: connMock.probeLLMConnection,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),
   LLM_ERROR_LABELS: {
@@ -104,13 +106,13 @@ describe('initCommand — probe success path', () => {
     mockRl.close.mockClear();
     rlAnswers.queue = [];
     auditCalls.entries = [];
-    connMock.checkLLMConnection.mockReset();
+    connMock.probeLLMConnection.mockReset();
     connMock.promptReconfigure.mockReset();
   });
   afterEach(() => teardownTempDir());
 
   it('probe succeeds → config saved + INIT_PROBE_SUCCEEDED audit', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', '']; // branch 1, pick 1, model=auto
 
@@ -133,14 +135,14 @@ describe('initCommand — probe failure: auth → reconfigure success', () => {
     mockRl.question.mockClear();
     rlAnswers.queue = [];
     auditCalls.entries = [];
-    connMock.checkLLMConnection.mockReset();
+    connMock.probeLLMConnection.mockReset();
     connMock.promptReconfigure.mockReset();
   });
   afterEach(() => teardownTempDir());
 
   it('auth error → promptReconfigure invoked → user fixes → INIT_PROBE_RECONFIGURED', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401 Unauthorized' });
-    connMock.promptReconfigure.mockResolvedValue(true);
+    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401 Unauthorized' });
+    connMock.promptReconfigure.mockResolvedValue({ config: { primary: { model: 'fixed-model' } }, identity: 'fixed-identity' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-bad');
     rlAnswers.queue = ['1', '1', ''];
 
@@ -168,14 +170,14 @@ describe('initCommand — probe failure: auth → user exits reconfigure', () =>
     setupTempDir();
     rlAnswers.queue = [];
     auditCalls.entries = [];
-    connMock.checkLLMConnection.mockReset();
+    connMock.probeLLMConnection.mockReset();
     connMock.promptReconfigure.mockReset();
   });
   afterEach(() => teardownTempDir());
 
   it('user exits reconfigure → INIT_PROBE_SKIPPED + config still saved', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: false, errorType: 'model', message: '404 model not found' });
-    connMock.promptReconfigure.mockResolvedValue(false); // user picks 'n' exit
+    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'model', message: '404 model not found' });
+    connMock.promptReconfigure.mockResolvedValue(null); // user picks 'n' exit
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', 'bogus-model'];
 
@@ -199,13 +201,13 @@ describe('initCommand — probe failure: network → warn but continue', () => {
     setupTempDir();
     rlAnswers.queue = [];
     auditCalls.entries = [];
-    connMock.checkLLMConnection.mockReset();
+    connMock.probeLLMConnection.mockReset();
     connMock.promptReconfigure.mockReset();
   });
   afterEach(() => teardownTempDir());
 
   it('network error → no reconfigure prompt + INIT_PROBE_SKIPPED(transient_network)', async () => {
-    connMock.checkLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: 'ECONNREFUSED' });
+    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: 'ECONNREFUSED' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', ''];
 
@@ -227,14 +229,14 @@ describe('initCommand — probe failure: error message truncation', () => {
     setupTempDir();
     rlAnswers.queue = [];
     auditCalls.entries = [];
-    connMock.checkLLMConnection.mockReset();
+    connMock.probeLLMConnection.mockReset();
     connMock.promptReconfigure.mockReset();
   });
   afterEach(() => teardownTempDir());
 
   it('long error message → delegated to audit.message for truncation', async () => {
     const longMsg = 'X'.repeat(500);
-    connMock.checkLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: longMsg });
+    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: longMsg });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', ''];
 

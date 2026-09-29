@@ -9,6 +9,7 @@ export {
   INTERRUPT_POLL_WARN_EVERY,
   INTERRUPT_POLL_MAX_ERRORS,
   INTERRUPT_POLL_RECOVERY_BACKOFF_MS,
+  EXPECTED_LLM_IDENTITY_ENV,
 } from './constants.js';
 
 export { DAEMON_AUDIT_EVENTS } from './audit-events.js';

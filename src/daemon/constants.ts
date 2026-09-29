@@ -63,3 +63,12 @@ export const INTERRUPT_POLL_MAX_ERRORS = 20;
  */
 export const INTERRUPT_POLL_RECOVERY_BACKOFF_MS = 30_000;
 
+
+/**
+ * Phase 1926 Step C（start 验证身份绑定）：spawn 方携带的「已通过 probe 的
+ * LLM 配置快照身份」env 键。daemon（motion）启动装配前复核——当前 resolved
+ * 配置身份与之不等即 typed invalidation 退出（fail-closed），不把 probe 后
+ * 被改写的配置当作已验证配置消费。缺省（watchdog 重启等无身份 spawn）不检查。
+ * identity 是 sha256 摘要（不含明文 secret），经 env 传递不泄密。
+ */
+export const EXPECTED_LLM_IDENTITY_ENV = 'CHESTNUT_EXPECTED_LLM_IDENTITY';

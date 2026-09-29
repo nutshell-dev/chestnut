@@ -19,6 +19,7 @@ import * as path from 'path';
 import type { ClawId } from '../foundation/claw-identity/index.js';
 import type { SpawnOptions } from '../foundation/process-manager/index.js';
 import { DAEMON_LOG } from './constants.js';
+import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
 import { resolveDaemonEntry } from './entry-resolver.js';
 
 /** daemon spawn specification 最小输入：跨模块只传三个必要事实。 */
@@ -29,6 +30,11 @@ export interface DaemonSpawnOptionsInput {
   agentDir: string;
   /** workspace root；同时作为 child CHESTNUT_ROOT env 与显式 cwd（协议收敛单轨）。 */
   workspaceRoot: string;
+  /**
+   * Phase 1926 Step C：已通过 probe 的 LLM 配置快照身份（可选）。
+   * 仅 start 门控验证成功后注入；daemon 装配前复核，不等即 fail-closed 退出。
+   */
+  expectedLLMIdentity?: string;
 }
 
 export function createDaemonSpawnOptions(input: DaemonSpawnOptionsInput): SpawnOptions {
@@ -36,7 +42,13 @@ export function createDaemonSpawnOptions(input: DaemonSpawnOptionsInput): SpawnO
     command: 'node',
     args: [resolveDaemonEntry(), input.clawId],
     logFile: path.join(input.agentDir, DAEMON_LOG),
-    env: { ...process.env, CHESTNUT_ROOT: input.workspaceRoot },
+    env: {
+      ...process.env,
+      CHESTNUT_ROOT: input.workspaceRoot,
+      ...(input.expectedLLMIdentity !== undefined
+        ? { [EXPECTED_LLM_IDENTITY_ENV]: input.expectedLLMIdentity }
+        : {}),
+    },
     cwd: input.workspaceRoot,
   };
 }

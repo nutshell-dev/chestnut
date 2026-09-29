@@ -43,15 +43,20 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/cli/commands/init.js', () => ({
-  // Phase 1925 Step E：initCommand 返回 typed 结果
-  initCommand: vi.fn(async () => ({ kind: 'configured_probe_ok', probeVerified: true })),
+  // Phase 1926 Step C：initCommand 返回带身份的验证事实（本路径未验证 → 缺席）
+  initCommand: vi.fn(async () => ({ verified: undefined })),
 }));
 
-// Phase 1925 Step E：LLM 验证门控独立 own 测试；本文件治 generation race，门控 no-op。
+// Phase 1925 Step E / 1926 Step C：LLM 验证门控独立 own 测试；本文件治 generation
+// race，门控 no-op 但须返回带身份的验证事实供 spawn options 消费。
 vi.mock('../../src/cli/start-llm-gate.js', () => ({
   validateStartLLMOptions: vi.fn(),
   applyStartLLMOptions: vi.fn(async () => {}),
-  ensureStartLLMVerified: vi.fn(async () => {}),
+  ensureStartLLMVerified: vi.fn(async () => ({
+    snapshot: { config: {}, identity: 'test-gate-identity' },
+    probe: { model: 'test-model' },
+    via: 'start',
+  })),
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({

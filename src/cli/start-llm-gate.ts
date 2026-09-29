@@ -1,21 +1,28 @@
 /**
  * Phase 1925 Step E：start LLM 验证门控 + 非交互配置输入。
+ * Phase 1926 Step C：验证事实升级为身份绑定——start 只允许「被 probe 的那份
+ * 配置身份」进入 supervision/motion/onboarding/chat：
+ * - probe 只消费显式 `LLMConfigSnapshot`（probe 内不再隐式读盘）；
+ * - probe 成功后复核当前身份，漂移即丢弃结果并有界重验，持续漂移 fail-closed；
+ * - init 交接 `VerifiedLLMConfig`（带 identity），身份不等不复用；
+ * - 门控返回 VerifiedLLMConfig，start 把 identity 交给 daemon spawn，daemon
+ *   装配前再次复核（见 daemon/startup 协议）。
  *
  * 铁律（计划 §设计细节）：
  * - start 只有在**当前有效配置**的真实 LLM 调用成功后才进入 supervision /
  *   motion / onboarding / chat；`.initialized` 只表示布局 ready，不是 probe 证据。
  * - probe 失败：交互模式留在向导内 retry/edit/cancel；非交互（--non-interactive
  *   或非 TTY）不进 readline，缺参/失败返回明确非零退出码。
- * - probe 与随后 chat 消费同一可证明快照：probe 时记 primary 指纹，
- *   门控收尾复验，漂移则重验一次，仍漂移 fail-closed。
- * - 任何 key 不进入 audit / stdout 错误预览（错误文本经 formatLLMError 截断）。
+ * - 任何 key 不进入 audit / stdout 错误预览（错误文本经 formatLLMError 截断；
+ *   identity 是不含 secret 的 sha256 摘要）。
  *
- * 退出码约定：2 = 用法/缺参错误；3 = LLM 验证失败或用户取消（fail-closed）。
+ * 退出码约定：2 = 用法/缺参错误；3 = LLM 验证失败、身份漂移或用户取消（fail-closed）。
  */
 
 import * as readline from 'readline';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
+import { snapshotLLMConfig, type LLMConfigSnapshot } from '../assembly/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { CliError } from './errors.js';
@@ -23,11 +30,15 @@ import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import { buildInitialConfig } from './commands/init.js';
 import { storeKeyAsCredential } from './credentials-prompt.js';
 import {
-  checkLLMConnection,
+  probeLLMConnection,
   promptReconfigure,
   formatLLMError,
   LLM_ERROR_HINTS,
+  type VerifiedLLMConfig,
+  type LLMErrorType,
 } from './llm-connection-check.js';
+
+export type { VerifiedLLMConfig } from './llm-connection-check.js';
 
 /** start 的非交互配置参数（catalog 投影，与 commander camelCase 对应）。 */
 export interface StartLLMOptions {
@@ -161,129 +172,160 @@ export async function applyStartLLMOptions(
   }
 }
 
-/** 当前有效 primary 配置指纹（probe 与 chat 同一可证明快照的证据）。 */
-export function primaryConfigFingerprint(deps: Pick<GateDeps, 'rootConfig'>): string {
-  const primary = deps.rootConfig.loadGlobal().llm.primary;
-  return JSON.stringify(primary);
+/** 读取当前有效配置为不可变快照（resolve 与 identity 同源派生）。 */
+function readLLMSnapshot(deps: Pick<GateDeps, 'rootConfig'>): LLMConfigSnapshot {
+  return snapshotLLMConfig(deps.rootConfig.loadGlobal());
 }
 
-async function probeOnce(
+/** probe 成功后配置持续漂移的有界重验预算；耗尽 fail-closed（不猜身份）。 */
+const MAX_SNAPSHOT_DRIFT_ATTEMPTS = 3;
+
+type ProbeFailure = { ok: false; errorType: LLMErrorType; message: string; provider: string };
+
+/**
+ * 对快照 probe 并在成功后复核当前身份；漂移丢弃结果、以新快照重验（有界）。
+ * 覆盖 Step A 复现的 change_during_probe 窗口：probe 期间 A→B 时 B 不得
+ * 冒充 A 的验证事实——B 会被重新 probe 或最终 fail-closed。
+ */
+async function probeUntilStable(
   deps: GateDeps,
-): Promise<{ ok: true } | { ok: false; errorType: Parameters<typeof formatLLMError>[0]['errorType']; message: string; provider: string }> {
-  const probe = await checkLLMConnection(deps);
-  return probe.ok ? { ok: true } : { ok: false, errorType: probe.errorType, message: probe.message, provider: probe.provider };
+  audit: AuditLog | undefined,
+  snapshot: LLMConfigSnapshot,
+  via?: 'retry',
+): Promise<{ verified: VerifiedLLMConfig } | { failure: ProbeFailure }> {
+  let current = snapshot;
+  for (let attempt = 0; attempt < MAX_SNAPSHOT_DRIFT_ATTEMPTS; attempt++) {
+    audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ATTEMPTED);
+    const probe = await probeLLMConnection(current);
+    if (!probe.ok) {
+      return { failure: { ok: false, errorType: probe.errorType, message: probe.message, provider: probe.provider } };
+    }
+    const now = readLLMSnapshot(deps);
+    if (now.identity === current.identity) {
+      audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, ...(via ? [`via=${via}`] : []));
+      return { verified: { snapshot: current, probe: { model: probe.model }, via: 'start' } };
+    }
+    audit?.write(
+      CLI_AUDIT_EVENTS.START_PROBE_FAILED,
+      `reason=snapshot_drift`,
+      `attempt=${attempt + 1}`,
+    );
+    current = now;
+  }
+  throw new CliError(
+    'LLM config changed concurrently during start verification; refusing to proceed (fail-closed)',
+    { code: START_GATE_EXIT_CODE },
+  );
 }
 
 /**
- * start LLM 验证门控。验证成功返回；失败/取消抛 CliError（非零退出码），
- * 调用方（start）不得继续 supervision/onboarding/chat。
+ * start LLM 验证门控。验证成功返回 VerifiedLLMConfig（start 据此把 identity
+ * 交给 daemon spawn）；失败/取消抛 CliError（非零退出码），调用方（start）
+ * 不得继续 supervision/onboarding/chat。
  *
- * 快照一致性：verifyWithWizard 返回成功 probe 当时的 primary 指纹；门控收尾
- * 与当前指纹比对——并发外部改写意味着当前快照未验证，重验一次；仍漂移
- * fail-closed（不猜哪个配置进 chat）。
+ * preVerified（init 交接）：只有 identity 与当前快照相等才复用——覆盖 Step A
+ * 复现的 stale_init_boolean 窗口；不等即全量重验，不存在无身份放行。
  */
 export async function ensureStartLLMVerified(
   deps: GateDeps,
-  opts: { audit?: AuditLog; interactive: boolean; preVerified: boolean },
-): Promise<void> {
-  const { audit, interactive } = opts;
-  const verifiedFingerprint = opts.preVerified
-    // init 刚对同一配置 probe 成功（同一进程、配置未再写）——复用事实不重复 probe
-    ? primaryConfigFingerprint(deps)
-    : await verifyWithWizard(deps, { audit, interactive });
-
-  if (primaryConfigFingerprint(deps) !== verifiedFingerprint) {
-    const reverified = await verifyWithWizard(deps, { audit, interactive });
-    if (primaryConfigFingerprint(deps) !== reverified) {
-      throw new CliError(
-        'LLM config changed concurrently during start verification; refusing to proceed (fail-closed)',
-        { code: START_GATE_EXIT_CODE },
-      );
+  opts: { audit?: AuditLog; interactive: boolean; preVerified?: VerifiedLLMConfig },
+): Promise<VerifiedLLMConfig> {
+  const { audit, interactive, preVerified } = opts;
+  if (preVerified) {
+    const now = readLLMSnapshot(deps);
+    if (now.identity === preVerified.snapshot.identity) {
+      return preVerified;
     }
+    audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=stale_preverified_identity`);
   }
+  return verifyWithWizard(deps, { audit, interactive });
 }
 
 /**
  * 单次验证循环（probe → 失败时交互 retry/edit/cancel 或 非交互 loud 失败）。
- * 返回成功 probe 当时的 primary 配置指纹。
  */
 async function verifyWithWizard(
   deps: GateDeps,
   opts: { audit?: AuditLog; interactive: boolean },
-): Promise<string> {
+): Promise<VerifiedLLMConfig> {
   const { audit, interactive } = opts;
-  audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ATTEMPTED);
-  const probe = await probeOnce(deps);
-  if (probe.ok) {
-    audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED);
-    return primaryConfigFingerprint(deps);
-  }
-  audit?.write(
-    CLI_AUDIT_EVENTS.START_PROBE_FAILED,
-    `error_type=${probe.errorType}`,
-    `message=${audit?.message(probe.message) ?? probe.message}`,
-  );
-  const errorLines = formatLLMError({
-    errorType: probe.errorType,
-    message: probe.message,
-    provider: probe.provider,
-    hint: LLM_ERROR_HINTS[probe.errorType],
-  });
+  let result = await probeUntilStable(deps, audit, readLLMSnapshot(deps));
 
-  if (!interactive) {
-    errorLines.forEach(line => console.error(line));
-    audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ABORTED, 'reason=non_interactive');
-    throw new CliError(
-      `LLM verification failed (${probe.errorType}); start aborted (non-interactive)`,
-      { code: START_GATE_EXIT_CODE },
+  while (!('verified' in result)) {
+    const failure = result.failure;
+    audit?.write(
+      CLI_AUDIT_EVENTS.START_PROBE_FAILED,
+      `error_type=${failure.errorType}`,
+      `message=${audit?.message(failure.message) ?? failure.message}`,
     );
-  }
+    const errorLines = formatLLMError({
+      errorType: failure.errorType,
+      message: failure.message,
+      provider: failure.provider,
+      hint: LLM_ERROR_HINTS[failure.errorType],
+    });
 
-  errorLines.forEach(line => console.log(line));
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const question = (prompt: string): Promise<string> =>
-    new Promise(resolve => rl.question(prompt, ans => resolve(ans.trim())));
-  try {
-    // 向导内循环：retry / edit / cancel，失败不出向导（计划 §设计细节）
-    while (true) {
-      console.log('\nLLM verification failed. Choose:');
-      console.log('1. Retry connection');
-      console.log('2. Reconfigure (key / model / provider)');
-      console.log('n. Cancel start');
-      const choice = await question('\n> ');
-      if (choice === '1') {
-        console.log('Testing LLM connection...');
-        const retry = await probeOnce(deps);
-        if (retry.ok) {
-          audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, 'via=retry');
-          console.log('✓ Connection successful!');
-          return primaryConfigFingerprint(deps);
-        }
-        audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `via=retry`, `error_type=${retry.errorType}`);
-        formatLLMError({
-          errorType: retry.errorType,
-          message: retry.message,
-          provider: retry.provider,
-          hint: LLM_ERROR_HINTS[retry.errorType],
-        }).forEach(line => console.log(line));
-        continue;
-      }
-      if (choice === '2') {
-        const fixed = await promptReconfigure(deps, rl, probe.errorType);
-        if (fixed) {
-          audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, 'via=reconfigure');
-          return primaryConfigFingerprint(deps);
-        }
-        // reconfigure 内循环已展示失败详情；用户退出 reconfigure ≠ cancel start，回主菜单
-        continue;
-      }
-      if (choice === 'n' || choice === 'N') {
-        audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ABORTED, 'reason=user_cancel');
-        throw new CliError('LLM verification cancelled by user; start aborted', { code: START_GATE_EXIT_CODE });
-      }
-      console.log('Invalid choice.');
+    if (!interactive) {
+      errorLines.forEach(line => console.error(line));
+      audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ABORTED, 'reason=non_interactive');
+      throw new CliError(
+        `LLM verification failed (${failure.errorType}); start aborted (non-interactive)`,
+        { code: START_GATE_EXIT_CODE },
+      );
     }
-  } finally {
-    rl.close();
+
+    errorLines.forEach(line => console.log(line));
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const question = (prompt: string): Promise<string> =>
+      new Promise(resolve => rl.question(prompt, ans => resolve(ans.trim())));
+    try {
+      // 向导内循环：retry / edit / cancel，失败不出向导（计划 §设计细节）
+      while (!('verified' in result)) {
+        console.log('\nLLM verification failed. Choose:');
+        console.log('1. Retry connection');
+        console.log('2. Reconfigure (key / model / provider)');
+        console.log('n. Cancel start');
+        const choice = await question('\n> ');
+        if (choice === '1') {
+          console.log('Testing LLM connection...');
+          result = await probeUntilStable(deps, audit, readLLMSnapshot(deps), 'retry');
+          if ('verified' in result) {
+            console.log('✓ Connection successful!');
+          } else {
+            formatLLMError({
+              errorType: result.failure.errorType,
+              message: result.failure.message,
+              provider: result.failure.provider,
+              hint: LLM_ERROR_HINTS[result.failure.errorType],
+            }).forEach(line => console.log(line));
+          }
+          continue;
+        }
+        if (choice === '2') {
+          const reconfigured = await promptReconfigure(deps, rl, failure.errorType);
+          if (reconfigured) {
+            // reconfigure 已对返回快照 probe 成功；复核当前身份后才算验证事实
+            const now = readLLMSnapshot(deps);
+            if (now.identity === reconfigured.identity) {
+              audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, 'via=reconfigure');
+              result = { verified: { snapshot: reconfigured, probe: { model: reconfigured.config.primary.model }, via: 'start' } };
+            } else {
+              audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=snapshot_drift`, `attempt=reconfigure`);
+              result = await probeUntilStable(deps, audit, now, 'retry');
+            }
+          }
+          // reconfigure 内循环已展示失败详情；用户退出 reconfigure ≠ cancel start，回主菜单
+          continue;
+        }
+        if (choice === 'n' || choice === 'N') {
+          audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ABORTED, 'reason=user_cancel');
+          throw new CliError('LLM verification cancelled by user; start aborted', { code: START_GATE_EXIT_CODE });
+        }
+        console.log('Invalid choice.');
+      }
+    } finally {
+      rl.close();
+    }
   }
+  return result.verified;
 }

@@ -10,7 +10,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'path';
 import { createDaemonSpawnOptions } from '../../src/daemon/index.js';
 import { resolveDaemonEntry } from '../../src/daemon/index.js';
-import { DAEMON_LOG } from '../../src/daemon/index.js';
+import { DAEMON_LOG, EXPECTED_LLM_IDENTITY_ENV } from '../../src/daemon/index.js';
 import { makeClawId } from '../../src/foundation/claw-identity/index.js';
 
 const SENTINEL_ENV = 'PHASE1464_TEST_SENTINEL';
@@ -69,5 +69,23 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     expect(a.args[0]).toBe(b.args[0]);
     expect(a.command).toBe(b.command);
     expect(a.cwd).toBe(b.cwd);
+  });
+
+  it('Phase 1926 Step C：expectedLLMIdentity 注入 env；缺省不带该键', () => {
+    const withIdentity = createDaemonSpawnOptions({
+      clawId: makeClawId('motion'),
+      agentDir: '/ws/.chestnut/motion',
+      workspaceRoot: '/ws',
+      expectedLLMIdentity: 'abc123identity',
+    });
+    expect(withIdentity.env?.[EXPECTED_LLM_IDENTITY_ENV]).toBe('abc123identity');
+
+    const without = createDaemonSpawnOptions({
+      clawId: makeClawId('motion'),
+      agentDir: '/ws/.chestnut/motion',
+      workspaceRoot: '/ws',
+    });
+    expect(without.env?.[EXPECTED_LLM_IDENTITY_ENV]).toBeUndefined();
+    expect(EXPECTED_LLM_IDENTITY_ENV in (without.env ?? {})).toBe(false);
   });
 });
