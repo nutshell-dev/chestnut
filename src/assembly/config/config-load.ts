@@ -27,6 +27,7 @@ import {
 } from '../../foundation/config-store/index.js';
 import { getGlobalConfigPath } from './global-config-path.js';
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { createLocalCredentials, isCredentialsError } from '../../foundation/credentials/index.js';
 import {
   loadWorkspaceAuditConfig,
   initWorkspaceAuditConfig,
@@ -40,6 +41,28 @@ import {
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+
+/**
+ * Phase 1925 Step B：`${VAR}` 解析注入 —— 用户级 Credentials owner 分层解析
+ * （进程环境 > 用户级凭据文件 > 项目 .env > 用户级 .env）。
+ * owner 无状态不缓存，每次 load 新建即等价「每次 loadYamlConfig 调用注入」。
+ * permissions/io_error 等 CredentialsError loud 向上传播（ConfigStore 只包装
+ * env 缺席为 missing_env，其余错误不吞）。ref 名不合法（如 `${MY-VAR}`）退化
+ * 回 process.env 直查，保持 legacy 行为与 missing_env 文案不变。
+ */
+function makeEnvVarResolver(deps: { fsFactory: (baseDir: string) => FileSystem }): (name: string) => string | undefined {
+  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+  return (name) => {
+    try {
+      return credentials.resolve(name)?.value;
+    } catch (err) {
+      if (isCredentialsError(err) && err.code === 'invalid_ref') {
+        return process.env[name];
+      }
+      throw err;
+    }
+  };
+}
 
 /**
  * ConfigStore typed failure → Assembly 业务文案（phase 1297 Step B）。
@@ -105,7 +128,7 @@ export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSys
   const schema = createGlobalConfigSchema();
   try {
     return loadYamlConfig<ClawGlobalConfig>(
-      { fsFactory: deps.fsFactory },
+      { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
       configPath,
       schema,
     );
@@ -252,7 +275,7 @@ export async function mutateGlobalConfigLocked(
   try {
     await withYamlConfigLock({ fsFactory: deps.fsFactory }, configPath, () => {
       const fresh = loadYamlConfig<ClawGlobalConfig>(
-        { fsFactory: deps.fsFactory },
+        { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
         configPath,
         createGlobalConfigSchema(),
       );
@@ -273,7 +296,7 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   }
   try {
     return loadYamlConfig<ClawConfig>(
-      { fsFactory: deps.fsFactory },
+      { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
       configPath,
       getClawConfigSchema(),
     );

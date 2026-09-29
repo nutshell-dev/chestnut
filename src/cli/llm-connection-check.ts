@@ -14,10 +14,14 @@ import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { ProviderConfig } from '../foundation/llm-provider/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+// Phase 1925 Step B：reconfigure 的明文 key 经 Credentials owner 落凭据文件、配置写 `${REF}`。
+import { storeKeyAsCredential } from './credentials-prompt.js';
 
 export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'quota' | 'unknown';
 
 interface LLMConfigDeps {
+  fsFactory: (baseDir: string) => FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
@@ -171,7 +175,14 @@ export async function promptReconfigure(
       const raw = await passwordPrompt('New API key');
       if (raw === 'b') continue;
       if (!raw) { console.log('API key is required.'); continue; }
-      await deps.rootConfig.patchPrimary({ api_key: raw });
+      // Phase 1925 Step B：ref 优先取当前 primary preset 的 envVar 约定名
+      const currentPrimary = deps.rootConfig.loadGlobal().llm.primary;
+      const currentPreset = currentPrimary.preset ? PRESETS[currentPrimary.preset] : undefined;
+      const stored = await storeKeyAsCredential(deps, raw, {
+        envVar: currentPreset?.envVar,
+        seed: currentPrimary.label ?? currentPrimary.preset,
+      });
+      await deps.rootConfig.patchPrimary({ api_key: stored });
 
     } else if (choice === '2') {
       const raw = await question('New model (b = back, "auto" = preset default)');

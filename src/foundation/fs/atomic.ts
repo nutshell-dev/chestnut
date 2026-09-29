@@ -224,6 +224,7 @@ export async function stat(filePath: string): Promise<StatInfo> {
     ctime: stats.ctime,
     isFile: stats.isFile(),
     isDirectory: stats.isDirectory(),
+    mode: stats.mode,
   };
 }
 

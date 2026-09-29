@@ -719,13 +719,7 @@ export class NodeFileSystem implements FileSystem {
     return entries;
   }
 
-  statSync(relativePath: string): {
-    size: number;
-    mtime: Date;
-    ctime: Date;
-    isFile: boolean;
-    isDirectory: boolean;
-  } {
+  statSync(relativePath: string): StatInfo {
     const absolute = this.resolveAndCheck(relativePath);
     return wrapENOENTSync(relativePath, () => {
       const s = fsSync.statSync(absolute);
@@ -735,6 +729,7 @@ export class NodeFileSystem implements FileSystem {
         ctime: s.ctime,
         isFile: s.isFile(),
         isDirectory: s.isDirectory(),
+        mode: s.mode,
       };
     });
   }
@@ -777,5 +772,10 @@ export class NodeFileSystem implements FileSystem {
     } finally {
       fsSync.closeSync(fd);
     }
+  }
+
+  chmodSync(relativePath: string, mode: number): void {
+    const absolute = this.resolveAndCheck(relativePath);
+    fsSync.chmodSync(absolute, mode);
   }
 }

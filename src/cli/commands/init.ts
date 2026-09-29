@@ -26,6 +26,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
+// Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
+import { storeKeyAsCredential } from '../credentials-prompt.js';
 
 // Known providers shown in "Select provider" list (excludes generic custom-* entries)
 const PROVIDER_LIST = [
@@ -202,7 +204,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
             const raw = await passwordQuestion(rl, 'API Key (b = back): ');
             if (raw === 'b') { step = 'baseUrl'; continue; }
             if (!raw) { console.log('API Key is required.'); continue; }
-            manualApiKey = raw;
+            manualApiKey = await storeKeyAsCredential(deps, raw, { seed: manualFormat });
             step = 'model';
 
           } else if (step === 'model') {
@@ -268,7 +270,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
               console.log('API Key is required.');
               continue;
             } else {
-              pickedApiKey = raw;
+              pickedApiKey = await storeKeyAsCredential(deps, raw, { envVar: preset.envVar, seed: preset.id });
             }
             step = 'model';
 

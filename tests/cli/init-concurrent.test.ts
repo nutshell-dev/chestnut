@@ -75,6 +75,7 @@ beforeEach(() => {
   tempDir = path.join(tmpdir(), `chestnut-init-race-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
+  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
   vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
   mockRl.question.mockClear();
   mockRl.close.mockClear();

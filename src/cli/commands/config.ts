@@ -30,6 +30,8 @@ import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
 import { CONFIG_RELOAD_NOTICE } from '../../templates/messages/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
+// Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
+import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 
 /**
@@ -171,11 +173,12 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       throw new CliError(`A provider with label "${label}" already exists`);
     }
     
-    // API Key
-    const apiKey = await question(rl, 'API Key (or ${ENV_VAR})');
-    if (!apiKey) {
+    // API Key（Phase 1925 Step B：明文经 Credentials owner 落凭据文件，配置只存 `${REF}`）
+    const apiKeyInput = await question(rl, 'API Key (or ${ENV_VAR})');
+    if (!apiKeyInput) {
       throw new CliError('API Key is required');
     }
+    const apiKey = await storeKeyAsCredential(deps, apiKeyInput, { envVar: preset.envVar, seed: label });
     
     // Base URL for custom presets
     let baseUrl: string | undefined;
@@ -270,6 +273,16 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     // phase 451: 改 config 必 probe
     console.log('\nTesting connection...');
     const providerConfigRuntime = toProviderConfig(providerConfig);
+    // Phase 1925 Step B：内存态 api_key 可能是 `${REF}` 引用 —— probe 前经
+    // Credentials owner 分层解析（磁盘链路在 load 时已展开，内存链路需显式解析）。
+    const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
+    if (resolvedKey === undefined) {
+      throw new CliError(
+        `API key reference ${providerConfig.api_key} could not be resolved ` +
+        `(not in process env, credentials file, or .env fallbacks)`,
+      );
+    }
+    providerConfigRuntime.apiKey = resolvedKey;
     const probe = await checkLLMConnectionFor(providerConfigRuntime);
     if (probe.ok) {
       console.log(`✓ ${probe.model}`);

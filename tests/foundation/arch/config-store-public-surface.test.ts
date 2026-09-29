@@ -53,9 +53,11 @@ const EXPECTED_BARREL_SURFACE = [
   'writeYamlConfigExclusive',
 ];
 
-describe('phase 1297: ConfigStore 唯一 caller 经 barrel', () => {
-  it('src 内对 ConfigStore 的 import 只有 assembly/config/config-load.ts 且指向 barrel', () => {
+describe('phase 1297: ConfigStore caller 白名单经 barrel', () => {
+  it('src 内对 ConfigStore 的 import 只有 config-load.ts 与 credentials/local.ts 且指向 barrel', () => {
     // 排除 ConfigStore 模块内部边，只统计外部 caller。
+    // Phase 1925 Step B：credentials/local.ts 复用 withYamlConfigLock 跨进程锁原语
+    // （凭据文件写纪律 = 锁内重读 + 原子发布），同样只经 barrel。
     const edges = collectRelativeImportEdges(SRC_ROOT).filter((e) =>
       isInsideConfigStore(e.resolved) && !isInsideConfigStore(path.resolve(PROJECT_ROOT, e.file))
     );
@@ -63,6 +65,7 @@ describe('phase 1297: ConfigStore 唯一 caller 经 barrel', () => {
     expect(deepImports).toEqual([]);
     expect([...new Set(edges.map((e) => e.file))].sort()).toEqual([
       path.join('src', 'assembly', 'config', 'config-load.ts'),
+      path.join('src', 'foundation', 'credentials', 'local.ts'),
     ]);
   });
 

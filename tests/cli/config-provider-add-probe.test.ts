@@ -77,6 +77,8 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-config-add-probe-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
+  // Phase 1925 Step B：凭据层隔离 —— 明文 key 落用户级凭据文件，测试中绝不触碰真实 home
+  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
 }
 
 function teardownTempDir() {

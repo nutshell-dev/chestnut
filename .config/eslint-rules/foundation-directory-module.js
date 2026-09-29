@@ -16,6 +16,8 @@ const DIRECTORY_MODULES = new Map([
   ['claw-identity', 'L2c.ClawIdentity'],
   ['command-tool', 'L2c.CommandTool'],
   ['config-store', 'L2a.ConfigStore'],
+  // Phase 1925 Step B：用户级 Credentials owner（API key 引用/分层解析/0600 凭据文件）
+  ['credentials', 'L2a.Credentials'],
   ['cron', 'L2a.Cron'],
   ['dialog-store', 'L2b.DialogStore'],
   ['file-tool', 'L2c.FileTool'],

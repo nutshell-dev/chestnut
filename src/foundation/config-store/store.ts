@@ -5,7 +5,8 @@
  * Generic YAML config persistence：schema 参数化的 load/write/patch/exists。
  * 零业务字段含义 — owner schema、文件路径与业务错误措辞全部由 caller 决定。
  *
- * 保留：env var expansion（`${ENV_VAR}` → process.env.X）、atomic+fsync 写
+ * 保留：env var expansion（`${ENV_VAR}` → 默认 process.env.X；Phase 1925 Step B
+ * 起可经 LoaderDeps.resolveEnvVar 注入分层解析）、atomic+fsync 写
  * （写委托 L1 FileSystem.writeAtomicSync）。
  * 预期失败经 typed failure protocol（./errors.ts）抛出，见 ConfigStoreError。
  *
@@ -35,24 +36,31 @@ function formatUnknownError(error: unknown): string {
   return String(error);
 }
 
+/**
+ * Phase 1925 Step B：env var 缺席的模块私有标记错误。
+ * loadYamlConfig 只把本类错误包成 'missing_env'；resolver 自身抛出的业务错误
+ * （如 Credentials permissions/io_error）原样向上传播（loud），不被吞进 env taxonomy。
+ */
+class EnvVarMissingError extends Error {}
+
 // Expand ${ENV_VAR} syntax in config values
-function expandEnvVars(obj: unknown): unknown {
+function expandEnvVars(obj: unknown, resolveEnvVar: (name: string) => string | undefined): unknown {
   if (typeof obj === 'string') {
     return obj.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-      const val = process.env[varName];
+      const val = resolveEnvVar(varName);
       if (val === undefined) {
-        throw new Error(`Environment variable "${varName}" is not set`);
+        throw new EnvVarMissingError(`Environment variable "${varName}" is not set`);
       }
       return val;
     });
   }
   if (Array.isArray(obj)) {
-    return obj.map(expandEnvVars);
+    return obj.map(item => expandEnvVars(item, resolveEnvVar));
   }
   if (obj !== null && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = expandEnvVars(value);
+      result[key] = expandEnvVars(value, resolveEnvVar);
     }
     return result;
   }
@@ -61,6 +69,12 @@ function expandEnvVars(obj: unknown): unknown {
 
 interface LoaderDeps {
   fsFactory: (baseDir: string) => FileSystem;
+  /**
+   * Phase 1925 Step B：`${VAR}` 解析注入点（如用户级 Credentials owner）。
+   * 缺省 = 现状 process.env 查找；返回 undefined → 'missing_env' typed failure。
+   * resolver 自身抛出的错误原样传播，不包装为 missing_env。
+   */
+  resolveEnvVar?: (name: string) => string | undefined;
 }
 
 /**
@@ -106,9 +120,14 @@ export function loadYamlConfig<T>(
 
   let expanded: unknown;
   try {
-    expanded = expandEnvVars(parsed);
+    expanded = expandEnvVars(parsed, deps.resolveEnvVar ?? ((name) => process.env[name]));
   } catch (err) {
-    throw new ConfigStoreError('missing_env', `Invalid config (env var): ${formatUnknownError(err)}`, { cause: err });
+    // Phase 1925 Step B：只有「变量缺席」进入 missing_env taxonomy（文案不变）；
+    // resolver 抛出的其他错误（permissions/io_error 等 loud failure）原样上抛。
+    if (err instanceof EnvVarMissingError) {
+      throw new ConfigStoreError('missing_env', `Invalid config (env var): ${formatUnknownError(err)}`, { cause: err });
+    }
+    throw err;
   }
 
   try {

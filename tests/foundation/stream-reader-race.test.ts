@@ -52,6 +52,7 @@ function createMockFs(opts: {
         ctime: new Date(),
         isDirectory: false,
         isFile: true,
+        mode: 0o100644,
       };
     }),
     readBytesSync: readBytesSpy,

@@ -65,6 +65,11 @@ export interface StatInfo {
   ctime: Date;
   isDirectory: boolean;
   isFile: boolean;
+  /**
+   * Phase 1925 Step B：原始 mode 位（Node statSync().mode，含文件类型位）。
+   * 权限位断言（如凭据文件 mode & 0o077）由 caller 自行掩码。
+   */
+  mode: number;
 }
 
 /**
@@ -395,6 +400,14 @@ export interface FileSystem {
    * @param path - Relative path within configured baseDir
    */
   syncSync(path: string): void;
+
+  /**
+   * Change file permission bits (sync).
+   * Phase 1925 Step B：凭据文件 0600 / 凭据目录 0700 写入纪律的唯一原语。
+   * @param path - Relative path within configured baseDir
+   * @param mode - 目标权限位（如 0o600）
+   */
+  chmodSync(path: string, mode: number): void;
 
   // ========================================================================
   // Path Resolution
