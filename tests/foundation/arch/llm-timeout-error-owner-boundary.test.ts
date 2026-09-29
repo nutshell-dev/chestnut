@@ -9,7 +9,7 @@ const sources = [
   '../../../src/core/step-executor/llm-stream-collector.ts',
   '../../../tests/foundation/llm/abort-helper.test.ts',
   '../../../tests/foundation/llm-service.test.ts',
-  '../../../tests/foundation/llm.test.ts',
+  '../../../tests/foundation/llm-provider/pi-ai-adapter.test.ts',
   '../../../tests/core/step-executor/llm-stream-collector-invariants.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
 const sdkSource = readFileSync(new URL('../../../src/index.ts', import.meta.url), 'utf8');

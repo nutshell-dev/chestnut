@@ -5,13 +5,6 @@
 
 export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
 
-/**
- * phase 1797: Anthropic transport 显式 discriminator（model 名 heuristic 治理）。
- * 'sdk' = AnthropicAdapter（SDK/native API）；'fetch' = CustomAnthropicAdapter（raw fetch）。
- * model 仅是模型标识，不参与 transport 路由。
- */
-export type AnthropicTransport = 'sdk' | 'fetch';
-
 type AuthMethod = 'api_key';
 
 /**
@@ -42,11 +35,6 @@ interface ProviderPreset {
   /** Environment variable name for the API key (e.g. ANTHROPIC_API_KEY) */
   envVar?: string;
   /**
-   * phase 1797: anthropic format preset 的 transport 默认（单源，yaml 显式 transport 可覆盖）。
-   * 缺省（custom-anthropic）= 迁移审计路径：factory 落 'fetch' 并写 TRANSPORT_DEFAULTED。
-   */
-  transport?: AnthropicTransport;
-  /**
    * Phase 1925 Step C：preset → pi-ai catalog provider id 显式映射（G3 决策 3）。
    * 同名可直连 6 个；别名 5 个（gemini→google、grok→xai、moonshot→moonshotai、
    * kimi→kimi-coding、openrouter-anthropic→openrouter）；无对应者（ollama、
@@ -65,7 +53,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.anthropic.com',
     defaultModel: 'claude-3-7-sonnet-20250219',
     envVar: 'ANTHROPIC_API_KEY',
-    transport: 'sdk',  // phase 1797: 对齐旧 heuristic（defaultModel 含 claude → SDK）
     piAiProvider: 'anthropic',
   },
   'openai': {
@@ -106,7 +93,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.kimi.com/coding',
     defaultModel: 'kimi-k2.5',
     envVar: 'KIMI_API_KEY',
-    transport: 'fetch',  // phase 1797: 对齐旧 heuristic（model 不含 claude → raw fetch）
     piAiProvider: 'kimi-coding',
   },
   'minimax': {
@@ -117,7 +103,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.minimax.io/anthropic',
     defaultModel: 'MiniMax-M1',
     envVar: 'MINIMAX_API_KEY',
-    transport: 'fetch',  // phase 1797: 对齐旧 heuristic
     piAiProvider: 'minimax',
   },
   'gemini': {
@@ -167,7 +152,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'anthropic/claude-sonnet-4-5',
     envVar: 'OPENROUTER_API_KEY',
-    transport: 'sdk',  // phase 1797: 对齐旧 heuristic（defaultModel 含 claude → SDK）
     piAiProvider: 'openrouter',
   },
   'zai': {
@@ -178,7 +162,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.z.ai/api/anthropic',
     defaultModel: 'glm-4.6',
     envVar: 'ZAI_API_KEY',
-    transport: 'fetch',  // phase 1797: 对齐旧 heuristic
     piAiProvider: 'zai',
   },
   'qwen-coder': {

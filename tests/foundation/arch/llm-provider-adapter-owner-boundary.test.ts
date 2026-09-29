@@ -29,6 +29,6 @@ describe('ProviderAdapter owner boundary', () => {
 
   it('keeps the internal owner import and adapter factory DI', () => {
     expect(orchestratorTypes).toMatch(/import\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"]/s);
-    expect(orchestratorTypes).toMatch(/createAnthropicAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);
+    expect(orchestratorTypes).toMatch(/createProviderAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);
   });
 });

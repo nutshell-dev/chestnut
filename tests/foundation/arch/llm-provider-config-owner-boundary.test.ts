@@ -33,6 +33,6 @@ describe('ProviderConfig owner boundary', () => {
     expect(orchestratorTypes).toMatch(/import\s+type\s*\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"]/s);
     expect(orchestratorTypes).toMatch(/primary:\s*ProviderConfig/);
     expect(orchestratorTypes).toMatch(/fallbacks\?:\s*ProviderConfig\[\]/);
-    expect(orchestratorTypes).toMatch(/createAnthropicAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);
+    expect(orchestratorTypes).toMatch(/createProviderAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);
   });
 });

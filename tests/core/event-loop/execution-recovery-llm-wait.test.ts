@@ -124,7 +124,7 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createAnthropicAdapter: () => adapter,
+    createProviderAdapter: () => adapter,
   });
   let session = createRecoverySession({
     scopeId: 'foreground',

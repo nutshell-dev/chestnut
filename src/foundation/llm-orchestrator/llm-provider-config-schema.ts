@@ -30,8 +30,8 @@ export const llmProviderConfigSchema = z.object({
   extra_headers: z.record(z.string()).optional(),
   drop_thinking_blocks: z.boolean().optional(),
   reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
-  // phase 1797: anthropic format transport 显式 discriminator（覆盖 preset 默认；缺失走 preset/factory 迁移默认）
-  transport: z.enum(['sdk', 'fetch']).optional(),
+  // Phase 1925 Step D: transport 字段已删除（pi-ai 唯一路径）；zod 默认 strip 未知键，
+  // 既有 yaml 中的 transport 键静默忽略、配置可读（回滚兼容）
 });
 
 export type LLMProviderConfig = z.infer<typeof llmProviderConfigSchema>;

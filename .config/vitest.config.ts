@@ -143,7 +143,8 @@ const VI_MOCK_FILES = [
   // 2026-09-14 移出: 该文件已无 vi.mock 用点（phase 316 invariant 抓漂移、注释保留作历史）。
   // 'tests/daemon/daemon-loop-atomic-retry-state.test.ts',
   'tests/daemon/startup-check-atomic-write.test.ts',
-  'tests/foundation/anthropic-cache.test.ts',
+  // Phase 1925 Step D: 已随旧 AnthropicAdapter 一并删除（vi.mock @anthropic-ai/sdk 消亡）。
+  // 'tests/foundation/anthropic-cache.test.ts',
   'tests/foundation/audit/fallback-periodic-reconcile.test.ts',
   'tests/foundation/audit/reconcile-fallback-fsync.test.ts',
   'tests/foundation/audit/writer-fallback-origin.test.ts',
@@ -151,9 +152,9 @@ const VI_MOCK_FILES = [
   'tests/foundation/fs.test.ts',
   // phase 1756: 补登记（phase 1753 新增 vi.mock('fs') 故障注入、phase 316 invariant 抓漂移）
   'tests/foundation/fs/atomic-write-result.test.ts',
-  // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — AnthropicAdapter 改为 createAnthropicAdapter DI 注入。
-  'tests/foundation/llm.test.ts',
-  'tests/foundation/llm-provider/anthropic-adapter.test.ts',  // phase 862: vi.mock @anthropic-ai/sdk
+  // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — adapter 改 DI 注入；Phase 1925 Step D 删除下两项（vi.mock @anthropic-ai/sdk 消亡；llm.test.ts 重构为 orchestrator-only、不再 mock）。
+  // 'tests/foundation/llm.test.ts',
+  // 'tests/foundation/llm-provider/anthropic-adapter.test.ts',
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // phase 908: vi.mock process-exec isAlive
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.

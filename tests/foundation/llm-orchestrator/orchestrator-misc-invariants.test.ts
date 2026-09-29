@@ -173,7 +173,7 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
 
       await expect(
@@ -215,7 +215,7 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: sink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -253,7 +253,7 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
 
       const chunks: LLMStreamChunk[] = [];
@@ -309,7 +309,7 @@ describe('all-providers-context-exceeded-emit', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
@@ -483,7 +483,7 @@ describe('merge-signals-cleanup', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
@@ -516,7 +516,7 @@ describe('merge-signals-cleanup', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
@@ -627,7 +627,7 @@ describe('race-loser-cleanup', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
@@ -842,7 +842,7 @@ describe('hedge-cache-token-emit', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
@@ -1017,7 +1017,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
       (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
@@ -1057,7 +1057,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
       (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
@@ -1084,7 +1084,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         maxAttempts: 2,
         retryDelayMs: 10,
         events: sink,
-        createAnthropicAdapter: () => primary as any,
+        createProviderAdapter: () => primary as any,
       });
       (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
@@ -1144,7 +1144,7 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
-        createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+        createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
       (orchestrator as any).breakers = [
         new CircuitBreaker(5, 1000, () => {}),
@@ -1177,7 +1177,7 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
-        createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+        createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
       (orchestrator as any).breakers = [
         new CircuitBreaker(5, 1000, () => {}),
@@ -1217,7 +1217,7 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
-        createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+        createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
       (orchestrator as any).breakers = [
         new CircuitBreaker(5, 1000, () => {}),
@@ -1297,7 +1297,7 @@ describe('streaming-fallback-switched-emit', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     (orchestrator as any).breakers = [primary, ...fallbacks].map(() => new CircuitBreaker(5, 1000, () => {}));
     return { orchestrator, emitted };
@@ -1436,7 +1436,7 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       maxAttempts,
       retryDelayMs: 1,
       events: sink,
-      createAnthropicAdapter: () => provider as any,
+      createProviderAdapter: () => provider as any,
     });
     (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
     return orchestrator;

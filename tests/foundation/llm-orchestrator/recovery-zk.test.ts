@@ -89,7 +89,7 @@ async function makeFixture(opts: FixtureOpts = {}): Promise<Fixture> {
     maxAttempts: 3,
     retryDelayMs: 0,
     events,
-    createAnthropicAdapter: (config) => (config.name === 'fallback' ? fallbackAdapter : failAdapter),
+    createProviderAdapter: (config) => (config.name === 'fallback' ? fallbackAdapter : failAdapter),
     ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 } } : {}),
   });
 

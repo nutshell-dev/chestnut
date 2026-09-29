@@ -106,8 +106,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   private auditLogIdMap = new WeakMap<AuditSink, string>();
   private nextAuditLogId = 0;
 
-  // phase 1028: AnthropicAdapter factory DI seam
-  private readonly createAnthropicAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
+  // phase 1028: provider factory DI seam
+  private readonly createProviderAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
 
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
@@ -168,8 +168,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       configFingerprint,
     ].join(':');
     if (!this.sdkClientCache.has(key)) {
-      const provider = this.createAnthropicAdapter
-        ? (this.createAnthropicAdapter(config) as LLMProvider)
+      const provider = this.createProviderAdapter
+        ? (this.createProviderAdapter(config) as LLMProvider)
         : createLLMProvider(config);
       this.sdkClientCache.set(key, provider);
       this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
@@ -182,7 +182,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   constructor(config: LLMOrchestratorConfig) {
     this.config = config;
     this.events = config.events;
-    this.createAnthropicAdapter = config.createAnthropicAdapter;
+    this.createProviderAdapter = config.createProviderAdapter;
     this.primary = this.getSdkClient(config.primary);
     this.fallbacks = (config.fallbacks ?? []).map((c) => this.getSdkClient(c));
     this.recomputeProviderIdentities(config);

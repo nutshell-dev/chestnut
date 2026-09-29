@@ -78,7 +78,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     maxAttempts: opts.maxAttempts ?? 1,
     retryDelayMs: 1,
     events: sink,
-    createAnthropicAdapter: () => adapter,
+    createProviderAdapter: () => adapter,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
   };
   const orchestrator = createLLMOrchestrator(config);

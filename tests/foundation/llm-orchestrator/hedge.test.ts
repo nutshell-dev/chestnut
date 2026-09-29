@@ -83,7 +83,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     retryDelayMs: 0,
     events: noopSink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-    createAnthropicAdapter: (cfg) => findAdapter(cfg),
+    createProviderAdapter: (cfg) => findAdapter(cfg),
   });
   return service;
 }

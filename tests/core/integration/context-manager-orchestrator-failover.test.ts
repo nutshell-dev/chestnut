@@ -51,7 +51,7 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
       events: eventSink,
       maxAttempts: 1,
       retryDelayMs: 0,
-      createAnthropicAdapter: (config) => config.name === 'fallback' ? fallback : primary,
+      createProviderAdapter: (config) => config.name === 'fallback' ? fallback : primary,
     });
 
     // Verify fallback provider is distinct from primary
@@ -82,7 +82,7 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
       events: eventSink,
       maxAttempts: 1,
       retryDelayMs: 0,
-      createAnthropicAdapter: () => primary,
+      createProviderAdapter: () => primary,
     });
 
     await expect(orchestrator.call({

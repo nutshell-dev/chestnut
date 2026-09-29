@@ -10,7 +10,6 @@ import noPermManagementInCommandTool from './eslint-rules/no-perm-management-in-
 import noClawdirPathAntiPattern from './eslint-rules/no-clawdir-path-anti-pattern.js';
 import noStringAnchorChestnut from './eslint-rules/no-string-anchor-chestnut.js';
 import noDeriveChestnutRoot from './eslint-rules/no-derive-chestnut-root.js';
-import formatterParityRequireConstants from './eslint-rules/formatter-parity-require-constants.js';
 import foundationNoBusinessRoleLiteral from './eslint-rules/foundation-no-business-role-literal.js';
 import auditCapConstScope from './eslint-rules/audit-cap-const-scope.js';
 import foundationNoCliVerbFact from './eslint-rules/foundation-no-cli-verb-fact.js';
@@ -60,7 +59,6 @@ export default [
           'no-clawdir-path-anti-pattern': noClawdirPathAntiPattern,
           'no-string-anchor-chestnut': noStringAnchorChestnut,
           'no-derive-chestnut-root': noDeriveChestnutRoot,
-          'formatter-parity-require-constants': formatterParityRequireConstants,
           'foundation-no-business-role-literal': foundationNoBusinessRoleLiteral,
           'audit-cap-const-scope': auditCapConstScope,
           'foundation-no-cli-verb-fact': foundationNoCliVerbFact,
@@ -99,7 +97,6 @@ export default [
       'chestnut-custom/no-clawdir-path-anti-pattern': 'error',
       'chestnut-custom/no-string-anchor-chestnut': 'error',
       'chestnut-custom/no-derive-chestnut-root': 'error',
-      'chestnut-custom/formatter-parity-require-constants': 'error',
       'chestnut-custom/foundation-no-business-role-literal': 'error',
       'chestnut-custom/audit-cap-const-scope': 'error',
       'chestnut-custom/foundation-no-cli-verb-fact': 'error',

@@ -100,7 +100,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     retryDelayMs: 0,
     events: noopSink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-    createAnthropicAdapter: (cfg) => findAdapter(cfg),
+    createProviderAdapter: (cfg) => findAdapter(cfg),
   });
   return service;
 }
@@ -147,7 +147,7 @@ describe('Phase 1268 Step E: circuit breaker default enabled', () => {
     const service = new LLMOrchestratorImpl({
       ...llmConfig,
       events: sink,
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
 
     expect((service as any).breakers).toHaveLength(3);
@@ -356,7 +356,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 2,
       retryDelayMs: 0,
       events: sink,
-      createAnthropicAdapter: () => primary as any,
+      createProviderAdapter: () => primary as any,
     });
 
     const promise = (async () => {
@@ -411,7 +411,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       retryDelayMs: 0,
       events: sink,
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1_000 },
-      createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+      createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
 
     const breaker = (service as any).breakers[0];
@@ -454,7 +454,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
-      createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
+      createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
 
     const chunks: LLMStreamChunk[] = [];

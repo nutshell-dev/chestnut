@@ -128,7 +128,7 @@ async function makeHarness(): Promise<Harness> {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createAnthropicAdapter: () => adapter,
+    createProviderAdapter: () => adapter,
   });
   const session = createRecoverySession({
     scopeId: 'foreground',
@@ -308,7 +308,7 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createAnthropicAdapter: () => adapter,
+    createProviderAdapter: () => adapter,
   });
   const session = createRecoverySession({
     scopeId: 'foreground',
@@ -330,7 +330,7 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
     reloadConfig: (cfg: unknown) => {
       reloadCalls += 1;
       providerError = undefined;   // 修好 key：重新加载后不再按旧错误失败
-      orchestrator.reloadConfig({ ...(cfg as never), createAnthropicAdapter: () => adapter });
+      orchestrator.reloadConfig({ ...(cfg as never), createProviderAdapter: () => adapter });
     },
   };
 

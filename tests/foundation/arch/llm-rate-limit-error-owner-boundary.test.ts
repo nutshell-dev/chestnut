@@ -9,7 +9,7 @@ import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/er
 const sources = [
   '../../../src/foundation/llm-orchestrator/orchestrator.ts',
   '../../../tests/foundation/llm-orchestrator/hedge.test.ts',
-  '../../../tests/foundation/llm.test.ts',
+  '../../../tests/foundation/llm-provider/pi-ai-adapter.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
 const sdkSource = readFileSync(new URL('../../../src/index.ts', import.meta.url), 'utf8');
 

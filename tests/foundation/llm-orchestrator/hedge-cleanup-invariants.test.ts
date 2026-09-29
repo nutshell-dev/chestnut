@@ -89,7 +89,7 @@ describe('hedge-post-first-chunk-failure', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
@@ -244,7 +244,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
@@ -421,7 +421,7 @@ describe('hedge-bwins-cleanup', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
-      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+      createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }

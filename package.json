@@ -45,7 +45,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
     "@earendil-works/pi-ai": "0.87.1",
     "@mariozechner/pi-tui": "^0.58.3",
     "chokidar": "^4.0.3",

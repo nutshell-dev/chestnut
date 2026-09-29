@@ -58,7 +58,7 @@ function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<Prov
   };
 }
 
-// Mock createProvider to inject our mocks via createAnthropicAdapter DI seam.
+// Mock createProvider to inject our mocks via createProviderAdapter DI seam.
 
 describe('LLMOrchestratorImpl - stream failover', () => {
   beforeEach(() => {
@@ -78,7 +78,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     
     // Replace internal provider with mock
     (service as any).primary = primary;
@@ -112,7 +112,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
 
     // Replace internal providers with mocks
     (service as any).primary = primary;
@@ -146,7 +146,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     
     // Replace internal provider with mock (no fallback)
     (service as any).primary = primary;
@@ -191,7 +191,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
@@ -224,7 +224,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [];
 
@@ -245,7 +245,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = createMockProvider('primary');
     (service as any).fallbacks = [];
 
@@ -269,7 +269,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = badPrimary;
     (service as any).fallbacks = [goodFallback];
 
@@ -296,7 +296,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     
     (service as any).primary = primary;
 
@@ -332,7 +332,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
@@ -367,7 +367,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
@@ -410,7 +410,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
@@ -441,7 +441,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: noopSink,
       
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
       (service as any).primary = badPrimary;
 
       await expect(service.call({ messages: [] })).rejects.toThrow();
@@ -455,7 +455,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: noopSink,
       
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
       (service as any).primary = createMockProvider('primary');
 
       await service.call({ messages: [] });
@@ -474,7 +474,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: noopSink,
       
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
       (service as any).primary = badPrimary;
       (service as any).fallbacks = [goodFallback];
 
@@ -501,7 +501,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: sink,
       
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
       (service as any).primary = badPrimary;
       (service as any).fallbacks = [goodFallback];
 
@@ -527,7 +527,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: sink,
       
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
       (service as any).primary = badPrimary;
       (service as any).fallbacks = [badFallback1, badFallback2];
 
@@ -567,7 +567,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 60000 },
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = failingPrimary;
     (service as any).fallbacks = [goodFallback];
 
@@ -608,7 +608,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = probePrimary;
     (service as any).fallbacks = [goodFallback];
 
@@ -653,7 +653,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
       events: eventSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = failingPrimary;
     (service as any).fallbacks = [goodFallback];
 
@@ -698,7 +698,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
       events: eventSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = probePrimary;
     (service as any).fallbacks = [goodFallback];
 
@@ -739,7 +739,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = badPrimary;
     (service as any).fallbacks = [badFallback];
 
@@ -761,7 +761,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
@@ -792,7 +792,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
@@ -819,7 +819,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 10_000,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
 
     const ac = new AbortController();
@@ -846,7 +846,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 10_000,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = primary;
 
     const ac = new AbortController();
@@ -870,7 +870,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = failingAdapter;
 
     await expect(svc.call({ messages: [] })).rejects.toThrow();
@@ -892,7 +892,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 100,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = adapter;
 
     await svc.call({ messages: [] });
@@ -916,7 +916,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = primary;
     (svc as any).fallbacks = [fallback];
 
@@ -936,7 +936,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = primary;
 
     const result = await svc.healthCheck();
@@ -957,7 +957,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = primary;
 
     const chunks: any[] = [];
@@ -1009,7 +1009,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = p1;
     (svc as any).fallbacks = [p2];
 
@@ -1041,7 +1041,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = p1;
     (svc as any).fallbacks = [p2];
 
@@ -1074,7 +1074,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (svc as any).primary = p1;
     (svc as any).fallbacks = [p2];
 
@@ -1107,7 +1107,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = mockProvider1;
     (service as any).fallbacks = [mockProvider2];
 
@@ -1134,7 +1134,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = mockProvider1;
     (service as any).fallbacks = [mockProvider2];
 
@@ -1159,7 +1159,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createAnthropicAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = mockProvider1;
     (service as any).fallbacks = [mockProvider2];
 
