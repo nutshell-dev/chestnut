@@ -46,6 +46,14 @@ interface ProviderPreset {
    * 缺省（custom-anthropic）= 迁移审计路径：factory 落 'fetch' 并写 TRANSPORT_DEFAULTED。
    */
   transport?: AnthropicTransport;
+  /**
+   * Phase 1925 Step C：preset → pi-ai catalog provider id 显式映射（G3 决策 3）。
+   * 同名可直连 6 个；别名 5 个（gemini→google、grok→xai、moonshot→moonshotai、
+   * kimi→kimi-coding、openrouter-anthropic→openrouter）；无对应者（ollama、
+   * qwen-coder、custom-*）= undefined → catalog 未命中走显式自建 Model + 启发式回退，
+   * 不做名字相似度猜测。
+   */
+  piAiProvider?: string;
 }
 
 export const PRESETS: Record<string, ProviderPreset> = {
@@ -58,6 +66,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'claude-3-7-sonnet-20250219',
     envVar: 'ANTHROPIC_API_KEY',
     transport: 'sdk',  // phase 1797: 对齐旧 heuristic（defaultModel 含 claude → SDK）
+    piAiProvider: 'anthropic',
   },
   'openai': {
     id: 'openai',
@@ -67,6 +76,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o',
     envVar: 'OPENAI_API_KEY',
+    piAiProvider: 'openai',
   },
   'deepseek': {
     id: 'deepseek',
@@ -76,6 +86,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.deepseek.com',
     defaultModel: 'deepseek-chat',
     envVar: 'DEEPSEEK_API_KEY',
+    piAiProvider: 'deepseek',
   },
   'moonshot': {
     id: 'moonshot',
@@ -85,6 +96,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     defaultModel: 'kimi-k2.5',
     envVar: 'MOONSHOT_API_KEY',
+    piAiProvider: 'moonshotai',
   },
   'kimi': {
     id: 'kimi',
@@ -95,6 +107,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'kimi-k2.5',
     envVar: 'KIMI_API_KEY',
     transport: 'fetch',  // phase 1797: 对齐旧 heuristic（model 不含 claude → raw fetch）
+    piAiProvider: 'kimi-coding',
   },
   'minimax': {
     id: 'minimax',
@@ -105,6 +118,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'MiniMax-M1',
     envVar: 'MINIMAX_API_KEY',
     transport: 'fetch',  // phase 1797: 对齐旧 heuristic
+    piAiProvider: 'minimax',
   },
   'gemini': {
     id: 'gemini',
@@ -114,6 +128,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     defaultModel: 'gemini-2.5-pro-preview-03-25',
     envVar: 'GEMINI_API_KEY',
+    piAiProvider: 'google',
   },
   'ollama': {
     id: 'ollama',
@@ -132,6 +147,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.x.ai/v1',
     defaultModel: 'grok-4',
     envVar: 'XAI_API_KEY',
+    piAiProvider: 'xai',
   },
   'openrouter': {
     id: 'openrouter',
@@ -141,6 +157,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'openai/gpt-4o',
     envVar: 'OPENROUTER_API_KEY',
+    piAiProvider: 'openrouter',
   },
   'openrouter-anthropic': {
     id: 'openrouter-anthropic',
@@ -151,6 +168,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'anthropic/claude-sonnet-4-5',
     envVar: 'OPENROUTER_API_KEY',
     transport: 'sdk',  // phase 1797: 对齐旧 heuristic（defaultModel 含 claude → SDK）
+    piAiProvider: 'openrouter',
   },
   'zai': {
     id: 'zai',
@@ -161,6 +179,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'glm-4.6',
     envVar: 'ZAI_API_KEY',
     transport: 'fetch',  // phase 1797: 对齐旧 heuristic
+    piAiProvider: 'zai',
   },
   'qwen-coder': {
     id: 'qwen-coder',

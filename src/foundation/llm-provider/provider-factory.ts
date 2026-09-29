@@ -1,10 +1,6 @@
 import type { ProviderConfig } from './types.js';
-import { AnthropicAdapter } from './anthropic.js';
-import { CustomAnthropicAdapter } from './custom-anthropic.js';
-import { OpenAIAdapter } from './openai.js';
-import { GeminiAdapter } from './gemini.js';
+import { PiAiAdapter } from './pi-ai-adapter.js';
 import { LLMError } from './errors.js';
-import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import type { LLMProvider } from './types.js';
 
 /**
@@ -33,22 +29,13 @@ function validateProviderConfig(config: ProviderConfig): void {
 }
 
 /**
- * Provider factory — creates appropriate adapter for config
+ * Provider factory — Phase 1925 Step C：pi-ai 是唯一 L1 provider 实现。
+ *
+ * 不再按 apiFormat/transport 路由旧手写适配器（已随 Step D 删除）；apiFormat
+ * 仍必填——它是 pi-ai api 的显式协议声明（不做 model/baseUrl 猜测路由）。
+ * transport 字段保留于 schema（旧配置可读）但不再参与路由。
  */
 export function createLLMProvider(config: ProviderConfig): LLMProvider {
-  // Validate configuration before instantiation
   validateProviderConfig(config);
-
-  if (config.apiFormat === 'openai') return new OpenAIAdapter(config);
-  if (config.apiFormat === 'gemini') return new GeminiAdapter(config);
-  // phase 1797: anthropic format transport 由显式 discriminator 决定（model 名不参与路由）。
-  // 缺失 = 迁移默认 'fetch' + 可审计（旧 heuristic model.includes('claude') 已拆除）。
-  if (config.transport === undefined) {
-    config.auditLog?.write(
-      LLM_PROVIDER_AUDIT_EVENTS.TRANSPORT_DEFAULTED,
-      `provider=${config.name}`,
-      'transport=fetch',
-    );
-  }
-  return (config.transport ?? 'fetch') === 'sdk' ? new AnthropicAdapter(config) : new CustomAnthropicAdapter(config);
+  return new PiAiAdapter(config);
 }

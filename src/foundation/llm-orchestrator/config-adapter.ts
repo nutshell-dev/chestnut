@@ -44,5 +44,7 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
     // phase 1797: transport 传播 —— yaml 显式 > preset 单源默认 > factory 迁移默认(fetch+audit)
     transport: p.transport ?? preset.transport,
     reasoningEffort: p.reasoning_effort,
+    // Phase 1925 Step C：pi-ai catalog provider id 显式映射（无对应者 undefined → 自建 Model）
+    piAiProvider: preset.piAiProvider,
   };
 }

@@ -91,6 +91,22 @@ module.exports = {
     // phase 696 Step A 撤 3 layer rule (no-core-to-assembly / no-foundation-to-core /
     // no-subagent-to-runtime)、由 code review 守应然层方向、no-circular 守 cycle。
     {
+      name: 'pi-ai-only-via-llm-provider',
+      comment: [
+        'Phase 1925 Step C（设计稿 D4.1）：pi-ai 只在 src/foundation/llm-provider/** 内可达。',
+        'L1 是唯一触达供应商协议实现的模块；业务模块直 import pi-ai 即违规。',
+        'lint 只证明依赖方向合规——构建产物可用性由 CJS smoke（dist require 无 pi-ai require）另证。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: ['^src/foundation/llm-provider/'],
+      },
+      to: {
+        path: '^@earendil-works/pi-ai',
+      },
+    },
+    {
       name: 'fs-only-via-foundation-filesystem',
       comment: [
         'ML#3 资源唯一归属：file I/O 必经 L1 FileSystem 接口。',

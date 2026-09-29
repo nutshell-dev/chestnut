@@ -1521,7 +1521,7 @@ export class Runtime {
       provider: {
         name: providerInfo?.name ?? primary.name,
         model: providerInfo?.model ?? primary.model,
-        contextWindow: resolveContextWindow(providerInfo?.model ?? primary.model),
+        contextWindow: resolveContextWindow(providerInfo?.name ?? primary.name, providerInfo?.model ?? primary.model),
         explicitMaxTokens: primary.maxTokens ?? 0,
       },
       trimPolicy: {
@@ -1559,7 +1559,7 @@ export class Runtime {
       return messages;
     }
     const providerInfo = this.llm.getProviderInfo?.();
-    const contextWindow = resolveContextWindow(providerInfo?.model);
+    const contextWindow = resolveContextWindow(providerInfo?.name, providerInfo?.model);
     // phase 1861 (CM-D2+D8)：缓存失效判据归 caller——TTL 比较与「非首次」在此计算注入。
     const now = Date.now();
     const trimResult = await maybeTrimProactive({
@@ -1606,7 +1606,7 @@ export class Runtime {
     const { session } = loadResult;
     const tools = this.getToolsForLLM();
     const providerInfo = this.llm.getProviderInfo?.();
-    const contextWindow = resolveContextWindow(providerInfo?.model);
+    const contextWindow = resolveContextWindow(providerInfo?.name, providerInfo?.model);
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_TRIGGERED,
       `provider=${providerInfo?.name ?? 'unknown'}`,

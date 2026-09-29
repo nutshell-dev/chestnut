@@ -127,6 +127,23 @@ function createAnthropicResponse(content: Array<{ type: string; [key: string]: u
   };
 }
 
+/**
+ * Phase 1925 Step C: LLMOrchestratorImpl 测试的 fetch 级 anthropic-messages SSE
+ * 响应（factory 已切 PiAiAdapter，SDK mock 不再被触达）。事件块空行分隔。
+ */
+function createAnthropicSseResponse(text: string): Response {
+  const events: Array<[string, unknown]> = [
+    ['message_start', { type: 'message_start', message: { id: 'm1', usage: { input_tokens: 10 } } }],
+    ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
+    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }],
+    ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } }],
+    ['message_stop', { type: 'message_stop' }],
+  ];
+  const body = events.map(([t, d]) => `event: ${t}\ndata: ${JSON.stringify(d)}\n\n`).join('');
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
 describe('LLM Service', () => {
   describe('AnthropicAdapter', () => {
     const config = {
@@ -375,6 +392,7 @@ describe('LLM Service', () => {
     };
 
     beforeEach(() => {
+      // Phase 1925 Step C: factory 路由 PiAiAdapter → mock 层移到 fetch（SSE）
       vi.stubGlobal('fetch', vi.fn());
       mockMessagesCreate.mockClear();
     });
@@ -383,16 +401,12 @@ describe('LLM Service', () => {
       vi.unstubAllGlobals();
     });
 
+    function fetchMock(): ReturnType<typeof vi.fn> {
+      return globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    }
+
     it('should use primary provider on success', async () => {
-      mockMessagesCreate.mockResolvedValue({
-        id: 'msg-test',
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Primary response' }],
-        model: 'claude-3-test',
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 10, output_tokens: 5 },
-      });
+      fetchMock().mockResolvedValue(createAnthropicSseResponse('Primary response'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -411,17 +425,9 @@ describe('LLM Service', () => {
 
     it('should failover to fallback when primary fails', async () => {
       // Primary fails, fallback succeeds
-      mockMessagesCreate
+      fetchMock()
         .mockRejectedValueOnce(new Error('Primary error'))
-        .mockResolvedValueOnce({
-          id: 'msg-test',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Fallback response' }],
-          model: 'claude-3-fallback',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 10, output_tokens: 5 },
-        });
+        .mockResolvedValueOnce(createAnthropicSseResponse('Fallback response'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -440,7 +446,7 @@ describe('LLM Service', () => {
     });
 
     it('should throw LLMAllProvidersFailedError when both fail', async () => {
-      mockMessagesCreate.mockRejectedValue(new Error('Both failed'));
+      fetchMock().mockRejectedValue(new Error('Both failed'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -457,18 +463,10 @@ describe('LLM Service', () => {
 
     it('should retry primary before failover', async () => {
       // Fail twice, succeed on third
-      mockMessagesCreate
+      fetchMock()
         .mockRejectedValueOnce(new Error('Attempt 1'))
         .mockRejectedValueOnce(new Error('Attempt 2'))
-        .mockResolvedValueOnce({
-          id: 'msg-test',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Success' }],
-          model: 'claude-3-test',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 10, output_tokens: 5 },
-        });
+        .mockResolvedValueOnce(createAnthropicSseResponse('Success'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -483,32 +481,16 @@ describe('LLM Service', () => {
       });
 
       expect((response.content[0] as { text: string }).text).toBe('Success');
-      expect(mockMessagesCreate).toHaveBeenCalledTimes(3); // 3 retries
+      expect(fetchMock()).toHaveBeenCalledTimes(3); // 3 retries
     });
 
     it('should reset fallback status after primary succeeds', async () => {
       // First call fails (uses fallback)
-      mockMessagesCreate
+      fetchMock()
         .mockRejectedValueOnce(new Error('Primary down'))
-        .mockResolvedValueOnce({
-          id: 'msg-test',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Fallback' }],
-          model: 'claude-3-fallback',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 10, output_tokens: 5 },
-        })
+        .mockResolvedValueOnce(createAnthropicSseResponse('Fallback'))
         // Second call primary succeeds
-        .mockResolvedValueOnce({
-          id: 'msg-test',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Primary OK' }],
-          model: 'claude-3-test',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 10, output_tokens: 5 },
-        });
+        .mockResolvedValueOnce(createAnthropicSseResponse('Primary OK'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -537,19 +519,11 @@ describe('LLM Service', () => {
 
     it('should cap backoff at 30 seconds', async () => {
       // Use small delay to verify the capping logic without long waits
-      mockMessagesCreate
+      fetchMock()
         .mockRejectedValueOnce(new Error('Error 1'))  // 1st attempt
-        .mockRejectedValueOnce(new Error('Error 2'))  // 2nd attempt  
+        .mockRejectedValueOnce(new Error('Error 2'))  // 2nd attempt
         .mockRejectedValueOnce(new Error('Error 3'))  // 3rd attempt
-        .mockResolvedValueOnce({                      // 4th attempt (success)
-          id: 'msg-test',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Success' }],
-          model: 'claude-3-test',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 10, output_tokens: 5 },
-        });
+        .mockResolvedValueOnce(createAnthropicSseResponse('Success')); // 4th attempt (success)
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -566,19 +540,11 @@ describe('LLM Service', () => {
       await service.call({
         messages: [{ role: 'user', content: 'Hi' }],
       });
-      expect(mockMessagesCreate).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
+      expect(fetchMock()).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
     });
 
     it('should report correct provider info', async () => {
-      mockMessagesCreate.mockResolvedValue({
-        id: 'msg-test',
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'OK' }],
-        model: 'claude-3-test',
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 10, output_tokens: 5 },
-      });
+      fetchMock().mockResolvedValue(createAnthropicSseResponse('OK'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -596,15 +562,7 @@ describe('LLM Service', () => {
     });
 
     it('should pass maxTokens and temperature to adapter', async () => {
-      mockMessagesCreate.mockResolvedValue({
-        id: 'msg-test',
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'OK' }],
-        model: 'claude-3-test',
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 10, output_tokens: 5 },
-      });
+      fetchMock().mockResolvedValue(createAnthropicSseResponse('OK'));
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
@@ -619,7 +577,7 @@ describe('LLM Service', () => {
         temperature: 0.5,
       });
 
-      const body = mockMessagesCreate.mock.calls[0][0];
+      const body = JSON.parse(fetchMock().mock.calls[0][1].body as string);
       expect(body.max_tokens).toBe(500);
       expect(body.temperature).toBe(0.5);
     });

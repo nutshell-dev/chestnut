@@ -166,6 +166,13 @@ export interface ProviderConfig {
   /** Reasoning effort for OpenAI o-series models */
   reasoningEffort?: 'low' | 'medium' | 'high';
 
+  /**
+   * Phase 1925 Step C：pi-ai catalog provider id（由 preset.piAiProvider 经 config-adapter 带入）。
+   * catalog (piAiProvider, model) 命中时以 catalog model 为权威（api/baseUrl/能力元数据）；
+   * undefined → 显式自建 Model（apiFormat 显式协议 + baseUrl），不做相似度猜测。
+   */
+  piAiProvider?: string;
+
   /** Optional audit sink for formatter guard events / SSE parse error clipping (L2b injects via config) */
   auditLog?: AuditSink;
 }

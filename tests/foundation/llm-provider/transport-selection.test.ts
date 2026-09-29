@@ -1,17 +1,16 @@
 /**
- * Phase 1797: Anthropic transport 显式 discriminator（model 名 heuristic 治理）。
+ * Phase 1925 Step C: transport 字段不再参与路由（pi-ai 唯一 L1 路径）。
  *
- * - transport 由显式配置决定：同一 transport 下任意 model 名称得到相同实现。
- * - 缺失 = 迁移默认 'fetch' + TRANSPORT_DEFAULTED audit（不按 model 名补全）。
- * - preset 单源默认对齐旧 heuristic；yaml 显式 transport 覆盖 preset。
+ * phase 1797 的 Anthropic transport 显式 discriminator 曾是 sdk/fetch 双 adapter
+ * 路由依据；Step C 起 `createLLMProvider` 无条件路由 PiAiAdapter，transport 仅
+ * 作为配置层残留字段透传（向后兼容既有 yaml），不再影响实现选择、不再触发
+ * TRANSPORT_DEFAULTED audit。旧 adapter 与 transport 字段的删除属 Step D。
  */
 
 import { describe, expect, it } from 'vitest';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
-import { AnthropicAdapter } from '../../../src/foundation/llm-provider/anthropic.js';
-import { CustomAnthropicAdapter } from '../../../src/foundation/llm-provider/custom-anthropic.js';
+import { PiAiAdapter } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 import { PRESETS } from '../../../src/foundation/llm-provider/presets.js';
-import { LLM_PROVIDER_AUDIT_EVENTS } from '../../../src/foundation/llm-provider/audit-events.js';
 import type { ProviderConfig, AuditSink } from '../../../src/foundation/llm-provider/types.js';
 import { toProviderConfig } from '../../../src/foundation/llm-orchestrator/config-adapter.js';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-orchestrator/llm-provider-config-schema.js';
@@ -36,41 +35,40 @@ function makeAuditSink(): { sink: AuditSink; events: Array<[string, ...string[]]
   };
 }
 
-describe('anthropic transport selection (phase 1797)', () => {
-  it('model 独立性：transport=sdk 下无 claude 的 model 仍走 SDK adapter', () => {
-    const p = createLLMProvider(baseConfig({ transport: 'sdk', model: 'kimi-k2.5' }));
-    expect(p).toBeInstanceOf(AnthropicAdapter);
+describe('pi-ai 单一路由（Phase 1925 Step C，取代 phase 1797 transport 双路由）', () => {
+  it('transport=sdk/fetch/缺失 均路由 PiAiAdapter（实现与 model 名无关）', () => {
+    expect(createLLMProvider(baseConfig({ transport: 'sdk', model: 'kimi-k2.5' }))).toBeInstanceOf(PiAiAdapter);
+    expect(createLLMProvider(baseConfig({ transport: 'fetch', model: 'claude-3-7-sonnet-20250219' }))).toBeInstanceOf(PiAiAdapter);
+    expect(createLLMProvider(baseConfig({ model: 'claude-3-7-sonnet-20250219' }))).toBeInstanceOf(PiAiAdapter);
   });
 
-  it('model 独立性：transport=fetch 下含 claude 的 model 仍走 raw-fetch adapter', () => {
-    const p = createLLMProvider(baseConfig({ transport: 'fetch', model: 'claude-3-7-sonnet-20250219' }));
-    expect(p).toBeInstanceOf(CustomAnthropicAdapter);
+  it('openai/gemini apiFormat 同样路由 PiAiAdapter', () => {
+    expect(createLLMProvider(baseConfig({ apiFormat: 'openai', model: 'gpt-4o' }))).toBeInstanceOf(PiAiAdapter);
+    expect(createLLMProvider(baseConfig({ apiFormat: 'gemini', model: 'gemini-2.5-pro' }))).toBeInstanceOf(PiAiAdapter);
   });
 
-  it('transport 缺失 → 迁移默认 fetch + TRANSPORT_DEFAULTED audit（不按 model 猜测）', () => {
+  it('transport 缺失不再触发 TRANSPORT_DEFAULTED audit（无迁移默认概念）', () => {
     const { sink, events } = makeAuditSink();
-    // 旧 heuristic 下含 claude 的 model 会走 SDK；现在必须落 fetch 并审计
-    const p = createLLMProvider(baseConfig({ model: 'claude-3-7-sonnet-20250219', auditLog: sink }));
-    expect(p).toBeInstanceOf(CustomAnthropicAdapter);
-    expect(events).toHaveLength(1);
-    expect(events[0][0]).toBe(LLM_PROVIDER_AUDIT_EVENTS.TRANSPORT_DEFAULTED);
-    expect(events[0].join('\t')).toContain('provider=test-provider');
-    expect(events[0].join('\t')).toContain('transport=fetch');
+    createLLMProvider(baseConfig({ model: 'claude-3-7-sonnet-20250219', auditLog: sink }));
+    expect(events).toHaveLength(0);
   });
 
-  it('显式 transport → 无 TRANSPORT_DEFAULTED audit', () => {
+  it('端到端：preset kimi + model 改名含 claude → 仍 PiAiAdapter（无 audit 副作用）', () => {
     const { sink, events } = makeAuditSink();
-    createLLMProvider(baseConfig({ transport: 'sdk', auditLog: sink }));
-    expect(events.filter(e => e[0] === LLM_PROVIDER_AUDIT_EVENTS.TRANSPORT_DEFAULTED)).toHaveLength(0);
+    const cfg = toProviderConfig(llmProviderConfigSchema.parse({ preset: 'kimi', api_key: 'k', model: 'claude-lookalike' }));
+    const p = createLLMProvider({ ...cfg, auditLog: sink });
+    expect(p).toBeInstanceOf(PiAiAdapter);
+    expect(events).toHaveLength(0);
   });
 
-  it('preset 单源默认对齐旧 heuristic', () => {
+  // ── 配置层残留字段透传（Step D 删除前的向后兼容锁定） ──────────────────
+
+  it('preset transport 默认值保留（配置层不变，仅路由层失效）', () => {
     expect(PRESETS['anthropic'].transport).toBe('sdk');
     expect(PRESETS['openrouter-anthropic'].transport).toBe('sdk');
     expect(PRESETS['kimi'].transport).toBe('fetch');
     expect(PRESETS['minimax'].transport).toBe('fetch');
     expect(PRESETS['zai'].transport).toBe('fetch');
-    // custom-anthropic 无默认 model → 保留缺省走迁移审计路径
     expect(PRESETS['custom-anthropic'].transport).toBeUndefined();
   });
 
@@ -79,21 +77,12 @@ describe('anthropic transport selection (phase 1797)', () => {
     const a = toProviderConfig(base);
     expect(a.transport).toBe('sdk');
     const renamed = toProviderConfig(llmProviderConfigSchema.parse({ preset: 'anthropic', api_key: 'k', model: 'my-fine-tune-v1' }));
-    expect(renamed.transport).toBe('sdk');  // model 不含 claude 也不变
+    expect(renamed.transport).toBe('sdk');
   });
 
-  it('yaml 显式 transport 覆盖 preset 默认', () => {
+  it('yaml 显式 transport 覆盖 preset 默认（字段透传但不改路由）', () => {
     const cfg = toProviderConfig(llmProviderConfigSchema.parse({ preset: 'anthropic', api_key: 'k', transport: 'fetch' }));
     expect(cfg.transport).toBe('fetch');
-    const p = createLLMProvider({ ...cfg, auditLog: undefined });
-    expect(p).toBeInstanceOf(CustomAnthropicAdapter);
-  });
-
-  it('端到端：preset kimi + model 改名含 claude → 仍 raw-fetch（无 audit 副作用）', () => {
-    const { sink, events } = makeAuditSink();
-    const cfg = toProviderConfig(llmProviderConfigSchema.parse({ preset: 'kimi', api_key: 'k', model: 'claude-lookalike' }));
-    const p = createLLMProvider({ ...cfg, auditLog: sink });
-    expect(p).toBeInstanceOf(CustomAnthropicAdapter);
-    expect(events).toHaveLength(0);  // preset 提供了显式默认 → 非迁移路径
+    expect(createLLMProvider({ ...cfg, auditLog: undefined })).toBeInstanceOf(PiAiAdapter);
   });
 });
