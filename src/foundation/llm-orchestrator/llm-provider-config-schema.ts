@@ -17,7 +17,9 @@ export const FORMAT_MAP: Record<string, string> = {
 export const llmProviderConfigSchema = z.object({
   preset: z.string().min(1).optional(),
   label: z.string().optional(),
-  api_key: z.string().min(1, 'api_key must not be empty'),
+  // Phase 1926 Step D：api_key 可选——ambient（AWS 链/ADC/provider env）与 OAuth
+  // preset 不在 yaml 持 key；api_key preset 的必填约束由 CLI 交互/缺参判定保证。
+  api_key: z.string().min(1, 'api_key must not be empty').optional(),
   base_url: z.string().optional(),
   model: z.string().optional(),
   max_tokens: z.number().min(1).optional(),

@@ -28,8 +28,12 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { probeLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS, type VerifiedLLMConfig } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from '../credentials-prompt.js';
+// Phase 1926 Step D：preset 认证类别 + OAuth 登录运行缝
+import { presetAuthProfile } from '../../foundation/llm-provider/index.js';
+import { runProviderLogin } from '../llm-login.js';
 
 // Known providers shown in "Select provider" list (excludes generic custom-* entries)
+// Phase 1926 Step D：+ ambient（bedrock/vertex）与 OAuth（codex/copilot）catalog preset
 const PROVIDER_LIST = [
   'anthropic',
   'openai',
@@ -41,6 +45,10 @@ const PROVIDER_LIST = [
   'grok',
   'openrouter',
   'qwen-coder',
+  'amazon-bedrock',
+  'google-vertex',
+  'openai-codex',
+  'github-copilot',
 ];
 
 interface InitCommandDeps {
@@ -65,7 +73,8 @@ export interface InitCommandResult {
  */
 export function buildInitialConfig(input: {
   presetId: string;
-  apiKey: string;
+  /** Phase 1926 Step D：ambient/oauth preset 无 api_key（缺席 = 不落该字段）。 */
+  apiKey?: string;
   model: string;
   baseUrl?: string;
 }) {
@@ -74,7 +83,7 @@ export function buildInitialConfig(input: {
     llm: {
       primary: {
         preset: input.presetId,
-        api_key: input.apiKey,
+        ...(input.apiKey && { api_key: input.apiKey }),
         model: input.model,
         temperature: 0.7,
         timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
@@ -306,7 +315,14 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
             }
             const preset = providers[idx];
             pickedPresetId = preset.id;
-            step = 'apiKey';
+            // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key
+            const profile = presetAuthProfile(preset);
+            if (profile !== 'api_key') {
+              console.log(`ℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
+              step = 'model';
+            } else {
+              step = 'apiKey';
+            }
 
           } else if (step === 'apiKey') {
             const preset = PRESETS[pickedPresetId];
@@ -330,16 +346,20 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
           } else if (step === 'model') {
             const preset = PRESETS[pickedPresetId];
             const raw = await question(`Model (b = back, auto = ${preset.defaultModel ?? 'preset default'})`, 'auto');
-            if (raw === 'b') { step = 'apiKey'; continue; }
+            if (raw === 'b') {
+              // ambient/oauth 无 apiKey 步骤，back 回 provider 选择
+              step = presetAuthProfile(preset) === 'api_key' ? 'apiKey' : 'pick';
+              continue;
+            }
             pickedModel = raw;
             step = 'done';
           }
         }
 
         presetId = pickedPresetId;
-        apiKey = pickedApiKey;
+        apiKey = pickedApiKey;  // ambient/oauth profile 保持 ''（不落 api_key 字段）
         model = pickedModel;
-        // baseUrl comes from preset; no manual entry needed (already in preset.defaultBaseUrl)
+        // baseUrl comes from preset / catalog; no manual entry needed
         break outer;
 
       } else {
@@ -373,6 +393,24 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     // 由各 owner 幂等物化并核验后，才发布 ready marker —— initialized 对外
     // 可见性不再先于必需布局。
     deps.rootConfig.completeInitialization();
+
+    // Phase 1926 Step D：OAuth preset 引导登录（凭证经 pi-ai login 流持久化到用户级
+    // Credentials owner）；失败不阻断——随后的 probe/reconfigure 向导兜底。
+    const pickedProfile = PRESETS[presetId] ? presetAuthProfile(PRESETS[presetId]) : 'api_key';
+    if (pickedProfile === 'oauth') {
+      const piAiProvider = PRESETS[presetId].piAiProvider;
+      if (piAiProvider) {
+        const loginNow = await question(`\n${PRESETS[presetId].displayName} 需要 OAuth 登录。现在登录？ [Y/n]`, 'Y');
+        if (loginNow.toLowerCase() !== 'n') {
+          try {
+            await runProviderLogin({ piAiProvider, type: 'oauth', rl });
+          } catch (err) {
+            console.log(`⚠ OAuth login failed: ${formatErr(err)}`);
+            console.log('  可稍后运行 "chestnut config provider login" 重试。');
+          }
+        }
+      }
+    }
 
     // ── Verify LLM API reachable ─────────────────────────────────────────────
     // Per DP「事后审计」+ DP「智能体是决策主体」(init 阶段 user 主体):

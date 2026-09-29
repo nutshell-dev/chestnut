@@ -7,7 +7,7 @@ import * as readline from 'readline';
 import { Command } from 'commander';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
-import { PRESETS } from '../../foundation/llm-provider/index.js';
+import { PRESETS, presetAuthProfile, presetRequiresBaseUrl } from '../../foundation/llm-provider/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 // phase 1874 Step B: 终端文本原语经 viewport 模块 barrel（CLIProtocol 有 zod-only bare 白名单、不容 string-width）
@@ -33,6 +33,8 @@ import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLM
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
+// Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
+import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
 
 /**
  * phase 320: 通知所有运行中的 daemon（motion + 所有 claws）重新加载 LLM 配置。
@@ -85,7 +87,8 @@ const PRESET_CHOICES = Object.entries(PRESETS).map(([id, preset], index) => ({
   num: index + 1,
   id,
   displayName: preset.displayName,
-  needsBaseUrl: !preset.defaultBaseUrl,
+  // Phase 1926 Step D：catalog preset（piAiProvider）endpoint 由 catalog 裁决，不索 baseUrl
+  needsBaseUrl: presetRequiresBaseUrl(preset),
 }));
 
 // Helper to create readline interface
@@ -174,15 +177,23 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     }
     
     // API Key（Phase 1925 Step B：明文经 Credentials owner 落凭据文件，配置只存 `${REF}`）
-    const apiKeyInput = await question(rl, 'API Key (or ${ENV_VAR})');
-    if (!apiKeyInput) {
-      throw new CliError('API Key is required');
+    // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key——
+    // 认证来源见 preset.authHint（ambient 环境解析 / config provider login）。
+    const profile = presetAuthProfile(preset);
+    let apiKey: string | undefined;
+    if (profile === 'api_key') {
+      const apiKeyInput = await question(rl, 'API Key (or ${ENV_VAR})');
+      if (!apiKeyInput) {
+        throw new CliError('API Key is required');
+      }
+      apiKey = await storeKeyAsCredential(deps, apiKeyInput, { envVar: preset.envVar, seed: label });
+    } else {
+      console.log(`\nℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
     }
-    const apiKey = await storeKeyAsCredential(deps, apiKeyInput, { envVar: preset.envVar, seed: label });
     
     // Base URL for custom presets
     let baseUrl: string | undefined;
-    if (!preset.defaultBaseUrl) {
+    if (presetRequiresBaseUrl(preset)) {
       baseUrl = await question(rl, 'Base URL');
       if (!baseUrl) {
         throw new CliError('Base URL is required for custom presets');
@@ -200,11 +211,11 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     const roleAnswer = await question(rl, '> ', '2');
     const role = roleAnswer === '1' ? 'primary' : 'fallback';
     
-    // Build provider config
+    // Build provider config（ambient/oauth profile 无 api_key 字段）
     const providerConfig: LLMProviderConfig = {
       preset: presetId,
       label,
-      api_key: apiKey,
+      ...(apiKey !== undefined && { api_key: apiKey }),
       model,
 
       temperature: 0.7,
@@ -275,14 +286,18 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     const providerConfigRuntime = toProviderConfig(providerConfig);
     // Phase 1925 Step B：内存态 api_key 可能是 `${REF}` 引用 —— probe 前经
     // Credentials owner 分层解析（磁盘链路在 load 时已展开，内存链路需显式解析）。
-    const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
-    if (resolvedKey === undefined) {
-      throw new CliError(
-        `API key reference ${providerConfig.api_key} could not be resolved ` +
-        `(not in process env, credentials file, or .env fallbacks)`,
-      );
+    // Phase 1926 Step D：ambient/oauth profile 无 api_key——跳过解析，probe 期由
+    // pi-ai 原生 auth.resolve（env/ambient/stored credential）裁决。
+    if (providerConfigRuntime.apiKey !== undefined) {
+      const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
+      if (resolvedKey === undefined) {
+        throw new CliError(
+          `API key reference ${providerConfig.api_key} could not be resolved ` +
+          `(not in process env, credentials file, or .env fallbacks)`,
+        );
+      }
+      providerConfigRuntime.apiKey = resolvedKey;
     }
-    providerConfigRuntime.apiKey = resolvedKey;
     const probe = await checkLLMConnectionFor(providerConfigRuntime);
     if (probe.ok) {
       console.log(`✓ ${probe.model}`);
@@ -492,6 +507,67 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   notifyRunningDaemons(deps, 'move');
 }
 
+/**
+ * Phase 1926 Step D：provider 登录/登出（pi-ai 原生 login 流）。
+ * label → config 里的 provider（primary/fallback）→ preset.piAiProvider；
+ * --type 缺省取 provider 首选（oauth 优先，其次 api_key 交互登录）。
+ * loadGlobal 先执行（Credentials owner backend 注册同点，见 config-load.ts）。
+ */
+async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { type?: string }): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
+  const hit = findProviderIndex(config, label);
+  if (!hit) {
+    throw new CliError(`Provider "${label}" not found (check "chestnut config provider list")`);
+  }
+  const entry = hit.type === 'primary' ? config.llm.primary : config.llm.fallbacks![hit.index];
+  const preset = entry.preset ? PRESETS[entry.preset] : undefined;
+  const piAiProvider = preset?.piAiProvider;
+  if (!piAiProvider) {
+    throw new CliError(
+      `Provider "${label}" (preset "${entry.preset ?? 'none'}") has no pi-ai catalog provider; ` +
+      `login is only available for catalog presets (api key goes to "config provider add" / reconfigure)`,
+    );
+  }
+  let type: ProviderLoginType | undefined;
+  if (opts.type !== undefined) {
+    if (opts.type === 'oauth' || opts.type === 'api-key' || opts.type === 'api_key') {
+      type = opts.type === 'oauth' ? 'oauth' : 'api_key';
+    } else {
+      throw new CliError(`Invalid --type "${opts.type}" (expected: oauth | api-key)`);
+    }
+  }
+  const available = await providerLoginTypes(piAiProvider);
+  if (available.length === 0) {
+    throw new CliError(
+      `Provider "${piAiProvider}" has no interactive login (ambient-only: ${preset?.authHint ?? 'configure environment'})`,
+    );
+  }
+  type ??= available[0];
+  if (!available.includes(type)) {
+    throw new CliError(`Provider "${piAiProvider}" does not support ${type} login (available: ${available.join(', ')})`);
+  }
+  await runProviderLogin({ piAiProvider, type });
+  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_login', `label=${label}`, `type=${type}`);
+  notifyRunningDaemons(deps, 'login');
+}
+
+async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
+  const hit = findProviderIndex(config, label);
+  if (!hit) {
+    throw new CliError(`Provider "${label}" not found (check "chestnut config provider list")`);
+  }
+  const entry = hit.type === 'primary' ? config.llm.primary : config.llm.fallbacks![hit.index];
+  const preset = entry.preset ? PRESETS[entry.preset] : undefined;
+  const piAiProvider = preset?.piAiProvider;
+  if (!piAiProvider) {
+    throw new CliError(`Provider "${label}" has no pi-ai catalog provider; no stored credential to remove`);
+  }
+  await runProviderLogout({ piAiProvider });
+  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_logout', `label=${label}`);
+  notifyRunningDaemons(deps, 'logout');
+}
+
 // Build the config command
 interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -535,6 +611,12 @@ export function createConfigCommand(deps: ConfigCommandDeps): Command {
 
   shapeCommand(providerCmd.command('move <label> <position>'), configSpec('config/provider/move'))
     .action(action('required', (label: string, position: string) => providerMove(deps, label, position)));
+
+  shapeCommand(providerCmd.command('login <label>'), configSpec('config/provider/login'))
+    .action(action('required', (label: string, opts: { type?: string }) => providerLogin(deps, label, opts)));
+
+  shapeCommand(providerCmd.command('logout <label>'), configSpec('config/provider/logout'))
+    .action(action('required', (label: string) => providerLogout(deps, label)));
 
   configCommand.addCommand(providerCmd);
   return configCommand;

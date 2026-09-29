@@ -8,6 +8,16 @@ export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
 type AuthMethod = 'api_key';
 
 /**
+ * Phase 1926 Step D：preset 的认证装配类别（CLI 提示与缺参判定依据）。
+ * - api_key：配置必须带 api_key（${REF} 或明文经 Credentials owner 落凭据文件）；
+ * - ambient：pi-ai builtin provider 原生环境解析（AWS profile/default chain、
+ *   Google ADC、provider env）——配置无需 api_key，请求期由 pi-ai auth.resolve 判定；
+ * - oauth：pi-ai OAuth 凭证（access/refresh），经 `config provider login` 交互登录、
+ *   由用户级 Credentials owner 持久化（pi-ai CredentialStore 桥接）。
+ */
+export type AuthProfile = 'api_key' | 'ambient' | 'oauth';
+
+/**
  * phase 1793: LLMProvider-owned typed error（unknown-preset-generic-error 治理）。
  *
  * 保留原始 preset id 与不可变 available ids，caller 可 instanceof 机械区分
@@ -28,8 +38,17 @@ export class UnknownPresetError extends Error {
 interface ProviderPreset {
   id: string;
   displayName: string;
-  apiFormat: ApiFormat;
+  /**
+   * 自建 Model 路径的显式协议声明。catalog 命中（piAiProvider + model 命中）时
+   * 不参与裁决（catalog model.api 权威）；custom-* 自建路径必填。
+   * Phase 1926 Step D：ambient/oauth catalog preset 不再携带伪协议，故可选。
+   */
+  apiFormat?: ApiFormat;
   authMethod: AuthMethod;
+  /** Phase 1926 Step D：认证装配类别（缺席按 api_key 处理，back-compat）。 */
+  authProfile?: AuthProfile;
+  /** ambient/oauth preset 的认证来源提示（CLI 交互/失败提示展示，不含 secret）。 */
+  authHint?: string;
   defaultBaseUrl?: string;
   defaultModel?: string;
   /** Environment variable name for the API key (e.g. ANTHROPIC_API_KEY) */
@@ -173,6 +192,43 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'qwen-coder-plus-latest',
     envVar: 'DASHSCOPE_API_KEY',
   },
+  // ── Phase 1926 Step D：ambient / OAuth catalog preset（api_key 缺席合法） ──
+  'amazon-bedrock': {
+    id: 'amazon-bedrock',
+    displayName: 'Amazon Bedrock',
+    authMethod: 'api_key',
+    authProfile: 'ambient',
+    authHint: 'AWS 凭证链（AWS_PROFILE / 默认链 / ECS / web identity）+ AWS_REGION；无需 api_key。',
+    defaultModel: 'anthropic.claude-sonnet-4-6',
+    piAiProvider: 'amazon-bedrock',
+  },
+  'google-vertex': {
+    id: 'google-vertex',
+    displayName: 'Google Vertex AI',
+    authMethod: 'api_key',
+    authProfile: 'ambient',
+    authHint: 'GOOGLE_CLOUD_API_KEY 或 ADC（GOOGLE_APPLICATION_CREDENTIALS / gcloud）+ GOOGLE_CLOUD_PROJECT/LOCATION；无需 api_key。',
+    defaultModel: 'gemini-2.5-pro',
+    piAiProvider: 'google-vertex',
+  },
+  'openai-codex': {
+    id: 'openai-codex',
+    displayName: 'OpenAI Codex (OAuth)',
+    authMethod: 'api_key',
+    authProfile: 'oauth',
+    authHint: '需先 chestnut config provider login <label> 完成 OAuth 登录（纯 OAuth provider，api_key 无效）。',
+    defaultModel: 'gpt-5.5',
+    piAiProvider: 'openai-codex',
+  },
+  'github-copilot': {
+    id: 'github-copilot',
+    displayName: 'GitHub Copilot (OAuth)',
+    authMethod: 'api_key',
+    authProfile: 'oauth',
+    authHint: '需先 chestnut config provider login <label> 完成 OAuth 登录（device code）。',
+    defaultModel: 'gpt-5.5',
+    piAiProvider: 'github-copilot',
+  },
   'custom-anthropic': {
     id: 'custom-anthropic',
     displayName: 'Custom (Anthropic Format)',
@@ -201,4 +257,17 @@ export function resolvePreset(id: string): ProviderPreset {
     throw new UnknownPresetError(id, Object.keys(PRESETS));
   }
   return preset;
+}
+
+/** preset 认证装配类别（缺席 = api_key，Phase 1926 前语义）。 */
+export function presetAuthProfile(preset: ProviderPreset): AuthProfile {
+  return preset.authProfile ?? 'api_key';
+}
+
+/**
+ * 该 preset 是否要求用户显式给 base URL：无默认 baseUrl 且无 catalog 权威
+ * （piAiProvider）时才需要——catalog preset 的 endpoint 由 pi-ai catalog 裁决。
+ */
+export function presetRequiresBaseUrl(preset: ProviderPreset): boolean {
+  return !preset.defaultBaseUrl && !preset.piAiProvider;
 }

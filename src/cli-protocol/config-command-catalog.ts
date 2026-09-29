@@ -15,6 +15,12 @@ export const CONFIG_COMMAND_CATALOG = [
   { id: 'config/provider/remove', summary: 'Remove a fallback provider' },
   { id: 'config/provider/set-primary', summary: 'Set a provider as primary (current primary becomes fallback)' },
   { id: 'config/provider/move', summary: 'Move a fallback provider to a new position (1-based)' },
+  {
+    id: 'config/provider/login',
+    summary: 'Login to a provider (OAuth / api_key) via pi-ai native flow',
+    options: [{ flag: '--type <type>', desc: 'Login type: oauth or api-key (default: provider preferred)' }],
+  },
+  { id: 'config/provider/logout', summary: 'Remove the stored credential for a provider' },
 ] as const satisfies readonly CommandShapeSpec[];
 
 export type ConfigCommandId = typeof CONFIG_COMMAND_CATALOG[number]['id'];

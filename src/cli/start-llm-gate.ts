@@ -20,7 +20,7 @@
  */
 
 import * as readline from 'readline';
-import { PRESETS } from '../foundation/llm-provider/index.js';
+import { PRESETS, presetAuthProfile, presetRequiresBaseUrl } from '../foundation/llm-provider/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import { snapshotLLMConfig, type LLMConfigSnapshot } from '../assembly/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
@@ -79,12 +79,15 @@ export function validateStartLLMOptions(opts: StartLLMOptions): void {
   }
 }
 
-/** 非交互首次配置的缺参清单（空数组 = 完整可写）。 */
+/**
+ * 非交互首次配置的缺参清单（空数组 = 完整可写）。
+ * Phase 1926 Step D：api key 仅 api_key profile 必需——ambient（AWS 链/ADC/env）
+ * 与 OAuth preset 无 key 也可写配置（probe 期由 pi-ai 原生 auth 裁决，失败 exit 3）；
+ * base-url 仅无默认 baseUrl 且无 catalog 权威的 custom preset 必需。
+ */
 export function missingStartLLMParams(opts: StartLLMOptions): string[] {
   const missing: string[] = [];
   if (!opts.provider) missing.push('--provider');
-  const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
-  if (!hasKey) missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
   if (opts.provider) {
     const preset = PRESETS[opts.provider];
     if (!preset) {
@@ -93,7 +96,14 @@ export function missingStartLLMParams(opts: StartLLMOptions): string[] {
         { code: START_USAGE_EXIT_CODE },
       );
     }
-    if (!preset.defaultBaseUrl && !opts.baseUrl) missing.push('--base-url (required for this provider)');
+    const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
+    if (presetAuthProfile(preset) === 'api_key' && !hasKey) {
+      missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
+    }
+    if (presetRequiresBaseUrl(preset) && !opts.baseUrl) missing.push('--base-url (required for this provider)');
+  } else {
+    const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
+    if (!hasKey) missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
   }
   return missing;
 }
@@ -150,10 +160,10 @@ export async function applyStartLLMOptions(
         { code: START_USAGE_EXIT_CODE },
       );
     }
-    // missingStartLLMParams 已保证 apiKey 可解析
+    // missingStartLLMParams 已按 profile 保证 apiKey 可解析（ambient/oauth 可无 key）
     const config = buildInitialConfig({
       presetId,
-      apiKey: apiKey!,
+      apiKey,
       model: opts.model ?? 'auto',
       baseUrl: opts.baseUrl,
     });

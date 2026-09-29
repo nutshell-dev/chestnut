@@ -41,6 +41,8 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
     extraHeaders: p.extra_headers,
     dropThinkingBlocks: p.drop_thinking_blocks,
     apiFormat: preset.apiFormat,
+    // Phase 1926 Step D：认证装配类别透传（ambient/oauth 时 apiKey 合法缺席）
+    authProfile: preset.authProfile,
     reasoningEffort: p.reasoning_effort,
     // Phase 1925 Step C：pi-ai catalog provider id 显式映射（无对应者 undefined → 自建 Model）
     piAiProvider: preset.piAiProvider,

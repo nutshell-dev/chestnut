@@ -118,7 +118,10 @@ export async function classifyCapturedHttpError(
 
 // ── 退化族文本判定（Google 族；HTTP 事实不可得时的唯一通路，已登记） ──────────
 
-const TEXT_AUTH_RE = /401|403|unauthorized|unauthenticated|permission[_ ]denied|invalid (api )?key|api key not valid/i;
+// Phase 1926 Step D：pi-ai ModelsError auth/oauth 面（无 HTTP status 可得）——
+// ambient 缺失（AWS 链/ADC/env 未配置 → "Provider is not configured"）、OAuth
+// refresh 失败（invalid_grant / token 轮换失败）一律归 auth 类，不得吞成 unknown。
+const TEXT_AUTH_RE = /401|403|unauthorized|unauthenticated|permission[_ ]denied|invalid (api )?key|api key not valid|not configured|invalid_grant|refresh token|(token|oauth).{0,20}(refresh|expired|revoked|rejected)/i;
 const TEXT_NOT_FOUND_RE = /404|not[_ ]found|does not exist/i;
 const TEXT_RATE_LIMIT_RE = /429|rate.?limit|resource_exhausted|too many requests|quota/i;
 const TEXT_CONTEXT_RE = /maximum context length|context.{0,30}(exceeded|exceed)|prompt is too long|input.{0,30}(too long|exceed)|reduce the length of|context_length_exceeded|token count.{0,30}exceed/i;

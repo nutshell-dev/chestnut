@@ -41,6 +41,7 @@ describe('phase 1874 Step L: subagent/config 族 catalog parity（族 3b）', ()
     expect(CONFIG_COMMAND_CATALOG.map((sp) => sp.id)).toEqual([
       'config', 'config/provider', 'config/provider/add', 'config/provider/list',
       'config/provider/remove', 'config/provider/set-primary', 'config/provider/move',
+      'config/provider/login', 'config/provider/logout',
     ]);
     for (const anchor of [
       "shapeCommand(new Command('config'), configSpec('config'))",
@@ -50,6 +51,8 @@ describe('phase 1874 Step L: subagent/config 族 catalog parity（族 3b）', ()
       "shapeCommand(providerCmd.command('remove <label>'), configSpec('config/provider/remove'))",
       "shapeCommand(providerCmd.command('set-primary <label>'), configSpec('config/provider/set-primary'))",
       "shapeCommand(providerCmd.command('move <label> <position>'), configSpec('config/provider/move'))",
+      "shapeCommand(providerCmd.command('login <label>'), configSpec('config/provider/login'))",
+      "shapeCommand(providerCmd.command('logout <label>'), configSpec('config/provider/logout'))",
     ]) expect(cfgSource).toContain(anchor);
     expect(cfgSource).not.toMatch(/\.(?:option|requiredOption)\(/);
   });

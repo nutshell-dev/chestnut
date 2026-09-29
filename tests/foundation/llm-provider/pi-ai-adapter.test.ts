@@ -384,16 +384,51 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
     expect(String(url)).toBe('https://my-gateway.local/v1/chat/completions');
   });
 
-  it('catalog model api 超出支持表 → loud LLMError（不静默换协议）', async () => {
-    // amazon-bedrock 模型走 bedrock-converse-stream（不在 chestnut 凭据形状内）
+  it('Phase 1926 Step D：catalog ambient provider 不再 loud out-of-scope —— builtin provider 接管请求', async () => {
+    // mistral（mistral-conversations，Step C 旧边界外 api）：baseUrl 覆盖后经全局
+    // fetch 发请求（Step C 会 loud "not supported"）；fetch stub 401 → LLMAuthError。
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ message: 'Unauthorized' }, 401));
+    vi.stubGlobal('fetch', fetchMock);
     const adapter = createLLMProvider(baseConfig({
-      name: 'bedrock',
-      model: 'amazon.nova-lite-v1:0',
-      piAiProvider: 'amazon-bedrock',
-      apiFormat: 'openai',
+      name: 'mistral',
+      model: 'mistral-large-latest',
+      baseUrl: 'https://api.test.invalid/v1',
+      piAiProvider: 'mistral',
+      apiFormat: undefined,
     }));
     await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
-      .rejects.toThrow(/not supported/);
+      .rejects.toBeInstanceOf(LLMAuthError);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('Phase 1926 Step D：azure-openai-responses（catalog baseUrl 空 + config.baseUrl 覆盖）走 builtin provider', async () => {
+    // azure catalog model baseUrl 为空（deployment 由用户给）——config.baseUrl 覆盖后
+    // 经全局 fetch 发请求；fetch stub 401 → LLMAuthError（证明路由+auth 装配完成）
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'unauthorized' } }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = createLLMProvider(baseConfig({
+      name: 'azure',
+      model: 'gpt-4.1',
+      baseUrl: 'https://my-deployment.openai.azure.com',
+      piAiProvider: 'azure-openai-responses',
+      apiFormat: undefined,
+    }));
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toBeInstanceOf(LLMAuthError);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('https://my-deployment.openai.azure.com');
+  });
+
+  it('Phase 1926 Step D：OAuth-only provider 配 api_key → loud LLMError（不静默忽略 override）', async () => {
+    const adapter = createLLMProvider(baseConfig({
+      name: 'codex',
+      model: 'gpt-5.5',
+      piAiProvider: 'openai-codex',
+      apiFormat: undefined,
+      apiKey: 'sk-should-not-be-here',
+    }));
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toThrow(/OAuth-only/);
   });
 });
 

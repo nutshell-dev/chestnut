@@ -8,7 +8,11 @@ import type { LLMProvider } from './types.js';
  * Throws LLMError with descriptive message on invalid config.
  */
 function validateProviderConfig(config: ProviderConfig): void {
-  if (!config.apiKey?.trim()) {
+  // Phase 1926 Step D：apiKey 必填仅限 api_key profile；ambient（AWS 链/ADC/env）
+  // 与 OAuth（stored credential）由 pi-ai 请求期 auth.resolve 裁决，缺失在请求期
+  // loud 失败（LLMAuthError），不在装配期伪造 key。
+  const profile = config.authProfile ?? 'api_key';
+  if (profile === 'api_key' && !config.apiKey?.trim()) {
     throw new LLMError(
       `ProviderConfig.apiKey is required (provider="${config.name || 'unknown'}")`,
       { provider: config.name, field: 'apiKey' }
@@ -20,7 +24,9 @@ function validateProviderConfig(config: ProviderConfig): void {
       { provider: config.name, field: 'model' }
     );
   }
-  if (!config.apiFormat) {
+  // apiFormat 是自建 Model 路径的显式协议声明；catalog preset（piAiProvider）
+  // 由 catalog model.api 裁决，不再要求伪协议字段。
+  if (!config.apiFormat && !config.piAiProvider) {
     throw new LLMError(
       `ProviderConfig.apiFormat is required (provider="${config.name || 'unknown'}")`,
       { provider: config.name, field: 'apiFormat' }

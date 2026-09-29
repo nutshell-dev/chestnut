@@ -5,7 +5,7 @@
  * per interfaces/l1.md LLMProvider section: "本模块 own LLM 协议层 message、IO、tool definition type 单源"
  */
 
-import type { ApiFormat } from './presets.js';
+import type { ApiFormat, AuthProfile } from './presets.js';
 import type { ToolUseId } from './tool-use-id.js';
 
 // phase 692 Step A: 删 AuditLog import + re-export
@@ -117,8 +117,12 @@ export interface ProviderConfig {
   /** Provider name (for identification) */
   name: string;
 
-  /** API key */
-  apiKey: string;
+  /**
+   * API key。Phase 1926 Step D：ambient（AWS 链 / ADC / provider env）与 OAuth
+   * provider 可为 undefined——请求期由 pi-ai 原生 auth.resolve（env/ambient/
+   * stored credential）裁决；api_key profile 仍必填（provider-factory 校验）。
+   */
+  apiKey?: string;
 
   /** Base URL (optional, uses default if not set) */
   baseUrl?: string;
@@ -153,8 +157,17 @@ export interface ProviderConfig {
   /** Drop thinking blocks when sending messages (for MiniMax and other providers that don't support them) */
   dropThinkingBlocks?: boolean;
 
-  /** API format, resolved from preset */
-  apiFormat: ApiFormat;
+  /**
+   * API format, resolved from preset。catalog 命中（piAiProvider + model）时
+   * 不参与协议裁决（catalog model.api 权威）；自建 Model 路径必填。
+   */
+  apiFormat?: ApiFormat;
+
+  /**
+   * Phase 1926 Step D：认证装配类别（由 preset 经 config-adapter 带入）。
+   * 缺席按 'api_key' 处理（back-compat）；ambient/oauth 时 apiKey 可缺席。
+   */
+  authProfile?: AuthProfile;
 
   /** Reasoning effort for OpenAI o-series models */
   reasoningEffort?: 'low' | 'medium' | 'high';

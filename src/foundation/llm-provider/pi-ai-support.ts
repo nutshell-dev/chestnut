@@ -1,31 +1,37 @@
 /**
  * @module L1.LLMProvider.PiAi
  *
- * pi-ai 运行时装载与 Model 解析（Phase 1925 Step C）。
+ * pi-ai 运行时装载与 Model 解析（Phase 1925 Step C；Phase 1926 Step D 全 provider 覆盖）。
  *
  * - pi-ai 只经动态 import 触达（CJS 产物无 require 条件——静态 import 必炸，
  *   设计稿 K7）；模块级 promise 缓存，装载失败清缓存以便下次重试。
- * - 协议显式：chestnut `apiFormat` → pi-ai api 映射是唯一协议裁决；catalog
- *   命中时以 catalog model 的 api 为权威；绝不按 model/baseUrl 猜协议。
- * - api 实现表刻意收窄（对齐 dsh 先例）：四族 HTTP 协议（openai-completions /
- *   openai-responses / anthropic-messages / google-generative-ai）可由
- *   api_key + baseUrl 完整描述；bedrock/vertex/azure/codex 等需要
- *   SigV4/ADC/OAuth 的族不在本配置形状内，命中即 loud 拒绝（不静默退化）。
+ * - 协议显式：chestnut `apiFormat` → pi-ai api 映射是自建 Model 路径的唯一协议裁决；
+ *   catalog 命中时以 catalog model 的 api 为权威；绝不按 model/baseUrl 猜协议。
+ * - Phase 1926 Step D：catalog 命中走 pi-ai `builtinProviders()` —— 每个内建
+ *   provider 自带完整 auth（api_key env/ambient AWS 链/ADC/OAuth refresh）与
+ *   lazy api 绑定，chestnut 不自建 provider 不伪造 auth；stored credential 经
+ *   pi-ai-credentials.ts 的 CredentialStore 桥接用户级 Credentials owner。
+ *   自建 Model 路径（ollama/custom-*）保留窄表四族 HTTP 协议 + 单 apiKey auth。
+ * - 全部 10 个 catalog api 的 lazy 工厂均注册（inventory 门禁测试逐一对账；
+ *   缺失即红灯，不再 loud "out of scope"）。
  */
 
 import type * as PiAi from '@earendil-works/pi-ai';
 import { LLMError } from './errors.js';
+import { getPiAiCredentialStore } from './pi-ai-credentials.js';
 import { resolveContextWindow } from './model-context-windows.js';
 import type { ProviderConfig } from './types.js';
 import type { ApiFormat } from './presets.js';
 
-/** pi-ai 动态装载面（主入口 + catalog + 四族 lazy api）。 */
+/** pi-ai 动态装载面（主入口 + catalog + 全部 catalog api 的 lazy 工厂）。 */
 export interface PiAiRuntime {
   createModels: typeof PiAi.createModels;
   createProvider: typeof PiAi.createProvider;
   getBuiltinProviders: () => string[];
   getBuiltinModels: (provider: string) => PiAi.Model<PiAi.Api>[];
-  /** 支持的 pi-ai api → lazy 实现工厂。 */
+  /** 全部内建 provider（新实例；自带完整 auth 与 lazy api 绑定）。 */
+  builtinProviders: () => PiAi.Provider[];
+  /** catalog api → lazy 实现工厂（自建 Model 路径用；inventory 门禁对账）。 */
   apis: Record<string, () => PiAi.ProviderStreams>;
 }
 
@@ -34,24 +40,37 @@ let runtimePromise: Promise<PiAiRuntime> | undefined;
 /** 动态装载 pi-ai（模块级缓存；失败清缓存不缓存 rejection）。 */
 export function loadPiAiRuntime(): Promise<PiAiRuntime> {
   runtimePromise ??= (async (): Promise<PiAiRuntime> => {
-    const [main, catalog, anthropic, openaiComp, openaiResp, google] = await Promise.all([
+    const [main, catalog, anthropic, azure, bedrock, google, vertex, mistral, codex, openaiComp, openaiResp, piMessages] = await Promise.all([
       import('@earendil-works/pi-ai'),
       import('@earendil-works/pi-ai/providers/all'),
       import('@earendil-works/pi-ai/api/anthropic-messages.lazy'),
+      import('@earendil-works/pi-ai/api/azure-openai-responses.lazy'),
+      import('@earendil-works/pi-ai/api/bedrock-converse-stream.lazy'),
+      import('@earendil-works/pi-ai/api/google-generative-ai.lazy'),
+      import('@earendil-works/pi-ai/api/google-vertex.lazy'),
+      import('@earendil-works/pi-ai/api/mistral-conversations.lazy'),
+      import('@earendil-works/pi-ai/api/openai-codex-responses.lazy'),
       import('@earendil-works/pi-ai/api/openai-completions.lazy'),
       import('@earendil-works/pi-ai/api/openai-responses.lazy'),
-      import('@earendil-works/pi-ai/api/google-generative-ai.lazy'),
+      import('@earendil-works/pi-ai/api/pi-messages.lazy'),
     ]);
     return {
       createModels: main.createModels,
       createProvider: main.createProvider,
       getBuiltinProviders: catalog.getBuiltinProviders as unknown as () => string[],
       getBuiltinModels: catalog.getBuiltinModels as unknown as (provider: string) => PiAi.Model<PiAi.Api>[],
+      builtinProviders: catalog.builtinProviders as unknown as () => PiAi.Provider[],
       apis: {
         'anthropic-messages': anthropic.anthropicMessagesApi,
+        'azure-openai-responses': azure.azureOpenAIResponsesApi,
+        'bedrock-converse-stream': bedrock.bedrockConverseStreamApi,
+        'google-generative-ai': google.googleGenerativeAIApi,
+        'google-vertex': vertex.googleVertexApi,
+        'mistral-conversations': mistral.mistralConversationsApi,
+        'openai-codex-responses': codex.openAICodexResponsesApi,
         'openai-completions': openaiComp.openAICompletionsApi,
         'openai-responses': openaiResp.openAIResponsesApi,
-        'google-generative-ai': google.googleGenerativeAIApi,
+        'pi-messages': piMessages.piMessagesApi,
       },
     };
   })().catch((err) => {
@@ -100,7 +119,16 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
     }
   }
 
-  const api = API_FORMAT_TO_PI_AI_API[config.apiFormat];
+  // 自建 Model 路径：apiFormat 是唯一协议裁决（显式、不猜测）；catalog preset
+  // 未命中 model 时必须显式给 apiFormat + baseUrl。
+  const api = config.apiFormat ? API_FORMAT_TO_PI_AI_API[config.apiFormat] : undefined;
+  if (!api) {
+    throw new LLMError(
+      `Provider "${config.name}": apiFormat is required for models outside the pi-ai catalog ` +
+      `(model="${config.model}", piAiProvider="${config.piAiProvider ?? 'none'}")`,
+      { provider: config.name, field: 'apiFormat' },
+    );
+  }
   const baseUrl = config.baseUrl;
   if (!baseUrl) {
     throw new LLMError(
@@ -130,21 +158,61 @@ export interface PiAiEndpoint {
   fromCatalog: boolean;
 }
 
+export interface PiAiEndpointOptions {
+  /** 测试注入：pi-ai auth 环境解析上下文（缺省 = process.env + node fs）。 */
+  authContext?: PiAi.AuthContext;
+}
+
 /**
  * 构造 adapter 实例级 endpoint：单 model 的 Models 集合。
- * apiKey 一律经 per-request `options.apiKey` override 传入（dsh 同形）——provider
- * 声明 apiKey auth 方法使 override 生效；值本身只在请求期出现，不落在构造态。
- * catalog model 的 api 不在支持表内 → loud LLMError（不静默换协议）。
+ *
+ * catalog 命中（Phase 1926 Step D）：复用 pi-ai `builtinProviders()` 的内建
+ * provider —— 完整 auth（api_key env / ambient AWS 链 / ADC / OAuth refresh）
+ * 与 lazy api 绑定由 pi-ai 原生装配；stored credential 经 CredentialStore 桥接
+ * 用户级 Credentials owner；config.apiKey 仍经 per-request override 注入（${REF}
+ * 解析链不变）。OAuth-only provider 收到 config.apiKey → loud 拒绝（pi-ai 会静默
+ * 忽略该 override，不得让用户误以为生效）。
+ *
+ * 自建 Model 路径：单 apiKey auth 的自定义 provider（apiKey 一律经 per-request
+ * `options.apiKey` override 传入——值只在请求期出现，不落在构造态）。
  */
-export async function createPiAiEndpoint(config: ProviderConfig): Promise<PiAiEndpoint> {
+export async function createPiAiEndpoint(
+  config: ProviderConfig,
+  options?: PiAiEndpointOptions,
+): Promise<PiAiEndpoint> {
   const runtime = await loadPiAiRuntime();
   const { model, fromCatalog } = resolvePiAiModel(runtime, config);
+
+  if (fromCatalog) {
+    const provider = runtime.builtinProviders().find((p) => p.id === model.provider);
+    if (!provider) {
+      throw new LLMError(
+        `Provider "${config.name}": pi-ai builtin provider "${model.provider}" not found ` +
+        `(catalog model "${model.id}")`,
+        { provider: config.name, api: String(model.api) },
+      );
+    }
+    if (config.apiKey && !provider.auth.apiKey) {
+      throw new LLMError(
+        `Provider "${config.name}": "${model.provider}" is OAuth-only — configured api_key has no effect. ` +
+        `Remove api_key from the config and run "chestnut config provider login" instead.`,
+        { provider: config.name, field: 'apiKey' },
+      );
+    }
+    const models = runtime.createModels({
+      credentials: getPiAiCredentialStore(),
+      ...(options?.authContext && { authContext: options.authContext }),
+    });
+    models.setProvider(provider);
+    return { models, model, fromCatalog };
+  }
+
   const apiFactory = runtime.apis[model.api as string];
   if (!apiFactory) {
+    // 自建路径 api 由 apiFormat 显式映射（四族 HTTP 协议）；理论不可达，防御 loud。
     throw new LLMError(
-      `Provider "${config.name}": pi-ai api "${String(model.api)}" (model "${model.id}") is not supported ` +
-      `by this credential shape (supported: ${Object.keys(runtime.apis).join(', ')}). ` +
-      `Providers needing SigV4/ADC/OAuth are out of scope (Phase 1925 Step C registered boundary).`,
+      `Provider "${config.name}": pi-ai api "${String(model.api)}" (model "${model.id}") has no ` +
+      `registered lazy factory (registered: ${Object.keys(runtime.apis).join(', ')})`,
       { provider: config.name, api: String(model.api) },
     );
   }

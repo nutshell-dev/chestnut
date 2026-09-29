@@ -67,7 +67,8 @@ export const LLM_ERROR_LABELS: Record<LLMErrorType, string> = {
 };
 
 export const LLM_ERROR_HINTS: Partial<Record<LLMErrorType, string>> = {
-  auth: 'Update API key via "chestnut config provider add".',
+  // Phase 1926 Step D：auth 类含 ambient 缺失（AWS 链/ADC/env）与 OAuth 未登录/refresh 失败
+  auth: 'Update API key via "chestnut config provider add", run "chestnut config provider login <label>" for OAuth providers, or fix ambient credentials (AWS profile / Google ADC / provider env).',
   model: 'Check that model name matches provider docs exactly.',
   network: 'Check internet connection or provider status page.',
   rate_limit: 'Wait a few seconds and retry; lower request frequency.',
@@ -181,7 +182,9 @@ export async function promptReconfigure(
 
   const passwordPrompt = (prompt: string) => passwordQuestion(rl, `${prompt}: `);
 
-  const presetList = Object.values(PRESETS).filter(p => p.defaultBaseUrl);
+  // Phase 1926 Step D：catalog preset（含 ambient/oauth，无 defaultBaseUrl）同样可选；
+  // 仅 custom-*（无默认 baseUrl 且无 catalog 权威）留在 "Custom" 手工路径。
+  const presetList = Object.values(PRESETS).filter(p => p.defaultBaseUrl || p.piAiProvider);
   const customIdx = presetList.length + 1;
 
   while (true) {
