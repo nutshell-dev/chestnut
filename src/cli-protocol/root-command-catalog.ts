@@ -9,7 +9,19 @@ import type { CommandShapeSpec } from './command-shape.js';
 export const ROOT_COMMAND_CATALOG = [
   { id: 'stop', summary: 'Stop all chestnut processes (watchdog → motion → claws)' },
   { id: 'status', summary: 'Show status of all chestnut processes' },
-  { id: 'start', summary: 'Start the system (initializes if needed) and open Motion chat' },
+  // phase 1925 Step E：start 非交互 LLM 配置参数（verify gate 由 cli/start-llm-gate own）
+  {
+    id: 'start',
+    summary: 'Start the system (initializes if needed) and open Motion chat',
+    options: [
+      { flag: '--provider <preset>', desc: 'LLM provider preset (non-interactive setup)' },
+      { flag: '--model <name>', desc: 'LLM model name (non-interactive setup)' },
+      { flag: '--base-url <url>', desc: 'LLM API base URL (non-interactive setup)' },
+      { flag: '--api-key-env <var>', desc: 'Env var name holding the LLM API key (stored as ${VAR} reference)' },
+      { flag: '--language <lang>', desc: 'Onboarding language (non-interactive; default auto)' },
+      { flag: '--non-interactive', desc: 'No prompts: verify LLM config and fail with non-zero exit on error' },
+    ],
+  },
   { id: 'init', summary: 'Initialize chestnut workspace' },
 ] as const satisfies readonly CommandShapeSpec[];
 

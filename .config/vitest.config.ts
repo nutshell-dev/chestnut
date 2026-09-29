@@ -61,6 +61,7 @@ const VI_MOCK_FILES = [
   'tests/cli/motion-steps-action-error.test.ts',
   'tests/cli/password-restore-reverse.test.ts',
   'tests/cli/start-first-run-supervision.test.ts',  // phase 1280 Step C: vi.mock init/motion/process-manager/contract/claw-topology/readline
+  'tests/cli/start-llm-gate.test.ts',  // phase 1925 Step E: vi.mock readline + llm-connection-check + start 下游缝
   'tests/cli/start-watchdog-spawn-race.test.ts',  // phase 1282 Step B: vi.mock init/motion/process-manager/contract/claw-topology/readline
   'tests/cli/start.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — tests no longer need vi.mock for process-exec isAlive.

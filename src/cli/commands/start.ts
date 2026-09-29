@@ -15,6 +15,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
 import type { RootConfigAdmin, InitializationState } from '../../assembly/index.js';
+import { GlobalConfigAlreadyExistsError } from '../../assembly/index.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { initCommand } from './init.js';
@@ -242,7 +243,15 @@ interface ContractSystemLike {
   recoverCreation(contractId: string): Promise<'absent' | 'published' | 'recovered' | 'failed'>;
 }
 
+import {
+  applyStartLLMOptions,
+  ensureStartLLMVerified,
+  validateStartLLMOptions,
+  type StartLLMOptions,
+} from '../start-llm-gate.js';
+
 /* LLM connection check & reconfigure helpers moved to ../llm-connection-check.ts (phase 1470). */
+/* Phase 1925 Step E: start LLM 验证门控归 ../start-llm-gate.ts。 */
 
 /**
  * phase 1280: start 运行时的显式依赖。
@@ -259,22 +268,45 @@ interface StartCommandDeps {
   rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary' | 'getInitializationState' | 'completeInitialization'>;
 }
 
-export async function startCommand(deps: StartCommandDeps, runtime: StartCommandRuntime): Promise<void> {
+export async function startCommand(
+  deps: StartCommandDeps,
+  runtime: StartCommandRuntime,
+  llmOptions: StartLLMOptions = {},
+): Promise<void> {
   try {
-    await _start(deps, runtime);
+    await _start(deps, runtime, llmOptions);
   } catch (error) {
-    throw new CliError('chestnut start failed: ' + (formatErr(error)), { cause: error });
+    // Phase 1925 Step E：透传门控退出码（2=用法缺参，3=验证失败/取消），不坍缩为 1
+    const code = error instanceof CliError ? error.code : 1;
+    throw new CliError('chestnut start failed: ' + (formatErr(error)), { cause: error, code });
   }
 }
 
-async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Promise<void> {
+async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmOptions: StartLLMOptions): Promise<void> {
   const { audit } = runtime;
+  // Step 0: 参数校验（配置参数只配 --non-interactive；混合用法 loud 拒绝）
+  validateStartLLMOptions(llmOptions);
   // Step 1: workspace init
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
   const wasFirstRun = snapshot.initialization === 'absent';
+  // Phase 1925 Step E：init 刚对同一配置 probe 成功时复用事实，免同快照重复 probe
+  let preVerified = false;
   if (wasFirstRun) {
-    await initCommand(deps, true);
+    if (llmOptions.nonInteractive) {
+      // 非交互首次配置：参数完整校验 → 写盘（O_EXCL，并发 loser 落 AlreadyExists 分支）
+      // → 布局 ready；LLM 验证由下方门控统一承担
+      try {
+        await applyStartLLMOptions(deps, llmOptions, 'first-run');
+      } catch (err) {
+        if (!(err instanceof GlobalConfigAlreadyExistsError)) throw err;
+        // 并发 winner 已提交：不覆盖，门控重读 winner 配置重验
+        deps.rootConfig.completeInitialization();
+      }
+    } else {
+      const initResult = await initCommand(deps, true);
+      preVerified = initResult.probeVerified;
+    }
   } else if (snapshot.initialization === 'in_progress') {
     // Phase 1911 Step D：崩溃窗口/legacy 无 marker —— 幂等恢复完整 bootstrap
     // 后继续，不消费 config-only 半成品状态。
@@ -285,6 +317,17 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       'is corrupted. Inspect .chestnut/ manually; start will not overwrite it.',
     );
   }
+  // 已初始化 + 非交互配置参数 → patch primary 后由门控重验
+  if (!wasFirstRun && llmOptions.nonInteractive) {
+    await applyStartLLMOptions(deps, llmOptions, 'initialized');
+  }
+
+  // Step 1.5（Phase 1925 Step E）：LLM 验证门控 —— 对当前有效配置的真实调用
+  // 成功前不进入 supervision / motion / onboarding / chat。交互失败留在向导
+  // retry/edit/cancel；非交互缺参/失败抛 CliError（非零退出）。
+  const interactive = !llmOptions.nonInteractive && process.stdin.isTTY !== false;
+  await ensureStartLLMVerified(deps, { audit, interactive, preVerified });
+
   // phase 1280: workspace bootstrap（config 完整落盘）后才恢复 Watchdog；
   // 之后的 Motion init / daemon spawn / contract / chat 均位于监督之下。
   await runtime.ensureSupervision();
@@ -340,7 +383,9 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
       );
     });
 
-    const language = await pickLanguage();
+    const language = llmOptions.nonInteractive
+      ? (llmOptions.language ?? 'auto')
+      : await pickLanguage();
     await daemonReady;
 
     // phase 1879 Step B: onboarding contract 的一次性 ContractSystem 装配归 Assembly

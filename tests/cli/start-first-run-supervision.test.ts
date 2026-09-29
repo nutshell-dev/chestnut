@@ -34,7 +34,17 @@ vi.mock('../../src/cli/commands/init.js', () => ({
     const chestnutDir = path.join(h.workspaceRoot, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     fs.writeFileSync(path.join(chestnutDir, 'config.yaml'), 'version: "1"\n');
+    // Phase 1925 Step E：initCommand 返回 typed 结果（probeVerified 供 start 门控复用）
+    return { kind: 'configured_probe_ok', probeVerified: true };
   }),
+}));
+
+// Phase 1925 Step E：LLM 验证门控独立 own 测试；本文件治监督边界，门控降为
+// 顺序见证（init 后、ensure 前各一次）。
+vi.mock('../../src/cli/start-llm-gate.js', () => ({
+  validateStartLLMOptions: vi.fn(),
+  applyStartLLMOptions: vi.fn(async () => {}),
+  ensureStartLLMVerified: vi.fn(async () => { h.order.push('llm-gate'); }),
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({
@@ -155,6 +165,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     // 严格顺序：init 完成 < ensure < Motion 后续动作（无 pre-init spawn）
     expect(h.order).toEqual([
       'init',
+      'llm-gate',
       'ensure',
       'motion-init',
       'daemon-spawn',
@@ -177,6 +188,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     expect(ensureSupervision).toHaveBeenCalledTimes(1);
     // 严格顺序：ensure < Motion 后续动作；零 init
     expect(h.order).toEqual([
+      'llm-gate',
       'ensure',
       'motion-init',
       'daemon-spawn',
@@ -206,7 +218,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     await expect(startCommand(startDeps(), { ensureSupervision }))
       .rejects.toThrow(/chestnut start failed.*watchdog spawn failed/);
 
-    expect(h.order).toEqual(['init', 'ensure']);
+    expect(h.order).toEqual(['init', 'llm-gate', 'ensure']);
     // init 产物保留
     expect(fs.existsSync(path.join(tmpDir, '.chestnut', 'config.yaml'))).toBe(true);
   });

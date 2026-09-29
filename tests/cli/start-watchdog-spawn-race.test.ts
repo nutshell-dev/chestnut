@@ -43,7 +43,15 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/cli/commands/init.js', () => ({
-  initCommand: vi.fn(async () => {}),
+  // Phase 1925 Step E：initCommand 返回 typed 结果
+  initCommand: vi.fn(async () => ({ kind: 'configured_probe_ok', probeVerified: true })),
+}));
+
+// Phase 1925 Step E：LLM 验证门控独立 own 测试；本文件治 generation race，门控 no-op。
+vi.mock('../../src/cli/start-llm-gate.js', () => ({
+  validateStartLLMOptions: vi.fn(),
+  applyStartLLMOptions: vi.fn(async () => {}),
+  ensureStartLLMVerified: vi.fn(async () => {}),
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({

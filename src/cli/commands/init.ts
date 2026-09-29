@@ -48,14 +48,66 @@ interface InitCommandDeps {
   rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary' | 'getInitializationState' | 'completeInitialization'>;
 }
 
-export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
+/**
+ * init 结果（Phase 1925 Step E）：probeVerified=true 表示本次 init 已对当前
+ * 有效配置完成真实 LLM 调用验证；start 门控复用该事实避免同快照重复 probe。
+ * 早退（already ready / 并发 loser / transient warn-continue / 用户退出 reconfigure）
+ * 一律 false —— 未验证事实不猜。
+ */
+export interface InitCommandResult {
+  probeVerified: boolean;
+}
+
+/**
+ * 初始 global config 模板（Phase 1925 Step E 提取单源）：init 交互向导与
+ * start --non-interactive 首次配置共用，字段默认值不得两处漂移。
+ */
+export function buildInitialConfig(input: {
+  presetId: string;
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+}) {
+  return {
+    version: '1',
+    llm: {
+      primary: {
+        preset: input.presetId,
+        api_key: input.apiKey,
+        model: input.model,
+        temperature: 0.7,
+        timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
+        ...(input.baseUrl && { base_url: input.baseUrl }),
+      },
+      retry_attempts: DEFAULT_LLM_RETRY_ATTEMPTS,
+      retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+      // Phase 1268 Step E: 默认启用 circuit breaker，显式落盘便于用户观察。
+      circuit_breaker: {
+        failure_threshold: 3,
+        reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
+      },
+    },
+    tool_timeout_ms: 60_000,
+    // Phase 1289 Step D: root YAML 不再写 watchdog 段 — fresh init 的默认值由
+    // initWorkspaceWatchdogConfig 落入 .chestnut/watchdog/config.yaml；
+    // log_archive_days 随块显式退役（捕获进迁移 journal retired_fields）。
+    motion: {
+      heartbeat_interval_ms: HEARTBEAT_DEFAULT_INTERVAL_MS,
+      // phase 1485: max_steps 不写入初始 config — agent-executor 持默认值、user 显式覆盖时再设。
+      max_concurrent_tasks: DEFAULT_MAX_CONCURRENT_TASKS,
+      llm_idle_timeout_ms: INIT_LLM_IDLE_TIMEOUT_MS,
+    },
+  };
+}
+
+export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<InitCommandResult> {
   const audit = extraDeps?.audit;
   // Phase 1911 Step D（RACE-CONFIG-INIT-PARTIAL-PUBLISH）：typed 初始化状态。
   // ready 依据 = root config + ready marker + 必需布局核验，不是 root YAML exists。
   const initState = deps.rootConfig.getInitializationState();
   if (initState === 'ready') {
     console.log('✓ Already initialized (.chestnut/config.yaml exists)');
-    return;
+    return { probeVerified: false };
   }
   if (initState === 'invalid') {
     throw new CliError(
@@ -68,7 +120,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     // 不覆盖合法配置；LLM probe 不属于 ready，恢复路径不重跑（可用 config 命令修复）。
     deps.rootConfig.completeInitialization();
     console.log('✓ Initialization completed (resumed an interrupted bootstrap; existing config kept)');
-    return;
+    return { probeVerified: false };
   }
 
   console.log('Initializing chestnut...\n');
@@ -295,38 +347,8 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       }
     }
 
-    // Build config
-    const config = {
-      version: '1',
-      llm: {
-        primary: {
-          preset: presetId,
-          api_key: apiKey,
-          model: model,
-
-          temperature: 0.7,
-          timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-          ...(baseUrl && { base_url: baseUrl }),
-        },
-        retry_attempts: DEFAULT_LLM_RETRY_ATTEMPTS,
-        retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
-        // Phase 1268 Step E: 默认启用 circuit breaker，显式落盘便于用户观察。
-        circuit_breaker: {
-          failure_threshold: 3,
-          reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
-        },
-      },
-      tool_timeout_ms: 60_000,
-      // Phase 1289 Step D: root YAML 不再写 watchdog 段 — fresh init 的默认值由
-      // initWorkspaceWatchdogConfig 落入 .chestnut/watchdog/config.yaml；
-      // log_archive_days 随块显式退役（捕获进迁移 journal retired_fields）。
-      motion: {
-        heartbeat_interval_ms: HEARTBEAT_DEFAULT_INTERVAL_MS,
-        // phase 1485: max_steps 不写入初始 config — agent-executor 持默认值、user 显式覆盖时再设。
-        max_concurrent_tasks: DEFAULT_MAX_CONCURRENT_TASKS,
-        llm_idle_timeout_ms: INIT_LLM_IDLE_TIMEOUT_MS,
-      },
-    };
+    // Build config（模板单源：buildInitialConfig，与 start --non-interactive 共用）
+    const config = buildInitialConfig({ presetId, apiKey, model, baseUrl });
 
     // Save config
     // Phase 1910 Step D（RACE-CONFIG-INIT-LOST-UPDATE）：初始化唯一提交点 ——
@@ -340,7 +362,8 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
         // 收敛（owner 物化幂等，不覆盖 winner 配置），随后按事实返回。
         deps.rootConfig.completeInitialization();
         console.log('✓ Already initialized (a concurrent init completed first; keeping its config)');
-        return;
+        // 并发 loser：未验证 winner 配置——probeVerified=false 交由 start 门控重读重验
+        return { probeVerified: false };
       }
       throw err;
     }
@@ -358,7 +381,10 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     const t0 = Date.now();
     const probe = await checkLLMConnection(deps);
     const latencyMs = Date.now() - t0;
+    // Phase 1925 Step E：probe 事实经返回值交给 start 门控（同快照免重复 probe）。
+    let probeVerified = false;
     if (probe.ok) {
+      probeVerified = true;
       audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED, `preset=${presetId}`, `model=${probe.model}`, `latency_ms=${latencyMs}`);
       console.log(`✓ ${probe.model} (${latencyMs}ms)`);
     } else {
@@ -378,6 +404,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
         // actionable errors → 提供 reconfigure 选项
         const fixed = await promptReconfigure(deps, rl, probe.errorType);
         if (fixed) {
+          probeVerified = true;
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `preset=${presetId}`);
         } else {
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=user_exit_reconfigure`);
@@ -404,6 +431,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       console.log('1. Create a Claw: chestnut claw <name> create');
       console.log('2. Start chatting: chestnut claw <name> chat');
     }
+    return { probeVerified };
 
   } catch (error) {
     // phase 446 (review N3-H2): 内部已是 CliError 时直接重抛、不双包污染原文案

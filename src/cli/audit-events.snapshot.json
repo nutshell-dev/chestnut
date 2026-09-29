@@ -68,7 +68,11 @@
       "cli_motion_stop",
       "cli_settled",
       "cli_skill_install",
-      "cli_stream_shutdown_failed"
+      "cli_stream_shutdown_failed",
+      "cli_start_probe_attempted",
+      "cli_start_probe_aborted",
+      "cli_start_probe_failed",
+      "cli_start_probe_succeeded"
     ],
     "core_agent-executor_audit-events": [
       {

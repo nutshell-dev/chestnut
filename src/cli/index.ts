@@ -116,10 +116,12 @@ rootShape(program.command('status'), 'status')
 
 // start command
 rootShape(program.command('start'), 'start')
-  .action(deferredRequiredAction(async (ensureSupervision) => {
+  // phase 1925 Step E：LLM 配置参数（catalog 投影）透传 start 门控；
+  // commander camelCase 与 StartLLMOptions 键一致（baseUrl/apiKeyEnv/nonInteractive）
+  .action(deferredRequiredAction(async (ensureSupervision, opts: import('./start-llm-gate.js').StartLLMOptions) => {
     const { startCommand } = await import('./commands/start.js');
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-    await startCommand({ fsFactory, rootConfig }, { audit, ensureSupervision });
+    await startCommand({ fsFactory, rootConfig }, { audit, ensureSupervision }, opts ?? {});
   }));
 
 // init command

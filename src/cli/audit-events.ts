@@ -35,6 +35,11 @@ export const CLI_AUDIT_EVENTS = {
   DAEMON_START: 'cli_daemon_start',
   DAEMON_STOP: 'cli_daemon_stop',
   DAEMON_SPAWN_RACE_FAILED: 'cli_daemon_spawn_race_failed',
+  // Phase 1925 Step E: start LLM 验证门控（probe 成功才进 supervision/onboarding/chat）
+  START_PROBE_ATTEMPTED: 'cli_start_probe_attempted',
+  START_PROBE_SUCCEEDED: 'cli_start_probe_succeeded',
+  START_PROBE_FAILED: 'cli_start_probe_failed',
+  START_PROBE_ABORTED: 'cli_start_probe_aborted',
   // phase 1874 Step J (cli-action-audit-contract-missing): 外部 invoke / 终态结算事件对——
   // CLI own「外部动作边界」（command 摘要 + exit_code + duration + 失败分类）；
   // owner mutation 事件仍归各业务 owner（本事件不替代 owner commit event）。
