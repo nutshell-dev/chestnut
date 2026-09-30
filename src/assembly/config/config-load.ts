@@ -42,8 +42,9 @@ import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ProviderConfig } from '../../foundation/llm-provider/index.js';
 import {
-  registerPiAiCredentialBackend,
+  createPiAiCredentialStore,
   type PiAiCredentialBackend,
+  type PiAiCredentialStore,
 } from '../../foundation/llm-provider/index.js';
 import { sha256Hex } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -71,19 +72,20 @@ function makeEnvVarResolver(deps: { fsFactory: (baseDir: string) => FileSystem }
 }
 
 /**
- * Phase 1926 Step D：pi-ai stored credential（OAuth login/refresh、stored api key）
- * 的后端注册。CLI probe 与 daemon 装配同源经过 loadGlobalConfig —— 在此把用户级
- * Credentials owner 适配为 L1 字符串 KV 接缝并注册（幂等，重复注册同义）。
- * secret 只经 owner 链路（~/.chestnut/credentials.yaml，0600），不进 YAML/audit/log。
+ * Phase 1927 Step E：pi-ai stored credential（OAuth login/refresh、stored api key）
+ * 的固定 CredentialStore 工厂。装配根（daemon Assembly / CLI probe/login 链）调用
+ * 一次并把实例注入 orchestrator/Models——backend 在 store 生命周期内不漂移
+ * （取代 Phase 1926 Step D 的 loadGlobalConfig 全局注册副作用）。
+ * modify 是唯一写路径：Credentials owner 的跨进程锁内 RMW 事务；secret 只经
+ * owner 链路（~/.chestnut/credentials.yaml，0600），不进 YAML/audit/log。
  */
-function registerPiAiCredentials(deps: { fsFactory: (baseDir: string) => FileSystem }): void {
+export function createUserPiAiCredentialStore(deps: { fsFactory: (baseDir: string) => FileSystem }): PiAiCredentialStore {
   const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
   const backend: PiAiCredentialBackend = {
     read: (ref) => Promise.resolve(credentials.resolve(ref)?.value),
-    write: async (ref, value) => { await credentials.set(ref, value); },
-    remove: async (ref) => { await credentials.unset(ref); },
+    modify: (ref, fn) => credentials.modify(ref, fn),
   };
-  registerPiAiCredentialBackend(backend);
+  return createPiAiCredentialStore(backend);
 }
 
 /**
@@ -148,7 +150,6 @@ function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Er
 export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }): ClawGlobalConfig {
   const configPath = getGlobalConfigPath();
   const schema = createGlobalConfigSchema();
-  registerPiAiCredentials(deps);
   try {
     return loadYamlConfig<ClawGlobalConfig>(
       { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },

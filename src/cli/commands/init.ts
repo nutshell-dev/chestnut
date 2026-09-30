@@ -5,7 +5,7 @@
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigAdmin } from '../../assembly/index.js';
-import { GlobalConfigAlreadyExistsError, snapshotLLMConfig } from '../../assembly/index.js';
+import { GlobalConfigAlreadyExistsError, snapshotLLMConfig, createUserPiAiCredentialStore } from '../../assembly/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
@@ -436,6 +436,8 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     // Phase 1926 Step D：OAuth preset 引导登录（凭证经 pi-ai login 流持久化到用户级
     // Credentials owner）；失败不阻断——随后的 probe/reconfigure 向导兜底。
     // Phase 1927 Step D：catalog-only OAuth provider 同等待遇。
+    // Phase 1927 Step E：OAuth 引导与随后的 probe 共用同一装配创建的 CredentialStore
+    const piAiCredentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
     const oauthProvider = providerId
       ? (deriveCatalogAuthProfile(providerId) === 'oauth' ? providerId : undefined)
       : (PRESETS[presetId] && presetAuthProfile(PRESETS[presetId]) === 'oauth' ? PRESETS[presetId].piAiProvider : undefined);
@@ -444,7 +446,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
       const loginNow = await question(`\n${displayName} 需要 OAuth 登录。现在登录？ [Y/n]`, 'Y');
       if (loginNow.toLowerCase() !== 'n') {
         try {
-          await runProviderLogin({ piAiProvider: oauthProvider, type: 'oauth', rl });
+          await runProviderLogin({ piAiProvider: oauthProvider, type: 'oauth', credentials: piAiCredentials, rl });
         } catch (err) {
           console.log(`⚠ OAuth login failed: ${formatErr(err)}`);
           console.log('  可稍后运行 "chestnut config provider login" 重试。');
@@ -460,7 +462,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     const t0 = Date.now();
     // Phase 1926 Step C：读取即快照，probe 只消费该快照——结果携带身份证据
     const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
-    const probe = await probeLLMConnection(snapshot);
+    const probe = await probeLLMConnection(snapshot, { credentials: piAiCredentials });
     const latencyMs = Date.now() - t0;
     // Phase 1926 Step C：probe 事实（带 identity）经返回值交给 start 门控
     let verified: VerifiedLLMConfig | undefined;

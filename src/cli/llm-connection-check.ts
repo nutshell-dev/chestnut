@@ -8,7 +8,7 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import { snapshotLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
+import { snapshotLLMConfig, createUserPiAiCredentialStore, type RootConfigAdmin } from '../assembly/index.js';
 import type { LLMConfigSnapshot } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
@@ -16,7 +16,7 @@ import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.
 import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
-import type { ProviderConfig } from '../foundation/llm-provider/index.js';
+import type { ProviderConfig, PiAiCredentialStore } from '../foundation/llm-provider/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 // Phase 1925 Step B：reconfigure 的明文 key 经 Credentials owner 落凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from './credentials-prompt.js';
@@ -107,8 +107,12 @@ export function formatLLMError(
 /**
  * Phase 1926 Step C：对**给定快照**做真实 probe——probe 内不得再隐式读取另一份
  * 配置；返回结果携带被测 identity，调用方据此丢弃漂移结果。
+ * Phase 1927 Step E：pi-ai CredentialStore 显式注入（装配根固定创建）。
  */
-export async function probeLLMConnection(snapshot: LLMConfigSnapshot): Promise<
+export async function probeLLMConnection(
+  snapshot: LLMConfigSnapshot,
+  options?: { credentials?: PiAiCredentialStore },
+): Promise<
   { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
   const svc = createLLMOrchestrator({
@@ -116,6 +120,7 @@ export async function probeLLMConnection(snapshot: LLMConfigSnapshot): Promise<
     maxAttempts: 1,
     retryDelayMs: 0,
     events: { emit: () => {} },
+    ...(options?.credentials && { credentialStore: options.credentials }),
   });
   try {
     await svc.call({
@@ -138,14 +143,19 @@ export async function probeLLMConnection(snapshot: LLMConfigSnapshot): Promise<
 export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
   { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
-  return probeLLMConnection(snapshotLLMConfig(deps.rootConfig.loadGlobal()));
+  // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
+  const credentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
+  return probeLLMConnection(snapshotLLMConfig(deps.rootConfig.loadGlobal()), { credentials });
 }
 
 /**
  * Probe an explicit provider config (not the active global primary).
  * Used by `config provider add/set-primary` to verify a candidate before commit.
  */
-export async function checkLLMConnectionFor(provider: ProviderConfig): Promise<
+export async function checkLLMConnectionFor(
+  provider: ProviderConfig,
+  options?: { credentials?: PiAiCredentialStore },
+): Promise<
   { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
 > {
   const svc = createLLMOrchestrator({
@@ -154,6 +164,7 @@ export async function checkLLMConnectionFor(provider: ProviderConfig): Promise<
     maxAttempts: 1,
     retryDelayMs: 0,
     events: { emit: () => {} },
+    ...(options?.credentials && { credentialStore: options.credentials }),
   });
   try {
     await svc.call({
@@ -295,7 +306,9 @@ export async function promptReconfigure(
 
     console.log('Testing connection...');
     const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
-    const result = await probeLLMConnection(snapshot);
+    // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
+    const credentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
+    const result = await probeLLMConnection(snapshot, { credentials });
     if (result.ok) {
       console.log('✓ Connection successful!');
       return snapshot;

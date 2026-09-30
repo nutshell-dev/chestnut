@@ -380,7 +380,11 @@ vi.mock('../../src/assembly/config/config-load.js', () => {
   // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
   // mockImplementationOnce 语义不变。
   const llmConfigFn = vi.fn(function () { return { provider: 'mock' }; });
-  return { resolveLLMConfig: llmConfigFn };
+  // Phase 1927 Step E：orchestrator 装配注入 CredentialStore——mock 提供同名缝
+  return {
+    resolveLLMConfig: llmConfigFn,
+    createUserPiAiCredentialStore: vi.fn(function () { return undefined; }),
+  };
 });
 
 // phase 265: hoist 14 dynamic imports below. vitest hoists all vi.mock(...) above

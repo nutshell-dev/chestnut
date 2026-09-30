@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
+import { createUserPiAiCredentialStore } from '../../assembly/index.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS, presetAuthProfile, presetRequiresBaseUrl } from '../../foundation/llm-provider/index.js';
 // Phase 1927 Step D：catalog-only provider 选择与派生 profile（显式 catalog 配置入口）
@@ -331,7 +332,10 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       }
       providerConfigRuntime.apiKey = resolvedKey;
     }
-    const probe = await checkLLMConnectionFor(providerConfigRuntime);
+    // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
+    const probe = await checkLLMConnectionFor(providerConfigRuntime, {
+      credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+    });
     if (probe.ok) {
       console.log(`✓ ${probe.model}`);
     } else {
@@ -579,7 +583,11 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
   if (!available.includes(type)) {
     throw new CliError(`Provider "${piAiProvider}" does not support ${type} login (available: ${available.join(', ')})`);
   }
-  await runProviderLogin({ piAiProvider, type });
+  await runProviderLogin({
+    piAiProvider,
+    type,
+    credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+  });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_login', `label=${label}`, `type=${type}`);
   notifyRunningDaemons(deps, 'login');
 }
@@ -596,7 +604,10 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
   if (!piAiProvider) {
     throw new CliError(`Provider "${label}" has no pi-ai catalog provider; no stored credential to remove`);
   }
-  await runProviderLogout({ piAiProvider });
+  await runProviderLogout({
+    piAiProvider,
+    credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+  });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_logout', `label=${label}`);
   notifyRunningDaemons(deps, 'logout');
 }

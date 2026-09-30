@@ -38,6 +38,7 @@ import {
   withCombinedAbortSignal,
 } from './abort-helper.js';
 import { createPiAiEndpoint, type PiAiEndpoint } from './pi-ai-support.js';
+import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import { buildPiAiContext } from './pi-ai-wire.js';
 import {
   createEventTranslationState,
@@ -56,6 +57,11 @@ import {
 /** pi-ai ThinkingLevel（streamSimple 的 reasoning 档位）。 */
 type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+/** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
+export interface PiAiAdapterOptions {
+  credentialStore?: PiAiCredentialStore;
+}
+
 export class PiAiAdapter implements ProviderAdapter {
   readonly name: string;
   readonly model: string;
@@ -65,16 +71,20 @@ export class PiAiAdapter implements ProviderAdapter {
   onToolArgParseError?: (event: { provider: string; toolName: string; rawArgs: string; error: string }) => void;
 
   private readonly config: ProviderConfig;
+  private readonly options: PiAiAdapterOptions | undefined;
   private endpointPromise?: Promise<PiAiEndpoint>;
 
-  constructor(config: ProviderConfig) {
+  constructor(config: ProviderConfig, options?: PiAiAdapterOptions) {
     this.config = config;
+    this.options = options;
     this.name = config.name;
     this.model = config.model;
   }
 
   private endpoint(): Promise<PiAiEndpoint> {
-    this.endpointPromise ??= createPiAiEndpoint(this.config);
+    this.endpointPromise ??= createPiAiEndpoint(this.config, {
+      ...(this.options?.credentialStore && { credentials: this.options.credentialStore }),
+    });
     return this.endpointPromise;
   }
 

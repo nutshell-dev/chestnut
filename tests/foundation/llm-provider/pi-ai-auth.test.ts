@@ -11,22 +11,43 @@
  *   凭证；refresh 失败 → ModelsError 且旧凭证保留（不静默回退 env）。
  * 另有一条请求面映射：unconfigured → LLMAuthError（不得吞成 unknown/network）。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type * as PiAi from '@earendil-works/pi-ai';
 import { createPiAiEndpoint } from '../../../src/foundation/llm-provider/pi-ai-support.js';
-import { registerPiAiCredentialBackend, type PiAiCredentialBackend } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
+import { createPiAiCredentialStore, type PiAiCredentialBackend } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
-import { LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMError, LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
+/** 内存 fake backend（read + modify 接缝；modify 串行链，fn undefined = 删除）。 */
 function fakeBackend(initial: Record<string, string> = {}): PiAiCredentialBackend & { data: Map<string, string> } {
   const data = new Map(Object.entries(initial));
+  let chain: Promise<unknown> = Promise.resolve();
   return {
     data,
     read: (ref) => Promise.resolve(data.get(ref)),
-    write: (ref, value) => { data.set(ref, value); return Promise.resolve(); },
-    remove: (ref) => { data.delete(ref); return Promise.resolve(); },
+    modify: (ref, fn) => {
+      const run = chain.then(async () => {
+        const current = data.get(ref);
+        const next = await fn(current);
+        if (next === undefined) {
+          data.delete(ref);
+        } else if (next !== current) {
+          data.set(ref, next);
+        }
+        return next;
+      });
+      // 错误由本次 modify 的调用方承载；串行链本身继续（后续 modify 不被前次失败卡死）
+      chain = run.catch(() => { /* silent: 仅维持串行链不断，错误经 run 原样传播 */ });
+      return run;
+    },
   };
+}
+
+/** fake backend → 注入用 CredentialStore（Phase 1927 Step E：构造时固定注入）。 */
+function fakeStore(initial: Record<string, string> = {}) {
+  const backend = fakeBackend(initial);
+  return { backend, store: createPiAiCredentialStore(backend) };
 }
 
 function fakeAuthContext(env: Record<string, string> = {}, files: string[] = []): PiAi.AuthContext {
@@ -45,10 +66,6 @@ function catalogConfig(overrides: Partial<ProviderConfig>): ProviderConfig {
     ...overrides,
   };
 }
-
-beforeEach(() => {
-  registerPiAiCredentialBackend(undefined);
-});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -73,12 +90,12 @@ describe('api_key 类：override > stored > env（pi-ai 原生优先级）', () 
   });
 
   it('stored credential 优先于 env；config.apiKey override 排他优先于两者', async () => {
-    registerPiAiCredentialBackend(fakeBackend({
+    const { store } = fakeStore({
       PI_AI_CREDENTIAL_OPENAI: JSON.stringify({ type: 'api_key', key: 'sk-stored' }),
-    }));
+    });
     const ep = await createPiAiEndpoint(
       catalogConfig({ piAiProvider: 'openai', model: 'gpt-4o' }),
-      { authContext: fakeAuthContext({ OPENAI_API_KEY: 'sk-env' }) },
+      { authContext: fakeAuthContext({ OPENAI_API_KEY: 'sk-env' }), credentials: store },
     );
     const stored = await ep.models.getAuth(ep.model);
     expect(stored?.auth.apiKey).toBe('sk-stored');
@@ -145,28 +162,34 @@ describe('oauth 类：stored credential 生命周期（toAuth / refresh / 持久
   }
 
   it('无 stored credential → unconfigured', async () => {
-    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext() });
+    const { store } = fakeStore();
+    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext(), credentials: store });
     await expect(ep.models.getAuth(ep.model)).resolves.toBeUndefined();
   });
 
+  it('OAuth-capable provider 缺注入 store → loud（refresh 轮换 token 不得静默丢失）', async () => {
+    // Phase 1927 Step E：装配纪律的运行时护栏——无全局 backend 可兜底
+    await expect(createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext() }))
+      .rejects.toThrow(/credential store was injected|no credential store/i);
+  });
+
   it('stored credential 有效（未临期）→ toAuth 直接派生请求 auth', async () => {
-    registerPiAiCredentialBackend(fakeBackend({
+    const { store } = fakeStore({
       PI_AI_CREDENTIAL_OPENAI_CODEX: JSON.stringify({
         type: 'oauth', refresh: 'r0', access: 'a0', expires: Date.now() + 3_600_000, accountId: 'acct-1',
       }),
-    }));
-    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext() });
+    });
+    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext(), credentials: store });
     const auth = await ep.models.getAuth(ep.model);
     expect(auth?.auth.apiKey).toBe('a0');
   });
 
   it('stored credential 过期 → 锁内 refresh + 轮换凭证持久化回 backend', async () => {
-    const backend = fakeBackend({
+    const { backend, store } = fakeStore({
       PI_AI_CREDENTIAL_OPENAI_CODEX: JSON.stringify({
         type: 'oauth', refresh: 'r0', access: 'a0', expires: 1000, accountId: 'acct-1',
       }),
     });
-    registerPiAiCredentialBackend(backend);
     const newAccess = fakeJwt('acct-1');
     const fetchMock = vi.fn().mockImplementation((input: unknown) => {
       const url = String(input);
@@ -181,7 +204,7 @@ describe('oauth 类：stored credential 生命周期（toAuth / refresh / 持久
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext() });
+    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext(), credentials: store });
     const auth = await ep.models.getAuth(ep.model);
     expect(auth?.auth.apiKey).toBe(newAccess);
     // 轮换凭证已持久化（refresh token 同步轮换）
@@ -190,24 +213,34 @@ describe('oauth 类：stored credential 生命周期（toAuth / refresh / 持久
   });
 
   it('refresh 失败（invalid_grant）→ 拒绝且旧凭证保留（不静默回退 env）', async () => {
-    const backend = fakeBackend({
+    const { backend, store } = fakeStore({
       PI_AI_CREDENTIAL_OPENAI_CODEX: JSON.stringify({
         type: 'oauth', refresh: 'r0', access: 'a0', expires: 1000, accountId: 'acct-1',
       }),
     });
-    registerPiAiCredentialBackend(backend);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }),
     ));
-    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext() });
+    const ep = await createPiAiEndpoint(codexConfig(), { authContext: fakeAuthContext(), credentials: store });
     await expect(ep.models.getAuth(ep.model)).rejects.toThrow(/refresh/i);
     // 旧凭证未被清除（用户 re-login 修复；不得静默丢凭证）
     expect(backend.data.has('PI_AI_CREDENTIAL_OPENAI_CODEX')).toBe(true);
   });
 
   it('请求面：unconfigured → LLMAuthError（不吞成 unknown/network）', async () => {
-    const adapter = createLLMProvider(codexConfig());
+    const { store } = fakeStore();
+    const adapter = createLLMProvider(codexConfig(), { credentialStore: store });
     await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
       .rejects.toBeInstanceOf(LLMAuthError);
+  });
+
+  it('请求面：OAuth provider 缺注入 store → loud LLMError（装配缺口不吞成 auth 失败）', async () => {
+    // Phase 1927 Step E：缺 store 是装配错误（credentialStore 字段），必须可与
+    // 真实 auth 失败区分
+    const adapter = createLLMProvider(codexConfig());
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toBeInstanceOf(LLMError);
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toThrow(/credential store/i);
   });
 });

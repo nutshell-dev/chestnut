@@ -27,7 +27,7 @@ import type {
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { LLMCircuitBreakerOpenError } from './errors.js';
-import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig } from '../llm-provider/index.js';
+import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
@@ -108,6 +108,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
   // phase 1028: provider factory DI seam
   private readonly createProviderAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
+  /** Phase 1927 Step E：装配注入的 CredentialStore（透传给真实 adapter 构造）。 */
+  private readonly credentialStore: PiAiCredentialStore | undefined;
 
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
@@ -170,7 +172,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     if (!this.sdkClientCache.has(key)) {
       const provider = this.createProviderAdapter
         ? (this.createProviderAdapter(config) as LLMProvider)
-        : createLLMProvider(config);
+        : createLLMProvider(config, { credentialStore: this.credentialStore });
       this.sdkClientCache.set(key, provider);
       this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
     } else {
@@ -183,6 +185,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.config = config;
     this.events = config.events;
     this.createProviderAdapter = config.createProviderAdapter;
+    this.credentialStore = config.credentialStore;
     this.primary = this.getSdkClient(config.primary);
     this.fallbacks = (config.fallbacks ?? []).map((c) => this.getSdkClient(c));
     this.recomputeProviderIdentities(config);

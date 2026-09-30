@@ -12,6 +12,7 @@ import type {
   ProviderStreamChunk,
   ProviderConfig,
   ProviderAdapter,
+  PiAiCredentialStore,
   LLMCallOptions as L1LLMCallOptions,
 } from '../llm-provider/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
@@ -42,6 +43,11 @@ export interface LLMOrchestratorConfig {
   circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
   /** phase 1028: provider factory DI seam — tests inject mock adapter, production defaults to real adapter（Phase 1925 Step D 改名，旧名 createAnthropicAdapter） */
   createProviderAdapter?: (config: ProviderConfig) => ProviderAdapter;
+  /**
+   * Phase 1927 Step E：pi-ai CredentialStore 实例（装配根固定创建注入；
+   * backend 生命周期内不漂移）。OAuth-capable catalog provider 缺席 → 装配期 loud。
+   */
+  credentialStore?: PiAiCredentialStore;
 }
 
 /**

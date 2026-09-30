@@ -31,6 +31,8 @@ export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 export { createRootConfig } from './config/root-config.js';
 export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config/root-config.js';
 export { resolveLLMConfig, GlobalConfigAlreadyExistsError, ClawConfigAlreadyExistsError } from './config/config-load.js';
+// Phase 1927 Step E：pi-ai CredentialStore 固定实例工厂（daemon Assembly / CLI probe/login 链共用）
+export { createUserPiAiCredentialStore } from './config/config-load.js';
 // Phase 1926 Step C：LLM 配置快照身份协议（start 门控 ↔ daemon 消费同一可证明快照）
 export { snapshotLLMConfig, llmConfigIdentity, LLMConfigIdentityMismatchError } from './config/config-load.js';
 export type { LLMConfigSnapshot } from './config/config-load.js';

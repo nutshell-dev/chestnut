@@ -497,7 +497,11 @@ vi.mock('../../src/assembly/config/config-load.js', () => {
   const llmConfigFn = vi.fn(function () {
     return { provider: 'mock' };
   });
-  return { resolveLLMConfig: llmConfigFn };
+  // Phase 1927 Step E：orchestrator 装配注入 CredentialStore——mock 提供同名缝
+  return {
+    resolveLLMConfig: llmConfigFn,
+    createUserPiAiCredentialStore: vi.fn(function () { return undefined; }),
+  };
 });
 
 vi.mock('../../src/core/contract/index.js', async (importOriginal) => {

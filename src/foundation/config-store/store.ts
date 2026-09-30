@@ -480,3 +480,39 @@ export async function withYamlConfigLock(
   if (fnThrew) throw fnErr;          // fn 的业务错误优先，不被释放问题掩盖
   if (releaseErr) throw releaseErr;  // fn 成功但锁完整性破坏 —— 显式报告
 }
+
+/**
+ * Phase 1927 Step E：withYamlConfigLock 的异步变体——临界区允许 async fn
+ * （如凭据事务内的 OAuth refresh 网络调用）。死 holder 回收由 holder 活性
+ * 探测保证（PID+启动时间；活 holder 持锁久不触发回收），获取超时 typed
+ * 'lock_timeout'。错误纪律同同步版：fn 错误优先，释放失败显式报告。
+ */
+export async function withYamlConfigLockAsync<T>(
+  deps: LoaderDeps,
+  configPath: string,
+  fn: () => Promise<T>,
+  opts?: { acquireTimeoutMs?: number; staleMs?: number; pollMs?: number },
+): Promise<T> {
+  const dir = path.dirname(configPath);
+  const fs = deps.fsFactory(dir);
+  const lockName = `${path.basename(configPath)}.lock`;
+  const myToken = await acquireConfigLock(fs, lockName, {
+    acquireTimeoutMs: opts?.acquireTimeoutMs ?? CONFIG_LOCK_ACQUIRE_TIMEOUT_MS,
+    staleMs: opts?.staleMs ?? CONFIG_LOCK_STALE_MS,
+    pollMs: opts?.pollMs ?? CONFIG_LOCK_POLL_MS,
+  });
+  let fnThrew = false;
+  let fnErr: unknown;
+  let result: T | undefined;
+  try {
+    result = await fn();
+  } catch (err) {
+    // silent: fn 错误暂存，释放检查后原样重抛（不被释放问题掩盖）
+    fnThrew = true;
+    fnErr = err;
+  }
+  const releaseErr = releaseConfigLock(fs, lockName, myToken);
+  if (fnThrew) throw fnErr;
+  if (releaseErr) throw releaseErr;
+  return result as T;
+}

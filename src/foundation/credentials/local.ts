@@ -21,7 +21,7 @@
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../fs/index.js';
-import { withYamlConfigLock } from '../config-store/index.js';
+import { withYamlConfigLock, withYamlConfigLockAsync } from '../config-store/index.js';
 import type {
   CredentialInfo,
   CredentialsOwner,
@@ -276,6 +276,51 @@ export function createLocalCredentials(deps: LocalCredentialsDeps): CredentialsO
       if (!(ref in readRefs())) return;
       await mutateRefsLocked((refs) => {
         delete refs[ref];
+      });
+    },
+
+    async modify(
+      ref: string,
+      fn: (current: string | undefined) => Promise<string | undefined>,
+    ): Promise<string | undefined> {
+      assertValidRefName(ref);
+      if (present(env[ref])) {
+        throw new CredentialsError(
+          'shadowed_by_env',
+          `Credential ref ${ref} is already provided by the process environment; ` +
+          `modifying the file value would have no effect (env wins). Unset the env var first.`,
+        );
+      }
+      const credentialsPath = getCredentialsFilePath();
+      const { fs } = fsFor(credentialsPath);
+      fs.ensureDirSync('.');
+      if (process.platform !== 'win32') {
+        fs.chmodSync('.', 0o700);
+      }
+      // Phase 1927 Step E：完整 RMW 闭包在跨进程锁内（含 fn 的 refresh/login 决策，
+      // 可为 async 网络调用）。锁内重读保证 fn 看到的是最新提交；fn 抛错不写回。
+      return withYamlConfigLockAsync({ fsFactory: deps.fsFactory }, credentialsPath, async () => {
+        const refs = readRefs();
+        const current = present(refs[ref]) ? refs[ref] : undefined;
+        const next = await fn(current);
+        if (next === '') {
+          throw new CredentialsError(
+            'empty_value',
+            `Refusing to store empty value for credential ref ${ref} (empty means absent)`,
+          );
+        }
+        if (next === current) return next; // 无变化不重写（避免无谓原子发布）
+        if (next === undefined) {
+          delete refs[ref];
+        } else {
+          refs[ref] = next;
+        }
+        const content = yaml.dump({ version: CREDENTIALS_FILE_VERSION, refs });
+        fs.writeAtomicSync(path.basename(credentialsPath), content);
+        if (process.platform !== 'win32') {
+          fs.chmodSync(path.basename(credentialsPath), 0o600);
+        }
+        return next;
       });
     },
   };

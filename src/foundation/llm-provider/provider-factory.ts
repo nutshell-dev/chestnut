@@ -1,5 +1,5 @@
 import type { ProviderConfig } from './types.js';
-import { PiAiAdapter } from './pi-ai-adapter.js';
+import { PiAiAdapter, type PiAiAdapterOptions } from './pi-ai-adapter.js';
 import { LLMError } from './errors.js';
 import type { LLMProvider } from './types.js';
 
@@ -41,7 +41,7 @@ function validateProviderConfig(config: ProviderConfig): void {
  * 仍必填——它是 pi-ai api 的显式协议声明（不做 model/baseUrl 猜测路由）。
  * transport 字段保留于 schema（旧配置可读）但不再参与路由。
  */
-export function createLLMProvider(config: ProviderConfig): LLMProvider {
+export function createLLMProvider(config: ProviderConfig, options?: PiAiAdapterOptions): LLMProvider {
   validateProviderConfig(config);
-  return new PiAiAdapter(config);
+  return new PiAiAdapter(config, options);
 }

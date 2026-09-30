@@ -11,6 +11,7 @@ export {
   writeYamlConfigExclusive,
   patchYamlConfig,
   withYamlConfigLock,
+  withYamlConfigLockAsync,
   configExists,
 } from './store.js';
 export {

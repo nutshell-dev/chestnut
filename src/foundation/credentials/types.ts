@@ -39,6 +39,21 @@ export interface CredentialsOwner {
   describe(ref: string): CredentialInfo;
   set(ref: string, value: string): Promise<void>;
   unset(ref: string): Promise<void>;
+  /**
+   * Phase 1927 Step E：跨进程 read-modify-write 事务（F3 修复）。
+   *
+   * 完整闭包在凭据文件锁内执行：锁内重读当前文件层值 → fn（可含网络调用，
+   * 如 OAuth refresh/login 决策）→ 按返回值写回（undefined = 删除）→ 原子
+   * 发布。迟到 writer 不可能覆盖另一进程的提交（fn 看到的是锁内最新值）。
+   * - fn 收到的是**文件层**当前值（唯一可写层；env shadow 先行拒绝——写无意义）；
+   * - fn 返回 '' → typed 'empty_value'（空值缺席语义不变）；
+   * - fn 抛错 → 不写回、原错误穿透（锁照常释放，释放失败显式报告）；
+   * - 死 holder 由锁的活性探测回收（PID+启动时间）；获取超时 typed 'lock_timeout'。
+   */
+  modify(
+    ref: string,
+    fn: (current: string | undefined) => Promise<string | undefined>,
+  ): Promise<string | undefined>;
 }
 
 /** 凭据引用名合法性（环境变量命名约定）。 */

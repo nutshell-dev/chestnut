@@ -18,7 +18,8 @@
 
 import type * as PiAi from '@earendil-works/pi-ai';
 import { LLMError } from './errors.js';
-import { getPiAiCredentialStore } from './pi-ai-credentials.js';
+import { PROVIDER_INVENTORY } from './provider-inventory.generated.js';
+import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import { resolveContextWindow } from './model-context-windows.js';
 import type { ProviderConfig } from './types.js';
 import type { ApiFormat } from './presets.js';
@@ -161,6 +162,12 @@ export interface PiAiEndpoint {
 export interface PiAiEndpointOptions {
   /** 测试注入：pi-ai auth 环境解析上下文（缺省 = process.env + node fs）。 */
   authContext?: PiAi.AuthContext;
+  /**
+   * Phase 1927 Step E：CredentialStore 实例依赖（装配根固定创建注入；
+   * backend 在实例生命周期内不漂移）。OAuth-capable provider 缺 store → loud
+   * （refresh 轮换的 token 无处持久化，不得静默丢凭证）。
+   */
+  credentials?: PiAiCredentialStore;
 }
 
 /**
@@ -199,8 +206,17 @@ export async function createPiAiEndpoint(
         { provider: config.name, field: 'apiKey' },
       );
     }
+    // Phase 1927 Step E：OAuth-capable provider 必须有装配注入的 CredentialStore
+    // （否则 refresh 轮换 token 静默丢失——pi-ai 缺省 InMemoryCredentialStore 不持久化）
+    if (!options?.credentials && PROVIDER_INVENTORY[model.provider]?.auth.oauth) {
+      throw new LLMError(
+        `Provider "${config.name}": "${model.provider}" supports OAuth stored credentials but no ` +
+        `credential store was injected (assembly must create and inject one — see pi-ai-credentials.ts)`,
+        { provider: config.name, field: 'credentialStore' },
+      );
+    }
     const models = runtime.createModels({
-      credentials: getPiAiCredentialStore(),
+      ...(options?.credentials && { credentials: options.credentials }),
       ...(options?.authContext && { authContext: options.authContext }),
     });
     models.setProvider(provider);

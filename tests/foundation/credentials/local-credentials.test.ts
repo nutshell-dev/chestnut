@@ -207,3 +207,111 @@ describe('权限与文件合法性（POSIX）', () => {
     expect(() => makeOwner({}).resolve('K')).toThrowError(CredentialsError);
   });
 });
+
+describe('modify（Phase 1927 Step E：跨进程 RMW 事务）', () => {
+  it('基本 RMW：fn 收到文件层当前值，返回新值原子写回（0600 不变）', async () => {
+    const owner = makeOwner({});
+    const seen = await owner.modify('K', async (current) => {
+      expect(current).toBeUndefined();
+      return 'v1';
+    });
+    expect(seen).toBe('v1');
+    expect(makeOwner({}).resolve('K')).toEqual({ value: 'v1', source: 'file' });
+    const again = await owner.modify('K', async (current) => {
+      expect(current).toBe('v1'); // 锁内重读，非调用方旧快照
+      return 'v2';
+    });
+    expect(again).toBe('v2');
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(credentialsFile()).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it('fn 返回 undefined → 删除条目；缺席 ref 上删除为 no-op', async () => {
+    const owner = makeOwner({});
+    await owner.set('K', 'v');
+    const deleted = await owner.modify('K', async () => undefined);
+    expect(deleted).toBeUndefined();
+    expect(makeOwner({}).resolve('K')).toBeUndefined();
+    // 骨架保留（文件仍在）
+    expect(fs.existsSync(credentialsFile())).toBe(true);
+    // 文件从未存在时的删除：物化空骨架（与 unset 语义对齐——不炸）
+    const home2 = createTrackedTempDirSync('chestnut-cred-home2-');
+    vi.stubEnv('CHESTNUT_HOME', home2);
+    await expect(makeOwner({}).modify('NOPE', async () => undefined)).resolves.toBeUndefined();
+    vi.stubEnv('CHESTNUT_HOME', homeDir);
+  });
+
+  it('fn 返回相同值 → 跳过重写（文件不被替换）', async () => {
+    const owner = makeOwner({});
+    await owner.set('K', 'v');
+    const before = fs.statSync(credentialsFile()).ino;
+    const result = await owner.modify('K', async (current) => current);
+    expect(result).toBe('v');
+    expect(fs.statSync(credentialsFile()).ino).toBe(before); // 无原子发布
+  });
+
+  it('fn 抛错 → 不写回、原错误穿透', async () => {
+    const owner = makeOwner({});
+    await owner.set('K', 'v');
+    const boom = new Error('refresh failed');
+    await expect(owner.modify('K', async () => { throw boom; })).rejects.toBe(boom);
+    expect(makeOwner({}).resolve('K')?.value).toBe('v');
+  });
+
+  it('空串返回值 → empty_value typed；env shadow → shadowed_by_env；非法 ref → invalid_ref', async () => {
+    await expect(makeOwner({}).modify('K', async () => '')).rejects.toMatchObject({ code: 'empty_value' });
+    await expect(makeOwner({ K: 'env' }).modify('K', async () => 'v'))
+      .rejects.toMatchObject({ code: 'shadowed_by_env' });
+    await expect(makeOwner({}).modify('1BAD', async () => 'v')).rejects.toMatchObject({ code: 'invalid_ref' });
+  });
+
+  it('锁竞争串行化：两 owner 并发 modify，迟到者读到先提交者的值（无 lost update）', async () => {
+    // 真实文件锁（O_EXCL token）——锁机制进程无关，两实例等价两进程竞争。
+    // 反向对照：若锁只包单次写而 fn 在锁外（Step E 前形态），B 的 fn 会在 A
+    // 提交前以旧值并发执行，最终只剩一个提交（refresh 轮换 token 丢失场景）。
+    const a = makeOwner({});
+    const b = makeOwner({});
+    await a.set('COUNTER', '0');
+    const order: string[] = [];
+    const increment = async (tag: string, current: string | undefined): Promise<string> => {
+      order.push(`${tag}:saw:${current}`);
+      // 持锁窗口：让并发的另一方必然先抵达锁等待（串行化证明不依赖时长）
+      const LOCK_HOLD_WINDOW_MS = 50;
+      await new Promise((res) => setTimeout(res, LOCK_HOLD_WINDOW_MS));
+      return String(Number(current) + 1);
+    };
+    const [ra, rb] = await Promise.all([
+      a.modify('COUNTER', (cur) => increment('a', cur)),
+      b.modify('COUNTER', (cur) => increment('b', cur)),
+    ]);
+    // 两个提交都落地（1 与 2，次序不限）；后到者的 fn 看到的是先到者已提交的值
+    expect([ra, rb].sort()).toEqual(['1', '2']);
+    expect(order[0]).toBe(`${order[0]!.split(':')[0]}:saw:0`);
+    expect(order[1]).toBe(`${order[1]!.split(':')[0]}:saw:1`);
+    expect(makeOwner({}).resolve('COUNTER')?.value).toBe('2');
+  });
+
+  it('logout/login 交错：迟到 writer 不覆盖——delete 的 fn 看到并发 login 已提交的值', async () => {
+    const login = makeOwner({});
+    const logout = makeOwner({});
+    const seenByLogout: (string | undefined)[] = [];
+    const [loginResult] = await Promise.all([
+      login.modify('PI_AI_CREDENTIAL_XAI', async (current) => {
+        expect(current).toBeUndefined();
+        // 持锁窗口：让 logout 抵达锁等待（证明其 fn 在 login 提交后执行）
+        const LOGIN_HOLD_WINDOW_MS = 50;
+        await new Promise((res) => setTimeout(res, LOGIN_HOLD_WINDOW_MS));
+        return '{"type":"oauth","refresh":"r1"}';
+      }),
+      logout.modify('PI_AI_CREDENTIAL_XAI', async (current) => {
+        seenByLogout.push(current);
+        return undefined; // logout = 删除
+      }),
+    ]);
+    expect(loginResult).toBe('{"type":"oauth","refresh":"r1"}');
+    // 锁内重读：logout 的 fn 必然看到 login 提交的凭证（不是 undefined 旧快照）
+    expect(seenByLogout).toEqual(['{"type":"oauth","refresh":"r1"}']);
+    expect(makeOwner({}).resolve('PI_AI_CREDENTIAL_XAI')).toBeUndefined();
+  });
+});

@@ -30,13 +30,10 @@ export {
   catalogProvidersWithoutPreset,
 } from './catalog-strategy.js';
 export {
-  registerPiAiCredentialBackend,
-  getPiAiCredentialBackend,
-  getPiAiCredentialStore,
   createPiAiCredentialStore,
   piAiCredentialRef,
 } from './pi-ai-credentials.js';
-export type { PiAiCredentialBackend } from './pi-ai-credentials.js';
+export type { PiAiCredentialBackend, PiAiCredentialStore } from './pi-ai-credentials.js';
 // Phase 1926 Step D：CLI login 缝经 barrel 触达运行时（no-deep-into-module 纪律）
 export { loadPiAiRuntime } from './pi-ai-support.js';
 export type { PiAiRuntime } from './pi-ai-support.js';
