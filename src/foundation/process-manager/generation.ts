@@ -52,6 +52,12 @@ export const GENERATION_FILE = 'generation.json';
 export const PID_FILE = 'pid.json';
 export const READY_FILE = 'ready.json';
 export const FAILURE_FILE = 'failure.json';
+/**
+ * Phase 1927 Step C：opaque 业务事实（PM 不解释内容——通用 capability，
+ * 不 import 任何业务模块）。child 在写 ready 事实前写入，随 generation 目录
+ * 整体 move 进 active（ready 可见 ⇒ 业务事实已存在）。
+ */
+export const BUSINESS_FACT_FILE = 'business.json';
 
 /**
  * child env 携带的 generation identity（CHESTNUT_* 落 process-exec env-scrub
@@ -534,6 +540,69 @@ export async function writeReadyFact(
     `pid=${pid}`,
   );
   return { kind: 'written' };
+}
+
+// === Business fact (child, pre-ready；Phase 1927 Step C) ===
+
+/**
+ * 把 opaque 业务事实写入本 generation 的 spawning 目录（内容对 PM 透明——
+ * PM 只做存储与按 exact generation 读取，不解析不解释）。
+ * 写前重读 spawning 确认本 generation 仍在位（同 writeReadyFact 纪律）。
+ */
+export async function writeBusinessFact(
+  ctx: ProcessManagerContext,
+  record: ProcessGenerationRecord,
+  raw: string,
+): Promise<WriteGenerationFact> {
+  const daemonDir = record.daemon_dir as DaemonDir;
+  const inspection = inspectSpawning(ctx, daemonDir);
+  if (inspection.status === 'malformed') return { kind: 'malformed_spawning', cause: inspection.cause };
+  if (inspection.status === 'none' || inspection.record.generation_id !== record.generation_id) {
+    return { kind: 'generation_moved' };
+  }
+  try {
+    await ctx.fs.writeAtomicExisting(
+      path.join(getSpawningDir(daemonDir), BUSINESS_FACT_FILE),
+      raw,
+    );
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'generation_moved' };
+    return { kind: 'retryable_failure', cause: formatErr(err) };
+  }
+  return { kind: 'written' };
+}
+
+/**
+ * 按 exact generation 读 opaque 业务事实（active 槽优先，其次 spawning 槽；
+ * 其他 generation 的事实一律不认）。返回 raw string，解析归业务 owner。
+ */
+export function inspectBusinessFact(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  generationId: string,
+):
+  | { status: 'none' }
+  | { status: 'ok'; raw: string }
+  | { status: 'malformed'; cause: unknown } {
+  const active = inspectActive(ctx, daemonDir);
+  if (active.status === 'malformed') return { status: 'malformed', cause: active.cause };
+  let dir: string | undefined;
+  if (active.status === 'ok' && active.record.generation_id === generationId) {
+    dir = getActiveDir(daemonDir);
+  } else {
+    const spawning = inspectSpawning(ctx, daemonDir);
+    if (spawning.status === 'malformed') return { status: 'malformed', cause: spawning.cause };
+    if (spawning.status === 'ok' && spawning.record.generation_id === generationId) {
+      dir = getSpawningDir(daemonDir);
+    }
+  }
+  if (dir === undefined) return { status: 'none' };
+  try {
+    return { status: 'ok', raw: ctx.fs.readSync(path.join(dir, BUSINESS_FACT_FILE)) };
+  } catch (err) {
+    if (isFileNotFound(err)) return { status: 'none' };
+    return { status: 'malformed', cause: err };
+  }
 }
 
 // === Failure fact ===

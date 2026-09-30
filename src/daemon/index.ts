@@ -28,3 +28,13 @@ export type { DaemonSpawnOptionsInput } from './spawn-options.js';
 // Phase 1878 Step B: Daemon 稳定心跳协议面（Watchdog 单向消费）
 export { DAEMON_HEARTBEAT_FILE, readDaemonHeartbeat } from './heartbeat-fact.js';
 export type { DaemonHeartbeatFact, DaemonHeartbeatRead } from './heartbeat-fact.js';
+
+// Phase 1927 Step C: motion daemon LLM 身份 ready 业务事实协议（daemon 发布 / start 消费）
+export {
+  MOTION_LLM_READY_FACT_SCHEMA_VERSION,
+  MotionLLMIdentityMismatchError,
+  encodeMotionLLMReadyFact,
+  decodeMotionLLMReadyFact,
+  ensureMotionLLMIdentity,
+} from './llm-ready-fact.js';
+export type { MotionLLMReadyFact, MotionLLMIdentityFailure } from './llm-ready-fact.js';

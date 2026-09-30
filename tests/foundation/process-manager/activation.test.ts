@@ -20,9 +20,12 @@ import {
   writeChildPid,
   writeStopIntent,
   inspectActive,
+  inspectBusinessFact,
   getSpawningDir,
+  getActiveDir,
   getRetiredDirFor,
   READY_FILE,
+  BUSINESS_FACT_FILE,
   type ProcessGenerationRecord,
 } from '../../../src/foundation/process-manager/generation.js';
 import { activateChildGeneration } from '../../../src/foundation/process-manager/index.js';
@@ -239,5 +242,78 @@ describe('phase 1873 Step B: activateChildGeneration（PM 协议 capability）',
     // spawning 已不存在 → 第二次为 spawning_not_found（fail-closed；幂等语义在 activateGeneration 层）
     expect(second.kind).toBe('failed');
     expect(second.kind === 'failed' && second.stage).toBe('spawning_not_found');
+  });
+
+  // ── Phase 1927 Step C：opaque 业务事实（business.json）──────────────────────
+
+  it('businessFact：先于 ready 写入并随目录迁 active；inspectBusinessFact 按 exact generation 读回', async () => {
+    const record = await makeSpawning('gen-fact');
+    const outcome = await activateChildGeneration(ctx, daemonDir, {
+      generationId: record.generation_id,
+      pid: CHILD_PID,
+      startTime: undefined,
+      businessFact: '{"opaque":true}',
+    });
+
+    expect(outcome.kind).toBe('activated');
+    // 目录已整体迁 active（spawning 无残留）
+    expect(exists(path.join(getSpawningDir(daemonDir), BUSINESS_FACT_FILE))).toBe(false);
+    expect(exists(path.join(getActiveDir(daemonDir), BUSINESS_FACT_FILE))).toBe(true);
+    // PM 不解析内容：raw 原样读回
+    const fact = inspectBusinessFact(ctx, daemonDir, record.generation_id);
+    expect(fact).toEqual({ status: 'ok', raw: '{"opaque":true}' });
+  });
+
+  it('businessFact 缺省：不写 business.json；inspectBusinessFact → none（旧 daemon 语义）', async () => {
+    const record = await makeSpawning('gen-nofact');
+    const outcome = await activateChildGeneration(ctx, daemonDir, {
+      generationId: record.generation_id,
+      pid: CHILD_PID,
+      startTime: undefined,
+    });
+
+    expect(outcome.kind).toBe('activated');
+    expect(exists(path.join(getActiveDir(daemonDir), BUSINESS_FACT_FILE))).toBe(false);
+    expect(inspectBusinessFact(ctx, daemonDir, record.generation_id).status).toBe('none');
+  });
+
+  it('businessFact 写失败 → failed/business_fact_write_failed，ready 事实未写（顺序保证）', async () => {
+    const record = await makeSpawning('gen-factfail');
+    const failingFs = new Proxy(nodeFs, {
+      get(target, prop) {
+        if (prop === 'writeAtomicExisting') {
+          return async (p: string, content: string) => {
+            if (String(p).includes(BUSINESS_FACT_FILE)) {
+              throw new Error('EIO injected');
+            }
+            return (target as unknown as Record<string, (p: string, c: string) => Promise<unknown>>).writeAtomicExisting(p, content);
+          };
+        }
+        return (target as unknown as Record<string, unknown>)[prop];
+      },
+    }) as NodeFileSystem;
+    const failingCtx: ProcessManagerContext = { ...ctx, fs: failingFs };
+    const outcome = await activateChildGeneration(failingCtx, daemonDir, {
+      generationId: record.generation_id,
+      pid: CHILD_PID,
+      startTime: undefined,
+      businessFact: 'x',
+    });
+    expect(outcome.kind === 'failed' && outcome.stage).toBe('business_fact_write_failed');
+    expect(outcome.kind === 'failed' && outcome.reason).toMatch(/business fact write failed: retryable_failure/);
+    // ready 不可见（businessFact 先于 ready；失败即无 ready 承诺）
+    expect(exists(path.join(getSpawningDir(daemonDir), READY_FILE))).toBe(false);
+  });
+
+  it('inspectBusinessFact：其他 generation 的事实一律不认', async () => {
+    const record = await makeSpawning('gen-mine');
+    const outcome = await activateChildGeneration(ctx, daemonDir, {
+      generationId: record.generation_id,
+      pid: CHILD_PID,
+      startTime: undefined,
+      businessFact: 'mine',
+    });
+    expect(outcome.kind).toBe('activated');
+    expect(inspectBusinessFact(ctx, daemonDir, 'gen-other').status).toBe('none');
   });
 });

@@ -48,7 +48,7 @@ import {
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
-import { createDaemonSpawnOptions } from '../../daemon/index.js';
+import { createDaemonSpawnOptions, ensureMotionLLMIdentity } from '../../daemon/index.js';
 import {
   resolveOnboardingIdentity,
   ONBOARDING_CONTRACT_ID,
@@ -365,11 +365,19 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
   // 合法 winner（Watchdog / 并发 CLI）由 ProcessManager join 收敛到 ready，
   // start 不再组合 isAlive+spawn（TOCTOU）、不解释 ProcessSpawnConflictError。
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-  const daemonReady = pm.ensureRunning(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
+  const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID);
+  const daemonReady = pm.ensureRunning(motionDaemonDir, motionSpawnOptions);
+  // Phase 1927 Step C：spawned/already_ready/joined 三种 outcome 统一在 ready 后
+  // 读 active generation 的 LLM 身份业务事实与本次验证身份比对——事实缺失
+  // （watchdog winner/旧 daemon）/损坏/不等 typed fail-closed，不进 onboarding/chat。
+  const awaitVerifiedDaemonReady = async (): Promise<void> => {
+    await daemonReady;
+    ensureMotionLLMIdentity(pm, motionDaemonDir, verified.snapshot.identity);
+  };
 
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
-    await daemonReady;
+    await awaitVerifiedDaemonReady();
     await motionChatCommand(deps);
     return;
   }
@@ -390,7 +398,7 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
     const language = llmOptions.nonInteractive
       ? (llmOptions.language ?? 'auto')
       : await pickLanguage();
-    await daemonReady;
+    await awaitVerifiedDaemonReady();
 
     // phase 1879 Step B: onboarding contract 的一次性 ContractSystem 装配归 Assembly
     // 窄 action context（motion 变体）——CLI 不再直构造；audit 由 context own、终态 dispose。
@@ -436,7 +444,7 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
-    await daemonReady;
+    await awaitVerifiedDaemonReady();
     if (onboarding.state === 'not_found') {
       // phase 1901 Step B: 同首次运行分支，注册 summon-verify policy（policy-only）。
       const action = await createMotionContractActionContext(deps, {

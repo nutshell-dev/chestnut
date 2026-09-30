@@ -27,6 +27,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
+import { encodeMotionLLMReadyFact } from './llm-ready-fact.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
@@ -204,12 +205,26 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       process.exit(1);
     };
 
+    // Phase 1927 Step C：motion 随 activation 发布 LLM 身份业务事实——本进程实际
+    // 消费的配置身份（与上方 verifyExpectedLLMIdentity 同源：同一 globalConfig object）。
+    // start 消费侧（ensureMotionLLMIdentity）在 ready 后读 exact generation 事实比对；
+    // 旧 daemon/watchdog winner 无事实 → 消费侧 fail-closed。generation env 缺失时
+    // activation 先行失败，此处不构造（fact 自称的 generation 必须是激活身份）。
+    const motionBusinessFact = isMotion && processGenerationId !== undefined
+      ? encodeMotionLLMReadyFact({
+          generationId: processGenerationId,
+          llmIdentity: llmConfigIdentity(resolveLLMConfig(globalConfig)),
+          committedAt: new Date().toISOString(),
+        })
+      : undefined;
+
     try {
       const startTime = getProcessStartTime(process.pid) as ProcessStartTime | undefined;
       const activationResult = await instances.processManager.activateChildGeneration(daemonDir, {
         generationId: processGenerationId,
         pid: process.pid,
         startTime,
+        businessFact: motionBusinessFact,
       });
       if (activationResult.kind !== 'activated') {
         throw new Error(activationResult.reason);

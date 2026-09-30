@@ -59,6 +59,9 @@ vi.mock('../../src/cli/commands/motion.js', () => ({
 
 vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>();
+  // Phase 1927 Step C：ready 业务事实缝——与上方门控 mock 的假身份一致（真实协议见
+  // start-watchdog-spawn-race / start-llm-gate 测试）
+  const { encodeMotionLLMReadyFact } = await import('../../src/daemon/llm-ready-fact.js');
   return {
     ...actual,
     // phase 1282 Step B: start 只消费 ensureRunning（ready-winner convergence），
@@ -68,6 +71,15 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
         h.order.push('daemon-spawn');
         return { kind: 'spawned', pid: 4242 };
       }),
+      readActiveBusinessFact: vi.fn(() => ({
+        kind: 'ok',
+        generationId: 'gen-test',
+        raw: encodeMotionLLMReadyFact({
+          generationId: 'gen-test',
+          llmIdentity: 'test-gate-identity',
+          committedAt: '2026-09-29T00:00:00.000Z',
+        }),
+      })),
     })),
   };
 });

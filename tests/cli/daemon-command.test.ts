@@ -131,6 +131,7 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   saveClawConfig: vi.fn(),
   clawExists: vi.fn(() => true),
   resolveLLMConfig: vi.fn(),  // phase 1886 Step B: mock 随 alias 删除归名
+  llmConfigIdentity: vi.fn(() => 'test-llm-identity'),  // Phase 1927 Step C: motion ready 业务事实发布
 }));
 
 // node 内置 mock
@@ -361,6 +362,26 @@ describe('daemonCommand - A4a startup success', () => {
       label: '[motion daemon]',
       motion: expect.objectContaining({ heartbeat: expect.anything() }),
     }));
+
+    // Phase 1927 Step C：motion activation 携带 LLM 身份业务事实（generation 身份 + 身份摘要）
+    const activationInput = mockState.mockProcessManager.activateChildGeneration.mock.calls[0][1];
+    expect(typeof activationInput.businessFact).toBe('string');
+    const fact = JSON.parse(activationInput.businessFact as string) as Record<string, unknown>;
+    expect(fact['generationId']).toBe(TEST_GENERATION_ID);
+    expect(fact['llmIdentity']).toBe('test-llm-identity');
+    expect(typeof fact['committedAt']).toBe('string');
+  });
+
+  it('Phase 1927 Step C：claw 不发布 LLM 身份业务事实（motion 专属协议）', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
+
+    const cmdPromise = daemonCommand('test-claw');
+    await once(mockStartDaemonLoopCallEvent, 'call');
+    if (mockState.stopFn) mockState.stopFn();
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
+
+    const activationInput = mockState.mockProcessManager.activateChildGeneration.mock.calls[0][1];
+    expect(activationInput.businessFact).toBeUndefined();
   });
 });
 

@@ -18,6 +18,7 @@ import {
   inspectSpawning,
   inspectSpawningPid,
   retireGeneration,
+  writeBusinessFact,
   writeReadyFact,
   type ProcessGenerationRecord,
 } from './generation.js';
@@ -33,6 +34,7 @@ export type ChildActivationStage =
   | 'pid_mismatch'
   | 'start_time_mismatch'
   | 'stop_intent'
+  | 'business_fact_write_failed'
   | 'ready_write_failed'
   | 'activate_failed';
 
@@ -47,6 +49,12 @@ export interface ChildActivationInput {
   readonly pid: number;
   /** 当前（child）进程 start-time（平台不可得时 undefined）。 */
   readonly startTime: ProcessStartTime | undefined;
+  /**
+   * Phase 1927 Step C：opaque 业务事实（PM 不解析不解释；业务 owner 的
+   * ready 伴随事实，如 motion 已消费的 LLM 配置身份摘要）。写于 ready 事实
+   * 之前——ready 可见 ⇒ 业务事实已存在；随 generation 目录整体 move 进 active。
+   */
+  readonly businessFact?: string;
 }
 
 export async function activateChildGeneration(
@@ -83,6 +91,13 @@ export async function activateChildGeneration(
   if (hasStopIntentForGeneration(ctx, daemonDir, generationId)) {
     retireGeneration(ctx, daemonDir, { generationId }, 'stopped', 'spawning');
     return { kind: 'failed', stage: 'stop_intent', reason: 'stop intent recorded before activation' };
+  }
+  // Phase 1927 Step C：opaque 业务事实先于 ready 写入（ready 可见 ⇒ 事实存在）
+  if (input.businessFact !== undefined) {
+    const fact = await writeBusinessFact(ctx, spawning.record, input.businessFact);
+    if (fact.kind !== 'written') {
+      return { kind: 'failed', stage: 'business_fact_write_failed', reason: `business fact write failed: ${fact.kind}` };
+    }
   }
   const ready = await writeReadyFact(ctx, spawning.record, pid, startTime);
   if (ready.kind !== 'written') {

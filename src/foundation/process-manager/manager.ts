@@ -31,6 +31,8 @@ import {
   activateGeneration,
   retireGeneration,
   writeReadyFact,
+  inspectActive,
+  inspectBusinessFact,
   inspectSpawning,
   inspectSpawningPid,
   hasStopIntentForGeneration,
@@ -81,6 +83,24 @@ export class ProcessManager {
   // generation (Phase 1204)
   inspectSpawning(daemonDir: DaemonDir): ReturnType<typeof inspectSpawning> { return inspectSpawning(this._ctx, daemonDir); }
   inspectSpawningPid(daemonDir: DaemonDir): ReturnType<typeof inspectSpawningPid> { return inspectSpawningPid(this._ctx, daemonDir); }
+  /**
+   * Phase 1927 Step C：opaque 业务事实读取 capability（一次调用 = active
+   * generation identity + 其业务事实；PM 不解释 raw 内容）。
+   * 业务 owner 消费：no_active/fact_missing/malformed 均为显式分型（fail-closed）。
+   */
+  readActiveBusinessFact(daemonDir: DaemonDir):
+    | { kind: 'ok'; generationId: string; raw: string }
+    | { kind: 'no_active' }
+    | { kind: 'fact_missing'; generationId: string }
+    | { kind: 'malformed'; cause: unknown } {
+    const active = inspectActive(this._ctx, daemonDir);
+    if (active.status === 'malformed') return { kind: 'malformed', cause: active.cause };
+    if (active.status !== 'ok') return { kind: 'no_active' };
+    const fact = inspectBusinessFact(this._ctx, daemonDir, active.record.generation_id);
+    if (fact.status === 'malformed') return { kind: 'malformed', cause: fact.cause };
+    if (fact.status === 'none') return { kind: 'fact_missing', generationId: active.record.generation_id };
+    return { kind: 'ok', generationId: active.record.generation_id, raw: fact.raw };
+  }
   writeGenerationReady(_daemonDir: DaemonDir, record: ProcessGenerationRecord, pid: number, startTime?: ProcessStartTime): Promise<WriteGenerationFact> {
     return writeReadyFact(this._ctx, record, pid, startTime);
   }

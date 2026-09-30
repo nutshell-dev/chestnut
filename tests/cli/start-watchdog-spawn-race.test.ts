@@ -30,9 +30,11 @@ import {
   prepareGeneration,
   commitSpawning,
   writeChildPid,
+  writeBusinessFact,
   writeReadyFact,
   activateGeneration,
 } from '../../src/foundation/process-manager/generation.js';
+import { encodeMotionLLMReadyFact } from '../../src/daemon/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../src/foundation/process-manager/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
@@ -237,7 +239,13 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     const auditFile = path.join(tmpDir, '.chestnut', 'audit.tsv');
     await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 10000);
 
-    // winner child：写 ready 事实并 activate（spawning → active）
+    // winner child：写 LLM 身份业务事实（Phase 1927 Step C：先于 ready，随目录迁 active）
+    // + ready 事实并 activate（spawning → active）
+    expect((await writeBusinessFact(winnerCtx, record, encodeMotionLLMReadyFact({
+      generationId: record.generation_id,
+      llmIdentity: 'test-gate-identity',
+      committedAt: new Date().toISOString(),
+    }))).kind).toBe('written');
     expect((await writeReadyFact(winnerCtx, record, sleeperPid)).kind).toBe('written');
     const activation = activateGeneration(winnerCtx, motionDaemonDir, {
       generationId: record.generation_id,
@@ -266,5 +274,52 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     expect(auditContent).toContain(PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_JOINED);
     expect(auditContent).toContain(`generation=${record.generation_id}`);
     expect(auditContent).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED);
+  });
+
+  it('Phase 1927 Step C：winner 无 LLM 身份业务事实（旧 daemon/无身份 winner）→ join 后 fail-closed，不进 contract/chat', async () => {
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+    const { resolveClawDaemonDir, MOTION_CLAW_ID } = await import('../../src/core/claw-topology/index.js');
+
+    const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID);
+
+    // --- Watchdog 侧：真实存活 child + spawning winner（不写 business.json，
+    //     模拟旧 daemon 或早期版本的 watchdog winner）---
+    const { audit: winnerAudit } = makeAudit();
+    const winnerCtx: ProcessManagerContext = {
+      fs: new NodeFileSystem({ baseDir: tmpDir }),
+      audit: winnerAudit,
+    };
+    const record = newProcessGeneration(winnerCtx, motionDaemonDir);
+    prepareGeneration(winnerCtx, record);
+    expect(commitSpawning(winnerCtx, record).kind).toBe('committed');
+
+    const SLEEPER_INTERVAL_MS = 1000; // sleeper 保活心跳：仅防进程退出，数值不参与断言
+    const sleeper = spawn(process.execPath, ['-e', `setInterval(()=>{},${SLEEPER_INTERVAL_MS})`], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    sleeper.unref();
+    expect(sleeper.pid).toBeDefined();
+    sleeperPid = sleeper.pid!;
+    expect((await writeChildPid(winnerCtx, record, sleeperPid)).kind).toBe('written');
+
+    const ensureSupervision = vi.fn(async () => {});
+    const startPromise = startCommand(startDeps(), { ensureSupervision });
+
+    const auditFile = path.join(tmpDir, '.chestnut', 'audit.tsv');
+    await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 10000);
+
+    // winner 只写 ready（无业务事实）并 activate
+    expect((await writeReadyFact(winnerCtx, record, sleeperPid)).kind).toBe('written');
+    const activation = activateGeneration(winnerCtx, motionDaemonDir, {
+      generationId: record.generation_id,
+      pid: sleeperPid,
+    });
+    expect(activation.kind).toBe('activated');
+
+    // join 成功但身份事实缺失 → typed fail-closed（不猜 winner 配置进 chat）
+    await expect(startPromise).rejects.toThrow(/chestnut start failed/);
+    expect(h.counts.contractCreate).toBe(0);
+    expect(h.counts.chat).toBe(0);
   });
 });

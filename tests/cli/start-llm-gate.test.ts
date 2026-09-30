@@ -29,6 +29,11 @@ import {
   START_USAGE_EXIT_CODE,
 } from '../../src/cli/start-llm-gate.js';
 import { snapshotLLMConfig } from '../../src/assembly/index.js';
+import {
+  encodeMotionLLMReadyFact,
+  MotionLLMIdentityMismatchError,
+} from '../../src/daemon/index.js';
+import { ONBOARDING_CONTRACT_ID } from '../../src/core/contract/index.js';
 
 // ── readline mock（答案队列；非交互路径必须零调用）────────────────────────────
 const h = vi.hoisted(() => ({
@@ -79,6 +84,8 @@ const downstream = vi.hoisted(() => ({
   motionInit: vi.fn(async () => {}),
   chat: vi.fn(async () => {}),
   ensureRunning: vi.fn(async () => ({ kind: 'spawned', pid: 4242 })),
+  // Phase 1927 Step C：ready 业务事实读取缝（默认实现见 beforeEach）
+  readBusinessFact: vi.fn(),
 }));
 
 vi.mock('../../src/cli/commands/init.js', async (importOriginal) => {
@@ -97,7 +104,10 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>();
   return {
     ...actual,
-    createProcessManagerForCLI: vi.fn(() => ({ ensureRunning: downstream.ensureRunning })),
+    createProcessManagerForCLI: vi.fn(() => ({
+      ensureRunning: downstream.ensureRunning,
+      readActiveBusinessFact: downstream.readBusinessFact,
+    })),
   };
 });
 
@@ -143,6 +153,20 @@ function makeGateDeps(globalOf: () => ReturnType<typeof makeGlobal>) {
   };
 }
 
+/** Phase 1927 Step C：默认 ready 业务事实（与 claude-x fixture 身份一致）。 */
+const MOTION_FACT_GENERATION = 'gen-motion-1';
+function mockBusinessFactOk(identity: string) {
+  downstream.readBusinessFact.mockImplementation(() => ({
+    kind: 'ok',
+    generationId: MOTION_FACT_GENERATION,
+    raw: encodeMotionLLMReadyFact({
+      generationId: MOTION_FACT_GENERATION,
+      llmIdentity: identity,
+      committedAt: '2026-09-29T00:00:00.000Z',
+    }),
+  }));
+}
+
 const PROBE_FAIL = { ok: false as const, errorType: 'auth' as const, message: 'invalid key', provider: 'anthropic' };
 
 /** probe mock：成功并回带被测快照 identity（真实实现的回声行为）。 */
@@ -174,6 +198,9 @@ beforeEach(() => {
   downstream.motionInit.mockClear();
   downstream.chat.mockClear();
   downstream.ensureRunning.mockClear();
+  downstream.ensureRunning.mockImplementation(async () => ({ kind: 'spawned', pid: 4242 }));
+  downstream.readBusinessFact.mockReset();
+  mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).identity);
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1926-gate-'));
   savedRoot = process.env.CHESTNUT_ROOT;
   process.env.CHESTNUT_ROOT = tmpDir;
@@ -475,5 +502,122 @@ describe('start command gate wiring', () => {
     expect(ensureSupervision).not.toHaveBeenCalled();
     expect(downstream.init).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
+  });
+
+  // ── Phase 1927 Step C：ready 后 LLM 身份业务事实消费（三 outcome 统一 fail-closed）──
+
+  /** onboarding complete 落盘（archive 全完成），start 直接进 chat 分支。 */
+  function seedOnboardingComplete() {
+    const dir = path.join(tmpDir, 'motion', 'contract', 'archive', ONBOARDING_CONTRACT_ID);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'contract.yaml'), 'title: "Onboarding"\n');
+    fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({
+      schema_version: 1,
+      subtasks: {
+        language: { status: 'completed' },
+        identity: { status: 'completed' },
+      },
+    }));
+  }
+
+  it('L. spawned + 事实身份匹配 → 消费事实后进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    });
+
+    expect(downstream.ensureRunning).toHaveBeenCalledTimes(1);
+    expect(downstream.readBusinessFact).toHaveBeenCalledTimes(1);
+    expect(downstream.chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('M. 事实缺失（watchdog winner / 旧 daemon 未发布）→ fail-closed 不进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    downstream.readBusinessFact.mockImplementation(() => ({
+      kind: 'fact_missing',
+      generationId: MOTION_FACT_GENERATION,
+    }));
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    const err = await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).cause).toBeInstanceOf(MotionLLMIdentityMismatchError);
+    expect(((err as CliError).cause as MotionLLMIdentityMismatchError).failure).toBe('fact_missing');
+    expect(downstream.chat).not.toHaveBeenCalled();
+  });
+
+  it('N. 事实身份不等（配置 A 的 daemon + 验证 B 的 start）→ fail-closed 不进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    // daemon 事实身份 = 另一配置（model-y）的身份
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    const err = await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    const cause = (err as CliError).cause as MotionLLMIdentityMismatchError;
+    expect(cause).toBeInstanceOf(MotionLLMIdentityMismatchError);
+    expect(cause.failure).toBe('identity_mismatch');
+    expect(cause.message).not.toContain('ANTHROPIC_API_KEY');
+    expect(downstream.chat).not.toHaveBeenCalled();
+  });
+
+  it('O. 事实损坏（malformed）→ fail-closed 不进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    downstream.readBusinessFact.mockImplementation(() => ({
+      kind: 'ok',
+      generationId: MOTION_FACT_GENERATION,
+      raw: 'not-json',
+    }));
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    const err = await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect(((err as CliError).cause as MotionLLMIdentityMismatchError).failure).toBe('fact_malformed');
+    expect(downstream.chat).not.toHaveBeenCalled();
+  });
+
+  it('P. already_ready outcome 同样消费事实（不加门即回归 F1）', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    downstream.ensureRunning.mockImplementation(async () => ({ kind: 'already_ready', pid: 4242 }));
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    });
+
+    expect(downstream.readBusinessFact).toHaveBeenCalledTimes(1);
+    expect(downstream.chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('Q. joined outcome + 事实身份不等 → fail-closed 不进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    downstream.ensureRunning.mockImplementation(async () => ({ kind: 'joined', pid: 4242, generationId: MOTION_FACT_GENERATION }));
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    const err = await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect(((err as CliError).cause as MotionLLMIdentityMismatchError).failure).toBe('identity_mismatch');
+    expect(downstream.chat).not.toHaveBeenCalled();
   });
 });
