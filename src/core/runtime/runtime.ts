@@ -1125,15 +1125,11 @@ export class Runtime {
           }
         },
         onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
-        onTextEnd: callbacks?.onTextEnd,
         onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
-        onToolCall: callbacks?.onToolCall,
         // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
         // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
         onToolUseInput: callbacks?.onToolUseInput,
         onToolUseInputDelta: callbacks?.onToolUseInputDelta,
-        // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
-        onToolResult: callbacks?.onToolResult,
         onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
         onReset: (provider, timeoutMs) => {
           providerInfoEmitted = false;
