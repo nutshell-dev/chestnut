@@ -40,7 +40,7 @@ export class CatalogModelNotFoundError extends Error {
   constructor(providerId: string, model: string) {
     super(
       `Model "${model}" is not in the static catalog of provider "${providerId}" ` +
-      `(explicit catalog configs require a static catalog model; check "chestnut config provider" choices or pi-ai catalog version)`,
+      `(explicit catalog configs require a static catalog model; check the configured provider id or pi-ai catalog version)`,
     );
     this.name = 'CatalogModelNotFoundError';
     this.providerId = providerId;
@@ -85,7 +85,7 @@ export function validateCatalogAuthProfile(providerId: string, profile: AuthProf
   if ((profile === 'api_key' || profile === 'ambient') && !entry.auth.apiKey) {
     throw new Error(
       `Catalog provider "${providerId}" is OAuth-only; auth_profile "${profile}" is not supported ` +
-      `(use "oauth" and run "chestnut config provider login")`,
+      `(use "oauth" and complete the interactive provider login first)`,
     );
   }
 }

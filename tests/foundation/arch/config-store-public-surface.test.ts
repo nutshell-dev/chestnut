@@ -49,6 +49,8 @@ const EXPECTED_BARREL_SURFACE = [
   'patchYamlConfig',
   // Phase 1910/1911 起 no-replace 写与跨调用 lock 序列化显式 ratify 进公开面
   'withYamlConfigLock',
+  // Phase 1927 Step E：锁的 async 变体（凭据 RMW 事务内含 OAuth refresh 网络调用）ratify 进公开面
+  'withYamlConfigLockAsync',
   'writeYamlConfig',
   'writeYamlConfigExclusive',
 ];

@@ -202,7 +202,7 @@ export async function createPiAiEndpoint(
     if (config.apiKey && !provider.auth.apiKey) {
       throw new LLMError(
         `Provider "${config.name}": "${model.provider}" is OAuth-only — configured api_key has no effect. ` +
-        `Remove api_key from the config and run "chestnut config provider login" instead.`,
+        `Remove api_key from the config and complete the interactive provider login instead.`,
         { provider: config.name, field: 'apiKey' },
       );
     }
