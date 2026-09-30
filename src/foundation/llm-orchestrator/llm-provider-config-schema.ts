@@ -16,6 +16,12 @@ export const FORMAT_MAP: Record<string, string> = {
 
 export const llmProviderConfigSchema = z.object({
   preset: z.string().min(1).optional(),
+  // Phase 1927 Step D：显式 catalog provider 入口（与 preset 互斥——provider_id
+  // 在则 preset 不得给出；adapter 裁决）。provider_id ∈ pi-ai catalog inventory，
+  // model 必须命中该 provider 的静态 catalog seed（MODEL_CATALOG）。
+  provider_id: z.string().min(1).optional(),
+  // 显式认证装配类别（缺省由 catalog auth 类派生：OAuth-only → oauth，其余 → api_key）。
+  auth_profile: z.enum(['api_key', 'ambient', 'oauth']).optional(),
   label: z.string().optional(),
   // Phase 1926 Step D：api_key 可选——ambient（AWS 链/ADC/provider env）与 OAuth
   // preset 不在 yaml 持 key；api_key preset 的必填约束由 CLI 交互/缺参判定保证。

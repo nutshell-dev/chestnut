@@ -111,4 +111,37 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
       }
     }
   });
+
+  // ── Phase 1927 Step D：反向断言——每个 catalog provider 都有配置策略 ──────────
+  // （不再只有 preset→catalog 单向：catalog 任一 provider 必须可经显式
+  //   provider_id + 静态 seed model 走通 schema→adapter→runtime 配置链）
+  it('每个 catalog provider：provider_id + 静态 seed model 可配置（schema→adapter→runtime catalog 命中）', async () => {
+    const { getBuiltinModels } = await import('@earendil-works/pi-ai/providers/all');
+    const { llmProviderConfigSchema } = await import('../../../src/foundation/llm-orchestrator/llm-provider-config-schema.js');
+    const { toProviderConfig } = await import('../../../src/foundation/llm-orchestrator/config-adapter.js');
+    const { catalogProvidersWithoutPreset } = await import('../../../src/foundation/llm-provider/catalog-strategy.js');
+
+    for (const id of Object.keys(PROVIDER_INVENTORY)) {
+      const models = getBuiltinModels(id) as Array<{ id: string }>;
+      // 显式 model 规则：静态 seed 必须非空（动态 provider 的配置入口也是 seed）
+      expect(models.length, `provider ${id} has static catalog seed models`).toBeGreaterThan(0);
+
+      const config = toProviderConfig(llmProviderConfigSchema.parse({
+        provider_id: id,
+        model: models[0].id,
+      }));
+      expect(config.piAiProvider).toBe(id);
+      expect(config.model).toBe(models[0].id);
+      // 派生 profile 合法：oauth ⇒ inventory 声明 oauth；api_key ⇒ 声明 apiKey
+      const profile = config.authProfile;
+      if (profile === 'oauth') expect(PROVIDER_INVENTORY[id].auth.oauth).toBe(true);
+      else expect(PROVIDER_INVENTORY[id].auth.apiKey).toBe(true);
+    }
+
+    // 派生策略与 preset 别名互补覆盖 = universe 全集（无双重封闭来源）
+    const uncovered = catalogProvidersWithoutPreset();
+    const covered = new Set(Object.values(PRESETS).map((p) => p.piAiProvider).filter(Boolean));
+    expect(new Set([...uncovered, ...covered])).toEqual(new Set(Object.keys(PROVIDER_INVENTORY)));
+    expect(uncovered.every((id) => !covered.has(id as string))).toBe(true);
+  });
 });

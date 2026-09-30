@@ -8,6 +8,8 @@ import { Command } from 'commander';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS, presetAuthProfile, presetRequiresBaseUrl } from '../../foundation/llm-provider/index.js';
+// Phase 1927 Step D：catalog-only provider 选择与派生 profile（显式 catalog 配置入口）
+import { catalogProvidersWithoutPreset, deriveCatalogAuthProfile } from '../../foundation/llm-provider/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 // phase 1874 Step B: 终端文本原语经 viewport 模块 barrel（CLIProtocol 有 zod-only bare 白名单、不容 string-width）
@@ -91,6 +93,13 @@ const PRESET_CHOICES = Object.entries(PRESETS).map(([id, preset], index) => ({
   needsBaseUrl: presetRequiresBaseUrl(preset),
 }));
 
+// Phase 1927 Step D：无 preset 别名的 catalog provider 附加在选择尾部（inventory 单源
+// 派生，消除 provider universe 与 PRESETS 双重封闭）；catalog 选择无默认 model。
+const CATALOG_CHOICES = catalogProvidersWithoutPreset().map((id, index) => ({
+  num: PRESET_CHOICES.length + index + 1,
+  id,
+}));
+
 // Helper to create readline interface
 function createRL() {
   return readline.createInterface({
@@ -112,7 +121,8 @@ function question(rl: readline.Interface, prompt: string, defaultValue?: string)
 }
 
 // Select preset interactively
-async function selectPreset(rl: readline.Interface): Promise<string> {
+// Phase 1927 Step D：返回判别选择（preset 别名 或 显式 catalog provider id）。
+async function selectPreset(rl: readline.Interface): Promise<{ kind: 'preset'; id: string } | { kind: 'catalog'; id: string }> {
   console.log('\nSelect preset:');
   // Display in two columns
   const half = Math.ceil(PRESET_CHOICES.length / 2);
@@ -123,24 +133,35 @@ async function selectPreset(rl: readline.Interface): Promise<string> {
     const rightStr = right ? `${right.num}. ${right.id}` : '';
     console.log(`  ${leftStr}  ${rightStr}`);
   }
-  
+  if (CATALOG_CHOICES.length > 0) {
+    console.log('  ── pi-ai catalog providers (explicit provider_id, model required) ──');
+    const halfC = Math.ceil(CATALOG_CHOICES.length / 2);
+    for (let i = 0; i < halfC; i++) {
+      const left = CATALOG_CHOICES[i];
+      const right = CATALOG_CHOICES[i + halfC];
+      const leftStr = `${left.num}. ${left.id.padEnd(28)}`;
+      const rightStr = right ? `${right.num}. ${right.id}` : '';
+      console.log(`  ${leftStr}  ${rightStr}`);
+    }
+  }
+
   const answer = await question(rl, '\n> ');
   const num = parseInt(answer, 10);
   if (isNaN(num)) { throw new CliError('Invalid choice: not a number'); }
   const choice = PRESET_CHOICES.find(c => c.num === num);
-  if (!choice) {
-    throw new CliError('Invalid selection');
-  }
-  return choice.id;
+  if (choice) return { kind: 'preset', id: choice.id };
+  const catalogChoice = CATALOG_CHOICES.find(c => c.num === num);
+  if (catalogChoice) return { kind: 'catalog', id: catalogChoice.id };
+  throw new CliError('Invalid selection');
 }
 
 // Find provider by label in config
 function findProviderIndex(config: ClawGlobalConfig, label: string): { type: 'primary' | 'fallback'; index: number } | null {
-  if (config.llm.primary.label === label || config.llm.primary.preset === label) {
+  if (config.llm.primary.label === label || config.llm.primary.preset === label || config.llm.primary.provider_id === label) {
     return { type: 'primary', index: -1 };
   }
   const fbIndex = (config.llm.fallbacks ?? []).findIndex(
-    f => f.label === label || f.preset === label
+    f => f.label === label || f.preset === label || f.provider_id === label
   );
   if (fbIndex !== -1) {
     return { type: 'fallback', index: fbIndex };
@@ -161,48 +182,60 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   const rl = createRL();
   
   try {
-    // Select preset
-    const presetId = await selectPreset(rl);
-    const preset = PRESETS[presetId];
-    
+    // Select preset / catalog provider（Phase 1927 Step D：判别选择）
+    const selection = await selectPreset(rl);
+    const preset = selection.kind === 'preset' ? PRESETS[selection.id] : undefined;
+    const providerId = selection.kind === 'catalog' ? selection.id : undefined;
+    // catalog 选择的认证类别由 inventory auth 类派生（OAuth-only → oauth，其余 → api_key）
+    const profile = preset ? presetAuthProfile(preset) : deriveCatalogAuthProfile(providerId!);
+
     // Label (optional)
-    const defaultLabel = presetId;
+    const defaultLabel = selection.id;
     const labelInput = await question(rl, '\nLabel (optional, press Enter to use preset name)', defaultLabel);
     const label = labelInput || defaultLabel;
-    
+
     // Check for duplicate label
     const existing = findProviderIndex(config, label);
     if (existing) {
       throw new CliError(`A provider with label "${label}" already exists`);
     }
-    
+
     // API Key（Phase 1925 Step B：明文经 Credentials owner 落凭据文件，配置只存 `${REF}`）
     // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key——
     // 认证来源见 preset.authHint（ambient 环境解析 / config provider login）。
-    const profile = presetAuthProfile(preset);
     let apiKey: string | undefined;
     if (profile === 'api_key') {
       const apiKeyInput = await question(rl, 'API Key (or ${ENV_VAR})');
       if (!apiKeyInput) {
         throw new CliError('API Key is required');
       }
-      apiKey = await storeKeyAsCredential(deps, apiKeyInput, { envVar: preset.envVar, seed: label });
-    } else {
+      apiKey = await storeKeyAsCredential(deps, apiKeyInput, { envVar: preset?.envVar, seed: label });
+    } else if (preset) {
       console.log(`\nℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
+    } else {
+      console.log(`\nℹ ${providerId} 为 OAuth provider——配置后运行 "chestnut config provider login ${label}" 完成登录。`);
     }
-    
+
     // Base URL for custom presets
     let baseUrl: string | undefined;
-    if (presetRequiresBaseUrl(preset)) {
+    if (preset && presetRequiresBaseUrl(preset)) {
       baseUrl = await question(rl, 'Base URL');
       if (!baseUrl) {
         throw new CliError('Base URL is required for custom presets');
       }
     }
-    
-    // Model (with default from preset)
-    const defaultModel = preset.defaultModel || 'unknown';
-    const model = await question(rl, 'Model', defaultModel);
+
+    // Model（preset 有默认；catalog 选择无默认——必须显式，静态 seed 合法性由 adapter 裁决）
+    let model: string;
+    if (providerId) {
+      model = await question(rl, 'Model');
+      if (!model) {
+        throw new CliError('Model is required for catalog providers');
+      }
+    } else {
+      const defaultModel = preset!.defaultModel || 'unknown';
+      model = await question(rl, 'Model', defaultModel);
+    }
     
     // Role selection
     console.log('\nRole:');
@@ -211,9 +244,9 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     const roleAnswer = await question(rl, '> ', '2');
     const role = roleAnswer === '1' ? 'primary' : 'fallback';
     
-    // Build provider config（ambient/oauth profile 无 api_key 字段）
+    // Build provider config（ambient/oauth profile 无 api_key 字段；catalog 选择写 provider_id）
     const providerConfig: LLMProviderConfig = {
-      preset: presetId,
+      ...(providerId ? { provider_id: providerId } : { preset: selection.id }),
       label,
       ...(apiKey !== undefined && { api_key: apiKey }),
       model,
@@ -230,7 +263,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     let positionFromPrompt = 0;
     if (role === 'primary') {
       const currentPrimary = config.llm.primary;
-      console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset}) will become fallback #1.`);
+      console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset || currentPrimary.provider_id}) will become fallback #1.`);
       const confirm = await question(rl, 'Confirm? [y/N]', 'N');
       if (confirm.toLowerCase() !== 'y') {
         console.log('Cancelled');

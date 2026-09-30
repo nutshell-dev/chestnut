@@ -213,6 +213,7 @@ afterEach(() => {
   else process.env.CHESTNUT_ROOT = savedRoot;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.CHESTNUT_LLM_API_KEY;
+  delete process.env.MISTRAL_API_KEY;
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
@@ -445,6 +446,67 @@ describe('start LLM gate (unit)', () => {
     expect((err as CliError).code).toBe(START_USAGE_EXIT_CODE);
     expect(deps2.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
+  });
+
+  it('R. 非交互 catalog provider（无 preset）：写 provider_id 不落 preset；缺 --model / 缺 key → code=2', async () => {
+    process.env.MISTRAL_API_KEY = 'sk-mistral-test';
+    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+
+    // 完整参数：provider_id 落盘、preset 缺席、key 只写引用
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+    await applyStartLLMOptions(deps, {
+      provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+    }, 'first-run');
+    expect(deps.rootConfig.saveGlobalExclusive).toHaveBeenCalledTimes(1);
+    const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as {
+      llm: { primary: Record<string, unknown> };
+    };
+    expect(saved.llm.primary['provider_id']).toBe('mistral');
+    expect(saved.llm.primary['preset']).toBeUndefined();
+    expect(saved.llm.primary['model']).toBe('codestral-latest');
+    expect(saved.llm.primary['api_key']).toBe('${MISTRAL_API_KEY}');
+    expect(JSON.stringify(saved)).not.toContain('sk-mistral-test');
+
+    // 缺 --model → code=2 零落盘（catalog provider 无默认 model）
+    const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
+    const errNoModel = await applyStartLLMOptions(deps2, {
+      provider: 'mistral', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+    }, 'first-run').catch((e: unknown) => e);
+    expect(errNoModel).toBeInstanceOf(CliError);
+    expect((errNoModel as CliError).code).toBe(START_USAGE_EXIT_CODE);
+    expect((errNoModel as CliError).message).toMatch(/--model/);
+    expect(deps2.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+
+    // 缺 key（api_key 派生 profile）→ code=2 零落盘
+    const deps3 = makeGateDeps(() => makeGlobal('claude-x'));
+    const errNoKey = await applyStartLLMOptions(deps3, {
+      provider: 'mistral', model: 'codestral-latest', nonInteractive: true,
+    }, 'first-run').catch((e: unknown) => e);
+    expect(errNoKey).toBeInstanceOf(CliError);
+    expect((errNoKey as CliError).code).toBe(START_USAGE_EXIT_CODE);
+    expect(deps3.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+  });
+
+  it('S. initialized patch：catalog 换边清 preset，preset 换边清 provider_id', async () => {
+    process.env.MISTRAL_API_KEY = 'sk-mistral-test';
+    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+    await applyStartLLMOptions(deps, {
+      provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+    }, 'initialized');
+    expect(deps.rootConfig.patchPrimary).toHaveBeenCalledTimes(1);
+    const patch = deps.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
+    expect(patch['provider_id']).toBe('mistral');
+    expect('preset' in patch && patch['preset'] === undefined).toBe(true); // 换边清除
+
+    const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
+    await applyStartLLMOptions(deps2, {
+      provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
+    }, 'initialized');
+    const patch2 = deps2.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
+    expect(patch2['preset']).toBe('anthropic');
+    expect('provider_id' in patch2 && patch2['provider_id'] === undefined).toBe(true);
   });
 });
 

@@ -11,6 +11,8 @@ import { formatErr } from "../foundation/node-utils/index.js";
 import { snapshotLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
 import type { LLMConfigSnapshot } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
+// Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
+import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.js';
 import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
@@ -185,7 +187,6 @@ export async function promptReconfigure(
   // Phase 1926 Step D：catalog preset（含 ambient/oauth，无 defaultBaseUrl）同样可选；
   // 仅 custom-*（无默认 baseUrl 且无 catalog 权威）留在 "Custom" 手工路径。
   const presetList = Object.values(PRESETS).filter(p => p.defaultBaseUrl || p.piAiProvider);
-  const customIdx = presetList.length + 1;
 
   while (true) {
     console.log('\nReconfigure LLM:');
@@ -228,6 +229,14 @@ export async function promptReconfigure(
           presetList.forEach((p, i) =>
             console.log(`${i + 1}. ${p.displayName}  (${p.defaultBaseUrl})`)
           );
+          // Phase 1927 Step D：无 preset 别名的 catalog provider 同样可选（无默认
+          // model——选择后必须显式输入 model，否则旧 model 跨 provider 无意义）
+          const catalogOnly = catalogProvidersWithoutPreset();
+          catalogOnly.forEach((id, i) =>
+            console.log(`${presetList.length + i + 1}. ${id}  (pi-ai catalog)`)
+          );
+          const catalogStart = presetList.length + 1;
+          const customIdx = presetList.length + catalogOnly.length + 1;
           console.log(`${customIdx}. Custom (enter format & base URL manually)`);
 
           const raw = await question('\n> ');
@@ -239,8 +248,16 @@ export async function promptReconfigure(
             const p = presetList[idx - 1];
             chosenPreset = p.id;
             chosenBaseUrl = p.defaultBaseUrl ?? '';
-            await deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl || undefined });
+            // provider 换边清除互斥的 provider_id（patch 语义：undefined = 删键）
+            await deps.rootConfig.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl || undefined });
             console.log(`✓ Set provider to ${p.displayName}`);
+            step = 'done';
+          } else if (idx >= catalogStart && idx < customIdx) {
+            const providerId = catalogOnly[idx - catalogStart];
+            const modelRaw = await question(`Model (required for ${providerId})`);
+            if (!modelRaw || modelRaw === 'b') { console.log('Model is required.'); continue; }
+            await deps.rootConfig.patchPrimary({ provider_id: providerId, preset: undefined, model: modelRaw, base_url: undefined });
+            console.log(`✓ Set provider to ${providerId} (catalog), model ${modelRaw}`);
             step = 'done';
           } else if (idx === customIdx) {
             step = 'customFormat';
@@ -264,7 +281,7 @@ export async function promptReconfigure(
           if (raw === 'b') { step = 'customFormat'; continue; }
           if (!raw) { console.log('Base URL is required.'); continue; }
           chosenBaseUrl = raw;
-          await deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl });
+          await deps.rootConfig.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl });
           step = 'done';
         }
       }

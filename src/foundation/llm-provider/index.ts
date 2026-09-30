@@ -18,6 +18,17 @@ export {
   ExternalAbortError } from './abort-helper.js';
 export { PRESETS, resolvePreset, presetAuthProfile, presetRequiresBaseUrl } from './presets.js';
 export type { AuthProfile } from './presets.js';
+// Phase 1927 Step D：显式 catalog provider 配置策略单源（CLI 经 barrel 触达）
+export {
+  UnknownCatalogProviderError,
+  CatalogModelNotFoundError,
+  catalogProviderEntry,
+  isCatalogProvider,
+  deriveCatalogAuthProfile,
+  validateCatalogAuthProfile,
+  catalogModelKnown,
+  catalogProvidersWithoutPreset,
+} from './catalog-strategy.js';
 export {
   registerPiAiCredentialBackend,
   getPiAiCredentialBackend,

@@ -10,6 +10,8 @@ import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
+// Phase 1927 Step D：catalog-only provider 列表与派生 profile（显式 catalog 配置入口）
+import { catalogProvidersWithoutPreset, deriveCatalogAuthProfile } from '../../foundation/llm-provider/index.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,
@@ -72,23 +74,27 @@ export interface InitCommandResult {
  * start --non-interactive 首次配置共用，字段默认值不得两处漂移。
  */
 export function buildInitialConfig(input: {
-  presetId: string;
+  /** preset 别名（与 providerId 互斥——显式 catalog 入口优先）。 */
+  presetId?: string;
+  /** Phase 1927 Step D：显式 catalog provider id（无 preset 别名时的配置入口）。 */
+  providerId?: string;
   /** Phase 1926 Step D：ambient/oauth preset 无 api_key（缺席 = 不落该字段）。 */
   apiKey?: string;
   model: string;
   baseUrl?: string;
 }) {
+  const primary = {
+    ...(input.providerId ? { provider_id: input.providerId } : { preset: input.presetId }),
+    ...(input.apiKey && { api_key: input.apiKey }),
+    model: input.model,
+    temperature: 0.7,
+    timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
+    ...(input.baseUrl && { base_url: input.baseUrl }),
+  };
   return {
     version: '1',
     llm: {
-      primary: {
-        preset: input.presetId,
-        ...(input.apiKey && { api_key: input.apiKey }),
-        model: input.model,
-        temperature: 0.7,
-        timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
-        ...(input.baseUrl && { base_url: input.baseUrl }),
-      },
+      primary,
       retry_attempts: DEFAULT_LLM_RETRY_ATTEMPTS,
       retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
       // Phase 1268 Step E: 默认启用 circuit breaker，显式落盘便于用户观察。
@@ -153,6 +159,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
 
   try {
     let presetId = '';
+    let providerId = '';
     let apiKey = '';
     let model = '';
     let baseUrl: string | undefined;
@@ -285,18 +292,22 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
         break outer;
 
       } else if (configMethod === '3') {
-        // ── Branch 3: select provider from preset list ──
+        // ── Branch 3: select provider from preset list + catalog-only providers ──
         // Steps: provider → apiKey → model
         // 'b' goes back one step; 'b' at provider list returns to outer menu
 
         const providers = PROVIDER_LIST
           .map(id => PRESETS[id])
           .filter(Boolean);
+        // Phase 1927 Step D：无 preset 别名的 catalog provider 同样可选（inventory
+        // 单源派生——不再是 PRESETS 封闭清单）；catalog 选择无默认 model，必须显式输入。
+        const catalogOnly = catalogProvidersWithoutPreset();
 
         type ProviderStep = 'pick' | 'apiKey' | 'model' | 'done';
         let step: ProviderStep = 'pick';
 
         let pickedPresetId = '';
+        let pickedProviderId = '';
         let pickedApiKey = '';
         let pickedModel = '';
 
@@ -306,57 +317,85 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
             providers.forEach((p, i) =>
               console.log(`${i + 1}. ${p.displayName}  (${p.defaultModel ?? 'custom model'})`)
             );
+            catalogOnly.forEach((id, i) =>
+              console.log(`${providers.length + i + 1}. ${id}  (pi-ai catalog)`)
+            );
             const raw = await question('\n> ');
             if (raw === 'b') { console.log(); continue outer; }
             const idx = parseInt(raw, 10) - 1;
-            if (isNaN(idx) || idx < 0 || idx >= providers.length) {
+            if (isNaN(idx) || idx < 0 || idx >= providers.length + catalogOnly.length) {
               console.log('Invalid choice.');
               continue;
             }
-            const preset = providers[idx];
-            pickedPresetId = preset.id;
-            // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key
-            const profile = presetAuthProfile(preset);
-            if (profile !== 'api_key') {
-              console.log(`ℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
-              step = 'model';
+            if (idx < providers.length) {
+              const preset = providers[idx];
+              pickedPresetId = preset.id;
+              pickedProviderId = '';
+              // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key
+              const profile = presetAuthProfile(preset);
+              if (profile !== 'api_key') {
+                console.log(`ℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
+                step = 'model';
+              } else {
+                step = 'apiKey';
+              }
             } else {
-              step = 'apiKey';
+              pickedProviderId = catalogOnly[idx - providers.length];
+              pickedPresetId = '';
+              const profile = deriveCatalogAuthProfile(pickedProviderId);
+              if (profile === 'oauth') {
+                console.log(`ℹ ${pickedProviderId} 为 OAuth provider——保存后按提示完成登录（或稍后 chestnut config provider login）。`);
+                step = 'model';
+              } else {
+                step = 'apiKey';
+              }
             }
 
           } else if (step === 'apiKey') {
-            const preset = PRESETS[pickedPresetId];
+            const preset = pickedPresetId ? PRESETS[pickedPresetId] : undefined;
             // Suggest env var if available and set
-            const envHint = preset.envVar && process.env[preset.envVar]
+            const envHint = preset?.envVar && process.env[preset.envVar]
               ? ` (or press Enter to use ${preset.envVar})`
               : '';
             const raw = await passwordQuestion(rl, `API Key${envHint} (b = back): `);
             if (raw === 'b') { step = 'pick'; continue; }
-            if (!raw && preset.envVar && process.env[preset.envVar]) {
+            if (!raw && preset?.envVar && process.env[preset.envVar]) {
               pickedApiKey = '${' + preset.envVar + '}';
               console.log(`✓ Will read from ${preset.envVar} at runtime`);
             } else if (!raw) {
               console.log('API Key is required.');
               continue;
             } else {
-              pickedApiKey = await storeKeyAsCredential(deps, raw, { envVar: preset.envVar, seed: preset.id });
+              pickedApiKey = await storeKeyAsCredential(deps, raw, { envVar: preset?.envVar, seed: pickedPresetId || pickedProviderId });
             }
             step = 'model';
 
           } else if (step === 'model') {
-            const preset = PRESETS[pickedPresetId];
-            const raw = await question(`Model (b = back, auto = ${preset.defaultModel ?? 'preset default'})`, 'auto');
-            if (raw === 'b') {
-              // ambient/oauth 无 apiKey 步骤，back 回 provider 选择
-              step = presetAuthProfile(preset) === 'api_key' ? 'apiKey' : 'pick';
-              continue;
+            if (pickedProviderId) {
+              // catalog 选择无默认 model——必须显式（静态 seed 合法性由 adapter 裁决）
+              const raw = await question('Model (b = back)');
+              if (raw === 'b') {
+                step = deriveCatalogAuthProfile(pickedProviderId) === 'api_key' ? 'apiKey' : 'pick';
+                continue;
+              }
+              if (!raw) { console.log('Model is required.'); continue; }
+              pickedModel = raw;
+            } else {
+              const preset = PRESETS[pickedPresetId];
+              const raw = await question(`Model (b = back, auto = ${preset.defaultModel ?? 'preset default'})`, 'auto');
+              if (raw === 'b') {
+                // ambient/oauth 无 apiKey 步骤，back 回 provider 选择
+                step = presetAuthProfile(preset) === 'api_key' ? 'apiKey' : 'pick';
+                continue;
+              }
+              pickedModel = raw;
             }
-            pickedModel = raw;
             step = 'done';
           }
         }
 
         presetId = pickedPresetId;
+        providerId = pickedProviderId;
         apiKey = pickedApiKey;  // ambient/oauth profile 保持 ''（不落 api_key 字段）
         model = pickedModel;
         // baseUrl comes from preset / catalog; no manual entry needed
@@ -369,7 +408,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     }
 
     // Build config（模板单源：buildInitialConfig，与 start --non-interactive 共用）
-    const config = buildInitialConfig({ presetId, apiKey, model, baseUrl });
+    const config = buildInitialConfig({ ...(providerId ? { providerId } : { presetId }), apiKey, model, baseUrl });
 
     // Save config
     // Phase 1910 Step D（RACE-CONFIG-INIT-LOST-UPDATE）：初始化唯一提交点 ——
@@ -396,18 +435,19 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
 
     // Phase 1926 Step D：OAuth preset 引导登录（凭证经 pi-ai login 流持久化到用户级
     // Credentials owner）；失败不阻断——随后的 probe/reconfigure 向导兜底。
-    const pickedProfile = PRESETS[presetId] ? presetAuthProfile(PRESETS[presetId]) : 'api_key';
-    if (pickedProfile === 'oauth') {
-      const piAiProvider = PRESETS[presetId].piAiProvider;
-      if (piAiProvider) {
-        const loginNow = await question(`\n${PRESETS[presetId].displayName} 需要 OAuth 登录。现在登录？ [Y/n]`, 'Y');
-        if (loginNow.toLowerCase() !== 'n') {
-          try {
-            await runProviderLogin({ piAiProvider, type: 'oauth', rl });
-          } catch (err) {
-            console.log(`⚠ OAuth login failed: ${formatErr(err)}`);
-            console.log('  可稍后运行 "chestnut config provider login" 重试。');
-          }
+    // Phase 1927 Step D：catalog-only OAuth provider 同等待遇。
+    const oauthProvider = providerId
+      ? (deriveCatalogAuthProfile(providerId) === 'oauth' ? providerId : undefined)
+      : (PRESETS[presetId] && presetAuthProfile(PRESETS[presetId]) === 'oauth' ? PRESETS[presetId].piAiProvider : undefined);
+    if (oauthProvider) {
+      const displayName = providerId || PRESETS[presetId].displayName;
+      const loginNow = await question(`\n${displayName} 需要 OAuth 登录。现在登录？ [Y/n]`, 'Y');
+      if (loginNow.toLowerCase() !== 'n') {
+        try {
+          await runProviderLogin({ piAiProvider: oauthProvider, type: 'oauth', rl });
+        } catch (err) {
+          console.log(`⚠ OAuth login failed: ${formatErr(err)}`);
+          console.log('  可稍后运行 "chestnut config provider login" 重试。');
         }
       }
     }
@@ -416,7 +456,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     // Per DP「事后审计」+ DP「智能体是决策主体」(init 阶段 user 主体):
     // probe 真实 LLM、失败给 user 错误类型 + reconfigure 选项。
     console.log('\nTesting LLM connection...');
-    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_ATTEMPTED, `preset=${presetId}`, `model=${model}`);
+    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_ATTEMPTED, `preset=${presetId || providerId}`, `model=${model}`);
     const t0 = Date.now();
     // Phase 1926 Step C：读取即快照，probe 只消费该快照——结果携带身份证据
     const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
@@ -426,12 +466,12 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     let verified: VerifiedLLMConfig | undefined;
     if (probe.ok) {
       verified = { snapshot, probe: { model: probe.model }, via: 'init' };
-      audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED, `preset=${presetId}`, `model=${probe.model}`, `latency_ms=${latencyMs}`);
+      audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED, `preset=${presetId || providerId}`, `model=${probe.model}`, `latency_ms=${latencyMs}`);
       console.log(`✓ ${probe.model} (${latencyMs}ms)`);
     } else {
       audit?.write(
         CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
-        `preset=${presetId}`,
+        `preset=${presetId || providerId}`,
         `error_type=${probe.errorType}`,
         `message=${audit?.message(probe.message) ?? probe.message}`,
       );
@@ -446,7 +486,7 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
         const fixed = await promptReconfigure(deps, rl, probe.errorType);
         if (fixed) {
           verified = { snapshot: fixed, probe: { model: fixed.config.primary.model }, via: 'init' };
-          audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `preset=${presetId}`);
+          audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `preset=${presetId || providerId}`);
         } else {
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=user_exit_reconfigure`);
           console.log('⚠ LLM not verified. Run "chestnut config" later to fix.');

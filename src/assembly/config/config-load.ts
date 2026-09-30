@@ -349,7 +349,13 @@ export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: stri
             throw new Error('Invalid global config: missing llm.primary section');
           }
           for (const [k, v] of Object.entries(patch)) {
-            primary[k] = v;
+            // Phase 1927 Step D：undefined = 删键（preset/provider_id 互斥字段的换边清除；
+            // 既有调用方从不写 undefined 值，语义收窄安全）
+            if (v === undefined) {
+              delete primary[k];
+            } else {
+              primary[k] = v;
+            }
           }
         },
       );

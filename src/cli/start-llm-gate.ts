@@ -20,7 +20,13 @@
  */
 
 import * as readline from 'readline';
-import { PRESETS, presetAuthProfile, presetRequiresBaseUrl } from '../foundation/llm-provider/index.js';
+import {
+  PRESETS,
+  presetAuthProfile,
+  presetRequiresBaseUrl,
+  isCatalogProvider,
+  deriveCatalogAuthProfile,
+} from '../foundation/llm-provider/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import { snapshotLLMConfig, type LLMConfigSnapshot } from '../assembly/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
@@ -90,17 +96,26 @@ export function missingStartLLMParams(opts: StartLLMOptions): string[] {
   if (!opts.provider) missing.push('--provider');
   if (opts.provider) {
     const preset = PRESETS[opts.provider];
-    if (!preset) {
+    if (preset) {
+      const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
+      if (presetAuthProfile(preset) === 'api_key' && !hasKey) {
+        missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
+      }
+      if (presetRequiresBaseUrl(preset) && !opts.baseUrl) missing.push('--base-url (required for this provider)');
+    } else if (isCatalogProvider(opts.provider)) {
+      // Phase 1927 Step D：显式 catalog provider（无 preset 别名）——无默认 model，
+      // 必须显式 --model；key 需求按 catalog 派生 profile（OAuth-only 免 key）。
+      if (!opts.model) missing.push('--model (required for catalog provider without preset default)');
+      const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
+      if (deriveCatalogAuthProfile(opts.provider) === 'api_key' && !hasKey) {
+        missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
+      }
+    } else {
       throw new CliError(
         `Unknown provider preset "${opts.provider}". Available: ${Object.keys(PRESETS).join(', ')}`,
         { code: START_USAGE_EXIT_CODE },
       );
     }
-    const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
-    if (presetAuthProfile(preset) === 'api_key' && !hasKey) {
-      missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
-    }
-    if (presetRequiresBaseUrl(preset) && !opts.baseUrl) missing.push('--base-url (required for this provider)');
   } else {
     const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
     if (!hasKey) missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
@@ -148,6 +163,8 @@ export async function applyStartLLMOptions(
   if (!presetId) {
     throw new CliError('--provider is required (no existing primary preset)', { code: START_USAGE_EXIT_CODE });
   }
+  // Phase 1927 Step D：catalog provider id（非 preset）走显式 provider_id 配置入口
+  const catalogProviderId = !PRESETS[presetId] && isCatalogProvider(presetId) ? presetId : undefined;
   const apiKey = (opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV])
     ? await resolveNonInteractiveApiKey(deps, opts, presetId)
     : undefined;
@@ -162,7 +179,7 @@ export async function applyStartLLMOptions(
     }
     // missingStartLLMParams 已按 profile 保证 apiKey 可解析（ambient/oauth 可无 key）
     const config = buildInitialConfig({
-      presetId,
+      ...(catalogProviderId ? { providerId: catalogProviderId } : { presetId }),
       apiKey,
       model: opts.model ?? 'auto',
       baseUrl: opts.baseUrl,
@@ -172,8 +189,15 @@ export async function applyStartLLMOptions(
     return;
   }
 
-  const patch: { preset?: string; model?: string; base_url?: string; api_key?: string } = {};
-  if (opts.provider) patch.preset = opts.provider;
+  // provider 换边时清除互斥字段（patch 语义：undefined = 删键）
+  const patch: { preset?: string; provider_id?: string; model?: string; base_url?: string; api_key?: string } = {};
+  if (catalogProviderId) {
+    patch.provider_id = catalogProviderId;
+    patch.preset = undefined;
+  } else if (opts.provider) {
+    patch.preset = opts.provider;
+    patch.provider_id = undefined;
+  }
   if (opts.model) patch.model = opts.model;
   if (opts.baseUrl) patch.base_url = opts.baseUrl;
   if (apiKey) patch.api_key = apiKey;
