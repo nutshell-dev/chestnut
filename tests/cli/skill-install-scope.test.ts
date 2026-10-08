@@ -154,7 +154,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     expect(fsSync.readdirSync(motionSkills()).filter((n) => n.startsWith('.'))).toEqual([]);
   });
 
-  it('旧布局中断 intent（schema<4 user 目标）：明确拒绝恢复，证据与目标不改写', async () => {
+  it('旧布局中断 intent（schema<4 user 目标）：接管前零改写拒绝，factory 零调用', async () => {
     // 手工 fixture：D 之前版本的 user install 中断 intent（user 目标 = workspace/skills）
     const intent = {
       schema_version: 2,
@@ -172,19 +172,129 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
       ],
     };
     fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
-    fsSync.writeFileSync(rootClaimPath(), JSON.stringify(intent, null, 2));
+    const claimBytes = JSON.stringify(intent, null, 2);
+    fsSync.writeFileSync(rootClaimPath(), claimBytes);
     // 旧布局中断现场：workspace 目标半成品 + marker
     fsSync.mkdirSync(workspaceSkillDir(), { recursive: true });
     fsSync.writeFileSync(path.join(workspaceSkillDir(), 'SKILL.md'), '# half-installed\n');
     fsSync.writeFileSync(path.join(workspaceSkillDir(), '.skill-publishing'), '{}');
 
     const src = makeSkillSource('a', 'origin', 'v1');
-    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/legacy workspace skills target/);
+    let factoryCalls = 0;
+    const countingFactory: typeof createSkillVersions = async (opts) => {
+      factoryCalls++;
+      return createSkillVersions(opts);
+    };
 
-    // 证据全部保留：intent/快照引用/marker 不动；Motion 目标不创建
-    expect(fsSync.existsSync(rootClaimPath())).toBe(true);
+    // Phase 1929 Step E：版本服务构造前就拒绝——factory 零调用
+    await expect(skillInstallUserCommand(deps, src, { createSkillVersions: countingFactory }))
+      .rejects.toThrow(/legacy workspace skills target/);
+    expect(factoryCalls).toBe(0);
+
+    // 原始磁盘证据逐字节不变（无 holder 接管写入）；snapshot/marker 不动
+    expect(fsSync.readFileSync(rootClaimPath(), 'utf-8')).toBe(claimBytes);
     expect(fsSync.existsSync(path.join(workspaceSkillDir(), '.skill-publishing'))).toBe(true);
     expect(fsSync.readFileSync(path.join(workspaceSkillDir(), 'SKILL.md'), 'utf-8')).toBe('# half-installed\n');
+    expect(fsSync.existsSync(motionSkillDir())).toBe(false);
+
+    // 同进程第二次尝试：仍是布局错误而非 in-progress（从未接管，pid 不被改写）
+    await expect(skillInstallUserCommand(deps, src, { createSkillVersions: countingFactory }))
+      .rejects.toThrow(/legacy workspace skills target/);
+    expect(factoryCalls).toBe(0);
+    expect(fsSync.readFileSync(rootClaimPath(), 'utf-8')).toBe(claimBytes);
+  });
+
+  it('损坏 claim：fail-loud 不当 absent，零改写零 factory 调用', async () => {
+    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    fsSync.writeFileSync(rootClaimPath(), '{corrupted');
+
+    const src = makeSkillSource('a', 'origin', 'v1');
+    let factoryCalls = 0;
+    const countingFactory: typeof createSkillVersions = async (opts) => {
+      factoryCalls++;
+      return createSkillVersions(opts);
+    };
+    await expect(skillInstallUserCommand(deps, src, { createSkillVersions: countingFactory }))
+      .rejects.toThrow(/malformed/);
+    expect(factoryCalls).toBe(0);
+    expect(fsSync.readFileSync(rootClaimPath(), 'utf-8')).toBe('{corrupted');
+  });
+
+  it('未知 schema 的 claim：接管前拒绝，证据保留', async () => {
+    const intent = {
+      schema_version: 9,
+      token: 'tok-future',
+      id: 'install-future',
+      skillName: 'myskill',
+      source: path.join(tmpDir, 'a', 'myskill'),
+      pid: 99999,
+      startedAt: new Date().toISOString(),
+      manifest: [],
+      targets: [{ id: 'user', state: 'pending', preState: 'absent' }],
+    };
+    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    const claimBytes = JSON.stringify(intent, null, 2);
+    fsSync.writeFileSync(rootClaimPath(), claimBytes);
+
+    const src = makeSkillSource('a', 'origin', 'v1');
+    let factoryCalls = 0;
+    const countingFactory: typeof createSkillVersions = async (opts) => {
+      factoryCalls++;
+      return createSkillVersions(opts);
+    };
+    await expect(skillInstallUserCommand(deps, src, { createSkillVersions: countingFactory }))
+      .rejects.toThrow(/unsupported schema version/);
+    expect(factoryCalls).toBe(0);
+    expect(fsSync.readFileSync(rootClaimPath(), 'utf-8')).toBe(claimBytes);
+  });
+
+  it('竞态窗口：入口前检后出现的旧 claim 在接管前仍被拒绝（factory 可已装配，claim 零改写）', async () => {
+    const intent = {
+      schema_version: 2,
+      token: 'tok-race',
+      id: 'install-race',
+      skillName: 'myskill',
+      source: path.join(tmpDir, 'a', 'myskill'),
+      pid: 99999,
+      startedAt: new Date().toISOString(),
+      manifest: [],
+      targets: [{ id: 'user', state: 'pending', preState: 'absent' }],
+    };
+    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    const claimBytes = JSON.stringify(intent, null, 2);
+    fsSync.writeFileSync(rootClaimPath(), claimBytes);
+
+    // 入口前检的首次 readSync 伪装缺席（竞态前瞬间），此后读真实文件——
+    // 覆盖「前检通过 → 旧 claim 出现 → 接管前二次判定」窗口
+    let probeReads = 0;
+    const raceFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(tmpDir)) {
+        const origRead = real.readSync.bind(real);
+        real.readSync = (p: string) => {
+          if (p === 'skills/.myskill.installing' && probeReads === 0) {
+            probeReads++;
+            const err = new Error('simulated pre-check absent') as NodeJS.ErrnoException;
+            err.code = 'ENOENT';
+            throw err;
+          }
+          return origRead(p);
+        };
+      }
+      return real;
+    };
+
+    let factoryCalls = 0;
+    const countingFactory: typeof createSkillVersions = async (opts) => {
+      factoryCalls++;
+      return createSkillVersions(opts);
+    };
+    const src = makeSkillSource('a', 'origin', 'v1');
+    await expect(
+      skillInstallUserCommand({ fsFactory: raceFactory }, src, { createSkillVersions: countingFactory }),
+    ).rejects.toThrow(/legacy workspace skills target/);
+    // 竞态路径不谎称 factory 零调用；但旧 claim 必须零改写、无接管
+    expect(fsSync.readFileSync(rootClaimPath(), 'utf-8')).toBe(claimBytes);
     expect(fsSync.existsSync(motionSkillDir())).toBe(false);
   });
 

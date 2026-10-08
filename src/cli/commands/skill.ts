@@ -79,7 +79,7 @@ interface SkillInstallIntent {
   // 「claim 已持久化、来源导出未登记」窗口，恢复时重导出补齐。
   // schema 4（Phase 1929 Step D）：本地安装的 user 目标 = Motion 自有 skills
   // （getNamedSubrootDir('motion')/skills）；schema<4 的 user 目标是旧布局
-  // （workspace/skills）中断事务，新代码明确拒绝恢复（证据保留，不改写 targets）。
+  // （workspace/skills）中断事务，新代码在 holder 接管前零改写拒绝（Step E）。
   schema_version: 1 | 2 | 3 | 4;
   token: string;
   /** 稳定 install 身份：holder 接管不 rewrite，写入 target marker 作占有证据。 */
@@ -935,31 +935,22 @@ async function runSkillInstall(
   if (intent === undefined) {
     // claim 已存在：读 durable intent 判读 —— 活 holder 冲突；死 holder +
     // 同 source 恢复（快照身份核验在下方）；异 source 显式冲突留证。
+    // Phase 1929 Step E：holder 接管（readExistingInstallIntent 会改写 pid/
+    // start_time/token）之前先做只读支持性判定——不支持的旧布局/异源/未知
+    // schema 事务零改写拒绝，原始 claim 字节保持。这覆盖「入口前检后其它进程
+    // 创建旧 claim」的竞态窗口（此路径 factory 可能已装配，不谎称零调用，但
+    // 旧 claim 必须零改写）。
+    const probed = probeInstallIntentReadonly(opts.claimFs, opts.claimRel, opts.skillName);
+    if (probed !== null) {
+      assertSupportedInstallIntent(probed, opts.claimRel, {
+        skillName: opts.skillName,
+        source: opts.srcAbs,
+        pinned: opts.pinnedSource !== undefined,
+        localMotionLayout: opts.localMotionLayout,
+      });
+    }
     intent = readExistingInstallIntent(opts.claimFs, opts.claimRel, opts.skillName);
     resumed = true;
-    // Phase 1929 Step D：旧布局门控——含 'user' 目标的 schema<4 intent 记录的
-    // 是旧 workspace/skills 绝对目标，绝不用新布局重新解释/改写 targets：明确
-    // 拒绝，全部证据保留，提示先用 D 之前的版本恢复旧事务。schema 4（本 phase
-    // 的 Motion 目标 intent）正常走恢复判读。
-    if (opts.localMotionLayout === true && intent.schema_version !== 4 &&
-        intent.targets.some((t) => t.id === 'user')) {
-      throw new CliError(
-        `Skill "${opts.skillName}" has an interrupted install recorded against the legacy workspace ` +
-        `skills target (claim: ${opts.claimRel}, schema ${intent.schema_version}); the user target is now ` +
-        `the Motion self skills directory — evidence (intent/snapshot/marker) preserved, targets not rewritten; ` +
-        `recover this transaction with a pre-Phase-1929 CLI version, then re-install`,
-      );
-    }
-    // Phase 1921 Step D：pinned（dispatch 来源）模式下 source 只是逻辑标签
-    // （dispatch://<name>；1919 B–F 窗口的旧 intent 记录的是历史投影绝对路径）——
-    // 身份核验由 skillName + sourceVersion/manifest 承担，跳过路径字面比较；
-    // user 模式（文件系统 source）保持严格漂移拒绝。
-    if (opts.pinnedSource === undefined && intent.source !== opts.srcAbs) {
-      throw new CliError(
-        `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
-        `(claim: ${opts.claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
-      );
-    }
     const needsPublish = intent.targets.some((t) => t.state !== 'published');
     if (needsPublish && intent.sourceVersion !== undefined) {
       // ---- Phase 1919 Step F：schema 3 pinned 恢复——只按 intent 内固定 commit
@@ -1185,9 +1176,98 @@ async function runSkillInstall(
 }
 
 /**
+ * 只读判读既有 claim（Phase 1929 Step E：零改写探测）——缺席 → null；
+ * 不可读/不可解析 fail-loud（与接管路径同一文案），绝不当 absent。
+ */
+function probeInstallIntentReadonly(
+  claimFs: FileSystem,
+  claimRel: string,
+  skillName: string,
+): SkillInstallIntent | null {
+  let raw: string;
+  try {
+    raw = claimFs.readSync(claimRel);
+  } catch (err) {
+    if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return null;
+    throw new CliError(
+      `Skill "${skillName}" install claim exists but is unreadable: ${claimRel}; ` +
+      `inspect manually (${formatErr(err)})`,
+    );
+  }
+  try {
+    return JSON.parse(raw) as SkillInstallIntent;
+  } catch {
+    throw new CliError(
+      `Skill "${skillName}" install claim is malformed: ${claimRel}; evidence preserved, remove it manually to retry`,
+    );
+  }
+}
+
+/**
+ * 支持性判定（Phase 1929 Step E）：在任何 holder 接管写入之前拒绝本版本不支持
+ * 的事务，原始磁盘证据保持——未知 schema、旧布局 user 目标（localMotionLayout
+ * 下 schema<4 的 'user' 目标 = 旧 workspace/skills 中断事务）、skill 名不符、
+ * 非 pinned 模式的源路径漂移。pinned（schema 3 池安装）与 schema 4（Motion 布局）
+ * 语义分别验证，不按单一 schema 值拒绝所有事务。
+ * 布局拒绝优先于 holder 存活判定：不支持的事务绝不报「in progress」（不诱导
+ * 调用方等待一个本版本永不会执行的事务）。
+ */
+function assertSupportedInstallIntent(
+  intent: SkillInstallIntent,
+  claimRel: string,
+  opts: {
+    skillName: string;
+    source: string;
+    /** pinned（dispatch 池来源）模式跳过 source 路径字面比较（source 是逻辑标签）。 */
+    pinned: boolean;
+    localMotionLayout?: true;
+  },
+): void {
+  if (typeof intent.schema_version !== 'number' ||
+      ![1, 2, 3, 4].includes(intent.schema_version)) {
+    throw new CliError(
+      `Skill "${opts.skillName}" has an install claim with an unsupported schema version ` +
+      `(${String(intent.schema_version)}; claim: ${claimRel}); evidence preserved, not rewritten — ` +
+      `recover this transaction with the matching CLI version`,
+    );
+  }
+  // Phase 1929 Step D/E：含 'user' 目标的 schema<4 intent 记录的是旧
+  // workspace/skills 布局中断事务，绝不用新布局重新解释/改写 targets：明确拒绝，
+  // 全部证据保留，提示先用 D 之前的版本恢复旧事务。
+  if (opts.localMotionLayout === true && intent.schema_version !== 4 &&
+      intent.targets.some((t) => t.id === 'user')) {
+    throw new CliError(
+      `Skill "${opts.skillName}" has an interrupted install recorded against the legacy workspace ` +
+      `skills target (claim: ${claimRel}, schema ${intent.schema_version}); the user target is now ` +
+      `the Motion self skills directory — evidence (intent/snapshot/marker) preserved, targets not rewritten; ` +
+      `recover this transaction with a pre-Phase-1929 CLI version, then re-install`,
+    );
+  }
+  if (intent.skillName !== opts.skillName) {
+    throw new CliError(
+      `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
+      `(claim: ${claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
+    );
+  }
+  // Phase 1921 Step D：pinned（dispatch 来源）模式下 source 只是逻辑标签
+  // （dispatch://<name>；1919 B–F 窗口的旧 intent 记录的是历史投影绝对路径）——
+  // 身份核验由 skillName + sourceVersion/manifest 承担，跳过路径字面比较；
+  // user 模式（文件系统 source）保持严格漂移拒绝。
+  if (!opts.pinned && intent.source !== opts.source) {
+    throw new CliError(
+      `Skill "${opts.skillName}" has an interrupted install with a different source payload ` +
+      `(claim: ${claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
+    );
+  }
+}
+
+/**
  * 判读既有 claim：活 holder → in-progress 冲突；死 holder → 接管 holder 身份
  * 后交调用方做 payload 判读（Phase 1915 Step C：持久快照在场时恢复不再依赖
  * live source 未变）；claim 不可读/不可解析 → 显式留证。
+ * Phase 1929 Step E：调用方必须先经 probeInstallIntentReadonly +
+ * assertSupportedInstallIntent 做零改写支持性判定；本函数只做接管与
+ * holder 存活/身份核验。
  */
 function readExistingInstallIntent(
   claimFs: FileSystem,
@@ -1277,6 +1357,22 @@ export async function skillInstallUserCommand(
   const destUser = path.join(motionDir, SKILLS_DIR_DEFAULT, skillName);
   const destDispatch = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
 
+  const rootFs = deps.fsFactory(root);
+  const claimRel = path.join(SKILLS_DIR_DEFAULT, `.${skillName}.installing`);
+  // Phase 1929 Step E：入口只读前检——原已存在的旧布局/异源/未知 schema 事务
+  // 在版本服务构造（factory）与任何 holder 接管写入之前明确拒绝（factory 零调用、
+  // claim 零改写）；只读错误 fail-loud 不当 absent。前检后其它进程创建旧 claim
+  // 的竞态窗口由 runSkillInstall 接管前的第二次只读判定覆盖。
+  const probed = probeInstallIntentReadonly(rootFs, claimRel, skillName);
+  if (probed !== null) {
+    assertSupportedInstallIntent(probed, claimRel, {
+      skillName,
+      source: absSource,
+      pinned: false,
+      localMotionLayout: true,
+    });
+  }
+
   // Phase 1919 Step B：dispatch 发布经 owner 版本服务（先构造——旧活动 intent/
   // marker 阻断迁移时 loud 失败，不进入本 install 流程）；Motion 副本仍走
   // target-local swap，两目标 intent 独立提交，失败不回滚已提交副本。
@@ -1289,14 +1385,13 @@ export async function skillInstallUserCommand(
     if (!(e instanceof SkillVersionError && e.kind === 'not_found')) throw e;
   }
 
-  const rootFs = deps.fsFactory(root);
   const userExists = deps.fsFactory(path.join(motionDir, SKILLS_DIR_DEFAULT)).existsSync(skillName);
 
   const { resumed } = await runSkillInstall(deps, {
     skillName,
     srcAbs: absSource,
     claimFs: rootFs,
-    claimRel: path.join(SKILLS_DIR_DEFAULT, `.${skillName}.installing`),
+    claimRel,
     targets: [
       { id: 'user', absPath: destUser },
       { id: 'dispatch', absPath: destDispatch },
