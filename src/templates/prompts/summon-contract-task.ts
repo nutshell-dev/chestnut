@@ -75,8 +75,10 @@ export function buildSummonContractTask(
 如需查看某个 dispatch 模板的完整内容：
 skill: { "name": "<skill-name>", "scope": "dispatch" }
 
-如需将 dispatch 模板安装到目标 claw：
-exec: chestnut skill install --claw <id> --skill <name>
+如需将 dispatch 模板安装到目标 claw（来源 = dispatch 池已发布固定版本，目标 = 指定 claw 的自有 skills；不会改动池版本）：
+exec: chestnut skill install --skill <name> --claw <id>
+
+（省略 \`--claw\` 时目标是 Motion 自己的 skills——你不是 Motion，给 claw 装模板必须带 \`--claw <id>\`。）
 
 **注意**：直接调用 \`skill: { "name": "..." }\`（不带 \`scope\`，默认 \`scope: "self"\`）只查 Motion 自己的 self 池，找不到 dispatch 模板。
 

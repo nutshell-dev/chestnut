@@ -13,10 +13,12 @@ import type { CommandShapeSpec } from './command-shape.js';
 export const MISC_COMMAND_CATALOG = [
   {
     id: 'skill/install',
-    summary: 'Install a skill from local path, or install dispatch-skill to a claw (--claw)',
+    // Phase 1929 Step D：来源与目标显式分离——本地源 → Motion 自有 + dispatch 池；
+    // --skill → 池已发布版本 → Motion（默认）或指定 claw
+    summary: 'Install a skill from a local path (Motion self skills + dispatch pool), or install a published dispatch skill (--skill) to Motion (default) or a claw (--claw)',
     options: [
-      { flag: '-c, --claw <id>', desc: 'Target claw ID (internal mode: install from dispatch-skills to claw)' },
-      { flag: '--skill <name>', desc: 'Skill name (required with --claw)' },
+      { flag: '-c, --claw <id>', desc: 'Target claw ID of a --skill install (default: motion; motion uses the Motion self skills dir, never claws/motion)' },
+      { flag: '--skill <name>', desc: 'Skill name in the dispatch pool (source: published dispatch version; required with --claw)' },
     ],
   },
   {

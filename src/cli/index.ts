@@ -47,6 +47,7 @@ import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { actionAuditFor } from './action-scope.js';
 import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
 import { createRootConfig, createContractActionContext } from '../assembly/index.js';
@@ -320,20 +321,34 @@ const skillCmd = program
 
 miscShape(skillCmd.command('install [source]'), 'skill/install')
   .action(action('required', async (source: string | undefined, opts: { claw?: string; skill?: string }) => {
-    if (opts.claw) {
-      if (!opts.skill) {
-        throw new CliError('--skill <name> is required with --claw');
-      }
-      rootConfig.loadGlobal();
-      const audit = actionAuditFor(getClawDir(opts.claw), { fsFactory });
-      await skillInstallClawCommand({ fsFactory }, opts.claw, opts.skill, { audit });
-    } else {
-      if (!source) {
-        throw new CliError('source path is required');
-      }
-      const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
-      await skillInstallUserCommand({ fsFactory }, source, { audit });
+    // Phase 1929 Step D：来源与目标显式互斥（InstallSelection），参数校验先于
+    // 安装业务——非法组合零副作用，绝不忽略一半参数。
+    //   local:    skill install <source>            → Motion 自有副本 + dispatch 池
+    //   dispatch: skill install --skill <name> [--claw <id>]  → 池固定版本 → 目标（默认 motion）
+    if (source !== undefined && opts.skill !== undefined) {
+      throw new CliError(
+        '<source> and --skill are mutually exclusive: a local source installs to Motion self skills + the dispatch pool; ' +
+        '--skill installs a published dispatch skill to a self copy',
+      );
     }
+    if (source !== undefined && opts.claw !== undefined) {
+      throw new CliError('--claw only selects the target of a --skill install; it cannot be combined with a local source');
+    }
+    if (opts.skill !== undefined) {
+      const target = opts.claw ?? MOTION_CLAW_ID;
+      rootConfig.loadGlobal();
+      const audit = actionAuditFor(target === MOTION_CLAW_ID ? getChestnutRoot() : getClawDir(target), { fsFactory });
+      await skillInstallClawCommand({ fsFactory }, target, opts.skill, { audit });
+      return;
+    }
+    if (opts.claw !== undefined) {
+      throw new CliError('--skill <name> is required with --claw');
+    }
+    if (source === undefined) {
+      throw new CliError('source path is required (or use --skill <name> [--claw <id>] to install a published dispatch skill)');
+    }
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillInstallUserCommand({ fsFactory }, source, { audit });
   }));
 
 miscShape(skillCmd.command('list'), 'skill/list')

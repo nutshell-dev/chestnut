@@ -38,7 +38,8 @@
  */
 
 import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
-import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { getNamedSubrootDir, getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER, SKILL_SOURCE_SNAPSHOT_PREFIX, SKILL_COMMIT_PROOF } from '../../foundation/skill-system/index.js';
@@ -76,7 +77,10 @@ interface SkillInstallIntent {
   // dispatch 已发布 commit）——来源 pinning 先于第一次复制持久化；恢复只按该
   // commit 重建/核验快照，绝不回读 live。manifest 为空的 schema-3 intent =
   // 「claim 已持久化、来源导出未登记」窗口，恢复时重导出补齐。
-  schema_version: 1 | 2 | 3;
+  // schema 4（Phase 1929 Step D）：本地安装的 user 目标 = Motion 自有 skills
+  // （getNamedSubrootDir('motion')/skills）；schema<4 的 user 目标是旧布局
+  // （workspace/skills）中断事务，新代码明确拒绝恢复（证据保留，不改写 targets）。
+  schema_version: 1 | 2 | 3 | 4;
   token: string;
   /** 稳定 install 身份：holder 接管不 rewrite，写入 target marker 作占有证据。 */
   id: string;
@@ -804,6 +808,13 @@ async function runSkillInstall(
       /** 按 commit 导出技能子树到独占空目录（owner = SkillVersions）。 */
       exportTo: (version: string, destAbs: string) => Promise<void>;
     };
+    /**
+     * Phase 1929 Step D：本地安装的 user 目标采用 Motion 自有 skills 布局。
+     * fresh intent 写 schema 4；恢复时发现含 'user' 目标的 schema<4 intent
+     * （旧 workspace/skills 布局中断事务）→ 明确拒绝，intent/快照/marker
+     * 证据全部保留，提示先用 D 之前的版本恢复旧事务再重装。
+     */
+    localMotionLayout?: true;
   },
 ): Promise<{ resumed: boolean; sourceVersion?: string }> {
   const claimDirRel = path.posix.dirname(opts.claimRel);
@@ -852,7 +863,10 @@ async function runSkillInstall(
     if (opts.pinnedSource !== undefined) {
       // pinning 必须早于第一次复制并有 durable intent（先复制后记版本会失去
       // 崩溃归属）：claim 独占写入成功 = 本次安装来源已固定为 pinned.version
+      // Phase 1929 Step D：claim 父目录可能尚未存在（纯池→Motion 安装的
+      // Motion target-local claim）——独占写前显式建立
       const pinned = opts.pinnedSource;
+      await opts.claimFs.ensureDir(claimDirRel);
       const fresh: SkillInstallIntent = {
         schema_version: 3,
         token,
@@ -892,7 +906,7 @@ async function runSkillInstall(
     } else {
       const manifest = await materializeSourceSnapshot(deps, opts.srcAbs, snapAbs, null);
       const fresh: SkillInstallIntent = {
-        schema_version: 2,
+        schema_version: opts.localMotionLayout === true ? 4 : 2,
         token,
         id: newShortUuid(),
         skillName: opts.skillName,
@@ -923,6 +937,19 @@ async function runSkillInstall(
     // 同 source 恢复（快照身份核验在下方）；异 source 显式冲突留证。
     intent = readExistingInstallIntent(opts.claimFs, opts.claimRel, opts.skillName);
     resumed = true;
+    // Phase 1929 Step D：旧布局门控——含 'user' 目标的 schema<4 intent 记录的
+    // 是旧 workspace/skills 绝对目标，绝不用新布局重新解释/改写 targets：明确
+    // 拒绝，全部证据保留，提示先用 D 之前的版本恢复旧事务。schema 4（本 phase
+    // 的 Motion 目标 intent）正常走恢复判读。
+    if (opts.localMotionLayout === true && intent.schema_version !== 4 &&
+        intent.targets.some((t) => t.id === 'user')) {
+      throw new CliError(
+        `Skill "${opts.skillName}" has an interrupted install recorded against the legacy workspace ` +
+        `skills target (claim: ${opts.claimRel}, schema ${intent.schema_version}); the user target is now ` +
+        `the Motion self skills directory — evidence (intent/snapshot/marker) preserved, targets not rewritten; ` +
+        `recover this transaction with a pre-Phase-1929 CLI version, then re-install`,
+      );
+    }
     // Phase 1921 Step D：pinned（dispatch 来源）模式下 source 只是逻辑标签
     // （dispatch://<name>；1919 B–F 窗口的旧 intent 记录的是历史投影绝对路径）——
     // 身份核验由 skillName + sourceVersion/manifest 承担，跳过路径字面比较；
@@ -1211,9 +1238,11 @@ function readExistingInstallIntent(
 }
 
 /**
- * User mode: install skill from local path to workspace
- * - Copy to root/skills/{skillName}/
- * - Sync to motion/clawspace/dispatch-skills/{skillName}/
+ * User mode: install skill from local path（Phase 1929 Step D：既定双目标语义）
+ * - Motion 自有副本：.chestnut/motion/skills/{skillName}/（skill list 默认目标可见）
+ * - dispatch 池：经 owner import 发布正式版本
+ * 两目标消费同一份 source 快照；分别提交、审计与失败提示，不声称跨目标原子。
+ * 既有 workspace/skills 旧文件不自动迁移/删除；旧布局中断 intent 明确拒绝恢复。
  */
 export async function skillInstallUserCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -1227,8 +1256,8 @@ export async function skillInstallUserCommand(
   // Skill name = source directory name
   const skillName = path.basename(absSource);
   // phase 446 (review N3-H skill): user-mode 补 claw-mode L65-76 同款 sanity guard。
-  // 防 path.basename(absSource) 派生出 ''/'.'/含 .. 等病态名后 path.join(root,
-  // SKILLS_DIR, skillName) 解析到非预期位置（如 root 自身）、copyDir 写到非 skills/ 下。
+  // 防 path.basename(absSource) 派生出 ''/'.'/含 .. 等病态名后 path.join 解析到
+  // 非预期位置（如 root 自身）、copyDir 写到非 skills/ 下。
   if (
     typeof skillName !== 'string' || skillName === '' || skillName === '.' || skillName.startsWith('.') ||
     skillName.includes('/') || skillName.includes('..')
@@ -1242,12 +1271,14 @@ export async function skillInstallUserCommand(
     throw new CliError(`No SKILL.md found in ${absSource}`);
   }
 
-  const motionDir = path.join(root, '.chestnut', 'motion');
-  const destUser = path.join(root, SKILLS_DIR_DEFAULT, skillName);
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
+  // Phase 1929 Step D：user 目标 = Motion 自有 skills（绝不用 claws/motion）；
+  // claim 仍居稳定旧位置（root/skills/.<name>.installing）与旧进程互斥
+  const destUser = path.join(motionDir, SKILLS_DIR_DEFAULT, skillName);
   const destDispatch = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
 
   // Phase 1919 Step B：dispatch 发布经 owner 版本服务（先构造——旧活动 intent/
-  // marker 阻断迁移时 loud 失败，不进入本 install 流程）；user 副本仍走
+  // marker 阻断迁移时 loud 失败，不进入本 install 流程）；Motion 副本仍走
   // target-local swap，两目标 intent 独立提交，失败不回滚已提交副本。
   const versions = await createDispatchVersions(deps, root, audit, extraDeps?.createSkillVersions);
   let dispatchExists = false;
@@ -1259,7 +1290,7 @@ export async function skillInstallUserCommand(
   }
 
   const rootFs = deps.fsFactory(root);
-  const userExists = rootFs.existsSync(path.join(SKILLS_DIR_DEFAULT, skillName));
+  const userExists = deps.fsFactory(path.join(motionDir, SKILLS_DIR_DEFAULT)).existsSync(skillName);
 
   const { resumed } = await runSkillInstall(deps, {
     skillName,
@@ -1272,21 +1303,23 @@ export async function skillInstallUserCommand(
     ],
     dispatchPublish: ({ snapshotAbs, intent }) =>
       importDispatchTarget(versions, { skillName, snapshotAbs, intent }),
+    localMotionLayout: true,
   });
 
-  // 成功 audit/输出只在两个目标都 published 后发出
+  // 成功 audit/输出只在两个目标都 published 后发出（两目标逐目标可见）
   audit?.write(CLI_AUDIT_EVENTS.SKILL_INSTALL, `mode=user`, `skill=${skillName}`);
-  console.log(`${userExists ? 'Updated' : 'Installed'} skills/${skillName}`);
-  console.log(`${dispatchExists ? 'Updated' : 'Synced'} dispatch-skills/${skillName}`);
+  console.log(`${userExists ? 'Updated' : 'Installed'} Motion self skill at .chestnut/motion/skills/${skillName}`);
+  console.log(`${dispatchExists ? 'Updated' : 'Published'} dispatch pool version of ${skillName}`);
   if (resumed) {
     console.log(`  (resumed an interrupted install; remaining targets published)`);
   }
 }
 
 /**
- * Internal mode: install dispatch-skill to a specific claw
- * - Copy from motion/clawspace/dispatch-skills/{skillName}/
- * - To clawDir/skills/{skillName}/
+ * Dispatch-pool source install: install a published dispatch skill to a self copy
+ * - Source: pinned published commit of the dispatch pool (exportSkillVersion 物化)
+ * - Target: clawDir/skills/{skillName}/；clawId === 'motion' 时使用 Motion 特殊
+ *   目录（getNamedSubrootDir('motion')，绝不写 claws/motion）——Phase 1929 Step D
  */
 export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, skillName: string, extraDeps?: { audit?: AuditLog; createSkillVersions?: typeof createSkillVersions }): Promise<void> {
   const audit = extraDeps?.audit;
@@ -1305,7 +1338,9 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
   }
 
   const root = getWorkspaceRoot();
-  const clawDir = getClawDir(clawId);
+  // Phase 1929 Step D：motion 是特殊目标（Motion 自有 skills），不是普通 claw
+  const isMotion = clawId === MOTION_CLAW_ID;
+  const clawDir = isMotion ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
   const dest = path.join(clawDir, SKILLS_DIR_DEFAULT, skillName);
 
   // Phase 1919 Step B：source = 版本服务固定版本（committed view），未发布 = not found。
@@ -1325,7 +1360,7 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
     throw e;
   }
   const clawFs = deps.fsFactory(clawDir);
-  if (!clawFs.existsSync('.')) {
+  if (!isMotion && !clawFs.existsSync('.')) {
     throw new CliError(`claw "${clawId}" does not exist`);
   }
 
@@ -1349,5 +1384,7 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
     `skill=${skillName}`,
     `source_version=${installedVersion ?? 'unpinned'}`,
   );
-  console.log(`Installed ${skillName} to claw ${clawId}`);
+  console.log(isMotion
+    ? `Installed ${skillName} to Motion self skills (source: dispatch pool)`
+    : `Installed ${skillName} to claw ${clawId} (source: dispatch pool)`);
 }

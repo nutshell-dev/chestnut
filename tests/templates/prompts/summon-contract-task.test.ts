@@ -33,6 +33,15 @@ describe('buildSummonContractTask (Phase 1396 Step K)', () => {
     expect(text).toContain('./contract-drafts/<contract-slug>/');
   });
 
+  // Phase 1929 Step D：安装指令明确来源（dispatch 池已发布版本）与目标（claw 自有 skills）
+  it('teaches dispatch-pool install with explicit source and target', () => {
+    const text = buildSummonContractTask('goal');
+
+    expect(text).toContain('chestnut skill install --skill <name> --claw <id>');
+    expect(text).toContain('来源 = dispatch 池已发布固定版本');
+    expect(text).toContain('目标 = 指定 claw 的自有 skills');
+  });
+
   it('does not present no-verification as a caller choice', () => {
     const text = buildSummonContractTask('goal');
 

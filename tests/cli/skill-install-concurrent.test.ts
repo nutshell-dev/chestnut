@@ -2,8 +2,8 @@
  * Phase 1911 Step G — skill 多根复制一致提交（RACE-CLI-SKILL-MULTIROOT-COPY）
  *
  * 验收：
- * - user install：root 与 motion dispatch 两目标各自完整发布，无 claim/staging
- *   残留，audit 只在两目标完成后发出；
+ * - user install：Motion 自有 skills（Phase 1929 Step D 起）与 dispatch 池两目标
+ *   各自完整发布，无 claim/staging 残留，audit 只在两目标完成后发出；
  * - 并发同名不同版本安装：恰一 winner，loser typed 冲突，目录不混写；
  * - 崩溃窗口：holder 已死 + 同 payload → 自动恢复未完成目标；异 payload →
  *   显式冲突留证不覆盖；
@@ -57,8 +57,9 @@ function makeSkillSource(parent: string, version: string): string {
   return src;
 }
 
+// Phase 1929 Step D：user 目标 = Motion 自有 skills；claim 仍居稳定旧位置（root/skills）
 function userSkillDir(): string {
-  return path.join(testDir, 'skills', 'myskill');
+  return path.join(testDir, '.chestnut', 'motion', 'skills', 'myskill');
 }
 function dispatchSkillDir(): string {
   return path.join(testDir, '.chestnut', 'motion', 'clawspace', 'dispatch-skills', 'myskill');
@@ -313,7 +314,7 @@ describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PREC
     // SkillSystem 读侧：不注册半版本 + audit 留证
     const auditCalls: string[][] = [];
     const registry = new SkillSystem(
-      new NodeFileSystem({ baseDir: testDir }),
+      new NodeFileSystem({ baseDir: path.join(testDir, '.chestnut', 'motion') }),
       'skills',
       { write: (...args: string[]) => { auditCalls.push(args); } } as never,
     );
@@ -346,8 +347,8 @@ describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PREC
     fs.writeFileSync(path.join(staging, 'SKILL.md'), '# myskill v9\n');
 
     const registry = new SkillSystem(
-      new NodeFileSystem({ baseDir: testDir }),
-      path.relative(testDir, userParent),
+      new NodeFileSystem({ baseDir: path.join(testDir, '.chestnut', 'motion') }),
+      'skills',
       { write: () => {} } as never,
     );
     await registry.loadAll();
@@ -415,7 +416,7 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
 
     // target-local：dispatch 未发布不影响 self 副本的消费
     const userRegistry = new SkillSystem(
-      new NodeFileSystem({ baseDir: testDir }),
+      new NodeFileSystem({ baseDir: path.join(testDir, '.chestnut', 'motion') }),
       'skills',
       { write: () => {} } as never,
     );
@@ -827,7 +828,7 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     expect(fs.existsSync(claimPath())).toBe(false);
     expect(await readDispatchPublished()).toBe('# myskill v1\n');
     const registry = new SkillSystem(
-      new NodeFileSystem({ baseDir: testDir }),
+      new NodeFileSystem({ baseDir: path.join(testDir, '.chestnut', 'motion') }),
       'skills',
       { write: () => {} } as never,
     );
