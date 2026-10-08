@@ -30,6 +30,7 @@ import {
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
 import { skillListCommand } from './commands/skill-list.js';
+import { dispatchSkillListCommand } from './commands/dispatch-skill-list.js';
 import {
   skillEditBeginCommand,
   skillEditSubmitCommand,
@@ -383,6 +384,11 @@ miscShape(dispatchSkillEditCmd.command('retry <editId>'), 'dispatch-skill/edit/r
 miscShape(dispatchSkillEditCmd.command('status <editId>'), 'dispatch-skill/edit/status')
   .action(action('observe_only', async (editId: string) => {
     await skillEditStatusCommand({ fsFactory }, editId);
+  }));
+
+miscShape(dispatchSkillCmd.command('list'), 'dispatch-skill/list')
+  .action(action('observe_only', async () => {
+    await dispatchSkillListCommand({ fsFactory });
   }));
 
 miscShape(dispatchSkillCmd.command('history <name>'), 'dispatch-skill/history')

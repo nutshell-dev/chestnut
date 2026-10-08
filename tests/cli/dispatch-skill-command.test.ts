@@ -51,10 +51,12 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
       child.on('close', (code) => resolve({ stdout, stderr, exitCode: code }));
     });
 
-  it('dispatch-skill --help 列出 edit/history；edit 子族 help 列出全部事务命令', async () => {
+  it('dispatch-skill --help 列出 list/edit/history；edit 子族 help 列出全部事务命令', async () => {
     const help = await runCli(['dispatch-skill', '--help']);
     expect(help.exitCode).toBe(0);
     expect(help.stdout).toContain('dispatch skill pool');
+    // Phase 1929 Step C：已发布池列表入口
+    expect(help.stdout).toContain('list');
     expect(help.stdout).toContain('edit');
     expect(help.stdout).toContain('history');
 
@@ -90,6 +92,13 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
     expect(help.stdout).toContain('list');
     expect(help.stdout).not.toContain('edit');
     expect(help.stdout).not.toContain('history');
+  });
+
+  it('dispatch-skill list 空池：observe_only 可读，已发布空态如实呈现', async () => {
+    const list = await runCli(['dispatch-skill', 'list']);
+    expect(list.exitCode).toBe(0);
+    expect(list.stdout).toContain('Dispatch skill pool (published):');
+    expect(list.stdout).toContain('No skills loaded.');
   });
 
   it('dispatch-skill history 空池：observe_only 可读，空态如实呈现', async () => {

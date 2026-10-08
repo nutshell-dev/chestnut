@@ -59,6 +59,10 @@ export const MISC_COMMAND_CATALOG = [
     summary: 'Show a dispatch branch edit transaction (read-only: status, candidate, basis)',
   },
   {
+    id: 'dispatch-skill/list',
+    summary: 'List published dispatch pool skills (read-only; self-owned Motion/claw copies never listed)',
+  },
+  {
     id: 'dispatch-skill/history',
     // Phase 1929 Step B：摘要如实描述完整提交/事务历史（非仅编辑事务列表）
     summary: 'Show the full commit/edit-transaction history of a dispatch skill (read-only, newest first)',

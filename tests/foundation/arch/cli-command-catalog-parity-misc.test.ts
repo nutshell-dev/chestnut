@@ -19,7 +19,9 @@ describe('phase 1874 Step L: skill/watchdog/audit 族 catalog parity（族 3a）
     expect(MISC_COMMAND_CATALOG.map((spec) => spec.id)).toEqual([
       'skill/install', 'skill/list',
       // Phase 1929 Step B：dispatch 编辑/历史迁入独立 dispatch-skill 命令族
-      'dispatch-skill/edit/begin', 'dispatch-skill/edit/submit', 'dispatch-skill/edit/basis', 'dispatch-skill/edit/retry', 'dispatch-skill/edit/status', 'dispatch-skill/history',
+      'dispatch-skill/edit/begin', 'dispatch-skill/edit/submit', 'dispatch-skill/edit/basis', 'dispatch-skill/edit/retry', 'dispatch-skill/edit/status',
+      // Phase 1929 Step C：已发布池列表
+      'dispatch-skill/list', 'dispatch-skill/history',
       'watchdog/start', 'watchdog/stop', 'audit/query', 'audit/lookup', 'audit/info',
     ]);
     const queryFlags = (getMiscCommandSpec('audit/query')!.options ?? []);
@@ -46,6 +48,8 @@ describe('phase 1874 Step L: skill/watchdog/audit 族 catalog parity（族 3a）
       "miscShape(dispatchSkillEditCmd.command('basis <editId>'), 'dispatch-skill/edit/basis', {",
       "miscShape(dispatchSkillEditCmd.command('retry <editId>'), 'dispatch-skill/edit/retry')",
       "miscShape(dispatchSkillEditCmd.command('status <editId>'), 'dispatch-skill/edit/status')",
+      // Phase 1929 Step C：已发布池列表（无 --claw 参数）
+      "miscShape(dispatchSkillCmd.command('list'), 'dispatch-skill/list')",
       "miscShape(dispatchSkillCmd.command('history <name>'), 'dispatch-skill/history')",
       "miscShape(watchdogCmd.command('start'), 'watchdog/start')",
       "miscShape(watchdogCmd.command('stop'), 'watchdog/stop')",
