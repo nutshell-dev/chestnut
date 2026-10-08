@@ -112,4 +112,40 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
     expect(res.exitCode).not.toBe(0);
     expect(res.stderr).toContain("unknown command 'frobnicate'");
   });
+
+  // Phase 1929 Step F：查询入口经 createDispatchVersions 触发 owner 初始化/恢复/
+  // 维护时，业务审计事件必须持久落盘（不再 noop），action scope 统一释放
+  it('查询入口 owner 维护审计落盘；失败路径审计保留；重复查询不产生用户编辑', async () => {
+    // 预置旧 live 树 → 首次构造版本服务触发 baseline 迁移（owner 业务事件）
+    const legacyDir = path.join(tmpDir, '.chestnut', 'motion', 'clawspace', 'dispatch-skills', 'alpha');
+    fsSync.mkdirSync(legacyDir, { recursive: true });
+    fsSync.writeFileSync(path.join(legacyDir, 'SKILL.md'), '---\nname: alpha\ndescription: legacy\n---\n# Alpha\n');
+
+    const list = await runCli(['dispatch-skill', 'list']);
+    expect(list.exitCode).toBe(0);
+    expect(list.stdout).toContain('alpha: legacy');
+
+    // 业务审计落盘（cli_invoke/cli_settled 之外、来自 owner 的事件）
+    const auditFile = path.join(tmpDir, '.chestnut', 'audit.tsv');
+    expect(fsSync.existsSync(auditFile)).toBe(true);
+    expect(fsSync.readFileSync(auditFile, 'utf-8')).toContain('skill_version_baseline_created');
+
+    const history = await runCli(['dispatch-skill', 'history', 'alpha']);
+    expect(history.exitCode).toBe(0);
+    expect(history.stdout).toContain('History for dispatch skill "alpha"');
+
+    // 不存在的 edit status：factory 初始化后失败——非零退出且初始化审计保留
+    const status = await runCli(['dispatch-skill', 'edit', 'status', 'edit-nonexistent']);
+    expect(status.exitCode).not.toBe(0);
+    expect(status.stderr).toContain('Unknown edit');
+    expect(fsSync.readFileSync(auditFile, 'utf-8')).toContain('skill_version_baseline_created');
+
+    // 重复查询不产生用户编辑事务/发布
+    await runCli(['dispatch-skill', 'list']);
+    const editsDir = path.join(tmpDir, '.chestnut', 'motion', 'clawspace', '.dispatch-version-state', 'edits');
+    const edits = fsSync.existsSync(editsDir)
+      ? fsSync.readdirSync(editsDir).filter((f) => f.endsWith('.json'))
+      : [];
+    expect(edits).toEqual([]);
+  }, 120_000);
 });

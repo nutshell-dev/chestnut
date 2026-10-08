@@ -398,17 +398,23 @@ miscShape(dispatchSkillEditCmd.command('retry <editId>'), 'dispatch-skill/edit/r
 
 miscShape(dispatchSkillEditCmd.command('status <editId>'), 'dispatch-skill/edit/status')
   .action(action('observe_only', async (editId: string) => {
-    await skillEditStatusCommand({ fsFactory }, editId);
+    // Phase 1929 Step F：查询入口也会经 owner 初始化/恢复/维护投影——审计随
+    // action scope 统一装配释放（observe_only 仍不启动 Watchdog）
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillEditStatusCommand({ fsFactory }, editId, { audit });
   }));
 
 miscShape(dispatchSkillCmd.command('list'), 'dispatch-skill/list')
   .action(action('observe_only', async () => {
-    await dispatchSkillListCommand({ fsFactory });
+    // Phase 1929 Step F：同上——owner 维护动作的业务审计不寂寞落 noop
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await dispatchSkillListCommand({ fsFactory }, { audit });
   }));
 
 miscShape(dispatchSkillCmd.command('history <name>'), 'dispatch-skill/history')
   .action(action('observe_only', async (name: string) => {
-    await skillHistoryCommand({ fsFactory }, name);
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await skillHistoryCommand({ fsFactory }, name, { audit });
   }));
 
 dispatchSkillEditCmd.on('command:*', (ops) => {

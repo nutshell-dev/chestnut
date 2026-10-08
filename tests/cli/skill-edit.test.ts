@@ -178,6 +178,24 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(workspacesAfter).toEqual(workspacesBefore);
   });
 
+  it('查询入口审计传递：注入 audit 时 owner 初始化业务事件记录；失败路径审计保留（Phase 1929 Step F）', async () => {
+    // 预置旧 live 树 → status/history 首次构造版本服务触发 baseline 迁移业务事件
+    seedDispatchSkill('alpha', '# Alpha orig\n');
+
+    const { audit, events } = makeAudit();
+    const cap = captureOutput();
+    try {
+      await skillHistoryCommand(deps, 'alpha', { audit });
+      // 未知 edit status：factory 初始化后 typed 失败——业务事件不丢
+      await expect(skillEditStatusCommand(deps, 'edit-does-not-exist', { audit }))
+        .rejects.toThrow(/Unknown edit/);
+    } finally {
+      cap.restore();
+    }
+    expect(cap.stdout.join('')).toContain('History for dispatch skill "alpha"');
+    expect(events.some(([type]) => type === 'skill_version_baseline_created')).toBe(true);
+  });
+
   it('submit 冲突：退出码 3 + kind=conflict + 当前版本 + retry 指令（冲突非成功）', async () => {
     seedDispatchSkill('alpha', '# Alpha orig\n');
     const a = await beginEdit('alpha', 'A change');

@@ -4,8 +4,9 @@
  * - 同名三份 fixture 隔离：Motion 自有、claw 自有、已发布池同名不同描述——
  *   列表只含已发布池版本，两个 list 各读正确 owner；
  * - 反向三项：仓库根只剩 .git 仍列出已发布技能（投影为读取面）；未发布候选
- *   不出现；服务损坏/迁移阻断非零失败（不伪装空集）；
+ *   不出现；服务损坏/迁移阻断非零失败（不伪装空集、cause 保留 typed 错误）；
  * - 重复列表不新增用户编辑/发布（允许 owner 初始化与派生投影维护的既有行为）。
+ * - Phase 1929 Step F：注入 audit 时 owner 初始化/维护业务事件如实记录（非 noop）。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -159,19 +160,33 @@ describe.skipIf(!gitAvailable)('dispatch-skill list（phase 1929 Step C）', () 
   });
 
   it('服务损坏/迁移阻断：非零 typed 失败，不伪装空集', async () => {
-    // SkillVersionError（如 migration_blocked）→ CliError 保留 kind
+    // SkillVersionError（如 migration_blocked）→ CliError 保留 kind 与 cause
+    const failing = new SkillVersionError('migration_blocked', 'legacy active intent blocks migration', { evidence: ['x'] });
     const failingFactory: typeof createSkillVersions = async () => {
-      throw new SkillVersionError('migration_blocked', 'legacy active intent blocks migration', { evidence: ['x'] });
+      throw failing;
     };
-    await expect(dispatchSkillListCommand(deps, { createSkillVersions: failingFactory }))
-      .rejects.toThrow(CliError);
-    await expect(dispatchSkillListCommand(deps, { createSkillVersions: failingFactory }))
-      .rejects.toThrow(/migration_blocked/);
+    const err = await dispatchSkillListCommand(deps, { createSkillVersions: failingFactory }).catch((e) => e);
+    expect(err).toBeInstanceOf(CliError);
+    expect(String(err)).toContain('migration_blocked');
+    expect((err as CliError & { cause?: unknown }).cause).toBe(failing); // typed 错误不吞
     expect(stdout()).toBe(''); // 失败不输出半个列表
 
     // 未知错误原样上抛（不吞咽成空列表）
     const boomFactory: typeof createSkillVersions = async () => { throw new Error('boom'); };
     await expect(dispatchSkillListCommand(deps, { createSkillVersions: boomFactory }))
       .rejects.toThrow('boom');
+  });
+
+  it('审计传递：owner 初始化/维护业务事件经注入 audit 记录（Phase 1929 Step F）', async () => {
+    // 预置旧 live 树 → 首次构造版本服务触发 baseline 迁移业务事件
+    const legacyDir = path.join(dispatchDir(), 'alpha');
+    fsSync.mkdirSync(legacyDir, { recursive: true });
+    fsSync.writeFileSync(path.join(legacyDir, 'SKILL.md'), SKILL_MD('alpha', 'legacy alpha', '# Alpha\n'));
+
+    const { audit, events } = makeAudit();
+    await dispatchSkillListCommand(deps, { audit });
+
+    expect(events.some(([type]) => type === 'skill_version_baseline_created')).toBe(true);
+    expect(stdout()).toContain('alpha: legacy alpha');
   });
 });
