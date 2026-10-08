@@ -101,7 +101,7 @@ describe.skipIf(!gitAvailable)('复盘分支编辑工作流（phase 1919 Step E�
     // Step D：持久来源引用随任务落盘
     expect(payload.correlation).toEqual({ source: 'retro', ref: CONTRACT_ID });
     // 工作流提示词在 intent 中（旧共享写指令零命中）
-    expect(payload.intent).toContain('chestnut skill edit begin');
+    expect(payload.intent).toContain('chestnut dispatch-skill edit begin');
     expect(payload.intent).not.toContain('用 write 工具写入 dispatch-skill');
 
     const id = newUuid();
@@ -177,7 +177,7 @@ describe.skipIf(!gitAvailable)('复盘分支编辑工作流（phase 1919 Step E�
     expect(conflictErr).toBeInstanceOf(CliError);
     expect((conflictErr as CliError).code).toBe(EXIT_EDIT_CONFLICT);
     expect((conflictErr as CliError).message).toContain('kind=conflict');
-    expect((conflictErr as CliError).message).toContain(`chestnut skill edit retry ${bBegin.editId}`);
+    expect((conflictErr as CliError).message).toContain(`chestnut dispatch-skill edit retry ${bBegin.editId}`);
 
     // B retry：新分支基于最新版本（含 A 的内容），重新应用自己的经验后发布
     const retryOut = await runAs(taskB.id, async () => {

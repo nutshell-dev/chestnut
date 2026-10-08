@@ -1,6 +1,8 @@
 /**
- * `chestnut skill edit` + `chestnut skill history`（Phase 1919 Step D：
- * 技能分支编辑事务唯一 CLI 入口）。
+ * `chestnut dispatch-skill edit` + `chestnut dispatch-skill history`
+ * （Phase 1919 Step D 引入技能分支编辑事务 CLI；Phase 1929 Step B 迁入独立
+ * dispatch-skill 命令族——池事务唯一可执行入口，旧 skill edit/history 只给
+ * 迁移错误）。
  *
  * 边界：
  * - CLI 不执行 git、不 new Git wrapper：全部版本操作经 SkillVersions owner 服务
@@ -119,7 +121,7 @@ export async function resolveEditBasis(
 }
 
 /**
- * `chestnut skill edit begin <name> --reason <text>`：从最新 published 开分支工作区。
+ * `chestnut dispatch-skill edit begin <name> --reason <text>`：从最新 published 开分支工作区。
  * 输出稳定 editId、绝对工作目录、基准版本。
  */
 export async function skillEditBeginCommand(
@@ -143,13 +145,13 @@ export async function skillEditBeginCommand(
     `Workspace: ${handle.path}`,
     `Base: ${handle.base}`,
     `Base path revision: ${handle.basePathRevision ?? 'none (new skill)'}`,
-    `Next: edit files under the workspace, then run: chestnut skill edit submit ${handle.editId}`,
+    `Next: edit files under the workspace, then run: chestnut dispatch-skill edit submit ${handle.editId}`,
     '',
   ].join('\n'));
 }
 
 /**
- * `chestnut skill edit submit <edit-id>`：保存候选 + 条件发布。
+ * `chestnut dispatch-skill edit submit <edit-id>`：保存候选 + 条件发布。
  * 冲突 → 退出码 3 + kind=conflict + retry 指令；busy → 退出码 4（待重试，同命令续作）。
  */
 export async function skillEditSubmitCommand(
@@ -174,8 +176,8 @@ export async function skillEditSubmitCommand(
       `(placeholder actors like 'unattributed'/'unspecified' are never a valid publish basis; basis is never fabricated)\n` +
       `candidate retained (saved, not published, not overwritten): ${result.candidate}\n` +
       `supply a complete basis, then re-submit:\n` +
-      `  chestnut skill edit basis ${editId} --actor <identity> --reason <text> [--ref <source-ref>]...\n` +
-      `  chestnut skill edit submit ${editId}`,
+      `  chestnut dispatch-skill edit basis ${editId} --actor <identity> --reason <text> [--ref <source-ref>]...\n` +
+      `  chestnut dispatch-skill edit submit ${editId}`,
       EXIT_EDIT_BASIS_REQUIRED,
     );
   }
@@ -184,20 +186,20 @@ export async function skillEditSubmitCommand(
       `Edit ${editId} failed (kind=conflict): the skill was updated concurrently\n` +
       `current: ${result.current}\n` +
       `candidate retained (not overwritten, not merged): ${result.candidate}\n` +
-      `retry on the latest base: chestnut skill edit retry ${editId}`,
+      `retry on the latest base: chestnut dispatch-skill edit retry ${editId}`,
       EXIT_EDIT_CONFLICT,
     );
   }
   throw new CliError(
     `Edit ${editId} not yet published (kind=busy): publish CAS retries exhausted; ` +
     `candidate retained with operation ${result.operationId}\n` +
-    `resume with the same command: chestnut skill edit submit ${editId}`,
+    `resume with the same command: chestnut dispatch-skill edit submit ${editId}`,
     EXIT_EDIT_BUSY,
   );
 }
 
 /**
- * `chestnut skill edit basis <edit-id> --actor <identity> --reason <text> [--ref <source-ref>]...`
+ * `chestnut dispatch-skill edit basis <edit-id> --actor <identity> --reason <text> [--ref <source-ref>]...`
  * （Phase 1923 Step C：依据准入被拒后的唯一补依据入口）。
  * 只更新 saved 编辑的依据记录并派生新发布幂等键；候选内容不变、不自动发布。
  * --actor/--reason 必填：补充的依据必须完整可归因，绝不隐式补默认理由。
@@ -229,13 +231,13 @@ export async function skillEditBasisCommand(
     `Reason: ${info.basis.reason}`,
     `Source refs: ${info.basis.sourceRefs.length > 0 ? info.basis.sourceRefs.join(', ') : 'none'}`,
     `Candidate unchanged: ${info.candidate ?? 'none'}`,
-    `Next: re-submit with: chestnut skill edit submit ${info.editId}`,
+    `Next: re-submit with: chestnut dispatch-skill edit submit ${info.editId}`,
     '',
   ].join('\n'));
 }
 
 /**
- * `chestnut skill edit retry <edit-id>`：对 conflict 编辑从最新 published 新建
+ * `chestnut dispatch-skill edit retry <edit-id>`：对 conflict 编辑从最新 published 新建
  * 关联分支（parentEditId 链接）；绝不 reset 原分支、不自动 merge。
  */
 export async function skillEditRetryCommand(
@@ -256,7 +258,7 @@ export async function skillEditRetryCommand(
     `Workspace: ${handle.path}`,
     `Base: ${handle.base}`,
     `Base path revision: ${handle.basePathRevision ?? 'none (new skill)'}`,
-    `Next: re-apply your changes on this fresh base, then run: chestnut skill edit submit ${handle.editId}`,
+    `Next: re-apply your changes on this fresh base, then run: chestnut dispatch-skill edit submit ${handle.editId}`,
     '',
   ].join('\n'));
 }
@@ -267,6 +269,8 @@ function formatSourceRefs(info: SkillEditInfo): string {
 
 function formatEditInfo(info: SkillEditInfo): string[] {
   const lines = [
+    // Phase 1929 Step B：标明 dispatch 池作用域（与自有同名技能分界）
+    `Scope: dispatch skill pool`,
     `Edit: ${info.editId}`,
     `Skill: ${info.skillName}`,
     `Status: ${info.status}`,
@@ -279,7 +283,7 @@ function formatEditInfo(info: SkillEditInfo): string[] {
   ];
   if (info.status === 'saved' && info.publishOperationId !== null) {
     // busy/中断未决：持久呈现为待重试，不伪装终态
-    lines.push(`Publish: pending retry (operation ${info.publishOperationId}; resume: chestnut skill edit submit ${info.editId})`);
+    lines.push(`Publish: pending retry (operation ${info.publishOperationId}; resume: chestnut dispatch-skill edit submit ${info.editId})`);
   }
   lines.push(
     `Actor: ${info.basis.actor}`,
@@ -291,7 +295,7 @@ function formatEditInfo(info: SkillEditInfo): string[] {
   return lines;
 }
 
-/** `chestnut skill edit status <edit-id>`（只读）：事务状态 + 冲突候选 + 依据。 */
+/** `chestnut dispatch-skill edit status <edit-id>`（只读）：事务状态 + 冲突候选 + 依据。 */
 export async function skillEditStatusCommand(
   deps: SkillEditCommandDeps,
   editId: string,
@@ -340,7 +344,7 @@ function formatHistoryEntry(entry: SkillHistoryEntry): string[] {
 }
 
 /**
- * `chestnut skill history <name>`（只读）：技能版本提交历史（新→旧）——
+ * `chestnut dispatch-skill history <name>`（只读）：技能版本提交历史（新→旧）——
  * Snapshot 已发布事实与编辑事务按 publishOperationId 对账后的完整提交信息。
  */
 export async function skillHistoryCommand(
@@ -356,9 +360,10 @@ export async function skillHistoryCommand(
     throw toCliError(e);
   }
   if (entries.length === 0) {
-    process.stdout.write(`No history for skill "${name}".\n`);
+    process.stdout.write(`No history for dispatch skill "${name}".\n`);
     return;
   }
   const blocks = entries.map((entry) => formatHistoryEntry(entry).join('\n'));
-  process.stdout.write(`History for skill "${name}" (newest first):\n\n${blocks.join('\n\n')}\n`);
+  // Phase 1929 Step B：标题标明 dispatch 池作用域（与自有 skill 命名空间分界）
+  process.stdout.write(`History for dispatch skill "${name}" (newest first):\n\n${blocks.join('\n\n')}\n`);
 }

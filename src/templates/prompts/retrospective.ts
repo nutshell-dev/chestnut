@@ -78,7 +78,7 @@ begin/submit，不得借单技能事务提交跨技能改动）：
 1. 开始编辑（reason 会记录为永久依据；来源自动关联本复盘任务，无需手工填写）：
 
 \`\`\`
-exec: { "command": "chestnut skill edit begin <skill-name> --reason \"<一句话说明本次经验>\"" }
+exec: { "command": "chestnut dispatch-skill edit begin <skill-name> --reason \"<一句话说明本次经验>\"" }
 \`\`\`
 
    输出包含稳定 editId、Workspace 绝对路径与基准版本。
@@ -89,12 +89,12 @@ exec: { "command": "chestnut skill edit begin <skill-name> --reason \"<一句话
 3. 提交：
 
 \`\`\`
-exec: { "command": "chestnut skill edit submit <edit-id>" }
+exec: { "command": "chestnut dispatch-skill edit submit <edit-id>" }
 \`\`\`
 
    - 成功：输出 \`published: <version>\`——复盘摘要中引用该 version。
    - 冲突（退出码 3，kind=conflict）：其他任务已发布更新的版本。执行
-     \`chestnut skill edit retry <edit-id>\` 取得基于最新版本的新工作区，
+     \`chestnut dispatch-skill edit retry <edit-id>\` 取得基于最新版本的新工作区，
      阅读其中的最新内容，把你的经验重新应用进去后再次 submit。
      冲突不是提交成功，不得伪报技能已更新。
    - busy（退出码 4）：重跑同一条 submit 命令续作。
@@ -103,20 +103,20 @@ exec: { "command": "chestnut skill edit submit <edit-id>" }
      真实身份补依据后重新提交（不得编造任务 id 或他人身份）：
 
 \`\`\`
-exec: { "command": "chestnut skill edit basis <edit-id> --actor \"subagent:<你的任务短 id>\" --reason \"<一句话说明本次经验>\" --ref \"subagent-task:<你的任务 id>\"" }
+exec: { "command": "chestnut dispatch-skill edit basis <edit-id> --actor \"subagent:<你的任务短 id>\" --reason \"<一句话说明本次经验>\" --ref \"subagent-task:<你的任务 id>\"" }
 \`\`\`
 
-     然后重跑 \`chestnut skill edit submit <edit-id>\`。basis 命令只补依据，
+     然后重跑 \`chestnut dispatch-skill edit submit <edit-id>\`。basis 命令只补依据，
      不会改动候选内容，也不会自动发布。
 
 如需查看某技能的编辑历史与依据：
 
 \`\`\`
-exec: { "command": "chestnut skill history <skill-name>" }
+exec: { "command": "chestnut dispatch-skill history <skill-name>" }
 \`\`\`
 
 如果执行中断/超时：工作区与候选版本持久保留，不会丢失；可用
-\`chestnut skill edit status <edit-id>\` 查询状态后继续。未发布的候选不算已更新。
+\`chestnut dispatch-skill edit status <edit-id>\` 查询状态后继续。未发布的候选不算已更新。
 
 #### Skill 结构
 

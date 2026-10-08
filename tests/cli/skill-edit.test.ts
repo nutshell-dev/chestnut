@@ -1,6 +1,7 @@
 /**
- * Phase 1919 Step D：技能分支编辑事务 CLI（skill edit begin/submit/retry/status +
- * skill history）契约测试。
+ * Phase 1919 Step D：技能分支编辑事务 CLI 契约测试；Phase 1929 Step B 起经
+ * dispatch-skill 命令族（dispatch-skill edit begin/submit/retry/status +
+ * dispatch-skill history）提供。
  *
  * - handler 级（真实 Git 版本库 fixture）：begin→edit→submit 全链、冲突退出码 3 +
  *   retry 指令、busy 退出码 4（exec 锁注入）、retry 链接 parent、status/history
@@ -123,7 +124,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
 
     const { editId, workspace, out } = await beginEdit('alpha', 'improve alpha wording');
     expect(out).toContain(`Base path revision: `);
-    expect(out).toContain(`chestnut skill edit submit ${editId}`);
+    expect(out).toContain(`chestnut dispatch-skill edit submit ${editId}`);
     expect(workspace.startsWith(workspacesDir())).toBe(true);
 
     writeWs(workspace, 'SKILL.md', SKILL_MD('alpha', '# Alpha v2\n'));
@@ -141,7 +142,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(text).toContain('Actor: user');
     expect(text).toContain('Reason: improve alpha wording');
     expect(text).toContain('Source refs: none');
-    expect(text).toContain(`History for skill "alpha" (newest first):`);
+    expect(text).toContain(`History for dispatch skill "alpha" (newest first):`);
     // Phase 1923 Step B：提交信息完整——版本/操作/commit 时间/编辑事务身份
     expect(text).toMatch(/Version: [0-9a-f]{40}/);
     expect(text).toContain(`Operation: edit-publish-${editId}`);
@@ -191,7 +192,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(cliErr.code).toBe(EXIT_EDIT_CONFLICT);
     expect(cliErr.message).toContain('kind=conflict');
     expect(cliErr.message).toMatch(/current: [0-9a-f]{40}/);
-    expect(cliErr.message).toContain(`chestnut skill edit retry ${b.editId}`);
+    expect(cliErr.message).toContain(`chestnut dispatch-skill edit retry ${b.editId}`);
     expect(cliErr.message).toMatch(/candidate retained.*[0-9a-f]{40}/);
   });
 
@@ -217,7 +218,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe(EXIT_EDIT_BUSY);
     expect((err as CliError).message).toContain('kind=busy');
-    expect((err as CliError).message).toContain(`chestnut skill edit submit ${editId}`);
+    expect((err as CliError).message).toContain(`chestnut dispatch-skill edit submit ${editId}`);
 
     // 解锁续作（服务侧幂等恢复）
     lock.held = false;
@@ -245,8 +246,8 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(cliErr.code).toBe(EXIT_EDIT_BASIS_REQUIRED);
     expect(cliErr.message).toContain('kind=basis_required');
     expect(cliErr.message).toMatch(/candidate retained.*[0-9a-f]{40}/);
-    expect(cliErr.message).toContain(`chestnut skill edit basis ${editId} --actor`);
-    expect(cliErr.message).toContain(`chestnut skill edit submit ${editId}`);
+    expect(cliErr.message).toContain(`chestnut dispatch-skill edit basis ${editId} --actor`);
+    expect(cliErr.message).toContain(`chestnut dispatch-skill edit submit ${editId}`);
 
     // 补依据：--actor/--reason 必填（不隐式补默认理由）
     await expect(skillEditBasisCommand(deps, editId, { reason: 'x' })).rejects.toThrow(CliError);
@@ -405,7 +406,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
         child.on('close', (code) => resolve({ stdout, stderr, exitCode: code }));
       });
 
-    const begin = await runCli(['skill', 'edit', 'begin', 'alpha', '--reason', 'real chain edit']);
+    const begin = await runCli(['dispatch-skill', 'edit', 'begin', 'alpha', '--reason', 'real chain edit']);
     expect(begin.exitCode).toBe(0);
     expect(begin.stderr).not.toContain('unattributed');
     const editId = /Edit began: (\S+)/.exec(begin.stdout)?.[1] ?? '';
@@ -415,23 +416,23 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     expect(begin.stdout).toMatch(/Base: [0-9a-f]{40}/);
 
     writeWs(workspace, 'SKILL.md', SKILL_MD('alpha', '# Alpha real chain\n'));
-    const submit = await runCli(['skill', 'edit', 'submit', editId]);
+    const submit = await runCli(['dispatch-skill', 'edit', 'submit', editId]);
     expect(submit.exitCode).toBe(0);
     expect(submit.stdout).toContain(`Edit ${editId} published: `);
 
-    const status = await runCli(['skill', 'edit', 'status', editId]);
+    const status = await runCli(['dispatch-skill', 'edit', 'status', editId]);
     expect(status.exitCode).toBe(0);
     expect(status.stdout).toContain('Status: published');
     expect(status.stdout).toContain(`subagent-task:${taskId}`);
     expect(status.stdout).toContain('retro:contract-real-chain');
 
-    const history = await runCli(['skill', 'history', 'alpha']);
+    const history = await runCli(['dispatch-skill', 'history', 'alpha']);
     expect(history.exitCode).toBe(0);
     expect(history.stdout).toContain(editId);
     expect(history.stdout).toContain('real chain edit');
 
     // 反向：未知 edit 退出码非零（CLI 准入路径 typed 拒绝）
-    const unknown = await runCli(['skill', 'edit', 'status', 'edit-nonexistent']);
+    const unknown = await runCli(['dispatch-skill', 'edit', 'status', 'edit-nonexistent']);
     expect(unknown.exitCode).not.toBe(0);
     } finally {
       await cleanupTempDir(foreignCwd);

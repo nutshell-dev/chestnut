@@ -31,15 +31,18 @@ subtasks:
   // Phase 1919 Step E：第四步改为分支编辑事务工作流
   it('Step 4 instructs branch edit workflow (begin/submit/retry), not direct dispatch writes', () => {
     const result = buildRetroPrompt('my-claw', 'c-001', sampleYaml, '## Skills\n- gen-report');
-    expect(result).toContain('chestnut skill edit begin <skill-name> --reason');
-    expect(result).toContain('chestnut skill edit submit <edit-id>');
-    expect(result).toContain('chestnut skill edit retry <edit-id>');
-    expect(result).toContain('chestnut skill history <skill-name>');
+    expect(result).toContain('chestnut dispatch-skill edit begin <skill-name> --reason');
+    expect(result).toContain('chestnut dispatch-skill edit submit <edit-id>');
+    expect(result).toContain('chestnut dispatch-skill edit retry <edit-id>');
+    expect(result).toContain('chestnut dispatch-skill history <skill-name>');
     expect(result).toContain('kind=conflict');
     expect(result).toContain('不得伪报技能已更新');
     // Phase 1923 Step C：依据缺失拒绝发布的补依据指引
     expect(result).toContain('kind=basis_required');
-    expect(result).toContain('chestnut skill edit basis <edit-id>');
+    expect(result).toContain('chestnut dispatch-skill edit basis <edit-id>');
+    // Phase 1929 Step B：旧 skill 命令族字面零命中（反向——只宣传 dispatch-skill 入口）
+    expect(result).not.toContain('chestnut skill edit');
+    expect(result).not.toContain('chestnut skill history');
     // 旧共享写指令零命中（反向）
     expect(result).not.toContain('用 write 工具写入 dispatch-skill');
     expect(result).not.toContain('dispatch-skills/<skill-name>/');

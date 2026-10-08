@@ -340,25 +340,30 @@ miscShape(skillCmd.command('list'), 'skill/list')
     await skillListCommand({ fsFactory, rootConfig }, opts);
   }));
 
-// Phase 1919 Step D：技能分支编辑事务唯一 CLI 入口（形状经 misc catalog 投影）
-const skillEditCmd = skillCmd
+// Phase 1929 Step B：dispatch 技能池编辑/历史迁入独立 dispatch-skill 命令族
+// （形状经 misc catalog 投影；自有 skill 命名空间只保留 install/list）
+const dispatchSkillCmd = program
+  .command('dispatch-skill')
+  .description('Manage the shared dispatch skill pool');
+
+const dispatchSkillEditCmd = dispatchSkillCmd
   .command('edit')
   .description('Branch edit transactions for dispatch skills');
 
-miscShape(skillEditCmd.command('begin <name>'), 'skill/edit/begin')
+miscShape(dispatchSkillEditCmd.command('begin <name>'), 'dispatch-skill/edit/begin')
   .action(action('required', async (name: string, opts: { reason?: string }) => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await skillEditBeginCommand({ fsFactory }, name, opts, { audit });
   }));
 
-miscShape(skillEditCmd.command('submit <editId>'), 'skill/edit/submit')
+miscShape(dispatchSkillEditCmd.command('submit <editId>'), 'dispatch-skill/edit/submit')
   .action(action('required', async (editId: string) => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await skillEditSubmitCommand({ fsFactory }, editId, { audit });
   }));
 
 // Phase 1923 Step C：依据准入被拒后的补依据入口（--ref 为 repeatable 收集器字面）
-miscShape(skillEditCmd.command('basis <editId>'), 'skill/edit/basis', {
+miscShape(dispatchSkillEditCmd.command('basis <editId>'), 'dispatch-skill/edit/basis', {
   // runtimeLiteral：repeatable fn parser + [] default——就地注册（audit/query --col 同款）
   '--ref <source-ref>': (c) => {
     c.option('--ref <source-ref>', 'Source reference locating the origin task/log (repeatable)', (v: string, acc: string[]) => [...acc, v], []);
@@ -369,32 +374,51 @@ miscShape(skillEditCmd.command('basis <editId>'), 'skill/edit/basis', {
     await skillEditBasisCommand({ fsFactory }, editId, opts, { audit });
   }));
 
-miscShape(skillEditCmd.command('retry <editId>'), 'skill/edit/retry')
+miscShape(dispatchSkillEditCmd.command('retry <editId>'), 'dispatch-skill/edit/retry')
   .action(action('required', async (editId: string) => {
     const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
     await skillEditRetryCommand({ fsFactory }, editId, { audit });
   }));
 
-miscShape(skillEditCmd.command('status <editId>'), 'skill/edit/status')
+miscShape(dispatchSkillEditCmd.command('status <editId>'), 'dispatch-skill/edit/status')
   .action(action('observe_only', async (editId: string) => {
     await skillEditStatusCommand({ fsFactory }, editId);
   }));
 
-miscShape(skillCmd.command('history <name>'), 'skill/history')
+miscShape(dispatchSkillCmd.command('history <name>'), 'dispatch-skill/history')
   .action(action('observe_only', async (name: string) => {
     await skillHistoryCommand({ fsFactory }, name);
   }));
 
-skillEditCmd.on('command:*', (ops) => {
+dispatchSkillEditCmd.on('command:*', (ops) => {
   console.error(`error: unknown command '${ops[0]}'\n`);
   console.error('Available commands:');
-  for (const c of skillEditCmd.commands) {
+  for (const c of dispatchSkillEditCmd.commands) {
+    console.error(`  ${c.name().padEnd(12)}  ${c.description()}`);
+  }
+  process.exitCode = 1;
+});
+
+dispatchSkillCmd.on('command:*', (ops) => {
+  console.error(`error: unknown command '${ops[0]}'\n`);
+  console.error('Available commands:');
+  for (const c of dispatchSkillCmd.commands) {
     console.error(`  ${c.name().padEnd(12)}  ${c.description()}`);
   }
   process.exitCode = 1;
 });
 
 skillCmd.on('command:*', (ops) => {
+  // Phase 1929 Step B：旧 skill edit/history 不保留执行别名——明确非零迁移错误，
+  // 绝不调用 owner；help 不再宣传旧接口（子命令已移除，此处只是迁移指引）。
+  if (ops[0] === 'edit' || ops[0] === 'history') {
+    console.error(
+      `error: 'chestnut skill ${ops[0]}' has moved: dispatch skill pool edit/history now live under ` +
+      `'chestnut dispatch-skill ${ops[0]} ...' (the skill command family manages Motion/claw own skills only)\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   console.error(`error: unknown command '${ops[0]}'\n`);
   console.error('Available commands:');
   for (const c of skillCmd.commands) {

@@ -18,7 +18,8 @@ describe('phase 1874 Step L: skill/watchdog/audit 族 catalog parity（族 3a）
   it('catalog 单源：族 id 全集 + runtimeLiteral 标记（audit --file/--col）', () => {
     expect(MISC_COMMAND_CATALOG.map((spec) => spec.id)).toEqual([
       'skill/install', 'skill/list',
-      'skill/edit/begin', 'skill/edit/submit', 'skill/edit/basis', 'skill/edit/retry', 'skill/edit/status', 'skill/history',
+      // Phase 1929 Step B：dispatch 编辑/历史迁入独立 dispatch-skill 命令族
+      'dispatch-skill/edit/begin', 'dispatch-skill/edit/submit', 'dispatch-skill/edit/basis', 'dispatch-skill/edit/retry', 'dispatch-skill/edit/status', 'dispatch-skill/history',
       'watchdog/start', 'watchdog/stop', 'audit/query', 'audit/lookup', 'audit/info',
     ]);
     const queryFlags = (getMiscCommandSpec('audit/query')!.options ?? []);
@@ -26,10 +27,10 @@ describe('phase 1874 Step L: skill/watchdog/audit 族 catalog parity（族 3a）
     expect(queryFlags.find((o) => o.flag === '--col <key=val>')!.runtimeLiteral).toBe(true);
     expect(queryFlags.filter((o) => o.required).map((o) => o.flag)).toEqual(['-c, --claw <id>']);
     // Phase 1919 Step D：edit begin 的 --reason 为 catalog 声明的必填项（无理由不造依据）
-    const beginFlags = (getMiscCommandSpec('skill/edit/begin')!.options ?? []);
+    const beginFlags = (getMiscCommandSpec('dispatch-skill/edit/begin')!.options ?? []);
     expect(beginFlags.filter((o) => o.required).map((o) => o.flag)).toEqual(['--reason <text>']);
     // Phase 1923 Step C：edit basis 的 --actor/--reason 必填（补充依据必须可归因）、--ref 为收集器字面
-    const basisFlags = (getMiscCommandSpec('skill/edit/basis')!.options ?? []);
+    const basisFlags = (getMiscCommandSpec('dispatch-skill/edit/basis')!.options ?? []);
     expect(basisFlags.filter((o) => o.required).map((o) => o.flag)).toEqual(['--actor <identity>', '--reason <text>']);
     expect(basisFlags.find((o) => o.flag === '--ref <source-ref>')!.runtimeLiteral).toBe(true);
   });
@@ -38,14 +39,14 @@ describe('phase 1874 Step L: skill/watchdog/audit 族 catalog parity（族 3a）
     for (const anchor of [
       "miscShape(skillCmd.command('install [source]'), 'skill/install')",
       "miscShape(skillCmd.command('list'), 'skill/list')",
-      // Phase 1919 Step D：skill edit 子族 + skill history
-      "miscShape(skillEditCmd.command('begin <name>'), 'skill/edit/begin')",
-      "miscShape(skillEditCmd.command('submit <editId>'), 'skill/edit/submit')",
+      // Phase 1929 Step B：dispatch-skill edit 子族 + dispatch-skill history
+      "miscShape(dispatchSkillEditCmd.command('begin <name>'), 'dispatch-skill/edit/begin')",
+      "miscShape(dispatchSkillEditCmd.command('submit <editId>'), 'dispatch-skill/edit/submit')",
       // Phase 1923 Step C：依据准入被拒后的补依据入口（--ref literal 就地注册）
-      "miscShape(skillEditCmd.command('basis <editId>'), 'skill/edit/basis', {",
-      "miscShape(skillEditCmd.command('retry <editId>'), 'skill/edit/retry')",
-      "miscShape(skillEditCmd.command('status <editId>'), 'skill/edit/status')",
-      "miscShape(skillCmd.command('history <name>'), 'skill/history')",
+      "miscShape(dispatchSkillEditCmd.command('basis <editId>'), 'dispatch-skill/edit/basis', {",
+      "miscShape(dispatchSkillEditCmd.command('retry <editId>'), 'dispatch-skill/edit/retry')",
+      "miscShape(dispatchSkillEditCmd.command('status <editId>'), 'dispatch-skill/edit/status')",
+      "miscShape(dispatchSkillCmd.command('history <name>'), 'dispatch-skill/history')",
       "miscShape(watchdogCmd.command('start'), 'watchdog/start')",
       "miscShape(watchdogCmd.command('stop'), 'watchdog/stop')",
       "miscShape(auditCmd.command('query'), 'audit/query', {",

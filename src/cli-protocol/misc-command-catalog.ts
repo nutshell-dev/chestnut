@@ -26,21 +26,22 @@ export const MISC_COMMAND_CATALOG = [
       { flag: '-c, --claw <id>', desc: 'Target claw ID (default: motion)' },
     ],
   },
-  // Phase 1919 Step D：技能分支编辑事务唯一 CLI 入口（begin/submit/retry/status/history）
+  // Phase 1929 Step B：dispatch 编辑/历史迁入独立 dispatch-skill 命令族
+  // （原 skill/edit/* 与 skill/history ID；自有 skill 命名空间不再承载池事务入口）
   {
-    id: 'skill/edit/begin',
+    id: 'dispatch-skill/edit/begin',
     summary: 'Begin a branch edit transaction for a dispatch skill',
     options: [
       { flag: '--reason <text>', desc: 'Why this edit is made (recorded as permanent basis; never fabricated)', required: true },
     ],
   },
   {
-    id: 'skill/edit/submit',
+    id: 'dispatch-skill/edit/submit',
     summary: 'Submit a branch edit (save candidate + conditional publish; conflict exits 3, busy exits 4, basis_required exits 5)',
   },
   // Phase 1923 Step C：依据准入被拒后的唯一补依据入口（候选不变、不自动发布）
   {
-    id: 'skill/edit/basis',
+    id: 'dispatch-skill/edit/basis',
     summary: 'Supply a complete attributable basis for a saved edit blocked by basis_required, then re-submit',
     options: [
       { flag: '--actor <identity>', desc: 'Who makes this edit (required; attributable, never fabricated)', required: true },
@@ -50,16 +51,17 @@ export const MISC_COMMAND_CATALOG = [
     ],
   },
   {
-    id: 'skill/edit/retry',
+    id: 'dispatch-skill/edit/retry',
     summary: 'Retry a conflicted edit on the latest published base (new linked branch)',
   },
   {
-    id: 'skill/edit/status',
-    summary: 'Show a branch edit transaction (read-only: status, candidate, basis)',
+    id: 'dispatch-skill/edit/status',
+    summary: 'Show a dispatch branch edit transaction (read-only: status, candidate, basis)',
   },
   {
-    id: 'skill/history',
-    summary: 'List branch edit transactions of a dispatch skill (read-only, newest first)',
+    id: 'dispatch-skill/history',
+    // Phase 1929 Step B：摘要如实描述完整提交/事务历史（非仅编辑事务列表）
+    summary: 'Show the full commit/edit-transaction history of a dispatch skill (read-only, newest first)',
   },
   { id: 'watchdog/start', summary: 'Start watchdog' },
   { id: 'watchdog/stop', summary: 'Stop watchdog' },
