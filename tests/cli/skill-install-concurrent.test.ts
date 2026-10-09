@@ -57,15 +57,22 @@ function makeSkillSource(parent: string, version: string): string {
   return src;
 }
 
-// Phase 1929 Step D：user 目标 = Motion 自有 skills；claim 仍居稳定旧位置（root/skills）
+// Phase 1929 Step D：user 目标 = Motion 自有 skills。
+// Phase 1930 Step C：本地安装 claim/快照居实例内 `.chestnut/skill-install/local/`。
 function userSkillDir(): string {
   return path.join(testDir, '.chestnut', 'motion', 'skills', 'myskill');
 }
 function dispatchSkillDir(): string {
   return path.join(testDir, '.chestnut', 'motion', 'clawspace', 'dispatch-skills', 'myskill');
 }
+function claimBaseDir(): string {
+  return path.join(testDir, '.chestnut');
+}
+function claimParentDir(): string {
+  return path.join(claimBaseDir(), 'skill-install', 'local');
+}
 function claimPath(): string {
-  return path.join(testDir, 'skills', '.myskill.installing');
+  return path.join(claimParentDir(), '.myskill.installing');
 }
 
 function readVersion(dir: string): string {
@@ -365,7 +372,7 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
     // —— 对 claim 的首个「含 published 状态」写入抛错
     const crashFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(testDir)) {
+      if (path.resolve(baseDir) === path.resolve(claimBaseDir())) {
         const origWrite = real.writeAtomicSync.bind(real);
         real.writeAtomicSync = (p: string, content: string) => {
           if (p.endsWith('.myskill.installing') && content.includes('"state": "published"')) {
@@ -518,7 +525,7 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
     expect(fs.existsSync(userSkillDir())).toBe(false);
     expect(fs.existsSync(claimPath())).toBe(false);
     expect(
-      fs.readdirSync(path.join(testDir, 'skills')).filter((x) => x.startsWith('.skill-')),
+      fs.readdirSync(claimParentDir()).filter((x) => x.startsWith('.skill-')),
     ).toEqual([]);
   });
 
@@ -678,7 +685,7 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
     let crashed = false;
     return (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(testDir)) {
+      if (path.resolve(baseDir) === path.resolve(claimBaseDir())) {
         const origWrite = real.writeAtomicSync.bind(real);
         real.writeAtomicSync = (p: string, content: string) => {
           if (!crashed && p.endsWith('.myskill.installing') && content.includes('"state": "publishing"')) {
@@ -885,7 +892,7 @@ describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SK
   function crashAfterCommitFactory(): (baseDir: string) => FileSystem {
     return (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(testDir)) {
+      if (path.resolve(baseDir) === path.resolve(claimBaseDir())) {
         const origWrite = real.writeAtomicSync.bind(real);
         real.writeAtomicSync = (p: string, content: string) => {
           if (p.endsWith('.myskill.installing') && content.includes('"state": "published"')) {
@@ -1019,7 +1026,7 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
     fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }
   function skillDirSnapshots(): string[] {
-    return fs.readdirSync(path.join(testDir, 'skills')).filter((n) => n.startsWith('.skill-srcsnap-'));
+    return fs.readdirSync(claimParentDir()).filter((n) => n.startsWith('.skill-srcsnap-'));
   }
 
   it('all-published 恢复（崩溃于 claim 释放前）→ 收敛释放 claim，快照零残留', async () => {
@@ -1028,7 +1035,7 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
     let crashed = false;
     const crashingFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(testDir)) {
+      if (path.resolve(baseDir) === path.resolve(claimBaseDir())) {
         const origDelete = real.deleteSync.bind(real);
         real.deleteSync = (p: string) => {
           if (!crashed && p.endsWith('.myskill.installing')) {
@@ -1060,10 +1067,10 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
   it('快照清理失败 → warn 可观察留证；下一次同名安装 sweep 收敛孤儿', async () => {
     const src = makeSkillSource('a', 'v1');
     const warnSpy = vi.mocked(console.warn);
-    const skillsParent = path.join(testDir, 'skills');
+    const snapParent = claimParentDir();
     const failingCleanupFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(skillsParent)) {
+      if (path.resolve(baseDir) === path.resolve(snapParent)) {
         const origRemoveDir = real.removeDir.bind(real);
         real.removeDir = async (p: string) => {
           if (p.startsWith('.skill-srcsnap-')) throw new Error('simulated snapshot cleanup failure');
@@ -1093,7 +1100,7 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
     expect(skillDirSnapshots()).toHaveLength(1); // 被 intent 引用的快照在场
 
     // 同名孤儿快照（claim 写入前崩溃窗口的残留，无 intent 引用）
-    const orphan = path.join(testDir, 'skills', '.skill-srcsnap-myskill-orphan00');
+    const orphan = path.join(claimParentDir(), '.skill-srcsnap-myskill-orphan00');
     fs.mkdirSync(orphan, { recursive: true });
     fs.writeFileSync(path.join(orphan, 'SKILL.md'), 'orphan');
 

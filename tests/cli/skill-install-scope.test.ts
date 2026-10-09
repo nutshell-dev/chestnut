@@ -9,7 +9,9 @@
  * - 非法参数组合（source+--skill / source+--claw / --claw 缺 --skill / 全缺）
  *   在真实 CLI 上非零拒绝且零安装副作用；
  * - 旧布局（workspace/skills 目标）中断 intent 明确拒绝恢复：证据保留、目标
- *   不改写；本 phase 的 schema-4 Motion intent 正常恢复；
+ *   不改写；schema-4 Motion intent 正常恢复；
+ * Phase 1930 Step C：本地安装 claim/快照迁入实例内 `.chestnut/skill-install/local/`；
+ * 拒绝保护 fixture 改在新位置构造（不为通过测试删除错误处理）。
  * - 两个安装入口竞争同一 Motion 目标：至多一个占有者，最终内容为单一完整版本；
  * - 双目标中途失败：已提交目标事实保留（Motion 副本在、池未发布、claim 留证），
  *   不伪造全局成功。
@@ -46,7 +48,9 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
   const motionSkills = () => path.join(tmpDir, '.chestnut', 'motion', 'skills');
   const motionSkillDir = () => path.join(motionSkills(), 'myskill');
   const workspaceSkillDir = () => path.join(tmpDir, 'skills', 'myskill');
-  const rootClaimPath = () => path.join(tmpDir, 'skills', '.myskill.installing');
+  // Phase 1930 Step C：claim 在实例内独立 namespace（相对实例根 skill-install/local/）
+  const claimParent = () => path.join(tmpDir, '.chestnut', 'skill-install', 'local');
+  const rootClaimPath = () => path.join(claimParent(), '.myskill.installing');
 
   beforeEach(async () => {
     tmpDir = await createTrackedTempDir('skill-install-scope-');
@@ -171,7 +175,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
         { id: 'dispatch', state: 'pending', preState: 'absent' },
       ],
     };
-    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    fsSync.mkdirSync(claimParent(), { recursive: true });
     const claimBytes = JSON.stringify(intent, null, 2);
     fsSync.writeFileSync(rootClaimPath(), claimBytes);
     // 旧布局中断现场：workspace 目标半成品 + marker
@@ -205,7 +209,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
   });
 
   it('损坏 claim：fail-loud 不当 absent，零改写零 factory 调用', async () => {
-    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    fsSync.mkdirSync(claimParent(), { recursive: true });
     fsSync.writeFileSync(rootClaimPath(), '{corrupted');
 
     const src = makeSkillSource('a', 'origin', 'v1');
@@ -232,7 +236,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
       manifest: [],
       targets: [{ id: 'user', state: 'pending', preState: 'absent' }],
     };
-    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    fsSync.mkdirSync(claimParent(), { recursive: true });
     const claimBytes = JSON.stringify(intent, null, 2);
     fsSync.writeFileSync(rootClaimPath(), claimBytes);
 
@@ -260,7 +264,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
       manifest: [],
       targets: [{ id: 'user', state: 'pending', preState: 'absent' }],
     };
-    fsSync.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+    fsSync.mkdirSync(claimParent(), { recursive: true });
     const claimBytes = JSON.stringify(intent, null, 2);
     fsSync.writeFileSync(rootClaimPath(), claimBytes);
 
@@ -269,10 +273,10 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     let probeReads = 0;
     const raceFactory = (baseDir: string): FileSystem => {
       const real = new NodeFileSystem({ baseDir });
-      if (path.resolve(baseDir) === path.resolve(tmpDir)) {
+      if (path.resolve(baseDir) === path.resolve(tmpDir, '.chestnut')) {
         const origRead = real.readSync.bind(real);
         real.readSync = (p: string) => {
-          if (p === 'skills/.myskill.installing' && probeReads === 0) {
+          if (p === path.join('skill-install', 'local', '.myskill.installing') && probeReads === 0) {
             probeReads++;
             const err = new Error('simulated pre-check absent') as NodeJS.ErrnoException;
             err.code = 'ENOENT';

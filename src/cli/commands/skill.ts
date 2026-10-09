@@ -62,6 +62,14 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { copyDir } from '../utils/copy-dir.js';
 
+/**
+ * Phase 1930 Step C：本地（user 模式）安装事务在实例内的独立 namespace
+ * （相对实例根 `.chestnut/`）。与池→Motion/claw 的 target-local claim
+ * （`motion/skills/.name.installing` 等）分开——不同目标集合的 intent 不混用。
+ * 事务不读写实例父目录 `skills/`。
+ */
+const SKILL_INSTALL_LOCAL_DIR = path.join('skill-install', 'local');
+
 /* ---------- Phase 1911 Step G: durable install intent ---------- */
 
 interface SkillSourceManifestEntry {
@@ -1353,21 +1361,22 @@ export async function skillInstallUserCommand(
   }
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
-  // Phase 1929 Step D：user 目标 = Motion 自有 skills（绝不用 claws/motion）；
-  // claim 仍居稳定旧位置（root/skills/.<name>.installing）与旧进程互斥
+  // Phase 1929 Step D：user 目标 = Motion 自有 skills（绝不用 claws/motion）
   const destUser = path.join(motionDir, SKILLS_DIR_DEFAULT, skillName);
   const destDispatch = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
 
-  // Phase 1930 Step B 过渡：本地安装 claim 暂留在实例父目录 `skills/`（旧位置，
-  // 与旧版进程互斥），由私有 path.dirname 推导——不导出公共父目录 helper；
-  // Step C 将其迁入实例内独立 namespace。
-  const rootFs = deps.fsFactory(path.dirname(root));
-  const claimRel = path.join(SKILLS_DIR_DEFAULT, `.${skillName}.installing`);
+  // Phase 1930 Step C：本地安装事务（claim + 来源快照）进入实例内独立
+  // namespace `.chestnut/skill-install/local/`，与池→Motion 的
+  // `motion/skills/.name.installing` 分开（不同目标集合的 intent 不混用）；
+  // 不再读写父目录 skills。sourceSnapshot 按 claim parent 解释，自然落入
+  // 新目录。不探测/迁移/恢复旧位置事务（部署前提：升级时无在途旧事务）。
+  const claimFs = deps.fsFactory(root);
+  const claimRel = path.join(SKILL_INSTALL_LOCAL_DIR, `.${skillName}.installing`);
   // Phase 1929 Step E：入口只读前检——原已存在的旧布局/异源/未知 schema 事务
   // 在版本服务构造（factory）与任何 holder 接管写入之前明确拒绝（factory 零调用、
   // claim 零改写）；只读错误 fail-loud 不当 absent。前检后其它进程创建旧 claim
   // 的竞态窗口由 runSkillInstall 接管前的第二次只读判定覆盖。
-  const probed = probeInstallIntentReadonly(rootFs, claimRel, skillName);
+  const probed = probeInstallIntentReadonly(claimFs, claimRel, skillName);
   if (probed !== null) {
     assertSupportedInstallIntent(probed, claimRel, {
       skillName,
@@ -1394,7 +1403,7 @@ export async function skillInstallUserCommand(
   const { resumed } = await runSkillInstall(deps, {
     skillName,
     srcAbs: absSource,
-    claimFs: rootFs,
+    claimFs,
     claimRel,
     targets: [
       { id: 'user', absPath: destUser },
