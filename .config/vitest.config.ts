@@ -285,6 +285,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/foundation/command-tool/exec-timeout.integration.test.ts',
   // phase 1203 Step D: real child watchdog ownership race
   'tests/watchdog/watchdog-ownership-process-race.test.ts',
+  // Phase 1931 Step B/C: real child skill install race（同名/混合来源确定性竞争）
+  'tests/cli/skill-install-process-race.test.ts',
 ];
 
 /**
