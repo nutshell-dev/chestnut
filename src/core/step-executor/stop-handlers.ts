@@ -50,7 +50,13 @@ export async function handleToolUseStop(
   const prebuiltIds = new Set(prebuiltResults.map(r => r.tool_use_id));
   const toolCallsToExecute = toolCalls.filter(tc => !prebuiltIds.has(tc.id));
   // abort 期不剥 signal / 工具自治响应 / 已 abort-aware 工具 throw / 不 aware 工具忽略
-  const toolResults = await executeToolCalls(toolCallsToExecute, executor, ctx, registry, trackingCallbacks, input.eventSink);
+  // Phase 1933 Step C: 传 StepInput 本体（callbacks 换为 trackingCallbacks）——
+  // recovery 严格交付通道随 input 透传至 executeSingleTool / executeReadonlyParallel。
+  const toolResults = await executeToolCalls(
+    toolCallsToExecute, executor, ctx, registry,
+    { ...input, callbacks: trackingCallbacks },
+    input.eventSink,
+  );
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   appendToolResults(messages, [...prebuiltResults, ...toolResults]);

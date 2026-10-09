@@ -23,7 +23,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
-import type { StepCallbacks, FinalStopReason } from '../step-executor/index.js';
+import type { StepCallbacks, FinalStopReason, RecoveryDelivery } from '../step-executor/index.js';
 
 import type { TurnEventCommitDeps } from './turn-event-commit.js';
 import type { AgentExecutorEventSink } from './event-sink.js';
@@ -66,6 +66,8 @@ export interface ReactOptions {
   eventSink?: AgentExecutorEventSink;
   /** Minimal stream sink used only for AgentExecutor-owned turn event commits. */
   streamCallbacks?: TurnEventCommitDeps;
+  /** Phase 1933 Step C: 严格恢复交付（可选注入；透传至 executeStep，失败阻断 step）。 */
+  recovery?: RecoveryDelivery;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、loop.ts facade 不再透传。
 }
@@ -126,6 +128,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     currentContractId,
     eventSink: options.eventSink,
     streamCallbacks: options.streamCallbacks,
+    recovery: options.recovery,
     onAfterStep: async (_meta, newStepCount) => {
       stepCount = newStepCount;  // AgentExecutor 已执行步进
       if (onStepComplete) await onStepComplete(stepCount);

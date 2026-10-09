@@ -51,6 +51,15 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   };
   const { response, llmInfo } = await runLLMCall(llm, callOptions, llmStartTime, input);
 
+  // Phase 1933 Step C: 严格恢复交付——顺序不变量「先提交后副作用」。
+  // collectStreamResponse 返回即完整响应（流完整结束才 resolve；半截流走 catch 不返回），
+  // 此处是副作用（工具执行 / messages 追加）前唯一严格提交点。
+  // 失败自然传播（不 catch、不降级）：提交失败则无任何副作用发生。
+  // LLM 调用失败路径不提交（runLLMCall throw、无完整响应可提交）。
+  if (input.recovery) {
+    await input.recovery.llmResponseCommitted({ response, llmInfo, committedAtMs: Date.now() });
+  }
+
   if (response.content.length === 0) {
     // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口（展示+持久化归 caller adapter）
     input.eventSink?.llmEmptyResponse({ stopReason: response.stop_reason });

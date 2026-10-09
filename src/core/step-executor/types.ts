@@ -10,6 +10,7 @@ import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { StepExecutorEventSink } from './audit-sink.js';
+import type { RecoveryDelivery } from './recovery-delivery.js';
 
 export interface LLMCallInfo {
   model: string;
@@ -168,6 +169,8 @@ export interface StepInput {
    * （撤 phase 732 的审计写入注入面与审计专用 contract id 字段——身份绑定归 caller adapter。）
    */
   eventSink?: StepExecutorEventSink;
+  /** Phase 1933 Step C：严格恢复交付（可选注入；注入后响应/工具事实在副作用前 await 提交，失败阻断 step）。 */
+  recovery?: RecoveryDelivery;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、StepExecutor 不再持 trim 业务。
 }

@@ -15,6 +15,7 @@ import { ToolError } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepInput, StepCallbacks } from './types.js';
+import type { RecoveryDelivery } from './recovery-delivery.js';
 import type { StepExecutorEventSink } from './audit-sink.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError, type AbortExecutionEvidence } from './abort-helpers.js';
@@ -53,6 +54,12 @@ function categorizeToolCalls(
 
 function isStepInput(value: StepCallbacks | StepInput): value is StepInput {
   return 'messages' in value;
+}
+
+// Phase 1933 Step C: 从 callbacksOrInput 取严格恢复交付通道（仅 StepInput 本体携带；
+// resolveCallbacksAndSink 不返回 input 本体，故就地窄化）。
+function resolveRecovery(callbacksOrInput?: StepCallbacks | StepInput): RecoveryDelivery | undefined {
+  return callbacksOrInput && isStepInput(callbacksOrInput) ? callbacksOrInput.recovery : undefined;
 }
 
 function resolveCallbacksAndSink(
@@ -98,11 +105,25 @@ async function executeReadonlyParallel(
   if (group.length === 0) return;
 
   const { callbacks, eventSink: sink } = resolveCallbacksAndSink(callbacksOrInput, eventSink);
+  const recovery = resolveRecovery(callbacksOrInput);
 
   const batch = group.map(({ call }) => {
     const { async: _, ...toolArgs } = call.input;
     return { toolName: call.name, args: toolArgs };
   });
+
+  // Phase 1933 Step C: 批路径绕过 executeSingleTool——executeParallel 副作用前
+  // 按组内顺序逐个 await 提交 started 事实；任一失败传播，批不得发出。
+  if (recovery) {
+    for (const { call } of group) {
+      await recovery.toolStarted({
+        toolUseId: makeToolUseId(call.id),
+        toolName: call.name,
+        input: call.input,
+        startedAtMs: Date.now(),
+      });
+    }
+  }
 
   const parallelResults = await executor.executeParallel(batch, ctx);
 
@@ -110,10 +131,20 @@ async function executeReadonlyParallel(
     const { call, index } = group[i];
     const result = parallelResults[i];
     if (!result) {
+      // fallback 走 executeSingleTool——started/result 事实由 executeSingleTool 自身提交，此处不重复提交
       const singleResult = await executeSingleTool(call, executor, ctx, callbacksOrInput, eventSink);
       safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks, sink);
       results.set(index, toToolResultBlock(makeToolUseId(call.id), singleResult));
       continue;
+    }
+    // Phase 1933 Step C: 批内实际结果按组内顺序逐个 await 提交；失败传播（副作用已发生，不重试）
+    if (recovery) {
+      await recovery.toolResultCommitted({
+        toolUseId: makeToolUseId(call.id),
+        toolName: call.name,
+        result,
+        resultAtMs: Date.now(),
+      });
     }
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, sink);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
@@ -213,10 +244,23 @@ export async function executeSingleTool(
     sink,
   );
 
+  // Phase 1933 Step C: 严格恢复交付——executor.execute 副作用前 await 提交 started 事实；
+  // 失败传播，工具不得执行（无副作用发生）。
+  const recovery = resolveRecovery(callbacksOrInput);
+  if (recovery) {
+    await recovery.toolStarted({
+      toolUseId: makeToolUseId(toolCall.id),
+      toolName: toolCall.name,
+      input: toolCall.input,
+      startedAtMs: Date.now(),
+    });
+  }
+
+  let result: ToolResult;
   try {
     // async is NOT a universal meta-parameter — some tools (spawn) use it as
     // an internal parameter.
-    return await executor.execute({
+    result = await executor.execute({
       toolName: toolCall.name,
       args: toolCall.input,
       ctx,
@@ -243,4 +287,18 @@ export async function executeSingleTool(
       content: `[${errorType}] 工具执行失败: ${errorMsg}`,
     };
   }
+
+  // Phase 1933 Step C: 严格恢复交付——execute 返回后即刻 await 提交 result 事实。
+  // 提交失败传播（中止 step）：工具副作用已发生不可撤销，started 事实保持不确定、
+  // 不得重标为未开始、不重试（恢复语义归实现方）。
+  // 注意放在 try 外：recovery 提交失败不走 ToolError 收敛路径。
+  if (recovery) {
+    await recovery.toolResultCommitted({
+      toolUseId: makeToolUseId(toolCall.id),
+      toolName: toolCall.name,
+      result,
+      resultAtMs: Date.now(),
+    });
+  }
+  return result;
 }
