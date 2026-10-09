@@ -28,7 +28,6 @@ import {
 } from '../core/claw-topology/index.js';
 import {
   enumerateClaws,
-  getWorkspaceRoot,
   getChestnutRoot,
   getNamedSubrootDir,
 } from '../foundation/claw-identity/index.js';
@@ -58,6 +57,7 @@ import {
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
   writeCandidateOutcome, inspectActive, recordGenerationTerminal, WATCHDOG_ACTIVE_DIR,
+  currentLegacyParentRoot, legacyParentMatchesInstance,
   type WatchdogOwnership, type WatchdogOwnerRecord, type WatchdogGenerationTerminal,
 } from './watchdog-ownership.js';
 import {
@@ -161,7 +161,7 @@ export function acquireWatchdogOwnership(
         outcome: 'failed',
         reason: `legacy_foreign_live:${legacy.pid}`,
       });
-      throw new WatchdogPidForeignWorkspaceError(legacy.pid, legacy.root, getWorkspaceRoot());
+      throw new WatchdogPidForeignWorkspaceError(legacy.pid, legacy.root, currentLegacyParentRoot());
     }
     if (legacy.kind === 'live') {
       writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
@@ -185,8 +185,9 @@ export function acquireWatchdogOwnership(
   if (commit.kind === 'foreign_owned') {
     const owner = commit.owner;
     if (isWatchdogProcessAlive(owner.pid)) {
-      // live owner：同 workspace → lost；foreign → fail-loud（不赋予 live foreign 覆盖权）
-      if (owner.workspace_root !== getWorkspaceRoot()) {
+      // live owner：同实例 → lost；foreign → fail-loud（不赋予 live foreign 覆盖权）。
+      // Phase 1930 Step B：磁盘 workspace_root 经 owner 私有适配转实例身份再比较。
+      if (!legacyParentMatchesInstance(owner.workspace_root)) {
         return { kind: 'foreign_owned', owner };
       }
     } else {
@@ -409,7 +410,7 @@ async function attemptMotionRestart(
     const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
       clawId: MOTION_CLAW_ID,
       agentDir: getNamedSubrootDir('motion'),
-      workspaceRoot: getWorkspaceRoot(),
+      chestnutRoot: getChestnutRoot(),
     }));
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
     // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:351 同 event 形态对齐
@@ -466,7 +467,7 @@ export async function runWatchdogLoop(
     throw new WatchdogPidForeignWorkspaceError(
       acquisition.owner.pid,
       acquisition.owner.workspace_root,
-      getWorkspaceRoot(),
+      currentLegacyParentRoot(),
     );
   }
   if (acquisition.kind === 'failed') {

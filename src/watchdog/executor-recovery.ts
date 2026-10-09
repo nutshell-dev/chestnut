@@ -36,7 +36,7 @@ import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
 import { createExecutionFailureSink } from '../core/contract/index.js';
 import type { ExecutionFailureSink } from '../core/contract/index.js';
 import { createDaemonSpawnOptions, readDaemonHeartbeat } from '../daemon/index.js';
-import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import {
   getChestnutFs,
   type MotionRestartState,
@@ -496,7 +496,7 @@ async function defaultSpawnClawDaemon(
     const pid = await pm.spawn(daemonDir, createDaemonSpawnOptions({
       clawId,
       agentDir: getClawDir(rawClawId),
-      workspaceRoot: getWorkspaceRoot(),
+      chestnutRoot: getChestnutRoot(),
     }));
     return { kind: 'spawned', pid };
   } catch (err) {

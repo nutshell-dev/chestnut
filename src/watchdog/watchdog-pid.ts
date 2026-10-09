@@ -3,14 +3,18 @@
  * PID file management — 0 module state 依赖（仅 fs）
  */
 
-import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { getChestnutFs } from './watchdog-context.js';
 import { isAlive, isPidArgvMatching } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
-import { inspectActive, type WatchdogOwnerRecord } from './watchdog-ownership.js';
+import {
+  inspectActive,
+  currentLegacyParentRoot,
+  legacyParentMatchesInstance,
+  type WatchdogOwnerRecord,
+} from './watchdog-ownership.js';
 
 /**
  * phase 346 B3 (review-2026-06-13): PID-reuse 防误判 helper。
@@ -204,8 +208,9 @@ export function disposLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSyst
     backupCorruptPid(fsFactory, content, 'shape_mismatch');
     return { kind: 'migrated' };
   }
-  const currentRoot = getWorkspaceRoot();
-  if (parsed.root !== currentRoot) {
+  // Phase 1930 Step B：磁盘 root 语义是实例父目录，经 ownership owner 的私有适配
+  // 转成实例身份再比较（相对历史记录 fail-closed，不猜当前 cwd）。
+  if (!legacyParentMatchesInstance(parsed.root)) {
     if (isLiveChestnutWatchdog(parsed.pid)) {
       return { kind: 'foreign_live', pid: parsed.pid, root: parsed.root };
     }
@@ -264,8 +269,8 @@ export function isWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boo
 }
 
 function isActiveOwnerAlive(owner: WatchdogOwnerRecord): boolean {
-  const currentRoot = getWorkspaceRoot();
-  if (owner.workspace_root !== currentRoot) {
+  const currentRoot = currentLegacyParentRoot();
+  if (!legacyParentMatchesInstance(owner.workspace_root)) {
     if (isLiveChestnutWatchdog(owner.pid)) {
       const auditWriter = getAuditWriter();
       auditWriter?.write(
@@ -311,8 +316,8 @@ function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): bool
     backupCorruptPid(fsFactory, content, new Error('shape_mismatch'));
     return false;
   }
-  const currentRoot = getWorkspaceRoot();
-  if (parsed.root !== currentRoot) {
+  const currentRoot = currentLegacyParentRoot();
+  if (!legacyParentMatchesInstance(parsed.root)) {
     // phase 346 B3: PID-reuse 防误判 — 不光测 isAlive、还得验 argv 是 chestnut watchdog
     const stillAlive = isLiveChestnutWatchdog(parsed.pid);
     const auditWriter = getAuditWriter();

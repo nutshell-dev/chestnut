@@ -5,7 +5,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { setTimeout } from 'timers/promises';
-import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -101,7 +101,9 @@ async function stopCommandWithAudit(
     // phase 804: PID file missing/stale → pgrep fallback to find running watchdog
     let actualPid: number | null = null;
     try {
-      const pm = createProcessManagerForCLI({ fsFactory, baseDir: getWorkspaceRoot() });
+      // Phase 1930 Step B：fallback PM 的 baseDir 用真实实例根（PM factory 会创建
+      // system audit；审计落点在实例内，不在父目录）。
+      const pm = createProcessManagerForCLI({ fsFactory, baseDir: getChestnutRoot() });
       const watchdogEntryPath = getWatchdogEntryPath();
       const pids = pm.findProcesses(watchdogEntryPath);
       const verifyFn = deps?.isPidArgvMatching ?? defaultIsPidArgvMatching;

@@ -33,12 +33,13 @@ const mockRemoveWatchdogPid = vi.hoisted(() => vi.fn());
 // ============================================================================
 // Module mocks
 // ============================================================================
-// phase 1864 Step B：getWorkspaceRoot 归 foundation/claw-identity（mock 目标随 owner 迁移）。
+// phase 1864 Step B：路径 API 归 foundation/claw-identity（mock 目标随 owner 迁移）。
+// Phase 1930 Step B：getWorkspaceRoot 退役；stop fallback PM 的 baseDir 改真实实例根。
 vi.mock('../../src/foundation/claw-identity/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/index.js')>();
   return {
     ...actual,
-    getWorkspaceRoot: vi.fn(() => '/tmp/test'),
+    getChestnutRoot: vi.fn(() => '/tmp/test/.chestnut'),
   };
 });
 
@@ -92,6 +93,7 @@ vi.mock('timers/promises', () => ({
 // ============================================================================
 import { stopCommand } from '../../src/cli/commands/watchdog-cli.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -112,6 +114,10 @@ describe('watchdog-cli stopCommand pgrep fallback (phase 804)', () => {
 
     expect(consoleSpy).toHaveBeenCalledWith('Watchdog is not running');
     expect(mockRemoveWatchdogPid).toHaveBeenCalled();
+    // Phase 1930 Step B：fallback PM baseDir 是真实实例根（审计落点在实例内）。
+    expect(createProcessManagerForCLI).toHaveBeenCalledWith(
+      expect.objectContaining({ baseDir: '/tmp/test/.chestnut' }),
+    );
     consoleSpy.mockRestore();
   });
 

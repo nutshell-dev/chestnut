@@ -6,7 +6,8 @@
  */
 import { setTimeout } from 'timers/promises';
 import { spawnDetached } from '../foundation/process-exec/index.js';
-import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
+import * as path from 'path';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { isWatchdogAlive, getWatchdogPid } from './watchdog-pid.js';
 import { WATCHDOG_LOG_HINT } from './watchdog-log.js';
@@ -37,12 +38,14 @@ export async function spawnWatchdogCandidate(
   fsFactory: (baseDir: string) => FileSystem,
 ): Promise<number> {
   const watchdogEntryPath = getWatchdogEntryPath();
-  const chestnutRoot = getWorkspaceRoot();
+  // Phase 1930 Step B：child CHESTNUT_ROOT env 与 cwd 保持既有父目录协议，
+  // 由实例根私有推导（与 daemon spawn-options 同一约定）。
+  const legacyParent = path.dirname(getChestnutRoot());
   // phase 1763: 提交点前失败经 typed outcome 抛出（含原始 errno/时间/命令身份），
   // 不再静默落到 poll 超时；提交点后异步失败经 stderr sink 保持可观察。
   const outcome = await spawnDetached('node', [watchdogEntryPath], {
-    env: { ...process.env, CHESTNUT_ROOT: chestnutRoot },
-    cwd: chestnutRoot,
+    env: { ...process.env, CHESTNUT_ROOT: legacyParent },
+    cwd: legacyParent,
     onSpawnFailure: (failure) => {
       console.error(
         `[watchdog] post-commit spawn failure: command=${failure.command}` +

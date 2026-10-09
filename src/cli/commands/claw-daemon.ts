@@ -7,7 +7,6 @@
  *  - enable processManager DI for tests (no vi.mock on dynamic await import)
  */
 
-import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { actionAuditFor } from '../action-scope.js';
@@ -48,11 +47,11 @@ export async function clawDaemonCommand(
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
-  // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner，CLI 只提交 identity/agentDir/workspaceRoot
+  // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner，CLI 只提交 identity/agentDir/chestnutRoot
   const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
     clawId,
     agentDir: clawDir,
-    workspaceRoot: getWorkspaceRoot(),
+    chestnutRoot: getChestnutRoot(),
   }));
   // phase 1452 Step B: spawn 成功侧 emit（对齐 start.ts DAEMON_START 形态）；
   // 失败侧由 PM PROCESS_SPAWN_FAILED 承载（豁免、不补 CLI 侧失败事件）

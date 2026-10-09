@@ -11,7 +11,7 @@ import * as path from 'path';
 import { createDaemonSpawnOptions } from '../../src/daemon/index.js';
 import { resolveDaemonEntry } from '../../src/daemon/index.js';
 import { DAEMON_LOG, EXPECTED_LLM_IDENTITY_ENV } from '../../src/daemon/index.js';
-import { makeClawId } from '../../src/foundation/claw-identity/index.js';
+import { makeClawId, makeChestnutRoot } from '../../src/foundation/claw-identity/index.js';
 
 const SENTINEL_ENV = 'PHASE1464_TEST_SENTINEL';
 
@@ -24,7 +24,9 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     const input = {
       clawId: makeClawId('test-claw'),
       agentDir: '/ws/.chestnut/claws/test-claw',
-      workspaceRoot: '/ws',
+      // Phase 1930 Step B：输入为实例根；child CHESTNUT_ROOT env 与 cwd 由 owner
+      // 私有推导为 legacy 父目录。
+      chestnutRoot: makeChestnutRoot('/ws/.chestnut'),
     };
     const options = createDaemonSpawnOptions(input);
 
@@ -41,7 +43,7 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     const options = createDaemonSpawnOptions({
       clawId: makeClawId('motion'),
       agentDir: '/ws/.chestnut/motion',
-      workspaceRoot: '/ws',
+      chestnutRoot: makeChestnutRoot('/ws/.chestnut'),
     });
 
     expect(options.env?.[SENTINEL_ENV]).toBe('present');
@@ -53,12 +55,12 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     const a = createDaemonSpawnOptions({
       clawId: makeClawId('alpha'),
       agentDir: '/a',
-      workspaceRoot: '/w',
+      chestnutRoot: makeChestnutRoot('/w/.chestnut'),
     });
     const b = createDaemonSpawnOptions({
       clawId: makeClawId('beta'),
       agentDir: '/b',
-      workspaceRoot: '/w',
+      chestnutRoot: makeChestnutRoot('/w/.chestnut'),
     });
 
     expect(a.args[1]).toBe('alpha');
@@ -75,7 +77,7 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     const withIdentity = createDaemonSpawnOptions({
       clawId: makeClawId('motion'),
       agentDir: '/ws/.chestnut/motion',
-      workspaceRoot: '/ws',
+      chestnutRoot: makeChestnutRoot('/ws/.chestnut'),
       expectedLLMIdentity: 'abc123identity',
     });
     expect(withIdentity.env?.[EXPECTED_LLM_IDENTITY_ENV]).toBe('abc123identity');
@@ -83,7 +85,7 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     const without = createDaemonSpawnOptions({
       clawId: makeClawId('motion'),
       agentDir: '/ws/.chestnut/motion',
-      workspaceRoot: '/ws',
+      chestnutRoot: makeChestnutRoot('/ws/.chestnut'),
     });
     expect(without.env?.[EXPECTED_LLM_IDENTITY_ENV]).toBeUndefined();
     expect(EXPECTED_LLM_IDENTITY_ENV in (without.env ?? {})).toBe(false);

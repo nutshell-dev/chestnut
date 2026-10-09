@@ -16,7 +16,7 @@
  * Exit code semantics（同 audit 只读族）：0 = success / 1 = CliError only。
  */
 
-import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { SkillVersionError, type createSkillVersions } from '../../foundation/skill-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -38,7 +38,7 @@ export async function dispatchSkillListCommand(
 ): Promise<void> {
   let summary: string;
   try {
-    const versions = await createDispatchVersions(deps, getWorkspaceRoot(), extraDeps?.audit, extraDeps?.createSkillVersions);
+    const versions = await createDispatchVersions(deps, getChestnutRoot(), extraDeps?.audit, extraDeps?.createSkillVersions);
     summary = await versions.formatPublishedForContext();
   } catch (e) {
     if (e instanceof SkillVersionError) {

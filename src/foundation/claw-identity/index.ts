@@ -23,9 +23,9 @@ export {
 } from './claw-files.js';
 
 // phase 1864 Step B（CT-D1 + CT-D5）：安装路径 API 群迁入（稳定路径 owner）。
+// Phase 1930 Step B：workspace root（父目录身份）公开 API 退役，跨模块只传 ChestnutRoot。
 export {
   CONFIG_YAML_FILE,
-  getWorkspaceRoot,
   getChestnutRoot,
   getNamedSubrootDir,
   getClawDir,

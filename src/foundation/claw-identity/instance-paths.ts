@@ -1,12 +1,15 @@
 /**
  * @module L2c.ClawIdentity.InstancePaths
  *
- * chestnut 安装路径原语：workspace root、chestnut root、named subroot、claw 目录、
+ * chestnut 安装路径原语：chestnut root、named subroot、claw 目录、
  * claw config 位置与 claws 容器枚举。
  *
  * phase 1864 Step B（CT-D1 + CT-D5）：自 core/claw-topology/claw-instance-paths.ts
  * 迁入（安装路径 API 归稳定路径 owner；ClawTopology 只消费 root/location）。
- * 函数体 1:1 搬运（纯 path 计算 + 传入 fs 参数式），零语义漂移。
+ * Phase 1930 Step B：公共 workspace root（实例父目录身份）API 删除；内部一律以
+ * 规范 `ChestnutRoot` 定位实例，CHESTNUT_ROOT env/cwd 的父目录含义由各消费
+ * owner 私有适配（daemon spawn-options / Watchdog ownership），不再作为
+ * 全系统公开的业务工作区 API。
  */
 
 import * as path from 'path';
@@ -15,13 +18,15 @@ import type { FileSystem } from '../fs/index.js';
 /** Config YAML filename (per-claw + global config 同名). */
 export const CONFIG_YAML_FILE = 'config.yaml' as const;
 
-/** Workspace root — prefers CHESTNUT_ROOT env var (inherited by exec child processes). */
-export function getWorkspaceRoot(): string {
-  return process.env.CHESTNUT_ROOT ?? process.cwd();
-}
-
-export function getChestnutRoot(): string {
-  return path.join(getWorkspaceRoot(), '.chestnut');
+/**
+ * 实例根（`<workspaceRoot>/.chestnut`），返回规范 ChestnutRoot brand。
+ *
+ * Phase 1930 Step B：统一 `path.resolve` —— 无 env 时用 cwd、相对 env 在调用
+ * 位置解析成绝对规范路径，child 进程继承到的父目录恒为绝对值（不由 child
+ * cwd 二次解释相对 env）。
+ */
+export function getChestnutRoot(): ChestnutRoot {
+  return makeChestnutRoot(path.resolve(process.env.CHESTNUT_ROOT ?? process.cwd(), '.chestnut'));
 }
 
 /**
@@ -30,7 +35,7 @@ export function getChestnutRoot(): string {
  * @param name - subroot name (caller-owned, e.g., motion, claws)
  */
 export function getNamedSubrootDir(name: string): string {
-  return path.join(getWorkspaceRoot(), '.chestnut', name);
+  return path.join(getChestnutRoot(), name);
 }
 
 function assertSafeClawId(name: string): void {
@@ -50,7 +55,7 @@ function assertSafeClawId(name: string): void {
 
 export function getClawDir(name: string): string {
   assertSafeClawId(name);
-  return path.join(getWorkspaceRoot(), '.chestnut', 'claws', name);
+  return path.join(getChestnutRoot(), CLAWS_DIR, name);
 }
 
 /**

@@ -39,7 +39,7 @@
 
 import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { getNamedSubrootDir, getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
+import { getNamedSubrootDir, getChestnutRoot, type ChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { SKILLS_DIR_DEFAULT, SKILL_PUBLISH_MARKER, SKILL_SOURCE_SNAPSHOT_PREFIX, SKILL_COMMIT_PROOF } from '../../foundation/skill-system/index.js';
@@ -718,11 +718,12 @@ function toFullAudit(audit: AuditLog | undefined): AuditLog {
 
 export async function createDispatchVersions(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  root: string,
+  root: ChestnutRoot,
   audit?: AuditLog,
   factory?: typeof createSkillVersions,
 ): Promise<SkillVersions> {
-  const motionClawspace = path.join(root, '.chestnut', 'motion', CLAWSPACE_DIR);
+  // Phase 1930 Step B：入参收敛为实例根（ChestnutRoot），内部直接拼 motion/clawspace。
+  const motionClawspace = path.join(root, MOTION_CLAW_ID, CLAWSPACE_DIR);
   const createFn = factory ?? createSkillVersions;
   return createFn({
     repositoryDir: path.join(motionClawspace, DISPATCH_SKILLS_SUBDIR),
@@ -1330,7 +1331,7 @@ export async function skillInstallUserCommand(
   extraDeps?: { audit?: AuditLog; createSkillVersions?: typeof createSkillVersions },
 ): Promise<void> {
   const audit = extraDeps?.audit;
-  const root = getWorkspaceRoot();
+  const root = getChestnutRoot();
   const absSource = path.resolve(sourcePath);
 
   // Skill name = source directory name
@@ -1357,7 +1358,10 @@ export async function skillInstallUserCommand(
   const destUser = path.join(motionDir, SKILLS_DIR_DEFAULT, skillName);
   const destDispatch = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
 
-  const rootFs = deps.fsFactory(root);
+  // Phase 1930 Step B 过渡：本地安装 claim 暂留在实例父目录 `skills/`（旧位置，
+  // 与旧版进程互斥），由私有 path.dirname 推导——不导出公共父目录 helper；
+  // Step C 将其迁入实例内独立 namespace。
+  const rootFs = deps.fsFactory(path.dirname(root));
   const claimRel = path.join(SKILLS_DIR_DEFAULT, `.${skillName}.installing`);
   // Phase 1929 Step E：入口只读前检——原已存在的旧布局/异源/未知 schema 事务
   // 在版本服务构造（factory）与任何 holder 接管写入之前明确拒绝（factory 零调用、
@@ -1432,7 +1436,7 @@ export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: strin
     throw new CliError(`Invalid skill name: ${JSON.stringify(skillName)}`);
   }
 
-  const root = getWorkspaceRoot();
+  const root = getChestnutRoot();
   // Phase 1929 Step D：motion 是特殊目标（Motion 自有 skills），不是普通 claw
   const isMotion = clawId === MOTION_CLAW_ID;
   const clawDir = isMotion ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);

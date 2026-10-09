@@ -8,7 +8,7 @@
  * Motion is the manager; it manages other Claws by calling the CLI via exec and has no dedicated tools.
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
@@ -225,7 +225,7 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
         const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
           clawId: MOTION_CLAW_ID,
           agentDir: motionDir,
-          workspaceRoot: getWorkspaceRoot(),
+          chestnutRoot: getChestnutRoot(),
         }));
         console.log(`✓ Started (PID: ${pid})`);
       }

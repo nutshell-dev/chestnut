@@ -13,9 +13,10 @@
  * reclaimer 覆盖 fresh generation 的必要条件（反向测试先证、不只靠 mock）。
  */
 
+import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr, newUuid } from '../foundation/node-utils/index.js';
-import { getWorkspaceRoot } from '../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import { getProcessStartTime } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';
@@ -32,6 +33,33 @@ export const WATCHDOG_RETIRED_DIR = WATCHDOG_PATHS.retired;
 const WATCHDOG_OWNER_FILE = 'owner.json';
 const WATCHDOG_OUTCOME_FILE = 'outcome.json';
 export const WATCHDOG_TERMINAL_FILE = 'terminal.json';
+
+/**
+ * Phase 1930 Step B：Watchdog 磁盘记录（schema1 `workspace_root` / legacy
+ * `watchdog.pid` root）的语义是**实例父目录**（旧 CHESTNUT_ROOT 含义），
+ * 磁盘协议保持不变——写入仍存父目录。本组 helper 是该兼容格式的唯一私有
+ * 适配点：跨模块只传 ChestnutRoot，比较一律转成实例身份，不散落不同算法。
+ */
+
+/** 当前实例的 legacy 父目录身份（写入 / 错误展示用；恒为绝对规范路径）。 */
+export function currentLegacyParentRoot(): string {
+  return path.dirname(getChestnutRoot());
+}
+
+/**
+ * 私有适配：磁盘记录的父目录是否对应当前实例。
+ * 绝对记录归一化后比较实例身份；相对历史记录缺原 cwd 证据，明确失败
+ * （fail-closed），不猜当前 cwd、不回写磁盘。
+ */
+export function legacyParentMatchesInstance(recordRoot: string): boolean {
+  if (!path.isAbsolute(recordRoot)) {
+    throw new Error(
+      `watchdog record holds a relative workspace root ${JSON.stringify(recordRoot)}; ` +
+      `original cwd evidence is lost — refusing to guess it, resolve the record manually`,
+    );
+  }
+  return path.resolve(recordRoot, '.chestnut') === getChestnutRoot();
+}
 
 // === Records ===
 
@@ -153,7 +181,7 @@ export function newWatchdogAttempt(pid: number = process.pid): WatchdogOwnerReco
     owner_token: newUuid(),
     pid,
     process_start_time: getProcessStartTime(pid) ?? 'unknown',
-    workspace_root: getWorkspaceRoot(),
+    workspace_root: currentLegacyParentRoot(),
     created_at: new Date().toISOString(),
   };
 }

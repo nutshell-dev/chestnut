@@ -6,7 +6,7 @@
  * `clawDaemonCommand`. See phase1421 PHASE1421.md §3-4 for root cause + design.
  */
 
-import { getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
@@ -42,7 +42,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { 
   const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
     clawId: MOTION_CLAW_ID,
     agentDir: motionDir,
-    workspaceRoot: getWorkspaceRoot(),
+    chestnutRoot: getChestnutRoot(),
   }));
   // phase 1452 Step B: spawn 成功侧 emit（claw-daemon 同型）；失败侧由 PM 承载
   extraDeps?.audit?.write(CLI_AUDIT_EVENTS.MOTION_DAEMON_START, `pid=${pid}`);

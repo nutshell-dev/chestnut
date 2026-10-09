@@ -16,7 +16,7 @@
  * - status/history 只读：展示冲突候选与依据；不改变 1917 的提示词格式接口。
  */
 
-import { getNamedSubrootDir, getWorkspaceRoot } from '../../foundation/claw-identity/index.js';
+import { getNamedSubrootDir, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import {
   deriveShortIdFromTaskId,
@@ -59,7 +59,7 @@ async function openVersions(
   extraDeps?: SkillEditExtraDeps,
 ): Promise<SkillVersions> {
   try {
-    return await createDispatchVersions(deps, getWorkspaceRoot(), extraDeps?.audit, extraDeps?.createSkillVersions);
+    return await createDispatchVersions(deps, getChestnutRoot(), extraDeps?.audit, extraDeps?.createSkillVersions);
   } catch (e) {
     throw toCliError(e);
   }

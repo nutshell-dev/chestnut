@@ -4,9 +4,13 @@
  *
  * 业务：Daemon 唯一解释 `node` command、daemon entry argv、identity 参数、
  * `DAEMON_LOG`、`CHESTNUT_ROOT` 与 child `cwd` 协议；CLIProcess/Watchdog 只提交
- * daemon identity（ClawId）、agent directory 与 workspace root 三个必要事实，
+ * daemon identity（ClawId）、agent directory 与实例根（ChestnutRoot）三个必要事实，
  * 不再各自复制组装同一份启动协议（旧 7 调用点多轨，drift
  * B.phase1436-pm-types-daemon-entry / B.rev0717-daemon-spawn-spec-duplication）。
+ *
+ * Phase 1930 Step B：跨模块只传 ChestnutRoot；child 的 `CHESTNUT_ROOT` env 与
+ * `cwd` 保持既有**父目录**外部协议，由本 owner 私有推导（`path.dirname`），
+ * 不再要求调用方传可互相矛盾的父目录。
  *
  * 边界：纯函数、零 I/O、零 spawn、不持状态；返回 ProcessManager 通用
  * `SpawnOptions` 即本 capability 成功点，不代表 generation 已提交或 child 已
@@ -16,7 +20,7 @@
  */
 
 import * as path from 'path';
-import type { ClawId } from '../foundation/claw-identity/index.js';
+import type { ClawId, ChestnutRoot } from '../foundation/claw-identity/index.js';
 import type { SpawnOptions } from '../foundation/process-manager/index.js';
 import { DAEMON_LOG } from './constants.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
@@ -28,8 +32,11 @@ export interface DaemonSpawnOptionsInput {
   clawId: ClawId;
   /** agent directory（clawDir / motionDir）；daemon stdout log 落其下 DAEMON_LOG。 */
   agentDir: string;
-  /** workspace root；同时作为 child CHESTNUT_ROOT env 与显式 cwd（协议收敛单轨）。 */
-  workspaceRoot: string;
+  /**
+   * 实例根（ChestnutRoot）。child `CHESTNUT_ROOT` env 与显式 `cwd` 保持既有
+   * 父目录协议，由本 owner 私有推导（协议收敛单轨）。
+   */
+  chestnutRoot: ChestnutRoot;
   /**
    * Phase 1926 Step C：已通过 probe 的 LLM 配置快照身份（可选）。
    * 仅 start 门控验证成功后注入；daemon 装配前复核，不等即 fail-closed 退出。
@@ -38,17 +45,20 @@ export interface DaemonSpawnOptionsInput {
 }
 
 export function createDaemonSpawnOptions(input: DaemonSpawnOptionsInput): SpawnOptions {
+  // Phase 1930 Step B：实例根 → legacy 父目录 env/cwd 的推导收敛在本 owner；
+  // ChestnutRoot 恒为绝对规范路径，child 继承到的父目录恒为绝对值。
+  const legacyParent = path.dirname(input.chestnutRoot);
   return {
     command: 'node',
     args: [resolveDaemonEntry(), input.clawId],
     logFile: path.join(input.agentDir, DAEMON_LOG),
     env: {
       ...process.env,
-      CHESTNUT_ROOT: input.workspaceRoot,
+      CHESTNUT_ROOT: legacyParent,
       ...(input.expectedLLMIdentity !== undefined
         ? { [EXPECTED_LLM_IDENTITY_ENV]: input.expectedLLMIdentity }
         : {}),
     },
-    cwd: input.workspaceRoot,
+    cwd: legacyParent,
   };
 }

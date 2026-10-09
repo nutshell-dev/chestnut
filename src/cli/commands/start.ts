@@ -7,7 +7,7 @@
  * - Partial onboarding: resumes with a reminder
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
@@ -349,7 +349,7 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
   const motionSpawnOptions = createDaemonSpawnOptions({
     clawId: MOTION_CLAW_ID,
     agentDir: motionDir,
-    workspaceRoot: getWorkspaceRoot(),
+    chestnutRoot: getChestnutRoot(),
     // Phase 1926 Step C：daemon 装配前复核该身份，不等即 typed invalidation 退出
     expectedLLMIdentity: verified.snapshot.identity,
   });

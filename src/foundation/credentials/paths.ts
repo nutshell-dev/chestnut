@@ -6,7 +6,7 @@
  * 凭据根目录是**用户级 home**（默认 `~/.chestnut`），与 workspace 的
  * `.chestnut/` 完全无关；`CHESTNUT_HOME` 环境变量可覆盖该根目录
  * （测试/便携场景）。项目 .env 的项目根 = `CHESTNUT_ROOT ?? process.cwd()`
- * （与 claw-identity getWorkspaceRoot 同一约定）。
+ * （Credentials 独立读取该旧环境约定，不依赖 claw-identity 路径 API）。
  *
  * os.homedir 使用：依赖巡航不禁 `os` 模块（仅 fs/crypto/child_process/net 等
  * 有 owner 锁定），无既有先例冲突。

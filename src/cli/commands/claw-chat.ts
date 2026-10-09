@@ -2,7 +2,7 @@
  * @module L6.CLI.Claw.Chat
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
@@ -39,7 +39,7 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
         const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
           clawId,
           agentDir: clawDir,
-          workspaceRoot: getWorkspaceRoot(),
+          chestnutRoot: getChestnutRoot(),
         }));
         console.log(`Started (PID: ${pid})`);
       }
