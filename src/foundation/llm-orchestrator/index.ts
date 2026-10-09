@@ -14,6 +14,10 @@ export type {
   LLMOrchestrator,
   LLMRuntimeCapability,
   LLMStreamChunk,
+  // Phase 1933 Step B：实例级共享状态能力类型
+  LLMProviderSnapshotEntry,
+  LLMInstanceSnapshot,
+  LLMProbeResult,
 } from './types.js';
 
 // phase 461: llm-provider-config-schema barrel re-export (M#7 接口稳定)

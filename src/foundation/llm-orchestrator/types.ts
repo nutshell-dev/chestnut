@@ -155,6 +155,41 @@ export interface LLMRuntimeCapability {
   reloadConfig(newConfig: LLMOrchestratorConfig): void;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 1933 Step B：进程内共享状态的实例级能力（状态快照 / 独立探针）
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 1933：单个 provider 的实例内故障快照（不含凭据）。
+ */
+export interface LLMProviderSnapshotEntry {
+  provider: string;           // provider name
+  isFallback: boolean;
+  breakerOpen: boolean;
+  openCause: string | null;   // breaker open 原因分类（无则 null）
+  consecutiveFailures: number;
+  /** breaker open 时最早允许探测的时刻（ms epoch）；未 open 时缺省。 */
+  probeAllowedAtMs?: number;
+}
+
+/**
+ * Phase 1933：实例级故障快照：进程内共享状态的只读视图。
+ */
+export interface LLMInstanceSnapshot {
+  takenAtMs: number;
+  providers: LLMProviderSnapshotEntry[];  // primary 在前
+}
+
+/**
+ * Phase 1933：独立探针结果。ok=false 时 error 为显示摘要。
+ */
+export interface LLMProbeResult {
+  ok: boolean;
+  provider: string;            // 实际探测的 provider
+  probedAtMs: number;
+  error?: string;
+}
+
 /**
  * LLMOrchestrator interface — multi-provider fault-tolerant LLM orchestration
  *

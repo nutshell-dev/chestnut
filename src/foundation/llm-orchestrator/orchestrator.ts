@@ -21,7 +21,10 @@ import type {
   LLMOrchestratorConfig,
   LLMCallOptions,
   LLMEventSink,
+  LLMInstanceSnapshot,
   LLMOrchestrator,
+  LLMProbeResult,
+  LLMProviderSnapshotEntry,
   LLMRuntimeCapability,
   LLMStreamChunk } from './types.js';
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput } from './recovery.js';
@@ -32,6 +35,7 @@ import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider
 import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
+import { formatErr } from '../node-utils/index.js';  // Phase 1933 Step B: probe 结果错误摘要
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -110,6 +114,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   private readonly createProviderAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
   /** Phase 1927 Step E：装配注入的 CredentialStore（透传给真实 adapter 构造）。 */
   private readonly credentialStore: PiAiCredentialStore | undefined;
+
+  /**
+   * Phase 1933 Step B：实例内进行中的独立探针（单一调度）。
+   * 并发/重入 probe() 调用去重为同一次真实探测；finally 清空。
+   * 纯内存字段：探针调度不跨进程，禁止文件/socket/全局目录作为状态通道。
+   */
+  private inflightProbe: Promise<LLMProbeResult> | null = null;
 
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
@@ -310,6 +321,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     // (breaker_opened emit 由 onTransition 回调独占，phase 1275)
     // phase 1776: permanent/quota 失败不进熔断计数——配置类开 breaker 无意义
     // （半开探针每 resetTimeout 空烧）；quota 的时间窗恢复语义由 EventLoop 层承担。
+    // Phase 1933 Step B 核证：context_exceeded 在上方循环内已 throw-through（不走到
+    // 本块），请求局部错误不进入共享故障状态（breaker consecutiveFailures 不计入）。
     const lastClass = classifyLLMError(lastError!);
     if (lastClass !== 'permanent' && lastClass !== 'quota') {
       this.breakers[breakerIndex]?.onFailure(lastClass);
@@ -348,6 +361,62 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const index = adapters.findIndex((p) => p.name === providerName);
     if (index < 0) return undefined;
     return this.breakers[index]?.probeAllowedAtMs() ?? undefined;
+  }
+
+  /**
+   * Phase 1933 Step B：实例级故障快照——进程内共享状态的只读视图。
+   *
+   * 只读纪律：breaker.isOpen() 有副作用（open 超时后会转移 half-open），
+   * 快照禁止触发状态转移，故 open 判定用纯查询 probeAllowedAtMs()（仅
+   * state==='open' 时非 null）与 getOpenCause()。不发事件、不写盘。
+   */
+  snapshot(): LLMInstanceSnapshot {
+    const adapters = [this.primary, ...this.fallbacks];
+    const providers: LLMProviderSnapshotEntry[] = adapters.map((adapter, index) => {
+      const breaker = this.breakers[index];
+      const probeAllowedAtMs = breaker?.probeAllowedAtMs() ?? undefined;
+      return {
+        provider: adapter.name,
+        isFallback: index > 0,
+        breakerOpen: probeAllowedAtMs !== undefined,
+        openCause: breaker?.getOpenCause() ?? null,
+        consecutiveFailures: breaker?.getConsecutiveFailures() ?? 0,
+        ...(probeAllowedAtMs !== undefined ? { probeAllowedAtMs } : {}),
+      };
+    });
+    return { takenAtMs: Date.now(), providers };
+  }
+
+  /**
+   * Phase 1933 Step B：独立探针。
+   *
+   * - 实例内单一调度：并发/重入调用返回同一 promise（inflightProbe，finally 清空）。
+   * - 真实探测：对 primary 做一次真实最小调用（maxAttempts=1），直接走
+   *   _tryCallProvider——不经过 _callCore 的 breaker 拦截判定，因此 breaker open
+   *   时仍可探测；成功/失败自然按既有语义记账 breaker（不新增 noteFailure 类副作用）。
+   * - 不重试、不级联 fallback；结果经返回值表达（不抛业务错）。
+   */
+  probe(): Promise<LLMProbeResult> {
+    if (this.inflightProbe) return this.inflightProbe;
+    this.inflightProbe = this._runProbe().finally(() => {
+      this.inflightProbe = null;
+    });
+    return this.inflightProbe;
+  }
+
+  /** 探针的真实执行体（单一实例；并发去重由 probe() 保证）。 */
+  private async _runProbe(): Promise<LLMProbeResult> {
+    const probedAtMs = Date.now();
+    const probeOptions: LLMCallOptions = {
+      messages: [{ role: 'user', content: 'ping' }],
+      maxTokens: 1,  // 最小可行输出
+    };
+    try {
+      await this._tryCallProvider(this.primary, 0, false, probeOptions, 1);
+      return { ok: true, provider: this.primary.name, probedAtMs };
+    } catch (err) {
+      return { ok: false, provider: this.primary.name, probedAtMs, error: formatErr(err) };
+    }
   }
 
   /** Phase 1826: 把最终失败转成 owner 策略输入（含 typed Retry-After 与本地跳过标记）。 */

@@ -17,7 +17,14 @@
 import { formatErr, newUuid } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
-import type { LLMCallOptions, LLMEventSink, LLMOrchestrator, LLMStreamChunk } from './types.js';
+import type {
+  LLMCallOptions,
+  LLMEventSink,
+  LLMInstanceSnapshot,
+  LLMOrchestrator,
+  LLMProbeResult,
+  LLMStreamChunk,
+} from './types.js';
 import type { LLMErrorClass } from './errors.js';
 import {
   LLM_RECOVERY_COOLDOWN_MS,
@@ -76,6 +83,22 @@ export interface RecoveryCallScope {
 export interface LLMOrchestratorOwner extends LLMOrchestrator {
   callWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): Promise<LLMResponse>;
   streamWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): AsyncIterableIterator<LLMStreamChunk>;
+
+  /**
+   * Phase 1933 Step B：实例内能力——进程隔离边界。
+   * 故障状态（breaker 计数/开态）与探针调度仅存在于本 orchestrator 实例内存中，
+   * 同一 claw 进程的全部调用方共享同一实例即共享该状态；不跨进程。
+   * 禁止以文件/socket/全局目录作为跨进程状态通道。
+   */
+
+  /** 实例级故障快照：进程内共享状态的只读视图（无副作用，不弹回 breaker）。 */
+  snapshot(): LLMInstanceSnapshot;
+  /**
+   * 独立探针：不依赖普通调用成功（breaker open 时仍发起真实探测）；
+   * 实例内单一调度——并发/重入调用去重为同一次真实探测，返回同一结果。
+   * 结果经返回值表达（不抛业务错）。
+   */
+  probe(): Promise<LLMProbeResult>;
 }
 
 /**

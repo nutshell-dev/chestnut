@@ -107,4 +107,12 @@ export class CircuitBreaker {
   getOpenCause(): LLMErrorClass | null {
     return this.state === 'open' ? this.lastFailureClass : null;
   }
+
+  /**
+   * Phase 1933 Step B：只读暴露连续失败计数（供实例级故障快照；无副作用，
+   * 与 isOpen() 不同不产生状态转移）。
+   */
+  getConsecutiveFailures(): number {
+    return this.failures;
+  }
 }
