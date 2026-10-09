@@ -328,3 +328,243 @@ describe('Step B：同名本地安装跨进程竞争（真实 handler 子进程 
     expect(residue).toEqual([]);
   }, 180_000);
 });
+
+/* ---------- Step C 共用 intercept ---------- */
+
+/** 目标占位操作（absent 分支 mkdirExclusiveSync）barrier。 */
+function targetGate(stage: string, when: 'pre' | 'post'): InterceptSpec {
+  return {
+    stage, op: 'mkdirExclusiveSync',
+    baseDirSuffix: path.join('.chestnut', 'motion', 'skills'), rel: SKILL_NAME, when,
+  };
+}
+/** 池→Motion 的 target-local claim 写（版本选择在 claim 前完成，此事件 = 版本已固定）。 */
+const POOL_CLAIM_GATE: InterceptSpec = {
+  stage: 'claim-acquired', op: 'writeExclusiveSync',
+  baseDirSuffix: path.join('.chestnut', 'motion'), rel: path.join('skills', `.${SKILL_NAME}.installing`),
+  when: 'post',
+};
+
+/** 目标绝对路径（两入口必须实际相同）。 */
+function sharedTargetAbs(): string {
+  return motionSkillDir();
+}
+
+/** 读取池当前发布内容（固定版本读取，live 目录不是权威）。 */
+async function readPool(): Promise<string> {
+  return (await poolVersions()).loadPublished(SKILL_NAME);
+}
+
+/** 目标父目录无协议工件残留；allowSnapshot=true 时容忍 loser 保留的来源快照（协议留证）。 */
+function expectNoTargetResidue(opts?: { allowSnapshot?: boolean }): void {
+  const parent = path.dirname(motionSkillDir());
+  const residue = fs.readdirSync(parent).filter((n) => n.startsWith('.skill-'));
+  const unexpected = opts?.allowSnapshot
+    ? residue.filter((n) => !n.startsWith('.skill-srcsnap-'))
+    : residue;
+  expect(unexpected).toEqual([]);
+}
+
+/* ---------- Step C：本地/池到 Motion 混合来源竞争 ---------- */
+
+describe('Step C：本地安装与池安装争同一 Motion 目标（真实子进程确定性时序）', () => {
+  /**
+   * C1：本地先取得 absent 目标。
+   * 时序：池 child 先固定版本 vP（claim-acquired）→ 两 child 同到 target-attempt →
+   * 本地先取得目标（target-acquired 暂停）→ 池占有冲突 → 本地完成。
+   */
+  it('C1：absent 目标 local 先取得——pool loser typed 冲突不覆盖，Motion/池 = 本地完整 payload', async () => {
+    await prepublishPool('vP');
+    // 目标回到 absent（池保留固定版本 vP）；prepublish 的 claim 已释放
+    fs.rmSync(motionSkillDir(), { recursive: true, force: true });
+    const payloadL = makeLocalSource('src-local', 'vL');
+    expect(payloadL.files['run.sh']).not.toContain('vP'); // 本地与池源不同（>=2 文件）
+
+    const barrierDir = path.join(tmpDir, 'barrier-c1');
+    fs.mkdirSync(barrierDir, { recursive: true });
+
+    // 池 child：先固定版本（claim-acquired post），再到目标占位前暂停
+    const pool = runChild({
+      actor: 'pool', mode: 'pool', skill: SKILL_NAME,
+      instanceParent: tmpDir, barrierDir,
+      intercepts: [POOL_CLAIM_GATE, targetGate('target-attempt', 'pre')],
+    });
+    await waitEvent(barrierDir, 'pool', 'claim-acquired'); // 池版本选择已完成并被记录（vP）
+
+    // 本地 child：目标占位前后各一道 barrier
+    const local = runChild({
+      actor: 'local', mode: 'local', source: payloadL.dir, skill: SKILL_NAME,
+      instanceParent: tmpDir, barrierDir,
+      intercepts: [targetGate('target-attempt', 'pre'), targetGate('target-acquired', 'post')],
+    });
+    await waitEvent(barrierDir, 'local', 'target-attempt:pre');
+    release(barrierDir, 'pool:claim-acquired');
+    await waitEvent(barrierDir, 'pool', 'target-attempt:pre');
+
+    // winner = local：先放行占位
+    release(barrierDir, 'local:target-attempt:pre');
+    await waitEvent(barrierDir, 'local', 'target-acquired');
+    // loser = pool：占有必冲突
+    release(barrierDir, 'pool:target-attempt:pre');
+    await pool.done;
+
+    expect(pool.result.code).not.toBe(0);
+    const poolLine = resultLine(pool);
+    expect(poolLine).toContain('RACE|ERROR|pool|CliError|');
+    expect(poolLine).toMatch(/appeared concurrently/);
+    expect(poolLine).toContain(sharedTargetAbs()); // 两进程实际目标相同
+    // loser 证据保留：池 target-local claim 在、未被 winner 改写
+    expect(fs.existsSync(poolClaimPath())).toBe(true);
+    const loserClaim = JSON.parse(fs.readFileSync(poolClaimPath(), 'utf-8'));
+    expect(loserClaim.source).toBe(`dispatch://${SKILL_NAME}`);
+
+    // winner 完成
+    release(barrierDir, 'local:target-acquired');
+    await local.done;
+    expect(local.result.code).toBe(0);
+    expect(resultLine(local)).toBe('RACE|RESULT|local|ok');
+
+    // 事件序列：池固定版本 → 双方 target-attempt → local acquired → pool settled:error → local settled:ok
+    const stages = readEvents(barrierDir).map((e) => `${e.actor}:${e.stage}`);
+    const idx = (s: string) => stages.indexOf(s);
+    expect(idx('pool:claim-acquired')).toBeGreaterThanOrEqual(0);
+    expect(idx('local:target-attempt:pre')).toBeGreaterThan(idx('pool:claim-acquired'));
+    expect(idx('pool:target-attempt:pre')).toBeGreaterThan(idx('pool:claim-acquired'));
+    expect(idx('local:target-acquired')).toBeGreaterThan(idx('local:target-attempt:pre'));
+    expect(idx('pool:settled:error')).toBeGreaterThan(idx('local:target-acquired'));
+    expect(idx('local:settled:ok')).toBeGreaterThan(idx('pool:settled:error'));
+
+    // 最终事实：Motion 全文件 = 本地 vL；池随本地发布进度 = vL；loser 不动 winner
+    expectMotionTargetIs(payloadL.files);
+    expect(await readPool()).toContain(`# ${SKILL_NAME} vL`);
+    expect(fs.existsSync(localClaimPath())).toBe(false);
+    expect(fs.existsSync(parentSkillsDir())).toBe(false);
+    // loser（pool）claim 与来源快照按协议留证；目标父目录无 staging/trash 残留
+    expect(fs.existsSync(poolClaimPath())).toBe(true);
+    expectNoTargetResidue({ allowSnapshot: true });
+  }, 180_000);
+
+  /**
+   * C2：池先取得 absent 目标（反方向）。
+   */
+  it('C2：absent 目标 pool 先取得——local loser typed 冲突不覆盖，Motion/池保持池固定版本', async () => {
+    await prepublishPool('vP');
+    fs.rmSync(motionSkillDir(), { recursive: true, force: true });
+    const payloadL = makeLocalSource('src-local', 'vL');
+
+    const barrierDir = path.join(tmpDir, 'barrier-c2');
+    fs.mkdirSync(barrierDir, { recursive: true });
+
+    const pool = runChild({
+      actor: 'pool', mode: 'pool', skill: SKILL_NAME,
+      instanceParent: tmpDir, barrierDir,
+      intercepts: [POOL_CLAIM_GATE, targetGate('target-attempt', 'pre'), targetGate('target-acquired', 'post')],
+    });
+    await waitEvent(barrierDir, 'pool', 'claim-acquired');
+
+    const local = runChild({
+      actor: 'local', mode: 'local', source: payloadL.dir, skill: SKILL_NAME,
+      instanceParent: tmpDir, barrierDir,
+      intercepts: [targetGate('target-attempt', 'pre')],
+    });
+    await waitEvent(barrierDir, 'local', 'target-attempt:pre');
+    release(barrierDir, 'pool:claim-acquired');
+    await waitEvent(barrierDir, 'pool', 'target-attempt:pre');
+
+    // winner = pool
+    release(barrierDir, 'pool:target-attempt:pre');
+    await waitEvent(barrierDir, 'pool', 'target-acquired');
+    // loser = local
+    release(barrierDir, 'local:target-attempt:pre');
+    await local.done;
+
+    expect(local.result.code).not.toBe(0);
+    const localLine = resultLine(local);
+    expect(localLine).toContain('RACE|ERROR|local|CliError|');
+    expect(localLine).toMatch(/appeared concurrently/);
+    expect(localLine).toContain(sharedTargetAbs());
+    // loser 证据：本地 claim 留在实例内新 namespace，source = 本地路径
+    expect(fs.existsSync(localClaimPath())).toBe(true);
+    const loserClaim = JSON.parse(fs.readFileSync(localClaimPath(), 'utf-8'));
+    expect(loserClaim.source).toBe(payloadL.dir);
+
+    release(barrierDir, 'pool:target-acquired');
+    await pool.done;
+    expect(pool.result.code).toBe(0);
+    expect(resultLine(pool)).toBe('RACE|RESULT|pool|ok');
+
+    const stages = readEvents(barrierDir).map((e) => `${e.actor}:${e.stage}`);
+    const idx = (s: string) => stages.indexOf(s);
+    expect(idx('pool:target-acquired')).toBeGreaterThan(idx('local:target-attempt:pre'));
+    expect(idx('local:settled:error')).toBeGreaterThan(idx('pool:target-acquired'));
+    expect(idx('pool:settled:ok')).toBeGreaterThan(idx('local:settled:error'));
+
+    // 最终事实：Motion 全文件 = 池 vP；池未被本地升级为 vL（本地未提交 dispatch）
+    const poolPayload = makeLocalSource('expected-vP', 'vP').files;
+    expectMotionTargetIs(poolPayload);
+    expect(await readPool()).toContain(`# ${SKILL_NAME} vP`);
+    expect(fs.existsSync(poolClaimPath())).toBe(false);
+    expect(fs.existsSync(parentSkillsDir())).toBe(false);
+    // loser（local）来源快照按协议留证在本地 claim 同级，Motion skills 内只允许
+    // 无 staging/trash/marker 残留（local 快照不在此目录）
+    expectNoTargetResidue();
+  }, 180_000);
+
+  /**
+   * C3：existing 目标让位窗口竞争。
+   * 目标已有 V0（池安装）；本地进入 existing 分支真实 moveDir 让位点前暂停，
+   * 池在此期间完整完成一次更新（合法串行）；释放后本地完成更新到 vL。
+   * 仅断言完整性与证据语义，不编造「恰一成功」。
+   */
+  it('C3：existing 目标让位窗口——重叠期间池合法完成，本地随后完整更新，无混合无残留', async () => {
+    await prepublishPool('v0'); // Motion 目标 = V0（existing），池 = v0
+    expectMotionTargetIs(makeLocalSource('expected-v0', 'v0').files);
+    const payloadL = makeLocalSource('src-local', 'vL');
+
+    const barrierDir = path.join(tmpDir, 'barrier-c3');
+    fs.mkdirSync(barrierDir, { recursive: true });
+
+    // 本地 child：existing 分支让位（真实 moveDir）前暂停
+    const local = runChild({
+      actor: 'local', mode: 'local', source: payloadL.dir, skill: SKILL_NAME,
+      instanceParent: tmpDir, barrierDir,
+      intercepts: [{
+        stage: 'target-yield', op: 'moveDir',
+        baseDirSuffix: path.join('.chestnut', 'motion', 'skills'), rel: SKILL_NAME, when: 'pre',
+      }],
+    });
+    await waitEvent(barrierDir, 'local', 'target-yield:pre'); // 到达点已记录，再控制释放
+
+    // 池 child 在本地让位窗口内完整执行（V0→V0 合法串行更新）
+    const pool = runChild({
+      actor: 'pool', mode: 'pool', skill: SKILL_NAME,
+      instanceParent: tmpDir, barrierDir, intercepts: [],
+    });
+    await pool.done;
+    expect(pool.result.code).toBe(0);
+    expect(resultLine(pool)).toBe('RACE|RESULT|pool|ok');
+    // 池完成后目标仍是完整 V0（本地尚未让位）
+    expectMotionTargetIs(makeLocalSource('expected2-v0', 'v0').files);
+
+    // 释放本地让位：完成更新到 vL
+    release(barrierDir, 'local:target-yield:pre');
+    await local.done;
+    expect(local.result.code).toBe(0);
+    expect(resultLine(local)).toBe('RACE|RESULT|local|ok');
+
+    // 事件序列证明真实重叠：本地到达让位窗口早于池完成
+    const stages = readEvents(barrierDir).map((e) => `${e.actor}:${e.stage}`);
+    const idx = (s: string) => stages.indexOf(s);
+    expect(idx('local:target-yield:pre')).toBeGreaterThanOrEqual(0);
+    expect(idx('pool:settled:ok')).toBeGreaterThan(idx('local:target-yield:pre'));
+    expect(idx('local:settled:ok')).toBeGreaterThan(idx('pool:settled:ok'));
+
+    // 最终目标 = 本地完整 vL（每个文件同源），池 = vL（本地实际提交进度）；无残留
+    expectMotionTargetIs(payloadL.files);
+    expect(await readPool()).toContain(`# ${SKILL_NAME} vL`);
+    expect(fs.existsSync(localClaimPath())).toBe(false);
+    expect(fs.existsSync(poolClaimPath())).toBe(false);
+    expect(fs.existsSync(parentSkillsDir())).toBe(false);
+    expectNoTargetResidue();
+  }, 180_000);
+});
