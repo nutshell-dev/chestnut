@@ -209,14 +209,16 @@ describe('acquireWatchdogOwnership', () => {
   it('live foreign owner（不同 workspace）→ foreign_owned + active 保留、不写 outcome', () => {
     const foreign = { ...newWatchdogAttempt(process.pid), workspace_root: '/foreign/root' };
     seedActive(foreign);
+    const activeBefore = fs.readFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'));
 
     const result = acquireWatchdogOwnership(fsFactory);
 
     expect(result.kind).toBe('foreign_owned');
     if (result.kind === 'foreign_owned') expect(result.owner.owner_token).toBe(foreign.owner_token);
-    // active 保留原样；foreign 分型不写 lost outcome（entry fail-loud 处理）
+    // active 保留原样（字节不变）；foreign 分型不写 lost outcome（entry fail-loud 处理）
     expect(activeOwner()!.owner_token).toBe(foreign.owner_token);
     expect(activeOwner()!.workspace_root).toBe('/foreign/root');
+    expect(fs.readFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'))).toEqual(activeBefore);
     expect(candidateOutcomeFiles().length).toBe(0);
   });
 
@@ -479,9 +481,11 @@ describe('legacy watchdog.pid 迁移（Phase 1203 Step D）', () => {
 
   it('foreign workspace live legacy → throw WatchdogPidForeignWorkspaceError、legacy 文件保留', () => {
     fs.writeFileSync(legacyPidFile(), JSON.stringify({ pid: process.pid, root: '/foreign/root' }));
+    const before = fs.readFileSync(legacyPidFile());
 
     expect(() => acquireWatchdogOwnership(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
     expect(fs.existsSync(legacyPidFile())).toBe(true);
+    expect(fs.readFileSync(legacyPidFile())).toEqual(before);
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
   });
 
@@ -594,5 +598,61 @@ describe('旧 generation 迟到 shutdown', () => {
     expect(activeOwner()!.owner_token).toBe(fresh.owner_token);
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, staleRecord.owner_token))).toBe(false);
     expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(true);
+  });
+});
+
+describe('相对/冗余实例身份记录经 acquire 链（Phase 1931 Step D）', () => {
+  // CHESTNUT_ROOT=tmpDir（beforeEach）→ 实例父目录身份 = tmpDir。
+  // 不 mock legacyParentMatchesInstance：真实 path 适配与消费者全链验证。
+  // candidate/outcome 属协议产物（prepareCandidate 先于分型），不等于零写入，
+  // 这里只断言 authority 记录字节与最终归属，不断言文件系统零写入。
+  const activeOwnerPath = () => path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json');
+  const legacyPidPath = () => path.join(chestnutDir, 'watchdog.pid');
+
+  it('相对 live active → acquire 抛明确拒绝；active authority 字节不变、不 retire、不接管', () => {
+    const record = { ...newWatchdogAttempt(process.pid), workspace_root: 'relative/root' };
+    seedActive(record);
+    const before = fs.readFileSync(activeOwnerPath());
+
+    expect(() => acquireWatchdogOwnership(fsFactory)).toThrow(/relative workspace root/);
+
+    // authority 不改写：active 原字节保留、旧 generation 未被 retire、无新 owner
+    expect(fs.readFileSync(activeOwnerPath())).toEqual(before);
+    expect(activeOwner()!.owner_token).toBe(record.owner_token);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, record.owner_token))).toBe(false);
+  });
+
+  it('相对 live legacy → acquire 抛明确拒绝；legacy 字节不变、不迁移、不建 active', () => {
+    fs.writeFileSync(legacyPidPath(), JSON.stringify({ pid: process.pid, root: 'relative/root' }));
+    const before = fs.readFileSync(legacyPidPath());
+
+    expect(() => acquireWatchdogOwnership(fsFactory)).toThrow(/relative workspace root/);
+
+    expect(fs.readFileSync(legacyPidPath())).toEqual(before);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, `legacy-${process.pid}`))).toBe(false);
+  });
+
+  it('冗余绝对同实例 live active → lost（规范化后同实例，不误判 foreign_owned）；active 字节不变', () => {
+    const record = { ...newWatchdogAttempt(process.pid), workspace_root: `${tmpDir}/./` };
+    seedActive(record);
+    const before = fs.readFileSync(activeOwnerPath());
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('lost');
+    if (result.kind === 'lost') expect(result.owner.owner_token).toBe(record.owner_token);
+    expect(fs.readFileSync(activeOwnerPath())).toEqual(before);
+  });
+
+  it('冗余绝对同实例 live legacy → legacy_live 保守阻止接管；legacy 字节不变、不建 active', () => {
+    fs.writeFileSync(legacyPidPath(), JSON.stringify({ pid: process.pid, root: `${tmpDir}/sub/..` }));
+    const before = fs.readFileSync(legacyPidPath());
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('legacy_live');
+    expect(fs.readFileSync(legacyPidPath())).toEqual(before);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
   });
 });

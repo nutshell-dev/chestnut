@@ -95,6 +95,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     // Use current process PID as a guaranteed-alive foreign PID
     const foreignAlivePid = process.pid;
     fs.writeFileSync(pidFile, JSON.stringify({ pid: foreignAlivePid, root: '/foreign/root' }));
+    const before = fs.readFileSync(pidFile);
 
     expect(() => isWatchdogAlive(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
 
@@ -105,6 +106,8 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
       expect.stringContaining('current_root=/test/root'),
     );
     expect(fs.existsSync(pidFile)).toBe(true);
+    // 原记录字节不删不改
+    expect(fs.readFileSync(pidFile)).toEqual(before);
   });
 
   it('foreign workspace dead: returns false + audit PID_STALE_AUTO_CLEANED + deletes pid file', () => {
@@ -211,6 +214,8 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
     // 同 workspace 的 legacy 输入同时存在也不被咨询（active 是唯一 authority）
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));
+    const activeBefore = fs.readFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'));
+    const legacyBefore = fs.readFileSync(pidFile);
 
     expect(() => isWatchdogAlive(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
 
@@ -220,9 +225,12 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
       expect.stringContaining('foreign_root=/foreign/root'),
       expect.stringContaining('current_root=/test/root'),
     );
-    // active 与 legacy 输入均原样保留
-    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'))).toBe(true);
+    // active 与 legacy 输入均原样保留（字节不变）
+    const activePath = path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json');
+    expect(fs.existsSync(activePath)).toBe(true);
     expect(fs.existsSync(pidFile)).toBe(true);
+    expect(fs.readFileSync(activePath)).toEqual(activeBefore);
+    expect(fs.readFileSync(pidFile)).toEqual(legacyBefore);
   });
 
   it('active dead foreign owner → false（不删 active、不碰 legacy 输入、不 auto-clean）', () => {
@@ -251,5 +259,108 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
 
     expect(isWatchdogAlive(fsFactory)).toBe(false);
     expect(fs.existsSync(pidFile)).toBe(true);
+  });
+});
+
+describe('实例身份记录：绝对规范化与相对拒绝（Phase 1931 Step D）', () => {
+  let tmpDir: string;
+  let chestnutDir: string;
+  let auditWriter: AuditWriter;
+  let auditSpy: ReturnType<typeof vi.spyOn>;
+  const originalRoot = process.env.CHESTNUT_ROOT;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
+  const activeOwnerPath = () => path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json');
+  const legacyPidPath = () => path.join(chestnutDir, 'watchdog.pid');
+
+  /** 以外部 record 占住 active（模拟另一进程已 commit） */
+  function seedActive(record: ReturnType<typeof newWatchdogAttempt>): void {
+    const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
+    prepareCandidate(chestnutFs, record);
+    commitOwnership(chestnutFs, record);
+  }
+
+  function foreignAuditCount(): number {
+    return auditSpy.mock.calls.filter((c) => c[0] === WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE).length;
+  }
+
+  beforeEach(() => {
+    _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tmpDir = path.join(os.tmpdir(), `wd-identity-${randomUUID()}`);
+    chestnutDir = path.join(tmpDir, '.chestnut');
+    fs.mkdirSync(chestnutDir, { recursive: true });
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
+    vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+    });
+    process.env.CHESTNUT_ROOT = '/test/root';
+
+    auditWriter = new AuditWriter(
+      new NodeFileSystem({ baseDir: chestnutDir }),
+      'audit.tsv',
+      null,
+    );
+    setAuditWriter(auditWriter);
+    auditSpy = vi.spyOn(auditWriter, 'write');
+  });
+
+  afterEach(() => {
+    if (originalRoot !== undefined) {
+      process.env.CHESTNUT_ROOT = originalRoot;
+    } else {
+      delete process.env.CHESTNUT_ROOT;
+    }
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('active 同实例绝对路径含冗余段（live）→ 识别同实例，不误报 foreign，记录字节不变', () => {
+    // 真实 legacyParentMatchesInstance：path.resolve 归一化后实例身份一致
+    seedActive({ ...newWatchdogAttempt(process.pid), workspace_root: '/test/./root' });
+    const before = fs.readFileSync(activeOwnerPath());
+
+    expect(isWatchdogAlive(fsFactory)).toBe(true);
+
+    expect(foreignAuditCount()).toBe(0);
+    expect(fs.readFileSync(activeOwnerPath())).toEqual(before);
+  });
+
+  it('legacy 同实例绝对路径含冗余段（live）→ 识别同实例，不误报 foreign，记录字节不变', () => {
+    fs.writeFileSync(legacyPidPath(), JSON.stringify({ pid: process.pid, root: '/test/x/../root' }));
+    const before = fs.readFileSync(legacyPidPath());
+
+    expect(isWatchdogAlive(fsFactory)).toBe(true);
+
+    expect(foreignAuditCount()).toBe(0);
+    expect(fs.readFileSync(legacyPidPath())).toEqual(before);
+  });
+
+  it('active 相对路径（live）→ 抛明确拒绝（不按 cwd 猜），记录字节不变', () => {
+    seedActive({ ...newWatchdogAttempt(process.pid), workspace_root: 'relative/root' });
+    const before = fs.readFileSync(activeOwnerPath());
+
+    expect(() => isWatchdogAlive(fsFactory)).toThrow(/relative workspace root/);
+
+    expect(fs.readFileSync(activeOwnerPath())).toEqual(before);
+  });
+
+  it('legacy 相对路径（live）→ 改变调用上下文仍抛明确拒绝，记录字节不变', () => {
+    fs.writeFileSync(legacyPidPath(), JSON.stringify({ pid: process.pid, root: 'relative/root' }));
+    const before = fs.readFileSync(legacyPidPath());
+    // vitest worker 不支持 process.chdir——改以 CHESTNUT_ROOT 指向他处模拟从不同
+    // cwd/上下文调用：相对记录缺原始 cwd 证据，fail-closed 绝不按新上下文猜测
+    const elsewhere = path.join(tmpDir, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    const saved = process.env.CHESTNUT_ROOT;
+    process.env.CHESTNUT_ROOT = elsewhere;
+    try {
+      expect(() => isWatchdogAlive(fsFactory)).toThrow(/relative workspace root/);
+    } finally {
+      process.env.CHESTNUT_ROOT = saved;
+    }
+
+    expect(fs.readFileSync(legacyPidPath())).toEqual(before);
   });
 });
