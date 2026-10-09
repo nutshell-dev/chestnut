@@ -65,6 +65,8 @@ export interface SubAgentLifecycleSink {
   runReactAbortStillRunning(e: { settleMs: number }): void;
   captureProtocolMalformed(e: { tool: string; reason: string }): void;
   idleTimeoutCallbackFailed(e: { error: string }): void;
+  /** Phase 1933 Step D: 续跑 checkpoint 损坏/不自洽 → 回退无 cursor 路径的原因留证。 */
+  recoveryFallback(e: { reason: string }): void;
 }
 
 /** invariants.ts 的 ISP 收窄消费面（仅需 steps 不变量写点）。 */
@@ -206,6 +208,10 @@ export function createSubAgentLifecycleSink(opts: SubAgentLifecycleSinkOptions):
     idleTimeoutCallbackFailed: (e) => write(
       SUBAGENT_AUDIT_EVENTS.IDLE_TIMEOUT_CALLBACK_FAILED,
       `agentId=${agentId}`, `error=${e.error}`,
+    ),
+    recoveryFallback: (e) => write(
+      SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK,
+      `agentId=${agentId}`, `reason=${e.reason}`,
     ),
   };
 }

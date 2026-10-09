@@ -17,6 +17,10 @@ export { resolveSubagentRunDir } from './result-dir-query.js';
 
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
 
+// Phase 1933 Step D: 通用安全续跑（恢复 checkpoint store + 游标类型）
+export { createSubAgentRecoveryStore, SubAgentRecoveryStore, SubAgentRecoveryStoreError } from './recovery-state.js';
+export type { ResumeCursor, RecoveryCursorLoadResult, SubAgentRecoveryStoreOptions, SubAgentRecoveryErrorKind } from './recovery-state.js';
+
 // phase 1789: agent turn 生命周期 wire 事件语义 owner（自 agent-executor 迁回）
 export { SUBAGENT_EVENTS } from './stream-events.js';
 export type { SubagentEvent } from './stream-events.js';

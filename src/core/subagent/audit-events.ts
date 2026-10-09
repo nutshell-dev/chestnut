@@ -41,6 +41,8 @@ export const SUBAGENT_AUDIT_EVENTS = {
   // args body 已由 stream.jsonl tool_use_input event 落盘、本 audit 仅记决策索引。
   // 不入 tool_use_id 列表（CLI 凭 trace_id + ts 范围 join stream.jsonl）。
   PARTIAL_ASSISTANT_DISCARDED: 'partial_assistant_discarded',
+  // Phase 1933 Step D: 续跑 checkpoint 损坏/缺字段/事实不自洽 → 回退无 cursor 路径的原因留证
+  RECOVERY_FALLBACK: 'subagent_recovery_fallback',
 } as const;
 
 /**
@@ -88,4 +90,5 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_artifact_cross_source_ok: 'audit',
   subagent_artifact_cross_source_skipped: 'audit',
   partial_assistant_discarded: 'audit',  // phase 688 NEW
+  subagent_recovery_fallback: 'audit',   // Phase 1933 Step D
 } as const;

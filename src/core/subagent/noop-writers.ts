@@ -44,6 +44,7 @@ export class NoopLifecycleSink implements SubAgentLifecycleSink {
   runReactAbortStillRunning(_e: { settleMs: number }): void {}
   captureProtocolMalformed(_e: { tool: string; reason: string }): void {}
   idleTimeoutCallbackFailed(_e: { error: string }): void {}
+  recoveryFallback(_e: { reason: string }): void {}
 }
 
 export class NoopAuditWriter implements AuditLog {

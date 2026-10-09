@@ -10,6 +10,8 @@ export { StepAbortError, isStepAbortError, throwAbortError, abortEvidenceAuditCo
 export type { StepAbortReason } from './abort-helpers.js';
 export type { StepExecutorEventSink, StepEventLlmCallInfo } from './audit-sink.js';
 export { safeCallback, writeAuditGuarded } from './utils.js';
+// Phase 1933 Step D: SubAgent 续跑段消息合成原语（barrel 边界守 M#7/M#8——跨模块必经 index）
+export { appendAssistantMessage, appendToolResults, toToolResultBlock } from './utils.js';
 export { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 export { createStepExecutorEventSink } from './caller-event-sink.js';
 export { asFinalStopReason } from './types.js';

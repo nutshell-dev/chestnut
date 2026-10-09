@@ -14,7 +14,10 @@ import {
   ExternalAbortError,
   isAbortError,
   makeExternalAbortError,
+  makeToolUseId,
   type ToolDefinition,
+  type ToolUseBlock,
+  type ToolResultBlock,
   type ToolUseId } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 
@@ -28,12 +31,23 @@ import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
+import type { ToolResult } from '../../foundation/tool-protocol/index.js';
+import type { SubAgentRecoveryStore, ResumeCursor } from './recovery-state.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
 import { assertStepsEntryShape } from './invariants.js';
 import { auditSubagentArtifactCompleteness } from './artifact-cross-source-audit.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from '../agent-executor/index.js';
+import { ToolError, type ExecContext } from '../../foundation/tools/index.js';
+// Phase 1933 Step D: 续跑段消息合成复用 step-executor 原语（barrel 引入，M#7/M#8）
+import {
+  appendAssistantMessage,
+  appendToolResults,
+  toToolResultBlock,
+  type CompleteLLMResponse,
+  type ToolResultFact,
+} from '../step-executor/index.js';
 
 
 
@@ -78,6 +92,11 @@ export interface SubAgentOptions {
   permissionChecker?: PermissionChecker;                      // phase 1072: subagent file tool permission check
   /** phase 1031: ReAct loop factory DI seam — tests inject mock runReact, production defaults to real loop */
   runReact?: (options: ReactOptions) => Promise<ReactResult>;
+  /**
+   * Phase 1933 Step D: 可选恢复存储（加载面 + RecoveryDelivery 交付面）。
+   * 注入后 run() 开头从最后安全 checkpoint 恢复；缺席时行为与现状逐位一致。
+   */
+  recoveryStore?: SubAgentRecoveryStore;
 }
 
 export class SubAgent {
@@ -109,6 +128,7 @@ export class SubAgent {
   private traceId: TraceId;
   private permissionChecker?: PermissionChecker;
   private runReact: (options: ReactOptions) => Promise<ReactResult>;
+  private recoveryStore?: SubAgentRecoveryStore;
 
   // phase 283: textEndCount retained for AC-4; other counters dropped (by-construction equal via commitTurnEvent)
   private textEndCount = 0;
@@ -142,6 +162,7 @@ export class SubAgent {
     this.traceId = options.traceId;
     this.permissionChecker = options.permissionChecker;
     this.runReact = options.runReact ?? runReact;
+    this.recoveryStore = options.recoveryStore;
   }
 
   /**
@@ -211,6 +232,30 @@ export class SubAgent {
       // phase 1858 Step C (SA-D2): 解析一次实际使用集 — finally 落盘同源（替代 `this.toolsForLLM ?? []` 空覆盖）
       this.resolvedToolsForLLM = tools;
 
+      // Phase 1933 Step D: 通用安全续跑——timeout controller 建立后、runReact 前，
+      // 从最后安全 checkpoint 恢复（完整 LLM 响应已提交则不重复请求、已提交工具结果不重复执行）。
+      // 无 store / 无 cursor / 损坏回退时本段零行为变化（messages 保持上方全新构建）。
+      // 本段在 try 内：resume 段 toolExecutor 的 abort/timeout 走既有 classifyAndAuditError 路径。
+      if (this.recoveryStore) {
+        // freshBaseline：全新构建基线浅拷贝（message 对象共享、数组结构独立）——
+        // resume 中段发现事实不自洽时回退「无 cursor」路径用。
+        const freshBaseline = [...messages];
+        await this.resumeFromRecoveryCheckpoint(this.recoveryStore, {
+          freshBaseline,
+          // ctx 与 runReact 相同的 getExecContext 构造（timeout.signal 生效、abort 传播）
+          ctx: executor.getExecContext(executorProfile, {
+            clawId: this.agentId,
+            signal: timeout.signal,
+            permissionChecker: this.permissionChecker,
+            subagentTaskId: this.agentId,
+            trace_id: this.traceId,
+          }),
+          signal: timeout.signal,
+          systemPrompt,
+          tools,
+        });
+      }
+
       // Run ReAct loop，用 Promise.race 强制超时退出
       // Tool 层超时通过 timeout.signal 传到 ctx.signal；LLM stream
       // (collectStreamResponse) 也消费 ctx.signal，fetch/SDK 会实际取消请求
@@ -258,6 +303,8 @@ export class SubAgent {
           maxConsecutiveMaxTokensToolUse: this.maxConsecutiveMaxTokensToolUse,
           registry: this.registry,  // Enable parallel execution for readonly tools
           tools,                    // Enable native tool_use
+          // Phase 1933 Step D: store 实现 RecoveryDelivery，直接透传（缺席 = undefined = 不提交）
+          recovery: this.recoveryStore,
           stepCallbacks: {
             onLLMResult: (info) => {
               if (info.error) {
@@ -434,6 +481,289 @@ export class SubAgent {
         this.recordDegraded('completeness', 'artifact_completeness', err);
         this.sink.persistFailed({ stage: 'artifact_completeness', error: formatErr(err) });
       }
+    }
+  }
+
+  /**
+   * Phase 1933 Step D: 安全续跑入口。无 cursor → 零行为变化；cursor 损坏 →
+   * sink 留证（recoveryFallback）后按无 cursor 继续；否则按 kind 分发。
+   * 保持 _hasRun 一次性语义——resume 发生在单次 run 内。
+   */
+  private async resumeFromRecoveryCheckpoint(
+    store: SubAgentRecoveryStore,
+    opts: {
+      freshBaseline: Message[];
+      ctx: ExecContext;
+      signal: AbortSignal;
+      systemPrompt: string;
+      tools: ToolDefinition[];
+    },
+  ): Promise<void> {
+    const loaded = await store.loadCursor();
+    if (loaded.fallbackReason) {
+      this.sink.recoveryFallback({ reason: loaded.fallbackReason });
+    }
+    const cursor = loaded.cursor;
+    if (!cursor) return;
+    if (cursor.kind === 'next-llm') {
+      await this.resumeAtNextLlm(store, opts);
+    } else {
+      await this.resumeAwaitingTools(store, cursor, opts);
+    }
+  }
+
+  /**
+   * next-llm 续跑：上一回合事实已全部提交，从持久化 messages 恢复对话后直接进 runReact
+   * （下一步是新 LLM 调用）。source 'empty' / 空 session → 保持现状全新构建。
+   */
+  private async resumeAtNextLlm(
+    store: SubAgentRecoveryStore,
+    opts: { freshBaseline: Message[]; systemPrompt: string; tools: ToolDefinition[] },
+  ): Promise<void> {
+    const persisted = await this.messageStore.load();
+    if (persisted.source === 'empty') return;
+    if (persisted.source === 'io_error' || !persisted.session) {
+      // 不猜：持久边界不可读 → 回退全新构建（留证）
+      this.sink.recoveryFallback({
+        reason: `dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
+      });
+      return;
+    }
+    const restored = persisted.session.messages;
+    if (restored.length === 0) return;
+    // 就地替换（保持 this.messages 数组引用——runReact/onStepComplete 共享同一引用）
+    const messages = this.messages!;
+    messages.length = 0;
+    messages.push(...restored);
+    await this.repairDanglingToolUseTail(store, opts);
+  }
+
+  /**
+   * dangling 修补：崩溃窗口（最后工具结果已提交、appendToolResults+save 未发生）会在
+   * 持久化 messages 末尾留下无配对 tool_result 的 assistant tool_use——runReact 不修复
+   * dangling（API 拒），resume 必须先补齐。已提交结果全部在场 → 复原补齐（确定事实、
+   * 不重复执行）；任一缺失/不可读 → 不猜，回退全新构建并留证。
+   */
+  private async repairDanglingToolUseTail(
+    store: SubAgentRecoveryStore,
+    opts: { freshBaseline: Message[]; systemPrompt: string; tools: ToolDefinition[] },
+  ): Promise<void> {
+    const messages = this.messages!;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant' || !Array.isArray(last.content)) return;
+    const toolUseIds = last.content
+      .filter((b): b is ToolUseBlock => b.type === 'tool_use')
+      .map((b) => String(b.id));
+    if (toolUseIds.length === 0) return;
+    // 末尾即 assistant = 配对 user tool_result 消息必缺（配对消息必紧随其后）
+    let committed: Map<string, ToolResultFact>;
+    try {
+      committed = await store.loadCommittedToolResults();
+    } catch (err) {
+      this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
+      this.resetMessagesToBaseline(opts.freshBaseline);
+      return;
+    }
+    const blocks: ToolResultBlock[] = [];
+    for (const id of toolUseIds) {
+      const fact = committed.get(id);
+      if (!fact) {
+        this.sink.recoveryFallback({ reason: `dangling_tool_use_without_committed_result: ${id}` });
+        this.resetMessagesToBaseline(opts.freshBaseline);
+        return;
+      }
+      blocks.push(toToolResultBlock(makeToolUseId(id), fact.result));
+    }
+    appendToolResults(messages, blocks);
+    await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_repair_save');
+    await this.appendToLog(`Recovery: repaired dangling tool_use tail with ${toolUseIds.length} committed result(s)\n`);
+  }
+
+  /**
+   * awaiting-tools 续跑：完整 LLM 响应已提交 → 不重复请求 LLM；已提交工具结果直接复原
+   * （不重复执行）；pending 工具按响应中 tool_use 原始顺序逐个执行并推进 cursor。
+   */
+  private async resumeAwaitingTools(
+    store: SubAgentRecoveryStore,
+    cursor: Extract<ResumeCursor, { kind: 'awaiting-tools' }>,
+    opts: {
+      freshBaseline: Message[];
+      ctx: ExecContext;
+      signal: AbortSignal;
+      systemPrompt: string;
+      tools: ToolDefinition[];
+    },
+  ): Promise<void> {
+    // a. 已提交完整响应是续跑锚点；不可读/损坏 → 留证 + 按无 cursor 继续（此时尚未 mutate messages）
+    let committed: CompleteLLMResponse;
+    try {
+      committed = await store.loadCommittedResponse(cursor.responseId);
+    } catch (err) {
+      this.sink.recoveryFallback({ reason: `committed_response_unreadable: ${formatErr(err)}` });
+      return;
+    }
+    const response = committed.response;
+    const toolUses = response.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+    const prebuiltResults = response.content.filter((b): b is ToolResultBlock => b.type === 'tool_result');
+    const prebuiltIds = new Set(prebuiltResults.map((b) => String(b.tool_use_id)));
+    const responseToolUseIds = toolUses.map((t) => String(t.id));
+
+    // b. 持久 messages 基底。source 'empty'/空 session → 保留全新构建序列（assistant 追加其上）；
+    //    io_error → 持久边界不可读、不猜 → 留证回退（此时尚未 mutate messages）
+    const persisted = await this.messageStore.load();
+    if (persisted.source === 'io_error' || !persisted.session) {
+      this.sink.recoveryFallback({
+        reason: `dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
+      });
+      return;
+    }
+    const messages = this.messages!;
+    if (persisted.session.messages.length > 0) {
+      messages.length = 0;
+      messages.push(...persisted.session.messages);
+    }
+
+    // 幂等判重 ①：崩溃发生在重建+落盘之后——末尾已是本响应的完整回合
+    // （assistant tool_use + 配对 tool_result user 消息）→ 无需重建，直接进 runReact。
+    if (this.isTurnAlreadyPersisted(messages, responseToolUseIds)) return;
+
+    // 判重 ②：末尾 assistant content 与已提交响应的 tool_use id 集合一致 → 不重复 append
+    // （崩溃时 finally 兜底已把本响应的 assistant 消息落盘）；否则 append assistant。
+    const last = messages[messages.length - 1];
+    const lastAssistantIds = last && last.role === 'assistant' && Array.isArray(last.content)
+      ? last.content.filter((b): b is ToolUseBlock => b.type === 'tool_use').map((b) => String(b.id))
+      : [];
+    const sameToolUseSet = lastAssistantIds.length === responseToolUseIds.length
+      && new Set(lastAssistantIds).size === responseToolUseIds.length
+      && responseToolUseIds.every((id) => lastAssistantIds.includes(id));
+    if (!sameToolUseSet) {
+      // 对齐 handleToolUseStop：assistant 消息剥掉响应内 prebuilt tool_result 块
+      appendAssistantMessage(messages, response.content.filter((b) => b.type !== 'tool_result'));
+    }
+
+    // c. 已提交结果复原 + pending 执行。先加载全部已提交结果；不可读 → 回退全新构建
+    //    （messages 已 mutate，须显式重置回基线）。
+    let committedResults: Map<string, ToolResultFact>;
+    try {
+      committedResults = await store.loadCommittedToolResults();
+    } catch (err) {
+      this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
+      this.resetMessagesToBaseline(opts.freshBaseline);
+      return;
+    }
+    // 一致性预检（执行任何工具前）：响应/pending/已提交三方必须对得上，对不上即
+    // checkpoint 自相矛盾 → 不猜，回退全新构建。
+    const pendingSet = new Set(cursor.pendingToolIds);
+    const executableIds = responseToolUseIds.filter((id) => !prebuiltIds.has(id));
+    const inconsistent = executableIds.some((id) => !committedResults.has(id) && !pendingSet.has(id))
+      || cursor.pendingToolIds.some((id) => !executableIds.includes(id));
+    if (inconsistent) {
+      this.sink.recoveryFallback({ reason: 'cursor_response_fact_mismatch' });
+      this.resetMessagesToBaseline(opts.freshBaseline);
+      return;
+    }
+
+    // 合成 user 消息（对齐 handleToolUseStop 顺序：prebuilt 在前，其余按响应原始顺序）
+    const resultBlocks: ToolResultBlock[] = [...prebuiltResults];
+    let executedCount = 0;
+    let restoredCount = 0;
+    for (const tu of toolUses) {
+      const id = String(tu.id);
+      if (prebuiltIds.has(id)) continue;
+      const fact = committedResults.get(id);
+      if (fact) {
+        // 已提交工具结果：不重复执行，直接复原 ToolResultBlock
+        resultBlocks.push(toToolResultBlock(makeToolUseId(id), fact.result));
+        restoredCount++;
+        continue;
+      }
+      // pending 工具：abort 优先传播（不误分类为业务/LLM 失败）
+      if (opts.signal.aborted) throw makeExternalAbortError(opts.signal.reason);
+      await store.toolStarted({
+        toolUseId: makeToolUseId(id),
+        toolName: tu.name,
+        input: tu.input,
+        startedAtMs: Date.now(),
+      });
+      let result: ToolResult;
+      try {
+        result = await this.toolExecutor.execute({
+          toolName: tu.name,
+          args: tu.input,
+          ctx: opts.ctx,
+          toolUseId: makeToolUseId(id),
+        });
+      } catch (err) {
+        // 与 executeSingleTool 同收敛面：仅 ToolError 业务化为失败结果；
+        // abort / 系统错误原样传播（走既有 classifyAndAuditError 路径）
+        if (!(err instanceof ToolError)) throw err;
+        result = { success: false, content: `[${err.name}] 工具执行失败: ${formatErr(err)}` };
+      }
+      // 每个结果执行后即刻提交（保持 cursor 推进；失败 throw 中止 resume、入既有分类）
+      await store.toolResultCommitted({
+        toolUseId: makeToolUseId(id),
+        toolName: tu.name,
+        result,
+        resultAtMs: Date.now(),
+      });
+      resultBlocks.push(toToolResultBlock(makeToolUseId(id), result));
+      executedCount++;
+    }
+
+    // d. 全部就绪 → appendToolResults → 落盘（best-effort，与既有 save 点同策略）→ 正常 runReact
+    if (resultBlocks.length > 0) {
+      appendToolResults(messages, resultBlocks);
+    }
+    await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_save');
+    await this.appendToLog(
+      `Recovery: resumed awaiting-tools response=${cursor.responseId} restored=${restoredCount} executed=${executedCount}\n`,
+    );
+  }
+
+  /** 幂等判重 ①：持久化末尾是否已是本响应的完整回合（assistant tool_use + 配对 tool_result）。 */
+  private isTurnAlreadyPersisted(messages: Message[], responseToolUseIds: string[]): boolean {
+    if (responseToolUseIds.length === 0) return false;
+    const last = messages[messages.length - 1];
+    const prev = messages[messages.length - 2];
+    if (!last || !prev || last.role !== 'user' || prev.role !== 'assistant') return false;
+    if (!Array.isArray(last.content) || !Array.isArray(prev.content)) return false;
+    const resultIds = new Set(
+      last.content
+        .filter((b): b is ToolResultBlock => b.type === 'tool_result')
+        .map((b) => String(b.tool_use_id)),
+    );
+    const prevIds = prev.content
+      .filter((b): b is ToolUseBlock => b.type === 'tool_use')
+      .map((b) => String(b.id));
+    return prevIds.length === responseToolUseIds.length
+      && responseToolUseIds.every((id) => prevIds.includes(id))
+      && responseToolUseIds.every((id) => resultIds.has(id));
+  }
+
+  /** 回退「无 cursor」路径：就地重置为全新构建基线（保持数组引用）。 */
+  private resetMessagesToBaseline(baseline: Message[]): void {
+    const messages = this.messages!;
+    messages.length = 0;
+    messages.push(...baseline);
+  }
+
+  /** resume 段落盘：与 onStepComplete 的 save 同策略（best-effort、失败留证不终止）。 */
+  private async persistMessagesBestEffort(
+    systemPrompt: string,
+    tools: ToolDefinition[],
+    stage: string,
+  ): Promise<void> {
+    const messages = this.messages ?? [];
+    try {
+      const saved = await this.messageStore.save({
+        systemPrompt,
+        messages,
+        toolsForLLM: tools,
+      });
+      applyBlockIdAssignments(messages, saved.assignedBlockIds);
+    } catch (err) {
+      this.recordDegraded('dialog', stage, err);
+      this.sink.persistFailed({ error: formatErr(err) });
     }
   }
 

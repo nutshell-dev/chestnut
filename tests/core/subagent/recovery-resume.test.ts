@@ -1,0 +1,398 @@
+/**
+ * Phase 1933 Step D: SubAgent 通用安全续跑测试。
+ *
+ * 矩阵：
+ * ① 重启续跑（不重复请求 LLM）：第 1 步响应已提交、工具 1 结果已提交、工具 2 执行时崩溃；
+ *    同 resultDir 续跑 → llm stream 仅被调 1 次（第 2 步 end_turn），不重放第 1 步请求。
+ * ② 已提交工具不重复执行：工具 1 结果来自 tool-results 存储；结果消息按原始顺序完整。
+ * ③ 完整响应继续工具：续跑入口直接执行 pending 工具（先于第二次 LLM 调用）。
+ * ④ cursor 损坏回退：坏 JSON / 缺字段 → 回退无 cursor 路径 + audit 留证原因。
+ * ⑤ 取消不误判：resume 段执行 pending 工具时 abort → 按 abort 分类传播，不落 LLM 失败。
+ * ⑥ 无 checkpoint 回归（runSubagent 全链路）：全新 resultDir 行为与现状一致。
+ * ⑦ next-llm 续跑：首轮工具全部提交后崩溃于下一步 LLM 前 → 从持久 messages 继续、
+ *    不重放已完成工具。
+ *
+ * 构造惯例：真实 temp dir + NodeFileSystem + 真 DialogStore + 真 RecoveryStore +
+ * 真 runReact loop；仅 llm（async generator stream）与 toolExecutor 为 fake
+ * （崩溃注入需要 executor 面 seam——真 ToolExecutor 会把工具错误收敛为失败 ToolResult，
+ * 无法制造 run 级崩溃）。
+ */
+
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { promises as fsp } from 'node:fs';
+import * as path from 'path';
+import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { createDialogStore, type Message } from '../../../src/foundation/dialog-store/index.js';
+import { createToolRegistry, type ToolExecutor } from '../../../src/foundation/tools/index.js';
+import type { LLMOrchestrator, LLMStreamChunk, LLMCallOptions } from '../../../src/foundation/llm-orchestrator/index.js';
+import { ExternalAbortError, isAbortError, makeExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
+import type { ToolResult } from '../../../src/foundation/tool-protocol/index.js';
+import { SubAgent } from '../../../src/core/subagent/agent.js';
+import { runSubagent } from '../../../src/core/subagent/run.js';
+import { createSubAgentRecoveryStore, type SubAgentRecoveryStore } from '../../../src/core/subagent/recovery-state.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+import { NoopStreamWriter } from '../../../src/core/subagent/noop-writers.js';
+import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
+import { makeExecContext } from '../../helpers/exec-context.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+
+// ── Fake LLM（脚本化 stream；Error 脚本 = 该次调用失败） ─────────────────────
+
+type LlmScript = LLMStreamChunk[] | Error;
+
+function toolUseStepChunks(tools: { id: string; name: string; input: Record<string, unknown> }[]): LLMStreamChunk[] {
+  const chunks: LLMStreamChunk[] = [];
+  for (const t of tools) {
+    chunks.push({ type: 'tool_use_start', toolUse: { id: t.id, name: t.name, partialInput: '' } });
+    chunks.push({ type: 'tool_use_delta', toolUse: { id: t.id, name: t.name, partialInput: JSON.stringify(t.input) } });
+  }
+  chunks.push({ type: 'done', stopReason: 'tool_use', usage: { inputTokens: 5, outputTokens: 5 } });
+  return chunks;
+}
+
+function endTurnChunks(text: string): LLMStreamChunk[] {
+  return [
+    { type: 'text_delta', delta: text },
+    { type: 'done', stopReason: 'end_turn', usage: { inputTokens: 5, outputTokens: 5 } },
+  ];
+}
+
+function makeFakeLlm(scripts: LlmScript[], log?: string[]) {
+  const streamCalls: LLMCallOptions[] = [];
+  let callCount = 0;
+  const stream = vi.fn((_opts: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk> => {
+    callCount++;
+    // messages 是 caller 持有的活数组（后续 step 会原地 append）——快照深拷贝取证
+    streamCalls.push({ ..._opts, messages: structuredClone(_opts.messages) });
+    log?.push(`llm.stream#${callCount}`);
+    const script = scripts[callCount - 1];
+    if (!script) throw new Error(`fake llm: no script for call #${callCount}`);
+    return (async function* () {
+      if (script instanceof Error) throw script;
+      for (const c of script) yield c;
+    })();
+  });
+  const orchestrator = {
+    stream,
+    call: vi.fn(),
+    healthCheck: vi.fn(async () => true),
+    getProviderInfo: vi.fn(() => ({ name: 'fake', model: 'fake-model', isFallback: false })),
+    resetLastSuccessProvider: vi.fn(),
+    close: vi.fn(async () => {}),
+    reloadConfig: vi.fn(),
+  } as unknown as LLMOrchestrator;
+  return { orchestrator, streamCalls, callCount: () => callCount };
+}
+
+// ── Fake ToolExecutor（execute 记录 + 脚本化行为；getExecContext 透传 signal） ──
+
+type ExecuteImpl = (toolName: string, args: Record<string, unknown>) => Promise<ToolResult>;
+
+function makeFakeExecutor(impl: ExecuteImpl, log?: string[]) {
+  const calls: { toolName: string; args: Record<string, unknown> }[] = [];
+  const execute = vi.fn(async (options: { toolName: string; args: Record<string, unknown> }): Promise<ToolResult> => {
+    calls.push({ toolName: options.toolName, args: options.args });
+    log?.push(`execute:${options.toolName}`);
+    return impl(options.toolName, options.args);
+  });
+  const executor = {
+    execute,
+    getExecContext: vi.fn(
+      (_profile: string, opts: { clawId: string; signal?: AbortSignal; trace_id?: unknown }) =>
+        makeExecContext({ clawId: opts.clawId, signal: opts.signal, trace_id: opts.trace_id as never }),
+    ),
+  } as unknown as ToolExecutor;
+  return { executor, calls };
+}
+
+// ── Harness：真 fs / DialogStore / RecoveryStore / runReact loop ─────────────
+
+const AGENT_ID = 'rec-agent';
+
+function makeAgent(
+  fs: NodeFileSystem,
+  resultDir: string,
+  opts: {
+    llm: LLMOrchestrator;
+    executor: ToolExecutor;
+    auditRows: unknown[][];
+    signal?: AbortSignal;
+  },
+) {
+  const auditWriter = {
+    write: vi.fn((event: string, ...cols: unknown[]) => {
+      opts.auditRows.push([event, ...cols]);
+    }),
+  };
+  const messageStore = createDialogStore(fs, resultDir, auditWriter as never, 'messages.json');
+  const store = createSubAgentRecoveryStore({ fs, resultDir });
+  const sink = createSubAgentLifecycleSink({
+    auditWriter: auditWriter as never,
+    agentId: AGENT_ID,
+    traceId: 'trace-rec' as never,
+  });
+  const registry = {
+    get: vi.fn(() => undefined), // 无 readonly 声明 → 串行 write 执行路径
+    getAll: vi.fn(() => []),
+    formatForLLM: vi.fn(() => []),
+  };
+  const agent = new SubAgent({
+    agentId: AGENT_ID,
+    resultDir,
+    messageStore,
+    prompt: 'do the task',
+    systemPrompt: 'sys',
+    toolExecutor: opts.executor,
+    llm: opts.llm,
+    registry: registry as never,
+    fs,
+    maxSteps: 10,
+    timeoutMs: 60_000,
+    signal: opts.signal,
+    taskStreamWriter: new NoopStreamWriter(),
+    sink,
+    traceId: 'trace-rec' as never,
+    recoveryStore: store,
+  });
+  return { agent, store };
+}
+
+const TWO_TOOL_STEP = toolUseStepChunks([
+  { id: 'toolu_a', name: 'tool_a', input: { x: 1 } },
+  { id: 'toolu_b', name: 'tool_b', input: { y: 2 } },
+]);
+
+/** 阶段 1：第 1 步两个 tool_use，工具 1 提交后工具 2 抛非 ToolError → run 崩溃。 */
+async function runCrashPhase(fs: NodeFileSystem, resultDir: string, log?: string[]) {
+  const llm = makeFakeLlm([TWO_TOOL_STEP], log);
+  const exec = makeFakeExecutor(async (toolName) => {
+    if (toolName === 'tool_b') throw new Error('crash: executor boom');
+    return { success: true, content: `${toolName}-ok` };
+  }, log);
+  const auditRows: unknown[][] = [];
+  const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+  await expect(agent.run()).rejects.toThrow('crash: executor boom');
+  return { llm, exec, auditRows };
+}
+
+/** 阶段 2：同 resultDir 新建 store/agent 续跑（fake llm 第二步返回 end_turn）。 */
+async function runResumePhase(
+  fs: NodeFileSystem,
+  resultDir: string,
+  opts: { log?: string[]; signal?: AbortSignal; executeImpl?: ExecuteImpl } = {},
+) {
+  const llm = makeFakeLlm([endTurnChunks('recovered final')], opts.log);
+  const exec = makeFakeExecutor(
+    opts.executeImpl ?? (async (toolName) => ({ success: true, content: `${toolName}-ok` })),
+    opts.log,
+  );
+  const auditRows: unknown[][] = [];
+  const { agent } = makeAgent(fs, resultDir, {
+    llm: llm.orchestrator,
+    executor: exec.executor,
+    auditRows,
+    signal: opts.signal,
+  });
+  const text = await agent.run();
+  return { text, llm, exec, auditRows };
+}
+
+function lastUserToolResultBlocks(llm: ReturnType<typeof makeFakeLlm>) {
+  const msgs = llm.streamCalls[0].messages as Message[];
+  const last = msgs[msgs.length - 1];
+  expect(last.role).toBe('user');
+  expect(Array.isArray(last.content)).toBe(true);
+  return (last.content as Array<{ type: string; tool_use_id: string; content: string }>)
+    .filter((b) => b.type === 'tool_result');
+}
+
+describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
+  let tempDir: string;
+  let fs: NodeFileSystem;
+  let resultDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await cleanupTempDir(tempDir);
+  });
+
+  async function setup(tag: string) {
+    tempDir = await createTrackedTempDir(`chestnut-rec-${tag}-`);
+    fs = new NodeFileSystem({ baseDir: tempDir });
+    resultDir = 'results/agent';
+    return { tempDir, fs, resultDir };
+  }
+
+  it('① 重启续跑：已提交完整响应不重复请求 LLM，pending 工具执行后推进对话', async () => {
+    await setup('rejoin');
+    const crash = await runCrashPhase(fs, resultDir);
+    expect(crash.llm.callCount()).toBe(1);
+    expect(crash.exec.calls.map((c) => c.toolName)).toEqual(['tool_a', 'tool_b']);
+
+    const resume = await runResumePhase(fs, resultDir);
+
+    // llm stream 调用次数仍为 1（仅第二步 end_turn；第 1 步响应来自 checkpoint、未新请求）
+    expect(resume.llm.callCount()).toBe(1);
+    expect(resume.text).toBe('recovered final');
+    // 续跑后 LLM 看到的对话末尾：配对完整的 tool_result user 消息
+    const blocks = lastUserToolResultBlocks(resume.llm);
+    expect(blocks.map((b) => b.tool_use_id)).toEqual(['toolu_a', 'toolu_b']);
+  });
+
+  it('② 已提交工具不重复执行：工具 1 结果来自 tool-results 存储，顺序完整', async () => {
+    await setup('no-reexec');
+    await runCrashPhase(fs, resultDir);
+
+    const resume = await runResumePhase(fs, resultDir);
+
+    // 工具 1 未再次执行（结果复原自已提交事实）；仅 pending 的工具 2 被执行
+    expect(resume.exec.calls.map((c) => c.toolName)).toEqual(['tool_b']);
+    const blocks = lastUserToolResultBlocks(resume.llm);
+    expect(blocks.map((b) => b.tool_use_id)).toEqual(['toolu_a', 'toolu_b']);
+    expect(blocks.map((b) => b.content)).toEqual(['tool_a-ok', 'tool_b-ok']);
+  });
+
+  it('③ 完整响应继续工具：pending 工具执行发生在第二次 LLM 调用之前', async () => {
+    await setup('order');
+    const log: string[] = [];
+    await runCrashPhase(fs, resultDir);
+    log.length = 0;
+
+    await runResumePhase(fs, resultDir, { log });
+
+    expect(log).toEqual(['execute:tool_b', 'llm.stream#1']);
+  });
+
+  it('④a cursor 坏 JSON → 回退无 cursor 路径 + audit 留证原因', async () => {
+    const { tempDir: dir } = await setup('corrupt-json');
+    await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
+    await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'not-json{{{');
+
+    const llm = makeFakeLlm([endTurnChunks('fresh ok')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+    const text = await agent.run();
+
+    expect(text).toBe('fresh ok');
+    expect(llm.callCount()).toBe(1);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('cursor_parse_failed');
+  });
+
+  it('④b cursor 缺字段（schema 校验失败）→ 回退无 cursor 路径 + audit 留证原因', async () => {
+    const { tempDir: dir } = await setup('corrupt-schema');
+    await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
+    await fsp.writeFile(
+      path.join(dir, resultDir, 'recovery', 'cursor.json'),
+      JSON.stringify({ schema_version: 1, kind: 'awaiting-tools' }), // 缺 responseId/pendingToolIds
+    );
+
+    const llm = makeFakeLlm([endTurnChunks('fresh ok')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+    const text = await agent.run();
+
+    expect(text).toBe('fresh ok');
+    expect(llm.callCount()).toBe(1);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('cursor_invalid');
+  });
+
+  it('⑤ 取消不误判：resume 段执行 pending 工具时 abort → abort 分类传播、不落 LLM 失败事实', async () => {
+    await setup('abort');
+    await runCrashPhase(fs, resultDir);
+
+    const controller = new AbortController();
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => {
+      // pending 工具执行时外部 abort 触发；abort-aware 工具以 abort 错误抛出
+      controller.abort({ type: 'user' });
+      throw makeExternalAbortError(controller.signal.reason);
+    });
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, {
+      llm: llm.orchestrator,
+      executor: exec.executor,
+      auditRows,
+      signal: controller.signal,
+    });
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ExternalAbortError);
+    expect(isAbortError(err)).toBe(true);
+    // 分类为外部中断，而非 LLM/业务失败
+    expect(auditRows.filter((r) => r[0] === 'llm_error')).toHaveLength(0);
+    expect(auditRows.filter((r) => r[0] === 'turn_error')).toHaveLength(0);
+    const interrupted = auditRows.filter((r) => r[0] === 'turn_interrupted');
+    expect(interrupted).toHaveLength(1);
+    expect(String(interrupted[0].join(' '))).toContain('cause=external');
+    // 第二次 LLM 调用未发生
+    expect(llm.callCount()).toBe(0);
+    // cursor 保持 awaiting-tools 且 toolu_b 仍 pending（失败事实不被误标为已提交）
+    const store: SubAgentRecoveryStore = createSubAgentRecoveryStore({ fs, resultDir });
+    const loaded = await store.loadCursor();
+    expect(loaded.fallbackReason).toBeUndefined();
+    expect(loaded.cursor).toEqual({ kind: 'awaiting-tools', responseId: expect.any(String), pendingToolIds: ['toolu_b'] });
+  });
+
+  it('⑥ 无 checkpoint 回归（runSubagent 全链路）：全新 resultDir 行为与现状一致', async () => {
+    const { tempDir: dir } = await setup('fresh');
+    const llm = makeFakeLlm([endTurnChunks('hello done')]);
+    const registry = createToolRegistry();
+
+    const result = await runSubagent({
+      agentId: 'fresh-agent',
+      clawDir: 'claw',
+      fs,
+      llm: llm.orchestrator,
+      registry,
+      prompt: 'do the task',
+      systemPrompt: 'sys',
+      resultDir,
+      syncDir: 'sync',
+    });
+
+    expect(result.text).toBe('hello done');
+    // 首次 LLM 正常调用、消息从 prompt 全新构建
+    expect(llm.callCount()).toBe(1);
+    const msgs = llm.streamCalls[0].messages as Message[];
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ role: 'user', content: 'do the task' });
+    // 无回退留证
+    const auditContent = await fsp.readFile(path.join(dir, resultDir, 'audit.tsv'), 'utf-8');
+    expect(auditContent).not.toContain(SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+  });
+
+  it('⑦ next-llm 续跑：首轮工具全部提交后崩溃于下一步 LLM 前 → 从持久 messages 继续、不重放工具', async () => {
+    await setup('next-llm');
+    // 阶段 1：第 1 步完整完成（两工具提交 + step 落盘），第 2 步 LLM 调用失败
+    const llm1 = makeFakeLlm([TWO_TOOL_STEP, new Error('llm down')]);
+    const exec1 = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows1: unknown[][] = [];
+    const { agent: agent1 } = makeAgent(fs, resultDir, { llm: llm1.orchestrator, executor: exec1.executor, auditRows: auditRows1 });
+    await expect(agent1.run()).rejects.toThrow('llm down');
+    expect(exec1.calls.map((c) => c.toolName)).toEqual(['tool_a', 'tool_b']);
+    expect(llm1.callCount()).toBe(2);
+
+    // 阶段 2：cursor=next-llm → 恢复持久 messages 后直接进 runReact
+    const resume = await runResumePhase(fs, resultDir);
+
+    expect(resume.text).toBe('recovered final');
+    // 不重放已完成工具
+    expect(resume.exec.calls).toHaveLength(0);
+    // 仅从持久 messages 继续发起一次新 LLM 调用；对话含完整首轮（user/assistant/tool_results）
+    expect(resume.llm.callCount()).toBe(1);
+    const msgs = resume.llm.streamCalls[0].messages as Message[];
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    const blocks = lastUserToolResultBlocks(resume.llm);
+    expect(blocks.map((b) => b.tool_use_id)).toEqual(['toolu_a', 'toolu_b']);
+    // 无回退发生
+    expect(resume.auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK)).toHaveLength(0);
+  });
+});

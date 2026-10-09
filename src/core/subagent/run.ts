@@ -24,6 +24,7 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { SubAgent, type DegradedArtifact } from './agent.js';
+import { createSubAgentRecoveryStore } from './recovery-state.js';
 import { DONE_TOOL_NAME, createResultCaptureChannel, parseCapturedResult } from './tools/done.js';
 import { createSubAgentLifecycleSink } from './lifecycle-sink.js';
 import { bindRunCapture } from './registry-helper.js';
@@ -126,6 +127,10 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // dialog store
   const messageStore = createDialogStore(opts.fs, opts.resultDir, auditWriter, 'messages.json');
 
+  // Phase 1933 Step D: 每 run 一个恢复 store 实例（加载面 + RecoveryDelivery 交付面）；
+  // 状态落 ${resultDir}/recovery/，重启后由同 resultDir 的新实例从磁盘播种。
+  const recoveryStore = createSubAgentRecoveryStore({ fs: opts.fs, resultDir: opts.resultDir });
+
   // phase 1858 Step F (SA-D5): 每 run 独占 capture channel；registry 视图把 DONE tool 条目
   // 绑定到本 run 通道（caller registry 不被修改）——结果由执行侧写入、本 helper 直接读取。
   const capture = createResultCaptureChannel<{ result: string }>();
@@ -182,6 +187,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     traceId,
     messages: opts.messages,
     permissionChecker: opts.permissionChecker,
+    recoveryStore,
   });
 
   let text: string;
