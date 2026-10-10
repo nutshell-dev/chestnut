@@ -31,7 +31,7 @@ import { sendResult, sendFallbackResult, sendToolResult, createStandardDeliveryS
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
-import { loadLLMWait } from './llm-wait-state.js';
+import { loadLLMWait, clearLLMWait } from './llm-wait-state.js';
 import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
 import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
@@ -58,6 +58,8 @@ import {
   emitPreparedTaskReplayConfirmed,
   emitPreparedTaskIdentityConflict,
   emitPreparedTaskClaimBackfilled,
+  emitRecoveryFailed,
+  emitLLMWaitResumed,
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
@@ -279,6 +281,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
           taskExecutor: this.taskExecutor,
           deliverySink: this.deliverySink,
+          // Phase 1933 Step F：等待事实落盘后的进程内通知钩子（装配注入探针调度）
+          onWaitScheduled: this.options.onWaitScheduled,
         });
       },
     };
@@ -484,6 +488,109 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       }
     })();
     return this._startPromise;
+  }
+
+  /**
+   * Phase 1933 Step F：进程内唤醒入口（orchestrator 探针成功 → ready 信号驱动，
+   * 装配层经 subscribeReady 接线；信号丢失不影响重启恢复——initialize→
+   * recoverTasks 走同一 gate 判定）。返回本次唤醒的任务数。
+   *
+   * 扫 running/ 任务文件并重新读取、校验等待事实：
+   * - 无事实 → 跳过（不受影响）；
+   * - 事实 corrupt → audit 留证、不猜不动不删（处置归重启恢复分支）；
+   * - gate 缺席或未就绪 → 保持 waiting 跳过（归重启恢复路径）；
+   * - gate 就绪 → 先清事实再原子 move 回 pending（清失败不 move，防重启恢复
+   *   重复唤醒；move ENOENT 容忍 = 与 dispatch/cancel race，视为已处置）；
+   *   唤醒后 _signalWork() 触发 dispatch。
+   * 每个 waiting 文件独立处理：单任务失败 audit 留证后继续其余任务，整体不向
+   * 调用方抛错（listener 场景），保留既有幂等语义。
+   */
+  async resumeWaitingTasks(): Promise<number> {
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
+    try {
+      entries = await this.fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return 0;
+      emitRecoveryFailed(this.auditWriter, {
+        context: 'llm_wait_wakeup_list_running_failed',
+        error: formatErr(err),
+      });
+      return 0;
+    }
+    let resumed = 0;
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.json')) continue;
+      try {
+        resumed += await this._resumeWaitingTask(entry.path);
+      } catch (err) {
+        // 单任务失败不扩散：audit 留证后继续其余 waiting 文件。
+        emitRecoveryFailed(this.auditWriter, {
+          path: entry.path,
+          context: 'llm_wait_wakeup_task_failed',
+          error: formatErr(err),
+        });
+      }
+    }
+    if (resumed > 0) this._signalWork();
+    return resumed;
+  }
+
+  /** Phase 1933 Step F：单个 running 任务的等待唤醒判定（返回 1 = 已回 pending）。 */
+  private async _resumeWaitingTask(runningPath: string): Promise<number> {
+    const content = await this.fs.read(runningPath);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      // 损坏任务文件：audit 留证、不动（处置归重启恢复的 corrupt 分支，不越权 backup）。
+      emitRecoveryFailed(this.auditWriter, {
+        path: runningPath,
+        context: 'llm_wait_wakeup_task_corrupt',
+        error: 'invalid_json',
+      });
+      return 0;
+    }
+    if (!validateTaskShape(parsed)) {
+      emitRecoveryFailed(this.auditWriter, {
+        path: runningPath,
+        context: 'llm_wait_wakeup_task_corrupt',
+        error: 'shape_mismatch',
+      });
+      return 0;
+    }
+    const task = parsed;
+    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+    const load = await loadLLMWait(this.fs, resultDir);
+    if (load === undefined) return 0;  // 无等待事实：不受影响
+    if (load.kind === 'corrupt') {
+      // 损坏事实不猜：audit 留证、不动不删（删除/ fallthrough 处置归重启恢复分支）。
+      emitRecoveryFailed(this.auditWriter, {
+        taskId: task.id,
+        context: 'llm_wait_wakeup_fact_corrupt',
+        error: load.detail,
+      });
+      return 0;
+    }
+    const fact = load.fact;
+    const gate = this.options.waitGate;
+    if (!gate || !gate.canResume(fact.scope)) return 0;  // 未就绪：保持 waiting
+
+    // 先清事实后 move（与 task-recovery 唤醒分支同序）：清失败不 move（防重启
+    // 恢复再次唤醒重派），留 running 待下次重试；move ENOENT = race（已被别处
+    // 处置），容忍不计数。
+    await clearLLMWait(this.fs, resultDir);
+    try {
+      await this.fs.move(runningPath, `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`);
+    } catch (err) {
+      if (isFileNotFound(err)) return 0;
+      throw err;
+    }
+    emitLLMWaitResumed(this.auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+      scope: fact.scope,
+    });
+    return 1;
   }
 
   /**

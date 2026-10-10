@@ -77,10 +77,22 @@ export interface RecoveryCallScope {
 }
 
 /**
+ * Phase 1933 Step F：实例内恢复信号（进程隔离边界——与 snapshot/probe 同，
+ * 探针调度与就绪信号仅存在于本 orchestrator 实例内存中，不跨进程；
+ * 禁止以文件/socket/全局目录作为跨进程状态通道）。
+ */
+export interface LLMRecoverySignal {
+  /** 订阅实例内恢复就绪信号；返回退订函数。close 后不再投递。 */
+  subscribeReady(listener: () => void): () => void;
+  /** 安排在 atMs（ms epoch）后发起一次独立探针；重复调用替换既有安排（取最新）。 */
+  scheduleProbe(atMs: number): void;
+}
+
+/**
  * 具备 scoped 恢复能力的 owner 实例（工厂返回类型）。
  * 公共 call/stream 消费者仍只要求既有最小接口。
  */
-export interface LLMOrchestratorOwner extends LLMOrchestrator {
+export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal {
   callWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): Promise<LLMResponse>;
   streamWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): AsyncIterableIterator<LLMStreamChunk>;
 

@@ -20,7 +20,7 @@ import {
   POST_PROCESS_INPUT_FILE,
 } from './dirs.js';
 import { createProcessedResultStore } from './processed-result-store.js';
-import { persistLLMWait } from './llm-wait-state.js';
+import { persistLLMWait, type LLMWaitFact } from './llm-wait-state.js';
 
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 
@@ -51,6 +51,11 @@ interface ExecuteSubAgentTaskDeps {
   taskExecutor: TaskExecutor;
   /** phase 1863 (AT-D5)：最小交付面（装配注入）。 */
   deliverySink: DeliverySink;
+  /**
+   * Phase 1933 Step F：等待事实持久化后的进程内通知钩子（装配注入探针调度；
+   * 通知语义——异常经 audit 留证，不影响任务状态）。
+   */
+  onWaitScheduled?: (fact: LLMWaitFact) => void;
 }
 
 /**
@@ -251,6 +256,18 @@ export async function executeSubAgentTask(
         scope: execution.waiting.scope,
         nextProbeAt: execution.waiting.nextProbeAt,
       });
+      // Phase 1933 Step F：事实已落盘后通知装配层安排进程内探针（通知语义——
+      // hook 异常 audit 留证，不改变任务留 running 的等待状态；信号丢失不影响
+      // 重启恢复路径）。
+      try {
+        deps.onWaitScheduled?.(execution.waiting);
+      } catch (hookErr) {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'llm_wait_schedule_hook_failed',
+          error: formatErr(hookErr),
+        });
+      }
       return; // outcome 保持 undefined：任务留 running，不投递不终态
     }
 

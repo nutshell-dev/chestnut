@@ -36,6 +36,7 @@ import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 import { formatErr } from '../node-utils/index.js';  // Phase 1933 Step B: probe 结果错误摘要
+import { LLM_RECOVERY_COOLDOWN_MS } from './defaults.js';  // Phase 1933 Step F: 无 open breaker 时的探针退避下界
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -121,6 +122,18 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 纯内存字段：探针调度不跨进程，禁止文件/socket/全局目录作为状态通道。
    */
   private inflightProbe: Promise<LLMProbeResult> | null = null;
+
+  /**
+   * Phase 1933 Step F：进程内探针唤醒调度（实例内能力，不跨进程）。
+   * - readyListeners：探针成功后的就绪信号订阅者；close 后不再投递。
+   * - scheduleTimer/scheduleGeneration：单一调度槽——重复 scheduleProbe 替换既有
+   *   安排（generation 单调递增，过期 timer 触发时比对丢弃）；close 幂等取消。
+   * - closed：close 后 scheduleProbe 为 no-op、进行中的探针完成后不投递。
+   */
+  private readyListeners = new Set<() => void>();
+  private scheduleTimer?: ReturnType<typeof setTimeout>;
+  private scheduleGeneration = 0;
+  private closed = false;
 
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
@@ -417,6 +430,61 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     } catch (err) {
       return { ok: false, provider: this.primary.name, probedAtMs, error: formatErr(err) };
     }
+  }
+
+  /**
+   * Phase 1933 Step F：订阅实例内恢复就绪信号；返回退订函数。close 后不再投递。
+   */
+  subscribeReady(listener: () => void): () => void {
+    this.readyListeners.add(listener);
+    return () => { this.readyListeners.delete(listener); };
+  }
+
+  /**
+   * Phase 1933 Step F：安排在 atMs（ms epoch）发起一次独立探针；重复调用替换
+   * 既有安排（取最新）。探针成功 → 投递就绪信号（listener 异常不扩散）；失败 →
+   * 按 computeNextProbeAt() 下界（open breakers 的 probeAllowedAtMs 最大值，含
+   * 本地退避/Retry-After 已由 breaker 记账覆盖的部分；无 open breaker 时独立
+   * cooldown）自动安排下一次。close 后调用为 no-op。探针不直接执行任务——唤醒
+   * 动作由 ready 信号的消费方（ATS）承担。
+   */
+  scheduleProbe(atMs: number): void {
+    if (this.closed) return;
+    const generation = ++this.scheduleGeneration;
+    if (this.scheduleTimer !== undefined) {
+      clearTimeout(this.scheduleTimer);
+      this.scheduleTimer = undefined;
+    }
+    this.scheduleTimer = setTimeout(() => {
+      this.scheduleTimer = undefined;
+      if (generation !== this.scheduleGeneration || this.closed) return;
+      // 与进行中探针去重合并：成功投递/失败重排由首发 continuation 承担（防重复唤醒）。
+      const mergedIntoInflight = this.inflightProbe !== null;
+      void this.probe().then((result) => {
+        if (this.closed || mergedIntoInflight) return;
+        if (result.ok) {
+          for (const listener of this.readyListeners) {
+            try { listener(); } catch { /* listener 失败不扩散 */ }
+          }
+        } else {
+          this.scheduleProbe(this.computeNextProbeAt());
+        }
+      });
+    }, Math.max(0, atMs - Date.now()));
+  }
+
+  /**
+   * Phase 1933 Step F：下一次探针的最早时刻下界——snapshot() 中 open breakers
+   * 的 probeAllowedAtMs 最大值（全部可探测才有意义）；无 open breaker 时取独立
+   * cooldown。只读判定，不触发 breaker 状态转移。
+   */
+  private computeNextProbeAt(): number {
+    const openProbeAts = this.snapshot().providers
+      .filter(p => p.breakerOpen && p.probeAllowedAtMs !== undefined)
+      .map(p => p.probeAllowedAtMs as number);
+    return openProbeAts.length > 0
+      ? Math.max(...openProbeAts)
+      : Date.now() + LLM_RECOVERY_COOLDOWN_MS;
   }
 
   /** Phase 1826: 把最终失败转成 owner 策略输入（含 typed Retry-After 与本地跳过标记）。 */
@@ -1394,8 +1462,18 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * provider 关闭与 cache 清空，最终聚合并抛出错误信息。
    * phase 900: 统一关闭 cache + pendingClose 中延迟回收的 provider；close 失败 emit
    * provider_close_failed 事件，供调用方审计，不再抛错中断整体关闭流程。
+   * Phase 1933 Step F：幂等——先取消探针调度（timer/generation/listener 投递），
+   * 再走既有 provider/cache 关闭语义（原行为不变）。
    */
   async close(): Promise<void> {
+    // Phase 1933 Step F：幂等取消进程内探针调度——timer 清除 + generation 作废
+    // （进行中的探针完成后见 closed 不投递）；先取消再走既有 provider/cache 关闭。
+    this.closed = true;
+    this.scheduleGeneration += 1;
+    if (this.scheduleTimer !== undefined) {
+      clearTimeout(this.scheduleTimer);
+      this.scheduleTimer = undefined;
+    }
     const allToClose = [...this.sdkClientCache.values(), ...this.pendingClose];
     const results = await Promise.allSettled(allToClose.map((provider) => {
       // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider

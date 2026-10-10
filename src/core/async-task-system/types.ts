@@ -185,6 +185,11 @@ export interface AsyncTaskSystemOptions {
    * waiting（不静默转 failed/completed）。
    */
   waitGate?: LLMWaitGate;
+  /**
+   * Phase 1933 Step F：等待事实持久化后的进程内通知钩子（装配注入探针调度；
+   * hook 是通知语义——异常经 audit 留证，不影响任务状态）。
+   */
+  onWaitScheduled?: (fact: LLMWaitFact) => void;
 }
 
 

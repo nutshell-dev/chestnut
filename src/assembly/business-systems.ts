@@ -13,6 +13,7 @@ import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/inde
 import { TASKS_SYNC_SHADOW_DIR, interpretShadowExecutorPayload } from '../core/shadow-system/index.js';
 import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { createAsyncTaskSystem, createStandardDeliverySink } from '../core/async-task-system/index.js';
+import { TASK_AUDIT_EVENTS } from '../core/async-task-system/index.js';
 import { createSubagentTaskExecutor } from './subagent-task-executor.js';
 import { PersistentShortIdIndex, type AsyncTaskSystem } from '../core/async-task-system/index.js';
 // phase 1872 Step D: task 事实读取经 owner 窄查询（Assembly 不再直读 ATS 目录/schema）。
@@ -168,11 +169,28 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       // Phase 1933 Step E：LLM 等待 gate——全部 provider breaker 关闭即可恢复。
       // LLM 故障判定归 orchestrator（snapshot 是唯一事实面），ATS 只消费结论。
       waitGate: { canResume: () => llm.snapshot().providers.every(p => !p.breakerOpen) },
+      // Phase 1933 Step F：等待事实落盘后通知 orchestrator 安排进程内探针
+      // （实例内单一调度，不跨进程；重复安排替换取最新）。
+      onWaitScheduled: (fact) => { llm.scheduleProbe(fact.nextProbeAt); },
     });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: AsyncTaskSystem construct failed: ${formatErr(e)}`, { cause: e });
   }
+  // Phase 1933 Step F：探针成功 → 唤醒本进程 waiting 任务（ATS 重新读取、校验
+  // 等待事实，gate 判定后原子清理并回 pending；探针不直接执行任务）。
+  // listener 不抛错——resumeWaitingTasks 内部已逐任务吸收异常并 audit，外层
+  // catch 为防御性留证。退订不显式接线：清理经 runtime.stop()→llm.close()
+  // 取消探针 timer 并停止投递（不破坏现有清理流程）。
+  llm.subscribeReady(() => {
+    void taskSystem.resumeWaitingTasks().catch((err) => {
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.RECOVERY_FAILED,
+        `context=llm_wait_wakeup_listener`,
+        `error=${formatErr(err)}`,
+      );
+    });
+  });
   // --- 10. EvolutionSystem (motion only / phase411 Step B) ---
   let evolutionSystem: EvolutionSystem | undefined;
   let motionReviewContext: MotionReviewContext | undefined;

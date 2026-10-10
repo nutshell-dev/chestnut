@@ -249,14 +249,23 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
   };
 });
 
-vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => ({
-  LLMOrchestratorImpl: vi.fn(function () {
-    return { close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() };
-  }),
-  createLLMOrchestrator: vi.fn(function () {
-    return { close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() };
-  }),
-}));
+vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
+  // Phase 1933 Step B/E/F: mock 保真——owner 面（snapshot/probe/scheduleProbe/
+  // subscribeReady）装配期被同步调用，缺省即 TypeError。
+  const makeInstance = () => ({
+    close: vi.fn(),
+    healthCheck: vi.fn(),
+    getProviderInfo: vi.fn(),
+    snapshot: vi.fn(function () { return { providers: [] }; }),
+    probe: vi.fn(),
+    scheduleProbe: vi.fn(),
+    subscribeReady: vi.fn(function () { return () => {}; }),
+  });
+  return {
+    LLMOrchestratorImpl: vi.fn(function () { return makeInstance(); }),
+    createLLMOrchestrator: vi.fn(function () { return makeInstance(); }),
+  };
+});
 
 vi.mock('../../src/foundation/monitor/monitor.js', () => ({
   JsonlLogger: vi.fn(function () {
