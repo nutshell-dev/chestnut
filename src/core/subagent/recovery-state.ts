@@ -6,6 +6,9 @@
  * next-llm 仅在完整响应 + 全部工具结果 + 对应对话消息都持久化后由
  * commitConversation() 发布（中间态 awaiting-conversation-commit 可仅凭已提交
  * 事实重建对话，不重复请求 LLM）。
+ * Phase 1934 Step B（F-12）：提交屏障 —— llmResponseCommitted 在任何新 response
+ * 文件写入前拒绝覆盖未提交游标（仅确定不存在或 next-llm 允许）；损坏/读取未知
+ * 经 loadCursorStrict 转 typed throw，不按无记录继续（fallbackReason 不得绕过）。
  *
  * 实现 step-executor 的 RecoveryDelivery 严格交付契约，把「完整 LLM 响应 /
  * 工具意图 / 工具结果」三类事实落盘在 `${resultDir}/recovery/` 下：
@@ -229,6 +232,18 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
   // ── RecoveryDelivery 写路径（全部原子写；失败 throw 阻断副作用） ──────────
 
   async llmResponseCommitted(fact: CompleteLLMResponse): Promise<void> {
+    // Phase 1934 Step B (F-12): 提交屏障 —— 任何新 response 文件写入之前拒绝覆盖
+    // 未提交游标（awaiting-tools / awaiting-conversation-commit 的上一响应尚未走完
+    // 工具结果 + 对话提交）；损坏/读取未知由 loadCursorStrict 转 typed throw，
+    // 不按无记录继续。仅确定不存在或 next-llm（上一回合全部事实已提交）允许写入。
+    if (!this.current) await this.loadCursorStrict('llmResponseCommitted');
+    if (this.current && this.current.kind !== 'next-llm') {
+      throw new SubAgentRecoveryStoreError(
+        'invalid_state',
+        `previous response not committed (cursor=${this.current.kind} response=${this.current.responseId})`,
+        this.cursorPath,
+      );
+    }
     const responseId = newUuid();
     await this.fs.writeAtomic(this.responsePath(responseId), JSON.stringify(fact, null, 2));
 
@@ -303,7 +318,10 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
       );
     }
     const remaining = current.pendingToolIds.filter((id) => id !== fact.toolUseId);
-    const committedToolIds = [...(current.committedToolIds ?? []), fact.toolUseId];
+    // 幂等去重（对齐 toolStarted）：崩溃窗口后的 resume 重提交不产生重复证据项
+    const committedToolIds = (current.committedToolIds ?? []).includes(fact.toolUseId)
+      ? current.committedToolIds!
+      : [...(current.committedToolIds ?? []), fact.toolUseId];
     const next: CursorFileV1 = remaining.length > 0
       ? { ...current, pendingToolIds: remaining, committedToolIds }
       : {
@@ -464,6 +482,24 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
   private async writeCursor(file: CursorFileV1): Promise<void> {
     await this.fs.writeAtomic(this.cursorPath, JSON.stringify(file, null, 2));
     this.current = file;
+  }
+
+  /**
+   * Phase 1934 Step B: 严格加载 —— 供写路径提交屏障使用。损坏/IO 不按无记录继续
+   * （fallbackReason 不得绕过屏障）：read 失败 → kind 'io'，parse/schema 失败 →
+   * kind 'corrupt'，均 typed throw；仅确定不存在（文件缺席）允许无 cursor。
+   */
+  private async loadCursorStrict(site: string): Promise<void> {
+    const loaded = await this.loadCursor();
+    if (!loaded.fallbackReason) return;
+    const kind: SubAgentRecoveryErrorKind = loaded.fallbackReason.startsWith('cursor_read_failed')
+      ? 'io'
+      : 'corrupt';
+    throw new SubAgentRecoveryStoreError(
+      kind,
+      `${site} blocked: existing cursor unreadable (${loaded.fallbackReason})`,
+      this.cursorPath,
+    );
   }
 
   /**

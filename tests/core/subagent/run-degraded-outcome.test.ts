@@ -1,7 +1,7 @@
 /**
  * phase 1858 Step G (SA-D6): degraded evidence 并入 outcome（runSubagent 级）。
  *
- * ① 成功路径：持久化失败 → RunSubagentResult.degraded 可见、text 正常返回
+ * ① 持久化失败（Phase 1934 Step B 严格屏障）→ 原错传播、degraded 随错误对象移交
  * ② 失败路径：错误对象携带 degraded（原错误保留）
  * ③ 全成功 → outcome.degraded 缺省（undefined）
  *
@@ -64,22 +64,26 @@ describe('phase 1858 Step G: degraded 并入 outcome（SA-D6）', () => {
     vi.clearAllMocks();
   });
 
-  it('① 成功路径：dialog 持久化失败 → outcome.degraded 可见、text 正常返回', async () => {
+  it('① dialog 持久化失败 →（Phase 1934 Step B 严格屏障）原错传播、degraded 证据随错误对象移交', async () => {
     dialogSaveMock.mockRejectedValue(new Error('dialog save boom'));
     runReactMock.mockImplementation(async (opts: { onStepComplete?: () => Promise<void> }) => {
       await opts.onStepComplete?.();
       return { finalText: 'final text', stopReason: 'end_turn' };
     });
 
-    const result = await runSubagent(makeOpts());
+    // Phase 1934 Step B (F-12) 语义修正：runSubagent 装配 recoveryStore，step_save
+    // 持久化失败由 best-effort 改为严格失败 —— 原错传播（不包装、不掩护）；
+    // 执行事实（step_save + finally final_save 两次失败）以 degraded 随错误移交。
+    const err = await runSubagent(makeOpts()).catch((e) => e);
 
-    expect(result.text).toBe('final text');
-    expect(result.degraded).toBeDefined();
-    const stepSave = result.degraded!.find((d) => d.artifact === 'dialog' && d.stage === 'step_save');
-    const finalSave = result.degraded!.find((d) => d.artifact === 'dialog' && d.stage === 'final_save');
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('dialog save boom');
+    expect(err.degraded).toBeDefined();
+    const stepSave = err.degraded.find((d: { artifact: string; stage: string }) => d.artifact === 'dialog' && d.stage === 'step_save');
+    const finalSave = err.degraded.find((d: { artifact: string; stage: string }) => d.artifact === 'dialog' && d.stage === 'final_save');
     expect(stepSave).toBeDefined();
     expect(finalSave).toBeDefined();
-    expect(stepSave!.error).toContain('dialog save boom');
+    expect(stepSave.error).toContain('dialog save boom');
   });
 
   it('② 失败路径：错误对象携带 degraded（原错误保留）', async () => {

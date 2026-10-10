@@ -6,14 +6,16 @@
  *    同 resultDir 续跑 → llm stream 仅被调 1 次（第 2 步 end_turn），不重放第 1 步请求。
  * ② 已提交工具不重复执行：工具 1 结果来自 tool-results 存储；结果消息按原始顺序完整。
  * ③ 完整响应继续工具：续跑入口直接执行 pending 工具（先于第二次 LLM 调用）。
- * ④ cursor 损坏回退：坏 JSON / 缺字段 → 回退无 cursor 路径 + audit 留证原因。
+ * ④ cursor 损坏回退：坏 JSON / 缺字段 → resume 回退无 cursor 路径 + audit 留证原因；
+ *    （Step B）坏记录不按无记录继续 —— 新响应提交被屏障 typed 拒绝、现场保留。
  * ⑤ 取消不误判：resume 段执行 pending 工具时 abort → 按 abort 分类传播，不落 LLM 失败。
  * ⑥ 无 checkpoint 回归（runSubagent 全链路）：全新 resultDir 行为与现状一致。
  * ⑦ next-llm 续跑：首轮工具全部提交后崩溃于下一步 LLM 前 → 从持久 messages 继续、
  *    不重放已完成工具。
  * ⑧（Step G）重启窗口 awaiting-conversation-commit：响应 + 全部工具结果已提交、
  *    对话未保存 → 不请求 LLM、不执行任何工具，重建对话并保存后 cursor 推进 next-llm。
- * ⑨（Step G）对话保存失败 → 不提前发布 next-llm（cursor 保持 awaiting-conversation-commit）。
+ * ⑨（Step G→Step B）对话保存失败 → 严格失败传播（不发起下一 LLM）、不提前发布
+ *    next-llm（cursor 保持 awaiting-conversation-commit）；修复后重启可恢复。
  * ⑩（Step G）正常完成路径末尾 cursor 为 next-llm 且含 responseId。
  *
  * Step G 语义适配：旧「工具 B 执行时崩溃」场景 = B 已 started 无 result → 重启属
@@ -37,7 +39,11 @@ import { ExternalAbortError, isAbortError, makeExternalAbortError, makeToolUseId
 import type { ToolResult } from '../../../src/foundation/tool-protocol/index.js';
 import { SubAgent } from '../../../src/core/subagent/agent.js';
 import { runSubagent } from '../../../src/core/subagent/run.js';
-import { createSubAgentRecoveryStore, type SubAgentRecoveryStore } from '../../../src/core/subagent/recovery-state.js';
+import {
+  createSubAgentRecoveryStore,
+  SubAgentRecoveryStoreError,
+  type SubAgentRecoveryStore,
+} from '../../../src/core/subagent/recovery-state.js';
 import type { CompleteLLMResponse } from '../../../src/core/step-executor/index.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 import { NoopStreamWriter } from '../../../src/core/subagent/noop-writers.js';
@@ -308,7 +314,7 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(log).toEqual(['execute:tool_b', 'llm.stream#1']);
   });
 
-  it('④a cursor 坏 JSON → 回退无 cursor 路径 + audit 留证原因', async () => {
+  it('④a cursor 坏 JSON → resume 回退留证保留；Phase 1934 Step B: 坏记录不按无记录继续，新响应提交被屏障 typed 拒绝、现场保留', async () => {
     const { tempDir: dir } = await setup('corrupt-json');
     await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
     await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'not-json{{{');
@@ -317,34 +323,47 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
     const auditRows: unknown[][] = [];
     const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
-    const text = await agent.run();
 
-    expect(text).toBe('fresh ok');
-    expect(llm.callCount()).toBe(1);
+    // resume 段仍回退无 cursor 路径（留证 + 全新构建），但首个新响应提交时屏障
+    // 拒绝覆盖未知现场（typed throw）——损坏/读取未知不按无记录继续
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryStoreError);
+    expect((err as SubAgentRecoveryStoreError).kind).toBe('corrupt');
+    expect((err as Error).message).toContain('llmResponseCommitted blocked');
+    // 回退留证保留（原因仍入 audit）
     const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
     expect(fallbackRows).toHaveLength(1);
     expect(String(fallbackRows[0].join(' '))).toContain('cursor_parse_failed');
+    // 坏记录现场保留（不自动重放、不清理 recovery 目录）
+    expect(await fsp.readFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'utf-8')).toBe('not-json{{{');
   });
 
-  it('④b cursor 缺字段（schema 校验失败）→ 回退无 cursor 路径 + audit 留证原因', async () => {
+  it('④b cursor 缺字段（schema 校验失败）→ resume 回退留证保留；新响应提交被屏障 typed 拒绝、现场保留', async () => {
     const { tempDir: dir } = await setup('corrupt-schema');
+    const badCursor = JSON.stringify({ schema_version: 1, kind: 'awaiting-tools' }); // 缺 responseId/pendingToolIds
     await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
-    await fsp.writeFile(
-      path.join(dir, resultDir, 'recovery', 'cursor.json'),
-      JSON.stringify({ schema_version: 1, kind: 'awaiting-tools' }), // 缺 responseId/pendingToolIds
-    );
+    await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), badCursor);
 
     const llm = makeFakeLlm([endTurnChunks('fresh ok')]);
     const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
     const auditRows: unknown[][] = [];
     const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
-    const text = await agent.run();
 
-    expect(text).toBe('fresh ok');
-    expect(llm.callCount()).toBe(1);
+    // 同 ④a：回退留证保留；屏障 typed 拒绝（不按无记录继续）
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryStoreError);
+    expect((err as SubAgentRecoveryStoreError).kind).toBe('corrupt');
     const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
     expect(fallbackRows).toHaveLength(1);
     expect(String(fallbackRows[0].join(' '))).toContain('cursor_invalid');
+    // 坏记录现场保留
+    expect(await fsp.readFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'utf-8')).toBe(badCursor);
   });
 
   it('⑤ 取消不误判：resume 段执行 pending 工具时 abort → abort 分类传播、不落 LLM 失败事实', async () => {
@@ -489,18 +508,18 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK)).toHaveLength(0);
   });
 
-  it('⑨ 对话保存失败 → cursor 保持 awaiting-conversation-commit（不提前发布 next-llm）', async () => {
+  it('⑨ 对话保存失败 → 严格失败传播（不发起下一 LLM）、cursor 保持 awaiting-conversation-commit；修复后重启可恢复', async () => {
     await setup('save-fail');
     await buildConversationCommitCheckpoint(fs, resultDir);
 
-    const llm = makeFakeLlm([endTurnChunks('final despite save fail')]);
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
     const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
     const auditRows: unknown[][] = [];
     const { agent, store } = makeAgent(fs, resultDir, {
       llm: llm.orchestrator,
       executor: exec.executor,
       auditRows,
-      // 注入 messageStore.save 恒失败（留证不 throw 的既有语义下 run 仍可完成）
+      // 注入 messageStore.save 恒失败
       wrapMessageStore: (ms) => {
         (ms as unknown as { save: unknown }).save = async () => {
           throw new Error('injected save failure');
@@ -510,14 +529,55 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     });
     const commitSpy = vi.spyOn(store, 'commitConversation');
 
-    const text = await agent.run();
-
-    // save 失败不终止任务（既有语义），但 commitConversation 从未被调用、next-llm 未发布
-    expect(text).toBe('final despite save fail');
+    // Phase 1934 Step B (F-12) 语义修正：恢复启用时 save 失败由 best-effort 改为
+    // 严格失败 —— 原错传播（不掩护未提交游标发起下一 LLM）
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect((err as Error).message).toContain('injected save failure');
+    // save 先败 → commitConversation 从未被调用、next-llm 未发布、不请求 LLM
     expect(commitSpy).not.toHaveBeenCalled();
+    expect(llm.callCount()).toBe(0);
     const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
     expect(loaded.fallbackReason).toBeUndefined();
     expect(loaded.cursor?.kind).toBe('awaiting-conversation-commit');
+
+    // 修复后重启：仅凭已提交事实重建对话并推进 next-llm（故障后现场可重建）
+    const resume = await runResumePhase(fs, resultDir);
+    expect(resume.text).toBe('recovered final');
+    expect(resume.exec.calls).toHaveLength(0);
+    expect(resume.llm.callCount()).toBe(1);
+    const post = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(post.cursor?.kind).toBe('next-llm');
+  });
+
+  it('⑪ 最初消息缺席边界：next-llm 游标在场但 messages.json 从未落盘 → 保持全新构建（确定缺席非损坏、零回退留证）', async () => {
+    await setup('next-llm-no-dialog');
+    // 构造合法 next-llm 游标（无工具响应 + 对话提交），但 messages.json 从未写入
+    const store0 = createSubAgentRecoveryStore({ fs, resultDir });
+    await store0.llmResponseCommitted({
+      response: {
+        content: [{ type: 'text', text: 'prior final' }],
+        stop_reason: 'end_turn',
+      },
+      llmInfo: { model: 'fake-model', inputTokens: 5, outputTokens: 5, latencyMs: 1 },
+      committedAtMs: Date.now(),
+    });
+    await store0.commitConversation();
+    const seeded = await store0.loadCursor();
+    expect(seeded.cursor?.kind).toBe('next-llm');
+    expect(await fs.exists(`${resultDir}/messages.json`)).toBe(false);
+
+    const resume = await runResumePhase(fs, resultDir);
+
+    expect(resume.text).toBe('recovered final');
+    // source 'empty' = 确定不存在 → 保持全新构建（仅初始 user prompt 进入 LLM）
+    const msgs = resume.llm.streamCalls[0].messages as Message[];
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ role: 'user', content: 'do the task' });
+    // 缺席非损坏：零回退留证
+    expect(resume.auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK)).toHaveLength(0);
   });
 
   it('⑩ 正常完成路径末尾：cursor 为 next-llm 且含 responseId（对话持久化后才发布）', async () => {

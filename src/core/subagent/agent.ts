@@ -362,25 +362,28 @@ export class SubAgent {
               // 不 throw — audit 失败不终止任务
             }
             // 每步后持久化 messages — 崩溃可恢复、执行中可观察
-            let stepSaved = false;
-            try {
-              const saved = await this.messageStore
-                .save({
-                  systemPrompt,
-                  messages,
-                  toolsForLLM: tools,
-                });
-              // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
-              applyBlockIdAssignments(messages, saved.assignedBlockIds);
-              stepSaved = true;
-            } catch (err) {
-              this.recordDegraded('dialog', 'step_save', err);
-              this.sink.persistFailed({ error: formatErr(err) });
-              // 不 throw — 持久化失败不终止任务
+            if (this.recoveryStore) {
+              // Phase 1934 Step B (F-12): 严格提交屏障 —— 对话 save 与游标 commit
+              // 均完成前不发起下一 LLM；失败传播（经 runReact 中止循环），游标停留
+              // awaiting-conversation-commit 供重启仅凭已提交事实重建。
+              await this.persistDialogAndCommitStrict(systemPrompt, tools, 'step_save');
+            } else {
+              // 非恢复调用保留原降级规则：持久化失败不终止任务
+              try {
+                const saved = await this.messageStore
+                  .save({
+                    systemPrompt,
+                    messages,
+                    toolsForLLM: tools,
+                  });
+                // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+                applyBlockIdAssignments(messages, saved.assignedBlockIds);
+              } catch (err) {
+                this.recordDegraded('dialog', 'step_save', err);
+                this.sink.persistFailed({ error: formatErr(err) });
+                // 不 throw — 持久化失败不终止任务
+              }
             }
-            // Phase 1933 Step G: next-llm 严格前置 —— 仅 save 成功才推进游标；
-            // save 失败 → cursor 保持 awaiting-conversation-commit（不提前发布）
-            if (stepSaved) await this.commitRecoveryConversationBestEffort('step_save');
             auditStep++;
             auditStepTools = [];
             auditStepStart = Date.now();
@@ -686,6 +689,11 @@ export class SubAgent {
       if (prebuiltIds.has(id)) continue;
       const fact = committedResults.get(id);
       if (fact) {
+        // Phase 1934 Step B: 崩溃窗口（toolResultCommitted 结果文件已写、cursor 写
+        // 未发生）留下的 pending∩committed id —— 用同一份已提交事实幂等重提交推进
+        // 游标（store 写同内容结果文件 + 游标去重）；否则游标停留 awaiting-tools，
+        // 下一响应触发提交屏障、旧响应事实被孤立。
+        if (pendingSet.has(id)) await store.toolResultCommitted(fact);
         // 已提交工具结果：不重复执行，直接复原 ToolResultBlock
         resultBlocks.push(toToolResultBlock(makeToolUseId(id), fact.result));
         restoredCount++;
@@ -736,11 +744,10 @@ export class SubAgent {
     if (resultBlocks.length > 0) {
       appendToolResults(messages, resultBlocks);
     }
-    // Phase 1933 Step G: 对话 save 成功才允许推进 next-llm（此时 cursor 已随最后一次
-    // toolResultCommitted 转 awaiting-conversation-commit）；save 失败（留证不 throw
-    // 的既有语义保持）→ 不推进，cursor 停留 awaiting-conversation-commit 供重启重建。
-    const resumeSaved = await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_save');
-    if (resumeSaved) await this.commitRecoveryConversationBestEffort('resume_save');
+    // Phase 1934 Step B: 严格提交屏障（与 onStepComplete 同一保存函数、同一提交
+    // 顺序）——save 或游标 commit 失败即 throw 入既有分类路径；游标停留
+    // awaiting-conversation-commit，已提交响应/工具结果保留可重建。
+    await this.persistDialogAndCommitStrict(opts.systemPrompt, opts.tools, 'resume_save');
     await this.appendToLog(
       `Recovery: resumed awaiting-tools response=${cursor.responseId} restored=${restoredCount} executed=${executedCount}\n`,
     );
@@ -829,10 +836,9 @@ export class SubAgent {
       }
     }
 
-    // e. 对话落盘成功才允许推进 next-llm；save 失败（留证不 throw）→ 不推进、
-    //    继续 runReact（内存对话完整；cursor 停留 awaiting-conversation-commit 供重启重建）
-    const saved = await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_conversation_commit_save');
-    if (saved) await this.commitRecoveryConversationBestEffort('resume_conversation_commit');
+    // e. Phase 1934 Step B: 严格提交屏障 —— 对话落盘 + 游标 commit 均完成才允许
+    //    进 runReact；失败即 throw（内存对话不得掩护未提交游标发起下一 LLM）。
+    await this.persistDialogAndCommitStrict(opts.systemPrompt, opts.tools, 'resume_conversation_commit_save');
     await this.appendToLog(`Recovery: rebuilt conversation from committed facts response=${cursor.responseId}\n`);
   }
 
@@ -893,8 +899,40 @@ export class SubAgent {
   }
 
   /**
-   * resume 段落盘：与 onStepComplete 的 save 同策略（best-effort、失败留证不终止）。
-   * 返回是否落盘成功 —— Phase 1933 Step G: 仅成功才允许 commitConversation 推进 next-llm。
+   * Phase 1934 Step B (F-12): 恢复启用时的严格提交屏障 —— 对话 save 与游标
+   * commitConversation 按同一顺序完成前不发起下一 LLM。任一失败留证（保留执行
+   * 事实）并传播原错（不吞没：onStepComplete 的 throw 经 runReact 中止循环、
+   * resume 段 throw 入既有 classifyAndAuditError 路径）；游标停留
+   * awaiting-conversation-commit，重启仅凭已提交事实重建（安全方向）。
+   * onStepComplete / resumeAwaitingTools / resumeAwaitingConversationCommit
+   * 三处共用本函数；非恢复调用（无 recoveryStore）保留 best-effort 降级规则，
+   * 不走本路径。
+   */
+  private async persistDialogAndCommitStrict(
+    systemPrompt: string,
+    tools: ToolDefinition[],
+    stage: string,
+  ): Promise<void> {
+    const messages = this.messages ?? [];
+    try {
+      const saved = await this.messageStore
+        .save({
+          systemPrompt,
+          messages,
+          toolsForLLM: tools,
+        });
+      applyBlockIdAssignments(messages, saved.assignedBlockIds);
+      await this.recoveryStore?.commitConversation();
+    } catch (err) {
+      this.recordDegraded('dialog', stage, err);
+      this.sink.persistFailed({ stage, error: formatErr(err) });
+      throw err;
+    }
+  }
+
+  /**
+   * dangling 修补落盘（next-llm 续跑段）：best-effort、失败留证不终止。
+   * 返回是否落盘成功 —— 仅成功才允许 commitConversation 推进 next-llm。
    */
   private async persistMessagesBestEffort(
     systemPrompt: string,
@@ -919,10 +957,12 @@ export class SubAgent {
   }
 
   /**
-   * Phase 1933 Step G: 对话 save 成功后的游标推进（best-effort）。
-   * commitConversation 仅当 cursor 为 awaiting-conversation-commit 时发布 next-llm
-   * （其余状态 no-op 幂等）；原子写失败留证不 throw —— cursor 停留
-   * awaiting-conversation-commit，重启后 resume 仅凭已提交事实重建（安全方向）。
+   * 对话 save 成功后的游标推进（best-effort）—— 仅 finally 补保存路径使用
+   * （Phase 1934 Step B: onStepComplete/resume 三处已改走严格屏障
+   * persistDialogAndCommitStrict）。commitConversation 仅当 cursor 为
+   * awaiting-conversation-commit 时发布 next-llm（其余状态 no-op 幂等）；原子写
+   * 失败留证不 throw —— finally 是补保存性质，不得吞没已传播的严格失败；
+   * cursor 停留 awaiting-conversation-commit，重启后 resume 仅凭已提交事实重建。
    */
   private async commitRecoveryConversationBestEffort(stage: string): Promise<void> {
     if (!this.recoveryStore) return;
