@@ -201,6 +201,10 @@
       "task_corrupt",
       "task_handler_failed",
       "task_inbox_write_failed",
+      "task_llm_wait_continued",
+      "task_llm_wait_expired",
+      "task_llm_wait_persisted",
+      "task_llm_wait_resumed",
       "task_migrated_completed",
       "task_migrated_exec_termination",
       "task_migrated_pid_reused",
@@ -534,14 +538,11 @@
       "subagent_idle_timeout_callback_failed",
       "subagent_log_append_failed",
       "subagent_persist_failed",
+      "subagent_recovery_fallback",
       "subagent_runreact_abort_still_running",
       "subagent_step_complete_failed",
       "subagent_steps_invariant_violated",
       "subagent_timeout_rejection",
-      "turn_end",
-      "turn_error",
-      "turn_interrupted",
-      "turn_start",
       {
         "type": "tool_call_input",
         "cols": [
@@ -622,7 +623,11 @@
             "required": true
           }
         ]
-      }
+      },
+      "turn_end",
+      "turn_error",
+      "turn_interrupted",
+      "turn_start"
     ],
     "core_summon-system_audit-events": [
       "retro_index_parse_failed",
