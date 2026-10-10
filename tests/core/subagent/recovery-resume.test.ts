@@ -11,6 +11,14 @@
  * ⑥ 无 checkpoint 回归（runSubagent 全链路）：全新 resultDir 行为与现状一致。
  * ⑦ next-llm 续跑：首轮工具全部提交后崩溃于下一步 LLM 前 → 从持久 messages 继续、
  *    不重放已完成工具。
+ * ⑧（Step G）重启窗口 awaiting-conversation-commit：响应 + 全部工具结果已提交、
+ *    对话未保存 → 不请求 LLM、不执行任何工具，重建对话并保存后 cursor 推进 next-llm。
+ * ⑨（Step G）对话保存失败 → 不提前发布 next-llm（cursor 保持 awaiting-conversation-commit）。
+ * ⑩（Step G）正常完成路径末尾 cursor 为 next-llm 且含 responseId。
+ *
+ * Step G 语义适配：旧「工具 B 执行时崩溃」场景 = B 已 started 无 result → 重启属
+ * uncertain 矩阵（见 recovery-uncertain-tool.test.ts）；本文件 awaiting-tools 场景
+ * 改为构造「A 结果提交后、B 开始前」的崩溃窗口（B 可证明未开始）。
  *
  * 构造惯例：真实 temp dir + NodeFileSystem + 真 DialogStore + 真 RecoveryStore +
  * 真 runReact loop；仅 llm（async generator stream）与 toolExecutor 为 fake
@@ -22,14 +30,15 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { promises as fsp } from 'node:fs';
 import * as path from 'path';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { createDialogStore, type Message } from '../../../src/foundation/dialog-store/index.js';
+import { createDialogStore, type DialogStore, type Message } from '../../../src/foundation/dialog-store/index.js';
 import { createToolRegistry, type ToolExecutor } from '../../../src/foundation/tools/index.js';
 import type { LLMOrchestrator, LLMStreamChunk, LLMCallOptions } from '../../../src/foundation/llm-orchestrator/index.js';
-import { ExternalAbortError, isAbortError, makeExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
+import { ExternalAbortError, isAbortError, makeExternalAbortError, makeToolUseId } from '../../../src/foundation/llm-provider/index.js';
 import type { ToolResult } from '../../../src/foundation/tool-protocol/index.js';
 import { SubAgent } from '../../../src/core/subagent/agent.js';
 import { runSubagent } from '../../../src/core/subagent/run.js';
 import { createSubAgentRecoveryStore, type SubAgentRecoveryStore } from '../../../src/core/subagent/recovery-state.js';
+import type { CompleteLLMResponse } from '../../../src/core/step-executor/index.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 import { NoopStreamWriter } from '../../../src/core/subagent/noop-writers.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
@@ -117,6 +126,8 @@ function makeAgent(
     executor: ToolExecutor;
     auditRows: unknown[][];
     signal?: AbortSignal;
+    /** Step G: 包装 messageStore（如注入 save 失败） */
+    wrapMessageStore?: (ms: DialogStore) => DialogStore;
   },
 ) {
   const auditWriter = {
@@ -124,7 +135,8 @@ function makeAgent(
       opts.auditRows.push([event, ...cols]);
     }),
   };
-  const messageStore = createDialogStore(fs, resultDir, auditWriter as never, 'messages.json');
+  const baseMessageStore = createDialogStore(fs, resultDir, auditWriter as never, 'messages.json');
+  const messageStore = opts.wrapMessageStore ? opts.wrapMessageStore(baseMessageStore) : baseMessageStore;
   const store = createSubAgentRecoveryStore({ fs, resultDir });
   const sink = createSubAgentLifecycleSink({
     auditWriter: auditWriter as never,
@@ -162,17 +174,54 @@ const TWO_TOOL_STEP = toolUseStepChunks([
   { id: 'toolu_b', name: 'tool_b', input: { y: 2 } },
 ]);
 
-/** 阶段 1：第 1 步两个 tool_use，工具 1 提交后工具 2 抛非 ToolError → run 崩溃。 */
-async function runCrashPhase(fs: NodeFileSystem, resultDir: string, log?: string[]) {
-  const llm = makeFakeLlm([TWO_TOOL_STEP], log);
-  const exec = makeFakeExecutor(async (toolName) => {
-    if (toolName === 'tool_b') throw new Error('crash: executor boom');
-    return { success: true, content: `${toolName}-ok` };
-  }, log);
-  const auditRows: unknown[][] = [];
-  const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
-  await expect(agent.run()).rejects.toThrow('crash: executor boom');
-  return { llm, exec, auditRows };
+/** 两个 tool_use 的完整响应事实（checkpoint 构造用，与 TWO_TOOL_STEP 同工具集）。 */
+function twoToolResponseFact(): CompleteLLMResponse {
+  return {
+    response: {
+      content: [
+        { type: 'tool_use', id: makeToolUseId('toolu_a'), name: 'tool_a', input: { x: 1 } },
+        { type: 'tool_use', id: makeToolUseId('toolu_b'), name: 'tool_b', input: { y: 2 } },
+      ],
+      stop_reason: 'tool_use',
+    },
+    llmInfo: { model: 'fake-model', inputTokens: 5, outputTokens: 5, latencyMs: 1 },
+    committedAtMs: Date.now(),
+  };
+}
+
+/**
+ * 构造 awaiting-tools checkpoint（真实 store 写路径）：两工具完整响应已提交；
+ * 工具 A 已 started + 结果已提交，工具 B 从未开始（pending）——等价于
+ * 「A 结果提交后、B 开始前」的崩溃窗口。
+ */
+async function buildAwaitingToolsCheckpoint(fs: NodeFileSystem, resultDir: string) {
+  const store = createSubAgentRecoveryStore({ fs, resultDir });
+  await store.llmResponseCommitted(twoToolResponseFact());
+  await store.toolStarted({ toolUseId: makeToolUseId('toolu_a'), toolName: 'tool_a', input: { x: 1 }, startedAtMs: Date.now() });
+  await store.toolResultCommitted({
+    toolUseId: makeToolUseId('toolu_a'),
+    toolName: 'tool_a',
+    result: { success: true, content: 'tool_a-ok' },
+    resultAtMs: Date.now(),
+  });
+}
+
+/** 构造 awaiting-conversation-commit checkpoint：响应 + 两工具结果全部提交，对话从未落盘。 */
+async function buildConversationCommitCheckpoint(fs: NodeFileSystem, resultDir: string) {
+  const store = createSubAgentRecoveryStore({ fs, resultDir });
+  await store.llmResponseCommitted(twoToolResponseFact());
+  for (const t of [
+    { id: 'toolu_a', name: 'tool_a', input: { x: 1 } },
+    { id: 'toolu_b', name: 'tool_b', input: { y: 2 } },
+  ]) {
+    await store.toolStarted({ toolUseId: makeToolUseId(t.id), toolName: t.name, input: t.input, startedAtMs: Date.now() });
+    await store.toolResultCommitted({
+      toolUseId: makeToolUseId(t.id),
+      toolName: t.name,
+      result: { success: true, content: `${t.name}-ok` },
+      resultAtMs: Date.now(),
+    });
+  }
 }
 
 /** 阶段 2：同 resultDir 新建 store/agent 续跑（fake llm 第二步返回 end_turn）。 */
@@ -224,13 +273,11 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
 
   it('① 重启续跑：已提交完整响应不重复请求 LLM，pending 工具执行后推进对话', async () => {
     await setup('rejoin');
-    const crash = await runCrashPhase(fs, resultDir);
-    expect(crash.llm.callCount()).toBe(1);
-    expect(crash.exec.calls.map((c) => c.toolName)).toEqual(['tool_a', 'tool_b']);
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
 
     const resume = await runResumePhase(fs, resultDir);
 
-    // llm stream 调用次数仍为 1（仅第二步 end_turn；第 1 步响应来自 checkpoint、未新请求）
+    // llm stream 仅被调 1 次（第二步 end_turn；第 1 步响应来自 checkpoint、未新请求）
     expect(resume.llm.callCount()).toBe(1);
     expect(resume.text).toBe('recovered final');
     // 续跑后 LLM 看到的对话末尾：配对完整的 tool_result user 消息
@@ -240,7 +287,7 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
 
   it('② 已提交工具不重复执行：工具 1 结果来自 tool-results 存储，顺序完整', async () => {
     await setup('no-reexec');
-    await runCrashPhase(fs, resultDir);
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
 
     const resume = await runResumePhase(fs, resultDir);
 
@@ -254,8 +301,7 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
   it('③ 完整响应继续工具：pending 工具执行发生在第二次 LLM 调用之前', async () => {
     await setup('order');
     const log: string[] = [];
-    await runCrashPhase(fs, resultDir);
-    log.length = 0;
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
 
     await runResumePhase(fs, resultDir, { log });
 
@@ -303,7 +349,8 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
 
   it('⑤ 取消不误判：resume 段执行 pending 工具时 abort → abort 分类传播、不落 LLM 失败事实', async () => {
     await setup('abort');
-    await runCrashPhase(fs, resultDir);
+    // pending=[B] 且可证明未开始（started=[A]）——resume 会实际执行 B
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
 
     const controller = new AbortController();
     const llm = makeFakeLlm([endTurnChunks('unreachable')]);
@@ -334,11 +381,17 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(String(interrupted[0].join(' '))).toContain('cause=external');
     // 第二次 LLM 调用未发生
     expect(llm.callCount()).toBe(0);
-    // cursor 保持 awaiting-tools 且 toolu_b 仍 pending（失败事实不被误标为已提交）
+    // cursor 保持 awaiting-tools 且 toolu_b 仍 pending（失败事实不被误标为已提交）；
+    // resume 执行 B 前已提交其 started 事实（Step G: startedToolIds 随游标保留并读出）
     const store: SubAgentRecoveryStore = createSubAgentRecoveryStore({ fs, resultDir });
     const loaded = await store.loadCursor();
     expect(loaded.fallbackReason).toBeUndefined();
-    expect(loaded.cursor).toEqual({ kind: 'awaiting-tools', responseId: expect.any(String), pendingToolIds: ['toolu_b'] });
+    expect(loaded.cursor).toEqual({
+      kind: 'awaiting-tools',
+      responseId: expect.any(String),
+      pendingToolIds: ['toolu_b'],
+      startedToolIds: ['toolu_a', 'toolu_b'],
+    });
   });
 
   it('⑥ 无 checkpoint 回归（runSubagent 全链路）：全新 resultDir 行为与现状一致', async () => {
@@ -394,5 +447,94 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(blocks.map((b) => b.tool_use_id)).toEqual(['toolu_a', 'toolu_b']);
     // 无回退发生
     expect(resume.auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK)).toHaveLength(0);
+  });
+
+  it('⑧ 重启窗口（awaiting-conversation-commit）：响应+全部工具结果已提交、对话未保存 → 不请求 LLM/不执行工具，重建对话并推进 next-llm', async () => {
+    await setup('conv-commit');
+    await buildConversationCommitCheckpoint(fs, resultDir);
+    // sanity：cursor 处于 awaiting-conversation-commit（responseId 锚点 + 全部结果 id）
+    const pre = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(pre.cursor).toEqual({
+      kind: 'awaiting-conversation-commit',
+      responseId: expect.any(String),
+      toolResultIds: ['toolu_a', 'toolu_b'],
+    });
+
+    const llm = makeFakeLlm([endTurnChunks('rebuilt final')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+    const text = await agent.run();
+
+    expect(text).toBe('rebuilt final');
+    // 不执行任何工具（结果全部来自已提交事实）
+    expect(exec.calls).toHaveLength(0);
+    // 已提交响应不重放请求：仅 runReact 的下一次 LLM 调用（stream 计数 = 1）
+    expect(llm.callCount()).toBe(1);
+    // 重建的 assistant + tool_result 消息进入对话
+    const msgs = llm.streamCalls[0].messages as Message[];
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    const blocks = lastUserToolResultBlocks(llm);
+    expect(blocks.map((b) => b.tool_use_id)).toEqual(['toolu_a', 'toolu_b']);
+    expect(blocks.map((b) => b.content)).toEqual(['tool_a-ok', 'tool_b-ok']);
+    // 对话保存后 cursor 已推进 next-llm（含 responseId 锚点）
+    const post = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(post.fallbackReason).toBeUndefined();
+    expect(post.cursor).toEqual({
+      kind: 'next-llm',
+      responseId: expect.any(String),
+      conversationVersion: expect.any(Number),
+    });
+    // 无回退发生
+    expect(auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK)).toHaveLength(0);
+  });
+
+  it('⑨ 对话保存失败 → cursor 保持 awaiting-conversation-commit（不提前发布 next-llm）', async () => {
+    await setup('save-fail');
+    await buildConversationCommitCheckpoint(fs, resultDir);
+
+    const llm = makeFakeLlm([endTurnChunks('final despite save fail')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent, store } = makeAgent(fs, resultDir, {
+      llm: llm.orchestrator,
+      executor: exec.executor,
+      auditRows,
+      // 注入 messageStore.save 恒失败（留证不 throw 的既有语义下 run 仍可完成）
+      wrapMessageStore: (ms) => {
+        (ms as unknown as { save: unknown }).save = async () => {
+          throw new Error('injected save failure');
+        };
+        return ms;
+      },
+    });
+    const commitSpy = vi.spyOn(store, 'commitConversation');
+
+    const text = await agent.run();
+
+    // save 失败不终止任务（既有语义），但 commitConversation 从未被调用、next-llm 未发布
+    expect(text).toBe('final despite save fail');
+    expect(commitSpy).not.toHaveBeenCalled();
+    const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(loaded.fallbackReason).toBeUndefined();
+    expect(loaded.cursor?.kind).toBe('awaiting-conversation-commit');
+  });
+
+  it('⑩ 正常完成路径末尾：cursor 为 next-llm 且含 responseId（对话持久化后才发布）', async () => {
+    await setup('final-cursor');
+    const llm = makeFakeLlm([TWO_TOOL_STEP, endTurnChunks('all done')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+    const text = await agent.run();
+    expect(text).toBe('all done');
+
+    const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(loaded.fallbackReason).toBeUndefined();
+    expect(loaded.cursor).toEqual({
+      kind: 'next-llm',
+      responseId: expect.any(String),
+      conversationVersion: expect.any(Number),
+    });
   });
 });

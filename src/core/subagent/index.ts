@@ -18,7 +18,8 @@ export { resolveSubagentRunDir } from './result-dir-query.js';
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
 
 // Phase 1933 Step D: 通用安全续跑（恢复 checkpoint store + 游标类型）
-export { createSubAgentRecoveryStore, SubAgentRecoveryStore, SubAgentRecoveryStoreError } from './recovery-state.js';
+// Phase 1933 Step G: 游标安全边界（commitConversation + 不确定副作用 typed 错误）
+export { createSubAgentRecoveryStore, SubAgentRecoveryStore, SubAgentRecoveryStoreError, RecoveryUncertainSideEffectError } from './recovery-state.js';
 export type { ResumeCursor, RecoveryCursorLoadResult, SubAgentRecoveryStoreOptions, SubAgentRecoveryErrorKind } from './recovery-state.js';
 
 // phase 1789: agent turn 生命周期 wire 事件语义 owner（自 agent-executor 迁回）

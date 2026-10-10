@@ -33,6 +33,8 @@ import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { SubAgentRecoveryStore, ResumeCursor } from './recovery-state.js';
+// Phase 1933 Step G: 不确定副作用 typed 错误（值导入：resume 段 throw 用）
+import { RecoveryUncertainSideEffectError, SubAgentRecoveryStoreError } from './recovery-state.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
@@ -360,6 +362,7 @@ export class SubAgent {
               // 不 throw — audit 失败不终止任务
             }
             // 每步后持久化 messages — 崩溃可恢复、执行中可观察
+            let stepSaved = false;
             try {
               const saved = await this.messageStore
                 .save({
@@ -369,11 +372,15 @@ export class SubAgent {
                 });
               // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
               applyBlockIdAssignments(messages, saved.assignedBlockIds);
+              stepSaved = true;
             } catch (err) {
               this.recordDegraded('dialog', 'step_save', err);
               this.sink.persistFailed({ error: formatErr(err) });
               // 不 throw — 持久化失败不终止任务
             }
+            // Phase 1933 Step G: next-llm 严格前置 —— 仅 save 成功才推进游标；
+            // save 失败 → cursor 保持 awaiting-conversation-commit（不提前发布）
+            if (stepSaved) await this.commitRecoveryConversationBestEffort('step_save');
             auditStep++;
             auditStepTools = [];
             auditStepStart = Date.now();
@@ -450,6 +457,7 @@ export class SubAgent {
         stream.closeSw();
       }
       // 持久化 messages — finally 保证超时/中断/正常结束都落盘（best-effort）
+      let finalSaved = false;
       try {
         const finalMessages = this.messages ?? [];
         const saved = await this.messageStore
@@ -460,10 +468,14 @@ export class SubAgent {
           });
         // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
         applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
+        finalSaved = true;
       } catch (e) {
         this.recordDegraded('dialog', 'final_save', e);
         this.sink.persistFailed({ error: formatErr(e) });
       }
+      // Phase 1933 Step G: finally save 成功同样允许推进游标（onStepComplete 不覆盖
+      // 最终 step —— end_turn/终态不触发步进回调）；save 失败 → 不推进。
+      if (finalSaved) await this.commitRecoveryConversationBestEffort('final_save');
 
       // phase 270 Step B: multi-artifact completeness cross-source
       // phase 1858 Step D (SA-D3): 纳入结算（await）——rejection 不再被空 catch 静默吞掉；
@@ -507,6 +519,8 @@ export class SubAgent {
     if (!cursor) return;
     if (cursor.kind === 'next-llm') {
       await this.resumeAtNextLlm(store, opts);
+    } else if (cursor.kind === 'awaiting-conversation-commit') {
+      await this.resumeAwaitingConversationCommit(store, cursor, opts);
     } else {
       await this.resumeAwaitingTools(store, cursor, opts);
     }
@@ -629,24 +643,24 @@ export class SubAgent {
 
     // 判重 ②：末尾 assistant content 与已提交响应的 tool_use id 集合一致 → 不重复 append
     // （崩溃时 finally 兜底已把本响应的 assistant 消息落盘）；否则 append assistant。
-    const last = messages[messages.length - 1];
-    const lastAssistantIds = last && last.role === 'assistant' && Array.isArray(last.content)
-      ? last.content.filter((b): b is ToolUseBlock => b.type === 'tool_use').map((b) => String(b.id))
-      : [];
-    const sameToolUseSet = lastAssistantIds.length === responseToolUseIds.length
-      && new Set(lastAssistantIds).size === responseToolUseIds.length
-      && responseToolUseIds.every((id) => lastAssistantIds.includes(id));
-    if (!sameToolUseSet) {
+    if (!this.isAssistantAlreadyAppended(messages, responseToolUseIds)) {
       // 对齐 handleToolUseStop：assistant 消息剥掉响应内 prebuilt tool_result 块
       appendAssistantMessage(messages, response.content.filter((b) => b.type !== 'tool_result'));
     }
 
-    // c. 已提交结果复原 + pending 执行。先加载全部已提交结果；不可读 → 回退全新构建
-    //    （messages 已 mutate，须显式重置回基线）。
+    // c. 已提交结果复原 + pending 执行。先加载全部已提交结果；不可读时——
+    //    若存在「不可证明未开始」的 pending 工具（已 started 无结果 / 旧 cursor 缺
+    //    started 证据）→ 外部副作用不确定：留证 + 停 uncertain（不删文件、不全新重启）；
+    //    全部 pending 可证明未开始（started=[]）→ 无副作用风险，回退全新构建。
     let committedResults: Map<string, ToolResultFact>;
     try {
       committedResults = await store.loadCommittedToolResults();
     } catch (err) {
+      const unprovable = this.firstUnprovablePendingId(cursor);
+      if (unprovable) {
+        this.sink.recoveryFallback({ reason: `uncertain_side_effect_results_unreadable: ${unprovable}` });
+        throw new RecoveryUncertainSideEffectError(unprovable, `committed tool results unreadable: ${formatErr(err)}`);
+      }
       this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
       this.resetMessagesToBaseline(opts.freshBaseline);
       return;
@@ -679,6 +693,14 @@ export class SubAgent {
       }
       // pending 工具：abort 优先传播（不误分类为业务/LLM 失败）
       if (opts.signal.aborted) throw makeExternalAbortError(opts.signal.reason);
+      // Phase 1933 Step G: 已 started 无 committed result（或旧 cursor 缺 started 证据、
+      // 不可证明未开始）→ 外部副作用不确定：不执行该工具，停 uncertain 交上层处置
+      // （不自动重试、不当成功/失败/未开始；进入既有 catch 分类/audit 路径）。
+      const provablyNotStarted = cursor.startedToolIds !== undefined && !cursor.startedToolIds.includes(id);
+      if (!provablyNotStarted) {
+        this.sink.recoveryFallback({ reason: `uncertain_side_effect_started_without_result: ${id}` });
+        throw new RecoveryUncertainSideEffectError(id);
+      }
       await store.toolStarted({
         toolUseId: makeToolUseId(id),
         toolName: tu.name,
@@ -714,10 +736,104 @@ export class SubAgent {
     if (resultBlocks.length > 0) {
       appendToolResults(messages, resultBlocks);
     }
-    await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_save');
+    // Phase 1933 Step G: 对话 save 成功才允许推进 next-llm（此时 cursor 已随最后一次
+    // toolResultCommitted 转 awaiting-conversation-commit）；save 失败（留证不 throw
+    // 的既有语义保持）→ 不推进，cursor 停留 awaiting-conversation-commit 供重启重建。
+    const resumeSaved = await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_save');
+    if (resumeSaved) await this.commitRecoveryConversationBestEffort('resume_save');
     await this.appendToLog(
       `Recovery: resumed awaiting-tools response=${cursor.responseId} restored=${restoredCount} executed=${executedCount}\n`,
     );
+  }
+
+  /**
+   * Phase 1933 Step G: awaiting-conversation-commit 续跑 —— 完整响应 + 全部工具结果
+   * 已提交、仅对话消息未证明持久化。**不请求 LLM、不执行任何工具**：仅凭已提交事实
+   * 重建 assistant + tool_result 消息 → messageStore.save → store.commitConversation()
+   * → 进 runReact。任一事实缺失/损坏 → 停在 uncertain：sink/audit 留证 + typed error
+   * 传播（不删 recovery 文件绕过不一致、不静默全新重启——已提交工具可能有外部副作用）。
+   */
+  private async resumeAwaitingConversationCommit(
+    store: SubAgentRecoveryStore,
+    cursor: Extract<ResumeCursor, { kind: 'awaiting-conversation-commit' }>,
+    opts: { freshBaseline: Message[]; systemPrompt: string; tools: ToolDefinition[] },
+  ): Promise<void> {
+    // a. 已提交完整响应是重建锚点；不可读/损坏 → 不猜不绕过：留证 + typed error 传播
+    let committed: CompleteLLMResponse;
+    try {
+      committed = await store.loadCommittedResponse(cursor.responseId);
+    } catch (err) {
+      this.sink.recoveryFallback({ reason: `committed_response_unreadable: ${formatErr(err)}` });
+      throw err;
+    }
+    const response = committed.response;
+    const toolUses = response.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+    const prebuiltResults = response.content.filter((b): b is ToolResultBlock => b.type === 'tool_result');
+    const prebuiltIds = new Set(prebuiltResults.map((b) => String(b.tool_use_id)));
+    const responseToolUseIds = toolUses.map((t) => String(t.id));
+
+    // b. cursor.toolResultIds 全部在场且与响应可执行集一致；缺失/不可读/不一致 → 停在 uncertain
+    let committedResults: Map<string, ToolResultFact>;
+    try {
+      committedResults = await store.loadCommittedToolResults();
+    } catch (err) {
+      this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
+      throw err;
+    }
+    const executableIds = responseToolUseIds.filter((id) => !prebuiltIds.has(id));
+    const resultIdSet = new Set(cursor.toolResultIds);
+    const inconsistent = cursor.toolResultIds.some((id) => !committedResults.has(id))
+      || executableIds.some((id) => !resultIdSet.has(id))
+      || cursor.toolResultIds.some((id) => !executableIds.includes(id));
+    if (inconsistent) {
+      this.sink.recoveryFallback({ reason: `conversation_commit_fact_mismatch: ${cursor.responseId}` });
+      throw new SubAgentRecoveryStoreError(
+        'invalid_state',
+        `awaiting-conversation-commit facts inconsistent (response=${cursor.responseId})`,
+      );
+    }
+
+    // c. 持久 messages 基底。empty → 在全新构建序列上重建；io_error/无 session →
+    //    持久边界不可读、不猜 → 留证 + throw（不静默全新重启）
+    const persisted = await this.messageStore.load();
+    if (persisted.source === 'io_error' || !persisted.session) {
+      this.sink.recoveryFallback({
+        reason: `dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
+      });
+      throw new SubAgentRecoveryStoreError(
+        'io',
+        `dialog unreadable during awaiting-conversation-commit resume: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
+      );
+    }
+    const messages = this.messages!;
+    if (persisted.session.messages.length > 0) {
+      messages.length = 0;
+      messages.push(...persisted.session.messages);
+    }
+
+    // d. 两级幂等判重（与 awaiting-tools 同规则）：崩溃在重建+落盘之后 → 无需重建
+    if (!this.isTurnAlreadyPersisted(messages, responseToolUseIds)) {
+      if (!this.isAssistantAlreadyAppended(messages, responseToolUseIds)) {
+        appendAssistantMessage(messages, response.content.filter((b) => b.type !== 'tool_result'));
+      }
+      // 按原序合成 tool_result user 消息（对齐 handleToolUseStop：prebuilt 在前，其余按响应原始顺序）
+      const resultBlocks: ToolResultBlock[] = [...prebuiltResults];
+      for (const tu of toolUses) {
+        const id = String(tu.id);
+        if (prebuiltIds.has(id)) continue;
+        const fact = committedResults.get(id)!; // b 已证明全部在场
+        resultBlocks.push(toToolResultBlock(makeToolUseId(id), fact.result));
+      }
+      if (resultBlocks.length > 0) {
+        appendToolResults(messages, resultBlocks);
+      }
+    }
+
+    // e. 对话落盘成功才允许推进 next-llm；save 失败（留证不 throw）→ 不推进、
+    //    继续 runReact（内存对话完整；cursor 停留 awaiting-conversation-commit 供重启重建）
+    const saved = await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_conversation_commit_save');
+    if (saved) await this.commitRecoveryConversationBestEffort('resume_conversation_commit');
+    await this.appendToLog(`Recovery: rebuilt conversation from committed facts response=${cursor.responseId}\n`);
   }
 
   /** 幂等判重 ①：持久化末尾是否已是本响应的完整回合（assistant tool_use + 配对 tool_result）。 */
@@ -740,6 +856,35 @@ export class SubAgent {
       && responseToolUseIds.every((id) => resultIds.has(id));
   }
 
+  /**
+   * 幂等判重 ②：末尾 assistant content 与已提交响应的 tool_use id 集合一致 → 不重复
+   * append（崩溃时 finally 兜底已把本响应的 assistant 消息落盘）。末尾非 assistant
+   * 消息 → false（空 tool_use 集也不得误判为「已 append」）。
+   */
+  private isAssistantAlreadyAppended(messages: Message[], responseToolUseIds: string[]): boolean {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant' || !Array.isArray(last.content)) return false;
+    const lastAssistantIds = last.content
+      .filter((b): b is ToolUseBlock => b.type === 'tool_use')
+      .map((b) => String(b.id));
+    return lastAssistantIds.length === responseToolUseIds.length
+      && new Set(lastAssistantIds).size === responseToolUseIds.length
+      && responseToolUseIds.every((id) => lastAssistantIds.includes(id));
+  }
+
+  /**
+   * Phase 1933 Step G: 首个「不可证明未开始」的 pending id。
+   * startedToolIds 缺席（旧版 cursor）→ 任何 pending 都不可证明未开始；
+   * 在场 → 仅 started ∩ pending 不可证明（started 空数组 = 可证明全部未开始）。
+   */
+  private firstUnprovablePendingId(
+    cursor: Extract<ResumeCursor, { kind: 'awaiting-tools' }>,
+  ): string | undefined {
+    if (!cursor.startedToolIds) return cursor.pendingToolIds[0];
+    const started = new Set(cursor.startedToolIds);
+    return cursor.pendingToolIds.find((id) => started.has(id));
+  }
+
   /** 回退「无 cursor」路径：就地重置为全新构建基线（保持数组引用）。 */
   private resetMessagesToBaseline(baseline: Message[]): void {
     const messages = this.messages!;
@@ -747,12 +892,15 @@ export class SubAgent {
     messages.push(...baseline);
   }
 
-  /** resume 段落盘：与 onStepComplete 的 save 同策略（best-effort、失败留证不终止）。 */
+  /**
+   * resume 段落盘：与 onStepComplete 的 save 同策略（best-effort、失败留证不终止）。
+   * 返回是否落盘成功 —— Phase 1933 Step G: 仅成功才允许 commitConversation 推进 next-llm。
+   */
   private async persistMessagesBestEffort(
     systemPrompt: string,
     tools: ToolDefinition[],
     stage: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const messages = this.messages ?? [];
     try {
       const saved = await this.messageStore
@@ -762,9 +910,26 @@ export class SubAgent {
           toolsForLLM: tools,
         });
       applyBlockIdAssignments(messages, saved.assignedBlockIds);
+      return true;
     } catch (err) {
       this.recordDegraded('dialog', stage, err);
       this.sink.persistFailed({ error: formatErr(err) });
+      return false;
+    }
+  }
+
+  /**
+   * Phase 1933 Step G: 对话 save 成功后的游标推进（best-effort）。
+   * commitConversation 仅当 cursor 为 awaiting-conversation-commit 时发布 next-llm
+   * （其余状态 no-op 幂等）；原子写失败留证不 throw —— cursor 停留
+   * awaiting-conversation-commit，重启后 resume 仅凭已提交事实重建（安全方向）。
+   */
+  private async commitRecoveryConversationBestEffort(stage: string): Promise<void> {
+    if (!this.recoveryStore) return;
+    try {
+      await this.recoveryStore.commitConversation();
+    } catch (err) {
+      this.sink.persistFailed({ stage: `commit_conversation:${stage}`, error: formatErr(err) });
     }
   }
 

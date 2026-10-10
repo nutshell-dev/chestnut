@@ -1,6 +1,11 @@
 /**
  * @module L3.SubAgent.RecoveryState
  * Phase 1933 Step D：SubAgent 通用安全续跑 —— 恢复 checkpoint 的持久化 store。
+ * Phase 1933 Step G：恢复游标安全边界 —— 已 toolStarted 无 toolResultCommitted 的
+ * 工具按「副作用不确定」处理（RecoveryUncertainSideEffectError，不自动重执行）；
+ * next-llm 仅在完整响应 + 全部工具结果 + 对应对话消息都持久化后由
+ * commitConversation() 发布（中间态 awaiting-conversation-commit 可仅凭已提交
+ * 事实重建对话，不重复请求 LLM）。
  *
  * 实现 step-executor 的 RecoveryDelivery 严格交付契约，把「完整 LLM 响应 /
  * 工具意图 / 工具结果」三类事实落盘在 `${resultDir}/recovery/` 下：
@@ -30,12 +35,20 @@ import type {
 
 /**
  * 续跑游标（恢复决策的唯一权威）：
- * - awaiting-tools：完整 LLM 响应已提交，pendingToolIds 中的工具尚未提交结果；
- * - next-llm：上一回合全部事实已提交，下一步是新 LLM 调用。
+ * - awaiting-tools：完整 LLM 响应已提交，pendingToolIds 中的工具尚未提交结果。
+ *   startedToolIds = 已发起（toolStarted 已提交）的工具 id 证据；**缺席（旧版
+ *   cursor 无该字段）= 不可证明未开始**，消费方不得猜测为未开始。
+ * - awaiting-conversation-commit（Step G 新增）：响应 + 全部工具结果已提交，
+ *   对应对话消息尚未证明持久化——重启可仅凭已提交事实重建，不重复请求 LLM、
+ *   不重复执行工具；toolResultIds = 全部已提交结果 id。
+ * - next-llm：上一回合全部事实（响应/工具结果/对话消息）已提交，下一步是新
+ *   LLM 调用；responseId 保留最近已提交响应的锚点（旧版 next-llm 缺此字段 →
+ *   读取时不猜，fallbackReason 交代后按无 cursor 回退）。
  */
 export type ResumeCursor =
-  | { kind: 'awaiting-tools'; responseId: string; pendingToolIds: string[] }
-  | { kind: 'next-llm'; conversationVersion: number };
+  | { kind: 'awaiting-tools'; responseId: string; pendingToolIds: string[]; startedToolIds?: string[] }
+  | { kind: 'awaiting-conversation-commit'; responseId: string; toolResultIds: string[] }
+  | { kind: 'next-llm'; responseId: string; conversationVersion: number };
 
 /** loadCursor 结果：cursor 缺席或损坏都不抛——损坏原因交调用方记录回退。 */
 export interface RecoveryCursorLoadResult {
@@ -43,14 +56,21 @@ export interface RecoveryCursorLoadResult {
   fallbackReason?: string;
 }
 
-/** cursor.json 磁盘 schema（v1）。startedToolIds 仅作证据、不影响 pending 判定。 */
+/**
+ * cursor.json 磁盘 schema。Phase 1933 Step G 权衡：**保持 schema_version=1 原地扩展**
+ * （不升版）——新增 kind/字段均为增量，旧 awaiting-tools 文件缺 startedToolIds /
+ * committedToolIds 仍可严格读取（语义 = 不可证明未开始，而非未开始）；唯一不兼容
+ * 是旧 next-llm 缺 responseId → 读取时以明确 reason 回退（不猜），无需版本分支。
+ */
 interface CursorFileV1 {
   schema_version: 1;
-  kind: 'awaiting-tools' | 'next-llm';
-  responseId?: string;          // awaiting-tools 必填
+  kind: 'awaiting-tools' | 'awaiting-conversation-commit' | 'next-llm';
+  responseId?: string;          // 三种 kind 均必填（旧版 next-llm 缺 → legacy 回退）
   pendingToolIds?: string[];    // awaiting-tools 必填
-  conversationVersion?: number; // next-llm 必填；awaiting-tools 可选（版本连续性证据）
-  startedToolIds?: string[];    // 可选证据字段
+  conversationVersion?: number; // next-llm 必填；其余 kind 可选（版本连续性证据）
+  startedToolIds?: string[];    // awaiting-tools 证据：已发起的工具 id（缺 = 旧版 = 不可证明未开始）
+  committedToolIds?: string[];  // awaiting-tools 证据：已提交结果 id（转 awaiting-conversation-commit 时合成 toolResultIds）
+  toolResultIds?: string[];     // awaiting-conversation-commit 必填：全部已提交结果 id
 }
 
 export type SubAgentRecoveryErrorKind = 'io' | 'corrupt' | 'missing_response' | 'invalid_state';
@@ -64,6 +84,22 @@ export class SubAgentRecoveryStoreError extends Error {
     this.name = 'SubAgentRecoveryStoreError';
     this.kind = kind;
     this.path = path;
+  }
+}
+
+/**
+ * Phase 1933 Step G: 不确定副作用错误 —— cursor 证明工具已 toolStarted 但无
+ * toolResultCommitted（或旧版 cursor 缺 startedToolIds 证据、不可证明未开始）：
+ * 外部副作用是否发生不可知，自动重执行可能重复副作用 → 停止自动执行，
+ * 进入调用方既有 catch 分类/audit 路径交上层处置。
+ * 不删 recovery 文件绕过、不静默全新重启、不当成功/失败/未开始。
+ */
+export class RecoveryUncertainSideEffectError extends Error {
+  readonly toolUseId: string;
+  constructor(toolUseId: string, detail?: string) {
+    super(`uncertain side effect: tool ${toolUseId} started without committed result${detail ? ` (${detail})` : ''}`);
+    this.name = 'RecoveryUncertainSideEffectError';
+    this.toolUseId = toolUseId;
   }
 }
 
@@ -86,17 +122,26 @@ function isNonNegativeInteger(v: unknown): v is number {
 
 /**
  * cursor.json 严格校验清单（缺一即损坏、不猜）：
- * schema_version===1、kind 枚举、awaiting-tools 时 responseId 非空 string +
- * pendingToolIds string[]、next-llm 时 conversationVersion 非负整数；
- * startedToolIds 存在时必须是 string[]。
+ * schema_version===1、kind 三值枚举；
+ * awaiting-tools：responseId 非空 + pendingToolIds string[]；
+ * awaiting-conversation-commit：responseId 非空 + toolResultIds string[]；
+ * next-llm：conversationVersion 非负整数 + responseId 非空
+ *   （旧版 next-llm 缺 responseId → legacy_next_llm_without_responseId，不猜）；
+ * startedToolIds / committedToolIds 存在时必须是 string[]；
+ * conversationVersion 存在时（非 next-llm）必须是非负整数。
  */
 function validateCursorFile(v: unknown): { ok: true; file: CursorFileV1 } | { ok: false; reason: string } {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return { ok: false, reason: 'not_an_object' };
   const o = v as Record<string, unknown>;
   if (o.schema_version !== 1) return { ok: false, reason: 'schema_version_not_1' };
-  if (o.kind !== 'awaiting-tools' && o.kind !== 'next-llm') return { ok: false, reason: 'kind_unknown' };
+  if (o.kind !== 'awaiting-tools' && o.kind !== 'awaiting-conversation-commit' && o.kind !== 'next-llm') {
+    return { ok: false, reason: 'kind_unknown' };
+  }
   if (o.startedToolIds !== undefined && !isStringArray(o.startedToolIds)) {
     return { ok: false, reason: 'startedToolIds_not_string_array' };
+  }
+  if (o.committedToolIds !== undefined && !isStringArray(o.committedToolIds)) {
+    return { ok: false, reason: 'committedToolIds_not_string_array' };
   }
   if (o.kind === 'awaiting-tools') {
     if (!isNonEmptyString(o.responseId)) return { ok: false, reason: 'responseId_missing' };
@@ -104,8 +149,15 @@ function validateCursorFile(v: unknown): { ok: true; file: CursorFileV1 } | { ok
     if (o.conversationVersion !== undefined && !isNonNegativeInteger(o.conversationVersion)) {
       return { ok: false, reason: 'conversationVersion_invalid' };
     }
+  } else if (o.kind === 'awaiting-conversation-commit') {
+    if (!isNonEmptyString(o.responseId)) return { ok: false, reason: 'responseId_missing' };
+    if (!isStringArray(o.toolResultIds)) return { ok: false, reason: 'toolResultIds_not_string_array' };
+    if (o.conversationVersion !== undefined && !isNonNegativeInteger(o.conversationVersion)) {
+      return { ok: false, reason: 'conversationVersion_invalid' };
+    }
   } else {
     if (!isNonNegativeInteger(o.conversationVersion)) return { ok: false, reason: 'conversationVersion_invalid' };
+    if (!isNonEmptyString(o.responseId)) return { ok: false, reason: 'legacy_next_llm_without_responseId' };
   }
   return { ok: true, file: o as unknown as CursorFileV1 };
 }
@@ -202,21 +254,34 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
           pendingToolIds: pending,
           conversationVersion: baseVersion, // 版本在转 next-llm 时递增；此处仅作连续性证据
           startedToolIds: [],
+          committedToolIds: [],
         }
       : {
+          // Phase 1933 Step G: 无可执行工具（end_turn / prebuilt 全覆盖）→ 无工具结果
+          // 等待项，但对话消息尚未持久化 → 不允许直接 next-llm。
           schema_version: 1,
-          kind: 'next-llm',
-          conversationVersion: baseVersion + 1,
-          startedToolIds: [],
+          kind: 'awaiting-conversation-commit',
+          responseId,
+          toolResultIds: [],
+          conversationVersion: baseVersion,
         };
     await this.writeCursor(next);
   }
 
   async toolStarted(fact: ToolStartedFact): Promise<void> {
     const current = await this.requireCurrentState('toolStarted');
+    if (current.kind !== 'awaiting-tools') {
+      throw new SubAgentRecoveryStoreError(
+        'invalid_state',
+        `toolStarted without awaiting-tools cursor (tool=${fact.toolName} id=${fact.toolUseId})`,
+        this.cursorPath,
+      );
+    }
+    // 幂等去重：同一 id 重复 started 提交不产生重复证据项
+    const started = current.startedToolIds ?? [];
     await this.writeCursor({
       ...current,
-      startedToolIds: [...(current.startedToolIds ?? []), fact.toolUseId],
+      startedToolIds: started.includes(fact.toolUseId) ? started : [...started, fact.toolUseId],
     });
   }
 
@@ -238,16 +303,39 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
       );
     }
     const remaining = current.pendingToolIds.filter((id) => id !== fact.toolUseId);
+    const committedToolIds = [...(current.committedToolIds ?? []), fact.toolUseId];
     const next: CursorFileV1 = remaining.length > 0
-      ? { ...current, pendingToolIds: remaining }
+      ? { ...current, pendingToolIds: remaining, committedToolIds }
       : {
+          // Phase 1933 Step G: 最后结果已提交 ≠ 对话已持久化 —— 转
+          // awaiting-conversation-commit 并保留 responseId 锚点；next-llm 仅由
+          // commitConversation() 在对话落盘成功后发布。
           schema_version: 1,
-          kind: 'next-llm',
-          conversationVersion: (current.conversationVersion ?? 0) + 1,
-          // started 证据随游标保留（重启后可佐证哪些工具已发起过）
-          ...(current.startedToolIds ? { startedToolIds: current.startedToolIds } : {}),
+          kind: 'awaiting-conversation-commit',
+          responseId: current.responseId!,
+          toolResultIds: committedToolIds,
+          conversationVersion: current.conversationVersion ?? 0,
         };
     await this.writeCursor(next);
+  }
+
+  /**
+   * Phase 1933 Step G: 对话消息已持久化后推进游标 —— 仅当 cursor 为
+   * awaiting-conversation-commit 时原子写 next-llm { responseId, conversationVersion+1 }；
+   * 其余状态（无 cursor / awaiting-tools / next-llm）一律 no-op（幂等：onStepComplete
+   * 与 finally 的 save 成功路径都会调用，重复/超前调用无害、不产错）。
+   * 原子写失败 throw（写路径纪律：失败事实不得静默）。
+   */
+  async commitConversation(): Promise<void> {
+    if (!this.current) await this.loadCursor();
+    const current = this.current;
+    if (!current || current.kind !== 'awaiting-conversation-commit') return;
+    await this.writeCursor({
+      schema_version: 1,
+      kind: 'next-llm',
+      responseId: current.responseId!,
+      conversationVersion: (current.conversationVersion ?? 0) + 1,
+    });
   }
 
   // ── 加载面（agent resume 消费） ─────────────────────────────────────────
@@ -282,11 +370,27 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
           kind: 'awaiting-tools',
           responseId: file.responseId!,
           pendingToolIds: [...file.pendingToolIds!],
+          // Phase 1933 Step G: 保留并校验 started 证据（不再丢弃）；
+          // 旧文件缺字段 → undefined = 不可证明未开始（不猜为未开始）
+          ...(file.startedToolIds ? { startedToolIds: [...file.startedToolIds] } : {}),
+        },
+      };
+    }
+    if (file.kind === 'awaiting-conversation-commit') {
+      return {
+        cursor: {
+          kind: 'awaiting-conversation-commit',
+          responseId: file.responseId!,
+          toolResultIds: [...file.toolResultIds!],
         },
       };
     }
     return {
-      cursor: { kind: 'next-llm', conversationVersion: file.conversationVersion! },
+      cursor: {
+        kind: 'next-llm',
+        responseId: file.responseId!,
+        conversationVersion: file.conversationVersion!,
+      },
     };
   }
 
