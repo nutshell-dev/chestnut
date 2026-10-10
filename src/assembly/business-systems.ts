@@ -167,7 +167,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       parentStreamLog: streamWriter,
       // Phase 1933 Step E：LLM 等待 gate——全部 provider breaker 关闭即可恢复。
       // LLM 故障判定归 orchestrator（snapshot 是唯一事实面），ATS 只消费结论。
-      llmWaitGate: { canResume: () => llm.snapshot().providers.every(p => !p.breakerOpen) },
+      waitGate: { canResume: () => llm.snapshot().providers.every(p => !p.breakerOpen) },
     });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);

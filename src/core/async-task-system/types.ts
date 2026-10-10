@@ -184,7 +184,7 @@ export interface AsyncTaskSystemOptions {
    * ATS 只消费结论）。透传至 initialize→recoverTasks；缺席时等待任务保持
    * waiting（不静默转 failed/completed）。
    */
-  llmWaitGate?: LLMWaitGate;
+  waitGate?: LLMWaitGate;
 }
 
 

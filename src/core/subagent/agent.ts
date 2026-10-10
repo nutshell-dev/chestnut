@@ -755,11 +755,12 @@ export class SubAgent {
   ): Promise<void> {
     const messages = this.messages ?? [];
     try {
-      const saved = await this.messageStore.save({
-        systemPrompt,
-        messages,
-        toolsForLLM: tools,
-      });
+      const saved = await this.messageStore
+        .save({
+          systemPrompt,
+          messages,
+          toolsForLLM: tools,
+        });
       applyBlockIdAssignments(messages, saved.assignedBlockIds);
     } catch (err) {
       this.recordDegraded('dialog', stage, err);

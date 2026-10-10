@@ -328,7 +328,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       writeInboxAsync: this.writeInboxAsync,
       postProcessors: this.postProcessors,
       // Phase 1933 Step E：LLM 等待 gate 透传（装配期注入；缺席时等待任务保持 waiting）
-      llmWaitGate: this.options.llmWaitGate,
+      waitGate: this.options.waitGate,
     });
 
     // phase 1863 (AT-D4)：成功路径后冻结装配依赖面（三 setter 继续调用即 throw）。

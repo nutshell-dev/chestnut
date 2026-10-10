@@ -75,7 +75,7 @@ export interface RecoverTasksDeps {
    * Phase 1933 Step E：LLM 等待 gate（装配期注入；判定归 orchestrator，ATS 只消费
    * 结论）。缺席时等待任务保持 waiting——orchestrator 未就绪不静默转 failed/completed。
    */
-  llmWaitGate?: LLMWaitGate;
+  waitGate?: LLMWaitGate;
 }
 
 async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
@@ -695,11 +695,11 @@ async function _recoverLLMWait(
   }
 
   // gate 缺席（orchestrator 未注入/未就绪）→ 保持 waiting：不静默转 failed/completed。
-  if (!deps.llmWaitGate) {
+  if (!deps.waitGate) {
     emitLLMWaitContinued(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, nextProbeAt: fact.nextProbeAt, reason: 'gate_absent' });
     return { handled: true, recovered: 0 };
   }
-  if (!deps.llmWaitGate.canResume(fact.scope)) {
+  if (!deps.waitGate.canResume(fact.scope)) {
     emitLLMWaitContinued(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, nextProbeAt: fact.nextProbeAt, reason: 'gate_not_ready' });
     return { handled: true, recovered: 0 };
   }

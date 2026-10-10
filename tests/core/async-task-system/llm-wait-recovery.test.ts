@@ -137,7 +137,7 @@ function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog, gate?: { canResu
     sendResult: vi.fn().mockRejectedValue(new Error('send fail')),
     sendFallbackResult: vi.fn().mockRejectedValue(new Error('fallback fail')),
     sendToolResult: vi.fn().mockResolvedValue(undefined),
-    ...(gate ? { llmWaitGate: gate } : {}),
+    ...(gate ? { waitGate: gate } : {}),
   };
 }
 

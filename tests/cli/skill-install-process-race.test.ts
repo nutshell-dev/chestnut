@@ -159,6 +159,8 @@ function readEvents(barrierDir: string): RaceEvent[] {
 
 /** 有界轮询等待事件到达（仅防挂死，不参与时序构造）。 */
 async function waitEvent(barrierDir: string, actor: string, stage: string, timeoutMs = 120_000): Promise<RaceEvent> {
+  // 轮询步长：仅防挂死的等待节奏，值无业务语义、不参与时序构造。
+  const POLL_INTERVAL_MS = 10;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const hit = readEvents(barrierDir).find((e) => e.actor === actor && e.stage === stage);
@@ -166,7 +168,7 @@ async function waitEvent(barrierDir: string, actor: string, stage: string, timeo
     if (Date.now() > deadline) {
       throw new Error(`event timeout: ${actor}/${stage}; events=${JSON.stringify(readEvents(barrierDir))}`);
     }
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 }
 
