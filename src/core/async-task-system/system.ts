@@ -31,6 +31,7 @@ import { sendResult, sendFallbackResult, sendToolResult, createStandardDeliveryS
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
+import { loadLLMWait } from './llm-wait-state.js';
 import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
 import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
@@ -82,7 +83,10 @@ interface TaskState {
  *   （fulfilled / rejected 携带 formatErr error / timeout 携带 timeoutMs，不再压平、
  *   不再 throw 旁路），`terminal` 表达磁盘终态收敛观察（converged / not_observed，
  *   读不到不猜测）。
- * - `cancelled`：pending 终态（pending→failed / corrupt quarantine）。
+ * - `cancelled`：pending 终态（pending→failed / corrupt quarantine）；
+ *   Phase 1933 Step E 新增 `from: 'running_waiting'`——running/ 中无内存句柄的
+ *   持久等待任务（llm-wait 事实存在）按 pending 同款语义取消（通知 + move failed），
+ *   事实文件保留作证据。
  * - `pending_notification_failure`：pending 通知失败 —— 任务保留 pending 不移动、
  *   可重试，携带 path 与原始 error（formatErr）；不压成 cancelled。
  * - `race_lost_to_dispatch`：pending move ENOENT = dispatch 已抢先，非终态。
@@ -98,7 +102,7 @@ export type RunningCancelSettle =
 
 export type CancelOutcome =
   | { kind: 'running_cancelled'; taskId: FullTaskId; settle: RunningCancelSettle; terminal: 'converged' | 'not_observed' }
-  | { kind: 'cancelled'; from: 'pending' | 'pending_corrupt' }
+  | { kind: 'cancelled'; from: 'pending' | 'pending_corrupt' | 'running_waiting' }
   | { kind: 'pending_notification_failure'; taskId: FullTaskId; path: string; error: string }
   | { kind: 'race_lost_to_dispatch'; taskId: FullTaskId }
   | { kind: 'not_found'; taskId: TaskId };
@@ -323,6 +327,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       sendToolResult: this.sendToolResult,
       writeInboxAsync: this.writeInboxAsync,
       postProcessors: this.postProcessors,
+      // Phase 1933 Step E：LLM 等待 gate 透传（装配期注入；缺席时等待任务保持 waiting）
+      llmWaitGate: this.options.llmWaitGate,
     });
 
     // phase 1863 (AT-D4)：成功路径后冻结装配依赖面（三 setter 继续调用即 throw）。
@@ -1908,6 +1914,12 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       };
     }
 
+    // Phase 1933 Step E：running/ 中无内存句柄 = 可能是持久等待任务（进程重启后
+    // 句柄丢失，任务留 running 等 orchestrator gate 就绪）。等待事实存在 → 按
+    // pending 分支同款语义取消；无句柄且无等待事实 → 维持现状落到 not_found。
+    const waitingOutcome = await this._cancelWaitingTask(fullId, shortId);
+    if (waitingOutcome) return waitingOutcome;
+
     // 2. 再检查 pending（derive from fs）
     this.cancellingIds.add(fullId);
     try {
@@ -2048,6 +2060,104 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     } finally {
       this.cancellingIds.delete(fullId);
     }
+  }
+
+  /**
+   * Phase 1933 Step E：持久等待任务取消（running/ 中无内存句柄 + 磁盘 llm-wait
+   * 事实存在）。语义对齐 pending 分支：读出任务 → sendFallbackResult 通知（失败
+   * → 任务留 running、返回 pending_notification_failure 可重试）→ move
+   * running→failed；事实文件保留作证据（不清除）。
+   * 无等待事实（含损坏——损坏处置归恢复路径）→ undefined，caller 维持 not_found。
+   */
+  private async _cancelWaitingTask(fullId: FullTaskId, shortId: ShortTaskId): Promise<CancelOutcome | undefined> {
+    const runningPath = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+    if (!(await this.fs.exists(runningPath))) return undefined;
+    let waitLoad: Awaited<ReturnType<typeof loadLLMWait>>;
+    try {
+      waitLoad = await loadLLMWait(this.fs, `${TASKS_QUEUES_RESULTS_DIR}/${fullId}`);
+    } catch (e) {
+      // 读取失败不猜——留证并维持现状（不作 waiting 处置）
+      emitParseFailed(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        context: 'cancel_waiting_fact_load',
+        error: formatErr(e),
+      });
+      return undefined;
+    }
+    if (!waitLoad || waitLoad.kind !== 'ok') return undefined;
+
+    // 从盘读出以决定是否 sendFallbackResult（mirror pending 分支）
+    let task: SubAgentTask | ToolTask | undefined;
+    try {
+      const content = await this.fs.read(runningPath);
+      const parsed: unknown = JSON.parse(content);
+      if (validateTaskShape(parsed)) {
+        task = parsed as SubAgentTask | ToolTask;
+      }
+    } catch (e) {
+      // read/parse 失败 → 跳过通知，后续 move 仍尝试（mirror pending 分支）
+      emitParseFailed(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        context: 'cancel_waiting_load',
+        error: formatErr(e),
+      });
+    }
+
+    // Phase 906 语义保持：通知先于终态提交；通知失败留 running 可重试。
+    let notified = false;
+    let notifyError: string | undefined;
+    if (task) {
+      try {
+        await this.sendFallbackResult(this.fs, this.auditWriter, task, { schema_version: 1, content: 'Task cancelled while waiting for LLM recovery', isError: true }, { writeInboxAsync: this.writeInboxAsync });
+        notified = true;
+      } catch (e) {
+        notifyError = formatErr(e);
+        emitMoveFailed(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          context: 'cancel_notify_failed',
+          error: notifyError,
+        });
+      }
+    }
+    if (!notified && task) {
+      return { kind: 'pending_notification_failure', taskId: fullId, path: runningPath, error: notifyError ?? 'unknown' };
+    }
+
+    // 文件：running → failed（等待任务不误转 done）
+    let moveFailed = false;
+    let raceLost = false;
+    await this.fs.move(
+      runningPath,
+      `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`
+    ).catch((e) => {
+      if (isFileNotFound(e)) {
+        // ENOENT = 并发移除（如恢复路径刚唤醒重派）——mirror pending 分支 race 语义
+        raceLost = true;
+        emitTaskCancelRaceLostToDispatch(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
+      } else {
+        moveFailed = true;
+        emitMoveFailed(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          context: 'cancel_waiting_move',
+          error: formatErr(e),
+        });
+      }
+    });
+
+    if (moveFailed) {
+      // 语义不改写（mirror pending 分支）：move 非 ENOENT 失败维持 throw
+      throw new Error(`Cancel failed: cannot move task ${shortId} to failed`);
+    }
+    if (raceLost) {
+      return { kind: 'race_lost_to_dispatch', taskId: fullId };
+    }
+
+    emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'running_waiting' });
+    return { kind: 'cancelled', from: 'running_waiting' };
   }
 
   /**

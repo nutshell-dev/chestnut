@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import { randomUUID } from 'crypto';
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMOrchestratorOwner } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ContractSystem } from '../../src/core/contract/manager.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
@@ -22,8 +22,10 @@ export function makeTaskSystemDeps(
 ): Pick<AsyncTaskSystemOptions, 'taskExecutor' | 'deliverySink' | 'contractManager' | 'registry'> {
   return {
     // phase 1863 (AT-D5)：最小执行/交付面——测试默认装配（真实 adapter + 标准 sink）
+    // Phase 1933 Step E：deps.llm 类型为 LLMOrchestratorOwner；测试 fake 只实现
+    // LLMOrchestrator 子集（不触发共享故障分类时 snapshot() 不会被调用）。
     taskExecutor: createSubagentTaskExecutor({
-      llm: llm ?? ({} as unknown as LLMOrchestrator),
+      llm: (llm ?? {}) as unknown as LLMOrchestratorOwner,
       registry: makeTestRegistry(),
     }),
     deliverySink: createStandardDeliverySink(),

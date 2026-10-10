@@ -17,6 +17,7 @@ import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ProcessedTaskResult, DeliveryEvidence } from './result-delivery-types.js';
+import type { LLMWaitFact, LLMWaitGate } from './llm-wait-state.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
@@ -178,6 +179,12 @@ export interface AsyncTaskSystemOptions {
   writeInboxAsync?: WriteInboxAsync;
   /** 待处理队列容量上限。默认 PENDING_QUEUE_MAX (1000)。 */
   pendingQueueMax?: number;
+  /**
+   * Phase 1933 Step E：LLM 等待 gate（装配期注入；LLM 故障判定归 orchestrator，
+   * ATS 只消费结论）。透传至 initialize→recoverTasks；缺席时等待任务保持
+   * waiting（不静默转 failed/completed）。
+   */
+  llmWaitGate?: LLMWaitGate;
 }
 
 
@@ -233,6 +240,12 @@ export interface TaskExecutionOutcome {
   readonly sourceIsError: boolean;
   /** 失败分类（classifyTaskError 产物；成功时缺省）。 */
   readonly errorCategory?: string;
+  /**
+   * Phase 1933 Step E：executor 判定共享 LLM 故障（LLMAllProvidersFailedError）
+   * → 携带等待事实；core 负责持久化并把任务留在 running（不投递不终态），
+   * 唤醒仅经启动恢复路径（gate 就绪 → 回 pending 重调度）。
+   */
+  readonly waiting?: LLMWaitFact;
 }
 
 /**

@@ -165,6 +165,9 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       // phase 1872 Step F: parentStreamLog 构造参数一次固定（原
       // setParentStreamLog 构造后注入退役）；Phase 833 语义保持。
       parentStreamLog: streamWriter,
+      // Phase 1933 Step E：LLM 等待 gate——全部 provider breaker 关闭即可恢复。
+      // LLM 故障判定归 orchestrator（snapshot 是唯一事实面），ATS 只消费结论。
+      llmWaitGate: { canResume: () => llm.snapshot().providers.every(p => !p.breakerOpen) },
     });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);

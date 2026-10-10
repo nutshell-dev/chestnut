@@ -11,7 +11,12 @@ import * as nodePath from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { applyRestrictedOverrides } from '../foundation/tools/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { LLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
+import {
+  LLMAllProvidersFailedError,
+  LLM_RECOVERY_COOLDOWN_MS,
+} from '../foundation/llm-orchestrator/index.js';
+import { isAbortError } from '../foundation/llm-provider/index.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
 import type { PermissionChecker } from '../foundation/tool-protocol/index.js';
 import {
@@ -39,8 +44,13 @@ import type {
 } from '../core/async-task-system/index.js';
 
 export interface SubagentTaskExecutorDeps {
-  /** 执行业务装配（owner 注入；非 per-call infra）。 */
-  llm: LLMOrchestrator;
+  /**
+   * 执行业务装配（owner 注入；非 per-call infra）。
+   * Phase 1933 Step E：类型升级为 LLMOrchestratorOwner——共享故障判定时需
+   * snapshot() 计算等待事实的 nextProbeAt；runSubagent 只消费 LLMOrchestrator
+   * 子集，接口兼容。
+   */
+  llm: LLMOrchestratorOwner;
   registry: ToolRegistry;
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
@@ -65,6 +75,12 @@ function resolveTaskToolProfile(task: SubAgentTask, auditWriter: AuditLog): stri
   );
   return 'subagent';
 }
+
+/**
+ * Phase 1933 Step E：等待事实 scope——进程内 orchestrator 实例的 opaque 标识
+ * （ATS 不解析；故障状态本就不跨进程，scope 仅作证据关联）。
+ */
+const LLM_WAIT_SCOPE = 'claw-process' as const;
 
 export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): TaskExecutor {
   return {
@@ -132,6 +148,34 @@ export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): Task
           parent: task.parentClawId,
           error: errorMsg,
         });
+        // Phase 1933 Step E：共享 LLM 故障（全 provider 失败 = 进程内共享故障）
+        // → 不返回失败，而是携带等待事实（core 持久化并把任务留 running）。
+        // abort/取消与超时不是共享故障（context_exceeded 归 caller trim 同理），
+        // 走既有失败路径、不得携带 waiting。
+        if (error instanceof LLMAllProvidersFailedError && !isAbortError(error)) {
+          const nowMs = Date.now();
+          // nextProbeAt = open breakers 的 probeAllowedAtMs 最大值（全部可探测才
+          // 有意义）；无 open breaker 时取独立 cooldown 下界。判定数据归
+          // orchestrator snapshot，本 adapter 只消费结论。
+          const openProbeAts = deps.llm.snapshot().providers
+            .filter(p => p.breakerOpen && typeof p.probeAllowedAtMs === 'number')
+            .map(p => p.probeAllowedAtMs as number);
+          const nextProbeAt = openProbeAts.length > 0
+            ? Math.max(...openProbeAts)
+            : nowMs + LLM_RECOVERY_COOLDOWN_MS;
+          return {
+            content: errorMsg,
+            sourceIsError: true,
+            errorCategory: classifyTaskError(error),
+            waiting: {
+              scope: LLM_WAIT_SCOPE,
+              nextProbeAt,
+              recordedAt: nowMs,
+              expiresAt: nowMs + task.timeoutMs,
+              reason: errorMsg,
+            },
+          };
+        }
         return { content: errorMsg, sourceIsError: true, errorCategory: classifyTaskError(error) };
       }
     },

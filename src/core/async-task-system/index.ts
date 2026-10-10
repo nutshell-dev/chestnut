@@ -93,3 +93,7 @@ export { resolveTaskResultDir } from './task-query.js';
 
 // phase 1321: async-task-system 自有 stream 事件 const（分层拆件、恢复 1312 删的名）
 export { STREAM_TASK_EVENTS } from './stream-events.js';
+
+// Phase 1933 Step E：ATS 持久等待事实面（共享 LLM 故障等待的持久化/恢复契约）
+export { LLM_WAIT_FILE, persistLLMWait, loadLLMWait, clearLLMWait } from './llm-wait-state.js';
+export type { LLMWaitFact, LLMWaitGate, LLMWaitLoadResult } from './llm-wait-state.js';

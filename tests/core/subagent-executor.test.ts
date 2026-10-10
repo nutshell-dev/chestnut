@@ -78,7 +78,7 @@ function makeDeps() {
         close: vi.fn(),
         healthCheck: vi.fn().mockResolvedValue(true),
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      } as unknown as import('../../src/foundation/llm-orchestrator/index.js').LLMOrchestrator,
+      } as unknown as import('../../src/foundation/llm-orchestrator/index.js').LLMOrchestratorOwner,
       registry: {
         getAll: vi.fn().mockReturnValue([]),
         formatForLLM: vi.fn().mockReturnValue([]),

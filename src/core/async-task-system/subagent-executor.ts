@@ -12,6 +12,7 @@ import {
   emitResultDeliveryFailed,
   emitRecoveryFailed,
   emitTaskPostProcessorMissing,
+  emitLLMWaitPersisted,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -19,6 +20,7 @@ import {
   POST_PROCESS_INPUT_FILE,
 } from './dirs.js';
 import { createProcessedResultStore } from './processed-result-store.js';
+import { persistLLMWait } from './llm-wait-state.js';
 
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 
@@ -223,6 +225,34 @@ export async function executeSubAgentTask(
       sourceIsError: execution.sourceIsError,
     };
     const execErrorCategory = execution.errorCategory;
+
+    // Phase 1933 Step E：executor 判定共享 LLM 故障 → 持久化等待事实并把任务
+    // 留在 running（不投递、不终态、不写 post-process input——执行从未完成，
+    // 后续阶段产物不可能存在）。唤醒仅经启动恢复路径（gate 就绪 → 回 pending
+    // 重调度，续跑去重由 subagent checkpoint 保证）；进程内唤醒留后续 phase
+    // 接 EventLoop 恢复信号。
+    if (execution.waiting) {
+      try {
+        await persistLLMWait(fs, taskResultDir, execution.waiting);
+      } catch (waitErr) {
+        // 事实落盘失败 → 走既有 result-write-failed 留证并 return 留 running；
+        // 恢复路径按无等待事实的既有分支处置（不虚构等待状态）。
+        emitResultWriteFailed(auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          context: 'llm_wait_persist',
+          error: formatErr(waitErr),
+        });
+        return;
+      }
+      emitLLMWaitPersisted(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        scope: execution.waiting.scope,
+        nextProbeAt: execution.waiting.nextProbeAt,
+      });
+      return; // outcome 保持 undefined：任务留 running，不投递不终态
+    }
 
     // Phase 2 — persist durable post-process input. Failure leaves the task in
     // running; nothing has been committed yet, so recovery re-executes.

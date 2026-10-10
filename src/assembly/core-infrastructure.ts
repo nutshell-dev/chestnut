@@ -10,7 +10,7 @@ import { createSystemAudit, readWorkspaceAuditRetentionMaxSizeMb, type AuditLog 
 import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
-import { createLLMOrchestrator, createRecoverySession, type LLMOrchestrator, type LLMOrchestratorOwner, type LLMRecoverySession } from '../foundation/llm-orchestrator/index.js';
+import { createLLMOrchestrator, createRecoverySession, type LLMOrchestratorOwner, type LLMRecoverySession } from '../foundation/llm-orchestrator/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
 import { resolveLLMConfig, createUserPiAiCredentialStore } from './config/config-load.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
@@ -54,7 +54,8 @@ export interface CoreInfraOutput {
   auditWriter: AuditLog;
   processManager: ProcessManager;
   llmConfig: ReturnType<typeof resolveLLMConfig>;
-  llm: LLMOrchestrator;
+  /** Phase 1933 Step E：输出类型升级为 owner（赋值本就是 owner 实例；下游消费均为 LLMOrchestrator 子集用法）。 */
+  llm: LLMOrchestratorOwner;
   /** Phase 1826: 前台恢复 session（Runtime 用 session.llm，EventLoop 用调度面）。 */
   recoverySession: LLMRecoverySession;
   maxSteps: number | undefined;

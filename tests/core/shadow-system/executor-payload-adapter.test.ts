@@ -20,7 +20,7 @@ import type { SubAgentTask } from '../../../src/core/async-task-system/types.js'
 import type { Tool } from '../../../src/foundation/tools/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMOrchestratorOwner } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const { mockRunSubagent } = vi.hoisted(() => ({ mockRunSubagent: vi.fn() }));
 
@@ -79,7 +79,7 @@ describe('executor payload adapter (phase 1863 AT-D7)', () => {
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
       // phase 1863 (AT-D5)：执行经最小面（real adapter + runSubagent mock）；交付 stub
       taskExecutor: createSubagentTaskExecutor({
-        llm: {} as unknown as LLMOrchestrator,
+        llm: {} as unknown as LLMOrchestratorOwner,
         registry,
         executorPayloadAdapter: interpretShadowExecutorPayload,
         runSubagent: mockRunSubagent,

@@ -19,7 +19,11 @@ import {
   emitMigratedExecTermination,
   emitLegacyResultClassificationUnknown,
   emitTaskPostProcessorMissing,
+  emitLLMWaitResumed,
+  emitLLMWaitContinued,
+  emitLLMWaitExpired,
 } from './audit-emit.js';
+import { loadLLMWait, clearLLMWait, type LLMWaitGate } from './llm-wait-state.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
@@ -67,6 +71,11 @@ export interface RecoverTasksDeps {
   sendToolResult?: SendToolResult<ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
   postProcessors?: Map<string, import('./post-processors/types.js').PostProcessor>;
+  /**
+   * Phase 1933 Step E：LLM 等待 gate（装配期注入；判定归 orchestrator，ATS 只消费
+   * 结论）。缺席时等待任务保持 waiting——orchestrator 未就绪不静默转 failed/completed。
+   */
+  llmWaitGate?: LLMWaitGate;
 }
 
 async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
@@ -635,6 +644,98 @@ export async function recoverMigratedToolTask(
 }
 
 /**
+ * Phase 1933 Step E：持久等待事实恢复分支。
+ * 返回 handled=false = 无有效等待事实（缺席或损坏已处置），继续既有决策序。
+ */
+async function _recoverLLMWait(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, resultDir: string,
+): Promise<{ handled: boolean; recovered: number }> {
+  const load = await loadLLMWait(deps.fs, resultDir);
+  if (load === undefined) return { handled: false, recovered: 0 };
+
+  const fullTaskId = task.id as FullTaskId;
+  const shortTaskId = taskShortId(task);
+
+  if (load.kind === 'corrupt') {
+    // 损坏事实不猜——audit 留证 + 删除（防每次启动恢复死循环），随后 fall through
+    // 既有分支按无等待事实处置。
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'llm_wait_corrupt',
+      error: load.detail,
+    });
+    try {
+      await clearLLMWait(deps.fs, resultDir);
+    } catch (err) {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'llm_wait_corrupt_clear_failed',
+        error: formatErr(err),
+      });
+    }
+    return { handled: false, recovered: 0 };
+  }
+
+  const fact = load.fact;
+
+  // deadline 到期 → failed（deadline 不是成功；不误转 done、不投递成功）。
+  if (Date.now() > fact.expiresAt) {
+    emitLLMWaitExpired(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, expiresAt: fact.expiresAt });
+    try {
+      await clearLLMWait(deps.fs, resultDir);
+    } catch (err) {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'llm_wait_expired_clear_failed',
+        error: formatErr(err),
+      });
+    }
+    await _recoverToFailed(deps, filePath, task, 'llm_wait_expired', 'llm_wait_expired_move_failed');
+    return { handled: true, recovered: 0 };
+  }
+
+  // gate 缺席（orchestrator 未注入/未就绪）→ 保持 waiting：不静默转 failed/completed。
+  if (!deps.llmWaitGate) {
+    emitLLMWaitContinued(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, nextProbeAt: fact.nextProbeAt, reason: 'gate_absent' });
+    return { handled: true, recovered: 0 };
+  }
+  if (!deps.llmWaitGate.canResume(fact.scope)) {
+    emitLLMWaitContinued(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, nextProbeAt: fact.nextProbeAt, reason: 'gate_not_ready' });
+    return { handled: true, recovered: 0 };
+  }
+
+  // gate 就绪 → 清事实 + 回 pending 重调度（续跑去重由 subagent checkpoint 保证，
+  // Phase 1933 Step D）。先清事实后 move：move 失败留 running，下次恢复无事实
+  // 走 _recoverWithoutResult 同样回 pending，语义收敛一致；清事实失败则不 move
+  // （防下次恢复再次唤醒重派），留 running 待下次重试。
+  try {
+    await clearLLMWait(deps.fs, resultDir);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'llm_wait_resume_clear_failed',
+      error: formatErr(err),
+    });
+    return { handled: true, recovered: 0 };
+  }
+  let recovered = 1;
+  await deps.fs.move(filePath, `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`)
+    .then(() => {
+      emitLLMWaitResumed(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope });
+    })
+    .catch(async (moveErr) => {
+      recovered = 0; // move failed — not recovered
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'llm_wait_resume_move_failed',
+        error: formatErr(moveErr),
+      });
+      // Keep running file — next recovery will retry the move back to pending.
+    });
+  return { handled: true, recovered };
+}
+
+/**
  * Phase 1396 Step L: recovery decision order is fixed —
  *   sent marker → committed envelope → durable input → Step J intermediate →
  *   no result.
@@ -650,6 +751,13 @@ async function _recoverSubAgentTask(
   const store = createProcessedResultStore(deps.fs);
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   const inputPath = `${resultDir}/${POST_PROCESS_INPUT_FILE}`;
+
+  // Phase 1933 Step E：等待分支置于决策序最前——等待事实存在时任务从未完成
+  // 执行（executor 判定共享 LLM 故障后持久化等待即 return），sent marker /
+  // committed envelope / durable input 等后续分支的产物不可能存在。
+  const waitOutcome = await _recoverLLMWait(deps, filePath, task, resultDir);
+  if (waitOutcome.handled) return waitOutcome.recovered;
+
   const alreadySent = await deps.fs.exists(SENT_MARKER(task.id));
 
   if (alreadySent) {

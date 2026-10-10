@@ -60,4 +60,9 @@ export const TASK_AUDIT_EVENTS = {
   POST_PROCESSOR_DEFERRED: 'task_post_processor_deferred', // Phase 1396 Step J
   TASK_POSTPROCESSOR_MISSING: 'task_post_processor_missing', // phase 1863 (AT-D14)
   LEGACY_RESULT_CLASSIFICATION_UNKNOWN: 'legacy_result_classification_unknown', // Phase 1396 Step L
+  // Phase 1933 Step E：ATS 持久等待（共享 LLM 故障）生命周期留痕
+  TASK_LLM_WAIT_PERSISTED: 'task_llm_wait_persisted',   // executor 判定共享故障 → 等待事实落盘、任务留 running
+  TASK_LLM_WAIT_RESUMED: 'task_llm_wait_resumed',       // 恢复路径 gate 就绪 → 清事实、回 pending 重调度
+  TASK_LLM_WAIT_CONTINUED: 'task_llm_wait_continued',   // 恢复路径 gate 未就绪/缺席 → 保持 waiting
+  TASK_LLM_WAIT_EXPIRED: 'task_llm_wait_expired',       // 等待 deadline 到期 → failed（不误转成功）
 } as const;

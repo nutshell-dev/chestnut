@@ -92,6 +92,14 @@ const ALLOWED_EXPORTS: readonly string[] = [
   // 审计/事件注册面
   'TASK_AUDIT_EVENTS',
   'STREAM_TASK_EVENTS',
+  // Phase 1933 Step E：持久等待事实面（装配注入 gate / executor 与测试消费）
+  'LLMWaitFact',
+  'LLMWaitGate',
+  'LLMWaitLoadResult',
+  'LLM_WAIT_FILE',
+  'clearLLMWait',
+  'loadLLMWait',
+  'persistLLMWait',
   // legacy 契约
   'LegacySummonDecisionV1',
 ].sort();
