@@ -37,6 +37,7 @@ export type {
   RecoveryCallScope,
   RecoveryFailureInput,
   RecoverySessionDeps,
+  SharedRecoveryDecision,
 } from './recovery.js';
 export {
   LLM_RECOVERY_STATE_FILE,

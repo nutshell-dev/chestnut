@@ -89,6 +89,20 @@ export interface LLMRecoverySignal {
 }
 
 /**
+ * Phase 1934 Step C（F-11/F-02）：共享恢复判据——provider 故障分类、候选准入、
+ * 探针安排与可恢复结论唯一归 LLMOrchestrator；调用方（Assembly/ATS/EventLoop）
+ * 只消费结论，不得解释 breaker/snapshot。实例内状态，不跨进程。
+ * - ready：存在无共享故障记录的合法候选（任一候选可用即可按既有 fallback 顺序服务）；
+ * - at：全部候选被阻断，nextProbeAt 为 owner 下界（含 typed Retry-After / breaker
+ *   弹回 / 退避常量）的最早可验证时刻；
+ * - on_change：全部候选等待配置变化（permanent），不定时轮询。
+ */
+export type SharedRecoveryDecision =
+  | { kind: 'ready' }
+  | { kind: 'at'; nextProbeAt: number }
+  | { kind: 'on_change' };
+
+/**
  * 具备 scoped 恢复能力的 owner 实例（工厂返回类型）。
  * 公共 call/stream 消费者仍只要求既有最小接口。
  */
@@ -111,6 +125,12 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal
    * 结果经返回值表达（不抛业务错）。
    */
   probe(): Promise<LLMProbeResult>;
+  /**
+   * Phase 1934 Step C：共享恢复判据的唯一查询面（副作用自由、不触发 breaker
+   * 状态转移）。普通调用成功不解除已发布 shared blocked——只有探针验证成功
+   * 或配置变化（reloadConfig）清除共享故障记录。
+   */
+  getSharedRecoveryDecision(): SharedRecoveryDecision;
 }
 
 /**

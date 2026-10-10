@@ -166,11 +166,11 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       // phase 1872 Step F: parentStreamLog 构造参数一次固定（原
       // setParentStreamLog 构造后注入退役）；Phase 833 语义保持。
       parentStreamLog: streamWriter,
-      // Phase 1933 Step E：LLM 等待 gate——全部 provider breaker 关闭即可恢复。
-      // LLM 故障判定归 orchestrator（snapshot 是唯一事实面），ATS 只消费结论。
-      waitGate: { canResume: () => llm.snapshot().providers.every(p => !p.breakerOpen) },
-      // Phase 1933 Step F：等待事实落盘后通知 orchestrator 安排进程内探针
-      // （实例内单一调度，不跨进程；重复安排替换取最新）。
+      // Phase 1934 Step C：LLM 等待 gate——只映射 owner 共享恢复判据（ready 即可
+      // 恢复），Assembly 不再解释 breaker/snapshot。
+      waitGate: { canResume: () => llm.getSharedRecoveryDecision().kind === 'ready' },
+      // Phase 1933 Step F / 1934 Step C：等待事实落盘后通知 orchestrator 安排进程内
+      // 探针（实例内单一调度；owner 下界钳制，on_change 不定时轮询）。
       onWaitScheduled: (fact) => { llm.scheduleProbe(fact.nextProbeAt); },
     });
   } catch (e) {

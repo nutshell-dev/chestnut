@@ -12,7 +12,8 @@ import {
   LLMAllProvidersFailedError,
   classifyLLMError,
   getUserActionHint,
-  getRetryAfterSec } from './errors.js';
+  getRetryAfterSec,
+  type LLMErrorClass } from './errors.js';
 // Phase 186: ContextTrimExhaustedError from L4 ContextManager — we avoid direct L2→L4 import
 // per architecture layer rules, and duck-type via error.name instead of instanceof.
 const CONTEXT_TRIM_EXHAUSTED_ERROR_NAME = 'ContextTrimExhaustedError';
@@ -27,7 +28,7 @@ import type {
   LLMProviderSnapshotEntry,
   LLMRuntimeCapability,
   LLMStreamChunk } from './types.js';
-import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput } from './recovery.js';
+import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput, SharedRecoveryDecision } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { LLMCircuitBreakerOpenError } from './errors.js';
 import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
@@ -36,7 +37,7 @@ import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 import { formatErr } from '../node-utils/index.js';  // Phase 1933 Step B: probe 结果错误摘要
-import { LLM_RECOVERY_COOLDOWN_MS } from './defaults.js';  // Phase 1933 Step F: 无 open breaker 时的探针退避下界
+import { LLM_RECOVERY_COOLDOWN_MS, LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS } from './defaults.js';  // Phase 1933 Step F / 1934 Step C: 共享恢复安排下界常量
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -61,6 +62,19 @@ const DEFAULT_STREAM_IDLE_PROBE_TIMEOUT_MS = 5_000;
 interface CallLimits {
   maxAttempts: number;
   allowBreakerProbe: boolean;
+}
+
+/**
+ * Phase 1934 Step C：单个候选的共享故障记录（orchestrator 内部实现细节）。
+ * floorMs 为 owner 时间下界：rate_limit 用 typed Retry-After（秒×1000）；quota 用
+ * 既有退避常量初值；transient/unknown 用 breaker resetTimeoutMs（无 breaker 配置时
+ * 用独立 cooldown 下界，防空转探测环）；permanent 无时间下界（等待配置变化）。
+ * epoch 为故障代次：每次新失败 +1，probe 在途期间到达的新故障使旧 probe 结果失效。
+ */
+interface SharedFailureRecord {
+  errorClass: LLMErrorClass;
+  floorMs?: number;
+  epoch: number;
 }
 
 const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
@@ -134,6 +148,17 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   private scheduleTimer?: ReturnType<typeof setTimeout>;
   private scheduleGeneration = 0;
   private closed = false;
+
+  /**
+   * Phase 1934 Step C（F-11/F-02）：共享故障记录——按候选身份指纹（非显示名）键控的
+   * owner 唯一恢复判据。普通 call/stream 的聚合失败在此记账；仅探针验证成功或
+   * 配置变化（reloadConfig 清记录 + 代次推进）可清除。实例内存态，不跨进程。
+   */
+  private sharedFailures = new Map<string, SharedFailureRecord>();
+  /** 配置代次：reloadConfig 单调 +1；旧代次 probe 结果不得清新状态/投递唤醒。 */
+  private configGeneration = 0;
+  /** 在途探针的取消句柄（close 时 abort；finally 清空）。 */
+  private probeAbort: AbortController | null = null;
 
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
@@ -401,12 +426,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   }
 
   /**
-   * Phase 1933 Step B：独立探针。
+   * Phase 1933 Step B / 1934 Step C：独立探针。
    *
    * - 实例内单一调度：并发/重入调用返回同一 promise（inflightProbe，finally 清空）。
-   * - 真实探测：对 primary 做一次真实最小调用（maxAttempts=1），直接走
-   *   _tryCallProvider——不经过 _callCore 的 breaker 拦截判定，因此 breaker open
-   *   时仍可探测；成功/失败自然按既有语义记账 breaker（不新增 noteFailure 类副作用）。
+   * - 每次指定一个候选（禁止 fallback 掩盖目标失败）：优先验证已到点的故障候选，
+   *   其次任一非永久故障候选，无故障记录时默认 primary（健康检查语义）。
+   * - 真实探测：直接走 _tryCallProvider（不经过 _callCore 的 breaker 拦截判定），
+   *   成功/失败自然按既有语义记账 breaker；失败另记共享故障（推进下界）。
+   * - 探针请求无工具/用户上下文；预算取目标配置合法 maxTokens（缺省省略，取消
+   *   硬编码 1）；带目标配置 timeoutMs 的有界 timeout；close 取消在途。
    * - 不重试、不级联 fallback；结果经返回值表达（不抛业务错）。
    */
   probe(): Promise<LLMProbeResult> {
@@ -417,18 +445,76 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return this.inflightProbe;
   }
 
+  /** 探针目标选择：每次恰好一个候选（依次验证语义由调度器续探承担）。 */
+  private pickProbeTarget(): { adapter: LLMProvider; breakerIndex: number; isFallback: boolean; identity: string } {
+    const adapters = [this.primary, ...this.fallbacks];
+    const entry = (i: number) => ({
+      adapter: adapters[i],
+      breakerIndex: i,
+      isFallback: i > 0,
+      identity: this.providerIds[i] ?? `unknown:${adapters[i].name}`,
+    });
+    const now = Date.now();
+    // 已到点的故障候选优先（按既有 fallback 顺序依次验证）
+    for (let i = 0; i < adapters.length; i++) {
+      const record = this.sharedFailures.get(entry(i).identity);
+      if (!record || record.errorClass === 'permanent') continue;
+      if (this.sharedFailureFloorMs(i, record) <= now) return entry(i);
+    }
+    // 无到点候选：任一非永久故障候选（手动 probe 语义）
+    for (let i = 0; i < adapters.length; i++) {
+      const record = this.sharedFailures.get(entry(i).identity);
+      if (record && record.errorClass !== 'permanent') return entry(i);
+    }
+    // 无故障记录：默认探测 primary
+    return entry(0);
+  }
+
+  /** 候选的共享故障时间下界：owner 记录下界与本地 breaker 弹回时刻取 max（只读）。 */
+  private sharedFailureFloorMs(index: number, record: SharedFailureRecord): number {
+    return Math.max(record.floorMs ?? 0, this.breakers[index]?.probeAllowedAtMs() ?? 0);
+  }
+
   /** 探针的真实执行体（单一实例；并发去重由 probe() 保证）。 */
   private async _runProbe(): Promise<LLMProbeResult> {
     const probedAtMs = Date.now();
+    const generation = this.configGeneration;
+    const target = this.pickProbeTarget();
+    const epoch = this.sharedFailures.get(target.identity)?.epoch ?? 0;
+    const targetConfig = target.breakerIndex === 0
+      ? this.config.primary
+      : this.config.fallbacks?.[target.breakerIndex - 1];
+    this.probeAbort = new AbortController();
     const probeOptions: LLMCallOptions = {
       messages: [{ role: 'user', content: 'ping' }],
-      maxTokens: 1,  // 最小可行输出
+      signal: this.probeAbort.signal,
+      ...(targetConfig?.maxTokens !== undefined ? { maxTokens: targetConfig.maxTokens } : {}),
+      ...(targetConfig?.timeoutMs !== undefined ? { hardTimeoutMs: targetConfig.timeoutMs } : {}),
     };
     try {
-      await this._tryCallProvider(this.primary, 0, false, probeOptions, 1);
-      return { ok: true, provider: this.primary.name, probedAtMs };
+      await this._tryCallProvider(target.adapter, target.breakerIndex, target.isFallback, probeOptions, 1);
+      // 旧配置/旧故障代次的迟到成功不得清新状态（普通成功同样不清——见 call/stream 路径）
+      if (generation === this.configGeneration) {
+        const current = this.sharedFailures.get(target.identity);
+        if (current && current.epoch === epoch) this.sharedFailures.delete(target.identity);
+      }
+      return { ok: true, provider: target.adapter.name, probedAtMs };
     } catch (err) {
-      return { ok: false, provider: this.primary.name, probedAtMs, error: formatErr(err) };
+      const e = err as Error;
+      // 探针失败推进共享故障下界（close/旧配置代次的迟到失败不记账）
+      if (!this.closed && generation === this.configGeneration) {
+        this.noteSharedFailures([{ provider: target.adapter.name, error: e }]);
+      }
+      return {
+        ok: false,
+        provider: target.adapter.name,
+        probedAtMs,
+        error: formatErr(e),
+        errorClass: classifyLLMError(e),
+        ...(getRetryAfterSec(e) !== undefined ? { retryAfterSec: getRetryAfterSec(e) } : {}),
+      };
+    } finally {
+      this.probeAbort = null;
     }
   }
 
@@ -441,15 +527,30 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   }
 
   /**
-   * Phase 1933 Step F：安排在 atMs（ms epoch）发起一次独立探针；重复调用替换
-   * 既有安排（取最新）。探针成功 → 投递就绪信号（listener 异常不扩散）；失败 →
-   * 按 computeNextProbeAt() 下界（open breakers 的 probeAllowedAtMs 最大值，含
-   * 本地退避/Retry-After 已由 breaker 记账覆盖的部分；无 open breaker 时独立
-   * cooldown）自动安排下一次。close 后调用为 no-op。探针不直接执行任务——唤醒
-   * 动作由 ready 信号的消费方（ATS）承担。
+   * Phase 1933 Step F / 1934 Step C：安排在 atMs（ms epoch）发起一次独立探针；
+   * 重复调用替换既有安排（取最新）。
+   * - owner 下界钳制：decision 为 at 时生效时刻取 max(atMs, nextProbeAt)，caller
+   *   传过去时间不能绕过 typed Retry-After / breaker 弹回下界；on_change（全候选
+   *   等待配置变化）不定时轮询，既有安排一并取消。
+   * - 到点后由 owner 判据驱动：未到下界重排；到点依次验证候选（每探针一个候选），
+   *   探针结果体现在共享故障记录上——任何允许候选验证成功（decision 转 ready）
+   *   后投递就绪信号（listener 异常不扩散）；仍阻断则按 owner 下界自动安排下一次。
+   * - close 后调用为 no-op；旧配置代次的探针结果不投递、不重排。
+   * 探针不直接执行任务——唤醒动作由 ready 信号的消费方（ATS）承担。
    */
   scheduleProbe(atMs: number): void {
     if (this.closed) return;
+    const decision = this.getSharedRecoveryDecision();
+    if (decision.kind === 'on_change') {
+      // permanent 等待配置变化：不定时轮询
+      this.scheduleGeneration += 1;
+      if (this.scheduleTimer !== undefined) {
+        clearTimeout(this.scheduleTimer);
+        this.scheduleTimer = undefined;
+      }
+      return;
+    }
+    const effectiveAtMs = decision.kind === 'at' ? Math.max(atMs, decision.nextProbeAt) : atMs;
     const generation = ++this.scheduleGeneration;
     if (this.scheduleTimer !== undefined) {
       clearTimeout(this.scheduleTimer);
@@ -458,33 +559,86 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.scheduleTimer = setTimeout(() => {
       this.scheduleTimer = undefined;
       if (generation !== this.scheduleGeneration || this.closed) return;
-      // 与进行中探针去重合并：成功投递/失败重排由首发 continuation 承担（防重复唤醒）。
+      const fireGeneration = this.configGeneration;
+      const fireDecision = this.getSharedRecoveryDecision();
+      if (fireDecision.kind === 'on_change') return;
+      if (fireDecision.kind === 'at' && fireDecision.nextProbeAt > Date.now()) {
+        // 下界被后续故障推后：重排到 owner 下界（不到点不空探）
+        this.scheduleProbe(fireDecision.nextProbeAt);
+        return;
+      }
+      // 与进行中探针去重合并：发布/重排由首发 continuation 承担（防重复唤醒）。
       const mergedIntoInflight = this.inflightProbe !== null;
-      void this.probe().then((result) => {
-        if (this.closed || mergedIntoInflight) return;
-        if (result.ok) {
+      void this.probe().then(() => {
+        if (this.closed || mergedIntoInflight || fireGeneration !== this.configGeneration) return;
+        const d = this.getSharedRecoveryDecision();
+        if (d.kind === 'ready') {
           for (const listener of this.readyListeners) {
             try { listener(); } catch { /* silent: 唤醒投递 fail-soft——单个 listener 失败不扩散，探针状态不受影响 */ }
           }
-        } else {
-          this.scheduleProbe(this.computeNextProbeAt());
+        } else if (d.kind === 'at') {
+          this.scheduleProbe(d.nextProbeAt);
         }
       });
-    }, Math.max(0, atMs - Date.now()));
+    }, Math.max(0, effectiveAtMs - Date.now()));
   }
 
   /**
-   * Phase 1933 Step F：下一次探针的最早时刻下界——snapshot() 中 open breakers
-   * 的 probeAllowedAtMs 最大值（全部可探测才有意义）；无 open breaker 时取独立
-   * cooldown。只读判定，不触发 breaker 状态转移。
+   * Phase 1934 Step C：共享恢复判据的唯一解释点（F-11/F-02）。
+   * 任一候选无共享故障记录 → ready（按既有 fallback 顺序即可服务）；全部候选被
+   * 阻断时，非永久候选的最早下界为 nextProbeAt（min 语义——调度器依次验证候选，
+   * 任一允许候选成功后即 ready）；全永久 → on_change（等待配置变化，不定时轮询）。
+   * 只读判定：不触发 breaker 状态转移（probeAllowedAtMs 纯查询），不发事件、不写盘。
    */
-  private computeNextProbeAt(): number {
-    const openProbeAts = this.snapshot().providers
-      .filter(p => p.breakerOpen && p.probeAllowedAtMs !== undefined)
-      .map(p => p.probeAllowedAtMs as number);
-    return openProbeAts.length > 0
-      ? Math.max(...openProbeAts)
-      : Date.now() + LLM_RECOVERY_COOLDOWN_MS;
+  getSharedRecoveryDecision(): SharedRecoveryDecision {
+    const adapters = [this.primary, ...this.fallbacks];
+    let minAtMs: number | undefined;
+    let hasTimedBlock = false;
+    for (let i = 0; i < adapters.length; i++) {
+      const identity = this.providerIds[i];
+      const record = identity !== undefined ? this.sharedFailures.get(identity) : undefined;
+      if (!record) return { kind: 'ready' };
+      if (record.errorClass === 'permanent') continue;
+      hasTimedBlock = true;
+      const floorMs = this.sharedFailureFloorMs(i, record);
+      minAtMs = minAtMs === undefined ? floorMs : Math.min(minAtMs, floorMs);
+    }
+    if (hasTimedBlock) return { kind: 'at', nextProbeAt: minAtMs ?? Date.now() };
+    return { kind: 'on_change' };
+  }
+
+  /**
+   * Phase 1934 Step C：共享故障记账的唯一写入口（普通 call/stream 聚合失败与
+   * 探针失败共用）。按候选身份指纹键控；仅被本地 breaker 跳过的候选（未发生真实
+   * 请求）不记账；context_exceeded/abort 是请求局部错误，不进共享故障状态。
+   * 普通调用成功不在此清除——解除已发布 shared blocked 唯一归探针验证/配置变化。
+   */
+  private noteSharedFailures(failures: ReadonlyArray<{ provider: string; error: Error }>): void {
+    const nowMs = Date.now();
+    const adapters = [this.primary, ...this.fallbacks];
+    for (const f of failures) {
+      if (f.error instanceof LLMCircuitBreakerOpenError) continue;  // localSkip：未发生真实请求
+      const errorClass = classifyLLMError(f.error);
+      if (errorClass === 'context_exceeded' || errorClass === 'abort') continue;
+      const index = adapters.findIndex((p) => p.name === f.provider);
+      if (index < 0) continue;
+      const identity = this.providerIds[index];
+      if (identity === undefined) continue;
+      const retryAfterSec = getRetryAfterSec(f.error);
+      const floorMs = errorClass === 'permanent'
+        ? undefined
+        : errorClass === 'rate_limit' && retryAfterSec !== undefined
+          ? nowMs + retryAfterSec * 1000
+          : errorClass === 'quota'
+            ? nowMs + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS
+            : nowMs + (this.config.circuitBreaker?.resetTimeoutMs ?? LLM_RECOVERY_COOLDOWN_MS);
+      const prev = this.sharedFailures.get(identity);
+      this.sharedFailures.set(identity, {
+        errorClass,
+        ...(floorMs !== undefined ? { floorMs } : {}),
+        epoch: (prev?.epoch ?? 0) + 1,
+      });
+    }
   }
 
   /** Phase 1826: 把最终失败转成 owner 策略输入（含 typed Retry-After 与本地跳过标记）。 */
@@ -531,8 +685,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       scope?.noteSuccess();
       return response;
     } catch (error) {
-      if (scope && error instanceof LLMAllProvidersFailedError) {
-        scope.noteFailure(this.toRecoveryFailures(error.failures));
+      if (error instanceof LLMAllProvidersFailedError) {
+        // Phase 1934 Step C：共享故障记账与 scope 会话反馈独立——无 scope 的裸调用
+        // 同样推进 owner 共享判据（ATS/EventLoop 消费同一结论）。
+        this.noteSharedFailures(error.failures);
+        scope?.noteFailure(this.toRecoveryFailures(error.failures));
       }
       throw error;
     } finally {
@@ -655,8 +812,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     try {
       yield* this._streamCore(options, limits);
     } catch (error) {
-      if (scope && error instanceof LLMAllProvidersFailedError) {
-        scope.noteFailure(this.toRecoveryFailures(error.failures));
+      if (error instanceof LLMAllProvidersFailedError) {
+        this.noteSharedFailures(error.failures);
+        scope?.noteFailure(this.toRecoveryFailures(error.failures));
       }
       throw error;
     }
@@ -1466,14 +1624,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 再走既有 provider/cache 关闭语义（原行为不变）。
    */
   async close(): Promise<void> {
-    // Phase 1933 Step F：幂等取消进程内探针调度——timer 清除 + generation 作废
-    // （进行中的探针完成后见 closed 不投递）；先取消再走既有 provider/cache 关闭。
+    // Phase 1933 Step F / 1934 Step C：幂等取消进程内探针调度——timer 清除 +
+    // generation 作废 + 在途探针 abort（进行中的探针见 closed 不记账不投递）；
+    // 先取消再走既有 provider/cache 关闭。
     this.closed = true;
     this.scheduleGeneration += 1;
     if (this.scheduleTimer !== undefined) {
       clearTimeout(this.scheduleTimer);
       this.scheduleTimer = undefined;
     }
+    this.probeAbort?.abort();
     const allToClose = [...this.sdkClientCache.values(), ...this.pendingClose];
     const results = await Promise.allSettled(allToClose.map((provider) => {
       // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider
@@ -1546,6 +1706,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
     // 配置已替换 → 上次成功的 provider 信息不再有效
     this.lastSuccessProvider = null;
+
+    // Phase 1934 Step C：配置代次推进 + 共享故障记录清除（与 breakers 重建同语义——
+    // 新配置身份重新评估）；旧配置代次的在途探针结果不得清新状态/投递唤醒。
+    this.configGeneration += 1;
+    this.sharedFailures.clear();
   }
 }
 

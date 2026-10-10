@@ -22,8 +22,9 @@ export function makeTaskSystemDeps(
 ): Pick<AsyncTaskSystemOptions, 'taskExecutor' | 'deliverySink' | 'contractManager' | 'registry'> {
   return {
     // phase 1863 (AT-D5)：最小执行/交付面——测试默认装配（真实 adapter + 标准 sink）
-    // Phase 1933 Step E：deps.llm 类型为 LLMOrchestratorOwner；测试 fake 只实现
-    // LLMOrchestrator 子集（不触发共享故障分类时 snapshot() 不会被调用）。
+    // Phase 1933 Step E / 1934 Step C：deps.llm 类型为 LLMOrchestratorOwner；测试 fake
+    // 只实现 LLMOrchestrator 子集（不触发共享故障分类时 getSharedRecoveryDecision()
+    // 不会被调用）。
     taskExecutor: createSubagentTaskExecutor({
       llm: (llm ?? {}) as unknown as LLMOrchestratorOwner,
       registry: makeTestRegistry(),

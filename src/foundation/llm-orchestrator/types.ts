@@ -182,12 +182,18 @@ export interface LLMInstanceSnapshot {
 
 /**
  * Phase 1933：独立探针结果。ok=false 时 error 为显示摘要。
+ * Phase 1934 Step C：保留失败分类与 typed Retry-After（替代只有 error 字符串），
+ * 调用方不得从 error 文本推导策略。
  */
 export interface LLMProbeResult {
   ok: boolean;
   provider: string;            // 实际探测的 provider
   probedAtMs: number;
   error?: string;
+  /** 失败分类（ok=true 时缺省）。 */
+  errorClass?: LLMErrorClass;
+  /** typed Retry-After（秒；仅 rate_limit 且服务端给出时存在）。 */
+  retryAfterSec?: number;
 }
 
 /**

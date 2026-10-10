@@ -23,9 +23,8 @@ import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
 import {
   LLMAllProvidersFailedError,
-  LLM_RECOVERY_COOLDOWN_MS,
-  type LLMInstanceSnapshot,
   type LLMOrchestratorOwner,
+  type SharedRecoveryDecision,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import { LLMContextExceededError, makeExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
 import { makeTaskSystemDeps, makeTestRegistry } from '../../helpers/task-system.js';
@@ -323,8 +322,11 @@ describe('Step E-5: waiting 任务 cancelDetailed → 通知 + failed，不 not_
 });
 
 // ─── 6. executor 分类（createSubagentTaskExecutor 直测） ────────────────────
-describe('Step E-6: executor 分类——共享故障携带 waiting，abort/context_exceeded 不携带', () => {
-  function makeOwnerLlm(snapshot: LLMInstanceSnapshot): LLMOrchestratorOwner {
+// Phase 1934 Step C：nextProbeAt 语义从「snapshot max(probeAllowedAtMs)/cooldown」
+// 改为「消费 owner getSharedRecoveryDecision() 结论」——本组断言随之迁移（不断言
+// 被移除的 Assembly 侧计算）。
+describe('Step E-6: executor 分类——共享故障携带 waiting（owner 决定），abort/context_exceeded 不携带', () => {
+  function makeOwnerLlm(decision: SharedRecoveryDecision): LLMOrchestratorOwner {
     return {
       call: vi.fn(),
       stream: vi.fn(),
@@ -333,16 +335,17 @@ describe('Step E-6: executor 分类——共享故障携带 waiting，abort/cont
       getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
       resetLastSuccessProvider: vi.fn(),
       reloadConfig: vi.fn(),
-      snapshot: vi.fn().mockReturnValue(snapshot),
+      snapshot: vi.fn(),
       probe: vi.fn(),
       callWithinRecovery: vi.fn(),
       streamWithinRecovery: vi.fn(),
+      getSharedRecoveryDecision: vi.fn().mockReturnValue(decision),
     } as unknown as LLMOrchestratorOwner;
   }
 
-  function makeExecutorRun(error: unknown, snapshot: LLMInstanceSnapshot) {
+  function makeExecutorRun(error: unknown, decision: SharedRecoveryDecision) {
     const executor = createSubagentTaskExecutor({
-      llm: makeOwnerLlm(snapshot),
+      llm: makeOwnerLlm(decision),
       registry: makeTestRegistry(),
       runSubagent: vi.fn().mockRejectedValue(error) as never,
     });
@@ -360,15 +363,9 @@ describe('Step E-6: executor 分类——共享故障携带 waiting，abort/cont
     { provider: 'p1', error: new Error('boom') },
   ]);
 
-  it('LLMAllProvidersFailedError + open breakers → waiting.nextProbeAt = 最大 probeAllowedAtMs', async () => {
+  it('LLMAllProvidersFailedError + owner 判 at → waiting.nextProbeAt = owner 下界', async () => {
     const now = Date.now();
-    const outcome = await makeExecutorRun(allFailed(), {
-      takenAtMs: now,
-      providers: [
-        { provider: 'p1', isFallback: false, breakerOpen: true, openCause: 'transient', consecutiveFailures: 3, probeAllowedAtMs: now + 30_000 },
-        { provider: 'p2', isFallback: true, breakerOpen: true, openCause: 'transient', consecutiveFailures: 2, probeAllowedAtMs: now + 90_000 },
-      ],
-    });
+    const outcome = await makeExecutorRun(allFailed(), { kind: 'at', nextProbeAt: now + 90_000 });
     expect(outcome.sourceIsError).toBe(true);
     expect(outcome.waiting).toBeDefined();
     expect(outcome.waiting!.scope).toBe('claw-process');
@@ -376,34 +373,34 @@ describe('Step E-6: executor 分类——共享故障携带 waiting，abort/cont
     expect(outcome.waiting!.expiresAt - outcome.waiting!.recordedAt).toBe(SUBAGENT_SHORT_TIMEOUT_MS);
   });
 
-  it('LLMAllProvidersFailedError + 无 open breaker → nextProbeAt = now + LLM_RECOVERY_COOLDOWN_MS', async () => {
-    const before = Date.now();
-    const outcome = await makeExecutorRun(allFailed(), {
-      takenAtMs: before,
-      providers: [
-        { provider: 'p1', isFallback: false, breakerOpen: false, openCause: null, consecutiveFailures: 0 },
-      ],
-    });
-    const after = Date.now();
+  it('LLMAllProvidersFailedError + owner 判 at（下界已过）→ nextProbeAt 钳制不早于 recordedAt', async () => {
+    const now = Date.now();
+    const outcome = await makeExecutorRun(allFailed(), { kind: 'at', nextProbeAt: now - 1_000 });
     expect(outcome.waiting).toBeDefined();
-    expect(outcome.waiting!.nextProbeAt).toBeGreaterThanOrEqual(before + LLM_RECOVERY_COOLDOWN_MS);
-    expect(outcome.waiting!.nextProbeAt).toBeLessThanOrEqual(after + LLM_RECOVERY_COOLDOWN_MS);
+    expect(outcome.waiting!.nextProbeAt).toBe(outcome.waiting!.recordedAt);
+  });
+
+  it('LLMAllProvidersFailedError + owner 判 on_change → waiting（不定时轮询，nextProbeAt = recordedAt）', async () => {
+    const outcome = await makeExecutorRun(allFailed(), { kind: 'on_change' });
+    expect(outcome.sourceIsError).toBe(true);
+    expect(outcome.waiting).toBeDefined();
+    expect(outcome.waiting!.nextProbeAt).toBe(outcome.waiting!.recordedAt);
+  });
+
+  it('LLMAllProvidersFailedError + owner 判 ready → 不携带 waiting（共享面无可等待故障）', async () => {
+    const outcome = await makeExecutorRun(allFailed(), { kind: 'ready' });
+    expect(outcome.sourceIsError).toBe(true);
+    expect(outcome.waiting).toBeUndefined();
   });
 
   it('abort（ExternalAbortError）→ 不携带 waiting（走失败路径）', async () => {
-    const outcome = await makeExecutorRun(makeExternalAbortError({ type: 'user' }), {
-      takenAtMs: Date.now(),
-      providers: [],
-    });
+    const outcome = await makeExecutorRun(makeExternalAbortError({ type: 'user' }), { kind: 'at', nextProbeAt: Date.now() });
     expect(outcome.sourceIsError).toBe(true);
     expect(outcome.waiting).toBeUndefined();
   });
 
   it('context_exceeded → 不携带 waiting（非共享故障）', async () => {
-    const outcome = await makeExecutorRun(new LLMContextExceededError('p1', 400, 'prompt too long'), {
-      takenAtMs: Date.now(),
-      providers: [],
-    });
+    const outcome = await makeExecutorRun(new LLMContextExceededError('p1', 400, 'prompt too long'), { kind: 'at', nextProbeAt: Date.now() });
     expect(outcome.sourceIsError).toBe(true);
     expect(outcome.waiting).toBeUndefined();
   });

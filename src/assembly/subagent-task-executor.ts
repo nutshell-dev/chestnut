@@ -14,7 +14,6 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import type { LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
 import {
   LLMAllProvidersFailedError,
-  LLM_RECOVERY_COOLDOWN_MS,
 } from '../foundation/llm-orchestrator/index.js';
 import { isAbortError } from '../foundation/llm-provider/index.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
@@ -46,8 +45,9 @@ import type {
 export interface SubagentTaskExecutorDeps {
   /**
    * 执行业务装配（owner 注入；非 per-call infra）。
-   * Phase 1933 Step E：类型升级为 LLMOrchestratorOwner——共享故障判定时需
-   * snapshot() 计算等待事实的 nextProbeAt；runSubagent 只消费 LLMOrchestrator
+   * Phase 1933 Step E：类型升级为 LLMOrchestratorOwner；Phase 1934 Step C：
+   * 共享故障的等待决定唯一归 owner（getSharedRecoveryDecision），本 adapter
+   * 只消费结论（不再解释 snapshot/breaker）。runSubagent 只消费 LLMOrchestrator
    * 子集，接口兼容。
    */
   llm: LLMOrchestratorOwner;
@@ -148,21 +148,22 @@ export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): Task
           parent: task.parentClawId,
           error: errorMsg,
         });
-        // Phase 1933 Step E：共享 LLM 故障（全 provider 失败 = 进程内共享故障）
-        // → 不返回失败，而是携带等待事实（core 持久化并把任务留 running）。
+        // Phase 1933 Step E / 1934 Step C：共享 LLM 故障（全 provider 失败 = 进程内
+        // 共享故障）→ 不返回失败，而是携带等待事实（core 持久化并把任务留 running）。
+        // 等待决定唯一归 LLM owner：本 adapter 只消费 getSharedRecoveryDecision() 结论，
+        // 不再解释 snapshot/breaker。owner 判 ready = 共享面无可等待故障（如纯
+        // context_exceeded 聚合）→ 不携带 waiting，走既有失败路径。
         // abort/取消与超时不是共享故障（context_exceeded 归 caller trim 同理），
         // 走既有失败路径、不得携带 waiting。
         if (error instanceof LLMAllProvidersFailedError && !isAbortError(error)) {
           const nowMs = Date.now();
-          // nextProbeAt = open breakers 的 probeAllowedAtMs 最大值（全部可探测才
-          // 有意义）；无 open breaker 时取独立 cooldown 下界。判定数据归
-          // orchestrator snapshot，本 adapter 只消费结论。
-          const openProbeAts = deps.llm.snapshot().providers
-            .filter(p => p.breakerOpen && typeof p.probeAllowedAtMs === 'number')
-            .map(p => p.probeAllowedAtMs as number);
-          const nextProbeAt = openProbeAts.length > 0
-            ? Math.max(...openProbeAts)
-            : nowMs + LLM_RECOVERY_COOLDOWN_MS;
+          const decision = deps.llm.getSharedRecoveryDecision();
+          if (decision.kind === 'ready') {
+            return { content: errorMsg, sourceIsError: true, errorCategory: classifyTaskError(error) };
+          }
+          // on_change（全候选等待配置变化）无时间下界：nextProbeAt 取 recordedAt
+          // （仅证据字段；scheduleProbe 对 on_change 为 no-op，owner 不定时轮询）。
+          const nextProbeAt = decision.kind === 'at' ? Math.max(nowMs, decision.nextProbeAt) : nowMs;
           return {
             content: errorMsg,
             sourceIsError: true,
