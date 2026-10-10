@@ -14,12 +14,31 @@
  * 边界：ATS 只持久化任务生命周期事实；LLM 故障判定与探针归
  * foundation/llm-orchestrator——scope 为 opaque 标识，ATS 不解析、不自行探测。
  *
- * 进程内唤醒（gate 就绪信号 → 立即重调度）不在本 phase：唤醒入口仅启动恢复
- * 路径；进程内探针定时唤醒留后续 phase 接 EventLoop 恢复信号。
+ * 进程内唤醒（resumeWaitingTasks）与 deadline 到期检查已由 Phase 1933 Step F /
+ * Phase 1934 Step D 落地，启动恢复、ready 唤醒、deadline 定时器三入口共用
+ * wait-disposition 处置协议。
+ *
+ * Phase 1934 Step D（F-13 统一处置）：
+ * - resumeIntent 迁移意图字段：resume 处置先持久化意图再 move 再清事实，
+ *   move 失败不丢等待身份（重启按意图重放）；严格 schema，旧记录（无意图
+ *   字段）兼容读取，意图非法 → 整份记录 corrupt（不猜）。
+ * - 损坏记录统一语义：不删除（原文保留作证据；不清未知记录）——启动恢复
+ *   留证后 fall through 既有决策序（任务离开 running 即不再触碰，无死循环），
+ *   运行中唤醒留证不动。
+ * - deadline 用首次持久 expiresAt：处置路径（含意图重放）不改写 expiresAt。
  */
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
+
+/**
+ * resume 迁移意图（Phase 1934 Step D）：resume 处置先持久化意图再 move，
+ * 崩溃/move 失败后重启按意图重放，等待身份不丢。
+ */
+export interface LLMWaitResumeIntent {
+  target: 'pending';
+  decidedAt: number;
+}
 
 /** 持久等待事实（tasks/queues/results/<id>/llm-wait.json）。 */
 export interface LLMWaitFact {
@@ -28,10 +47,12 @@ export interface LLMWaitFact {
   /** ms epoch；来自 orchestrator snapshot 的最早可探测时刻下界。 */
   nextProbeAt: number;
   recordedAt: number;
-  /** 等待 deadline；过期 → failed（不误转成功）。 */
+  /** 等待 deadline；过期 → failed（不误转成功）。首次持久后不改写。 */
   expiresAt: number;
   /** 显示摘要。 */
   reason: string;
+  /** 可恢复迁移意图（缺席 = 未开始迁移；旧记录兼容读取）。 */
+  resumeIntent?: LLMWaitResumeIntent;
 }
 
 /**
@@ -65,6 +86,8 @@ export async function persistLLMWait(
     recordedAt: fact.recordedAt,
     expiresAt: fact.expiresAt,
     reason: fact.reason,
+    // 意图字段仅 resume 处置携带（executor 首次落盘无意图）
+    ...(fact.resumeIntent ? { resumeIntent: fact.resumeIntent } : {}),
   }));
 }
 
@@ -89,6 +112,14 @@ function validateLLMWaitFact(parsed: unknown): string | null {
   if (rec.nextProbeAt < rec.recordedAt) return 'nextProbeAt_before_recordedAt';
   if (rec.expiresAt < rec.recordedAt) return 'expiresAt_before_recordedAt';
   if (typeof rec.reason !== 'string') return 'reason_not_string';
+  // 意图字段严格 schema（Phase 1934 Step D）：缺席 = 旧记录兼容；在场非法 = corrupt
+  if (rec.resumeIntent !== undefined) {
+    const intent = rec.resumeIntent;
+    if (typeof intent !== 'object' || intent === null) return 'resumeIntent_not_object';
+    const rec2 = intent as Record<string, unknown>;
+    if (rec2.target !== 'pending') return 'resumeIntent_target_invalid';
+    if (!isFiniteNumber(rec2.decidedAt)) return 'resumeIntent_decidedAt_not_finite_number';
+  }
   return null;
 }
 
@@ -119,6 +150,7 @@ export async function loadLLMWait(
   const invalid = validateLLMWaitFact(parsed);
   if (invalid !== null) return { kind: 'corrupt', detail: invalid };
   const rec = parsed as Record<string, unknown>;
+  const intent = rec.resumeIntent as { target: 'pending'; decidedAt: number } | undefined;
   return {
     kind: 'ok',
     fact: {
@@ -127,6 +159,7 @@ export async function loadLLMWait(
       recordedAt: rec.recordedAt as number,
       expiresAt: rec.expiresAt as number,
       reason: rec.reason as string,
+      ...(intent ? { resumeIntent: { target: intent.target, decidedAt: intent.decidedAt } } : {}),
     },
   };
 }

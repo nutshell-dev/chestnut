@@ -19,11 +19,9 @@ import {
   emitMigratedExecTermination,
   emitLegacyResultClassificationUnknown,
   emitTaskPostProcessorMissing,
-  emitLLMWaitResumed,
-  emitLLMWaitContinued,
-  emitLLMWaitExpired,
 } from './audit-emit.js';
-import { loadLLMWait, clearLLMWait, type LLMWaitGate } from './llm-wait-state.js';
+import { loadLLMWait, type LLMWaitGate } from './llm-wait-state.js';
+import { applyWaitDisposition } from './wait-disposition.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
@@ -645,7 +643,10 @@ export async function recoverMigratedToolTask(
 
 /**
  * Phase 1933 Step E：持久等待事实恢复分支。
- * 返回 handled=false = 无有效等待事实（缺席或损坏已处置），继续既有决策序。
+ * Phase 1934 Step D（F-13）：处置统一——与运行中唤醒/deadline 定时器共用
+ * wait-disposition 协议（deadline 优先于 ready；expired 走失败投递/terminal
+ * intent 协议而非仅 move failed；resume 先留可恢复迁移意图再 move 再清事实）。
+ * 返回 handled=false = 无有效等待事实（缺席或损坏），继续既有决策序。
  */
 async function _recoverLLMWait(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, resultDir: string,
@@ -653,86 +654,29 @@ async function _recoverLLMWait(
   const load = await loadLLMWait(deps.fs, resultDir);
   if (load === undefined) return { handled: false, recovered: 0 };
 
-  const fullTaskId = task.id as FullTaskId;
-  const shortTaskId = taskShortId(task);
-
   if (load.kind === 'corrupt') {
-    // 损坏事实不猜——audit 留证 + 删除（防每次启动恢复死循环），随后 fall through
-    // 既有分支按无等待事实处置。
+    // Phase 1934 Step D：损坏不删除（原文保留作证据；不清未知记录）——audit 留证
+    // 后 fall through 既有决策序；任务经既有分支离开 running 后恢复不再触碰该
+    // 事实（无死循环），与运行中唤醒的“不动不删”语义一致。
     emitRecoveryFailed(deps.auditWriter, {
       taskId: task.id,
       context: 'llm_wait_corrupt',
       error: load.detail,
     });
-    try {
-      await clearLLMWait(deps.fs, resultDir);
-    } catch (err) {
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'llm_wait_corrupt_clear_failed',
-        error: formatErr(err),
-      });
-    }
     return { handled: false, recovered: 0 };
   }
 
-  const fact = load.fact;
-
-  // deadline 到期 → failed（deadline 不是成功；不误转 done、不投递成功）。
-  if (Date.now() > fact.expiresAt) {
-    emitLLMWaitExpired(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, expiresAt: fact.expiresAt });
-    try {
-      await clearLLMWait(deps.fs, resultDir);
-    } catch (err) {
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'llm_wait_expired_clear_failed',
-        error: formatErr(err),
-      });
-    }
-    await _recoverToFailed(deps, filePath, task, 'llm_wait_expired', 'llm_wait_expired_move_failed');
-    return { handled: true, recovered: 0 };
-  }
-
-  // gate 缺席（orchestrator 未注入/未就绪）→ 保持 waiting：不静默转 failed/completed。
-  if (!deps.waitGate) {
-    emitLLMWaitContinued(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, nextProbeAt: fact.nextProbeAt, reason: 'gate_absent' });
-    return { handled: true, recovered: 0 };
-  }
-  if (!deps.waitGate.canResume(fact.scope)) {
-    emitLLMWaitContinued(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, nextProbeAt: fact.nextProbeAt, reason: 'gate_not_ready' });
-    return { handled: true, recovered: 0 };
-  }
-
-  // gate 就绪 → 清事实 + 回 pending 重调度（续跑去重由 subagent checkpoint 保证，
-  // Phase 1933 Step D）。先清事实后 move：move 失败留 running，下次恢复无事实
-  // 走 _recoverWithoutResult 同样回 pending，语义收敛一致；清事实失败则不 move
-  // （防下次恢复再次唤醒重派），留 running 待下次重试。
-  try {
-    await clearLLMWait(deps.fs, resultDir);
-  } catch (err) {
-    emitRecoveryFailed(deps.auditWriter, {
-      taskId: task.id,
-      context: 'llm_wait_resume_clear_failed',
-      error: formatErr(err),
-    });
-    return { handled: true, recovered: 0 };
-  }
-  let recovered = 1;
-  await deps.fs.move(filePath, `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`)
-    .then(() => {
-      emitLLMWaitResumed(deps.auditWriter, { fullTaskId, shortTaskId, scope: fact.scope });
-    })
-    .catch(async (moveErr) => {
-      recovered = 0; // move failed — not recovered
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'llm_wait_resume_move_failed',
-        error: formatErr(moveErr),
-      });
-      // Keep running file — next recovery will retry the move back to pending.
-    });
-  return { handled: true, recovered };
+  const outcome = await applyWaitDisposition(
+    {
+      fs: deps.fs,
+      auditWriter: deps.auditWriter,
+      sendFallbackResult: deps.sendFallbackResult,
+      writeInboxAsync: deps.writeInboxAsync,
+    },
+    { filePath, task, fact: load.fact, gate: deps.waitGate },
+  );
+  // resumed=1（回 pending 重调度）；expired/kept/deferred/raced 均非 recovered。
+  return { handled: true, recovered: outcome.kind === 'resumed' ? 1 : 0 };
 }
 
 /**

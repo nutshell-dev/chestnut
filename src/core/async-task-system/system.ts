@@ -59,8 +59,8 @@ import {
   emitPreparedTaskIdentityConflict,
   emitPreparedTaskClaimBackfilled,
   emitRecoveryFailed,
-  emitLLMWaitResumed,
 } from './audit-emit.js';
+import { applyWaitDisposition } from './wait-disposition.js';
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
 import { taskQueueOverflowBody } from '../../templates/messages/index.js';
@@ -130,6 +130,11 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
 
   private postProcessors: Map<string, PostProcessor> = new Map();
   private cancellingIds: Set<FullTaskId> = new Set();
+  /** Phase 1934 Step D：同任务等待处置串行化（ready/deadline 扫描互斥）。 */
+  private _waitDispositionInFlight: Set<FullTaskId> = new Set();
+  /** Phase 1934 Step D：等待到期检查定时器（只按本任务 expiresAt 安排）。 */
+  private _waitDeadlineTimer?: ReturnType<typeof setTimeout>;
+  private _waitDeadlineAt?: number;
   private fsFactory: (baseDir: string) => FileSystem;
   private readonly shortIdIndex: ShortIdIndex;
   private readonly pendingQueueMax: number;
@@ -282,7 +287,11 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           taskExecutor: this.taskExecutor,
           deliverySink: this.deliverySink,
           // Phase 1933 Step F：等待事实落盘后的进程内通知钩子（装配注入探针调度）
-          onWaitScheduled: this.options.onWaitScheduled,
+          // Phase 1934 Step D：ATS 同时安排本任务 expiresAt 到期检查（探针时间归 owner）
+          onWaitScheduled: (fact) => {
+            this._scheduleWaitDeadlineCheck(fact.expiresAt);
+            this.options.onWaitScheduled?.(fact);
+          },
         });
       },
     };
@@ -337,6 +346,10 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
 
     // phase 1863 (AT-D4)：成功路径后冻结装配依赖面（三 setter 继续调用即 throw）。
     this.configFrozen = true;
+
+    // Phase 1934 Step D：startup 重建等待订阅——扫 running/ 残留等待事实，按最早
+    // expiresAt 安排到期检查（LLM 探针时间归 orchestrator owner，不在此排）。
+    await this._rescheduleWaitDeadlineFromDisk();
   }
 
   /**
@@ -493,19 +506,24 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   /**
    * Phase 1933 Step F：进程内唤醒入口（orchestrator 探针成功 → ready 信号驱动，
    * 装配层经 subscribeReady 接线；信号丢失不影响重启恢复——initialize→
-   * recoverTasks 走同一 gate 判定）。返回本次唤醒的任务数。
+   * recoverTasks 走同一处置协议）。返回本次唤醒（回 pending）的任务数。
    *
-   * 扫 running/ 任务文件并重新读取、校验等待事实：
-   * - 无事实 → 跳过（不受影响）；
-   * - 事实 corrupt → audit 留证、不猜不动不删（处置归重启恢复分支）；
-   * - gate 缺席或未就绪 → 保持 waiting 跳过（归重启恢复路径）；
-   * - gate 就绪 → 先清事实再原子 move 回 pending（清失败不 move，防重启恢复
-   *   重复唤醒；move ENOENT 容忍 = 与 dispatch/cancel race，视为已处置）；
-   *   唤醒后 _signalWork() 触发 dispatch。
-   * 每个 waiting 文件独立处理：单任务失败 audit 留证后继续其余任务，整体不向
-   * 调用方抛错（listener 场景），保留既有幂等语义。
+   * Phase 1934 Step D（F-13）：与启动恢复、deadline 定时器共用 wait-disposition
+   * 处置协议（deadline 优先于 ready；缺 gate 保持等待但 deadline 仍可到期）。
+   * 扫描只驱动等待任务：真实 executing（有内存句柄）/取消中/处置中的任务跳过；
+   * 单任务失败 audit 留证后继续其余任务，整体不向调用方抛错（listener 场景）。
    */
   async resumeWaitingTasks(): Promise<number> {
+    const resumed = await this._scanWaitingTasks();
+    if (resumed > 0) this._signalWork();
+    return resumed;
+  }
+
+  /**
+   * Phase 1934 Step D：等待任务扫描（ready 信号与 deadline 定时器共用）。
+   * 每个 waiting 文件独立处理，返回回 pending 的任务数。
+   */
+  private async _scanWaitingTasks(): Promise<number> {
     let entries: Awaited<ReturnType<FileSystem['list']>>;
     try {
       entries = await this.fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false });
@@ -521,7 +539,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     for (const entry of entries) {
       if (!entry.name.endsWith('.json')) continue;
       try {
-        resumed += await this._resumeWaitingTask(entry.path);
+        resumed += await this._disposeWaitingTask(entry.path);
       } catch (err) {
         // 单任务失败不扩散：audit 留证后继续其余 waiting 文件。
         emitRecoveryFailed(this.auditWriter, {
@@ -531,12 +549,16 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         });
       }
     }
-    if (resumed > 0) this._signalWork();
     return resumed;
   }
 
-  /** Phase 1933 Step F：单个 running 任务的等待唤醒判定（返回 1 = 已回 pending）。 */
-  private async _resumeWaitingTask(runningPath: string): Promise<number> {
+  /**
+   * Phase 1934 Step D：单个 running 任务的等待处置（返回 1 = 已回 pending）。
+   * 与启动恢复共用 applyWaitDisposition；串行化由 _waitDispositionInFlight +
+   * cancellingIds 保证（取消竞争不复活）；commit 前 mayProceed 检查保证
+   * shutdown 后不入 pending。
+   */
+  private async _disposeWaitingTask(runningPath: string): Promise<number> {
     const content = await this.fs.read(runningPath);
     let parsed: unknown;
     try {
@@ -559,11 +581,17 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       return 0;
     }
     const task = parsed;
+    if (task.kind === 'tool') return 0;  // 等待事实只有 subagent 任务产生
+    const fullId = task.id as FullTaskId;
+    // ready/deadline 只驱动等待任务：真实 executing（有内存句柄）/取消中/处置中 → 跳过
+    if (this.executingTasks.has(fullId)) return 0;
+    if (this.cancellingIds.has(fullId)) return 0;
+    if (this._waitDispositionInFlight.has(fullId)) return 0;
     const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
     const load = await loadLLMWait(this.fs, resultDir);
     if (load === undefined) return 0;  // 无等待事实：不受影响
     if (load.kind === 'corrupt') {
-      // 损坏事实不猜：audit 留证、不动不删（删除/ fallthrough 处置归重启恢复分支）。
+      // 损坏事实不猜：audit 留证、不动不删（与重启恢复 corrupt 分支语义一致）。
       emitRecoveryFailed(this.auditWriter, {
         taskId: task.id,
         context: 'llm_wait_wakeup_fact_corrupt',
@@ -571,26 +599,105 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       });
       return 0;
     }
-    const fact = load.fact;
-    const gate = this.options.waitGate;
-    if (!gate || !gate.canResume(fact.scope)) return 0;  // 未就绪：保持 waiting
-
-    // 先清事实后 move（与 task-recovery 唤醒分支同序）：清失败不 move（防重启
-    // 恢复再次唤醒重派），留 running 待下次重试；move ENOENT = race（已被别处
-    // 处置），容忍不计数。
-    await clearLLMWait(this.fs, resultDir);
+    this._waitDispositionInFlight.add(fullId);
     try {
-      await this.fs.move(runningPath, `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`);
-    } catch (err) {
-      if (isFileNotFound(err)) return 0;
-      throw err;
+      const outcome = await applyWaitDisposition(
+        {
+          fs: this.fs,
+          auditWriter: this.auditWriter,
+          sendFallbackResult: this.sendFallbackResult,
+          writeInboxAsync: this.writeInboxAsync,
+        },
+        {
+          filePath: runningPath,
+          task,
+          fact: load.fact,
+          gate: this.options.waitGate,
+          // shutdown 后不入 pending / 取消竞争不复活：commit 前最后检查
+          mayProceed: () => !this._shuttingDown && !this.cancellingIds.has(fullId),
+        },
+      );
+      return outcome.kind === 'resumed' ? 1 : 0;
+    } finally {
+      this._waitDispositionInFlight.delete(fullId);
     }
-    emitLLMWaitResumed(this.auditWriter, {
-      fullTaskId: task.id as FullTaskId,
-      shortTaskId: taskShortId(task),
-      scope: fact.scope,
-    });
-    return 1;
+  }
+
+  // ─── Phase 1934 Step D：deadline 到期检查（只按本任务 expiresAt 安排） ──────
+
+  /**
+   * 安排到期检查定时器（取最早 expiresAt；新事实更早则重排）。
+   * LLM 探针时间归 orchestrator owner（Step C），ATS 只安排本任务 expiresAt。
+   */
+  private _scheduleWaitDeadlineCheck(expiresAt: number): void {
+    if (this._shuttingDown) return;
+    if (this._waitDeadlineTimer && this._waitDeadlineAt !== undefined && this._waitDeadlineAt <= expiresAt) {
+      return;  // 已有更早（或同时刻）的检查安排
+    }
+    if (this._waitDeadlineTimer) clearTimeout(this._waitDeadlineTimer);
+    this._waitDeadlineAt = expiresAt;
+    const timer = setTimeout(() => {
+      void this._onWaitDeadline();
+    }, Math.max(0, expiresAt - Date.now()));
+    timer.unref?.();
+    this._waitDeadlineTimer = timer;
+  }
+
+  /** 到期检查触发：走同一扫描处置（deadline 优先于 ready），完成后重排下一次。 */
+  private async _onWaitDeadline(): Promise<void> {
+    this._waitDeadlineTimer = undefined;
+    this._waitDeadlineAt = undefined;
+    if (this._shuttingDown) return;
+    try {
+      const resumed = await this._scanWaitingTasks();
+      if (resumed > 0) this._signalWork();
+    } catch (err) {
+      emitRecoveryFailed(this.auditWriter, {
+        context: 'llm_wait_deadline_scan_failed',
+        error: formatErr(err),
+      });
+    }
+    await this._rescheduleWaitDeadlineFromDisk();
+  }
+
+  /**
+   * startup 重建等待订阅 / 到期检查后重排：扫 running/ 的等待事实取最早
+   * expiresAt 安排下一次检查。单条失败 audit 留证不阻塞整体重排。
+   */
+  private async _rescheduleWaitDeadlineFromDisk(): Promise<void> {
+    if (this._shuttingDown) return;
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
+    try {
+      entries = await this.fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      emitRecoveryFailed(this.auditWriter, {
+        context: 'llm_wait_deadline_reschedule_failed',
+        error: formatErr(err),
+      });
+      return;
+    }
+    let earliest: number | undefined;
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.json')) continue;
+      try {
+        const raw = await this.fs.read(entry.path);
+        const parsed: unknown = JSON.parse(raw);
+        if (!validateTaskShape(parsed)) continue;
+        if (parsed.kind === 'tool') continue;
+        const load = await loadLLMWait(this.fs, `${TASKS_QUEUES_RESULTS_DIR}/${parsed.id}`);
+        if (load?.kind === 'ok' && (earliest === undefined || load.fact.expiresAt < earliest)) {
+          earliest = load.fact.expiresAt;
+        }
+      } catch (err) {
+        emitRecoveryFailed(this.auditWriter, {
+          path: entry.path,
+          context: 'llm_wait_deadline_reschedule_entry_failed',
+          error: formatErr(err),
+        });
+      }
+    }
+    if (earliest !== undefined) this._scheduleWaitDeadlineCheck(earliest);
   }
 
   /**
@@ -1206,6 +1313,10 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           continue;
         }
 
+        // Phase 1934 Step D：resume 意图残留（move 成功但清事实失败/崩溃窗口）——
+        // 确认清理完成再执行业务；清理失败本轮跳过（留 pending 下轮重试）。
+        if (task.kind !== 'tool' && !(await this._clearResumedWaitIntent(task))) continue;
+
         tasks.push(task);
       } catch (err) {
         if (isFileNotFound(err)) continue; // race: file moved/deleted between list and read
@@ -1225,6 +1336,40 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       return ta ? -1 : tb ? 1 : a.id.localeCompare(b.id);
     });
     return tasks;
+  }
+
+  /**
+   * Phase 1934 Step D：pending 消费的 resume 意图清理确认。
+   * 无事实 / 事实无意图 / 事实损坏（不清未知记录）→ true 放行；意图在场则先清
+   * 事实，清理成功才执行业务；读/清失败 → audit 留证 + false（本轮跳过，留
+   * pending 下轮重试）。
+   */
+  private async _clearResumedWaitIntent(task: SubAgentTask): Promise<boolean> {
+    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+    let load: Awaited<ReturnType<typeof loadLLMWait>>;
+    try {
+      load = await loadLLMWait(this.fs, resultDir);
+    } catch (err) {
+      // 读不出不猜：本轮不执行（非 ENOENT IO 错误）
+      emitRecoveryFailed(this.auditWriter, {
+        taskId: task.id,
+        context: 'pending_wait_intent_load_failed',
+        error: formatErr(err),
+      });
+      return false;
+    }
+    if (!load || load.kind !== 'ok' || !load.fact.resumeIntent) return true;
+    try {
+      await clearLLMWait(this.fs, resultDir);
+      return true;
+    } catch (err) {
+      emitRecoveryFailed(this.auditWriter, {
+        taskId: task.id,
+        context: 'pending_wait_intent_clear_failed',
+        error: formatErr(err),
+      });
+      return false;
+    }
   }
 
   /**
@@ -2311,6 +2456,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     if (this._shuttingDown) return { kind: 'already_shutting_down' };
     this._shuttingDown = true;
     this._signalWork();
+    // Phase 1934 Step D：shutdown 取消等待处置句柄（到期检查不再触发；
+    // 在途处置经 mayProceed 检查保证 shutdown 后不入 pending）。
+    if (this._waitDeadlineTimer) {
+      clearTimeout(this._waitDeadlineTimer);
+      this._waitDeadlineTimer = undefined;
+      this._waitDeadlineAt = undefined;
+    }
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
     // Phase 905: watcher close 必须 best-effort；即使抛错也要继续 abort，避免死锁。
     try {

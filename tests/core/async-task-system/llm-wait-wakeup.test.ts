@@ -188,8 +188,10 @@ describe('Step F-2: gate 未就绪 → 任务留 running、事实保留', () => 
 });
 
 // ─── 3. 多任务同时唤醒：独立 move、互不阻塞 ──────────────────────────────────
+// Phase 1934 Step D：resume 顺序改为 意图→move→清事实——move 失败不丢等待身份
+// （意图保留、expiresAt 不重置），重试按意图重放收敛。
 describe('Step F-3: 两个 waiting 任务独立唤醒（一个 move 失败另一个仍唤醒）', () => {
-  it('taskA move 失败（audit 留证、留 running）+ taskB 正常唤醒', async () => {
+  it('taskA move 失败（audit 留证、留 running、意图保留）+ taskB 正常唤醒；修复后重试收敛', async () => {
     const taskA = makeValidTask(FULL_ID_A);
     const taskB = makeValidTask(FULL_ID_B);
     const factA = makeFact();
@@ -199,30 +201,44 @@ describe('Step F-3: 两个 waiting 任务独立唤醒（一个 move 失败另一
       ...runningTaskSeed(taskB, waitFileSeed(taskB, factB)),
     });
     const { audit, events } = makeMockAudit();
-    // taskA 的 move 注入非 ENOENT 失败（模拟 IO 故障）
+    // taskA 的 move 注入一次非 ENOENT 失败（模拟 IO 故障）
     const realMove = fs.move.bind(fs);
+    let moveFailed = false;
     fs.move = vi.fn().mockImplementation((from: string, to: string) => {
-      if (from.includes(FULL_ID_A)) return Promise.reject(new Error('EIO move boom'));
+      if (!moveFailed && from.includes(FULL_ID_A)) {
+        moveFailed = true;
+        return Promise.reject(new Error('EIO move boom'));
+      }
       return realMove(from, to);
     });
     const system = makeSystem(fs, audit, { canResume: () => true });
 
     const resumed = await system.resumeWaitingTasks();
     expect(resumed).toBe(1);
-    // taskA：move 失败 → audit 留证、任务留 running（事实已按先清后 move 语义清除，
-    // 重启恢复按无事实的既有分支回 pending，语义收敛一致）
+    // taskA：move 失败 → audit 留证、任务留 running、事实保留且带可重放迁移意图
+    // （等待身份不丢）；expiresAt 不重置
     expect(fileMap.has(`tasks/queues/running/${taskA.id}.json`)).toBe(true);
     expect(fileMap.has(`tasks/queues/pending/${taskA.id}.json`)).toBe(false);
-    expect(fileMap.has(`tasks/queues/results/${taskA.id}/${LLM_WAIT_FILE}`)).toBe(false);
+    const retainedA = JSON.parse(fileMap.get(`tasks/queues/results/${taskA.id}/${LLM_WAIT_FILE}`)!) as Record<string, unknown>;
+    expect(retainedA.expiresAt).toBe(factA.expiresAt);
+    expect((retainedA.resumeIntent as { target: string }).target).toBe('pending');
     const failedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED
-        && e.some(c => typeof c === 'string' && c.includes('context=llm_wait_wakeup_task_failed')),
+        && e.some(c => typeof c === 'string' && c.includes('context=llm_wait_resume_move_failed')),
     );
     expect(failedEvents.length).toBe(1);
     // taskB：不受影响，正常唤醒
     expect(fileMap.has(`tasks/queues/pending/${taskB.id}.json`)).toBe(true);
     expect(fileMap.has(`tasks/queues/results/${taskB.id}/${LLM_WAIT_FILE}`)).toBe(false);
     expect(events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED).length).toBe(1);
+
+    // 重试（再次 ready 信号）：按意图重放 move → 收敛回 pending、事实清除
+    const again = await system.resumeWaitingTasks();
+    expect(again).toBe(1);
+    expect(fileMap.has(`tasks/queues/pending/${taskA.id}.json`)).toBe(true);
+    expect(fileMap.has(`tasks/queues/running/${taskA.id}.json`)).toBe(false);
+    expect(fileMap.has(`tasks/queues/results/${taskA.id}/${LLM_WAIT_FILE}`)).toBe(false);
+    expect(events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED).length).toBe(2);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
   });
 });
@@ -241,7 +257,8 @@ describe('Step F-4: 损坏等待事实 → audit 留证、不动不删', () => {
     expect(resumed).toBe(0);
     expect(fs.move).not.toHaveBeenCalled();
     expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
-    // 不删事实（删除/fallthrough 处置归重启恢复分支）
+    // 不删事实（Phase 1934 Step D 统一：损坏原文保留；启动恢复同样不删、
+    // fall through 既有分支处置）
     expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(true);
     const corruptEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED

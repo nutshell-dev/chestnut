@@ -297,7 +297,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
   it('permanent 全故障：on_change 不定时轮询；配置变化后 gate 就绪、恢复可移动', async () => {
     const stack = makeAssembledStack('auth', 'auth');
     const { owner, orchestratorConfig, p, f, fs, fileMap, system, executor } = stack;
-    const task = makeValidTask();
+    // Phase 1934 Step D：唤醒入口统一做 deadline 判定——本用例推进 600s 证明不轮询，
+    // timeoutMs 须大于推进时长，否则推进后事实已到期（deadline 优先于 ready）
+    const task = makeValidTask({ timeoutMs: 3_600_000 });
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
     await executeSubAgentTask(task, new AbortController().signal, {

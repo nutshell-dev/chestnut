@@ -250,8 +250,10 @@ describe('Step E-3: 恢复 gate 就绪 → 清事实、回 pending 重调度', (
 });
 
 // ─── 4. deadline 过期 → failed ──────────────────────────────────────────────
+// Phase 1934 Step D：expired 走既有失败协议（投递 + notified marker 幂等 +
+// terminalState intent + move failed + 清事实），不再仅 move failed。
 describe('Step E-4: 等待 deadline 过期 → failed（不误转成功）', () => {
-  it('expiresAt 已过：任务到 failed、事实清除、未投递', async () => {
+  it('expiresAt 已过：投递失败通知、任务到 failed、事实清除、terminal intent 落盘', async () => {
     const task = makeValidTask();
     // recordedAt/nextProbeAt 须 ≤ expiresAt（严格校验），全部取过去时刻
     const now = Date.now();
@@ -259,6 +261,9 @@ describe('Step E-4: 等待 deadline 过期 → failed（不误转成功）', () 
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
     const { audit, events } = makeMockAudit();
     const deps = makeRecoverDeps(fs, audit, { canResume: () => true });
+    // Step D：expired 必须投递（mock 成功）；失败则留 running 待重试（见 parity 测试）
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
+    deps.sendFallbackResult = sendFallbackResult;
 
     await recoverTasks(deps);
 
@@ -266,8 +271,15 @@ describe('Step E-4: 等待 deadline 过期 → failed（不误转成功）', () 
     expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(false);
     expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(false);
     expect(fileMap.has(`tasks/queues/done/${task.id}.json`)).toBe(false);
+    // 失败协议：fallback 投递一次（isError）+ notified marker + terminalState intent
     expect(deps.sendResult).not.toHaveBeenCalled();
+    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
+    expect((sendFallbackResult.mock.calls[0][3] as { isError: boolean }).isError).toBe(true);
+    expect(fileMap.has(`tasks/queues/results/${task.id}/result.txt.notified`)).toBe(true);
+    const failedTask = JSON.parse(fileMap.get(`tasks/queues/failed/${task.id}.json`)!) as Record<string, unknown>;
+    expect(failedTask.terminalState).toBe('failed');
     expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_EXPIRED)).toBe(true);
+    expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED)).toBe(false);
   });
 });
 
@@ -407,12 +419,14 @@ describe('Step E-6: executor 分类——共享故障携带 waiting（owner 决�
 });
 
 // ─── 7. 损坏事实 ────────────────────────────────────────────────────────────
-describe('Step E-7: 损坏等待事实 → audit 留证 + 删除 + fall through（不猜）', () => {
+describe('Step E-7: 损坏等待事实 → audit 留证 + 原文保留 + fall through（不猜）', () => {
   it.each([
     ['坏 JSON', '{not valid json'],
     ['缺字段', JSON.stringify({ schema_version: 1, scope: 'claw-process' })],
     ['时间戳倒挂', JSON.stringify({ schema_version: 1, scope: 's', nextProbeAt: 50, recordedAt: 100, expiresAt: 200, reason: 'r' })],
-  ])('%s → RECOVERY_FAILED(llm_wait_corrupt) + 删除 + 走既有恢复分支', async (_label, content) => {
+    // Phase 1934 Step D：意图字段严格 schema——非法意图 → 整份记录 corrupt
+    ['意图非法', JSON.stringify({ schema_version: 1, scope: 's', nextProbeAt: 100, recordedAt: 100, expiresAt: 200, reason: 'r', resumeIntent: { target: 'done', decidedAt: 100 } })],
+  ])('%s → RECOVERY_FAILED(llm_wait_corrupt) + 原文保留 + 走既有恢复分支', async (_label, content) => {
     const task = makeValidTask();
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, {
       [`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`]: content,
@@ -425,8 +439,9 @@ describe('Step E-7: 损坏等待事实 → audit 留证 + 删除 + fall through�
       e => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e.some(c => typeof c === 'string' && c.includes('context=llm_wait_corrupt')),
     );
     expect(corruptEvents.length).toBe(1);
-    // 删除防死循环
-    expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(false);
+    // Phase 1934 Step D：损坏不删除（原文保留作证据；不清未知记录）——防死循环由
+    // fall through 后任务离开 running 保证（恢复不再触碰该事实）
+    expect(fileMap.get(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(content);
     // fall through 既有分支：无 terminalState/结果 → 回 pending 重执行
     expect(fileMap.has(`tasks/queues/pending/${task.id}.json`)).toBe(true);
   });
