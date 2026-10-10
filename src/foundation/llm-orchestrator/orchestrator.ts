@@ -464,7 +464,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         if (this.closed || mergedIntoInflight) return;
         if (result.ok) {
           for (const listener of this.readyListeners) {
-            try { listener(); } catch { /* listener 失败不扩散 */ }
+            try { listener(); } catch { /* silent: 唤醒投递 fail-soft——单个 listener 失败不扩散，探针状态不受影响 */ }
           }
         } else {
           this.scheduleProbe(this.computeNextProbeAt());

@@ -19,6 +19,7 @@
  */
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 /** 持久等待事实（tasks/queues/results/<id>/llm-wait.json）。 */
 export interface LLMWaitFact {
@@ -113,7 +114,7 @@ export async function loadLLMWait(
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    return { kind: 'corrupt', detail: `invalid_json:${err instanceof Error ? err.message : String(err)}` };
+    return { kind: 'corrupt', detail: `invalid_json:${formatErr(err)}` };
   }
   const invalid = validateLLMWaitFact(parsed);
   if (invalid !== null) return { kind: 'corrupt', detail: invalid };
