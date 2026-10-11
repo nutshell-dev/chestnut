@@ -20,7 +20,7 @@ import {
   POST_PROCESS_INPUT_FILE,
 } from './dirs.js';
 import { createProcessedResultStore } from './processed-result-store.js';
-import { persistLLMWait, type LLMWaitFact } from './llm-wait-state.js';
+import { persistLLMWait, readOrInitWaitDeadline, type LLMWaitFact } from './llm-wait-state.js';
 
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 
@@ -237,8 +237,39 @@ export async function executeSubAgentTask(
     // 重调度，续跑去重由 subagent checkpoint 保证）；进程内唤醒留后续 phase
     // 接 EventLoop 恢复信号。
     if (execution.waiting) {
+      // Phase 1934 Z-D1：等待预算帽归 ATS。executor（Assembly）每次按
+      // nowMs + task.timeoutMs 提案完整新预算；ATS 把 expiresAt 钳制到任务
+      // 首次持久 deadline（llm-wait-deadline.json，不随等待事实清除）——
+      // 第二次起的等待不随唤醒重获完整预算。Assembly 不读 ATS 私有事实。
+      // 钳制到过去 = 预算已耗尽：事实按过去 deadline 落盘（合法，非损坏），
+      // 立即到期语义由处置协议的 deadline 优先规则消费。
+      let waiting = execution.waiting;
       try {
-        await persistLLMWait(fs, taskResultDir, execution.waiting);
+        const deadlineInit = await readOrInitWaitDeadline(fs, taskResultDir, execution.waiting.expiresAt);
+        if (deadlineInit.kind === 'repaired') {
+          // deadline 记录损坏：原文已改名备份（llm-wait-state），此处留证
+          emitRecoveryFailed(auditWriter, {
+            taskId: task.id,
+            context: 'llm_wait_deadline_corrupt',
+            error: deadlineInit.detail,
+          });
+        }
+        if (deadlineInit.expiresAt < waiting.expiresAt) {
+          waiting = { ...waiting, expiresAt: deadlineInit.expiresAt };
+        }
+      } catch (deadlineErr) {
+        // 预算帽读写失败 → 留证并 return 留 running（同事实落盘失败语义；
+        // 不在预算帽缺席时落盘无限预算的事实）
+        emitResultWriteFailed(auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          context: 'llm_wait_deadline',
+          error: formatErr(deadlineErr),
+        });
+        return;
+      }
+      try {
+        await persistLLMWait(fs, taskResultDir, waiting);
       } catch (waitErr) {
         // 事实落盘失败 → 走既有 result-write-failed 留证并 return 留 running；
         // 恢复路径按无等待事实的既有分支处置（不虚构等待状态）。
@@ -253,14 +284,15 @@ export async function executeSubAgentTask(
       emitLLMWaitPersisted(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
-        scope: execution.waiting.scope,
-        nextProbeAt: execution.waiting.nextProbeAt,
+        scope: waiting.scope,
+        nextProbeAt: waiting.nextProbeAt,
       });
       // Phase 1933 Step F：事实已落盘后通知装配层安排进程内探针（通知语义——
       // hook 异常 audit 留证，不改变任务留 running 的等待状态；信号丢失不影响
-      // 重启恢复路径）。
+      // 重启恢复路径）。钩子载荷 = 持久化事实（Z-D1：含钳制后的 expiresAt——
+      // deadline 检查安排消费同一值）。
       try {
-        deps.onWaitScheduled?.(execution.waiting);
+        deps.onWaitScheduled?.(waiting);
       } catch (hookErr) {
         emitRecoveryFailed(auditWriter, {
           taskId: task.id,
