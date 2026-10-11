@@ -866,7 +866,10 @@ describe('pending 消费确认 resume 意图清理完成再执行业务', () => 
     await sys.startDispatch();
 
     // 清理持续失败：业务不得执行，任务留 pending，audit 留证
-    await new Promise(r => setTimeout(r, 300));
+    // 负向观察窗：大于 watcher ingest + dispatch 一轮真实 I/O 的观测耗时，
+    // 仅用于确认「清理持续失败时业务不被执行」（playbook §T-4 命名模式）。
+    const NEGATIVE_OBSERVE_MS = 300;
+    await new Promise(r => setTimeout(r, NEGATIVE_OBSERVE_MS));
     expect(exec).not.toHaveBeenCalled();
     expect(await fs.exists(pendingPath(task.id))).toBe(true);
     expect(hasEvent(events, TASK_AUDIT_EVENTS.RECOVERY_FAILED, 'pending_wait_intent_clear_failed')).toBe(true);
