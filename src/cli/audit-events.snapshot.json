@@ -375,6 +375,7 @@
       "evolution_boot_reconcile",
       "evolution_legacy_schema_migrated_reset",
       "evolution_legacy_state_file_observed",
+      "evolution_legacy_state_read_failed",
       "evolution_skipped_missing_completed_at",
       "evolution_state_invariant_violated",
       "retro_claim_backfilled",

@@ -29,6 +29,9 @@ export const RETRO_AUDIT_EVENTS = {
   EVOLUTION_SKIPPED_MISSING_COMPLETED_AT: 'evolution_skipped_missing_completed_at',
   // Phase 1206 Step C: legacy state file observed but not used as authority
   EVOLUTION_LEGACY_STATE_FILE_OBSERVED: 'evolution_legacy_state_file_observed',
+  // Phase 1934 Step G (F-08): legacy state file read failed with unknown I/O error
+  // （保留 path/reason，不吞掉冒充 absent）
+  EVOLUTION_LEGACY_STATE_READ_FAILED: 'evolution_legacy_state_read_failed',
   // Phase 1206 Step C: single row recovery failure
   RETRO_RECOVERY_FAILED: 'retro_recovery_failed',
   // Phase 1206 Step B: retrospective store lifecycle audits

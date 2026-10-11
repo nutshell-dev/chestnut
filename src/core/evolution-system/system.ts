@@ -164,7 +164,27 @@ export class EvolutionSystem {
   }
 
   private async _observeLegacyStateFile(motionFs: FileSystem): Promise<void> {
-    const exists = await motionFs.exists(LEGACY_STATE_FILE_PATH).catch(() => false);
+    // Phase 1934 Step G（F-08）：legacy 观察不读取内容、不赋予权威；
+    // 未知读取失败（EIO/EACCES）保留原因并审计，不再以 .catch(() => false) 吞掉。
+    // return 仅离开本函数——init 后续 recoverRetrospectives 不受影响。
+    let exists: boolean;
+    try {
+      exists = await motionFs.exists(LEGACY_STATE_FILE_PATH);
+    } catch (error) {
+      try {
+        this.deps.audit.write(
+          RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_STATE_READ_FAILED,
+          `path=${LEGACY_STATE_FILE_PATH}`,
+          `reason=${formatErr(error)}`,
+        );
+      } catch (auditErr) {
+        // audit 自身故障：保留原错与审计异常，不假称已成功留证。
+        process.stderr.write(
+          `[evolution] legacy state read failed (path=${LEGACY_STATE_FILE_PATH}, reason=${formatErr(error)}); audit error: ${formatErr(auditErr)}\n`,
+        );
+      }
+      return;
+    }
     if (exists) {
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_STATE_FILE_OBSERVED,
