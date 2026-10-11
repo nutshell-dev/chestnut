@@ -833,8 +833,19 @@ class GitVersionStore implements VersionStore {
   /** published 首父链有界回扫：本 operation-id 的发布提交是否已在历史中（孪生胜检测） */
   private async findOperationCommit(head: string, operationId: string): Promise<string | null> {
     const r = await this.gitExec(['log', '--first-parent', '-n', String(TWIN_SCAN_DEPTH), '--format=%H%x00%cI%x00%B%x00', head]);
-    if (!r.ok || r.stdout === '') return null;
-    for (const { sha, body } of this.parseLogTriples(r.stdout)) {
+    // Phase 1934 Step F（F-10）：历史查询失败 ≠ 未找到——非零退出抛 git_error，
+    // 不得 fall through 到路径基准比对而写出 completed conflict；
+    // 只有成功查询且未匹配才返回 null。
+    if (!r.ok) {
+      throw new VersionStoreError('git_error', `git log failed (exit ${r.exitCode}): ${r.output.slice(0, 300)}`);
+    }
+    if (r.stdout === '') return null;
+    const triples = this.parseLogTriples(r.stdout);
+    if (triples.length === 0) {
+      // 成功返回但无可解析条目 = 输出非法（exec/协议异常），同样拒绝继续。
+      throw new VersionStoreError('git_error', 'git log output malformed: no parsable entries');
+    }
+    for (const { sha, body } of triples) {
       if (body.split('\n').includes(`operation-id: ${operationId}`)) {
         return sha;
       }
