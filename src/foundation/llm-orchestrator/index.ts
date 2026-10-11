@@ -75,6 +75,7 @@ export {
 // SDK 顶层 re-export (src/index.ts) + sister L2 (foundation/config/schemas.ts) 按 by-design
 // 保留 deep import、depcruise rule 显式 pathNot allowlist 这两 entry。
 export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
+export type { LLMProviderFailure } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
 export { toProviderConfig } from './config-adapter.js';

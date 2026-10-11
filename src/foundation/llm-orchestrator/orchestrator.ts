@@ -13,7 +13,8 @@ import {
   classifyLLMError,
   getUserActionHint,
   getRetryAfterSec,
-  type LLMErrorClass } from './errors.js';
+  type LLMErrorClass,
+  type LLMProviderFailure } from './errors.js';
 // Phase 186: ContextTrimExhaustedError from L4 ContextManager — we avoid direct L2→L4 import
 // per architecture layer rules, and duck-type via error.name instead of instanceof.
 const CONTEXT_TRIM_EXHAUSTED_ERROR_NAME = 'ContextTrimExhaustedError';
@@ -393,6 +394,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       : `unknown:${providerName}`;
   }
 
+  /**
+   * Phase 1934 Z-C1：候选索引 → 身份指纹（与 providerIds 同源）。
+   * 聚合错误的失败条目在产生处携带该指纹——显示名不是身份（同名不同
+   * model/key/endpoint 是不同候选），记账/定位一律按指纹，不按显示名反查。
+   */
+  private identityAt(index: number, providerName: string): string {
+    return this.providerIds[index] ?? `unknown:${providerName}`;
+  }
+
   /** 本地 breaker 的最早可试时刻（不调用有副作用的 isOpen）。 */
   private breakerProbeAllowedAt(providerName: string): number | undefined {
     const adapters = [this.primary, ...this.fallbacks];
@@ -503,7 +513,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       const e = err as Error;
       // 探针失败推进共享故障下界（close/旧配置代次的迟到失败不记账）
       if (!this.closed && generation === this.configGeneration) {
-        this.noteSharedFailures([{ provider: target.adapter.name, error: e }]);
+        this.noteSharedFailures([{ provider: target.adapter.name, error: e, providerId: target.identity }]);
       }
       return {
         ok: false,
@@ -613,16 +623,22 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 请求）不记账；context_exceeded/abort 是请求局部错误，不进共享故障状态。
    * 普通调用成功不在此清除——解除已发布 shared blocked 唯一归探针验证/配置变化。
    */
-  private noteSharedFailures(failures: ReadonlyArray<{ provider: string; error: Error }>): void {
+  private noteSharedFailures(failures: ReadonlyArray<LLMProviderFailure>): void {
     const nowMs = Date.now();
-    const adapters = [this.primary, ...this.fallbacks];
     for (const f of failures) {
       if (f.error instanceof LLMCircuitBreakerOpenError) continue;  // localSkip：未发生真实请求
       const errorClass = classifyLLMError(f.error);
       if (errorClass === 'context_exceeded' || errorClass === 'abort') continue;
-      const index = adapters.findIndex((p) => p.name === f.provider);
-      if (index < 0) continue;
-      const identity = this.providerIds[index];
+      // Phase 1934 Z-C1：身份定位优先使用聚合错误全链携带的稳定候选指纹——
+      // 显示名不是身份（同名不同 model/key/endpoint 是不同候选，按名定位会把
+      // 多个候选的故障并到第一个同名候选上）。仅外部手工构造的聚合错误
+      // （缺 providerId）回退显示名定位。
+      let identity = f.providerId;
+      if (identity === undefined) {
+        const adapters = [this.primary, ...this.fallbacks];
+        const index = adapters.findIndex((p) => p.name === f.provider);
+        identity = index >= 0 ? this.providerIds[index] : undefined;
+      }
       if (identity === undefined) continue;
       const retryAfterSec = getRetryAfterSec(f.error);
       const floorMs = errorClass === 'permanent'
@@ -643,14 +659,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
   /** Phase 1826: 把最终失败转成 owner 策略输入（含 typed Retry-After 与本地跳过标记）。 */
   private toRecoveryFailures(
-    failures: ReadonlyArray<{ provider: string; error: Error }>,
+    failures: ReadonlyArray<LLMProviderFailure>,
   ): RecoveryFailureInput[] {
     return failures.map((f) => {
       const retryAfterSec = getRetryAfterSec(f.error);
       const localSkip = f.error instanceof LLMCircuitBreakerOpenError;
       const probeAllowedAtMs = localSkip ? this.breakerProbeAllowedAt(f.provider) : undefined;
       return {
-        providerId: this.providerIdOf(f.provider),
+        providerId: f.providerId ?? this.providerIdOf(f.provider),
         errorClass: classifyLLMError(f.error),
         message: f.error.message,
         ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
@@ -718,7 +734,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const isBreakerBlocking = (index: number): boolean =>
       isBreakerOpen(index) && !allowBreakerProbe;
 
-    const failures: Array<{ provider: string; error: Error }> = [];
+    const failures: LLMProviderFailure[] = [];
 
     {
       // 上次成功的 fallback 排最前：同 turn 内后续 step 直接用、不反复 failover
@@ -733,7 +749,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             // User abort is not a provider failure — propagate immediately
             if (options.signal?.aborted || isAbortError(err)) throw err;
             // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
-            failures.push({ provider: stickyFb.name, error: err as Error });
+            failures.push({ provider: stickyFb.name, error: err as Error, providerId: this.identityAt(stickyIdx + 1, stickyFb.name) });
           }
         }
       }
@@ -748,10 +764,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           if (options.signal?.aborted || isAbortError(err)) throw err;
           // silent: collect primary failure for aggregate LLMAllProvidersFailedError
           primaryFailed = true;
-          failures.push({ provider: this.primary.name, error: err as Error });
+          failures.push({ provider: this.primary.name, error: err as Error, providerId: this.identityAt(0, this.primary.name) });
         }
       } else {
-        failures.push({ provider: this.primary.name, error: new LLMCircuitBreakerOpenError(this.primary.name) });
+        failures.push({ provider: this.primary.name, error: new LLMCircuitBreakerOpenError(this.primary.name), providerId: this.identityAt(0, this.primary.name) });
       }
 
       // Primary exhausted/open — announce the fallback that is actually about
@@ -761,7 +777,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
         if (stickyFb && this.fallbacks[i].name === stickyFb.name) continue;
         if (isBreakerBlocking(i + 1)) {
-          failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
+          failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name), providerId: this.identityAt(i + 1, this.fallbacks[i].name) });
           continue;
         }
 
@@ -777,7 +793,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
           // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
-          failures.push({ provider: this.fallbacks[i].name, error: err as Error });
+          failures.push({ provider: this.fallbacks[i].name, error: err as Error, providerId: this.identityAt(i + 1, this.fallbacks[i].name) });
         }
       }
 
@@ -848,7 +864,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       }
     }
 
-    const failures: Array<{ provider: string; error: Error }> = [];
+    const failures: LLMProviderFailure[] = [];
 
     // contextExceededCount race 边界：single-threaded async loop / per-attempt increment / race 极小
     let contextExceededCount = 0;
@@ -865,7 +881,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       const { adapter, breakerIndex } = providers[pi];
 
       if (!adapter.stream) {
-        failures.push({ provider: adapter.name, error: new Error('Provider does not support streaming') });
+        failures.push({ provider: adapter.name, error: new Error('Provider does not support streaming'), providerId: this.identityAt(breakerIndex, adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'stream capability missing' };
         lastFailedProviderName = adapter.name;
         continue;
@@ -875,7 +891,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       const breaker = this.breakers[breakerIndex];
       if (breaker?.isOpen() && !limits.allowBreakerProbe) {
         skippedCount++;
-        failures.push({ provider: adapter.name, error: new LLMCircuitBreakerOpenError(adapter.name) });
+        failures.push({ provider: adapter.name, error: new LLMCircuitBreakerOpenError(adapter.name), providerId: this.identityAt(breakerIndex, adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Circuit breaker open' };
         lastFailedProviderName = adapter.name;  // phase 686
         continue;
@@ -1116,7 +1132,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           errorClass: 'unknown',
           userActionHint: null,
         });
-        failures.push({ provider: adapter.name, error: err });
+        failures.push({ provider: adapter.name, error: err, providerId: this.identityAt(breakerIndex, adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         midStreamReset = true;
@@ -1141,7 +1157,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           errorClass: classifyLLMError(err),
           userActionHint: getUserActionHint(err),
         });
-        failures.push({ provider: adapter.name, error: err });
+        failures.push({ provider: adapter.name, error: err, providerId: this.identityAt(breakerIndex, adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         midStreamReset = true;
@@ -1165,7 +1181,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           errorClass: 'unknown',
           userActionHint: null,
         });
-        failures.push({ provider: adapter.name, error: err });
+        failures.push({ provider: adapter.name, error: err, providerId: this.identityAt(breakerIndex, adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
@@ -1176,7 +1192,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         // provider_attempt_failed —— 握手前逐 attempt emit（retry loop catch）已覆盖，
         // provider_failed stream chunk 保留为对调用方的不同语义信号。
         const err = lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured');
-        failures.push({ provider: adapter.name, error: err });
+        failures.push({ provider: adapter.name, error: err, providerId: this.identityAt(breakerIndex, adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
@@ -1351,15 +1367,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     // Track B: fallback chain sequential call()
     type BResult =
       | { winner: 'B'; provider: LLMProvider; providerIndex: number; response: LLMResponse }
-      | { winner: 'B-error'; failures: Array<{ provider: string; error: Error }> };
+      | { winner: 'B-error'; failures: LLMProviderFailure[] };
 
     const trackBPromise: Promise<BResult> = (async () => {
-      const failures: Array<{ provider: string; error: Error }> = [];
+      const failures: LLMProviderFailure[] = [];
       for (let i = 0; i < this.fallbacks.length; i++) {
         if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
         const fb = this.fallbacks[i];
         if (this.breakers[i + 1]?.isOpen()) {
-          failures.push({ provider: fb.name, error: new LLMCircuitBreakerOpenError(fb.name) });
+          failures.push({ provider: fb.name, error: new LLMCircuitBreakerOpenError(fb.name), providerId: this.identityAt(i + 1, fb.name) });
           continue;
         }
         const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);
@@ -1394,7 +1410,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             userActionHint: getUserActionHint(e),
             ...(getRetryAfterSec(e) !== undefined ? { retryAfterSec: getRetryAfterSec(e) } : {}),
           });
-          failures.push({ provider: fb.name, error: e });
+          failures.push({ provider: fb.name, error: e, providerId: this.identityAt(i + 1, fb.name) });
         }
       }
       return { winner: 'B-error', failures };
@@ -1540,7 +1556,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
       cleanupSignals();
       throw new LLMAllProvidersFailedError([
-        { provider: this.primary.name, error: winner.error },
+        { provider: this.primary.name, error: winner.error, providerId: this.identityAt(0, this.primary.name) },
         ...bResult.failures,
       ]);
     }
@@ -1607,7 +1623,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
     cleanupSignals();
     throw new LLMAllProvidersFailedError([
-      { provider: this.primary.name, error: aResult.error },
+      { provider: this.primary.name, error: aResult.error, providerId: this.identityAt(0, this.primary.name) },
       ...winner.failures,
     ]);
   }

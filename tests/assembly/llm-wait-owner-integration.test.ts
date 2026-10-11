@@ -15,6 +15,8 @@
  *    全程 scheduleProbe 只调度一次（事实落盘时那次，成功后无重排）。
  * 2. 全候选 permanent：on_change 不定时轮询（任意时长 0 探针）；配置变化（换 key）
  *    后 gate 就绪 → 恢复路径可移动。
+ * 3. 同名异配置候选全故障：等待事实落盘（不塌缩为任务失败），探针验证后恢复移动
+ *    （Z-C1 回归：显示名不是身份，同名不同 model/key 是两个独立候选）。
  *
  * 构造惯例 mirror llm-wait-recovery.test.ts（Map 手实现 FileSystem 子集）；
  * 定时器用 vi.useFakeTimers + advanceTimersByTimeAsync。
@@ -162,21 +164,35 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
 /**
  * 生产形态装配（镜像 business-systems.ts L169-193 的接线，窄 gate 只映射 owner 结论）。
  * runSubagent stub 真实调用 owner.call()——故障分类/共享记录/探针全走真实 orchestrator。
+ * sameName 为 true 时两候选同名不同 model/key（Z-C1 场景）：adapter 查找键从 name
+ * 换成 model（按 name 的 Map 会塌缩——这正是被测场景）。
  */
-function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavior) {
-  const p = createControllableAdapter('primary', primaryBehavior);
-  const f = createControllableAdapter('fallback', fallbackBehavior);
+function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavior, sameName = false) {
+  const primaryName = sameName ? 'same-provider' : 'primary';
+  const fallbackName = sameName ? 'same-provider' : 'fallback';
+  const p = createControllableAdapter(primaryName, primaryBehavior);
+  const f = createControllableAdapter(fallbackName, fallbackBehavior);
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: (event: LLMEvent) => { emitted.push(event); } };
-  const adapters = new Map<string, ProviderAdapter>([['primary', p.adapter], ['fallback', f.adapter]]);
+  const primaryConfig = sameName
+    ? providerConfig(primaryName, { model: 'model-a', apiKey: 'key-a' })
+    : providerConfig(primaryName);
+  const fallbackConfig = sameName
+    ? providerConfig(fallbackName, { model: 'model-b', apiKey: 'key-b' })
+    : providerConfig(fallbackName);
+  const adapters = new Map<string, ProviderAdapter>(
+    sameName
+      ? [[primaryConfig.model ?? '', p.adapter], [fallbackConfig.model ?? '', f.adapter]]
+      : [[primaryName, p.adapter], [fallbackName, f.adapter]],
+  );
   const orchestratorConfig = {
-    primary: providerConfig('primary'),
-    fallbacks: [providerConfig('fallback')],
+    primary: primaryConfig,
+    fallbacks: [fallbackConfig],
     maxAttempts: 1,
     retryDelayMs: 0,
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-    createProviderAdapter: (c: ProviderConfig) => adapters.get(c.name ?? '')!,
+    createProviderAdapter: (c: ProviderConfig) => adapters.get((sameName ? c.model : c.name) ?? '')!,
   };
   const owner = createLLMOrchestrator(orchestratorConfig);
 
@@ -335,6 +351,51 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
     expect(await system.resumeWaitingTasks()).toBe(1);
     expect(fileMap.has(`tasks/queues/pending/${task.id}.json`)).toBe(true);
+    expect(fileMap.has(waitPath)).toBe(false);
+    await system.shutdown(1).catch(() => { /* silent: teardown */ });
+    await owner.close();
+  });
+
+  it('同名异配置候选全故障：等待事实落盘（不塌缩为任务失败），探针验证后恢复移动（Z-C1 回归）', async () => {
+    const stack = makeAssembledStack('fail', 'fail', true);  // 同名不同 model/key
+    const { owner, p, f, fs, fileMap, system, executor } = stack;
+    const task = makeValidTask();
+    fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
+
+    await executeSubAgentTask(task, new AbortController().signal, {
+      fs,
+      fsFactory: () => fs,
+      auditWriter: stack.audit,
+      clawDir: '/tmp/claw',
+      postProcessors: new Map(),
+      moveTaskToDone: vi.fn().mockResolvedValue(undefined),
+      moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
+      taskExecutor: executor,
+      deliverySink: { deliver: vi.fn() },
+      onWaitScheduled: (fact) => { owner.scheduleProbe(fact.nextProbeAt); },
+    });
+
+    // 真实 orchestrator 全程参与：同名两候选各一次真实业务调用
+    expect(p.calls()).toBe(1);
+    expect(f.calls()).toBe(1);
+    // Z-C1 核心：第二候选不得因同名无故障记录而被误判 ready——owner 判 at，
+    // executor 据此携带等待事实（ready 会被当成普通任务失败，waiting 事实缺失）。
+    expect(owner.getSharedRecoveryDecision().kind).toBe('at');
+    const waitPath = `tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`;
+    expect(fileMap.has(waitPath)).toBe(true);
+    expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
+
+    // 候选恢复 → 下界到点 → 探针验证 primary 成功 → ready 发布 → ATS 移动恰一次
+    p.setBehavior('ok');
+    f.setBehavior('ok');
+    await vi.advanceTimersByTimeAsync(RESET_MS);
+    await flush();
+    await flush();  // ready listener → resumeWaitingTasks 异步落点
+
+    expect(p.calls()).toBe(2);  // 业务 1 + 探针 1
+    expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
+    expect(fileMap.has(`tasks/queues/pending/${task.id}.json`)).toBe(true);
+    expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(false);
     expect(fileMap.has(waitPath)).toBe(false);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
     await owner.close();

@@ -16,6 +16,8 @@
  * 12. probe 结果保留分类和 typed Retry-After（替代只有 error 字符串）。
  * 13. 反向：两个 owner 实例隔离（进程隔离边界）。
  * 14. probe 带有界 timeout（挂起候选在配置 timeoutMs 内了结，不永久悬挂）。
+ * 15. 同名异配置候选：聚合失败按身份指纹记账，不被显示名合并（Z-C1 回归）。
+ * 16. 同名异配置候选：探针失败记账落到被探候选身份，不覆盖同名首候选（Z-C1 回归）。
  *
  * 风格：不用 vi.mock，走 createProviderAdapter DI seam（同 probe-scheduler.test.ts）；
  * 定时器用 vi.useFakeTimers + advanceTimersByTimeAsync。
@@ -472,6 +474,69 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const result = await probePromise;
     expect(result.ok).toBe(false);
     expect(result.provider).toBe('primary');
+    await owner.close();
+  });
+
+  it('同名异配置候选：聚合失败按身份指纹记账，不被显示名合并（Z-C1 回归）', async () => {
+    // 同名不同 model/key = 两个不同候选（身份指纹不同）；createProviderAdapter
+    // 按 model 区分（按 name 的 Map 会塌缩——这正是被测场景）。
+    const p = createControllableAdapter('same-provider', 'fail');
+    const f = createControllableAdapter('same-provider', 'fail');
+    const { sink } = createMockSink();
+    const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
+    const owner = createLLMOrchestrator({
+      primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
+      fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
+      createProviderAdapter: (c: ProviderConfig) => byModel.get(c.model ?? '')!,
+    });
+
+    await expect(owner.call(OPTIONS)).rejects.toThrow();
+    expect(p.calls()).toBe(1);
+    expect(f.calls()).toBe(1);
+    // 两候选各有独立故障记录：第二候选不得因同名被并到第一候选身份下而误判 ready
+    expect(owner.getSharedRecoveryDecision().kind).toBe('at');
+    await owner.close();
+  });
+
+  it('同名异配置候选：探针失败记账落到被探候选身份，不覆盖同名首候选（Z-C1 回归）', async () => {
+    const p = createControllableAdapter('same-provider', 'auth');  // permanent：探针永不该触及
+    const f = createControllableAdapter('same-provider', 'fail');  // transient：唯一被探候选
+    const { sink } = createMockSink();
+    const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
+    const owner = createLLMOrchestrator({
+      primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
+      fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
+      createProviderAdapter: (c: ProviderConfig) => byModel.get(c.model ?? '')!,
+    });
+
+    await expect(owner.call(OPTIONS)).rejects.toThrow();
+    const d0 = owner.getSharedRecoveryDecision();
+    // primary permanent + fallback transient → 仅 fallback 时间阻断
+    expect(d0.kind).toBe('at');
+
+    owner.scheduleProbe((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt);
+    await vi.advanceTimersByTimeAsync(RESET_MS);   // 第一轮：fallback 探针失败
+    await vi.advanceTimersByTimeAsync(1);           // 0ms 重排定时器（fake-timer 怪癖需 ≥1ms）
+    await flush();
+    expect(f.calls()).toBe(2);  // 业务 1 + 探针 1
+    expect(p.calls()).toBe(1);  // 探针从未触及 permanent primary
+
+    // 第二轮到点：fallback 仍故障 → 再次探 fallback。
+    // 若探针失败按显示名记账，会覆盖 primary 的 permanent 记录为 transient，
+    // 下一轮探针目标将错选 primary（p.calls 增长）——本断言即对此设防。
+    await vi.advanceTimersByTimeAsync(RESET_MS);
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    expect(f.calls()).toBe(3);  // 业务 1 + 探针 2
+    expect(p.calls()).toBe(1);  // primary 记录保持 permanent，探针目标不错位
     await owner.close();
   });
 });

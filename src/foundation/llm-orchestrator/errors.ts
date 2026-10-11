@@ -25,13 +25,28 @@ import {
 
 type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED' | 'LLM_CIRCUIT_BREAKER_OPEN';
 
+/**
+ * 单候选失败条目（LLMAllProvidersFailedError.failures 元素）。
+ *
+ * Phase 1934 Z-C1：providerId 是稳定候选身份指纹（name+apiFormat+model+baseUrl+
+ * apiKeyHash），由 LLMOrchestrator 在构造聚合错误时全链填入。显示名不是身份——
+ * 同名不同 model/key/endpoint 是不同候选，按显示名定位会把多个候选的故障并到
+ * 第一个同名候选上。providerId 缺省仅出现于外部手工构造（测试/第三方），
+ * 消费端（共享故障记账）对此回退显示名定位。
+ */
+export interface LLMProviderFailure {
+  provider: string;
+  error: Error;
+  providerId?: string;
+}
+
 export class LLMAllProvidersFailedError extends Error {
   readonly code: OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
   readonly context?: Record<string, unknown>;
   readonly timestamp: string = new Date().toISOString();
-  readonly failures: Array<{ provider: string; error: Error }>;
+  readonly failures: LLMProviderFailure[];
 
-  constructor(failures: Array<{ provider: string; error: Error }>) {
+  constructor(failures: LLMProviderFailure[]) {
     const summary = failures
       .map(f => `${f.provider} (${f.error.message})`)
       .join(', ');
