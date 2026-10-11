@@ -343,9 +343,12 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
    * 其余状态（无 cursor / awaiting-tools / next-llm）一律 no-op（幂等：onStepComplete
    * 与 finally 的 save 成功路径都会调用，重复/超前调用无害、不产错）。
    * 原子写失败 throw（写路径纪律：失败事实不得静默）。
+   * Phase 1934 Z-B1：播种同样走严格加载——损坏/IO 由 loadCursorStrict 转 typed
+   * throw，不被 fallbackReason 吞成静默 no-op（否则严格屏障假报成功、cursor 滞留
+   * awaiting-conversation-commit）。仅确定不存在（文件缺席）允许无 cursor no-op。
    */
   async commitConversation(): Promise<void> {
-    if (!this.current) await this.loadCursor();
+    if (!this.current) await this.loadCursorStrict('commitConversation');
     const current = this.current;
     if (!current || current.kind !== 'awaiting-conversation-commit') return;
     await this.writeCursor({

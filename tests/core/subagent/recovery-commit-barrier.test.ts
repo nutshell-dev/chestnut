@@ -19,6 +19,9 @@
  *    （typed invalid_state），响应文件未写、旧 cursor 不变。
  * S2 store 屏障：cursor 损坏/读取未知 → typed throw（不按无记录继续）。
  * S3 store 屏障：next-llm 游标 → 允许提交新响应（唯一合法后继）。
+ * S4 store 屏障：commitConversation 播种同样严格——cursor 损坏 → typed throw
+ *    （不被 fallbackReason 吞成静默 no-op 让屏障假报成功）。
+ * S5 store 屏障：commitConversation 在 cursor 确定缺席时仍 no-op（唯一合法缺席）。
  * R1 反向：展示 callback（steps.jsonl append）失败不改变严格结果。
  * R2 反向：未 started 工具可继续（pending 可证明未开始 → 执行并严格完成）。
  * R3 反向：started 无 result 仍拒绝重执行（uncertain，不请求 LLM、不动游标）。
@@ -534,6 +537,31 @@ describe('Phase 1934 Step B: 严格恢复提交屏障（F-12）', () => {
       pendingToolIds: ['toolu_a'],
       startedToolIds: [],
     });
+  });
+
+  it('S4 store 屏障：commitConversation 播种同样严格——cursor 损坏 → typed throw（不被 fallbackReason 吞成静默 no-op）', async () => {
+    const { tempDir: dir } = await setup('store-commit-corrupt-cursor');
+    await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
+    await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'not-json{{{');
+
+    // 新进程语义：store 无内存播种，commitConversation 必须从磁盘严格加载
+    const store = createSubAgentRecoveryStore({ fs, resultDir });
+    const err = await store.commitConversation().then(
+      () => { throw new Error('expected commitConversation to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryStoreError);
+    expect((err as SubAgentRecoveryStoreError).kind).toBe('corrupt');
+    // 坏记录原样保留（不清理现场）
+    expect(await fsp.readFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'utf-8')).toBe('not-json{{{');
+  });
+
+  it('S5 store 屏障：commitConversation 在 cursor 确定缺席时仍 no-op（唯一合法缺席语义）', async () => {
+    await setup('store-commit-no-cursor');
+    const store = createSubAgentRecoveryStore({ fs, resultDir });
+    await expect(store.commitConversation()).resolves.toBeUndefined();
+    // 缺席不产生任何 cursor 文件
+    expect(await fs.exists(`${resultDir}/recovery/cursor.json`)).toBe(false);
   });
 
   it('R1 反向：展示 callback（steps.jsonl append）失败不改变严格结果（save+commit 仍完成、cursor 推进）', async () => {
