@@ -53,6 +53,8 @@ export interface ProgressMutationResultMap {
   attempt_pass: VerificationGatewayResult;
   attempt_reject: VerificationGatewayResult;
   attempt_interrupt: VerificationGatewayResult;
+  /** Phase 1934 Step E: 执行无结论释放（不增拒绝预算）。 */
+  attempt_unavailable: VerificationGatewayResult;
   boot_replay: BootReplayMutationOutcome;
   boot_reset: BootResetMutationOutcome;
 }

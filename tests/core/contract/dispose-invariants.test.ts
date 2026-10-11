@@ -431,9 +431,9 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
 
       await manager.cancel(contractId, 'test reason');
 
-      const result = await verifierPromise;
-      expect(result.passed).toBe(false);
-      expect(result.feedback).toContain('AbortError');
+      // Phase 1934 Step E（F-09）：执行异常（含 abort 传播）原样上抛，
+      // 不再转换为 passed:false 消耗业务拒绝预算；abort 保留原控制语义。
+      await expect(verifierPromise).rejects.toThrow('AbortError');
     });
   });
 
@@ -549,12 +549,9 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
 
       await manager.cancel(contractId, 'test');
 
-      const r1 = await p1;
-      const r2 = await p2;
-      expect(r1.passed).toBe(false);
-      expect(r1.feedback).toContain('AbortError');
-      expect(r2.passed).toBe(false);
-      expect(r2.feedback).toContain('AbortError');
+      // Phase 1934 Step E（F-09）：执行异常（含 abort 传播）原样上抛。
+      await expect(p1).rejects.toThrow('AbortError');
+      await expect(p2).rejects.toThrow('AbortError');
     });
   });
 

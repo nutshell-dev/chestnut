@@ -443,6 +443,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
                 subtask.status = 'todo';
               }
             } else {
+              // interrupted / execution_unavailable（Phase 1934 Step E）：只释放
+              // in_progress，不增拒绝预算、不写失败反馈；执行不可用不是业务否决。
               subtask.status = 'todo';
               delete subtask.verification_attempt_id;
             }
@@ -559,7 +561,9 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         ? 'attempt_pass'
         : transition.kind === 'reject'
           ? 'attempt_reject'
-          : 'attempt_interrupt';
+          : transition.kind === 'unavailable'
+            ? 'attempt_unavailable'
+            : 'attempt_interrupt';
     return this._enqueueProgressMutation(
       contractId,
       { mutationId: `${transition.kind}-${newShortUuid()}`, kind },
@@ -664,6 +668,17 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         subtask.status = 'todo';
       }
     } else if (transition.kind === 'interrupt') {
+      if (subtask.status === 'in_progress' && subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'late', expectedAttemptId: transition.attemptId, actualAttemptId: subtask.verification_attempt_id };
+      }
+      if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
+      }
+      subtask.status = 'todo';
+      delete subtask.verification_attempt_id;
+    } else if (transition.kind === 'unavailable') {
+      // Phase 1934 Step E：执行无结论——释放 in_progress，不增 retry_count、
+      // 不写 last_failed_feedback、不触发 force_accept（attempt guard 与 interrupt 相同）。
       if (subtask.status === 'in_progress' && subtask.verification_attempt_id !== transition.attemptId) {
         return { kind: 'late', expectedAttemptId: transition.attemptId, actualAttemptId: subtask.verification_attempt_id };
       }

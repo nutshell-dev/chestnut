@@ -29,7 +29,7 @@ import { buildVerificationOutcome } from './verification-outcome.js';
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
-import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify, recordVerificationSideEffectFailure } from './verification-notify.js';
+import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, writeVerificationUnavailable, safeNotify, recordVerificationSideEffectFailure } from './verification-notify.js';
 import { formatRejectionFeedback } from './verification-format.js';
 import type { VerificationContext, VerificationFailureContext } from './verification-types.js';
 import type { ContractId } from './types.js';
@@ -532,6 +532,23 @@ export async function runVerificationInBackground(
       }
     } catch (auditErr) {
       process.stderr.write(`[verification] background failed audit error: ${formatErr(auditErr)}\n`);
+    }
+    // Phase 1934 Step E（F-09）：执行无结论（未取得 verifier verdict）不消耗业务
+    // 拒绝预算——execution_unavailable 事实 + unavailable 释放，与 verdict 提交分离。
+    if (failure.knownVerdict === 'unavailable') {
+      try {
+        await writeVerificationUnavailable(ctx, contractId, subtaskId, err, attemptId, failure);
+      } catch (inboxErr) {
+        recordVerificationSideEffectFailure(
+          ctx,
+          {
+            context: 'ContractSystem.backgroundVerification.writeUnavailable',
+            error: formatErr(inboxErr),
+          },
+        );
+      }
+      resolveVerification({ passed: false, feedback: '' });
+      return;
     }
     try {
       const result = await writeVerificationError(ctx, contractId, subtaskId, err, attemptId, failure);

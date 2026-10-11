@@ -81,8 +81,9 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         new Error('MaxStepsExceeded: step limit 50 exceeded')
       );
 
-      // phase 425: 必先订阅 SUBTASK_RESET_TO_TODO 再 completeSubtask
-      const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+      // Phase 1934 Step E（F-09）：执行异常不再走 reject 路径（无 SUBTASK_RESET_TO_TODO），
+      // 改等 background done；unavailable 释放不消耗拒绝预算。
+      const doneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
 
       // Complete subtask (triggers background LLM verification)
       const result = await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
@@ -91,16 +92,16 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       expect(result.async).toBe(true);
 
       // Wait for background processing to complete
-      await resetP;
+      await doneP;
 
       runLLMSpy.mockRestore();
 
       // Verify subtask was reset to todo (not stuck in in_progress)
       const progress = await testManager.getProgress(contractId);
       expect(progress.subtasks['t1'].status).toBe('todo');
-      expect(progress.subtasks['t1'].retry_count).toBe(1);
-      expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('MaxStepsExceeded');
-      expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('programming_bug');
+      // F-09：执行不可用不增 retry_count、不写 last_failed_feedback
+      expect(progress.subtasks['t1'].retry_count).toBeUndefined();
+      expect(progress.subtasks['t1'].last_failed_feedback).toBeUndefined();
     });
 
     it('should use DEFAULT_MAX_STEPS=1000 for verifier', async () => {

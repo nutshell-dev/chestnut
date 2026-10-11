@@ -159,6 +159,8 @@ export type ErrorDisposition =
   | { kind: 'force_accepted'; attemptId?: string; retryCount: number;
       maxAttempts: number; allCompleted: boolean | 'unknown'; feedback?: string }
   | { kind: 'interrupted_to_todo'; attemptId?: string; retryCount: number }
+  /** Phase 1934 Step E：执行无结论释放——不含失败计数（未消耗拒绝预算）。 */
+  | { kind: 'unavailable_to_todo'; attemptId?: string }
   | { kind: 'not_applied'; reason: 'not_active' | 'not_in_progress' |
       'missing_subtask' | 'late' | 'conflict' | 'skipped'; actualAttemptId?: string;
       detail?: string; observedStatus?: string }

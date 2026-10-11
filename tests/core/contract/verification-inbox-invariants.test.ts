@@ -879,6 +879,8 @@ describe('Phase 961 verification invariants', () => {
     }, { timeout: 10000 });
 
     const progress = await manager.getProgress(contractId);
-    expect(progress?.subtasks.t1.retry_count).toBe(1);
+    // Phase 1934 Step E（F-09）：执行异常退回不消耗业务拒绝预算——audit 故障
+    // 仍不阻断 reset（原 Phase 961 不变量），但 retry_count 不再因异常增加。
+    expect(progress?.subtasks.t1.retry_count).toBeUndefined();
   });
 });

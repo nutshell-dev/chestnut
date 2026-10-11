@@ -38,5 +38,16 @@ export type VerificationAttemptTransition =
       at: string;
       cause?: 'daemon_restart';
       feedback?: string;
+    }
+  | {
+      /**
+       * Phase 1934 Step E（F-09）：执行无结论处置——释放 in_progress 回 todo，
+       * 不增 retry_count、不写 last_failed_feedback、不触发 force_accept。
+       * 与 interrupt 的差别仅在审计语义：中断是控制流取消，unavailable 是
+       * 执行能力缺失（provider/工具/磁盘），二者都不消耗业务拒绝预算。
+       */
+      kind: 'unavailable';
+      attemptId: string;
+      at: string;
     };
 

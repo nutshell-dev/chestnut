@@ -250,10 +250,13 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
 
     const progress = await manager.getProgress(contractId);
     expect(progress.subtasks.t1.status).toBe('todo');
-    expect(progress.subtasks.t1.retry_count).toBe(1);
+    // Phase 1934 Step E（F-09）：执行异常不消耗业务拒绝预算。
+    expect(progress.subtasks.t1.retry_count).toBeUndefined();
   });
 
-  it('异常达到阈值放行：仅一条 verification_result，含异常与放行事实，进度与正文一致', async () => {
+  it('执行异常达到既有阈值也不放行：零新增拒绝预算、无 force_accept（Phase 1934 Step E）', async () => {
+    // 语义修正（F-09）：原「异常达到阈值放行」语义被移除——执行不可用不是真实否决，
+    // 不得消耗 rejection/force_accept 预算。真实否决的阈值放行由下一条用例保留。
     const { audit, events, emitter } = makeAudit();
     const manager = makeManager(audit);
     const contractId = await manager.create(makeContractYaml({
@@ -268,19 +271,18 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
 
     const inbox = await readInbox();
     expect(inbox).toHaveLength(1);
-    expect(inbox[0].type).toBe('verification_result');
+    expect(inbox[0].type).toBe('verification_error');
 
     const content = await providerVisibleContent(makeRuntime(audit), inbox[0]);
     expect(content).toContain(`契约：${contractId}；子任务：t1`);
-    expect(content).toContain('未得到正常通过结论');
-    expect(content).toContain('失败计数达到配置阈值 1');
     expect(content).toContain('verifier exploded');
-    expect(content).toContain('这表示流程放行，不表示验收通过');
+    expect(content).toContain('此次异常不提供交付质量结论');
+    expect(content).not.toContain('记为完成');
 
     const progress = await manager.getProgress(contractId);
-    expect(progress.subtasks.t1.status).toBe('completed');
-    expect(progress.subtasks.t1.force_accepted).toBe(true);
-    expect(progress.subtasks.t1.retry_count).toBe(1);
+    expect(progress.subtasks.t1.status).toBe('todo');
+    expect(progress.subtasks.t1.retry_count).toBeUndefined();
+    expect(progress.subtasks.t1.force_accepted).toBeUndefined();
   });
 
   it('正常失败阈值放行：一条通知含失败反馈与放行事实（motion/worker 同一正文自足）', async () => {

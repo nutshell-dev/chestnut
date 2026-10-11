@@ -108,13 +108,13 @@ describe('runScriptVerification (phase 990)', () => {
     expect(result.feedback).toContain('first bad line');
   });
 
-  it('returns timeout feedback when killed', async () => {
+  it('throws when killed — Phase 1934 Step E: 超时属执行不可用，不是 verifier 否决', async () => {
+    // 语义修正（F-09）：script 超时此前被转换为 passed:false 消耗业务拒绝预算；
+    // 现原样上抛，由 background pipeline 落 execution_unavailable 事实。
     const err = new ProcessExecError({ message: 'timeout', output: 'took too long', exitCode: null, killed: true });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
-    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
-    expect(result.passed).toBe(false);
-    expect(result.feedback).toContain('超时');
+    await expect(runScriptVerification(ctx, 'check.sh', '/tmp/contract')).rejects.toBe(err);
   });
 
   it('rejects script path that is a symlink outside contract dir', async () => {

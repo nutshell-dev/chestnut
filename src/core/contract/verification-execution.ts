@@ -9,11 +9,10 @@ import type { VerificationResult, SubtaskId } from './types.js';
 import { exec as defaultExec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
-import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { PathGuardError } from '../../foundation/fs/index.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 // phase 1376: contractAbsDir is clawDir, branded
@@ -23,15 +22,12 @@ import {
 } from './audit-emit.js';
 import {
   llmNotConfiguredFeedback,
-  llmVerificationFailedFeedback,
   promptFileEscapedClawFeedback,
   promptFilePathRejectedFeedback,
   promptFileReadFailedFeedback,
   scriptFilePathRejectedFeedback,
   scriptVerificationFailedFeedback,
   scriptVerificationPassedFeedback,
-  scriptVerificationTimeoutFeedback,
-  verifierSubagentTimeoutFeedback,
 } from '../../templates/messages/index.js';
 
 export function checkPathContainment(fs: FileSystem, container: string, relativePath: string): string | null {
@@ -81,17 +77,18 @@ export async function runScriptVerification(
     if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
       throw err;
     }
+    // Phase 1934 Step E（F-09）：执行不可用不是 verifier 否决——spawn 故障
+    // （非 ProcessExecError）与超时（killed）原样上抛，由 background pipeline 落
+    // execution_unavailable 事实；仅真实 script 非零退出生成 passed:false。
     if (!(err instanceof ProcessExecError)) {
-      return { passed: false, feedback: scriptVerificationFailedFeedback(formatErr(err)) };
+      throw err;
+    }
+    if (err.killed) {
+      throw err;
     }
     const detail = err.output || err.message;
     const firstLine = detail.split('\n').find(l => l.trim()) ?? detail.trim();
-    return {
-      passed: false,
-      feedback: err.killed
-        ? scriptVerificationTimeoutFeedback(firstLine)
-        : scriptVerificationFailedFeedback(firstLine),
-    };
+    return { passed: false, feedback: scriptVerificationFailedFeedback(firstLine) };
   }
 }
 
@@ -112,54 +109,48 @@ export async function runLLMVerification(
   if (!resolved) {
     return { passed: false, feedback: promptFilePathRejectedFeedback() };
   }
+  // Phase 1934 Step E：LLM/工具/子代理异常（含 abort）一律原样上抛——执行不可用
+  // 不转换为 passed:false（不消耗业务拒绝预算）；真实否决只能来自 verifier 结论。
+  // Phase 965: resolved is realPath; compare against realpath'd clawDir to avoid symlink mismatch on macOS (/var vs /private).
+  const realClawDir = ctx.fs.realpathSync(ctx.clawDir);
+  const relativePath = path.relative(realClawDir, resolved);
+  if (relativePath.startsWith('..')) {
+    return { passed: false, feedback: promptFileEscapedClawFeedback() };
+  }
+  let promptTemplate: string;
   try {
-    // Phase 965: resolved is realPath; compare against realpath'd clawDir to avoid symlink mismatch on macOS (/var vs /private).
-    const realClawDir = ctx.fs.realpathSync(ctx.clawDir);
-    const relativePath = path.relative(realClawDir, resolved);
-    if (relativePath.startsWith('..')) {
-      return { passed: false, feedback: promptFileEscapedClawFeedback() };
-    }
-    let promptTemplate: string;
-    try {
-      promptTemplate = await ctx.fs.read(relativePath);
-    } catch (readErr) {
+    promptTemplate = await ctx.fs.read(relativePath);
+  } catch (readErr) {
+    // Phase 1934 Step E：ENOENT 是契约配置缺陷（prompt 文件缺席），确定性反馈；
+    // 其余 I/O 故障（EIO/EACCES）属执行不可用，上抛不伪造否决。
+    if (isFileNotFound(readErr)) {
       return { passed: false, feedback: promptFileReadFailedFeedback(relativePath, formatErr(readErr)) };
     }
-    const filledPrompt = promptTemplate
-      .replace(/\{\{evidence\}\}/g, evidence)
-      .replace(/\{\{artifacts\}\}/g, artifacts.join(', '))
-      .replace(/\{\{subtask_description\}\}/g, subtaskDesc);
-
-    const result = await ctx.runVerifierWithCancel(contractId, {
-      agentId: `verifier-${contractId}-${subtaskId}`,
-      contractId,
-      prompt: filledPrompt,
-      clawDir: contractAbsDir,
-      clawId: ctx.clawId,
-      llm: ctx.llm!,
-      fs: ctx.fs,
-      audit: ctx.audit,
-      // phase 1490: maxSteps 不传、SubAgent boundary fallback to agent-executor DEFAULT_MAX_STEPS
-      idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
-      onIdleTimeout: () => {
-        emitContractVerificationTimeout(
-          ctx.audit,
-          { contractId, subtaskId, claw: ctx.clawId },
-        );
-      },
-      toolRegistry: ctx.toolRegistry,
-      toolTimeoutMs: ctx.toolTimeoutMs,
-    });
-    return result;
-  } catch (err) {
-    // Phase 963: abort is not a verification failure — don't convert to passed:false.
-    if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
-      throw err;
-    }
-    if (err instanceof ToolTimeoutError) {
-      return { passed: false, feedback: verifierSubagentTimeoutFeedback() };
-    }
-    const msg = formatErr(err);
-    return { passed: false, feedback: llmVerificationFailedFeedback(msg) };
+    throw readErr;
   }
+  const filledPrompt = promptTemplate
+    .replace(/\{\{evidence\}\}/g, evidence)
+    .replace(/\{\{artifacts\}\}/g, artifacts.join(', '))
+    .replace(/\{\{subtask_description\}\}/g, subtaskDesc);
+
+  return ctx.runVerifierWithCancel(contractId, {
+    agentId: `verifier-${contractId}-${subtaskId}`,
+    contractId,
+    prompt: filledPrompt,
+    clawDir: contractAbsDir,
+    clawId: ctx.clawId,
+    llm: ctx.llm!,
+    fs: ctx.fs,
+    audit: ctx.audit,
+    // phase 1490: maxSteps 不传、SubAgent boundary fallback to agent-executor DEFAULT_MAX_STEPS
+    idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
+    onIdleTimeout: () => {
+      emitContractVerificationTimeout(
+        ctx.audit,
+        { contractId, subtaskId, claw: ctx.clawId },
+      );
+    },
+    toolRegistry: ctx.toolRegistry,
+    toolTimeoutMs: ctx.toolTimeoutMs,
+  });
 }

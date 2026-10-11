@@ -79,6 +79,12 @@ const VerificationOutcomeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('interrupted'),
     reason: z.string(),
   }).strict(),
+  // Phase 1934 Step E（F-09）：执行无结论事实——不携带拒绝预算字段
+  // （无 cause/max_attempts），replay 只释放 in_progress，不增 retry_count。
+  OutcomeIdentitySchema.extend({
+    kind: z.literal('execution_unavailable'),
+    error: SerializableErrorFactSchema,
+  }).strict(),
 ]);
 
 export type VerificationOutcomeIntent = z.infer<typeof VerificationOutcomeSchema>;
@@ -318,6 +324,9 @@ export function isOutcomeAlreadyApplied(
         && subtask.last_failed_feedback?.feedback === outcome.feedback;
     case 'interrupted':
       return subtask.status === 'todo' && subtask.verification_attempt_id === undefined;
+    case 'execution_unavailable':
+      // Phase 1934 Step E：与 interrupted 同一幂等判据——释放后 todo 且无 attempt。
+      return subtask.status === 'todo' && subtask.verification_attempt_id === undefined;
   }
 }
 
@@ -333,7 +342,8 @@ export function buildVerificationOutcome(
     | { kind: 'passed'; result: VerificationResultFact }
     | { kind: 'rejected'; result: VerificationResultFact; cause: VerificationOutcomeRejectCause; maxAttempts: number }
     | { kind: 'errored'; error: SerializableErrorFact; cause: VerificationOutcomeRejectCause; feedback: string; maxAttempts: number }
-    | { kind: 'interrupted'; reason: string },
+    | { kind: 'interrupted'; reason: string }
+    | { kind: 'execution_unavailable'; error: SerializableErrorFact },
 ): VerificationOutcomeIntent {
   const base = {
     schema_version: VERIFICATION_OUTCOME_SCHEMA_VERSION,
@@ -364,5 +374,7 @@ export function buildVerificationOutcome(
       };
     case 'interrupted':
       return { ...base, kind: 'interrupted', reason: body.reason };
+    case 'execution_unavailable':
+      return { ...base, kind: 'execution_unavailable', error: body.error };
   }
 }

@@ -118,8 +118,9 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       });
     });
 
-    it('programming bug throw → cause=programming_bug + reset todo', async () => {
-      // phase 425: rejection path 用新 SUBTASK_RESET_TO_TODO audit event 替原 waitFor polling
+    it('programming bug throw → 执行不可用释放 todo、零拒绝预算（Phase 1934 Step E 语义修正）', async () => {
+      // F-09：throw 是执行不可用不是业务否决——不再计 programming_bug / 不消耗预算；
+      // UNEXPECTED_ASYNC_THROW 审计保留。等待信号从 SUBTASK_RESET_TO_TODO 改为 BACKGROUND_DONE。
       const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
@@ -141,17 +142,14 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         new TypeError('undefined is not a function')
       );
 
-      // phase 425: 必先订阅 SUBTASK_RESET_TO_TODO 再 completeSubtask
-      const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+      const doneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
-      await resetP;
+      await doneP;
 
       const progress = await testManager.getProgress(contractId);
       expect(progress.subtasks['t1'].status).toBe('todo');
-      expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('programming_bug');
-      // phase 1829 Z1 补修：异常反馈只陈述事实，不再含「system bug / 修代码后再 retry」
-      // 处方；第二轮：不无条件写「未得到验收结论」（结论由 owner 的 knownVerdict 给出）
-      expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('验收流程发生异常');
+      expect(progress.subtasks['t1'].retry_count).toBeUndefined();
+      expect(progress.subtasks['t1'].last_failed_feedback).toBeUndefined();
 
       const unexpectedThrowCalls = events.filter(
         (e) => e[0] === CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW
@@ -160,8 +158,8 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       expect(unexpectedThrowCalls[0][4]).toContain('TypeError');
     });
 
-    it('subagent timeout → cause=subagent_timeout + reset todo', async () => {
-      // phase 425: rejection path 用新 SUBTASK_RESET_TO_TODO audit event 替原 waitFor polling
+    it('subagent timeout → 执行不可用释放 todo、零拒绝预算（Phase 1934 Step E 语义修正）', async () => {
+      // F-09：超时属执行失败，不再以 subagent_timeout 消耗拒绝预算。
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
@@ -183,15 +181,14 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         new ToolTimeoutError('verifier', 5000)
       );
 
-      // phase 425: 必先订阅 SUBTASK_RESET_TO_TODO 再 completeSubtask
-      const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+      const doneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
-      await resetP;
+      await doneP;
 
       const progress = await testManager.getProgress(contractId);
       expect(progress.subtasks['t1'].status).toBe('todo');
-      expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('subagent_timeout');
-      expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('5000');
+      expect(progress.subtasks['t1'].retry_count).toBeUndefined();
+      expect(progress.subtasks['t1'].last_failed_feedback).toBeUndefined();
     });
 
     it('onNotify verification_failed payload = VerificationFailedNotification typed event', async () => {
@@ -306,8 +303,8 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       }]);
     });
 
-    it('retry_count 跨多次失败递增', async () => {
-      // phase 425: 3 iter 各独立订阅 SUBTASK_RESET_TO_TODO 替原 waitFor polling
+    it('retry_count 仅真实否决递增；执行异常不增预算、不触发 force_accept（Phase 1934 Step E 语义修正）', async () => {
+      // F-09：iter1 真实否决（passed:false）计 1；iter2/3 throw 为执行不可用，不增不计。
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
@@ -329,30 +326,32 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         passed: false,
         feedback: 'first reject',
       });
-      let resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+      let waitP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
       await completeSubtaskWithRetry(testManager, { contractId, subtaskId: 't1', evidence: 'done1' });
-      await resetP;
+      await waitP;
       spy.mockRestore();
 
       spy = vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValueOnce(
         new Error('bug')
       );
-      resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+      waitP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
       await completeSubtaskWithRetry(testManager, { contractId, subtaskId: 't1', evidence: 'done2' });
-      await resetP;
+      await waitP;
       spy.mockRestore();
 
       spy = vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValueOnce(
         new ToolTimeoutError('verifier', 3000)
       );
-      // phase 425: iter 3 retry_count=3=maxAttempts、走 force-accept path 不 retry path、等 SUBTASK_FORCE_ACCEPTED
-      const forceAcceptedP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED);
+      waitP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
       await completeSubtaskWithRetry(testManager, { contractId, subtaskId: 't1', evidence: 'done3' });
-      await forceAcceptedP;
+      await waitP;
       spy.mockRestore();
 
       const progress = await testManager.getProgress(contractId);
-      expect(progress.subtasks['t1'].retry_count).toBe(3);
-      expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('subagent_timeout');
+      // 仅 iter1 真实否决计入；两次执行异常零预算消耗、零 force_accept
+      expect(progress.subtasks['t1'].retry_count).toBe(1);
+      expect(progress.subtasks['t1'].status).toBe('todo');
+      expect(progress.subtasks['t1'].force_accepted).toBeUndefined();
+      expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('llm_rejected');
     });
 });

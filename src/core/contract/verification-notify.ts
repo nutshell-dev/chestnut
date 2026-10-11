@@ -535,6 +535,17 @@ function writeVerificationDispositionInbox(
         processingErrors,
       });
       break;
+    case 'unavailable_to_todo':
+      // Phase 1934 Step E：执行无结论——通知「退回待提交、无验收结论」，不携带
+      // 失败计数（未消耗拒绝预算），不说验收拒绝。
+      body = verificationErrorReturnedNotice({
+        ...identity,
+        errorMessage: errorMsg,
+        stage: failure?.stage ?? 'unspecified',
+        knownVerdict: 'unavailable',
+        processingErrors,
+      });
+      break;
     case 'not_applied':
       body = verificationErrorNotAppliedNotice({
         ...identity,
@@ -567,6 +578,135 @@ function writeVerificationDispositionInbox(
     idPrefix: 'verification_error',
     extraFields: identityExtraFields(identity),
   });
+}
+
+/**
+ * Phase 1934 Step E（F-09）：执行无结论处置。
+ *
+ * durable-first：先持久 execution_unavailable immutable fact（boot replay 可重放），
+ * 再 queued unavailable transition 释放该 attempt 的 in_progress——不调用 reject、
+ * 不增 retry_count、不设置 completed、不落 programming_bug→force_accept 路径。
+ * 处置完成后发一条「退回待提交、无验收结论」通知（显式重新提交入口不变）。
+ */
+export async function writeVerificationUnavailable(
+  ctx: VerificationContext,
+  contractId: ContractId,
+  subtaskId: SubtaskId,
+  error: unknown,
+  attemptId?: string,
+  failure?: VerificationFailureContext,
+): Promise<void> {
+  const errorMsg = formatErr(error);
+  let result: ErrorHandlingResult;
+  try {
+    result = await releaseUnavailableAttempt(ctx, contractId, subtaskId, error, attemptId);
+  } catch (handlingErr) {
+    // 处置链路自身逃出：unconfirmed——保留原错与处置异常，不伪装已释放。
+    emitContractVerificationResetFailed(
+      ctx.audit,
+      { context: 'ContractSystem.writeVerificationUnavailable', error: formatErr(handlingErr) },
+    );
+    result = {
+      disposition: { kind: 'unconfirmed', processingError: formatErr(handlingErr) },
+      processingErrors: [formatErr(handlingErr)],
+    };
+  }
+
+  try {
+    writeVerificationDispositionInbox(ctx, contractId, subtaskId, errorMsg, result, attemptId, failure);
+  } catch (notifyErr) {
+    // 投递失败只记 audit；audit 自身失败降级 stderr，不再向外抛。
+    recordVerificationSideEffectFailure(
+      ctx,
+      { notifyType: 'verification_error', error: formatErr(notifyErr) },
+    );
+  }
+}
+
+/**
+ * execution_unavailable 的 queued 释放本体：attempt guard 与 interrupt 相同，
+ * durable persist 先于 transition；conflict fail-closed（不覆盖既有 durable fact）。
+ */
+async function releaseUnavailableAttempt(
+  ctx: VerificationContext,
+  contractId: ContractId,
+  subtaskId: SubtaskId,
+  error: unknown,
+  attemptId?: string,
+): Promise<ErrorHandlingResult> {
+  // Phase 1132 Step D: lifecycle guard based on active path.
+  if (!(await isContractActive(ctx, contractId))) {
+    emitContractVerificationResetFailed(
+      ctx.audit,
+      {
+        contractId,
+        subtaskId,
+        context: 'releaseUnavailableAttempt',
+        message: 'contract no longer active, skip unavailable release',
+      },
+    );
+    return notApplied('not_active');
+  }
+  const progress = await ctx.getProgress(contractId);
+  if (!progress) {
+    throw new ToolError(`Contract "${contractId}" unloadable: progress schema corruption`);
+  }
+  const subtask = progress.subtasks[subtaskId];
+  if (!subtask) {
+    return notApplied('missing_subtask');
+  }
+  if (subtask.status !== 'in_progress') {
+    return notApplied('not_in_progress', { observedStatus: String(subtask.status) });
+  }
+  const effectiveAttemptId = attemptId ?? subtask.verification_attempt_id;
+  if (!effectiveAttemptId) {
+    return notApplied('skipped', { detail: 'subtask in_progress without verification_attempt_id' });
+  }
+
+  const errorMsg = formatErr(error);
+  const errorFact: SerializableErrorFact = {
+    message: errorMsg,
+    name: error instanceof Error ? error.constructor.name : typeof error,
+    ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+  };
+
+  // durable-first：先持久 execution_unavailable 事实（无拒绝预算字段），再 queued 释放。
+  const persistResult = await ctx.persistVerificationOutcome(buildVerificationOutcome(
+    { contractId, subtaskId, attemptId: effectiveAttemptId, completedAt: new Date().toISOString() },
+    { kind: 'execution_unavailable', error: errorFact },
+  ));
+  switch (persistResult) {
+    case 'persisted':
+    case 'idempotent':
+      break;
+    case 'conflict':
+      return notApplied('conflict');
+  }
+
+  const transitionResult = await ctx.transitionVerificationAttempt(
+    contractId,
+    subtaskId,
+    {
+      kind: 'unavailable',
+      attemptId: effectiveAttemptId,
+      at: new Date().toISOString(),
+    },
+  );
+  if (transitionResult.kind === 'late') {
+    return notApplied(
+      'late',
+      transitionResult.actualAttemptId !== undefined
+        ? { actualAttemptId: transitionResult.actualAttemptId }
+        : {},
+    );
+  }
+  if (transitionResult.kind !== 'updated') {
+    return notApplied('skipped', { detail: transitionResult.reason });
+  }
+  return {
+    disposition: { kind: 'unavailable_to_todo', attemptId: effectiveAttemptId },
+    processingErrors: [],
+  };
 }
 
 /**
