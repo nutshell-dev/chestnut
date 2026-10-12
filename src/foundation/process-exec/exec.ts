@@ -113,6 +113,10 @@ class BufferCollector {
     return Buffer.concat(this.combined).toString('utf-8');
   }
 
+  stdoutString(): string {
+    return Buffer.concat(this.stdout).toString('utf-8');
+  }
+
   stderrString(): string {
     return Buffer.concat(this.stderr).toString('utf-8');
   }
@@ -332,6 +336,7 @@ export function execWithHandle(
       clearTimeout(timeoutId);
 
       const output = collector.combinedString();
+      const stdout = collector.stdoutString();
       const stderr = collector.stderrString() || undefined;
 
       // A close only speaks about the leader/stdio; it does not by itself
@@ -426,7 +431,7 @@ export function execWithHandle(
       }
 
       if (code === 0) {
-        resolve({ output, exitCode: 0, stderr });
+        resolve({ output, stdout, exitCode: 0, stderr });
         return;
       }
 

@@ -77,6 +77,13 @@ export type ExecOptions = ExecBaseOptions & ExecTimeoutPolicy;
 export interface ExecResult {
   /** Combined stdout + stderr in chronological order */
   output: string;
+  /**
+   * Pure stdout stream (phase 1935 Step B). Protocol consumers (e.g. Git
+   * stdout parsing) MUST read this field; `output` interleaves stderr
+   * diagnostics and is only for combined observation. Never derived from
+   * `output` by subtraction — both channels may contain identical text.
+   */
+  stdout: string;
   /** Process exit code */
   exitCode: number;
   /** Separated stderr when available (snapshot layer defense, backward-compatible) */

@@ -200,7 +200,7 @@ describe.skipIf(!gitAvailable)('version-store 发布对账查询失败（phase 1
     const edit = await f.beginEdit(base, 'garbage', { 'skills/d/SKILL.md': 'd1\n' });
     const garbageExec: Exec = (async (cmd: string, args: string[], opts: unknown) => {
       if (cmd === 'git' && args.includes('log')) {
-        return { output: '\0not-a-sha\0broken\0', stderr: '' };
+        return { output: '\0not-a-sha\0broken\0', stdout: '\0not-a-sha\0broken\0', stderr: '' };
       }
       return realExec(cmd, args, opts as never);
     }) as Exec;

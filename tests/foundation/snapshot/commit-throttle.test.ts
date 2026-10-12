@@ -30,7 +30,8 @@ function makeMockFs(): FileSystem {
 const mockAudit = makeMockAudit();
 
 const { mockExec } = vi.hoisted(() => ({
-  mockExec: vi.fn(() => Promise.resolve({ output: '' })),
+  // phase 1935 Step B: 业务上纯 stdout 的成功结果 — stdout 与 output 同义明确填写
+  mockExec: vi.fn(() => Promise.resolve({ output: '', stdout: '' })),
 }));
 
 describe('Snapshot commit throttle', () => {
@@ -44,9 +45,9 @@ describe('Snapshot commit throttle', () => {
 
     vi.clearAllMocks();
     mockExec
-      .mockResolvedValueOnce({ output: ' M file.ts\n' }) // status
-      .mockResolvedValueOnce({ output: '' })              // add
-      .mockResolvedValueOnce({ output: '' });             // commit
+      .mockResolvedValueOnce({ output: ' M file.ts\n', stdout: ' M file.ts\n' }) // status
+      .mockResolvedValueOnce({ output: '', stdout: '' })                          // add
+      .mockResolvedValueOnce({ output: '', stdout: '' });                         // commit
 
     const r1 = await snapshot.commit('turn-1');
     expect(r1.ok).toBe(true);
@@ -65,9 +66,9 @@ describe('Snapshot commit throttle', () => {
 
     vi.clearAllMocks();
     mockExec
-      .mockResolvedValueOnce({ output: ' M file.ts\n' })
-      .mockResolvedValueOnce({ output: '' })
-      .mockResolvedValueOnce({ output: '' });
+      .mockResolvedValueOnce({ output: ' M file.ts\n', stdout: ' M file.ts\n' })
+      .mockResolvedValueOnce({ output: '', stdout: '' })
+      .mockResolvedValueOnce({ output: '', stdout: '' });
 
     const r1 = await snapshot.commit('turn-a');
     expect(r1.ok).toBe(true);
@@ -79,9 +80,9 @@ describe('Snapshot commit throttle', () => {
 
     vi.clearAllMocks();
     mockExec
-      .mockResolvedValueOnce({ output: ' M file2.ts\n' })
-      .mockResolvedValueOnce({ output: '' })
-      .mockResolvedValueOnce({ output: '' });
+      .mockResolvedValueOnce({ output: ' M file2.ts\n', stdout: ' M file2.ts\n' })
+      .mockResolvedValueOnce({ output: '', stdout: '' })
+      .mockResolvedValueOnce({ output: '', stdout: '' });
 
     const r2 = await snapshot.commit('turn-b');
     expect(r2.ok).toBe(true);
@@ -96,7 +97,7 @@ describe('Snapshot commit throttle', () => {
     (snapshot as any).state = { kind: 'degraded', failures: 1, degradedAt: Date.now() };
 
     vi.clearAllMocks();
-    mockExec.mockResolvedValueOnce({ output: '' }); // status: no changes
+    mockExec.mockResolvedValueOnce({ output: '', stdout: '' }); // status: no changes
 
     const r = await snapshot.commit('no-change');
     expect(r.ok).toBe(true);
