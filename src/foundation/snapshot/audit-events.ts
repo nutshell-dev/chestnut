@@ -13,6 +13,8 @@ export const SNAPSHOT_AUDIT_EVENTS = {
   SYNC_CLEAN_FAILED: 'snapshot_sync_clean_failed',
   SYNC_RESTORE_FAILED: 'snapshot_sync_restore_failed',
   STATUS_STDERR: 'snapshot_status_stderr',
+  // phase 1935 Step C: 成功 Git 调用 stderr 诊断观察（双入口统一经 git-diagnostics 发出一次）
+  GIT_STDERR: 'snapshot_git_stderr',
   PERSIST_FAILED: 'snapshot_persist_failed',
   TRY_CLEAR_FAILED: 'snapshot_try_clear_failed',
   STATE_CORRUPT: 'snapshot_state_corrupt',
@@ -51,6 +53,7 @@ export const SNAPSHOT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   snapshot_sync_clean_failed: 'audit',
   snapshot_sync_restore_failed: 'audit',
   snapshot_status_stderr: 'audit',
+  snapshot_git_stderr: 'audit',
   snapshot_persist_failed: 'audit',
   snapshot_try_clear_failed: 'audit',
   snapshot_state_corrupt: 'audit',

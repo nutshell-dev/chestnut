@@ -3,6 +3,7 @@ import {
   emitSnapshotCommitted,
   emitSnapshotCommitFailed,
   emitSnapshotDegraded,
+  emitSnapshotGitStderr,
   emitSnapshotInitCleanupFailed,
   emitSnapshotInitFailed,
   emitSnapshotPersistFailed,
@@ -83,6 +84,16 @@ describe('snapshot typed audit emit (phase 1127)', () => {
       SNAPSHOT_AUDIT_EVENTS.STATUS_STDERR,
       'dir=/x',
       'stderr=fatal: bad tree',
+    );
+  });
+
+  it('emitSnapshotGitStderr serialize 正确（phase 1935 Step C）', () => {
+    const audit = makeMockAuditLocal();
+    emitSnapshotGitStderr(audit, { dir: '/x', stderr: 'warning: confstr(_CS_DARWIN_USER_TEMP_DIR) failed' });
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.GIT_STDERR,
+      'dir=/x',
+      'stderr=warning: confstr(_CS_DARWIN_USER_TEMP_DIR) failed',
     );
   });
 

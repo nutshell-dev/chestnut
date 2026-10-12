@@ -868,6 +868,7 @@
       "snapshot_commit_failed",
       "snapshot_committed",
       "snapshot_degraded",
+      "snapshot_git_stderr",
       "snapshot_init_cleanup_failed",
       "snapshot_init_failed",
       "snapshot_persist_failed",

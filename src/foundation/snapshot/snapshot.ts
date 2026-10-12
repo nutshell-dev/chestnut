@@ -25,11 +25,11 @@ import {
   emitSnapshotPersistFailed,
   emitSnapshotRealpathFailed,
   emitSnapshotStateCorrupt,
-  emitSnapshotStatusStderr,
   emitSnapshotSyncCleanFailed,
   emitSnapshotSyncRestoreFailed,
   emitSnapshotTryClearFailed,
 } from './audit-emit.js';
+import { observeGitStderr } from './git-diagnostics.js';
 import { assertSnapshotStateShape } from './invariants.js';
 import { auditSnapshotStateCrossSource } from './state-cross-source-audit.js';
 type Result<T, E> =
@@ -209,7 +209,10 @@ export class Snapshot implements SnapshotCommitter {
 
   private async git(args: string[]): Promise<{ stdout: string; stderr: string }> {
     const result = await this.execImpl('git', args, { cwd: this.dir });
-    return { stdout: result.output.trim(), stderr: result.stderr?.trim() ?? '' };
+    // phase 1935 Step C: Git 协议只消费纯 stdout（combined output 混入 stderr 诊断）；
+    // 成功 stderr 统一观察一次——不污染解析、不静默丢弃。
+    observeGitStderr(this.audit, this.dir, result.stderr);
+    return { stdout: result.stdout.trim(), stderr: result.stderr?.trim() ?? '' };
   }
 
   /**
@@ -327,12 +330,8 @@ export class Snapshot implements SnapshotCommitter {
 
     try {
       const status = await this.git(['status', '--porcelain']);
-      if (status.stderr) {
-        emitSnapshotStatusStderr(this.audit, {
-          dir: this.dir,
-          stderr: this.audit.message(status.stderr),
-        });
-      }
+      // phase 1935 Step C: status stderr 已由 git() 经 observeGitStderr 观察一次，
+      // 此处不再重复发事件（STATUS_STDERR 名称/catalog 保留供历史查询）。
       if (!status.stdout) {
         this.state = onCommitSuccess();
         await tryClearPersist(this.fs, this.dir, this.audit);

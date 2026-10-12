@@ -36,6 +36,7 @@ import {
   emitSnapshotVersionSaveFailed,
   emitSnapshotVersionWorkspaceBegan,
 } from './audit-emit.js';
+import { observeGitStderr } from './git-diagnostics.js';
 import {
   VersionStoreError,
   type EditWorkspace,
@@ -214,7 +215,10 @@ class GitVersionStore implements VersionStore {
         env,
         stdin: opts?.stdin,
       });
-      return { ok: true, stdout: opts?.raw ? r.output : r.output.trim(), stderr: r.stderr?.trim() ?? '' };
+      // phase 1935 Step C: 成功数据仅取纯 stdout（combined output 混入 stderr 诊断，
+      // 禁止 stdout ?? output 降级）；成功 stderr 统一观察一次。raw 保持不 trim。
+      observeGitStderr(this.audit, this.repositoryDir, r.stderr);
+      return { ok: true, stdout: opts?.raw ? r.stdout : r.stdout.trim(), stderr: r.stderr?.trim() ?? '' };
     } catch (e) {
       const ne = e as NodeExecError;
       if (typeof ne.exitCode === 'number') {

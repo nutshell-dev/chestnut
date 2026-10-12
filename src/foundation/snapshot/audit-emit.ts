@@ -89,6 +89,16 @@ export function emitSnapshotStatusStderr(audit: AuditLog, opts: {
   audit.write(SNAPSHOT_AUDIT_EVENTS.STATUS_STDERR, `dir=${opts.dir}`, `stderr=${opts.stderr}`);
 }
 
+// === GIT_STDERR (phase 1935 Step C) ===
+// 成功 Git 调用的 stderr 诊断（仅 dir/stderr；不写 argv/stdin/env，避免内容扩散）。
+// stderr 入参须已过 audit.message 编码（调用方责任，见 git-diagnostics.ts）。
+export function emitSnapshotGitStderr(audit: AuditLog, opts: {
+  dir: string;
+  stderr: string;
+}): void {
+  audit.write(SNAPSHOT_AUDIT_EVENTS.GIT_STDERR, `dir=${opts.dir}`, `stderr=${opts.stderr}`);
+}
+
 // === PERSIST_FAILED ===
 export function emitSnapshotPersistFailed(audit: AuditLog, opts: {
   dir: string;
