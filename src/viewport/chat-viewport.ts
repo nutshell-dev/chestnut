@@ -452,6 +452,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       return;
     }
 
+    // phase 1937 Step C: 用户提交 = 回到实时视图（浏览历史中提交也强制回底，
+    // 让待确认消息与后续流式响应可见）
+    displayWithHolder.historyControls.toBottom();
+
     if (trimmed === 'exit' || trimmed === 'quit') {
       editor.setText('');
       resolveExit();
@@ -530,6 +534,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     requestRender: () => tui.requestRender(),
     resolveExit: () => resolveExit(),
     setShutdownReason: (r) => { shutdownReason = r; },
+    // phase 1937 Step C: PageUp/PageDown 等滚动键映射到历史窗口
+    history: displayWithHolder.historyControls,
   }));
 
   // RESIZE 监听：终端尺寸变化时重渲染
