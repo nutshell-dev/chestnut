@@ -1016,6 +1016,7 @@
       "viewport_draft_restore_failed",
       "viewport_draft_restored",
       "viewport_event_ingest",
+      "viewport_history_window_render_failed",
       "viewport_host_input",
       "viewport_interrupt_persist_failed",
       "viewport_render_batch",

@@ -40,6 +40,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   DAEMON_ENSURE_STARTED: 'viewport_daemon_ensure_started',
   DAEMON_ENSURE_READY: 'viewport_daemon_ensure_ready',
   DAEMON_ENSURE_FAILED: 'viewport_daemon_ensure_failed',
+  // phase 1937 Step B: 历史窗口物化失败（不静默丢弃；游标保留可重试）
+  HISTORY_WINDOW_RENDER_FAILED: 'viewport_history_window_render_failed',
 } as const;
 
 /**

@@ -232,6 +232,18 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     shadowText,
     migratedExecText,
     taskStatusBar,
+    // phase 1937 Step B: outputText 下方组件（任务条/claw 条/编辑器）当前占用的行数——
+    // 窗口高度 = 终端行数 − 保留行 − footer，保证 render 输入不超屏幕、Terminal 不滚出 scrollback。
+    getReservedRows: () => {
+      const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
+      return (
+        migratedExecText.render(cols).length +
+        spawnText.render(cols).length +
+        shadowText.render(cols).length +
+        attachedClawBar.render(cols).length +
+        editor.render(cols).length
+      );
+    },
   } as Parameters<typeof createDisplay>[0]);
 
   mainUI = createMainTurnUI({

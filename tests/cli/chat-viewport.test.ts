@@ -122,9 +122,14 @@ describe('chat-viewport Phase 72', () => {
   // Phase 72 核心重构验证
   // ==========================================================================
   describe('Phase 72 存储模型重构', () => {
-    it('应使用 outputLines 而非 outputContent', () => {
-      expect(sourceCode).toContain('outputLines: OutputLine[]');
-      expect(sourceCode).toContain('const outputLines: OutputLine[]');
+    it('应使用 OutputLine 行模型而非 outputContent（phase 1937：行存储归 history owner）', () => {
+      const historySource = fs.readFileSync(
+        path.join(__dirname, '../../src/viewport/chat-viewport-history.ts'),
+        'utf-8',
+      );
+      expect(historySource).toContain('export interface OutputLine');
+      expect(historySource).toContain('const lines: OutputLine[]');
+      expect(sourceCode).toContain('createViewportHistory(');
       // 不应有旧的 outputContent
       expect(sourceCode).not.toContain('let outputContent');
       expect(sourceCode).not.toContain('outputContent +=');
@@ -155,13 +160,13 @@ describe('chat-viewport Phase 72', () => {
       expect(flushThinkingMatch![0]).not.toContain('outputContent');
     });
 
-    it('updateDisplay 应使用 fitLine 动态渲染', () => {
+    it('updateDisplay 应使用固定窗口渲染（phase 1937：renderWindow + 终端几何）', () => {
       const updateDisplayMatch = sourceCode.match(
         /const updateDisplay = \(\) => \{[\s\S]*?\};/
       );
       expect(updateDisplayMatch).toBeTruthy();
-      expect(updateDisplayMatch![0]).toContain('fitLine');
-      expect(updateDisplayMatch![0]).toContain('process.stdout.columns');
+      expect(updateDisplayMatch![0]).toContain('renderWindow');
+      expect(updateDisplayMatch![0]).toContain('getRows');
     });
 
     it('应有 RESIZE 监听', () => {
@@ -236,8 +241,12 @@ describe('chat-viewport Phase 72', () => {
       expect(match![0]).toContain('hangIndent');
     });
 
-    it('updateDisplay 把 hangIndent 传给 wrapLine', () => {
-      expect(sourceCode).toMatch(/wrapLine\(line, cols, hangIndent\)/);
+    it('hangIndent 传入 wrapLine（phase 1937：物化归 history 模块）', () => {
+      const historySource = fs.readFileSync(
+        path.join(__dirname, '../../src/viewport/chat-viewport-history.ts'),
+        'utf-8',
+      );
+      expect(historySource).toMatch(/wrapLine\(l, cols, line\.hangIndent\)/);
     });
 
     it('flushStreaming 传 hangIndent 到 appendOutput', () => {
