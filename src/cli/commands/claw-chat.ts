@@ -33,16 +33,17 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
       const baseDir = getChestnutRoot();
       const pm = createProcessManagerForCLI({ ...deps, baseDir });
       const clawId = makeClawId(name);
-      if (!pm.isAlive(resolveClawDaemonDir(clawId))) {
-        console.log(`Starting Claw "${name}" daemon...`);
-        // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
-        const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
-          clawId,
-          agentDir: clawDir,
-          chestnutRoot: getChestnutRoot(),
-        }));
-        console.log(`Started (PID: ${pid})`);
-      }
+      // Phase 1936 Step C: daemon ready 的唯一 capability = ensureRunning——
+      // 已有 active/spawning winner 由 ProcessManager join exact generation 收敛，
+      // CLI 不再组合 isAlive+spawn（TOCTOU）、不自行解释 ProcessSpawnConflictError；
+      // typed failure 原样上抛，由 viewport 呈现为系统事件（显示归 viewport owner，
+      // CLI 不再向 stdout 拼接启动文案）。
+      // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
+      await pm.ensureRunning(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
+        clawId,
+        agentDir: clawDir,
+        chestnutRoot: getChestnutRoot(),
+      }));
     },
     showRecapStream: globalConfig.viewport.show_recap_stream,
     showSystemMessages: globalConfig.viewport.show_system_messages,

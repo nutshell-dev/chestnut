@@ -28,6 +28,9 @@ const ALLOWLIST_BASENAMES = new Set([
   'chat-viewport-input.ts',
   // phase 367: viewport task stale cleanup audit self-failure tolerated
   'chat-viewport.ts',
+  // phase 1936 Step B: daemon ensure 后台 task 的 audit 写入 fail-soft——audit 自失败
+  // 不能自审计（recursion border），rethrow 会变成后台 task 的 unhandled rejection。
+  'chat-viewport-daemon-ensure.ts',
   'claw-list.ts',
   'claw-trace.ts',
   'daemon-entry.ts',

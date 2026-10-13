@@ -44,6 +44,7 @@ import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-pane
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-init.js';
+import { createDaemonEnsureController, type DaemonEnsureController } from './chat-viewport-daemon-ensure.js';
 import { type TaskId, readShortTaskId, adoptLegacyShortTaskId } from '../core/async-task-system/index.js';
 
 
@@ -76,6 +77,12 @@ interface ViewportDisplayOptions {
 }
 
 interface ViewportLifecycle {
+  /**
+   * 调用方提供的 daemon 保障能力（Phase 1936 Step C：推荐 ProcessManager
+   * `ensureRunning`）。Phase 1936 Step B 起由 viewport 在可见宿主（TUI）建立
+   * 后以受控后台 task 运行；rejection 不再阻断 viewport 构造/清理，typed
+   * 失败经系统消息 + audit 可观察（chat-viewport-daemon-ensure.ts）。
+   */
   ensureDaemon?: () => Promise<void>;  // 调用方提供：检查 daemon 是否运行，没运行就启动
 }
 
@@ -114,10 +121,8 @@ function tokenizeSlashArgs(s: string): string[] {
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
   const baseDir = getChestnutRoot();
   const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory, baseDir });
-  // 确保 daemon 运行
-  if (options.ensureDaemon) {
-    await options.ensureDaemon();
-  }
+  // Phase 1936 Step B: daemon 保障不再在 TUI 构造前 await——viewport 先可见，
+  // ensureDaemon 后置为受控后台 task（见 tui.start() 之后的 daemonEnsure 装配）。
 
   const { fs } = createDirContext({ fsFactory: options.fsFactory }, options.agentDir);
   const showSystemMessages = options.showSystemMessages ?? false;
@@ -172,6 +177,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   // 提前声明 — 防 TDZ
   let mainUI: MainTurnUIController;
+  // Phase 1936 Step B: daemon 保障后台 task（tui.start() 后装配）；
+  // onSubmit 闭包引用，声明必须先于 onSubmit 定义。
+  let daemonEnsure: DaemonEnsureController | null = null;
 
   const spawnText = new Text('', 0, 0);
   const shadowText = new Text('', 0, 0);
@@ -466,6 +474,16 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       return;
     }
 
+    // Phase 1936 Step B: daemon 保障失败（终态）时输入不得静默丢失——
+    // 不写 inbox（无消费者）、文本回填编辑器，与既有提交失败路径同语义；
+    // pending（启动中）期间 inbox 写入持久、daemon ready 后消费，保持既有 pending 语义。
+    if (daemonEnsure?.state() === 'failed') {
+      editor.setText(trimmed);
+      displayWithHolder.appendOutput('\x1b[31m', '[error] daemon 未运行（启动失败），消息未发送；文本已保留供重试。', true);
+      tui.requestRender();
+      return;
+    }
+
     // 写入 inbox（phase 1874 Step C: draft 提交序——提交前保全 pending 草稿、
     // 写入成功才清草稿；失败草稿保留 + 编辑器回填供重试）
     const outcome = submitUserMessage(
@@ -538,6 +556,20 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   }
 
   tui.start();
+
+  // Phase 1936 Step B: viewport 先可见——daemon 保障在可见宿主建立后作为受控
+  // 后台 task 运行；pending/ready/failed 经系统消息 + audit 可观察，rejection
+  // 不阻断构造/清理。退出路径不阻塞等待 settled（BOOT_DEADLINE_MS=30s 远超
+  // 可感知退出延迟；持久证据归 ProcessManager audit）。
+  if (options.ensureDaemon) {
+    daemonEnsure = createDaemonEnsureController({
+      label: options.label,
+      ensureDaemon: options.ensureDaemon,
+      audit: options.audit,
+      appendOutput: displayWithHolder.appendOutput,
+      requestRender: () => tui.requestRender(),
+    });
+  }
 
   // Phase 1148 Step B: 关闭 terminal focus-events 以隔离 Apple Terminal buffer corruption。
   // 不再写 DECSET 1004、不再消费 ESC[I/O、不再随窗口焦点切换 editor/null focus。

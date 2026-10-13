@@ -219,15 +219,15 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
       const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
+      // Phase 1936 Step B: ensureDaemon 改由 viewport 在 TUI 可见后后台运行，
+      // 启动中/失败文案归 viewport 系统消息——本回调不再 console.log（会破坏 TUI 帧）。
       if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-        console.log('Starting Motion daemon...');
         // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
-        const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+        await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
           clawId: MOTION_CLAW_ID,
           agentDir: motionDir,
           chestnutRoot: getChestnutRoot(),
         }));
-        console.log(`✓ Started (PID: ${pid})`);
       }
     },
     showRecapStream: globalConfig.viewport.show_recap_stream,

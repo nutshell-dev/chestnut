@@ -36,6 +36,10 @@ export const VIEWPORT_AUDIT_EVENTS = {
   SCREEN_RESET: 'viewport_screen_reset',
   // phase 1874 Step B: chat crash evidence 归 viewport owner（自 cli/audit-events.ts 迁入）
   CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',
+  // phase 1936 Step B: daemon 保障后台 task 的可见/可审计面（viewport 先可见、ensure 后置）
+  DAEMON_ENSURE_STARTED: 'viewport_daemon_ensure_started',
+  DAEMON_ENSURE_READY: 'viewport_daemon_ensure_ready',
+  DAEMON_ENSURE_FAILED: 'viewport_daemon_ensure_failed',
 } as const;
 
 /**
