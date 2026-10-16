@@ -45,6 +45,11 @@ export function createDisplay(deps: DisplayDeps) {
   ];
   let bodyCache: string | null = null;
   let bodyCacheCols = -1;
+  // phase 1942 Step B: 渲染状态 revision（只推进、不记录正文）；
+  // body 实际重算 → contentRevision++；suffix 实际变化 → previewRevision++。
+  let contentRevision = 0;
+  let previewRevision = 0;
+  let lastSuffixBody: string | null = null;
 
   const invalidateBodyCache = () => { bodyCache = null; };
 
@@ -72,6 +77,7 @@ export function createDisplay(deps: DisplayDeps) {
         })
         .join('\n');
       bodyCacheCols = cols;
+      contentRevision += 1;   // phase 1942 Step B: body 实际重算 = 内容/几何状态推进
     }
 
     const currentStatus = deps.mainUI ? deps.mainUI.getStatus() : '';
@@ -80,10 +86,23 @@ export function createDisplay(deps: DisplayDeps) {
     const statusLines = currentStatus ? currentStatus.split('\n').flatMap(line => wrapLine(line, cols)) : [];
     const previewLines = currentPreview ? currentPreview.split('\n').flatMap(line => wrapLine(line, cols, PREVIEW_HANG_INDENT)) : [];
     const suffixBody = [...statusLines, ...previewLines].join('\n');
+    // phase 1942 Step B: suffix 实际变化才推进 previewRevision（指纹不含正文）
+    if (suffixBody !== lastSuffixBody) {
+      previewRevision += 1;
+      lastSuffixBody = suffixBody;
+    }
 
     const full = suffixBody ? bodyCache + '\n' + suffixBody : bodyCache;
     deps.outputText.setText(full ?? '');
     deps.tui.requestRender();
+    // phase 1942 Step B: 记录稳定状态指纹（重复渲染请求证据；不含正文）
+    deps.observability.recordRenderRequest({
+      width: cols,
+      rows: process.stdout.rows ?? 0,
+      componentLineCount: outputLines.length,
+      contentRevision,
+      previewRevision,
+    });
     const suffixLines = suffixBody ? suffixBody.split('\n').length : 0;
     deps.observability.recordRender({
       outputLines: outputLines.length,

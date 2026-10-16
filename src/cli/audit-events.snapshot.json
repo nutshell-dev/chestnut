@@ -1019,12 +1019,14 @@
       "viewport_host_input",
       "viewport_interrupt_persist_failed",
       "viewport_render_batch",
+      "viewport_render_request_batch",
       "viewport_screen_reset",
       "viewport_scrollback_clear_suppressed",
       "viewport_shutdown",
       "viewport_spinner_lifecycle",
       "viewport_task_stream_stale_cleanup",
       "viewport_task_watch_stop_failed",
+      "viewport_terminal_write_batch",
       "viewport_ui_cross_pollution",
       "viewport_unknown_event"
     ]
@@ -1052,6 +1054,8 @@
     "messaging_message_invariant_violated": "audit",
     "viewport_host_input": "viewport",
     "viewport_screen_reset": "viewport",
+    "viewport_render_request_batch": "viewport",
+    "viewport_terminal_write_batch": "viewport",
     "watchdog_executor_heartbeat_stale": "audit",
     "watchdog_executor_heartbeat_unknown": "tick",
     "watchdog_executor_recovery_evidence_corrupt": "audit",

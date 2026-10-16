@@ -150,6 +150,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // phase 1874 Step D: 宿主交互诊断面（输入类计数 / 全屏清除计数）
     onInput: (counts) => observability.recordHostInput(counts),
     onScreenClear: (count) => observability.recordScreenReset(count),
+    // phase 1942 Step B: 终端写出帧证据（字节/hash/整帧；不含正文）
+    onWrite: (sample) => observability.recordTerminalWrite(sample),
   });
   const tui = new TUI(terminal);
 

@@ -34,6 +34,9 @@ export const VIEWPORT_AUDIT_EVENTS = {
   // phase 1874 Step D: 宿主交互诊断面（输入类计数 / 全屏清除计数；不含内容、仅分类计数）
   HOST_INPUT: 'viewport_host_input',
   SCREEN_RESET: 'viewport_screen_reset',
+  // phase 1942 Step B: 逐帧写出观测（重复渲染请求 / 终端写出字节；不含正文，仅计数与 hash）
+  RENDER_REQUEST_BATCH: 'viewport_render_request_batch',
+  TERMINAL_WRITE_BATCH: 'viewport_terminal_write_batch',
   // phase 1874 Step B: chat crash evidence 归 viewport owner（自 cli/audit-events.ts 迁入）
   CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',
   // phase 1936 Step B: daemon 保障后台 task 的可见/可审计面（viewport 先可见、ensure 后置）
@@ -59,6 +62,8 @@ export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'
   viewport_draft_cleared: 'viewport',
   viewport_host_input: 'viewport',
   viewport_screen_reset: 'viewport',
+  viewport_render_request_batch: 'viewport',
+  viewport_terminal_write_batch: 'viewport',
 } as const;
 
 /**

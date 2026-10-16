@@ -41,6 +41,24 @@ interface ScrollbackPreservingTerminalOptions {
   onInput?: (counts: HostInputCounts) => void;
   /** phase 1874 Step D: 全屏清除序列（CSI 2J）计数回传（输入区/画面全量重绘相关证据）。 */
   onScreenClear?: (count: number) => void;
+  /**
+   * phase 1942 Step B: 实际转发 write 边界的帧证据回传（字节数 + 稳定 hash + 是否整帧）。
+   * 只含计数/指纹，不含正文；字节流保持原样。
+   */
+  onWrite?: (sample: { bytes: number; hash: number; fullFrame: boolean }) => void;
+}
+
+/**
+ * phase 1942 Step B: FNV-1a 32-bit 稳定 hash——终端写出 payload 的指纹。
+ * 只用于重复判定（相同 bytes+hash → 重复写出），不保留、不记录正文。
+ */
+export function hashTerminalWriteBytes(data: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
 }
 
 /**
@@ -152,13 +170,27 @@ export function classifyTerminalInput(data: string): HostInputCounts {
 export function createScrollbackPreservingTerminal(
   opts: ScrollbackPreservingTerminalOptions,
 ): ViewportTerminalLike {
-  const { inner, onSuppress, onInput, onScreenClear } = opts;
+  const { inner, onSuppress, onInput, onScreenClear, onWrite } = opts;
   let pending = '';
+
+  // phase 1942 Step B: 转发边界帧证据（诊断旁路失败不影响写出路径；正文不出此面）
+  const notifyWrite = (output: string) => {
+    if (!onWrite) return;
+    try {
+      onWrite({
+        bytes: output.length,
+        hash: hashTerminalWriteBytes(output),
+        fullFrame: output.includes('\x1b[2J'),
+      });
+    } catch { /* silent: 诊断旁路失败不影响写出路径 */ }
+  };
 
   const flushPending = () => {
     if (pending.length > 0) {
-      inner.write(pending);
+      const output = pending;
+      inner.write(output);
       pending = '';
+      notifyWrite(output);
     }
   };
 
@@ -195,6 +227,9 @@ export function createScrollbackPreservingTerminal(
       pending = carry;
       if (output.length > 0) {
         inner.write(output);
+        // phase 1942 Step B: 实际转发 write 边界帧证据（在 inner.write 之后，
+        // 保证 inner 异常原样传播、证据旁路不改变字节序）
+        notifyWrite(output);
       }
     },
 

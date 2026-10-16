@@ -15,6 +15,11 @@ export const VIEWPORT_OBS_CONFIG = {
   INGEST_FLUSH_MS: 1000,
   RENDER_BATCH_SIZE: 20,
   RENDER_FLUSH_MS: 500,
+  // phase 1942 Step B: 逐帧写出观测批次（重复渲染请求 / 终端写出字节）
+  RENDER_REQUEST_BATCH_SIZE: 20,
+  RENDER_REQUEST_FLUSH_MS: 500,
+  TERMINAL_WRITE_BATCH_SIZE: 20,
+  TERMINAL_WRITE_FLUSH_MS: 500,
   SCROLLBACK_CLEAR_BATCH_SIZE: 50,
   SCROLLBACK_CLEAR_FLUSH_MS: 1000,
   // phase 1874 Step D: 宿主输入/全屏清除诊断面批次
@@ -48,6 +53,74 @@ interface ScrollbackClearBatch {
   firstTs: number;
 }
 
+/**
+ * phase 1942 Step B: 渲染状态指纹（不含正文，仅几何 + 既有 revision 字段）。
+ * 同一指纹再次 requestRender 计入重复请求——用于区分"真实内容变化"与"同一状态重复渲染"。
+ */
+export interface RenderFingerprint {
+  width: number;
+  rows: number;
+  componentLineCount: number;
+  contentRevision: number;
+  previewRevision: number;
+}
+
+export function isRepeatedRender(
+  previous: RenderFingerprint | undefined,
+  current: RenderFingerprint,
+): boolean {
+  return previous !== undefined && JSON.stringify(previous) === JSON.stringify(current);
+}
+
+/**
+ * phase 1942 Step B: 终端写出样本（在实际转发 write 边界采集；hash 为稳定指纹、不含正文）。
+ */
+export interface TerminalWriteSample {
+  bytes: number;
+  hash: number;
+  /** 写出 payload 含 CSI 2J（全屏清除 + 整帧重写路径的证据）。 */
+  fullFrame: boolean;
+}
+
+export function isRepeatedWrite(
+  previous: TerminalWriteSample | undefined,
+  current: TerminalWriteSample,
+): boolean {
+  return (
+    previous !== undefined &&
+    previous.bytes === current.bytes &&
+    previous.hash === current.hash
+  );
+}
+
+/** phase 1942 Step B: 进程内可对账计数（RenderAccounting 口径，见 Phase 1942 总览 D2）。 */
+export interface RenderAccounting {
+  renderRequests: number;
+  repeatedRenderRequests: number;
+  terminalWrites: number;
+  terminalWriteBytes: number;
+  repeatedWriteBytes: number;
+  repeatedWrites: number;
+  fullFrameWrites: number;
+  /** 真实内容字节 = 总写出字节 - 重复写出字节（同一状态只计一次）。 */
+  logicalContentBytes: number;
+}
+
+interface RenderRequestBatch {
+  requests: number;
+  repeatedRequests: number;
+  firstTs: number;
+}
+
+interface TerminalWriteBatch {
+  writes: number;
+  bytes: number;
+  repeatedBytes: number;
+  repeatedWrites: number;
+  fullFrames: number;
+  firstTs: number;
+}
+
 /** phase 1874 Step D: 宿主输入分类批次（计数、不含内容）。 */
 export interface HostInputBatchCounts {
   chunks: number;
@@ -74,6 +147,21 @@ export function createViewportObservability(deps: Deps) {
   let scrollbackClear: ScrollbackClearBatch | null = null;
   let hostInput: HostInputBatch | null = null;
   let screenReset: ScreenResetBatch | null = null;
+  // phase 1942 Step B: 逐帧写出观测状态（只持数字/hash，不持正文）
+  let renderRequest: RenderRequestBatch | null = null;
+  let terminalWrite: TerminalWriteBatch | null = null;
+  let lastRenderFingerprint: RenderFingerprint | undefined;
+  let lastWriteSample: TerminalWriteSample | undefined;
+  const accounting: RenderAccounting = {
+    renderRequests: 0,
+    repeatedRenderRequests: 0,
+    terminalWrites: 0,
+    terminalWriteBytes: 0,
+    repeatedWriteBytes: 0,
+    repeatedWrites: 0,
+    fullFrameWrites: 0,
+    logicalContentBytes: 0,
+  };
   let spinnerStartTs: number | null = null;
 
   const flushIngest = () => {
@@ -134,6 +222,31 @@ export function createViewportObservability(deps: Deps) {
     screenReset = null;
   };
 
+  const flushRenderRequest = () => {
+    if (!renderRequest) return;
+    deps.audit.write(
+      VIEWPORT_AUDIT_EVENTS.RENDER_REQUEST_BATCH,
+      `requests=${renderRequest.requests}`,
+      `repeated=${renderRequest.repeatedRequests}`,
+      `span_ms=${now() - renderRequest.firstTs}`,
+    );
+    renderRequest = null;
+  };
+
+  const flushTerminalWrite = () => {
+    if (!terminalWrite) return;
+    deps.audit.write(
+      VIEWPORT_AUDIT_EVENTS.TERMINAL_WRITE_BATCH,
+      `writes=${terminalWrite.writes}`,
+      `bytes=${terminalWrite.bytes}`,
+      `repeated_bytes=${terminalWrite.repeatedBytes}`,
+      `repeated_writes=${terminalWrite.repeatedWrites}`,
+      `full_frames=${terminalWrite.fullFrames}`,
+      `span_ms=${now() - terminalWrite.firstTs}`,
+    );
+    terminalWrite = null;
+  };
+
   const recordEvent = (eventType: string) => {
     const t = now();
     if (!ingest) ingest = { size: 0, types: {}, firstTs: t };
@@ -170,6 +283,68 @@ export function createViewportObservability(deps: Deps) {
       t - render.firstTs >= VIEWPORT_OBS_CONFIG.RENDER_FLUSH_MS
     ) {
       flushRender();
+    }
+  };
+
+  /**
+   * phase 1942 Step B: 记录一次 requestRender 的稳定状态指纹。
+   * 指纹不含正文；与上一次相同 → repeated（同一渲染状态的重复请求）。
+   */
+  const recordRenderRequest = (fingerprint: RenderFingerprint) => {
+    const t = now();
+    const repeated = isRepeatedRender(lastRenderFingerprint, fingerprint);
+    lastRenderFingerprint = fingerprint;
+    accounting.renderRequests += 1;
+    if (repeated) accounting.repeatedRenderRequests += 1;
+    if (!renderRequest)
+      renderRequest = { requests: 0, repeatedRequests: 0, firstTs: t };
+    renderRequest.requests += 1;
+    if (repeated) renderRequest.repeatedRequests += 1;
+    if (
+      renderRequest.requests >= VIEWPORT_OBS_CONFIG.RENDER_REQUEST_BATCH_SIZE ||
+      t - renderRequest.firstTs >= VIEWPORT_OBS_CONFIG.RENDER_REQUEST_FLUSH_MS
+    ) {
+      flushRenderRequest();
+    }
+  };
+
+  /**
+   * phase 1942 Step B: 记录一次实际 terminal write（字节/hash/是否整帧）。
+   * 与上一次写出完全相同（bytes+hash）→ 计入重复写出字节。
+   */
+  const recordTerminalWrite = (sample: TerminalWriteSample) => {
+    const t = now();
+    const repeated = isRepeatedWrite(lastWriteSample, sample);
+    lastWriteSample = sample;
+    accounting.terminalWrites += 1;
+    accounting.terminalWriteBytes += sample.bytes;
+    if (sample.fullFrame) accounting.fullFrameWrites += 1;
+    if (repeated) {
+      accounting.repeatedWriteBytes += sample.bytes;
+      accounting.repeatedWrites += 1;
+    }
+    accounting.logicalContentBytes = accounting.terminalWriteBytes - accounting.repeatedWriteBytes;
+    if (!terminalWrite)
+      terminalWrite = {
+        writes: 0,
+        bytes: 0,
+        repeatedBytes: 0,
+        repeatedWrites: 0,
+        fullFrames: 0,
+        firstTs: t,
+      };
+    terminalWrite.writes += 1;
+    terminalWrite.bytes += sample.bytes;
+    if (sample.fullFrame) terminalWrite.fullFrames += 1;
+    if (repeated) {
+      terminalWrite.repeatedBytes += sample.bytes;
+      terminalWrite.repeatedWrites += 1;
+    }
+    if (
+      terminalWrite.writes >= VIEWPORT_OBS_CONFIG.TERMINAL_WRITE_BATCH_SIZE ||
+      t - terminalWrite.firstTs >= VIEWPORT_OBS_CONFIG.TERMINAL_WRITE_FLUSH_MS
+    ) {
+      flushTerminalWrite();
     }
   };
 
@@ -257,6 +432,8 @@ export function createViewportObservability(deps: Deps) {
     flushScrollbackClear();
     flushHostInput();
     flushScreenReset();
+    flushRenderRequest();
+    flushTerminalWrite();
     deps.audit.write(VIEWPORT_AUDIT_EVENTS.SHUTDOWN, `reason=${reason}`);
   };
 
@@ -266,11 +443,19 @@ export function createViewportObservability(deps: Deps) {
     flushScrollbackClear();
     flushHostInput();
     flushScreenReset();
+    flushRenderRequest();
+    flushTerminalWrite();
   };
+
+  /** phase 1942 Step B: 进程内 RenderAccounting 快照（Step D 长跑对账用；不含正文）。 */
+  const getRenderAccounting = (): RenderAccounting => ({ ...accounting });
 
   return {
     recordEvent,
     recordRender,
+    recordRenderRequest,
+    recordTerminalWrite,
+    getRenderAccounting,
     recordSpinner,
     recordScrollbackClearSuppressed,
     recordHostInput,
