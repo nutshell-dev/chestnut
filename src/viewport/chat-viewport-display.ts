@@ -9,7 +9,7 @@ const OUTPUT_LINES_CAP = 5000;
  */
 
 import {  wrapLine, fitLine  } from './terminal-text.js';
-import {  DEFAULT_TERMINAL_WIDTH  } from './terminal-text.js';
+import {  DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT  } from './terminal-text.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import type { ClawTrack } from './chat-viewport-claw-line.js';
@@ -85,7 +85,17 @@ export function createDisplay(deps: DisplayDeps) {
     // phase 1200: preview 需要 hangIndent（自动换行时保持缩进），status 不需要
     const statusLines = currentStatus ? currentStatus.split('\n').flatMap(line => wrapLine(line, cols)) : [];
     const previewLines = currentPreview ? currentPreview.split('\n').flatMap(line => wrapLine(line, cols, PREVIEW_HANG_INDENT)) : [];
-    const suffixBody = [...statusLines, ...previewLines].join('\n');
+    // phase 1942 Step C: 临时后缀（status + preview）按终端高度有界化。
+    // 预算在 status 与 preview 合并后计算：slice(-budget) 保留最新可见尾部，
+    // 只裁剪当前不可见的临时内容（永久 outputLines 不截断、不移动）。
+    // 保证后缀从任意高度折叠到空时最多删除 terminalRows-1 行 < 屏高，
+    // 折叠不进入 pi-tui `extraLines > height → fullRender(true)` 的整帧重写路径。
+    const terminalRows = process.stdout.rows ?? DEFAULT_TERMINAL_HEIGHT;
+    const suffixBudget = Math.max(0, terminalRows - 1);
+    const mergedSuffixLines = [...statusLines, ...previewLines];
+    // slice(-budget) 在 budget=0 时等价 slice(0)（不裁剪），这里显式算起点保证 0 预算裁空
+    const suffixLinesFinal = mergedSuffixLines.slice(Math.max(0, mergedSuffixLines.length - suffixBudget));
+    const suffixBody = suffixLinesFinal.join('\n');
     // phase 1942 Step B: suffix 实际变化才推进 previewRevision（指纹不含正文）
     if (suffixBody !== lastSuffixBody) {
       previewRevision += 1;
@@ -98,12 +108,12 @@ export function createDisplay(deps: DisplayDeps) {
     // phase 1942 Step B: 记录稳定状态指纹（重复渲染请求证据；不含正文）
     deps.observability.recordRenderRequest({
       width: cols,
-      rows: process.stdout.rows ?? 0,
+      rows: terminalRows,
       componentLineCount: outputLines.length,
       contentRevision,
       previewRevision,
     });
-    const suffixLines = suffixBody ? suffixBody.split('\n').length : 0;
+    const suffixLines = suffixLinesFinal.length;
     deps.observability.recordRender({
       outputLines: outputLines.length,
       suffixLines,

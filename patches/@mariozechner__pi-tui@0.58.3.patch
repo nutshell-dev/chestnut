@@ -17,3 +17,63 @@ index f48d9b8ba7ce608e4b0e02910c90edc4d043e8e8..78955fd86a0342365e78dcb01792d92f
              if (endIndex !== -1) {
                  const pastedContent = this.pasteBuffer.slice(0, endIndex);
                  const remaining = this.pasteBuffer.slice(endIndex + BRACKETED_PASTE_END.length);
+diff --git a/dist/tui.js b/dist/tui.js
+--- a/dist/tui.js
++++ b/dist/tui.js
+@@ -60,7 +60,20 @@
+             lines.push(...child.render(width));
+         }
+         return lines;
++    }
++}
++/**
++ * chestnut patch (phase 1942 Step C): 严格单行 cap rollover 判定——
++ * previous 去掉首行后与 next 去掉末行逐行相同（旧首行移出、末行追加）。
++ */
++function isSafeCapRollover(previous, next) {
++    if (previous.length !== next.length || next.length === 0)
++        return false;
++    for (let i = 1; i < previous.length; i++) {
++        if (previous[i] !== next[i - 1])
++            return false;
+     }
++    return true;
+ }
+ /**
+  * TUI - Main class for managing terminal UI with differential rendering
+\ No newline at end of file
+@@ -808,6 +821,33 @@
+         // Use previousLines.length (not maxLinesRendered) to avoid false positives after content shrinks
+         const previousContentViewportTop = Math.max(0, this.previousLines.length - height);
+         if (firstChanged < previousContentViewportTop) {
++            // chestnut patch (phase 1942 Step C): 严格单行 cap rollover ——
++            // 旧首行移出、末行追加（历史缓冲达 cap 后 splice(0,1) + push 的帧形态）。
++            // 仅在严格单行移位、光标跟随尾部、无 overlay 时走 1 次原生滚动 + 末行
++            // 追加写出；其余（含非移位高位变化、多行移位）保留原 fullRender(true) 路径。
++            if (this.overlayStack.length === 0 &&
++                this.maxLinesRendered === this.previousLines.length &&
++                this.hardwareCursorRow === this.previousLines.length - 1 &&
++                isSafeCapRollover(this.previousLines, newLines)) {
++                let buffer = "\x1b[?2026h";
++                const curScreenRow = Math.max(0, Math.min(height - 1, hardwareCursorRow - prevViewportTop));
++                const moveDown = height - 1 - curScreenRow;
++                if (moveDown > 0)
++                    buffer += `\x1b[${moveDown}B`;
++                buffer += "\r";
++                buffer += "\r\n"; // 原生滚动 1 行：顶部可见行移入 scrollback（语义正确）
++                buffer += "\x1b[2K" + newLines[newLines.length - 1];
++                buffer += "\x1b[?2026l";
++                this.terminal.write(buffer);
++                this.cursorRow = newLines.length - 1;
++                this.hardwareCursorRow = newLines.length - 1;
++                this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
++                this.positionHardwareCursor(cursorPos, newLines.length);
++                this.previousLines = newLines;
++                this.previousWidth = width;
++                this.previousHeight = height;
++                return;
++            }
+             // First change is above previous viewport - need full re-render
+             logRedraw(`firstChanged < viewportTop (${firstChanged} < ${previousContentViewportTop})`);
+             fullRender(true);
+\ No newline at end of file

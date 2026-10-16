@@ -44,6 +44,9 @@ describe('chat-viewport file routing (phase 1279)', () => {
     // phase 1874 Step D: 诊断面两事件亦路由 viewport.tsv
     audit.write('viewport_host_input', 'chunks=1');
     audit.write('viewport_screen_reset', 'clears=1');
+    // phase 1942 Step B: 逐帧写出观测两事件亦路由 viewport.tsv
+    audit.write('viewport_render_request_batch', 'requests=2');
+    audit.write('viewport_terminal_write_batch', 'bytes=100');
 
     expect(existsSync(join(tmpDir, 'viewport.tsv'))).toBe(true);
     const viewportContent = readFileSync(join(tmpDir, 'viewport.tsv'), 'utf-8');

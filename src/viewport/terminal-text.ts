@@ -14,6 +14,12 @@ import stringWidth from 'string-width';
 export const DEFAULT_TERMINAL_WIDTH = 80;
 
 /**
+ * Fallback terminal height (rows) when `process.stdout.rows` is unavailable.
+ * 24 = classic VT100 default.
+ */
+export const DEFAULT_TERMINAL_HEIGHT = 24;
+
+/**
  * 按视觉列宽从头截取字符串（正确处理 emoji / CJK 等宽字符）
  */
 export function sliceFromStart(s: string, maxCols: number): string {

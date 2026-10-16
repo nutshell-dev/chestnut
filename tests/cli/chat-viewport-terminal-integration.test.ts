@@ -137,4 +137,35 @@ describe('chat-viewport-terminal integration', () => {
 
     tui.stop();
   });
+
+  it('phase 1942 Step C: 有界后缀折叠（rows-1 行）不进入 extraLines > height，不产生完整 body 写出', async () => {
+    const { terminal: inner, writes: innerWrites } = makeFakeTerminal(80, 24);
+    const terminal = createScrollbackPreservingTerminal({ inner });
+    const { TUI, Text } = await loadPiTui();
+
+    const tui = new TUI(terminal);
+    const text = new Text('', 0, 0);
+    tui.addChild(text);
+
+    // body 60 行 + 临时后缀 23 行（= rows-1，display 后缀预算上限）
+    const body = Array.from({ length: 60 }, (_, i) => `body-${i}`);
+    const suffix = Array.from({ length: 23 }, (_, i) => `suffix-${i}`);
+    text.setText([...body, ...suffix].join('\n'));
+    tui.requestRender();
+    await drainNextTick();
+
+    innerWrites.length = 0;
+    // 折叠：后缀从 23 行 → 0（删除行数 23 < 屏高 24 → 小清行路径）
+    text.setText(body.join('\n'));
+    tui.requestRender();
+    await drainNextTick();
+
+    const collapse = innerWrites.join('');
+    expect(collapse).not.toContain('\x1b[2J');          // 不整帧
+    expect(collapse).not.toContain('\x1b[3J');
+    expect(collapse).not.toContain('body-0');          // 不重写完整 body
+    expect(collapse.length).toBeLessThan(2000);        // 有界清行量级
+
+    tui.stop();
+  });
 });
