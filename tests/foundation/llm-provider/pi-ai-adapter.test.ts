@@ -316,21 +316,21 @@ describe('PiAiAdapter — Phase 1941 时限分层（stream 首事件时限 vs ca
   }
 
   it('stream 首事件迟于 timeoutMs → LLMTimeoutError（provider/timeoutMs 可审计）', async () => {
-    // 首帧 200ms 才到；timeoutMs=60 的内部 timer 先触发
+    // 首帧 400ms 才到；timeoutMs=100 的内部 timer 先触发
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
-      dripSseResponse(openaiSse(dripFrames()), [200, 10, 10, 5], init.signal ?? undefined)));
-    const adapter = createLLMProvider(baseConfig({ timeoutMs: 60 }));
+      dripSseResponse(openaiSse(dripFrames()), [400, 10, 10, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
     const err = await collectStream(adapter).catch((e) => e);
     expect(err).toBeInstanceOf(LLMTimeoutError);
-    expect((err as LLMTimeoutError).context).toMatchObject({ provider: 'test-provider', timeoutMs: 60 });
+    expect((err as LLMTimeoutError).context).toMatchObject({ provider: 'test-provider', timeoutMs: 100 });
   });
 
   it('stream 首事件及时到达、持续 chunk 总时长超过 timeoutMs → 成功完成（缺陷回归）', async () => {
-    // 首帧 20ms（< 100ms 握手上限）；随后每 150ms 一帧，总时长 ~325ms > timeoutMs=100。
-    // 旧行为：100ms 内部总时长 timer 误杀；修复后首 event 即清除该 timer。
+    // 首帧 20ms（< 150ms 握手上限）；随后每 250ms 一帧，总时长 ~525ms > timeoutMs=150。
+    // 旧行为：150ms 内部总时长 timer 误杀；修复后首 event 即清除该 timer。
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
-      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
-    const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
+      dripSseResponse(openaiSse(dripFrames()), [20, 250, 250, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 150 }));
     const chunks = await collectStream(adapter);
     const deltas = chunks.filter((c) => c.type === 'text_delta').map((c) => (c as { delta: string }).delta);
     expect(deltas).toEqual(['a', 'b']);
@@ -379,7 +379,7 @@ describe('PiAiAdapter — Phase 1941 时限分层（stream 首事件时限 vs ca
   it('call() 完整事件流超过 timeoutMs → LLMTimeoutError（总时长语义不变）', async () => {
     // 与 stream 成功用例同形滴流；call 保留 wall-clock 总时长保护，100ms 触发。
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
-      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
+      dripSseResponse(openaiSse(dripFrames()), [20, 250, 250, 5], init.signal ?? undefined)));
     const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
     const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
     expect(err).toBeInstanceOf(LLMTimeoutError);

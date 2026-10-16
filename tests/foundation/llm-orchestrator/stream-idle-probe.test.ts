@@ -438,11 +438,12 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
 
   it('持续 chunk 总时长超过 provider timeoutMs、间隔 < idleMs → 成功，无 idle 事件（缺陷回归）', async () => {
     const { sink, emitted } = createMockSink();
-    // 首帧 20ms（< provider timeoutMs=100 握手上限）；随后每 150ms 一帧，
-    // chunk 间隔 < streamIdleTimeoutMs=500，但总时长 ~325ms > timeoutMs=100。
-    // 旧行为：adapter 内部 100ms 总时长 timer 在流中段误 abort → stream_reset/恢复循环。
+    // 首帧 20ms（< provider timeoutMs=800 握手上限）；随后每 1000ms 一帧，
+    // chunk 间隔 < streamIdleTimeoutMs=4000，但总时长 ~2s > timeoutMs=800。
+    // 旧行为：adapter 内部 800ms 总时长 timer 在流中段误 abort → stream_reset/恢复循环。
+    // （时序边距按全量并行负载加宽，防 CI 调度抖动）
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
-      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
+      dripSseResponse(openaiSse(dripFrames()), [20, 1000, 1000, 5], init.signal ?? undefined)));
 
     const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
@@ -450,10 +451,10 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       retryDelayMs: 0,
       events: sink,
     });
-    (service as any).primary = realPrimaryAdapter(100);
+    (service as any).primary = realPrimaryAdapter(800);
 
     const chunks: LLMStreamChunk[] = [];
-    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 500 })) {
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 4000 })) {
       chunks.push(chunk);
     }
 
@@ -472,10 +473,10 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) => {
       fetchCount++;
       if (fetchCount === 1) {
-        // stream：首帧 20ms 即到，随后 400ms 空窗 > streamIdleTimeoutMs=120
-        return dripSseResponse(openaiSse(dripFrames()), [20, 400, 10, 5], init.signal ?? undefined);
+        // stream：首帧 20ms 即到，随后 600ms 空窗 > streamIdleTimeoutMs=150
+        return dripSseResponse(openaiSse(dripFrames()), [20, 600, 10, 5], init.signal ?? undefined);
       }
-      // probe（adapter.call）：body 迟迟不出，probe 150ms 超时 → network_timeout
+      // probe（adapter.call）：body 迟迟不出，probe 200ms 超时 → network_timeout
       return dripSseResponse(openaiSse(dripFrames()), [10_000, 10, 10, 5], init.signal ?? undefined);
     }));
 
@@ -492,13 +493,13 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
     (service as any).fallbacks = [fallback];
 
     const chunks: LLMStreamChunk[] = [];
-    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 120, streamIdleProbeTimeoutMs: 150 })) {
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 150, streamIdleProbeTimeoutMs: 200 })) {
       chunks.push(chunk);
     }
 
     // orchestrator idle 路径可观测：probe attempted + probe 超时失败 → idle failover
     expect(emitted.some((e) => e.type === 'stream_idle_probe_attempted')).toBe(true);
-    expect(emitted.some((e) => e.type === 'idle_failover_triggered' && (e as any).ms === 120)).toBe(true);
+    expect(emitted.some((e) => e.type === 'idle_failover_triggered' && (e as any).ms === 150)).toBe(true);
     // fallback 接管并完成
     const deltas = chunks.filter((c) => c.type === 'text_delta').map((c: any) => c.delta);
     expect(deltas).toContain('Chunk from fallback');
