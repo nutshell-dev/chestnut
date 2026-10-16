@@ -22,9 +22,6 @@ export const VIEWPORT_OBS_CONFIG = {
   HOST_INPUT_FLUSH_MS: 1000,
   SCREEN_RESET_BATCH_SIZE: 10,
   SCREEN_RESET_FLUSH_MS: 1000,
-  // phase 1937 Step D: 终端写出预算批次（转发宿主的写出字节）
-  TERMINAL_WRITE_BATCH_SIZE: 20,
-  TERMINAL_WRITE_FLUSH_MS: 500,
 } as const;
 
 interface Deps {
@@ -71,14 +68,6 @@ interface ScreenResetBatch {
   firstTs: number;
 }
 
-/** phase 1937 Step D: 终端写出批次（字节/次数/单次峰值；不含内容）。 */
-interface TerminalWriteBatch {
-  chunks: number;
-  bytes: number;
-  maxChunk: number;
-  firstTs: number;
-}
-
 export function createViewportObservability(deps: Deps) {
   const now = deps.clock ?? (() => performance.now());
   let ingest: IngestBatch | null = null;
@@ -86,7 +75,6 @@ export function createViewportObservability(deps: Deps) {
   let scrollbackClear: ScrollbackClearBatch | null = null;
   let hostInput: HostInputBatch | null = null;
   let screenReset: ScreenResetBatch | null = null;
-  let terminalWrite: TerminalWriteBatch | null = null;
   let spinnerStartTs: number | null = null;
 
   const flushIngest = () => {
@@ -146,18 +134,6 @@ export function createViewportObservability(deps: Deps) {
       `span_ms=${now() - screenReset.firstTs}`,
     );
     screenReset = null;
-  };
-
-  const flushTerminalWrite = () => {
-    if (!terminalWrite) return;
-    deps.audit.write(
-      VIEWPORT_AUDIT_EVENTS.TERMINAL_WRITE_BATCH,
-      `chunks=${terminalWrite.chunks}`,
-      `bytes=${terminalWrite.bytes}`,
-      `max_chunk=${terminalWrite.maxChunk}`,
-      `window_ms=${now() - terminalWrite.firstTs}`,
-    );
-    terminalWrite = null;
   };
 
   const recordEvent = (eventType: string) => {
@@ -261,22 +237,6 @@ export function createViewportObservability(deps: Deps) {
     }
   };
 
-  /** phase 1937 Step D: 转发宿主的写出字节（输出预算证据；内容不经此面）。 */
-  const recordTerminalWrite = (bytes: number) => {
-    if (bytes <= 0) return;
-    const t = now();
-    if (!terminalWrite) terminalWrite = { chunks: 0, bytes: 0, maxChunk: 0, firstTs: t };
-    terminalWrite.chunks += 1;
-    terminalWrite.bytes += bytes;
-    terminalWrite.maxChunk = Math.max(terminalWrite.maxChunk, bytes);
-    if (
-      terminalWrite.chunks >= VIEWPORT_OBS_CONFIG.TERMINAL_WRITE_BATCH_SIZE ||
-      t - terminalWrite.firstTs >= VIEWPORT_OBS_CONFIG.TERMINAL_WRITE_FLUSH_MS
-    ) {
-      flushTerminalWrite();
-    }
-  };
-
   /** phase 1874 Step D: 全屏清除（CSI 2J）计数。 */
   const recordScreenReset = (count: number) => {
     const t = now();
@@ -310,7 +270,6 @@ export function createViewportObservability(deps: Deps) {
     flushScrollbackClear();
     flushHostInput();
     flushScreenReset();
-    flushTerminalWrite();
     deps.audit.write(VIEWPORT_AUDIT_EVENTS.SHUTDOWN, `reason=${reason}`);
   };
 
@@ -320,7 +279,6 @@ export function createViewportObservability(deps: Deps) {
     flushScrollbackClear();
     flushHostInput();
     flushScreenReset();
-    flushTerminalWrite();
   };
 
   return {
@@ -330,7 +288,6 @@ export function createViewportObservability(deps: Deps) {
     recordScrollbackClearSuppressed,
     recordHostInput,
     recordScreenReset,
-    recordTerminalWrite,
     recordHistoryWindowFailed,
     recordShutdown,
     dispose,

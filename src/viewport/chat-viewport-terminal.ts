@@ -41,11 +41,6 @@ interface ScrollbackPreservingTerminalOptions {
   onInput?: (counts: HostInputCounts) => void;
   /** phase 1874 Step D: 全屏清除序列（CSI 2J）计数回传（输入区/画面全量重绘相关证据）。 */
   onScreenClear?: (count: number) => void;
-  /**
-   * phase 1937 Step D: 实际转发给宿主的写出字节数（输出预算证据面）。
-   * 只计 `write()` 转发量（渲染帧），不计已过滤的 CSI 3J；不含消息内容。
-   */
-  onWrite?: (bytes: number) => void;
 }
 
 /**
@@ -157,7 +152,7 @@ export function classifyTerminalInput(data: string): HostInputCounts {
 export function createScrollbackPreservingTerminal(
   opts: ScrollbackPreservingTerminalOptions,
 ): ViewportTerminalLike {
-  const { inner, onSuppress, onInput, onScreenClear, onWrite } = opts;
+  const { inner, onSuppress, onInput, onScreenClear } = opts;
   let pending = '';
 
   const flushPending = () => {
@@ -200,10 +195,6 @@ export function createScrollbackPreservingTerminal(
       pending = carry;
       if (output.length > 0) {
         inner.write(output);
-        // phase 1937 Step D: 字节预算证据（诊断旁路自身 fail-soft，不影响输出路径）
-        if (onWrite) {
-          try { onWrite(Buffer.byteLength(output)); } catch { /* silent: 诊断旁路失败不影响输出路径 */ }
-        }
       }
     },
 

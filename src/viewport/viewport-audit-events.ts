@@ -42,8 +42,6 @@ export const VIEWPORT_AUDIT_EVENTS = {
   DAEMON_ENSURE_FAILED: 'viewport_daemon_ensure_failed',
   // phase 1937 Step B: 历史窗口物化失败（不静默丢弃；游标保留可重试）
   HISTORY_WINDOW_RENDER_FAILED: 'viewport_history_window_render_failed',
-  // phase 1937 Step D: 终端写出预算证据面（转发宿主的写出字节/批次，不含内容）
-  TERMINAL_WRITE_BATCH: 'viewport_terminal_write_batch',
 } as const;
 
 /**
@@ -63,7 +61,6 @@ export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'
   viewport_draft_cleared: 'viewport',
   viewport_host_input: 'viewport',
   viewport_screen_reset: 'viewport',
-  viewport_terminal_write_batch: 'viewport',
 } as const;
 
 /**
