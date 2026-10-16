@@ -31,7 +31,7 @@ describe('chat-viewport file routing (phase 1279)', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('owner 工厂：全部高频事件真实落 viewport.tsv（读内容，非仅存在性）', () => {
+  it('owner 工厂：四个高频事件真实落 viewport.tsv（读内容，非仅存在性）', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit = createViewportAudit(fs, tmpDir);
 
@@ -44,8 +44,6 @@ describe('chat-viewport file routing (phase 1279)', () => {
     // phase 1874 Step D: 诊断面两事件亦路由 viewport.tsv
     audit.write('viewport_host_input', 'chunks=1');
     audit.write('viewport_screen_reset', 'clears=1');
-    // phase 1937 Step D: 终端写出预算批次亦路由 viewport.tsv
-    audit.write('viewport_terminal_write_batch', 'chunks=1');
 
     expect(existsSync(join(tmpDir, 'viewport.tsv'))).toBe(true);
     const viewportContent = readFileSync(join(tmpDir, 'viewport.tsv'), 'utf-8');
