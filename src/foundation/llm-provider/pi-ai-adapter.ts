@@ -11,6 +11,10 @@
  * 中止/超时语义对齐旧 fetch 适配器：外部 signal aborted → ExternalAbortError；
  * 内部超时（withCombinedAbortSignal 定时器）→ LLMTimeoutError；
  * 流传输层非 LLMError 异常 → LLMNetworkError。
+ * Phase 1941 (D1) 时限分层：call() 的内部 timer 覆盖整次调用的 wall-clock；
+ * stream() 的内部 timer 只覆盖发起到首个 provider event，首 event 到达即清除
+ * （clearInternalTimeout），后续 chunk 间 idle 由上层（orchestrator
+ * streamIdleTimeoutMs）经外部 signal 唯一负责。
  * output budget：OpenAI 族 400 budget 文本可解析时自动调低 maxTokens 重试一次
  * （stream 已产出 chunk 则不重试）——沿用旧 anthropic 适配器纪律。
  */
@@ -131,7 +135,7 @@ export class PiAiAdapter implements ProviderAdapter {
 
   private async callOnce(options: LLMCallOptions, maxTokensOverride: number | undefined): Promise<LLMResponse> {
     let finalMessage: PiAi.AssistantMessage | undefined;
-    for await (const event of this.runEvents(options, maxTokensOverride)) {
+    for await (const event of this.runEvents('call', options, maxTokensOverride)) {
       if (event.type === 'done') {
         finalMessage = event.message;
       }
@@ -148,7 +152,7 @@ export class PiAiAdapter implements ProviderAdapter {
     markYielded: () => void,
   ): AsyncIterableIterator<ProviderStreamChunk> {
     const state = createEventTranslationState();
-    for await (const event of this.runEvents(options, maxTokensOverride)) {
+    for await (const event of this.runEvents('stream', options, maxTokensOverride)) {
       const chunks = translatePiAiEvent(event, state);
       if (!chunks) continue; // error 事件已由 runEvents 抛错
       for (const chunk of chunks) {
@@ -161,8 +165,16 @@ export class PiAiAdapter implements ProviderAdapter {
   /**
    * 单趟请求：endpoint → context → streamSimple → 事件流（含错误面构造）。
    * error 事件/传输异常在此统一转 typed error 抛出。
+   *
+   * Phase 1941 (D1)：mode 显式区分调用形态的 timeout 生命周期——
+   * - 'call'：内部 timer 覆盖完整事件流（wall-clock 总时长保护）；
+   * - 'stream'：内部 timer 只保护首事件前握手阶段，首个内容/终止事件到达即
+   *   clearInternalTimeout()，后续生命周期由外部 signal 唯一决定。
+   *   注意：pi-ai 的 'start' 事件在拿到响应头时即推送，不代表 provider 已产出
+   *   （不得把“请求返回 Response”当作首事件），故首事件判定排除 'start'。
    */
   private async *runEvents(
+    mode: 'call' | 'stream',
     options: LLMCallOptions,
     maxTokensOverride: number | undefined,
   ): AsyncGenerator<PiAi.AssistantMessageEvent> {
@@ -189,7 +201,15 @@ export class PiAiAdapter implements ProviderAdapter {
         }),
       });
 
+      let firstEventPending = mode === 'stream';
       for await (const event of stream) {
+        // Phase 1941 (D1)：stream 首个内容/终止事件到达 → 内部总时长 timer 职责
+        // 终止；此后不得再作为流式总时长触发 abort。'start' 仅表示响应头到达，
+        // 不算 provider 产出。
+        if (firstEventPending && event.type !== 'start') {
+          firstEventPending = false;
+          abortHandle.clearInternalTimeout();
+        }
         if (event.type === 'error') {
           throw await this.constructStreamError(event, capture, options.signal, timeout);
         }

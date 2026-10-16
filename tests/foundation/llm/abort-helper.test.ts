@@ -117,6 +117,41 @@ describe('withCombinedAbortSignal', () => {
     expect(handle.signal.aborted).toBe(true);    // 第二次 timer 此时触发
     cleanup();
   });
+
+  // Phase 1941 (D1)：stream 首事件后清除内部总时长 timer 的显式 API
+  it('clearInternalTimeout clears initial timer (no abort after timeout elapses)', async () => {
+    const [handle, cleanup] = withCombinedAbortSignal(undefined, 10);
+    handle.clearInternalTimeout();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(handle.signal.aborted).toBe(false);
+    cleanup();
+  });
+
+  it('clearInternalTimeout does not start a new timer (unlike enterStreamPhase)', async () => {
+    const [handle, cleanup] = withCombinedAbortSignal(undefined, 10_000);
+    handle.clearInternalTimeout();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(handle.signal.aborted).toBe(false);
+    cleanup();
+  });
+
+  it('clearInternalTimeout keeps external signal listener active', () => {
+    const external = new AbortController();
+    const [handle, cleanup] = withCombinedAbortSignal(external.signal, 10_000);
+    handle.clearInternalTimeout();
+    external.abort();
+    expect(handle.signal.aborted).toBe(true);
+    cleanup();
+  });
+
+  it('clearInternalTimeout is idempotent and cleanup stays safe afterwards', async () => {
+    const [handle, cleanup] = withCombinedAbortSignal(undefined, 10);
+    handle.clearInternalTimeout();
+    handle.clearInternalTimeout();
+    cleanup();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(handle.signal.aborted).toBe(false);
+  });
 });
 
 

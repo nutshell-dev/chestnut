@@ -251,6 +251,142 @@ describe('PiAiAdapter — openai-completions 协议', () => {
   });
 });
 
+/**
+ * Phase 1941 (D1) 时限分层回归：
+ * - stream 的 timeoutMs 只覆盖首事件前握手；首 event 后持续 chunk 总时长超过
+ *   timeoutMs 不得被 adapter 内部 timer 中止（本 phase 修复的缺陷形态）；
+ * - call 的 timeoutMs 仍是整次调用的 wall-clock 上限；
+ * - 用户 abort 在首事件前后均归因为 ExternalAbortError，不误报 provider timeout。
+ *
+ * mock 方式同上：真实 pi-ai 协议解析 + 手搓可控滴流 SSE body（真实计时器，
+ * 不用 fake timer 证明整条异步链）。
+ */
+describe('PiAiAdapter — Phase 1941 时限分层（stream 首事件时限 vs call 总时长）', () => {
+  /** 可控滴流 SSE Response：按 delays 逐帧 enqueue；signal abort 时以 AbortError 终止 body（对齐真实 fetch 行为）。 */
+  function dripSseResponse(lines: string[], delays: number[], signal?: AbortSignal): Response {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let i = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const onAbort = () => {
+          if (timer) clearTimeout(timer);
+          controller.error(new DOMException('The operation was aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        const push = () => {
+          if (i >= lines.length) {
+            signal?.removeEventListener('abort', onAbort);
+            controller.close();
+            return;
+          }
+          const idx = i++;
+          timer = setTimeout(() => {
+            controller.enqueue(encoder.encode(`${lines[idx]}\n\n`));
+            push();
+          }, delays[idx] ?? 0);
+        };
+        push();
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  }
+
+  /** 三段文本滴流帧（delta a / delta b / finish stop + usage）。 */
+  function dripFrames(): unknown[] {
+    return [
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'a' }, finish_reason: null }] },
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { content: 'b' }, finish_reason: null }] },
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } },
+    ];
+  }
+
+  async function collectStream(
+    adapter: { stream: (o: object) => AsyncIterableIterator<ProviderStreamChunk> },
+    options: Record<string, unknown> = {},
+  ): Promise<ProviderStreamChunk[]> {
+    const chunks: ProviderStreamChunk[] = [];
+    for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }], ...options })) {
+      chunks.push(chunk);
+    }
+    return chunks;
+  }
+
+  it('stream 首事件迟于 timeoutMs → LLMTimeoutError（provider/timeoutMs 可审计）', async () => {
+    // 首帧 200ms 才到；timeoutMs=60 的内部 timer 先触发
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [200, 10, 10, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 60 }));
+    const err = await collectStream(adapter).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMTimeoutError);
+    expect((err as LLMTimeoutError).context).toMatchObject({ provider: 'test-provider', timeoutMs: 60 });
+  });
+
+  it('stream 首事件及时到达、持续 chunk 总时长超过 timeoutMs → 成功完成（缺陷回归）', async () => {
+    // 首帧 20ms（< 100ms 握手上限）；随后每 150ms 一帧，总时长 ~325ms > timeoutMs=100。
+    // 旧行为：100ms 内部总时长 timer 误杀；修复后首 event 即清除该 timer。
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
+    const chunks = await collectStream(adapter);
+    const deltas = chunks.filter((c) => c.type === 'text_delta').map((c) => (c as { delta: string }).delta);
+    expect(deltas).toEqual(['a', 'b']);
+    expect(chunks.some((c) => c.type === 'done')).toBe(true);
+  });
+
+  it('stream 首事件后消费方提前关闭 → cleanup 执行，无残留 abort/泄漏', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
+    const iter = adapter.stream({ messages: [{ role: 'user', content: 'hi' }] });
+    const first = await iter.next();
+    expect(first.done).toBe(false);
+    // 消费方提前 return（等价 break for-await）→ generator finally 必须跑 cleanup
+    await iter.return(undefined);
+    // 超过内部 timeoutMs 后无未捕获拒绝/abort 副作用
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+
+  it('stream 首事件后用户 abort（晚于 timeoutMs）→ ExternalAbortError 而非 LLMTimeoutError', async () => {
+    // 首帧 20ms 清除内部 timer(timeoutMs=100)；外部 abort 在 150ms 才到。
+    // 若内部 timer 未清除，100ms 会先触发并被误报为 LLMTimeoutError。
+    const controller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [20, 5000, 10, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
+    const pending = collectStream(adapter, { signal: controller.signal });
+    setTimeout(() => controller.abort({ type: 'user' }), 150);
+    const err = await pending.catch((e) => e);
+    expect(err).toBeInstanceOf(ExternalAbortError);
+    expect((err as ExternalAbortError).cause).toEqual({ type: 'user' });
+  });
+
+  it('stream 首事件前用户 abort → ExternalAbortError（非 timeout）', async () => {
+    const controller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [500, 10, 10, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 5000 }));
+    const pending = collectStream(adapter, { signal: controller.signal });
+    setTimeout(() => controller.abort({ type: 'user' }), 30);
+    const err = await pending.catch((e) => e);
+    expect(err).toBeInstanceOf(ExternalAbortError);
+    expect(err).not.toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it('call() 完整事件流超过 timeoutMs → LLMTimeoutError（总时长语义不变）', async () => {
+    // 与 stream 成功用例同形滴流；call 保留 wall-clock 总时长保护，100ms 触发。
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
+    const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMTimeoutError);
+    expect((err as LLMTimeoutError).context).toMatchObject({ provider: 'test-provider', timeoutMs: 100 });
+  });
+});
+
 describe('PiAiAdapter — anthropic-messages 协议', () => {
   function anthropicSse(events: Array<[string, unknown]>): string[] {
     return events.map(([type, data]) => `event: ${type}\ndata: ${JSON.stringify(data)}`);

@@ -30,6 +30,11 @@ export const llmProviderConfigSchema = z.object({
   model: z.string().optional(),
   max_tokens: z.number().min(1).optional(),
   temperature: z.number().min(0).max(2).default(0.7),
+  // Phase 1941 (D1) timeout_ms 语义按调用形态分层：
+  // - 非流式 call()：整次调用的 wall-clock 上限（orchestrator hardTimeoutMs 负责，
+  //   adapter direct-call 保留自身 timer 作 L1 防线）；
+  // - 流式 stream()：只覆盖发起到首个 provider event 的握手/首事件上限；首 event
+  //   后不再是总时长 timer，chunk 间 idle 由编排器 streamIdleTimeoutMs 唯一负责。
   timeout_ms: z.number().min(1000).max(600000).default(DEFAULT_LLM_TIMEOUT_MS),
   thinking: z.boolean().optional(),
   thinking_budget_tokens: z.number().min(1).optional(),

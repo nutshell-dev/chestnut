@@ -3,10 +3,10 @@
  * Phase 637 Step A
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import { createLLMProvider, type ProviderAdapter, type ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 
 /**
@@ -363,5 +363,145 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     })();
 
     await expect(promise).rejects.toThrow();
+  });
+});
+
+/**
+ * Phase 1941 (D1) 真实 adapter 边界组合：timeout owner 分层回归。
+ *
+ * 与本文件其余用例不同，这里 primary 是真实 PiAiAdapter（createLLMProvider +
+ * 手搓可控滴流 SSE body，协议解析走 pi-ai 真实现），不是 mock adapter ——
+ * 只有跨过真实 adapter/orchestrator 边界，才能证明“持续有 chunk 超过 provider
+ * timeout_ms 仍不被 adapter 内部总时长 timer 误杀”（2026-10-16 缺陷登记形态）。
+ */
+describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** 可控滴流 SSE Response：按 delays 逐帧 enqueue；signal abort 时以 AbortError 终止 body。 */
+  function dripSseResponse(lines: string[], delays: number[], signal?: AbortSignal): Response {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let i = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const onAbort = () => {
+          if (timer) clearTimeout(timer);
+          controller.error(new DOMException('The operation was aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        const push = () => {
+          if (i >= lines.length) {
+            signal?.removeEventListener('abort', onAbort);
+            controller.close();
+            return;
+          }
+          const idx = i++;
+          timer = setTimeout(() => {
+            controller.enqueue(encoder.encode(`${lines[idx]}\n\n`));
+            push();
+          }, delays[idx] ?? 0);
+        };
+        push();
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  }
+
+  function openaiSse(frames: unknown[]): string[] {
+    return [...frames.map((f) => `data: ${JSON.stringify(f)}`), 'data: [DONE]'];
+  }
+
+  function dripFrames(): unknown[] {
+    return [
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'a' }, finish_reason: null }] },
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { content: 'b' }, finish_reason: null }] },
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } },
+    ];
+  }
+
+  function realPrimaryAdapter(timeoutMs: number): ProviderAdapter {
+    return createLLMProvider({
+      name: 'primary',
+      apiKey: 'sk-test-key',
+      baseUrl: 'https://api.test.invalid/v1',
+      model: 'test-model',
+      temperature: 0.7,
+      timeoutMs,
+      apiFormat: 'openai',
+    });
+  }
+
+  it('持续 chunk 总时长超过 provider timeoutMs、间隔 < idleMs → 成功，无 idle 事件（缺陷回归）', async () => {
+    const { sink, emitted } = createMockSink();
+    // 首帧 20ms（< provider timeoutMs=100 握手上限）；随后每 150ms 一帧，
+    // chunk 间隔 < streamIdleTimeoutMs=500，但总时长 ~325ms > timeoutMs=100。
+    // 旧行为：adapter 内部 100ms 总时长 timer 在流中段误 abort → stream_reset/恢复循环。
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
+      dripSseResponse(openaiSse(dripFrames()), [20, 150, 150, 5], init.signal ?? undefined)));
+
+    const service = new LLMOrchestratorImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (service as any).primary = realPrimaryAdapter(100);
+
+    const chunks: LLMStreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 500 })) {
+      chunks.push(chunk);
+    }
+
+    const deltas = chunks.filter((c) => c.type === 'text_delta').map((c: any) => c.delta);
+    expect(deltas).toEqual(['a', 'b']);
+    expect(chunks.some((c) => c.type === 'done')).toBe(true);
+    // 无 idle probe / failover / reset —— adapter 内部 timer 未介入流中段
+    expect(emitted.some((e) => e.type === 'stream_idle_probe_attempted')).toBe(false);
+    expect(emitted.some((e) => e.type === 'idle_failover_triggered')).toBe(false);
+    expect(emitted.some((e) => e.type === 'stream_reset')).toBe(false);
+  });
+
+  it('首事件后 chunk 间隔超过 streamIdleTimeoutMs → orchestrator idle probe/failover 接管（非 adapter timer）', async () => {
+    const { sink, emitted } = createMockSink();
+    let fetchCount = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) => {
+      fetchCount++;
+      if (fetchCount === 1) {
+        // stream：首帧 20ms 即到，随后 400ms 空窗 > streamIdleTimeoutMs=120
+        return dripSseResponse(openaiSse(dripFrames()), [20, 400, 10, 5], init.signal ?? undefined);
+      }
+      // probe（adapter.call）：body 迟迟不出，probe 150ms 超时 → network_timeout
+      return dripSseResponse(openaiSse(dripFrames()), [10_000, 10, 10, 5], init.signal ?? undefined);
+    }));
+
+    const fallback = createMockProvider('fallback');
+    const service = new LLMOrchestratorImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    // provider timeoutMs 远大于 idleMs：若触发 idle 路径，必为 orchestrator idle watchdog 所为
+    (service as any).primary = realPrimaryAdapter(5_000);
+    (service as any).fallbacks = [fallback];
+
+    const chunks: LLMStreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 120, streamIdleProbeTimeoutMs: 150 })) {
+      chunks.push(chunk);
+    }
+
+    // orchestrator idle 路径可观测：probe attempted + probe 超时失败 → idle failover
+    expect(emitted.some((e) => e.type === 'stream_idle_probe_attempted')).toBe(true);
+    expect(emitted.some((e) => e.type === 'idle_failover_triggered' && (e as any).ms === 120)).toBe(true);
+    // fallback 接管并完成
+    const deltas = chunks.filter((c) => c.type === 'text_delta').map((c: any) => c.delta);
+    expect(deltas).toContain('Chunk from fallback');
+    expect(chunks.some((c) => c.type === 'done')).toBe(true);
   });
 });

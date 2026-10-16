@@ -16,6 +16,14 @@ export interface CombinedAbortHandle {
    * each call replaces the active timer (idempotent swap).
    */
   enterStreamPhase(maxDurationMs: number): void;
+  /**
+   * Phase 1941 (D1): clear the internal timeout timer without starting a new
+   * one. Used by streaming adapters once the first provider event arrives —
+   * after that point the internal total-duration timer must not fire; the
+   * stream's remaining lifecycle is governed solely by the external signal
+   * (e.g. orchestrator idle watchdog). External signal listener is unaffected.
+   */
+  clearInternalTimeout(): void;
 }
 
 /**
@@ -56,6 +64,12 @@ export function withCombinedAbortSignal(
     enterStreamPhase: (maxDurationMs: number) => {
       if (activeTimeoutId !== undefined) clearTimeout(activeTimeoutId);
       activeTimeoutId = setTimeout(() => controller.abort(), maxDurationMs);
+    },
+    clearInternalTimeout: () => {
+      if (activeTimeoutId !== undefined) {
+        clearTimeout(activeTimeoutId);
+        activeTimeoutId = undefined;
+      }
     },
   };
 
