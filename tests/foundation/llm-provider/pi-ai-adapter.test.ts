@@ -346,8 +346,10 @@ describe('PiAiAdapter — Phase 1941 时限分层（stream 首事件时限 vs ca
     expect(first.done).toBe(false);
     // 消费方提前 return（等价 break for-await）→ generator finally 必须跑 cleanup
     await iter.return(undefined);
-    // 超过内部 timeoutMs 后无未捕获拒绝/abort 副作用
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Derivation: 200ms > 本用例 timeoutMs=100ms，确保跨过“若 timer 未清理则必触发”
+    // 的窗口，以观察提前 return 后无残留 abort/未捕获拒绝。
+    const POST_RETURN_OBSERVE_MS = 200;
+    await new Promise((resolve) => setTimeout(resolve, POST_RETURN_OBSERVE_MS));
   });
 
   it('stream 首事件后用户 abort（晚于 timeoutMs）→ ExternalAbortError 而非 LLMTimeoutError', async () => {
@@ -358,7 +360,10 @@ describe('PiAiAdapter — Phase 1941 时限分层（stream 首事件时限 vs ca
       dripSseResponse(openaiSse(dripFrames()), [20, 5000, 10, 5], init.signal ?? undefined)));
     const adapter = createLLMProvider(baseConfig({ timeoutMs: 100 }));
     const pending = collectStream(adapter, { signal: controller.signal });
-    setTimeout(() => controller.abort({ type: 'user' }), 150);
+    // Derivation: 150ms > timeoutMs=100ms——若内部 timer 未在首帧（20ms）清除，
+    // 100ms 会先触发为 LLMTimeoutError；150ms 的外部 abort 才能鉴别归因。
+    const USER_ABORT_AFTER_FIRST_EVENT_MS = 150;
+    setTimeout(() => controller.abort({ type: 'user' }), USER_ABORT_AFTER_FIRST_EVENT_MS);
     const err = await pending.catch((e) => e);
     expect(err).toBeInstanceOf(ExternalAbortError);
     expect((err as ExternalAbortError).cause).toEqual({ type: 'user' });
@@ -370,7 +375,10 @@ describe('PiAiAdapter — Phase 1941 时限分层（stream 首事件时限 vs ca
       dripSseResponse(openaiSse(dripFrames()), [500, 10, 10, 5], init.signal ?? undefined)));
     const adapter = createLLMProvider(baseConfig({ timeoutMs: 5000 }));
     const pending = collectStream(adapter, { signal: controller.signal });
-    setTimeout(() => controller.abort({ type: 'user' }), 30);
+    // Derivation: 30ms < 首帧 500ms 且 << timeoutMs=5000ms——abort 必然落在
+    // 首事件前窗口，且不会被内部 timer 抢跑。
+    const USER_ABORT_BEFORE_FIRST_EVENT_MS = 30;
+    setTimeout(() => controller.abort({ type: 'user' }), USER_ABORT_BEFORE_FIRST_EVENT_MS);
     const err = await pending.catch((e) => e);
     expect(err).toBeInstanceOf(ExternalAbortError);
     expect(err).not.toBeInstanceOf(LLMTimeoutError);
