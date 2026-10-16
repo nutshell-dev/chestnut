@@ -14,7 +14,6 @@ import { DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT } from './terminal-text
 import { createViewportHistory, MIN_HISTORY_WINDOW_LINES } from './chat-viewport-history.js';
 import type { OutputLine, ViewportHistory } from './chat-viewport-history.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
-import type { ViewportHistoryControls } from './chat-viewport-types.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import type { ClawTrack } from './chat-viewport-claw-line.js';
 import type { DescriptorSink, RenderDescriptor } from './viewport-render-descriptor.js';
@@ -170,7 +169,7 @@ export function createDisplay(deps: DisplayDeps) {
     updateDisplay();
   };
 
-  const historyControls: ViewportHistoryControls = {
+  const historyControls = {
     isBrowsing: () => !history.isFollowingTail(),
     scrollUp: (count: number) => { history.scrollUp(count); updateDisplay(); },
     scrollDown: (count: number) => { history.scrollDown(count); updateDisplay(); },
