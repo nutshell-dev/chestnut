@@ -40,7 +40,6 @@ interface RenderBatch {
   totalMs: number;
   lastOutputLines: number;
   lastSuffixLines: number;
-  lastWindowLines: number;
   firstTs: number;
 }
 
@@ -96,7 +95,6 @@ export function createViewportObservability(deps: Deps) {
       `total_ms=${render.totalMs}`,
       `output_lines=${render.lastOutputLines}`,
       `suffix_lines=${render.lastSuffixLines}`,
-      `window_lines=${render.lastWindowLines}`,
     );
     render = null;
   };
@@ -152,7 +150,6 @@ export function createViewportObservability(deps: Deps) {
   const recordRender = (meta: {
     outputLines: number;
     suffixLines: number;
-    windowLines: number;
     elapsedMs: number;
   }) => {
     const t = now();
@@ -162,28 +159,18 @@ export function createViewportObservability(deps: Deps) {
         totalMs: 0,
         lastOutputLines: 0,
         lastSuffixLines: 0,
-        lastWindowLines: 0,
         firstTs: t,
       };
     render.calls += 1;
     render.totalMs += meta.elapsedMs;
     render.lastOutputLines = meta.outputLines;
     render.lastSuffixLines = meta.suffixLines;
-    render.lastWindowLines = meta.windowLines;
     if (
       render.calls >= VIEWPORT_OBS_CONFIG.RENDER_BATCH_SIZE ||
       t - render.firstTs >= VIEWPORT_OBS_CONFIG.RENDER_FLUSH_MS
     ) {
       flushRender();
     }
-  };
-
-  /**
-   * phase 1937 Step B: 历史窗口物化失败（损坏行 / 未来 stream 回读失败）。
-   * 立即写 audit（错误面低频；显示侧按 reason 去重、不随渲染频率重复）。
-   */
-  const recordHistoryWindowFailed = (reason: string) => {
-    deps.audit.write(VIEWPORT_AUDIT_EVENTS.HISTORY_WINDOW_RENDER_FAILED, `reason=${reason}`);
   };
 
   const recordSpinner = (action: 'start' | 'stop', text: string) => {
@@ -288,7 +275,6 @@ export function createViewportObservability(deps: Deps) {
     recordScrollbackClearSuppressed,
     recordHostInput,
     recordScreenReset,
-    recordHistoryWindowFailed,
     recordShutdown,
     dispose,
   };
