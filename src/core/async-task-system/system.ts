@@ -12,7 +12,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 
-import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX, PREPARED_IDENTITY_SCAN_ATTEMPTS } from './constants.js';
+import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX, PREPARED_IDENTITY_SCAN_ATTEMPTS, PREPARED_CLAIM_STAGING_PREFIX } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -318,6 +318,10 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     await this.fs.ensureDir(TASKS_QUEUES_DONE_DIR);
     await this.fs.ensureDir(TASKS_QUEUES_FAILED_DIR);
     await this.fs.ensureDir(TASKS_QUEUES_RESULTS_DIR);
+
+    // Phase 1947 Step B: sweep 崩溃残留的 claim staging（单 daemon 前提，init 时
+    // 尚无并发 scheduler）；须在 recoverTasks 之前、只删 staging 前缀文件。
+    await this._sweepPreparedClaimStaging();
 
     // Phase 849/854: load shortId ↔ fullId index from disk, rebuild if needed
     this.shortIdIndex.load(this.shortIdIndexAuditWriter);
@@ -747,16 +751,20 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
    * winner task 被 dispatcher move 腾空后失效，身份裁决迁到不随 lifecycle
    * move 的稳定 claim（tasks/queues/claims/<fullId>.json，O_EXCL 创建）。
    *
-   * 提交协议与崩溃矩阵（claim 先行、task 后发布）：
+   * 提交协议与崩溃矩阵（claim 先行、task 后发布；Phase 1947 Step B 起 claim
+   * 经唯一 staging + linkExclusiveSync 原子发布，不再出现半写/空 claim）：
    * - crash before claim：无事实；下次 schedulePrepared 重新裁决。
-   * - crash during claim write（半写/空 claim）：loser 有限重读后仍不可解析
-   *   → fail-closed 保留证据，绝不覆盖。
+   * - crash before link（staging 写入中途）：claim 路径不存在；staging 残留
+   *   由 initialize() sweep 清理；下次 schedule 重新裁决。
+   * - crash after link：claim 完整可见；staging 残留由 sweep 清理。
    * - crash after claim, before task：claim 为唯一身份事实；hash 相同的重试
    *   以 claim 身份 + 本调用 payload 完成 winner 的提交（writeExclusive 仲裁，
    *   至多一个 task artifact、一条 scheduled 事实）。
    * - crash after task：task+claim 一致；重试 replay，不产生第二事实。
    * - 旧数据（无 claim 的 task file）：首次 replay 时一次性 O_EXCL 补建
    *   claim（PREPARED_TASK_CLAIM_BACKFILLED）；冲突保留证据并 fail-closed。
+   * - legacy/外部损坏的半写 claim（非新发布协议产物）：读取侧有限重读后仍
+   *   不可解析 → fail-closed 保留证据，绝不覆盖。
    */
   async schedulePrepared(
     taskKind: 'subagent',
@@ -853,8 +861,10 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
-   * Phase 1904 Step D: 读取稳定 claim。writeExclusive 先发布路径再完成内容写，
-   * loser 可能读到半写 JSON —— 解析失败有限重读；schema 不符 / 超预算 = corrupt。
+   * Phase 1904 Step D: 读取稳定 claim。Phase 1947 Step B 起 claim 经 staging
+   * + linkExclusiveSync 原子发布，路径可见即内容完整，半写窗口不再由生产
+   * 路径产生；有限重读保留为 legacy/外部损坏 claim 的首读不完整防御——
+   * 解析失败有限重读；schema 不符 / 超预算 = corrupt。
    */
   private async _readPreparedClaimStable(fullId: FullTaskId): Promise<PreparedClaimReadResult> {
     const claimPath = this._preparedClaimPath(fullId);
@@ -912,8 +922,22 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
-   * Phase 1904 Step D: O_EXCL 创建稳定 claim。返回 'created' 或 winner claim；
-   * EEXIST 后读不到有效 claim（半写/损坏/消失）→ fail-closed indeterminate。
+   * Phase 1947 Step B：staging 路径（唯一 UUID token，并发 contender 不共享
+   * staging 内容；与 claim 同目录 ⇒ 同文件系统，hard link 前提满足）。
+   * staging 不承载身份语义——claim 路径是唯一权威入口。
+   */
+  private _preparedClaimStagingPath(): string {
+    return `${TASKS_QUEUES_CLAIMS_DIR}/${PREPARED_CLAIM_STAGING_PREFIX}${newUuid()}`;
+  }
+
+  /**
+   * Phase 1904 Step D / Phase 1947 Step B: 原子发布稳定 claim。
+   * 完整内容 + 文件 fsync 先落在唯一 staging 路径（此时 claim 路径不可见），
+   * 再以 linkExclusiveSync 原子 no-replace 提交——claim 路径首次可见即内容完整，
+   * loser 要么看到完整 claim、要么看不到路径（不再有空/半写窗口）。
+   * 返回 'created' 或 winner claim；EEXIST 后读不到有效 claim（损坏/消失）→
+   * fail-closed indeterminate。staging 在 finally 清理（成功/EEXIST/异常同路径）；
+   * 崩溃残留由 initialize() 的 sweep 兜底。
    */
   private async _tryCreatePreparedClaim(
     prepared: PreparedSubagentSchedule,
@@ -928,11 +952,22 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       payloadHash: expectedHash,
       createdAt: prepared.createdAt,
     };
+    const claimPath = this._preparedClaimPath(fullId);
+    const stagingPath = this._preparedClaimStagingPath();
     try {
-      await this.fs.writeExclusive(this._preparedClaimPath(fullId), JSON.stringify(claim, null, 2));
-      return 'created';
-    } catch (err) {
-      if (!isAlreadyExists(err)) throw err;
+      // staging 的 writeExclusive EEXIST（UUID 碰撞）按异常上抛；概率可忽略。
+      await this.fs.writeExclusive(stagingPath, JSON.stringify(claim, null, 2));
+      try {
+        // 原子 no-replace 提交：link 成功后 staging 与 claim 同 inode，
+        // finally 删除 staging 不影响 claim。
+        this.fs.linkExclusiveSync(stagingPath, claimPath);
+        return 'created';
+      } catch (err) {
+        if (!isAlreadyExists(err)) throw err;
+        // EEXIST：winner 已提交完整 claim；落到下方读取
+      }
+    } finally {
+      await this._deleteClaimStaging(stagingPath);
     }
 
     const read = await this._readPreparedClaimStable(fullId);
@@ -947,6 +982,60 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       throw new Error(`Prepared task identity indeterminate for ${fullId}: exclusive create conflicted but claim ${detail}`);
     }
     return read.claim;
+  }
+
+  /**
+   * Phase 1947 Step B：清理本次 staging（成功/EEXIST/异常路径共用）。
+   * 清理失败不阻断 schedule（claim 提交语义已完成），但必须 audit 可观察；
+   * 崩溃残留由启动 sweep 兜底。
+   */
+  private async _deleteClaimStaging(stagingPath: string): Promise<void> {
+    try {
+      await this.fs.delete(stagingPath);
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      this.auditWriter.write(
+        TASK_AUDIT_EVENTS.PREPARED_CLAIM_STAGING_CLEANUP_FAILED,
+        'stage=post_publish',
+        `file=${path.basename(stagingPath)}`,
+        `reason=${formatErr(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Phase 1947 Step B：启动 sweep 清理崩溃残留的 staging 文件。
+   * 前提：per-claw 单 daemon（generation 协议），init 时尚无并发 scheduler。
+   * 只删 PREPARED_CLAIM_STAGING_PREFIX 前缀文件，绝不动 `<fullId>.json` claim。
+   */
+  private async _sweepPreparedClaimStaging(): Promise<void> {
+    if (!(await this.fs.exists(TASKS_QUEUES_CLAIMS_DIR))) return;
+    let entries;
+    try {
+      entries = await this.fs.list(TASKS_QUEUES_CLAIMS_DIR, { includeDirs: false });
+    } catch (err) {
+      this.auditWriter.write(
+        TASK_AUDIT_EVENTS.PREPARED_CLAIM_STAGING_CLEANUP_FAILED,
+        'stage=startup_sweep',
+        'file=',
+        `reason=list:${formatErr(err)}`,
+      );
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.name.startsWith(PREPARED_CLAIM_STAGING_PREFIX)) continue;
+      try {
+        await this.fs.delete(`${TASKS_QUEUES_CLAIMS_DIR}/${entry.name}`);
+      } catch (err) {
+        if (isFileNotFound(err)) continue;
+        this.auditWriter.write(
+          TASK_AUDIT_EVENTS.PREPARED_CLAIM_STAGING_CLEANUP_FAILED,
+          'stage=startup_sweep',
+          `file=${entry.name}`,
+          `reason=${formatErr(err)}`,
+        );
+      }
+    }
   }
 
   /**

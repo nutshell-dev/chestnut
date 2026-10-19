@@ -43,6 +43,14 @@ export const PENDING_QUEUE_MAX = 1000;
 export const PREPARED_IDENTITY_SCAN_ATTEMPTS = 3;
 
 /**
+ * Phase 1947 Step B：prepared claim 原子发布的 staging 文件名前缀
+ * （`tasks/queues/claims/.claim-staging-<uuid>`）。staging 不承载身份语义，
+ * 正常路径 finally 清理、崩溃残留由 initialize() sweep 清理；读取方只认
+ * `<fullId>.json` claim 路径。
+ */
+export const PREPARED_CLAIM_STAGING_PREFIX = '.claim-staging-';
+
+/**
  * Phase 770: default soft timeout for async exec wrapper.
  * Commands running longer than this are migrated to background async execution
  * instead of blocking the agent turn.

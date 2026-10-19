@@ -57,6 +57,8 @@ export const TASK_AUDIT_EVENTS = {
   PREPARED_TASK_REPLAY_CONFIRMED: 'prepared_task_replay_confirmed', // phase 1206 Step A
   PREPARED_TASK_IDENTITY_CONFLICT: 'prepared_task_identity_conflict', // phase 1206 Step A
   PREPARED_TASK_CLAIM_BACKFILLED: 'prepared_task_claim_backfilled', // phase 1904 Step D
+  // Phase 1947 Step B: claim staging 清理失败（正常路径 finally / 启动 sweep）——不阻断调度，但必须可观察
+  PREPARED_CLAIM_STAGING_CLEANUP_FAILED: 'prepared_claim_staging_cleanup_failed',
   POST_PROCESSOR_DEFERRED: 'task_post_processor_deferred', // Phase 1396 Step J
   TASK_POSTPROCESSOR_MISSING: 'task_post_processor_missing', // phase 1863 (AT-D14)
   LEGACY_RESULT_CLASSIFICATION_UNKNOWN: 'legacy_result_classification_unknown', // Phase 1396 Step L

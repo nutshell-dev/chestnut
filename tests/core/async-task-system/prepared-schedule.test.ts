@@ -8,6 +8,7 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
+import { PREPARED_CLAIM_STAGING_PREFIX } from '../../../src/core/async-task-system/constants.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
@@ -506,12 +507,13 @@ describe('AsyncTaskSystem.schedulePrepared stable claim (Phase 1904 Step D)', ()
     expect(again.disposition).toBe('existing');
   });
 
-  it('tolerates a half-written claim that completes during the reread window', async () => {
+  it('tolerates a legacy/corrupt claim whose first read is incomplete but completes during the reread window', async () => {
     const prepared = makePrepared();
     const crashedWinner = makeSystem(new CrashAfterClaimFs({ baseDir }));
     await expect(crashedWinner.schedulePrepared('subagent', prepared)).rejects.toThrow(/simulated crash/);
 
-    // writeExclusive 先发布路径再完成内容写：首次读到空串，重读得到完整 claim
+    // Phase 1947 Step B：新发布协议（staging + link）下 claim 路径可见即完整；
+    // 本用例保留为 legacy/外部损坏 claim 的读取侧防御——首读为空串、重读得到完整 claim。
     class PartialClaimFs extends NodeFileSystem {
       private servedPartial = false;
       override async read(p: string): Promise<string> {
@@ -546,14 +548,16 @@ describe('AsyncTaskSystem.schedulePrepared stable claim (Phase 1904 Step D)', ()
   it('fails closed with indeterminate when claim EEXIST conflicts but the claim never becomes readable', async () => {
     const prepared = makePrepared();
 
+    // Phase 1947 Step B：claim 由 linkExclusiveSync 原子发布——拦截点迁到 link 层
+    // （override writeExclusive 会误拦 staging 写入而非 claim 发布）。
     class PhantomClaimFs extends NodeFileSystem {
-      override async writeExclusive(p: string, content: string): Promise<void> {
-        if (p.startsWith(TASKS_QUEUES_CLAIMS_DIR)) {
+      override linkExclusiveSync(from: string, to: string): void {
+        if (to.startsWith(TASKS_QUEUES_CLAIMS_DIR)) {
           const err = new Error('file already exists') as NodeJS.ErrnoException;
           err.code = 'EEXIST';
           throw err;
         }
-        return super.writeExclusive(p, content);
+        super.linkExclusiveSync(from, to);
       }
     }
 
@@ -563,6 +567,9 @@ describe('AsyncTaskSystem.schedulePrepared stable claim (Phase 1904 Step D)', ()
       expect(await fs.exists(`${dir}/${prepared.id}.json`)).toBe(false);
     }
     expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(0);
+    // staging 已被 finally 清理（EEXIST 路径同享清理语义）
+    const claimFiles = await fs.list(TASKS_QUEUES_CLAIMS_DIR, { includeDirs: false });
+    expect(claimFiles.filter(f => f.name.startsWith(PREPARED_CLAIM_STAGING_PREFIX))).toHaveLength(0);
   });
 
   it('fails closed when the stable claim and the lifecycle task disagree on payload hash', async () => {
@@ -621,6 +628,136 @@ describe('AsyncTaskSystem.schedulePrepared stable claim (Phase 1904 Step D)', ()
     const second = await makeSystem().schedulePrepared('subagent', prepared);
     expect(second.disposition).toBe('existing');
     expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_CLAIM_BACKFILLED)).toHaveLength(1);
+  });
+});
+
+describe('AsyncTaskSystem.schedulePrepared claim atomic publish (Phase 1947 Step B)', () => {
+  let baseDir: string;
+  let fs: NodeFileSystem;
+  let audit: ReturnType<typeof makeAudit>;
+
+  beforeEach(async () => {
+    baseDir = await createTempDir('prepared-claim-atomic-');
+    mkdirSync(baseDir, { recursive: true });
+    fs = new NodeFileSystem({ baseDir });
+    audit = makeAudit();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
+  });
+
+  function makeSystem(raceFs?: FileSystem): AsyncTaskSystem {
+    return createTestTaskSystem(baseDir, raceFs ?? fs, audit.audit as import('../../../src/foundation/audit/writer.js').AuditWriter);
+  }
+
+  async function listStaging(): Promise<string[]> {
+    if (!(await fs.exists(TASKS_QUEUES_CLAIMS_DIR))) return [];
+    const entries = await fs.list(TASKS_QUEUES_CLAIMS_DIR, { includeDirs: false });
+    return entries.map(e => e.name).filter(n => n.startsWith(PREPARED_CLAIM_STAGING_PREFIX));
+  }
+
+  it('确定性并发：winner 停在 staging 写入时 claim 路径不存在；loser 原子发布；winner 恢复后读到完整 claim（无 indeterminate）', async () => {
+    const prepared = makePrepared();
+
+    // 屏障：winner 进入 staging writeExclusive 即 signal 并暂停（super 未调用，
+    // staging 文件未落盘）；release 后才完成写入 + link。
+    let releaseStaging!: () => void;
+    let signalEntered!: () => void;
+    const stagingEntered = new Promise<void>(resolve => { signalEntered = resolve; });
+    const stagingRelease = new Promise<void>(resolve => { releaseStaging = resolve; });
+    class BarrierFs extends NodeFileSystem {
+      override async writeExclusive(p: string, content: string): Promise<void> {
+        if (p.startsWith(TASKS_QUEUES_CLAIMS_DIR) && path.basename(p).startsWith(PREPARED_CLAIM_STAGING_PREFIX)) {
+          signalEntered();
+          await stagingRelease;
+        }
+        return super.writeExclusive(p, content);
+      }
+    }
+
+    const winner = makeSystem(new BarrierFs({ baseDir }));
+    const winnerPromise = winner.schedulePrepared('subagent', prepared);
+    await stagingEntered;
+
+    // winner 仍在 staging 写入阶段：claim 路径不存在（旧协议下此处已可见空/半写文件）
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`)).toBe(false);
+
+    // loser 用正常 FS 原子发布自己的 claim
+    const loserResult = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(loserResult.disposition).toBe('created');
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`)).toBe(true);
+
+    // 放行 winner：link EEXIST → 读到 loser 的完整 claim → replay（不抛 indeterminate）
+    releaseStaging();
+    const winnerResult = await winnerPromise;
+    expect(winnerResult.taskId).toBe(prepared.id);
+    expect(winnerResult.disposition).toBe('existing');
+
+    // 恰好一个 pending、一个 claim、一条 scheduled 事实；无 staging 残留
+    const pendingFiles = await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
+    expect(pendingFiles).toHaveLength(1);
+    const claimFiles = await fs.list(TASKS_QUEUES_CLAIMS_DIR, { includeDirs: false });
+    expect(claimFiles.map(f => f.name)).toEqual([`${prepared.id}.json`]);
+    expect(await listStaging()).toEqual([]);
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toHaveLength(1);
+    expect(audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT)).toHaveLength(0);
+  });
+
+  it('staging 正常清理：成功发布后 claims 目录只有 claim JSON，无 staging 残留', async () => {
+    const prepared = makePrepared();
+    const result = await makeSystem().schedulePrepared('subagent', prepared);
+    expect(result.disposition).toBe('created');
+
+    const claimFiles = await fs.list(TASKS_QUEUES_CLAIMS_DIR, { includeDirs: false });
+    expect(claimFiles.map(f => f.name)).toEqual([`${prepared.id}.json`]);
+    expect(await listStaging()).toEqual([]);
+  });
+
+  it('启动 sweep：崩溃残留 staging 被 initialize() 清除，真 claim 保留', async () => {
+    const prepared = makePrepared();
+    await fs.ensureDir(TASKS_QUEUES_CLAIMS_DIR);
+    await fs.writeAtomic(
+      `${TASKS_QUEUES_CLAIMS_DIR}/${PREPARED_CLAIM_STAGING_PREFIX}stale-crashed`,
+      'partial-content-from-crash',
+    );
+    const claim = {
+      schema_version: 1,
+      id: prepared.id,
+      shortId: prepared.id.slice(0, 8),
+      payloadHash: 'hash-x',
+      createdAt: prepared.createdAt,
+    };
+    await fs.writeAtomic(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`, JSON.stringify(claim, null, 2));
+
+    await makeSystem().initialize();
+
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${PREPARED_CLAIM_STAGING_PREFIX}stale-crashed`)).toBe(false);
+    expect(await fs.exists(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`)).toBe(true);
+  });
+
+  it('staging 清理失败：schedule 仍成功且写 prepared_claim_staging_cleanup_failed audit（不静默）', async () => {
+    const prepared = makePrepared();
+    class StagingDeleteFailsFs extends NodeFileSystem {
+      override async delete(p: string): Promise<void> {
+        if (path.basename(p).startsWith(PREPARED_CLAIM_STAGING_PREFIX)) {
+          throw new Error('EIO injected');
+        }
+        return super.delete(p);
+      }
+    }
+
+    const result = await makeSystem(new StagingDeleteFailsFs({ baseDir })).schedulePrepared('subagent', prepared);
+    expect(result.disposition).toBe('created');
+
+    const cleanupFailures = audit.events.filter(
+      e => e[0] === TASK_AUDIT_EVENTS.PREPARED_CLAIM_STAGING_CLEANUP_FAILED,
+    );
+    expect(cleanupFailures).toHaveLength(1);
+    expect(cleanupFailures[0]).toContain('stage=post_publish');
+    // 清理失败不阻断：claim 已提交且完整可读
+    const raw = await fs.read(`${TASKS_QUEUES_CLAIMS_DIR}/${prepared.id}.json`);
+    expect(JSON.parse(raw)).toMatchObject({ id: prepared.id, schema_version: 1 });
   });
 });
 

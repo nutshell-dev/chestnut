@@ -186,6 +186,7 @@
       "async_task_queue_cross_source_skipped",
       "legacy_result_classification_unknown",
       "pending_ingest_failed",
+      "prepared_claim_staging_cleanup_failed",
       "prepared_task_claim_backfilled",
       "prepared_task_identity_conflict",
       "prepared_task_replay_confirmed",
