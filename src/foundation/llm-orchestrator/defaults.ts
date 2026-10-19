@@ -65,3 +65,19 @@ export const LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS: readonly number[] = [
   300_000,
   600_000,
 ];
+
+// ---------------------------------------------------------------------------
+// Phase 1955 Step E: 上下文预算与动态 timeout
+// ---------------------------------------------------------------------------
+
+/** 输入预算预警比例（相对最小 provider context window）。 */
+export const LLM_CONTEXT_BUDGET_WARN_RATIO = 0.70;
+
+/** 输入预算硬上限比例：达到即不再发送 provider 请求。 */
+export const LLM_CONTEXT_BUDGET_HARD_RATIO = 0.80;
+
+/** 动态 timeout 的 token 处理速率估计（tokens/s；输入越大给越多时间）。 */
+export const LLM_TIMEOUT_TOKENS_PER_SECOND = 500;
+
+/** 动态 timeout 的绝对上限（ms）。 */
+export const LLM_TIMEOUT_MAX_MS = 600_000;

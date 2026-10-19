@@ -599,6 +599,10 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
   // Phase 1955 Step C: TurnRecoveryPersistence
   // -------------------------------------------------------------------------
 
+  hasActiveTurn(): boolean {
+    return this._turnTransaction !== null;
+  }
+
   async recordLlmResponse(fact: {
     committedAtMs: number;
     stopReason: string;

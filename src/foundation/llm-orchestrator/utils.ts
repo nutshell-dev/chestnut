@@ -7,7 +7,19 @@
  */
 
 import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock, ProviderStreamChunk } from '../llm-provider/index.js';
-import { makeExternalAbortError } from '../llm-provider/index.js';
+import {
+  estimateMessagesTokens,
+  estimateTextTokens,
+  estimateToolsTokens,
+  makeExternalAbortError,
+} from '../llm-provider/index.js';
+import type { LLMCallOptions } from './types.js';
+import {
+  LLM_CONTEXT_BUDGET_HARD_RATIO,
+  LLM_CONTEXT_BUDGET_WARN_RATIO,
+  LLM_TIMEOUT_MAX_MS,
+  LLM_TIMEOUT_TOKENS_PER_SECOND,
+} from './defaults.js';
 
 /**
  * AbortSignal-aware delay.
@@ -31,6 +43,42 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     }, ms);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+/** Phase 1955 Step E：调用前输入预算估计（messages + system + tools）。 */
+export function estimatePromptTokens(options: LLMCallOptions): number {
+  // 防御畸形调用（测试/JS caller 可能省略 messages）：估计是旁路，不得改变原有报错面。
+  const messages = Array.isArray(options.messages) ? options.messages : [];
+  const tools = Array.isArray(options.tools) ? options.tools : [];
+  return estimateMessagesTokens(messages)
+    + estimateTextTokens(options.system ?? '')
+    + estimateToolsTokens(tools);
+}
+
+export type ContextBudgetClass = 'ok' | 'warn' | 'exceeded';
+
+/** 预算分类：>= 80% 硬上限；>= 70% 预警。调用方保证 contextWindow > 0。 */
+export function classifyContextBudget(
+  estimatedTokens: number,
+  contextWindow: number,
+): ContextBudgetClass {
+  const ratio = estimatedTokens / contextWindow;
+  if (ratio >= LLM_CONTEXT_BUDGET_HARD_RATIO) return 'exceeded';
+  if (ratio >= LLM_CONTEXT_BUDGET_WARN_RATIO) return 'warn';
+  return 'ok';
+}
+
+/**
+ * 动态调用 timeout：基础配置时间 + 按输入规模增加的生成/传输余量，封顶 10min。
+ * 输入越大 → 给越长 wall-clock；持续有 chunk 的 stream 仍由 idle timeout 判定。
+ */
+export function computeDynamicCallTimeoutMs(
+  baseTimeoutMs: number,
+  estimatedTokens: number,
+): number {
+  const padded = baseTimeoutMs
+    + Math.ceil((Math.max(0, estimatedTokens) / LLM_TIMEOUT_TOKENS_PER_SECOND) * 1000);
+  return Math.min(Math.max(padded, baseTimeoutMs), LLM_TIMEOUT_MAX_MS);
 }
 
 /** Whether a stream chunk carries content (text/thinking/tool_use). */

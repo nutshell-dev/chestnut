@@ -125,6 +125,8 @@ export interface TurnStepCheckpoint {
  * 保持 L2 不反向依赖 L3。
  */
 export interface TurnRecoveryPersistence {
+  /** 当前是否有活跃 turn transaction（无事务时调用方不得注入事实写入）。 */
+  hasActiveTurn(): boolean;
   /** 完整 LLM 响应已收到的严格提交点（副作用前）。 */
   recordLlmResponse(fact: {
     committedAtMs: number;

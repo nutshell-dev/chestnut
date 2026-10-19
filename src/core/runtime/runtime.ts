@@ -1212,7 +1212,11 @@ export class Runtime {
 
     // Phase 1955 Step C：turn 内的严格恢复交付（工具/响应事实持久化）。
     // 无 turnRecovery 能力的窄 mock/旧 store → 不注入，保持既有语义。
-    const turnRecovery = this.sessionManager.turnRecovery;
+    // 直接调用 _runReact（测试/helper）可能没有活跃 turn transaction；
+    // 此时不注入事实通道，保持既有行为（生产 processTurn 路径必有事务）。
+    const turnRecovery = this.sessionManager.turnRecovery?.hasActiveTurn()
+      ? this.sessionManager.turnRecovery
+      : undefined;
     const recovery = turnRecovery ? createTurnRecoveryDelivery(turnRecovery) : undefined;
 
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）

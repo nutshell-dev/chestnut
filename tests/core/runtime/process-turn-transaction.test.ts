@@ -299,6 +299,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
 
   function makeTurnRecovery(commitResult: unknown) {
     return {
+      hasActiveTurn: vi.fn().mockReturnValue(true),
       recordLlmResponse: vi.fn().mockResolvedValue(undefined),
       recordToolStarted: vi.fn().mockResolvedValue(undefined),
       recordToolResult: vi.fn().mockResolvedValue(undefined),

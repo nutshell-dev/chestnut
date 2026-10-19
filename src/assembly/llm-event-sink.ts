@@ -137,6 +137,13 @@ function writeLLMAuditEvent(audit: AuditLog, event: LLMEvent): void {
         `winnerProvider=${event.winnerProvider}`,
       );
       break;
+    case 'context_budget_warning':
+      audit.write(LLM_AUDIT_EVENTS.CONTEXT_BUDGET_WARNING,
+        `provider=${event.provider}`,
+        `estimated_tokens=${event.estimatedTokens}`,
+        `context_window=${event.contextWindow}`,
+        `ratio=${event.ratio.toFixed(3)}`);
+      break;
     case 'context_exceeded_failover':
       audit.write(LLM_AUDIT_EVENTS.CONTEXT_EXCEEDED_FAILOVER,
         `provider=${event.provider}`, `stopReason=${event.stopReason}`);

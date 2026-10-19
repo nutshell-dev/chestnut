@@ -60,6 +60,7 @@ export const STREAM_EVENT_NAMES = {
   STREAM_IDLE_PROBE_SUCCEEDED: 'stream_idle_probe_succeeded',
   CONTEXT_EXCEEDED_FAILOVER: 'context_exceeded_failover',
   CONTEXT_EXCEEDED_THROWTHROUGH: 'context_exceeded_throwthrough',
+  CONTEXT_BUDGET_WARNING: 'context_budget_warning',
   PERMANENT_SKIP_RETRY: 'permanent_skip_retry',
   HEDGE_STARTED: 'hedge_started',
   HEDGE_PRIMARY_RECOVERED: 'hedge_primary_recovered',
@@ -128,6 +129,7 @@ export interface StreamEventMap {
   stream_idle_probe_succeeded: { provider: string; trace_id?: string };
   context_exceeded_failover: { provider: string; stopReason: string; trace_id?: string };
   context_exceeded_throwthrough: { provider: string; trace_id?: string };
+  context_budget_warning: { provider: string; estimatedTokens: number; contextWindow: number; ratio: number; trace_id?: string };
   permanent_skip_retry: { provider: string; attempt: number; errorClass: string; trace_id?: string };
   hedge_started: { primary: string; fallbackChain: string[]; triggerErrorClass: string; trace_id?: string };
   hedge_primary_recovered: { provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; trace_id?: string };

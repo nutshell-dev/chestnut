@@ -31,6 +31,7 @@ export const LLM_AUDIT_EVENTS = {
   HEDGE_PRIMARY_SUCCEEDED_AFTER_RACE_LOST: 'llm.hedge.primary_succeeded_after_race_lost',
   CONTEXT_EXCEEDED_FAILOVER: 'llm_context_exceeded_failover',
   CONTEXT_EXCEEDED_THROWTHROUGH: 'llm_context_exceeded_throwthrough',
+  CONTEXT_BUDGET_WARNING: 'llm_context_budget_warning',
   PERMANENT_SKIP_RETRY: 'llm_permanent_skip_retry',
   ALL_PROVIDERS_CONTEXT_EXCEEDED: 'llm_all_providers_context_exceeded',
   RACE_LOSER_CLEANED: 'llm_race_loser_cleaned',
@@ -72,6 +73,7 @@ export const LLM_ORCHESTRATOR_FILE_ROUTING: Readonly<Record<string, 'audit'>> = 
   'llm.hedge.primary_post_first_chunk_failure': 'audit', // phase 289 Step A
   llm_context_exceeded_failover: 'audit',
   llm_context_exceeded_throwthrough: 'audit',
+  llm_context_budget_warning: 'audit',
   llm_permanent_skip_retry: 'audit',
   llm_all_providers_context_exceeded: 'audit',
   llm_race_loser_cleaned: 'audit',

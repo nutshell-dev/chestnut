@@ -33,13 +33,26 @@ import type {
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput, SharedRecoveryDecision } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { LLMCircuitBreakerOpenError } from './errors.js';
-import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
+import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, LLMContextExceededError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
-import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
+import { resolveContextWindow } from '../llm-provider/index.js';
+import {
+  classifyContextBudget,
+  computeDynamicCallTimeoutMs,
+  delay,
+  estimatePromptTokens,
+  isContentChunk,
+  wrapResponseAsStream,
+  mergeSignals,
+} from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 import { formatErr } from '../node-utils/index.js';  // Phase 1933 Step B: probe 结果错误摘要
-import { LLM_RECOVERY_COOLDOWN_MS, LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS } from './defaults.js';  // Phase 1933 Step F / 1934 Step C: 共享恢复安排下界常量
+import {
+  DEFAULT_LLM_TIMEOUT_MS,
+  LLM_RECOVERY_COOLDOWN_MS,
+  LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+} from './defaults.js';  // Phase 1933 Step F / 1934 Step C / 1955 Step E 常量
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -282,13 +295,20 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     isFallback: boolean,
     options: LLMCallOptions,
     maxAttempts: number,
+    estimatedInputTokens: number,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
 
-      const hardTimeoutMs = options.hardTimeoutMs;
+      // Phase 1955 Step E：timeout 按输入规模动态计算（基础配置 + token 余量，封顶 10min）；
+      // caller 的 hardTimeoutMs 仍是显式上限。
+      const dynamicTimeoutMs = computeDynamicCallTimeoutMs(
+        options.timeoutMs ?? this.baseTimeoutFor(adapter, isFallback),
+        estimatedInputTokens,
+      );
+      const hardTimeoutMs = options.hardTimeoutMs ?? dynamicTimeoutMs;
       let providerSignal: AbortSignal | undefined;
       let cleanupSignal: () => void = () => {};
       let hardSignal: AbortSignal | undefined;
@@ -300,7 +320,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       } else {
         providerSignal = options.signal;
       }
-      const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
+      const providerOptions: LLMCallOptions = {
+        ...options,
+        signal: providerSignal,
+        hardTimeoutMs: undefined,
+        streamIdleTimeoutMs: undefined,
+        timeoutMs: options.timeoutMs ?? dynamicTimeoutMs,
+      };
 
       try {
         this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback };
@@ -503,7 +529,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       ...(targetConfig?.timeoutMs !== undefined ? { hardTimeoutMs: targetConfig.timeoutMs } : {}),
     };
     try {
-      await this._tryCallProvider(target.adapter, target.breakerIndex, target.isFallback, probeOptions, 1);
+      // Probe 保持配置的有界 timeout（不按输入规模扩展）：显式探测要求快速了结。
+      await this._tryCallProvider(target.adapter, target.breakerIndex, target.isFallback, probeOptions, 1, 0);
       // 旧配置/旧故障代次的迟到成功不得清新状态（普通成功同样不清——见 call/stream 路径）
       if (generation === this.configGeneration) {
         const current = this.sharedFailures.get(target.identity);
@@ -724,8 +751,58 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     };
   }
 
+  /**
+   * Phase 1955 Step E：调用前输入预算（最小 provider context window 为基准）。
+   * >= 80% → 不发给 provider，抛 typed context_exceeded；>= 70% → 发布预警事件。
+   * @returns 估计输入 token 数（供动态 timeout 使用）
+   */
+  private guardContextBudget(options: LLMCallOptions): number {
+    const candidates = [this.config.primary, ...(this.config.fallbacks ?? [])];
+    let contextWindow = Number.POSITIVE_INFINITY;
+    let provider = this.config.primary.name;
+    for (const candidate of candidates) {
+      const window = resolveContextWindow(candidate.name, candidate.model);
+      if (window < contextWindow) {
+        contextWindow = window;
+        provider = candidate.name;
+      }
+    }
+    const estimatedTokens = estimatePromptTokens(options);
+    const classification = classifyContextBudget(estimatedTokens, contextWindow);
+    if (classification === 'exceeded') {
+      this.events.emit({ type: 'context_exceeded_throwthrough', provider });
+      throw new LLMContextExceededError(
+        provider,
+        0,
+        `estimated input ${estimatedTokens} tokens >= 80% of ${contextWindow} context window (preflight; provider not called)`,
+      );
+    }
+    if (classification === 'warn') {
+      this.events.emit({
+        type: 'context_budget_warning',
+        provider,
+        estimatedTokens,
+        contextWindow,
+        ratio: estimatedTokens / contextWindow,
+      });
+    }
+    return estimatedTokens;
+  }
+
+  /** provider 配置的基础 timeout（动态 timeout 的起点）。 */
+  private baseTimeoutFor(adapter: LLMProvider, isFallback: boolean): number {
+    const config = isFallback
+      ? (this.config.fallbacks ?? []).find(
+        candidate => candidate.name === adapter.name && candidate.model === adapter.model,
+      )
+      : this.config.primary;
+    return config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+  }
+
   private async _callCore(options: LLMCallOptions, limits: CallLimits): Promise<LLMResponse> {
     const allowBreakerProbe = limits.allowBreakerProbe;
+    // Phase 1955 Step E：预算/硬上限在候选循环前统一判定（不把必然 400 送 provider）。
+    const estimatedInputTokens = this.guardContextBudget(options);
     const isBreakerOpen = (index: number): boolean => {
       const breaker = this.breakers[index];
       return breaker ? breaker.isOpen() : false;
@@ -745,7 +822,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         const stickyIdx = stickyFb ? this.fallbacks.indexOf(stickyFb) : -1;
         if (stickyFb && stickyIdx >= 0 && !isBreakerBlocking(stickyIdx + 1)) {
           try {
-            return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts);
+            return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, estimatedInputTokens);
           } catch (err) {
             // User abort is not a provider failure — propagate immediately
             if (options.signal?.aborted || isAbortError(err)) throw err;
@@ -759,7 +836,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       let primaryFailed = false;
       if (!isBreakerBlocking(0)) {
         try {
-          return await this._tryCallProvider(this.primary, 0, false, options, limits.maxAttempts);
+          return await this._tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens);
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
@@ -789,7 +866,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             to: this.fallbacks[i].name,
             reason: primaryFailed ? 'primary_exhausted' : 'primary_breaker_open',
           });
-          return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts);
+          return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts, estimatedInputTokens);
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
@@ -842,6 +919,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     options: LLMCallOptions,
     limits: CallLimits,
   ): AsyncIterableIterator<LLMStreamChunk> {
+    // Phase 1955 Step E：输入预算在候选循环前统一判定（硬上限不发给 provider）。
+    const estimatedInputTokens = this.guardContextBudget(options);
     // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
     const primaryBreakerOpen = this.breakers[0]?.isOpen() ?? false;
     const openCause = this.breakers[0]?.getOpenCause() ?? null;
@@ -879,7 +958,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     try {
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
-      const { adapter, breakerIndex } = providers[pi];
+      const { adapter, breakerIndex, isFallback } = providers[pi];
 
       if (!adapter.stream) {
         failures.push({ provider: adapter.name, error: new Error('Provider does not support streaming'), providerId: this.identityAt(breakerIndex, adapter.name) });
@@ -930,7 +1009,18 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
           const merged = mergeSignals(options.signal, idleCtrl?.signal);
           cleanupSignal = merged.cleanup;
-          const providerOptions: LLMCallOptions = { ...options, signal: merged.signal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
+          // Phase 1955 Step E：stream timeout 按输入规模动态计算；持续有 chunk 的
+          // 长请求由 idle timeout 判定，不按固定 wall-clock 截断。
+          const providerOptions: LLMCallOptions = {
+            ...options,
+            signal: merged.signal,
+            hardTimeoutMs: undefined,
+            streamIdleTimeoutMs: undefined,
+            timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
+              this.baseTimeoutFor(adapter, isFallback),
+              estimatedInputTokens,
+            ),
+          };
 
           let pendingDone: ProviderStreamChunk | null = null;
           resetIdleTimer();

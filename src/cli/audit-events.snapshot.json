@@ -19,6 +19,7 @@
       "llm_breaker_closed",
       "llm_breaker_half_open",
       "llm_breaker_opened",
+      "llm_context_budget_warning",
       "llm_context_exceeded_failover",
       "llm_context_exceeded_throwthrough",
       "llm_fallback_switched",

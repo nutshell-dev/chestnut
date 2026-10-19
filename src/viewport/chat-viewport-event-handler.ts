@@ -490,6 +490,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'tool_arg_parse_error': case 'idle_failover_triggered':
       case 'stream_idle_probe_attempted': case 'stream_idle_probe_succeeded':
       case 'context_exceeded_failover': case 'context_exceeded_throwthrough':
+      case 'context_budget_warning':
       case 'permanent_skip_retry':
       case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
       case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
