@@ -340,8 +340,14 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           }
           if (interruptErrCount >= INTERRUPT_POLL_MAX_ERRORS) {
             audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_DISABLED, `error_count=${interruptErrCount}`, `last_error=${formatErr(err)}`);
-            // silent: disable path; close 失败不阻塞 recovery setTimeout 路径
-            interruptWatcher?.close().catch(() => { /* silent: disable cleanup */ });
+            // close 失败不阻塞 recovery setTimeout 路径，但次失败必须留证（phase 1952 Step B：不静默丢弃）
+            interruptWatcher?.close().catch((closeErr: unknown) => {
+              audit.write(
+                DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_WATCHER_CLOSE_FAILED,
+                `context=disable`,
+                `reason=${formatErr(closeErr)}`,
+              );
+            });
             interruptWatcher = null;
             // phase 229: DP「中断可恢复」+ DP「系统能自己做的就自己做好」delayed retry recovery
             // phase 1072: wrap recovery in try/catch + bounded exponential backoff + cancel on stop.
@@ -390,8 +396,14 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           consecutiveFatal = 0;
         } finally {
           if (interruptWatcher) {
-            // silent: cleanup path; close 失败不影响 finally 后续
-            await interruptWatcher.close().catch(() => { /* silent: cleanup */ });
+            // cleanup path; close 失败不影响 finally 后续，但次失败必须留证（phase 1952 Step B）
+            await interruptWatcher.close().catch((closeErr: unknown) => {
+              audit.write(
+                DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_WATCHER_CLOSE_FAILED,
+                `context=cleanup`,
+                `reason=${formatErr(closeErr)}`,
+              );
+            });
             interruptWatcher = null;
           }
         }
@@ -399,8 +411,14 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         // 只处理进程级错误（EventLoop 自身异常）
         // 不再做 LLM 错误分类和 retry 决策
         if (interruptWatcher) {
-          // silent: error path; close 失败不影响 dispatchError
-          await interruptWatcher.close().catch(() => { /* silent: cleanup */ });
+          // error path; close 失败不影响 dispatchError，但次失败必须留证（phase 1952 Step B）
+          await interruptWatcher.close().catch((closeErr: unknown) => {
+            audit.write(
+              DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_WATCHER_CLOSE_FAILED,
+              `context=error`,
+              `reason=${formatErr(closeErr)}`,
+            );
+          });
           interruptWatcher = null;
         }
         // phase 1873 Step I（daemon-loop-fatal-unbounded-retry）：fatal 恢复有界——

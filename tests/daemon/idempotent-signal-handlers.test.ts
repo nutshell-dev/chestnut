@@ -280,3 +280,91 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
     await p.catch(() => { /* silent: shutdown */ });
   });
 });
+
+
+/**
+ * Phase 1952 Step B：shutdown 退出路径边界。
+ * - cleanup（dispose）超时是次失败事实：进程按入口语义退出，但超时必须留证
+ *   （CLEANUP_PID_FAILED context=dispose_timeout）；
+ * - 退出前 audit flush 失败不得阻断退出（stderr 留证，exit 码不变）。
+ */
+describe('phase 1952 Step B: shutdown 退出路径边界', () => {
+  beforeEach(() => {
+    _resetDaemonSignalHandlers();
+    stopFn = null;
+    process.env[PROCESS_GENERATION_ENV] = TEST_GENERATION_ID;
+  });
+
+  afterEach(() => {
+    if (stopFn) {
+      stopFn();
+      stopFn = null;
+    }
+    _resetDaemonSignalHandlers();
+    vi.clearAllMocks();
+    delete process.env[PROCESS_GENERATION_ENV];
+    // Fix 2 测试可能注入的 dispose 抛错面，用后即清（mockAuditWriter 跨用例共享）
+    delete (mockAuditWriter as { dispose?: unknown }).dispose;
+  });
+
+  it('cleanup 超时：dispose 挂起 → 30s 超时留证（context=dispose_timeout）+ exit(0) 不被拖延', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = daemonCommand('test-claw-dispose-timeout');
+      await flushMicrotasks(10);
+
+      const sigtermListener = process.listeners('SIGTERM').pop() as () => void;
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+      // dispose 永不 resolve（挂起）——timeout 分支必须兜底
+      mockDispose.mockImplementationOnce(() => new Promise(() => { /* hang */ }));
+
+      sigtermListener();
+      await flushMicrotasks(5);
+      // 30s 未到：无超时留证、未退出
+      expect(mockAuditWriter.write).not.toHaveBeenCalledWith(
+        'daemon_cleanup_pid_failed',
+        'context=dispose_timeout',
+        expect.anything(),
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await flushMicrotasks(5);
+
+      expect(mockAuditWriter.write).toHaveBeenCalledWith(
+        'daemon_cleanup_pid_failed',
+        'context=dispose_timeout',
+        expect.stringMatching(/30000ms/),
+      );
+      expect(exitSpy).toHaveBeenCalledWith(0);
+
+      exitSpy.mockRestore();
+      await p.catch(() => { /* silent: shutdown */ });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flush 失败：auditWriter.dispose 抛错 → stderr 留证 + exit(0) 仍执行', async () => {
+    const p = daemonCommand('test-claw-flush-fail');
+    await flushMicrotasks(10);
+
+    const sigtermListener = process.listeners('SIGTERM').pop() as () => void;
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { /* capture */ });
+    (mockAuditWriter as { dispose?: unknown }).dispose = vi.fn(() => {
+      throw new Error('flush boom');
+    });
+
+    sigtermListener();
+    await flushMicrotasks(10);
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/audit flush failed before exit.*flush boom/),
+    );
+
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    await p.catch(() => { /* silent: shutdown */ });
+  });
+});

@@ -197,6 +197,16 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
      * 收束 generation（retire）→ flush audit → exit(1)。不再裸 exit 弃置已装配资源。
      * 与 1872 C 装配期 rollback 不重叠：此处处理的是装配成功后（Instances 已提交）的失败。
      */
+    // Phase 1952 Step B：退出前 audit flush 失败不得阻断退出（次失败不簒改进程终态；
+    // stderr 留证——audit 通道自身可能已损坏）。定义先于全部使用点（failAfterAssemble 可提前调用）。
+    const flushAuditBeforeExit = (): void => {
+      try {
+        auditWriter.dispose?.();
+      } catch (flushErr) {
+        console.error(`[daemon] audit flush failed before exit: ${formatErr(flushErr)}`);  // console: audit 通道自身可能已损坏（flush 失败），stderr 是最后留证面
+      }
+    };
+
     const failAfterAssemble = async (
       where: { module: string; phase: string },
       e: unknown,
@@ -214,7 +224,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       } catch (retireErr) {
         auditWriter.write(deps.auditEvents.preRuntimeFailed, 'stage=post_assemble_retire', 'phase=teardown', `reason=${formatErr(retireErr)}`);
       }
-      auditWriter.dispose?.();
+      flushAuditBeforeExit();
       process.exit(1);
     };
 
@@ -378,10 +388,20 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         // phase 720: 加 context col 区分 caller 路径、改 raw 'dispose_failed=' 为统一 'reason=' key
         instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `context=dispose_failed_async`, `reason=${formatErr(e)}`);
       });
-      await Promise.race([
-        dispose,
-        new Promise<void>(resolve => setTimeout(resolve, timeoutMs)),
+      const DISPOSE_TIMED_OUT = Symbol('dispose_timeout');
+      const winner = await Promise.race([
+        dispose.then(() => undefined),
+        new Promise<typeof DISPOSE_TIMED_OUT>(resolve => setTimeout(() => resolve(DISPOSE_TIMED_OUT), timeoutMs)),
       ]);
+      if (winner === DISPOSE_TIMED_OUT) {
+        // Phase 1952 Step B：cleanup 超时本身是次失败事实——进程仍按入口语义退出，
+        // 但超时必须先行留证（超时才 reject 的 dispose 失败 audit 可能因进程已退出而不落盘）。
+        instances.auditWriter.write(
+          DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED,
+          `context=dispose_timeout`,
+          `reason=${timeoutMs}ms elapsed`,
+        );
+      }
     };
 
     // phase 175: idempotent install
@@ -394,7 +414,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       // phase 517 B2: crash 路径也走 graceful shutdown（5s timeout 兜底防 dispose 死锁）
       // return Promise → Node 实际忽略、但测试可 await 验 exit + audit；类型由 listener void-return 兼容
       return gracefulShutdown('uncaughtException', 5_000).finally(() => {
-        auditWriter.dispose?.();  // phase 477: flush batched audit 前 exit
+        flushAuditBeforeExit();  // phase 477: flush batched audit 前 exit
         process.exit(1);
       });
     };
@@ -403,7 +423,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       // phase 1124: crash 记录优先于 guard
       if (!beginShutdown('unhandledRejection')) return Promise.resolve();
       return gracefulShutdown('unhandledRejection', 5_000).finally(() => {
-        auditWriter.dispose?.();
+        flushAuditBeforeExit();
         process.exit(1);
       });
     };
@@ -418,7 +438,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       if (!beginShutdown(signal)) return;  // phase 1124: 重入抑制、首个继续
       await gracefulShutdown(signal, 30_000);
       // phase 1873 Step E: 主 auditWriter 在 exit(0) 前 dispose（flush；与 crash 路径同型）。
-      auditWriter.dispose?.();
+      flushAuditBeforeExit();
       process.exit(0);
     };
     // phase 175: idempotent install

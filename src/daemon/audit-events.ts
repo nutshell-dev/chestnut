@@ -16,6 +16,8 @@ export const DAEMON_AUDIT_EVENTS = {
   LOOP_INTERRUPT_POLLER_RECOVERED: 'daemon_loop_interrupt_poller_recovered',
   LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT: 'daemon_loop_interrupt_poller_recovery_attempt',
   LOOP_INTERRUPT_POLLER_RECOVERY_FAILED: 'daemon_loop_interrupt_poller_recovery_failed',
+  // Phase 1952 Step B: interrupt watcher close 次失败（不阻塞主流程，但不得静默丢弃）
+  LOOP_INTERRUPT_WATCHER_CLOSE_FAILED: 'daemon_loop_interrupt_watcher_close_failed',
   LOOP_FATAL: 'daemon_loop_fatal',
   LIVENESS_HEARTBEAT: 'daemon_liveness_heartbeat',
   LIVENESS_HOURLY: 'daemon_liveness_hourly',
