@@ -49,3 +49,19 @@ export const LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS = 120_000;
 
 /** quota 退避曲线封顶（原 event-loop LLM_QUOTA_MAX_DELAY_MS）。 */
 export const LLM_RECOVERY_QUOTA_MAX_DELAY_MS = 480_000;
+
+// ---------------------------------------------------------------------------
+// Phase 1955 Step B: 无 Retry-After 的 rate-limit 有界恢复
+// ---------------------------------------------------------------------------
+
+/** 无 Retry-After 的 rate-limit 连续失败上限；达到即进入 blocked（等干预/配置变化）。 */
+export const LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS = 10;
+
+/** rate-limit 客户端退避曲线（按连续失败次数取值，末项封顶）。 */
+export const LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS: readonly number[] = [
+  30_000,
+  60_000,
+  120_000,
+  300_000,
+  600_000,
+];

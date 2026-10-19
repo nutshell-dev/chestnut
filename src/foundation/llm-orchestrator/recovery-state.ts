@@ -44,6 +44,14 @@ export interface LLMRecoveryProviderFact {
   consecutiveFailures: number;
   /** 显示用摘要（不含凭据）。 */
   detail: string;
+  /**
+   * Phase 1955 Step B：无 Retry-After 的 rate-limit 连续失败计数。
+   * 可选：旧文件无此字段，按 0 解释；与 transient retryCount 语义独立。
+   */
+  rateLimitFailures?: number;
+  /** 达到上限后的 blocked 事实（等用户干预或配置变化，不自动重试）。 */
+  rateLimitBlocked?: boolean;
+  rateLimitBlockedAt?: string;
 }
 
 /** 转义自既有已批准参数的恢复预算与曲线（数值不变）。 */
@@ -172,11 +180,18 @@ function isBudget(v: unknown): v is LLMRecoveryBudget {
 function isProviderFact(v: unknown): v is LLMRecoveryProviderFact {
   if (typeof v !== 'object' || v === null) return false;
   const p = v as Record<string, unknown>;
-  return typeof p.providerId === 'string' && p.providerId.length > 0
-    && typeof p.errorClass === 'string'
-    && typeof p.at === 'string'
-    && typeof p.consecutiveFailures === 'number'
-    && typeof p.detail === 'string';
+  if (
+    typeof p.providerId !== 'string' || p.providerId.length === 0
+    || typeof p.errorClass !== 'string'
+    || typeof p.at !== 'string'
+    || typeof p.consecutiveFailures !== 'number'
+    || typeof p.detail !== 'string'
+  ) return false;
+  // Phase 1955 Step B：新增字段可选（旧文件兼容），出现时严格校验类型。
+  if (p.rateLimitFailures !== undefined && typeof p.rateLimitFailures !== 'number') return false;
+  if (p.rateLimitBlocked !== undefined && typeof p.rateLimitBlocked !== 'boolean') return false;
+  if (p.rateLimitBlockedAt !== undefined && typeof p.rateLimitBlockedAt !== 'string') return false;
+  return true;
 }
 
 function isAdmission(v: unknown): v is LLMRecoveryAdmissionRecord {

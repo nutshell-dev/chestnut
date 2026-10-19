@@ -10,7 +10,7 @@ import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/
 import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import { LLM_RECOVERY_STATE_FILE } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LLMAuthError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
@@ -219,6 +219,95 @@ describe('recovery failure policy', () => {
     // 自动 tick 不能放行
     const auto = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     expect(auto.kind).toBe('waiting');
+  });
+
+  it('Phase 1955 B: 无 Retry-After 的 rate_limit 按有界曲线退避，10 次后 blocked', async () => {
+    const f = await makeFixture({
+      call: async () => { throw new LLMRateLimitError('primary'); },
+    });
+    const session = f.makeSession();
+    const delays: number[] = [];
+
+    for (let i = 0; i < 10; i++) {
+      const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
+      if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${i}`);
+      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await session.finish(admission.attemptId, 'failed');
+
+      const schedule = await session.inspect();
+      if (i < 9) {
+        if (schedule.kind !== 'at') throw new Error(`expected at at round ${i}`);
+        delays.push(Date.parse(schedule.resumeAt) - f.now());
+        f.advance(1_000_000);
+      } else {
+        // 第 10 次达到上限 → blocked：不再安排自动重试（等干预/配置变化）。
+        expect(schedule.kind).toBe('on_change');
+      }
+    }
+
+    expect(delays).toEqual([30_000, 60_000, 120_000, 300_000, 600_000, 600_000, 600_000, 600_000, 600_000]);
+    const saved = f.readState();
+    expect(saved.providers[0].rateLimitFailures).toBe(10);
+    expect(saved.providers[0].rateLimitBlocked).toBe(true);
+    expect(typeof saved.providers[0].rateLimitBlockedAt).toBe('string');
+
+    // blocked 后自动 tick 不放行（不伪造新一次尝试）。
+    const auto = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
+    expect(auto.kind).toBe('waiting');
+  });
+
+  it('Phase 1955 B: 服务端 Retry-After 仍是权威时刻，不被客户端退避截短', async () => {
+    const f = await makeFixture({
+      call: async () => { throw new LLMRateLimitError('primary', 900); },
+    });
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await session.finish(admission.attemptId, 'failed');
+
+    const schedule = await session.inspect();
+    expect(schedule.kind).toBe('at');
+    if (schedule.kind === 'at') {
+      expect(Date.parse(schedule.resumeAt) - T0).toBe(900_000);
+    }
+    const saved = f.readState();
+    expect(saved.providers[0].rateLimitFailures).toBeUndefined();
+    expect(saved.providers[0].rateLimitBlocked).toBeUndefined();
+  });
+
+  it('Phase 1955 B: 成功调用清零 rate-limit 计数与 blocked 事实', async () => {
+    let shouldFail = true;
+    const f = await makeFixture({
+      call: async () => {
+        if (shouldFail) throw new LLMRateLimitError('primary');
+        return OK_RESPONSE;
+      },
+    });
+    const session = f.makeSession();
+
+    for (let i = 0; i < 10; i++) {
+      const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
+      if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${i}`);
+      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await session.finish(admission.attemptId, 'failed');
+      const schedule = await session.inspect();
+      if (schedule.kind === 'at') f.advance(1_000_000);
+    }
+
+    shouldFail = false;
+    const retry = await session.begin({
+      requestKey: 'fp',
+      facts: { interventionIds: ['user-msg-1'] },
+    });
+    if (retry.kind !== 'admitted') throw new Error('expected admitted by intervention');
+    await session.llm.call(CALL);
+    await session.finish(retry.attemptId, 'completed');
+
+    const saved = f.readState();
+    expect(saved.providers[0].rateLimitFailures).toBeUndefined();
+    expect(saved.providers[0].rateLimitBlocked).toBeUndefined();
+    expect(saved.schedule.kind).toBe('ready');
   });
 
   it('success resets budget and returns to ready', async () => {
