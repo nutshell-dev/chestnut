@@ -657,6 +657,9 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
   }
 
   async checkpointTurn(stepIndex: number): Promise<void> {
+    // turn 已结算（例如测试/helper 在 turn 结束后才驱动 step 回调）：
+    // 没有 open transaction 可固化，迟到 checkpoint 是 no-op。
+    if (!this._turnTransaction) return;
     await this.updateOpenTurnTransaction(record => {
       const completed = (record.journal ?? [])
         .filter(j => j.status === 'completed')

@@ -241,6 +241,24 @@ describe('DialogStore turn transaction (phase 1285)', () => {
     await expect(fs.read('turn-transaction.json')).resolves.toContain('"state": "open"');
   });
 
+  it('Phase 1955 C: turn 结算后的迟到 checkpoint 是 no-op（不抛错）', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+    await store.beginTurn();
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'assistant', content: 'done' }],
+      toolsForLLM: [],
+    });
+    await store.commitTurn();
+
+    await expect(store.turnRecovery!.checkpointTurn(1)).resolves.toBeUndefined();
+    await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+  });
+
   it('malformed transaction record fails closed without reading partial current as authoritative', async () => {
     await store.save({ systemPrompt: 'sp', messages: [{ role: 'assistant', content: 'partial' }], toolsForLLM: [] });
     await fs.writeAtomic('turn-transaction.json', '{broken');
