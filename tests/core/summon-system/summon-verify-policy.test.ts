@@ -91,6 +91,7 @@ function makeClaimStore(): {
   const claimStore: SummonCreationClaimStore = {
     claim: claimSpy,
     read: async (summonId: string) => claims.get(summonId),
+    sweepStaging: async () => ({ cleaned: 0, failures: [] }),
   };
   return { claimStore, claimSpy, claims };
 }

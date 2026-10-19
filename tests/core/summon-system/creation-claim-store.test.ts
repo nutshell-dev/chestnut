@@ -20,6 +20,8 @@ import {
   SummonCreationClaimCorruptedError,
   SUMMON_CREATION_CLAIMS_DIR,
   SUMMON_CREATION_CLAIM_FILE,
+  SUMMON_CREATION_CLAIM_STAGING_PREFIX,
+  SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS,
   type SummonCreationClaimStore,
 } from '../../../src/core/summon-system/creation-claim-store.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -212,5 +214,159 @@ describe('SummonCreationClaimStore read-side identity binding (Phase 1908 Step E
     expect(result.kind).toBe('claimed');
     const retry = await store.claim({ summonId: 's-1', targetExecutorId: 'claw-a', contractId: 'c-1' });
     expect(retry.kind).toBe('same_claim');
+  });
+});
+
+/**
+ * Phase 1948 Step B：staging + link 原子发布与崩溃残留 sweep。
+ *
+ * 根因回归钉：writeExclusive 直发会让 claim 路径在内容写完前可见，并发 loser
+ * 观察到空/半写文件；现 claim 路径首次可见即完整（linkExclusiveSync 原子 no-replace）。
+ * - 确定性并发：BarrierFs 暂停首个 staging 写入 ⇒ claim 路径不存在；第二 contender
+ *   完成 link 成为 winner；被暂停者 EEXIST → 读到完整 claim → same_claim（不依赖重读窗口）。
+ * - 正常路径 staging 清理（成功与 EEXIST 同路径）。
+ * - sweepStaging：stale staging 删除 / fresh staging 保留 / claim（即使老旧）保留；
+ *   单项失败进 failures 不 throw。
+ */
+
+/** 暂停首个 staging writeExclusive 的确定性并发门控（signal + release）。 */
+class BarrierFs extends NodeFileSystem {
+  private armed = true;
+  private arrivedResolve!: () => void;
+  readonly arrived = new Promise<void>(resolve => { this.arrivedResolve = resolve; });
+  private releaseResolve!: () => void;
+  private readonly releaseGate = new Promise<void>(resolve => { this.releaseResolve = resolve; });
+
+  override async writeExclusive(relativePath: string, content: string): Promise<void> {
+    if (this.armed && relativePath.includes(SUMMON_CREATION_CLAIM_STAGING_PREFIX)) {
+      this.armed = false;
+      this.arrivedResolve();
+      await this.releaseGate;
+    }
+    await super.writeExclusive(relativePath, content);
+  }
+
+  release(): void {
+    this.releaseResolve();
+  }
+}
+
+describe('SummonCreationClaimStore staging 原子发布 + sweep (Phase 1948 Step B)', () => {
+  let tempDir: string;
+  let store: SummonCreationClaimStore;
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tempDir = path.join(tmpdir(), `summon-claim-staging-${randomUUID()}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    store = createSummonCreationClaimStore({ fs: new NodeFileSystem({ baseDir: tempDir }) });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  });
+
+  const summonDir = (summonId: string): string =>
+    path.join(tempDir, SUMMON_CREATION_CLAIMS_DIR, summonId);
+  const claimAbsPath = (summonId: string): string =>
+    path.join(summonDir(summonId), SUMMON_CREATION_CLAIM_FILE);
+  const listStaging = async (summonId: string): Promise<string[]> =>
+    (await fs.readdir(summonDir(summonId)).catch(() => [] as string[]))
+      .filter(name => name.startsWith(SUMMON_CREATION_CLAIM_STAGING_PREFIX));
+
+  const validClaimRaw = (summonId: string): string =>
+    JSON.stringify({
+      schema_version: 1,
+      summonId,
+      targetExecutorId: 'claw-a',
+      contractId: 'c-1',
+      claimedAt: new Date().toISOString(),
+    }, null, 2);
+
+  it('确定性并发：staging 暂停期间 claim 路径不可见；先 link 者 claimed，后者 EEXIST→same_claim', async () => {
+    const barrierFs = new BarrierFs({ baseDir: tempDir });
+    const barrierStore = createSummonCreationClaimStore({ fs: barrierFs });
+    const input = { summonId: 's-1', targetExecutorId: 'claw-a', contractId: 'c-1' };
+
+    const firstPromise = barrierStore.claim(input);
+    await barrierFs.arrived;
+
+    // 根因钉：staging 写入被暂停 ⇒ claim 路径尚不存在（旧实现此处路径已可见但内容为空）
+    await expect(barrierStore.read('s-1')).resolves.toBeUndefined();
+
+    // 第二 contender 不受门控：完整走完 staging + link，赢得 claim
+    const second = await barrierStore.claim(input);
+    expect(second.kind).toBe('claimed');
+
+    barrierFs.release();
+    const first = await firstPromise;
+    expect(first.kind).toBe('same_claim');
+    expect(first.claim).toEqual(second.claim);
+
+    // claim 内容完整持久，双方 staging 均已清理
+    const persisted = JSON.parse(await fs.readFile(claimAbsPath('s-1'), 'utf-8'));
+    expect(persisted).toEqual(second.claim);
+    expect(await listStaging('s-1')).toEqual([]);
+  });
+
+  it('正常路径：成功 claim 后 staging 被清理，只留下 creation-claim.json', async () => {
+    const result = await store.claim({ summonId: 's-1', targetExecutorId: 'claw-a', contractId: 'c-1' });
+    expect(result.kind).toBe('claimed');
+
+    const names = await fs.readdir(summonDir('s-1'));
+    expect(names).toEqual([SUMMON_CREATION_CLAIM_FILE]);
+  });
+
+  it('sweepStaging：stale staging 删除，fresh staging 保留，老旧 claim 保留', async () => {
+    await fs.mkdir(summonDir('s-stale'), { recursive: true });
+    const stale = path.join(summonDir('s-stale'), `${SUMMON_CREATION_CLAIM_STAGING_PREFIX}stale-token`);
+    const fresh = path.join(summonDir('s-stale'), `${SUMMON_CREATION_CLAIM_STAGING_PREFIX}fresh-token`);
+    await fs.writeFile(stale, '{}');
+    await fs.writeFile(fresh, '{}');
+    await fs.writeFile(claimAbsPath('s-stale'), validClaimRaw('s-stale'));
+    const past = new Date(Date.now() - 2 * SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS);
+    // staging 与 claim 同样老旧：只有前缀匹配的 staging 允许被删
+    await fs.utimes(stale, past, past);
+    await fs.utimes(claimAbsPath('s-stale'), past, past);
+
+    const result = await store.sweepStaging();
+    expect(result).toEqual({ cleaned: 1, failures: [] });
+
+    await expect(fs.access(stale)).rejects.toThrow();
+    await expect(fs.access(fresh)).resolves.toBeUndefined();
+    await expect(fs.access(claimAbsPath('s-stale'))).resolves.toBeUndefined();
+    // claim 仍可正常读回（sweep 未动其内容）
+    const read = await store.read('s-stale');
+    expect(read?.summonId).toBe('s-stale');
+  });
+
+  it('sweepStaging：claims 根目录不存在 → 空结果，不 throw', async () => {
+    await expect(store.sweepStaging()).resolves.toEqual({ cleaned: 0, failures: [] });
+  });
+
+  it('sweepStaging：单项 delete 失败进 failures，不 throw，文件保留', async () => {
+    class DeleteFailFs extends NodeFileSystem {
+      override async delete(relativePath: string): Promise<void> {
+        if (relativePath.includes(SUMMON_CREATION_CLAIM_STAGING_PREFIX)) {
+          throw Object.assign(new Error('boom'), { code: 'EACCES' });
+        }
+        await super.delete(relativePath);
+      }
+    }
+    const failStore = createSummonCreationClaimStore({ fs: new DeleteFailFs({ baseDir: tempDir }) });
+    await fs.mkdir(summonDir('s-fail'), { recursive: true });
+    const stale = path.join(summonDir('s-fail'), `${SUMMON_CREATION_CLAIM_STAGING_PREFIX}stuck-token`);
+    await fs.writeFile(stale, '{}');
+    const past = new Date(Date.now() - 2 * SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS);
+    await fs.utimes(stale, past, past);
+
+    const result = await failStore.sweepStaging();
+    expect(result.cleaned).toBe(0);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0].summonId).toBe('s-fail');
+    expect(result.failures[0].detail).toContain('boom');
+
+    // 失败不吞没也不误删：文件仍在，留给下次 sweep
+    await expect(fs.access(stale)).resolves.toBeUndefined();
   });
 });

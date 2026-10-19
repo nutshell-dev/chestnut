@@ -144,13 +144,34 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     rollback.register('audit_writer', () => auditWriter?.dispose?.());
 
     // Summon 恢复事实核对（pending-retrospective 列举 + creation claim 核对）
+    const summonClaimStore = createSummonCreationClaimStore({
+      fs: fsFactory(resolveChestnutRoot(clawDir, isMotion)),
+    });
+    // phase 1948 Step B：崩溃残留的 claim staging 收敛在只读 restoreSummonFacts 之前。
+    // sweep 契约不 throw，逐项失败在此留证（复用 FALLBACK_RECONCILE_FAILED，不新增事件）；
+    // try/catch 仅为防御意外 throw 阻断 daemon 启动。
+    try {
+      const summonStagingSweep = await summonClaimStore.sweepStaging();
+      for (const failure of summonStagingSweep.failures) {
+        auditWriter.write(
+          ASSEMBLY_AUDIT_EVENTS.FALLBACK_RECONCILE_FAILED,
+          `context=summon_claim_staging`,
+          `summon=${failure.summonId}`,
+          `reason=${failure.detail}`,
+        );
+      }
+    } catch (err) {
+      auditWriter.write(
+        ASSEMBLY_AUDIT_EVENTS.FALLBACK_RECONCILE_FAILED,
+        `context=summon_claim_staging`,
+        `reason=${formatErr(err)}`,
+      );
+    }
     try {
       // phase 1866 Step H（SU-D8）：恢复事实经唯一入口。
       await restoreSummonFacts({
         fs: systemFs,
-        claimStore: createSummonCreationClaimStore({
-          fs: fsFactory(resolveChestnutRoot(clawDir, isMotion)),
-        }),
+        claimStore: summonClaimStore,
       });
     } catch (err) {
       // phase 703: 加 context col 区分 2 caller 路径、与 phase 582/584 context col 同模式

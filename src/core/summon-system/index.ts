@@ -30,6 +30,8 @@ export {
   SummonCreationClaimCorruptedError,
   SUMMON_CREATION_CLAIMS_DIR,
   SUMMON_CREATION_CLAIM_FILE,
+  SUMMON_CREATION_CLAIM_STAGING_PREFIX,
+  SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS,
 } from './creation-claim-store.js';
 export type {
   SummonCreationClaim,
@@ -37,6 +39,7 @@ export type {
   SummonCreationClaimResult,
   SummonCreationClaimStore,
   SummonCreationClaimListing,
+  SummonCreationClaimSweepResult,
 } from './creation-claim-store.js';
 
 export {

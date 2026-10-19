@@ -21,16 +21,33 @@
  * - legacy `summonDecision`（v1/v2）= 存量废弃字段（phase 1890 Step E 读面已删，
  *   policy 对仍带 decision 的任务 fail-closed），不是第二 writer/authority；
  * - pending-retrospective = 观测/补报面，不是创建 evidence。
+ *
+ * Phase 1948 Step B：claim 发布改 staging + hard link 原子提交（与 Phase 1947 ATS
+ * prepared claim 同根因模式）——writeExclusive 直发会让 claim 路径在内容写完前可见，
+ * 并发 loser 观察到空/半写文件；现 claim 路径首次可见即完整。崩溃残留 staging 由
+ * sweepStaging（daemon 启动装配点调用）按孤儿年龄收敛。
  */
 
 import { z } from 'zod';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 
 /** claim 根目录（相对 chestnutRoot）。 */
 export const SUMMON_CREATION_CLAIMS_DIR = 'summons' as const;
 export const SUMMON_CREATION_CLAIM_FILE = 'creation-claim.json' as const;
+/**
+ * Phase 1948 Step B：staging 文件名前缀（唯一 UUID token 拼接在后）。
+ * staging 与 claim 同目录（`summons/<summonId>/`，同文件系统，hard link 前提满足）；
+ * 不承载身份语义——claim 路径是唯一权威入口。
+ */
+export const SUMMON_CREATION_CLAIM_STAGING_PREFIX = '.creation-claim-staging-' as const;
+/**
+ * Phase 1948 Step B：崩溃残留 staging 的孤儿年龄阈值。
+ * sweep 只删 mtime 早于此年龄的 staging——进行中的 claim（CLI 与 daemon 可并发持有
+ * 本 store，无 ATS 那样的单 daemon 前提）其新鲜 staging 绝不被误删。
+ */
+export const SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS = 60 * 60_000;
 
 const SummonCreationClaimSchema = z.object({
   schema_version: z.literal(1),
@@ -85,6 +102,13 @@ export interface SummonCreationClaimStore {
    * 逐项读取失败不静默：进 `unreadable`（summonId + detail），其余照常返回。
    */
   list(): Promise<SummonCreationClaimListing>;
+  /**
+   * Phase 1948 Step B：清理崩溃残留的 claim staging 文件。
+   * 只删 `SUMMON_CREATION_CLAIM_STAGING_PREFIX` 前缀且 mtime 早于
+   * `SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS` 的 staging；绝不动 `creation-claim.json`。
+   * 单项失败不 throw：进 `failures`（summonId + detail），由装配点 audit 留证。
+   */
+  sweepStaging(): Promise<SummonCreationClaimSweepResult>;
 }
 
 /** claim 列举结果（owner 侧扫描；损坏/不可读项显式列出）。 */
@@ -92,6 +116,12 @@ export interface SummonCreationClaimListing {
   readonly readable: boolean;
   readonly claims: readonly SummonCreationClaim[];
   readonly unreadable: readonly { readonly summonId: string; readonly detail: string }[];
+}
+
+/** Phase 1948 Step B：staging sweep 结果（不 throw，失败项显式列出）。 */
+export interface SummonCreationClaimSweepResult {
+  readonly cleaned: number;
+  readonly failures: readonly { readonly summonId: string; readonly detail: string }[];
 }
 
 function isAlreadyExists(err: unknown): boolean {
@@ -169,18 +199,36 @@ export function createSummonCreationClaimStore(deps: { fs: FileSystem }): Summon
         ...input,
         claimedAt: new Date().toISOString(),
       };
+      // Phase 1948 Step B：staging + link 原子发布（与 Phase 1947 ATS prepared claim
+      // 同根因模式）。完整内容 + fsync 先落在唯一 staging 路径（此时 claim 路径不可见），
+      // 再以 linkExclusiveSync 原子 no-replace 提交——claim 路径首次可见即内容完整，
+      // loser 要么看到完整 claim、要么看不到路径（不再有空/半写窗口）。
+      const stagingPath =
+        `${SUMMON_CREATION_CLAIMS_DIR}/${input.summonId}/${SUMMON_CREATION_CLAIM_STAGING_PREFIX}${newUuid()}`;
       try {
-        await fs.writeExclusive(path, serializeClaim(claim));
-        return { kind: 'claimed', claim };
-      } catch (err) {
-        if (!isAlreadyExists(err)) throw err;
+        // staging 的 writeExclusive EEXIST（UUID 碰撞）按异常上抛；概率可忽略。
+        await fs.writeExclusive(stagingPath, serializeClaim(claim));
+        try {
+          // 原子 no-replace 提交：link 成功后 staging 与 claim 同 inode，
+          // finally 删除 staging 不影响 claim。
+          fs.linkExclusiveSync(stagingPath, path);
+          return { kind: 'claimed', claim };
+        } catch (err) {
+          if (!isAlreadyExists(err)) throw err;
+          // EEXIST：winner 已提交完整 claim；落到下方读取
+        }
+      } finally {
+        try {
+          await fs.delete(stagingPath);
+        } catch {
+          // silent: store 无 audit writer；清理失败的残留 staging 由启动 sweepStaging 收敛
+          //（staging 不承载语义，claim 提交语义在 link 成功时已完成）。
+        }
       }
       // EEXIST：严格读取比较。同候选 = 重试幂等通过；不同候选 = 拒绝；损坏 = typed error。
       let existing: SummonCreationClaim | undefined;
-      // O_EXCL publishes the path before the winning writer has finished its
-      // fsync.  A concurrent loser may therefore observe a partial JSON value;
-      // yield until the winner's durable contents are visible before declaring
-      // corruption.
+      // legacy 防御保留（Phase 1948 前由 writeExclusive 直发产生的半写窗口已消除；
+      // 重读循环仅作 belt-and-suspenders，正常路径一次读取即得完整 claim）。
       for (let attempt = 0; attempt < 100 && existing === undefined; attempt++) {
         try {
           existing = parseClaim(await fs.read(path), path);
@@ -243,6 +291,45 @@ export function createSummonCreationClaimStore(deps: { fs: FileSystem }): Summon
         }
       }
       return { readable: true, claims, unreadable };
+    },
+
+    async sweepStaging() {
+      const result: { cleaned: number; failures: { summonId: string; detail: string }[] } = {
+        cleaned: 0,
+        failures: [],
+      };
+      let summonDirs;
+      try {
+        summonDirs = await fs.list(SUMMON_CREATION_CLAIMS_DIR, { includeDirs: true });
+      } catch (err) {
+        if (isFileNotFound(err)) return result; // claims 根目录不存在 = 无残留，非异常
+        result.failures.push({ summonId: '(root)', detail: `list:${formatErr(err)}` });
+        return result;
+      }
+      const now = Date.now();
+      for (const dir of summonDirs.filter(e => e.isDirectory)) {
+        const summonId = dir.name;
+        let entries;
+        try {
+          entries = await fs.list(`${SUMMON_CREATION_CLAIMS_DIR}/${summonId}`, { includeDirs: false });
+        } catch (err) {
+          if (isFileNotFound(err)) continue; // 目录在 sweep 期间消失 = 无残留可清
+          result.failures.push({ summonId, detail: `list:${formatErr(err)}` });
+          continue;
+        }
+        for (const entry of entries) {
+          if (!entry.isFile || !entry.name.startsWith(SUMMON_CREATION_CLAIM_STAGING_PREFIX)) continue;
+          if (now - entry.mtime.getTime() < SUMMON_CLAIM_STAGING_ORPHAN_AGE_MS) continue; // 新鲜 staging = 进行中 claim，绝不误删
+          try {
+            await fs.delete(`${SUMMON_CREATION_CLAIMS_DIR}/${summonId}/${entry.name}`);
+            result.cleaned++;
+          } catch (err) {
+            if (isFileNotFound(err)) continue; // 已被并发清理
+            result.failures.push({ summonId, detail: `delete ${entry.name}:${formatErr(err)}` });
+          }
+        }
+      }
+      return result;
     },
   };
 }
