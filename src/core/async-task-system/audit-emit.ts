@@ -625,3 +625,21 @@ export function emitLLMWaitExpired(
     `expiresAt=${opts.expiresAt}`,
   );
 }
+
+// ─── TASK_UNCERTAIN_SIDE_EFFECT (Phase 1951 Step B) ──────────────────────────
+/**
+ * SubAgent 恢复游标声明工具副作用不确定 → 任务留 running：不投递普通失败结果、
+ * 不做 done/failed 终态迁移。uncertain 不是失败也不是成功；权威事实归 SubAgent
+ * recovery store，本事件只是 ATS 侧结算决策的可观测面。
+ */
+export function emitUncertainSideEffect(
+  audit: AuditLog,
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; reason: string },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.TASK_UNCERTAIN_SIDE_EFFECT,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+    `reason=${audit.message(opts.reason)}`,
+  );
+}

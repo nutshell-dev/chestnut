@@ -13,6 +13,7 @@ import {
   emitRecoveryFailed,
   emitTaskPostProcessorMissing,
   emitLLMWaitPersisted,
+  emitUncertainSideEffect,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -303,6 +304,21 @@ export async function executeSubAgentTask(
       return; // outcome 保持 undefined：任务留 running，不投递不终态
     }
 
+    // Phase 1951 Step B：executor 判定 SubAgent 游标声明「工具副作用不确定」
+    // → 任务留 running（不投递普通失败结果、不做 done/failed 终态迁移）。
+    // uncertain 不是失败也不是成功：权威事实归 SubAgent recovery store（游标
+    // 留盘，ATS 不复制、不写 post-process input——执行未完成结算）；启动恢复
+    // 经既有「无结果」分支回 pending 重调度，由 subagent resume 重新消费游标，
+    // 恢复流程取得新事实前每次 resume 仍 typed 拒绝。
+    if (execution.uncertain) {
+      emitUncertainSideEffect(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        reason: execution.uncertain.reason,
+      });
+      return; // outcome 保持 undefined：任务留 running，不投递不终态
+    }
+ 
     // Phase 2 — persist durable post-process input. Failure leaves the task in
     // running; nothing has been committed yet, so recovery re-executes.
     try {

@@ -251,6 +251,17 @@ export interface TaskExecutionOutcome {
    * 唤醒仅经启动恢复路径（gate 就绪 → 回 pending 重调度）。
    */
   readonly waiting?: LLMWaitFact;
+  /**
+   * Phase 1951 Step B：executor 判定 SubAgent 恢复游标声明「工具副作用不确定」
+   * （RecoveryUncertainSideEffectError——无法证明 pending 工具未开始/结果未提交）
+   * → 携带不确定事实；core 把任务留在 running（不投递普通失败结果、不做
+   * done/failed 终态迁移——uncertain 不是失败也不是成功）。权威事实归 SubAgent
+   * recovery store（游标留盘，ATS 不复制）；启动恢复经既有「无结果」分支回
+   * pending 重调度，由 subagent resume 重新消费游标——恢复流程取得新事实
+   * （人工补齐/移除证据）前每次 resume 仍 typed 拒绝，不自动重执行不可证明
+   * 未开始的工具。
+   */
+  readonly uncertain?: { readonly reason: string };
 }
 
 /**

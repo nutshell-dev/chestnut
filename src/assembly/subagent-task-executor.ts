@@ -23,6 +23,7 @@ import {
   createPerTaskRegistry,
   getDisplayResult,
   TASKS_SUBAGENTS_DIR,
+  RecoveryUncertainSideEffectError,
 } from '../core/subagent/index.js';
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../templates/prompts/index.js';
 import { TASKS_SYNC_DIR } from '../foundation/claw-identity/index.js';
@@ -175,6 +176,18 @@ export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): Task
               expiresAt: nowMs + task.timeoutMs,
               reason: errorMsg,
             },
+          };
+        }
+        // Phase 1951 Step B：SubAgent 恢复游标声明「工具副作用不确定」→ 携带
+        // uncertain typed outcome（不折叠为普通失败）。core 据此把任务留 running
+        // （不投递、不终态）；权威事实归 SubAgent recovery store 游标，恢复流程
+        // 取得新事实前 resume 仍 typed 拒绝。
+        if (error instanceof RecoveryUncertainSideEffectError) {
+          return {
+            content: errorMsg,
+            sourceIsError: true,
+            errorCategory: classifyTaskError(error),
+            uncertain: { reason: errorMsg },
           };
         }
         return { content: errorMsg, sourceIsError: true, errorCategory: classifyTaskError(error) };

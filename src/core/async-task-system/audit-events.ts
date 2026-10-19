@@ -67,4 +67,6 @@ export const TASK_AUDIT_EVENTS = {
   TASK_LLM_WAIT_RESUMED: 'task_llm_wait_resumed',       // 恢复路径 gate 就绪 → 清事实、回 pending 重调度
   TASK_LLM_WAIT_CONTINUED: 'task_llm_wait_continued',   // 恢复路径 gate 未就绪/缺席 → 保持 waiting
   TASK_LLM_WAIT_EXPIRED: 'task_llm_wait_expired',       // 等待 deadline 到期 → failed（不误转成功）
+  // Phase 1951 Step B：SubAgent 游标声明副作用不确定 → 任务留 running（不投递不终态）
+  TASK_UNCERTAIN_SIDE_EFFECT: 'task_uncertain_side_effect',
 } as const;
