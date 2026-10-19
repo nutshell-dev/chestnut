@@ -13,6 +13,7 @@ import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 
 import {
+  emitInboxDeduped,
   emitInboxWriteFailed,
   emitInboxWritten,
   emitInboxWriteDurabilityDegraded,
@@ -43,6 +44,11 @@ export interface InboxMessageOptionsBase {
   body: string;
   to?: string;
   idPrefix?: string;
+  /**
+   * Phase 1955 Step D：稳定业务身份。提供时 envelope id 用它而不是随机 UUID；
+   * 同一 id 已在 pending 中则不重复落盘（幂等通知，不制造新的业务身份）。
+   */
+  messageId?: string;
   extraFields?: Record<string, string>;
   // metadata is opaque passthrough for the codec; messaging never interprets it
   // (phase 1851 Step B). Producers own any business keys they put inside.
@@ -175,10 +181,26 @@ export class InboxWriter {
     const timestamp = String(now.getTime()).padStart(15, '0');
     const idPrefix = opts.idPrefix ?? opts.type;
 
-    // Phase 1230: single UUID shared by envelope id and filename suffix.
+    // Phase 1955 Step D：稳定 id 的幂等通知——pending 中已有同一业务身份时不落盘。
+    const stableId = opts.messageId;
+    if (stableId !== undefined) {
+      const existing = this.findPendingByMessageId(stableId);
+      if (existing !== undefined) {
+        emitInboxDeduped(this.audit, {
+          file: existing,
+          id: stableId,
+          type: opts.type,
+        });
+        return existing;
+      }
+    }
+
+    // Phase 1230: single UUID shared by envelope id and filename suffix（默认路径）。
+    // Phase 1955 Step D: 显式 stable id 时与随机 filename UUID 解耦。
     const messageUuid = newUuid();
+    const messageId = opts.messageId ?? `${idPrefix}-${messageUuid}`;
     const message: InboxMessage = {
-      id: `${idPrefix}-${messageUuid}`,
+      id: messageId,
       type: opts.type as InboxMessage['type'],
       from: opts.source,
       to: opts.to ?? '',
@@ -232,6 +254,23 @@ export class InboxWriter {
     }
     emitInboxWritten(this.audit, { file: filename as string, to: opts.to, id: message.id, type: message.type });
     return filename as string;
+  }
+
+  /** Phase 1955 Step D: pending 中查找同一稳定业务身份（仅显式 messageId 调用）。 */
+  private findPendingByMessageId(messageId: string): string | undefined {
+    let entries;
+    try {
+      entries = this.fs.listSync(this.inboxDir, { includeDirs: false });
+    } catch (error) {
+      if (isFileNotFound(error)) return undefined;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.md')) continue;
+      const meta = InboxWriter.readMeta(this.fs, path.join(this.inboxDir, entry.name));
+      if (meta.ok && meta.value.id === messageId) return entry.name;
+    }
+    return undefined;
   }
 
   /** 读 frontmatter meta；纯读，静态方法不依赖 audit */

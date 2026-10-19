@@ -21,6 +21,8 @@ interface MessageFormatterContext {
   body: string;
   /** caller 已 format 好的" (2m ago)"字串（含前导空格）；空串=无 timestamp */
   timestampSec: string;
+  /** Phase 1955 Step D：持久化 metadata（Producer-owned 业务键，formatter 只读消费）。 */
+  metadata?: Readonly<Record<string, string>>;
 }
 
 export type MessageFormatter = (ctx: MessageFormatterContext) => Promise<string>;

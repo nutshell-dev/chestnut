@@ -1438,6 +1438,10 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         contractId,
         title: contractYaml.title,
         subtaskCount: contractYaml.subtasks.length,
+        // Phase 1955 Step D：稳定业务身份与首次创建时间（重投递不生成新身份）。
+        messageId: `contract:${contractId}:created`,
+        idempotencyKey: `contract:${contractId}:contract_created`,
+        createdAt: new Date().toISOString(),
       } satisfies ContractNotification);
     } catch (err) {
       emitContractNotifyFailed(

@@ -60,6 +60,25 @@ describe('phase 1906: contract_created 创建通知工具名修正（M12）', ()
     }
   });
 
+  it('Phase 1955 D: Resume 状态与首次创建时间由调用方传入，模板不读磁盘', () => {
+    const resumed = contractCreatedNotificationBody({
+      ...FULL_INPUT,
+      state: 'resume',
+      createdAt: '2026-10-19T00:00:00.000Z',
+    });
+    expect(resumed).toContain('Resuming contract (c-001): T');
+    expect(resumed).not.toContain('New contract created');
+    expect(resumed).toContain('Created at: 2026-10-19T00:00:00.000Z');
+
+    const fresh = contractCreatedNotificationBody({
+      ...FULL_INPUT,
+      createdAt: '2026-10-19T00:00:00.000Z',
+    });
+    expect(fresh).toContain('New contract created (c-001): T');
+    expect(fresh).not.toContain('Resuming contract');
+    expect(fresh).toContain('Created at: 2026-10-19T00:00:00.000Z');
+  });
+
   it('子任务列表逐条呈现（id + description），缺省字段省略不补造', () => {
     const body = contractCreatedNotificationBody(FULL_INPUT);
     expect(body).toContain('- s1: first task');

@@ -21,12 +21,23 @@ export interface ContractCreatedMessageInput {
   goal: string;
   expectations?: string;
   subtasks: ReadonlyArray<{ id: string; description: string }>;
+  /**
+   * Phase 1955 Step D：呈现状态由调用方（投递事实 owner）决定，模板不读磁盘。
+   * 缺省 'new' 保持既有创建路径语义。
+   */
+  state?: 'new' | 'resume';
+  /** 首次创建时间；提供时正文保留该事实。 */
+  createdAt?: string;
 }
 
 /** 契约创建通知正文：对象 + 可选背景 + 目标 + 可选期望 + 子任务清单 + 验收提交指示。 */
 export function contractCreatedNotificationBody(input: ContractCreatedMessageInput): string {
   const subtaskLines = input.subtasks.map(s => `- ${s.id}: ${s.description}`).join('\n');
-  const lines = [`New contract created (${input.contractId}): ${input.title}`];
+  const headline = input.state === 'resume'
+    ? `Resuming contract (${input.contractId}): ${input.title}`
+    : `New contract created (${input.contractId}): ${input.title}`;
+  const lines = [headline];
+  if (input.createdAt) lines.push(`Created at: ${input.createdAt}`);
   if (input.background) lines.push(`Background: ${input.background}`);
   lines.push(`Goal: ${input.goal}`);
   if (input.expectations) lines.push(`Expectations: ${input.expectations}`);

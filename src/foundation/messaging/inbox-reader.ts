@@ -21,7 +21,7 @@ import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
-import { decodeInbox } from './codec-inbox.js';
+import { decodeInbox, encodeInbox } from './codec-inbox.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitInboxDeduped,
@@ -931,6 +931,8 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
     try {
+      // Phase 1955 Step D：幂等业务消息重投递计数（首次 timestamp 保持不变）。
+      await this._markRedelivery(sourcePath);
       // phase 1020: conflict-aware restore — dedupe/conflict paths are audited
       // inside _restoreToPending and sourcePath no longer exists afterwards, so
       // skip the INBOX_NACK emit there.
@@ -947,6 +949,35 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       throw new InboxMoveFailed(handle.filePath, 'nack_pending', err);
     }
     emitInboxNack(this.audit, { file: fileName, reason });
+  }
+
+  /**
+   * Phase 1955 Step D：nack 重投递时递增幂等业务消息的 delivery_attempts。
+   * 仅改写带 idempotency_key 的消息（普通消息内容保持不变）；解析失败的不改写，
+   * 由后续 drain 的既有错误处置暴露。
+   */
+  private async _markRedelivery(sourcePath: string): Promise<void> {
+    let raw: string;
+    try {
+      raw = await this.fs.read(sourcePath);
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      throw err;
+    }
+    let message: InboxMessage;
+    try {
+      message = decodeInbox(raw);
+    } catch {
+      return;   // 非合法 inbox 编码：不改写；原样走既有 nack 协议
+    }
+    if (message.metadata?.idempotency_key === undefined) return;
+    const attempts = Number.parseInt(message.metadata.delivery_attempts ?? '0', 10);
+    message.metadata = {
+      ...message.metadata,
+      delivery_attempts: String(Number.isFinite(attempts) ? attempts + 1 : 1),
+      last_redelivered_at: new Date().toISOString(),
+    };
+    await this.fs.writeAtomic(sourcePath, encodeInbox(message));
   }
 
   /**

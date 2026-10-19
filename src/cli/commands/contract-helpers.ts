@@ -67,6 +67,10 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   // 写 inbox 通知，触发 claw daemon 开始执行（best-effort）
   // phase 1419: prefix / 连接词英化（mirror phase 1404 viewport 英化）/ 业务字段保留 user 原文
   // phase 1906 Step B（M12）：正文呈现归 templates/messages 单源，此处只逐字段映射入参。
+  // Phase 1955 Step D：稳定 message_id / idempotency_key；首次创建时间持久化。
+  const createdAt = new Date().toISOString();
+  const messageId = `contract:${contractId}:created`;
+  const idempotencyKey = `contract:${contractId}:contract_created`;
   const body = contractCreatedNotificationBody({
     contractId,
     title: contract.title,
@@ -74,11 +78,25 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
     goal: contract.goal,
     expectations: contract.expectations,
     subtasks: contract.subtasks.map(s => ({ id: s.id, description: s.description })),
+    createdAt,
   });
   // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
   createClawNotifier({
     fs,
     audit: contractAudit,
     resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
-  }).notify(clawId, { type: 'contract_created', source: 'system', priority: 'high', body, idPrefix: 'contract-new' });
+  }).notify(clawId, {
+    type: 'contract_created',
+    source: 'system',
+    priority: 'high',
+    body,
+    idPrefix: 'contract-new',
+    messageId,
+    metadata: {
+      idempotency_key: idempotencyKey,
+      contract_id: contractId,
+      created_at: createdAt,
+      delivery_attempts: '0',
+    },
+  });
 }

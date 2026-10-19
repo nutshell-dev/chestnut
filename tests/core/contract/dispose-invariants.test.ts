@@ -260,6 +260,10 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       contractId,
       title: 'Cancel Notify Test',
       subtaskCount: 1,
+      // Phase 1955 Step D: stable identity + first-created time
+      messageId: `contract:${contractId}:created`,
+      idempotencyKey: `contract:${contractId}:contract_created`,
+      createdAt: expect.any(String),
     }]);
     // create triggers contract_created notify, clear to only verify cancel
     notifyCalls.length = 0;

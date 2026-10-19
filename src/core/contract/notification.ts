@@ -27,6 +27,12 @@ interface ContractCreatedNotification {
   readonly contractId: ContractId;
   readonly title: string;
   readonly subtaskCount: number;
+  /** Phase 1955 Step D：稳定业务身份（contract:<id>:created）。 */
+  readonly messageId: string;
+  /** Phase 1955 Step D：幂等键（contract:<id>:contract_created）。 */
+  readonly idempotencyKey: string;
+  /** 首次创建时间（重投递不改变）。 */
+  readonly createdAt: string;
 }
 
 interface ContractCompletedNotification {

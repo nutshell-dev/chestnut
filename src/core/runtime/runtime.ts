@@ -586,6 +586,7 @@ export class Runtime {
     body: string,
     timestamp?: string,
     extraMeta?: Record<string, string>,
+    metadata?: Readonly<Record<string, string>>,
   ): Promise<string> {
     const ago = timestamp ? formatTimeAgo(timestamp) : '';
     const t = ago ? ` (${ago})` : '';
@@ -599,11 +600,14 @@ export class Runtime {
         `type=${type}`,
         `from=${from}`,
       );
-      formatted = renderStandardInboxMessage({ from, body, timestampSec: t }, 'system');
+      formatted = renderStandardInboxMessage({ from, body, timestampSec: t, metadata }, 'system');
     } else if (rendering.kind === 'standard') {
-      formatted = renderStandardInboxMessage({ from, body, timestampSec: t }, rendering.presentation);
+      formatted = renderStandardInboxMessage(
+        { from, body, timestampSec: t, metadata },
+        rendering.presentation,
+      );
     } else {
-      formatted = await rendering.formatter({ from, body, timestampSec: t });
+      formatted = await rendering.formatter({ from, body, timestampSec: t, metadata });
     }
 
     // phase 27 Step D P5: motion-side append guidance（motion 装配 guidanceCompose 必持 / claw undefined → 跳）
@@ -841,6 +845,7 @@ export class Runtime {
         message.content,
         message.timestamp,
         message.extraMeta,   // phase 1469: motion-side guidance composer reads state from extraMeta
+        message.metadata,    // Phase 1955 Step D: delivery state for New/Resume rendering
       );
       // phase 436: user_chat + user_inbox_message → 用户意图来源（origin='user'）
       // 其他 inbox type → 系统事件（origin='system' + systemSubtype = InboxMessage.type 单源）

@@ -59,6 +59,9 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       contractId: makeContractId('c1'),
       title: 'T',
       subtaskCount: 2,
+      messageId: 'contract:c1:created',
+      idempotencyKey: 'contract:c1:contract_created',
+      createdAt: '2026-10-19T00:00:00.000Z',
     });
 
     expect(streamWrite).toHaveBeenCalledTimes(1);
