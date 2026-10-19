@@ -65,9 +65,9 @@ void _providerAttemptFailed;
 void _taskStarted;
 
 describe('StreamEvent contract', () => {
-  it('STREAM_EVENT_NAMES 成员数 == 46（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受）', () => {
+  it('STREAM_EVENT_NAMES 成员数 == 47（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1955 +1 预算预警）', () => {
     const keys = Object.keys(STREAM_EVENT_NAMES);
-    expect(keys.length).toBe(46);
+    expect(keys.length).toBe(47);
   });
 
   it('协议层不含上层业务事件（分层拆件：agent 6 / task 3 / daemon 1 归各模块 const）', () => {

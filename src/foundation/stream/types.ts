@@ -9,9 +9,9 @@ export const STREAM_FILE = 'stream.jsonl';
 
 /**
  * stream.jsonl type 权威单源 const（phase 1312 治理；phase 1321 分层收窄 50→40；phase 1826 +5 恢复安排；
- * phase 1827 +1 事实接受证据）。
+ * phase 1827 +1 事实接受证据；phase 1955 +1 预算预警）。
  * StreamEventType 由本 const 派生（typeof）→ 值集合 0 漂移。
- * 本 const 只含协议层事件（46）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 28
+ * 本 const 只含协议层事件（47）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 29
  * + LLM 恢复安排 5 + 通用系统通知通道 1 + stream 自身 1。上层业务事件 const 归各语义模块（phase 1321 分层拆件，
  * 修复 M#1/M#3/M#5——stream 不再为不属于自己的业务语义负责）：
  *   - subagent SUBAGENT_EVENTS（6：turn_start/llm_start/tool_result/turn_end/turn_interrupted/turn_error；phase 1789 自 agent-executor 迁回语义 owner）
@@ -43,7 +43,7 @@ export const STREAM_EVENT_NAMES = {
   PROVIDER_FAILOVER: 'provider_failover',
   PROVIDER_FAILED: 'provider_failed',
   LLM_RETRY_WAITING: 'llm_retry_waiting',
-  // llm-orchestrator LLMEvent（27）
+  // llm-orchestrator LLMEvent（28）
   PROVIDER_ATTEMPT_FAILED: 'provider_attempt_failed',
   RETRY_SCHEDULED: 'retry_scheduled',
   PROVIDER_EXHAUSTED: 'provider_exhausted',
@@ -84,7 +84,7 @@ export const STREAM_EVENT_NAMES = {
 export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVENT_NAMES];
 
 /**
- * stream.jsonl 协议层事件 payload 判别映射（46 key，phase 1316；phase 1321 收窄；phase 1826 +5；phase 1827 +1）。
+ * stream.jsonl 协议层事件 payload 判别映射（47 key，phase 1316；phase 1321 收窄；phase 1826 +5；phase 1827 +1；phase 1955 +1）。
  * payload 权威双份策略：LLMEvent 的 payload 在此重定义（orchestrator 特有类型降级）；
  * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 13 个以写端对象字面量为准。
  * 全部成员含 trace_id?: string，因为 stream-callbacks checkWrite 可能注入 trace_id。
@@ -112,7 +112,7 @@ export interface StreamEventMap {
   provider_failover: { from: string; timeoutMs: number; trace_id?: string };
   provider_failed: { provider: string; model: string; error: string; trace_id?: string };
   llm_retry_waiting: { stage: 'retry' | 'cooldown'; action: 'scheduled' | 'gated' | 'released' | 'notice'; attempt: number; maxAttempts: number; delayMs: number; resumeAt: string; errorClass: string; trace_id?: string };
-  // llm-orchestrator LLMEvent（27，payload 重定义、orchestrator 特有类型降级）
+  // llm-orchestrator LLMEvent（28，payload 重定义、orchestrator 特有类型降级）
   provider_attempt_failed: { provider: string; attempt: number; maxAttempts: number; error: string; errorClass: string; userActionHint: string; retryAfterSec?: number; trace_id?: string };
   retry_scheduled: { provider: string; attempt: number; maxAttempts: number; backoffMs: number; trace_id?: string };
   provider_exhausted: { provider: string; error: string; trace_id?: string };
