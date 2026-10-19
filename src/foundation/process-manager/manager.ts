@@ -30,6 +30,7 @@ import { findProcesses } from './find.js';
 import {
   activateGeneration,
   retireGeneration,
+  updateActiveBusinessFact,
   writeReadyFact,
   inspectActive,
   inspectBusinessFact,
@@ -39,6 +40,7 @@ import {
   type ActivateGeneration,
   type RetireGeneration,
   type ProcessGenerationRecord,
+  type UpdateActiveBusinessFact,
   type WriteGenerationFact,
 } from './generation.js';
 import type { EnsureRunningOutcome, LivenessResult, ProcessManagerContext, ReadinessResult, SpawnOptions, StopProcessOutcome } from './types.js';
@@ -100,6 +102,17 @@ export class ProcessManager {
     if (fact.status === 'malformed') return { kind: 'malformed', cause: fact.cause };
     if (fact.status === 'none') return { kind: 'fact_missing', generationId: active.record.generation_id };
     return { kind: 'ok', generationId: active.record.generation_id, raw: fact.raw };
+  }
+  /**
+   * Phase 1945 Step B：exact active generation/PID 的 opaque 业务事实更新
+   * capability（原子写 + 旧 raw 交还；PM 不解释内容）。
+   */
+  updateActiveBusinessFact(
+    daemonDir: DaemonDir,
+    expected: { generationId: string; pid: number },
+    raw: string,
+  ): Promise<UpdateActiveBusinessFact> {
+    return updateActiveBusinessFact(this._ctx, daemonDir, expected, raw);
   }
   writeGenerationReady(_daemonDir: DaemonDir, record: ProcessGenerationRecord, pid: number, startTime?: ProcessStartTime): Promise<WriteGenerationFact> {
     return writeReadyFact(this._ctx, record, pid, startTime);

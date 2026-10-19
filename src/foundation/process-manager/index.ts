@@ -46,5 +46,5 @@ export type { ChildActivationInput, ChildActivationOutcome, ChildActivationStage
 export { signalCleanStop, clearCleanStop, hasCleanStopIntent } from './signal-clean-stop.js';
 
 export { getActiveDir, PID_FILE, PROCESS_GENERATION_ENV } from './generation.js';
-export type { ProcessGenerationRecord } from './generation.js';
+export type { ProcessGenerationRecord, UpdateActiveBusinessFact } from './generation.js';
 export { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';

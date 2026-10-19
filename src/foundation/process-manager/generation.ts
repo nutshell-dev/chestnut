@@ -156,6 +156,19 @@ export type WriteGenerationFact =
   | { kind: 'malformed_spawning'; cause: unknown }
   | { kind: 'retryable_failure'; cause: unknown };
 
+/**
+ * Phase 1945 Step B：active 槽业务事实更新的 typed outcome。
+ * 所有失败显式分型、不抛裸异常；`written` 交还写前旧 raw（缺失=undefined），
+ * 供业务 owner 记录迁移前后身份证据。
+ */
+export type UpdateActiveBusinessFact =
+  | { kind: 'written'; previousRaw: string | undefined }
+  | { kind: 'no_active' }
+  | { kind: 'malformed_active'; cause: unknown }
+  | { kind: 'generation_mismatch' }
+  | { kind: 'generation_moved' }
+  | { kind: 'retryable_failure'; cause: unknown };
+
 interface GenerationIdentity {
   generationId: string;
   pid: number;
@@ -603,6 +616,59 @@ export function inspectBusinessFact(
     if (isFileNotFound(err)) return { status: 'none' };
     return { status: 'malformed', cause: err };
   }
+}
+
+// === Business fact update (active 槽；Phase 1945 Step B) ===
+
+/**
+ * 原子更新与本进程 `generationId + pid` 严格匹配的 active generation 的
+ * `business.json`（内容 opaque，PM 不解析）。generation 激活后目录已整体
+ * move 到 active，spawning 槽写能力不再可达，active 槽更新走本能力。
+ *
+ * 纪律：
+ * - exact active generation + pid 双校验（只核 PID 数字会让别代 PID 复用通过）；
+ * - 写前读出旧 raw 并在成功结果中交还；旧 raw 读失败（非 ENOENT）时不写新
+ *   事实，返回 retryable_failure——避免覆盖后丢失旧身份证据；
+ * - existing-file 语义（writeAtomicExisting）：目录在 inspect 与 write 之间被
+ *   move 走时 temp 创建即 ENOENT → generation_moved，绝不复活已移动目录、
+ *   不创建 parent；caller 必须把 generation_moved 当失败而非幂等成功。
+ */
+export async function updateActiveBusinessFact(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  expected: { generationId: string; pid: number },
+  raw: string,
+): Promise<UpdateActiveBusinessFact> {
+  const active = inspectActive(ctx, daemonDir);
+  if (active.status === 'malformed') return { kind: 'malformed_active', cause: active.cause };
+  if (active.status !== 'ok') return { kind: 'no_active' };
+  if (active.record.generation_id !== expected.generationId) return { kind: 'generation_mismatch' };
+
+  const pidFact = inspectActivePid(ctx, daemonDir);
+  if (pidFact.status === 'malformed') return { kind: 'malformed_active', cause: pidFact.cause };
+  if (
+    pidFact.status !== 'ok' ||
+    pidFact.record.generation_id !== expected.generationId ||
+    pidFact.record.pid !== expected.pid
+  ) {
+    return { kind: 'generation_mismatch' };
+  }
+
+  const factPath = path.join(getActiveDir(daemonDir), BUSINESS_FACT_FILE);
+  let previousRaw: string | undefined;
+  try {
+    previousRaw = ctx.fs.readSync(factPath);
+  } catch (err) {
+    if (!isFileNotFound(err)) return { kind: 'retryable_failure', cause: err };
+  }
+
+  try {
+    await ctx.fs.writeAtomicExisting(factPath, raw);
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'generation_moved' };
+    return { kind: 'retryable_failure', cause: formatErr(err) };
+  }
+  return { kind: 'written', previousRaw };
 }
 
 // === Failure fact ===
