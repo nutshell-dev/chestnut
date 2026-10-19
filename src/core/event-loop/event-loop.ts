@@ -30,6 +30,7 @@ import {
 } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js';
 import { dispatchError, isAgentLoopCrashError } from './error-handlers.js';
+import { dedupeReinjectedInboxMessages } from './inbox-dedupe.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import {
@@ -635,14 +636,7 @@ export class EventLoop {
       const sessionMessages = await this.runtime.getMessages();
       // Phase 1955 Step C：同一 inbox 消息在失败 turn 已持久化于 dialog（checkpoint 保留）
       // 时，重投递不得再次注入成重复 user message——按稳定 inboxId 去重。
-      const persistedInboxIds = new Set(
-        sessionMessages
-          .map(m => m.inboxId)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0),
-      );
-      const injected = formatted.injected.filter(
-        m => m.inboxId === undefined || !persistedInboxIds.has(m.inboxId),
-      );
+      const injected = dedupeReinjectedInboxMessages(sessionMessages, formatted.injected);
       const dedupedCount = formatted.injected.length - injected.length;
       if (dedupedCount > 0) {
         this.audit.write(
