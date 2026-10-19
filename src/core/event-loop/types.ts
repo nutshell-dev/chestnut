@@ -6,6 +6,7 @@ import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { ContextTrimOutcome } from '../context_manager/index.js';
 import type { TurnResult, RuntimeTurnCallbacks } from '../runtime/index.js';
+import type { LLMFailureDisposition } from '../../foundation/llm-orchestrator/index.js';
 // Phase 1847: 原始批次交接 / 可失败格式化边界类型（自 Runtime barrel 导入，type-only，
 // 不新增对 Runtime 类的运行依赖）。
 import type { PreparedInboxBatch, FormattedInboxBatch } from '../runtime/index.js';
@@ -71,6 +72,13 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
     callbacks?: RuntimeTurnCallbacks,
   ): Promise<TurnResult>;
   reactiveTrim(): Promise<ContextTrimOutcome>;
+  /**
+   * Phase 1944 Step B：LLM 失败处置事实查询（Runtime 转发 LLMOrchestrator
+   * capability 的只读结论）。post-drain catch 的唯一 LLM 策略事实来源；
+   * EventLoop 不得自行 classify provider 错误。失败 turn 路径改读
+   * TurnResult.failureDisposition，不调本方法。
+   */
+  getLLMFailureDisposition(error: unknown): LLMFailureDisposition;
 }
 
 /** Phase 1268 Step B / phase 1776: recoverable LLM 失败的错误分类（waiting 判别联合的合法值）。quota = 配额时间窗类（EventLoop quota 退避，非配置类 permanent）。 */

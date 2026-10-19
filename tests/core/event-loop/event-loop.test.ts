@@ -237,6 +237,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles,
       reactiveTrim,
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -270,6 +271,7 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -311,6 +313,7 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -355,6 +358,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles,
       reactiveTrim,
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -410,6 +414,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles,
       reactiveTrim,
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -463,6 +468,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -586,6 +592,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       getCurrentTraceId: vi.fn().mockReturnValue(undefined),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
@@ -669,6 +676,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('changed-fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -724,6 +732,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('changed-fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -817,6 +826,7 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       // 同 provider 换 key / 配额恢复场景：fingerprint 不变（释放条件不满足，1778 前只能删文件）
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('stable-fp'),
@@ -863,6 +873,7 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp-1'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -891,12 +902,15 @@ describe('EventLoop.run', () => {
       /** Phase 1847: 覆盖 prepare/format 边界（format 失败、中断注入）。 */
       prepareInbox: () => Promise<unknown>;
       formatPreparedInbox: (batch: unknown) => Promise<unknown>;
+      /** Phase 1944 Step B: post-drain catch 的 disposition 事实（默认 'unknown'）。 */
+      getLLMFailureDisposition: (error: unknown) => import('../../../src/foundation/llm-orchestrator/index.js').LLMFailureDisposition;
       onTurnStartError: boolean;
     }>,
   ) {
     const ackHandles = vi.fn().mockResolvedValue(undefined);
     const nackHandles = vi.fn().mockResolvedValue(undefined);
     const processTurn = vi.fn().mockImplementation(overrides.processTurn ?? (async () => makeTurnResult('success')));
+    const getLLMFailureDisposition = vi.fn().mockImplementation(overrides.getLLMFailureDisposition ?? (() => 'unknown'));
 
     const runtime = {
       ...mockInboxBoundary({
@@ -915,6 +929,7 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition,
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
@@ -922,7 +937,7 @@ describe('EventLoop.run', () => {
       consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
-    return { runtime, ackHandles, nackHandles, processTurn };
+    return { runtime, ackHandles, nackHandles, processTurn, getLLMFailureDisposition };
   }
 
   it('post-drain: getSystemPrompt reject -> nack once with stage=system_prompt, processTurn=0', async () => {
@@ -1033,6 +1048,95 @@ describe('EventLoop.run', () => {
     expect(nackHandles).toHaveBeenCalledTimes(1);
     expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'turn failed', 'rollback');
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED)).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 1944 Step B: EventLoop 只消费 owner typed disposition，不再自行 classify
+  // ---------------------------------------------------------------------------
+
+  it('failed turn: failureDisposition=provider_recovery_scheduled -> nack rollback + deferred audit, no dispatch', async () => {
+    const audit = createMockAudit();
+    const llmError = new LLMAllProvidersFailedError([
+      { provider: 'primary', error: new LLMNetworkError('primary', new Error('offline')) },
+    ]);
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.resolve(makeTurnResult('failed', {
+        error: llmError,
+        failureDisposition: 'provider_recovery_scheduled',
+      })),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], expect.stringContaining('All LLM providers failed'), 'rollback');
+    const deferred = audit.entries.find(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c) === 'type=llm_failure_deferred'),
+    );
+    expect(deferred).toBeDefined();
+    expect(deferred!.some(c => String(c) === 'owner=llm-orchestrator')).toBe(true);
+    // 不进入通用 dispatch（无 FATAL 审计）
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL)).toBe(false);
+  });
+
+  it('failed turn: disposition 缺省/unknown -> 通用 dispatch（FATAL 审计），不 defer', async () => {
+    const audit = createMockAudit();
+    const turnError = new Error('plain boom');
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.resolve(makeTurnResult('failed', { error: turnError })),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c) === 'type=llm_failure_deferred'),
+    )).toBe(false);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c) === 'reason=non_llm_error'),
+    )).toBe(true);
+  });
+
+  it('post-drain catch: Runtime 返回 provider_recovery_scheduled -> deferred audit（带 stage），不 dispatch', async () => {
+    const audit = createMockAudit();
+    const llmError = new LLMNetworkError('primary', new Error('offline'));
+    const { runtime, nackHandles, getLLMFailureDisposition } = makePostDrainRuntime({
+      getSystemPrompt: () => Promise.reject(llmError),
+      getLLMFailureDisposition: () => 'provider_recovery_scheduled',
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(getLLMFailureDisposition).toHaveBeenCalledWith(llmError);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    const deferred = audit.entries.find(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c) === 'type=llm_failure_deferred'),
+    );
+    expect(deferred).toBeDefined();
+    expect(deferred!.some(c => String(c) === 'stage=system_prompt')).toBe(true);
+    expect(deferred!.some(c => String(c) === 'owner=llm-orchestrator')).toBe(true);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL)).toBe(false);
+  });
+
+  it('post-drain catch: Runtime 返回 unknown -> 通用 dispatch（保持既有语义）', async () => {
+    const audit = createMockAudit();
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      getSystemPrompt: () => Promise.reject(new Error('system prompt failed')),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c) === 'type=llm_failure_deferred'),
+    )).toBe(false);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c) === 'reason=non_llm_error'),
+    )).toBe(true);
   });
 
   it('post-drain: success -> ack once, nack=0', async () => {
@@ -1176,6 +1280,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),

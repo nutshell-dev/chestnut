@@ -94,6 +94,7 @@ function makeFakeLlm(scripts: LlmScript[]) {
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'fake', model: 'fake-model', isFallback: false })),
     resetLastSuccessProvider: vi.fn(),
+    getFailureDisposition: vi.fn(() => 'unknown' as const),
     close: vi.fn(async () => {}),
     reloadConfig: vi.fn(),
   } as unknown as LLMOrchestrator;

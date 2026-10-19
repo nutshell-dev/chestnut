@@ -13,7 +13,6 @@ import { EVENTLOOP_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js
 import { INTERRUPT_RECOVERY_DELAY_MS, UNKNOWN_ERROR_RECOVERY_DELAY_MS } from './constants.js';
 import type { LoopErrorContext } from './types.js';
 import { isStepAbortError, abortEvidenceAuditCols, type StepAbortError, type StepAbortReason } from '../step-executor/index.js';
-import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
   WallTimeExceededError,
@@ -105,9 +104,9 @@ const priorityInboxHandler: ErrorHandler = {
 
 /**
  * P0-2: 5 个确定性 typed Error 的统一 crash 分类源。
- * 注意 LLMAllProvidersFailedError 由 EventLoop 按 nested 分类决定
- * retry/cooldown waiting（Phase 1268 Step B），不再经由 handler 退避；
- * nested 分类为 permanent / invalid_request 进 blocked gate。
+ * Phase 1944 Step B: LLMAllProvidersFailedError 等 provider 聚合失败在 failed-turn /
+ * post-drain 入口已凭 TurnResult.failureDisposition / getLLMFailureDisposition 的
+ * owner typed 事实提前 defer，不再到达本 dispatch；handler 不再重判 provider 身份。
  */
 export function isAgentLoopCrashError(err: unknown): boolean {
   return err instanceof MaxStepsExceededError
@@ -134,12 +133,11 @@ const fallbackHandler: ErrorHandler = {
   name: 'fatal_fallback',
   match: () => true,  // 兜底
   handle: async (err, ctx) => {
-    const isLLMMaxRetry = err instanceof LLMAllProvidersFailedError;
-    // Phase 1268 Step B: 不再清零 llmRetry 状态并立即重放；recoverable LLM
-    // 错误在 _handleFailedTurn 已进入持久 waiting/cooldown，这里只审计。
+    // Phase 1944 Step B: provider 聚合失败不再到达本 handler（上游 typed
+    // disposition 已 defer）；能到这里的一律是非 provider-recovery 错误，只审计。
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.FATAL,
-      `reason=${isLLMMaxRetry ? 'llm_all_providers_failed' : 'non_llm_error'}`,
+      `reason=non_llm_error`,
       `recovery_delay_ms=${UNKNOWN_ERROR_RECOVERY_DELAY_MS}`,
       `error=${formatErr(err)}`,
     );

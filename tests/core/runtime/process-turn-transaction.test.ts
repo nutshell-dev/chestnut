@@ -53,6 +53,7 @@ function createMockDeps() {
     inboxReader: {} as unknown as import('../../../src/foundation/messaging/index.js').InboxReader,
     llm: {
       resetLastSuccessProvider: vi.fn(),
+      getFailureDisposition: vi.fn().mockReturnValue('unknown'),
       getProviderInfo: vi.fn().mockReturnValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
     } as unknown as import('../../../src/foundation/llm-orchestrator/index.js').LLMOrchestrator,
@@ -239,5 +240,64 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     (deps.sessionManager as any).rollbackTurn.mockRejectedValue(new Error('rollback boom'));
 
     await expect(runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', [])).resolves.toMatchObject({ status: 'failed' });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 1944 Step B: 失败出口携带 LLM owner 的 typed failureDisposition
+  // ---------------------------------------------------------------------------
+
+  it('failed turn carries owner failureDisposition alongside the preserved original error', async () => {
+    const { runtime, deps } = makeRuntime();
+    const reactError = new Error('llm boom');
+    runtime.reactError = reactError;
+    (deps.llm as any).getFailureDisposition.mockReturnValue('provider_recovery_scheduled');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe(reactError);  // 原始错误对象不替换、不摘要
+    expect(result.failureDisposition).toBe('provider_recovery_scheduled');
+    expect((deps.llm as any).getFailureDisposition).toHaveBeenCalledWith(reactError);
+  });
+
+  it('rollback failure keeps AggregateError 双因果 and disposition still describes the original error', async () => {
+    const { runtime, deps } = makeRuntime();
+    const original = new Error('react failed');
+    const rollbackError = new Error('rollback failed');
+    runtime.reactError = original;
+    (deps.sessionManager as any).rollbackTurn.mockRejectedValue(rollbackError);
+    (deps.llm as any).getFailureDisposition.mockReturnValue('provider_recovery_scheduled');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBeInstanceOf(AggregateError);
+    const aggregate = result.error as AggregateError;
+    expect([...aggregate.errors]).toEqual([original, rollbackError]);
+    expect(aggregate.cause).toBe(original);
+    // disposition 只描述主失败（包装前求值），不描述 rollback 附加错误
+    expect(result.failureDisposition).toBe('provider_recovery_scheduled');
+    expect((deps.llm as any).getFailureDisposition).toHaveBeenCalledWith(original);
+    expect((deps.llm as any).getFailureDisposition).not.toHaveBeenCalledWith(aggregate);
+  });
+
+  it('non-LLM failure maps to unknown disposition via the capability', async () => {
+    const { runtime, deps } = makeRuntime();
+    runtime.reactError = new Error('plain crash');
+    (deps.llm as any).getFailureDisposition.mockReturnValue('unknown');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.failureDisposition).toBe('unknown');
+  });
+
+  it('Runtime.getLLMFailureDisposition forwards the capability fact (post-drain 查询面)', () => {
+    const { runtime, deps } = makeRuntime();
+    const err = new Error('post drain boom');
+    (deps.llm as any).getFailureDisposition.mockReturnValue('provider_recovery_scheduled');
+
+    expect(runtime.getLLMFailureDisposition(err)).toBe('provider_recovery_scheduled');
+    expect((deps.llm as any).getFailureDisposition).toHaveBeenCalledWith(err);
   });
 });

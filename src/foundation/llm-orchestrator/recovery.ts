@@ -20,9 +20,11 @@ import type { LLMResponse } from '../llm-provider/index.js';
 import type {
   LLMCallOptions,
   LLMEventSink,
+  LLMFailureDisposition,
   LLMInstanceSnapshot,
   LLMOrchestrator,
   LLMProbeResult,
+  LLMRuntimeCapability,
   LLMStreamChunk,
 } from './types.js';
 import type { LLMErrorClass } from './errors.js';
@@ -131,6 +133,12 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal
    * 或配置变化（reloadConfig）清除共享故障记录。
    */
   getSharedRecoveryDecision(): SharedRecoveryDecision;
+
+  /**
+   * Phase 1944 Step B：LLM 失败处置事实查询（LLMRuntimeCapability 同源；
+   * scoped 视图转发本方法，session.llm 消费者与直持实例消费者得到同一 owner 结论）。
+   */
+  getFailureDisposition(error: unknown): LLMFailureDisposition;
 }
 
 /**
@@ -163,8 +171,8 @@ export interface LLMRecoveryController {
 }
 
 export interface LLMRecoverySession extends LLMRecoveryController {
-  /** 绑定本 scope 的 LLM 调用视图（同一 owner 的范围视图，非另建实例）。 */
-  readonly llm: LLMOrchestrator;
+  /** 绑定本 scope 的 LLM 调用视图（同一 owner 的范围视图，非另建实例）。Phase 1944 Step B：同时满足 Runtime 窄消费面。 */
+  readonly llm: LLMOrchestrator & LLMRuntimeCapability;
 }
 
 export interface RecoverySessionDeps {
@@ -191,7 +199,7 @@ function appendBounded(existing: string[], additions: readonly string[], max: nu
 }
 
 export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallScope {
-  readonly llm: LLMOrchestrator;
+  readonly llm: LLMOrchestrator & LLMRuntimeCapability;
 
   private state: LLMRecoveryStateV1;
   private readonly scopeId: string;
@@ -624,7 +632,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   // 内部
   // -------------------------------------------------------------------------
 
-  private createScopedView(orchestrator: LLMOrchestratorOwner): LLMOrchestrator {
+  private createScopedView(orchestrator: LLMOrchestratorOwner): LLMOrchestrator & LLMRuntimeCapability {
     const session = this;
     return {
       call: (options: LLMCallOptions) => orchestrator.callWithinRecovery(options, session),
@@ -632,6 +640,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       healthCheck: () => orchestrator.healthCheck(),
       getProviderInfo: () => orchestrator.getProviderInfo(),
       resetLastSuccessProvider: () => orchestrator.resetLastSuccessProvider(),
+      // Phase 1944 Step B：失败处置事实转发 owner 唯一产出点，视图不自行分类。
+      getFailureDisposition: (error: unknown) => orchestrator.getFailureDisposition(error),
       // 视图不拥有底层实例：close 不转发，避免误关其他 caller 的 provider/cache。
       close: async () => { /* no-op by design */ },
       reloadConfig: (config) => orchestrator.reloadConfig(config),

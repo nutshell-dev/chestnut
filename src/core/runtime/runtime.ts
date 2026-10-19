@@ -8,7 +8,7 @@
 import * as path from 'path';
 import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 
-import type { LLMOrchestrator, LLMRuntimeCapability, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
@@ -172,7 +172,7 @@ export class Runtime {
   private _llmImpl!: LLMOrchestrator;
   /**
    * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
-   * getProviderInfo / resetLastSuccessProvider / reloadConfig / close 4 方法可编译调用。
+   * getProviderInfo / getFailureDisposition / resetLastSuccessProvider / reloadConfig / close 5 方法可编译调用。
    */
   protected get llm(): LLMRuntimeCapability {
     return this._llmImpl;
@@ -1047,6 +1047,18 @@ export class Runtime {
   }
 
   /**
+   * Phase 1944 Step B：EventLoop post-drain catch 的 LLM 失败处置查询面。
+   * 转发 LLMOrchestrator capability 的 typed 事实（只读、无副作用）；
+   * EventLoop 不再自行 classify provider 策略。失败 turn 路径的同类事实
+   * 由 TurnResult.failureDisposition 携带，不读本方法。
+   */
+  getLLMFailureDisposition(error: unknown): LLMFailureDisposition {
+    // 防御式可选链与既有 this.llm.resetLastSuccessProvider?.() 测试 seam 同款：
+    // 生产装配类型保证实现存在；旧窄 mock double 缺省时回落 'unknown'（通用 dispatch）。
+    return this.llm.getFailureDisposition?.(error) ?? 'unknown';
+  }
+
+  /**
    * Run the LLM ReAct loop over the given messages and save the session.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
@@ -1242,11 +1254,14 @@ export class Runtime {
 
   /**
    * Phase 1158 Step B: 安全 rollback，保留 original 与 recovery error 双因果。
+   * Phase 1944 Step B: 失败出口携带 LLM owner 的 typed 失败处置事实；rollback
+   * 叠加失败时 disposition 仍只描述原始主失败（AggregateError 完整保留双因果）。
    */
   private async _rollbackFailedTurn(original: unknown): Promise<TurnResult> {
+    const failureDisposition = this.llm.getFailureDisposition?.(original) ?? 'unknown';
     try {
       await this.sessionManager.rollbackTurn(formatErr(original));
-      return { status: 'failed', error: original };
+      return { status: 'failed', error: original, failureDisposition };
     } catch (rollbackError) {
       return {
         status: 'failed',
@@ -1255,6 +1270,7 @@ export class Runtime {
           'Turn failed and dialog rollback also failed',
           { cause: original },
         ),
+        failureDisposition,
       };
     }
   }

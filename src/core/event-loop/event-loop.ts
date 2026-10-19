@@ -34,7 +34,6 @@ import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import {
   isContextExceededError,
-  classifyLLMError,
 } from '../../foundation/llm-orchestrator/index.js';
 import type {
   LLMRecoveryController,
@@ -461,20 +460,14 @@ export class EventLoop {
       await this._handleContextExceeded(result.error, failedRequestFingerprint);
       return;
     }
-    const errorClass = classifyLLMError(result.error);
-    if (
-      errorClass === 'transient'
-      || errorClass === 'rate_limit'
-      || errorClass === 'quota'
-      || errorClass === 'permanent'
-    ) {
-      // Phase 1826: provider/LLM 类失败的恢复安排由 owner（LLMOrchestrator）在
-      // scoped 调用内唯一记录并持久化；EventLoop 只做消息处置（上方 nack/ack）
-      // 与调度观察，不重算曲线、不进入 provider 类 blocked gate。
+    // Phase 1944 Step B: provider/LLM 类失败的恢复安排由 owner（LLMOrchestrator）在
+    // scoped 调用内唯一记录并持久化，处置事实经 TurnResult.failureDisposition 透传；
+    // EventLoop 只做消息处置（上方 nack/ack）与调度观察，不重算 provider 策略。
+    if (result.failureDisposition === 'provider_recovery_scheduled') {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.ITERATION,
         `type=llm_failure_deferred`,
-        `error_class=${errorClass}`,
+        `owner=llm-orchestrator`,
       );
       return;
     }
@@ -683,20 +676,15 @@ export class EventLoop {
           `error=${formatErr(error)}`,
         );
       }
-      const postDrainErrorClass = classifyLLMError(error);
-      if (
-        postDrainErrorClass === 'transient'
-        || postDrainErrorClass === 'rate_limit'
-        || postDrainErrorClass === 'quota'
-        || postDrainErrorClass === 'permanent'
-      ) {
-        // Phase 1826: provider/LLM 类失败的恢复安排由 owner 在 scoped 调用内记录；
-        // EventLoop 此处只留调度观察（消息已 nack 回队）。
+      // Phase 1944 Step B: disposition 事实由 Runtime 转发 LLM owner 结论；
+      // EventLoop 此处只留调度观察（消息已 nack 回队），不自行分类 provider 错误。
+      const postDrainDisposition = this.runtime.getLLMFailureDisposition(error);
+      if (postDrainDisposition === 'provider_recovery_scheduled') {
         this.audit.write(
           EVENTLOOP_AUDIT_EVENTS.ITERATION,
           `type=llm_failure_deferred`,
           `stage=${stage}`,
-          `error_class=${postDrainErrorClass}`,
+          `owner=llm-orchestrator`,
         );
       } else {
         await this._dispatchError(error);

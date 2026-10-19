@@ -120,6 +120,7 @@ describe('EventLoop 重复提醒合并 (phase 1869 Step C)', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),

@@ -239,7 +239,7 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
         await f.session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
         return { status: 'success' as const };
       } catch (error) {
-        return { status: 'failed' as const, error };
+        return { status: 'failed' as const, error, failureDisposition: f.session.llm.getFailureDisposition(error) };
       }
     },
     ackHandles: async (handles: InboxHandle[]) => {
@@ -251,6 +251,8 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
     reactiveTrim: async () => {
       throw new Error('reactiveTrim not expected in these tests');
     },
+    // Phase 1944 Step B: post-drain catch 的 disposition 事实转发 owner 结论（同生产 Runtime 语义）。
+    getLLMFailureDisposition: (error: unknown) => f.session.llm.getFailureDisposition(error),
   };
 
   loop = new EventLoop({

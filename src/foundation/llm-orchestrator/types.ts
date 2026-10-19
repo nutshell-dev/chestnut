@@ -139,12 +139,33 @@ export interface LLMStreamProviderFailedChunk {
 export type LLMStreamChunk = ProviderStreamChunk | LLMStreamResetChunk | LLMStreamProviderFailedChunk;
 
 /**
+ * Phase 1944 Step B：LLM 失败处置事实（跨 Runtime/EventLoop 边界的最小 typed union）。
+ * 唯一产出点为 LLMOrchestrator（内部由 classifyLLMError 派生）；上层只消费、不重算。
+ * - provider_recovery_scheduled：provider/LLM 类失败（transient/rate_limit/quota/permanent），
+ *   恢复安排已由 LLMOrchestrator 在 scoped 调用内唯一记录；
+ * - context_exceeded：上下文超出（消费方保留专门处置路径）；
+ * - abort：中断语义；
+ * - unknown：非 LLM 失败或无法归类（消费方走通用 dispatch）。
+ */
+export type LLMFailureDisposition =
+  | 'provider_recovery_scheduled'
+  | 'context_exceeded'
+  | 'abort'
+  | 'unknown';
+
+/**
  * phase 1860 (RT-D1)：Runtime 私有消费面——仅 Runtime 实际调用集（M#7 最小）。
  * 签名 1:1 取自 LLMOrchestrator（orchestrator.ts 实现）；Runtime 侧宽持有收窄后
  * 经本 capability 消费，stream/call 等宽面仅经转发面（RuntimeDependencies.llmOrchestrator）传递。
  */
 export interface LLMRuntimeCapability {
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
+  /**
+   * Phase 1944 Step B：失败处置事实查询（只读、无副作用，不调度 retry、不改状态）。
+   * 描述传入主失败的 owner 结论；rollback 的 AggregateError 包装由 Runtime 在包装前
+   * 对原始失败求值，本方法不展开 AggregateError 内部因果。
+   */
+  getFailureDisposition(error: unknown): LLMFailureDisposition;
   /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */
   resetLastSuccessProvider(): void;
   close(): Promise<void>;
@@ -206,6 +227,11 @@ export interface LLMOrchestrator {
   stream(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk>;
   healthCheck(): Promise<boolean>;
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
+  /**
+   * Phase 1944 Step B：LLM 失败处置事实查询（与 LLMRuntimeCapability 同源；
+   * 只读、无副作用。宽面与窄面契约上同一对象，事实结论唯一归本模块产出）。
+   */
+  getFailureDisposition(error: unknown): LLMFailureDisposition;
   /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */
   resetLastSuccessProvider(): void;
   close(): Promise<void>;

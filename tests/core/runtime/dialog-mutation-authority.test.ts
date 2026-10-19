@@ -93,6 +93,8 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
       llm: {
         close: vi.fn().mockResolvedValue(undefined),
         resetLastSuccessProvider: vi.fn(),
+    getFailureDisposition: vi.fn().mockReturnValue('unknown'),
+        getFailureDisposition: vi.fn().mockReturnValue('unknown'),
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
       } as any,
       toolRegistry: {

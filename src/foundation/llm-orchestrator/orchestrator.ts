@@ -28,6 +28,7 @@ import type {
   LLMProbeResult,
   LLMProviderSnapshotEntry,
   LLMRuntimeCapability,
+  LLMFailureDisposition,
   LLMStreamChunk } from './types.js';
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput, SharedRecoveryDecision } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
@@ -1253,6 +1254,27 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    */
   resetLastSuccessProvider(): void {
     this.lastSuccessProvider = null;
+  }
+
+  /**
+   * Phase 1944 Step B：LLM 失败处置事实的唯一产出点（只读、无副作用）。
+   * 映射本模块既有 classifyLLMError 结论为跨边界最小 union；provider retry/fallback/
+   * breaker 状态机不移动，恢复安排仍在 scoped 调用内记录。非 LLM 失败归 'unknown'。
+   */
+  getFailureDisposition(error: unknown): LLMFailureDisposition {
+    switch (classifyLLMError(error)) {
+      case 'transient':
+      case 'rate_limit':
+      case 'quota':
+      case 'permanent':
+        return 'provider_recovery_scheduled';
+      case 'context_exceeded':
+        return 'context_exceeded';
+      case 'abort':
+        return 'abort';
+      default:
+        return 'unknown';
+    }
   }
 
   /**

@@ -13,6 +13,7 @@ export type {
   LLMCallOptions,
   LLMOrchestrator,
   LLMRuntimeCapability,
+  LLMFailureDisposition,
   LLMStreamChunk,
   // Phase 1933 Step B：实例级共享状态能力类型
   LLMProviderSnapshotEntry,

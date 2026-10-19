@@ -4,7 +4,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { LLMOrchestrator, LLMRuntimeCapability } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
@@ -108,7 +108,7 @@ export interface RuntimeDependencies {
   readonly inboxReader: InboxDeliverySession;
 
   // === L3-L5 ===
-  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getProviderInfo/resetLastSuccessProvider/reloadConfig/close 4 方法。 */
+  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getProviderInfo/getFailureDisposition/resetLastSuccessProvider/reloadConfig/close 5 方法。 */
   readonly llm: LLMRuntimeCapability;
   /**
    * phase 1860：转发面——ExecContext/AgentExecutor 消费的完整编排面（stream/call 等）；
@@ -196,6 +196,12 @@ export interface TurnResult {
   status: 'success' | 'failed' | 'interrupted';
   error?: unknown;
   cause?: string;
+  /**
+   * Phase 1944 Step B：LLM 失败处置事实（LLMOrchestrator capability 产出、Runtime
+   * 透传；仅 status='failed' 的失败出口填入）。rollback 叠加失败时 error 为
+   * AggregateError（含原始失败与 rollback 失败），本字段仍只描述原始主失败。
+   */
+  failureDisposition?: LLMFailureDisposition;
 }
 
 export interface PendingTurnFacts {

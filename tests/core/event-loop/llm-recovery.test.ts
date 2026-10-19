@@ -196,12 +196,14 @@ async function makeHarness(): Promise<Harness> {
         await session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
         return { status: 'success' as const };
       } catch (error) {
-        return { status: 'failed' as const, error };
+        return { status: 'failed' as const, error, failureDisposition: session.llm.getFailureDisposition(error) };
       }
     },
     reactiveTrim: async () => {
       throw new Error('reactiveTrim not expected in these tests');
     },
+    // Phase 1944 Step B: post-drain catch 的 disposition 事实转发 owner 结论（同生产 Runtime 语义）。
+    getLLMFailureDisposition: (error: unknown) => session.llm.getFailureDisposition(error),
   };
 
   const eventLoop = new EventLoop({
@@ -332,6 +334,8 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
       providerError = undefined;   // 修好 key：重新加载后不再按旧错误失败
       orchestrator.reloadConfig({ ...(cfg as never), createProviderAdapter: () => adapter });
     },
+    // Phase 1944 Step B: disposition 事实转发 owner（ComboRuntime 内部 this.llm 即本对象）。
+    getFailureDisposition: (error: unknown) => orchestrator.getFailureDisposition(error),
   };
 
   const runtime = new ComboRuntime({
@@ -387,7 +391,7 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
       await session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
       return { status: 'success' as const };
     } catch (error) {
-      return { status: 'failed' as const, error };
+      return { status: 'failed' as const, error, failureDisposition: session.llm.getFailureDisposition(error) };
     }
   };
 
