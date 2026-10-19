@@ -390,18 +390,55 @@ describe('Phase 1826: Runtime 控制入口（等待期间）', () => {
     expect(reloader).not.toHaveBeenCalled();
     expect(reloadFn).not.toHaveBeenCalled();
   });
+
+  it('Phase 1946：注入 identity 时返回的 configRevision 为 identity 短指纹且稳定；identity 变化 → 新 revision', async () => {
+    const audit = mkAudit();
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const identityOf = vi.fn()
+      .mockReturnValueOnce('d'.repeat(64))
+      .mockReturnValue('e'.repeat(64));
+    const peekPending = vi.fn().mockResolvedValue({
+      entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/r.md')],
+      issues: [],
+    });
+    const inboxReader = { peekPending };
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: vi.fn(() => stubCfg),
+      configIdentityOf: identityOf,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    const first = await rt.consumePendingControls();
+    expect(first.configRevision).toBe('d'.repeat(16));
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+
+    // identity 变化 → 新 revision 并再次 apply（recovery 据此重新评估 permanent 阻断）
+    const second = await rt.consumePendingControls();
+    expect(second.configRevision).toBe('e'.repeat(16));
+    expect(second.configRevision).not.toBe(first.configRevision);
+    expect(reloadFn).toHaveBeenCalledTimes(2);
+
+    // identity 稳定 → 同 revision 幂等 skip
+    const third = await rt.consumePendingControls();
+    expect(third.configRevision).toBe(second.configRevision);
+    expect(reloadFn).toHaveBeenCalledTimes(2);
+  });
 });
 
 /**
  * Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份。
+ * Phase 1946：skip 判定与 configRevision 统一到 identity 同一投影——
+ * 投影外字段变化（timeoutMs 等）必须 apply；identity 相同才幂等 skip；
+ * 未注入 configIdentityOf 的测试/兼容上下文回退旧 computeConfigRevision。
  *
  * - 成功：reloadConfig 后 publisher 收到 configIdentityOf(config) 派生的身份，
  *   audit LLM_RELOADED 带 identity=/previous_identity=/previous_fact= 证据；
  * - apply 失败：不发布、audit LLM_RELOAD_FAILED；
  * - 发布失败：独立 audit LLM_IDENTITY_PUBLISH_FAILED（不伪装 reload 失败），
- *   下一条同 revision reload 命中 skip 时补偿重试；
- * - skip 不伪造：revision 相同但快照身份不同（revision 投影外字段变化）→
- *   不发布未 apply 的身份；
+ *   下一条同 identity reload 命中 skip 时补偿重试；
  * - 无注入（claw/测试）：行为与 phase 1826 一致，无新 audit。
  */
 describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
@@ -540,22 +577,23 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     );
   });
 
-  it('skip 不伪造：revision 相同但快照身份不同（投影外字段变化）→ 不发布未 apply 的身份', async () => {
+  it('Phase 1946：投影外字段变化（timeoutMs）→ identity 不同必须 apply + 新 revision + 发布新 identity（旧「skip 不伪造」用例反转）', async () => {
     const audit = mkAudit();
     const ack = vi.fn().mockResolvedValue(undefined);
     const reloadFn = vi.fn();
     const llm = { reloadConfig: reloadFn };
-    // revision 投影只含 name/apiFormat/model/baseUrl/apiKey；改 timeoutMs 不改变 revision
+    // 旧 computeConfigRevision 投影只含 name/apiFormat/model/baseUrl/apiKey；
+    // timeoutMs 变化不改变旧 revision，但改变 identity——必须触发 apply。
     const driftedCfg: LLMOrchestratorConfig = {
       ...stubCfg,
       primary: { ...stubCfg.primary, timeoutMs: 12345 } as any,
     };
     const reloader = vi.fn()
       .mockReturnValueOnce(stubCfg)
-      .mockReturnValueOnce(driftedCfg);
+      .mockReturnValue(driftedCfg);
     const identityOf = vi.fn()
-      .mockReturnValueOnce('id-a')
-      .mockReturnValue('id-b');
+      .mockReturnValueOnce('a'.repeat(64))
+      .mockReturnValue('b'.repeat(64));
     const publisher = vi.fn().mockResolvedValue({ previousFact: 'missing' });
     const inboxReader = mkReloadInbox(ack);
 
@@ -568,19 +606,97 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
 
     await rt.testDrainOwnInbox();
-    expect(publisher).toHaveBeenCalledTimes(1);
-    expect(publisher).toHaveBeenCalledWith('id-a');
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(publisher).toHaveBeenCalledWith('a'.repeat(64));
 
     await rt.testDrainOwnInbox();
-    // skip 分支：不重新派生身份、不发布（无 pending）——不宣称 id-b 已应用
-    expect(identityOf).toHaveBeenCalledTimes(1);
+    // identity 不同 → 必须 apply（不再命中 already_applied）+ 发布新身份
+    expect(identityOf).toHaveBeenCalledTimes(2);
+    expect(reloadFn).toHaveBeenCalledTimes(2);
+    expect(reloadFn).toHaveBeenNthCalledWith(2, driftedCfg);
+    expect(publisher).toHaveBeenCalledTimes(2);
+    expect(publisher).toHaveBeenNthCalledWith(2, 'b'.repeat(64));
+    // revision 是 identity 短指纹：两次 LLM_RELOADED 的 revision 不同
+    const reloadedCalls = audit.write.mock.calls.filter(
+      (c: string[]) => c[0] === RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
+    );
+    expect(reloadedCalls.length).toBe(2);
+    const revisions = reloadedCalls.map((c: string[]) =>
+      (c.find((col: string) => col.startsWith('revision='))!).slice('revision='.length));
+    expect(revisions[0]).toBe('a'.repeat(16));
+    expect(revisions[1]).toBe('b'.repeat(16));
+    expect(revisions[0]).not.toBe(revisions[1]);
+    // 不得出现 already_applied skip
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+      expect.anything(),
+      'reason=already_applied',
+      expect.anything(),
+    );
+  });
+
+  it('Phase 1946：identity 相同 → 幂等 skip（reloadConfig 不重复、revision 相同、不重复发布）', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const identityOf = vi.fn(() => 'c'.repeat(64));
+    const publisher = vi.fn().mockResolvedValue({ previousFact: 'ok' });
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: reloader,
+      configIdentityOf: identityOf,
+      appliedLLMIdentityPublisher: publisher,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    await rt.testDrainOwnInbox();
+    await rt.testDrainOwnInbox();
+
     expect(reloadFn).toHaveBeenCalledTimes(1);
     expect(publisher).toHaveBeenCalledTimes(1);
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
       expect.stringContaining('count=1'),
       'reason=already_applied',
+      `revision=${'c'.repeat(16)}`,
+    );
+  });
+
+  it('Phase 1946：未注入 configIdentityOf → 旧投影回退（仅 timeoutMs 变化仍 skip；测试/兼容路径，非生产行为）', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const driftedCfg: LLMOrchestratorConfig = {
+      ...stubCfg,
+      primary: { ...stubCfg.primary, timeoutMs: 12345 } as any,
+    };
+    const reloader = vi.fn()
+      .mockReturnValueOnce(stubCfg)
+      .mockReturnValue(driftedCfg);
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({ audit, inboxReader, llm, configReloader: reloader });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    await rt.testDrainOwnInbox();
+    await rt.testDrainOwnInbox();
+
+    // 旧投影不含 timeoutMs → revision 相同 → skip（回退语义与 Phase 1945 一致）
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+      expect.stringContaining('count=1'),
+      'reason=already_applied',
       expect.stringContaining('revision='),
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+      expect.anything(),
     );
   });
 

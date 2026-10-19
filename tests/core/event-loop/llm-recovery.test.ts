@@ -271,7 +271,12 @@ interface RuntimeHarness {
   setProviderError: (error: Error | undefined) => void;
 }
 
-async function makeRuntimeHarness(): Promise<RuntimeHarness> {
+async function makeRuntimeHarness(opts?: {
+  /** Phase 1946：注入身份投影（生产装配语义）；缺省 = 旧 revision 回退路径。 */
+  configIdentityOf?: (config: unknown) => string;
+  /** 每次 reload 返回的 primary 配置（可脚本化投影外字段漂移）；缺省 fixedConfig。 */
+  reloadPrimaryOf?: () => Record<string, unknown>;
+}): Promise<RuntimeHarness> {
   const dir = await createTrackedTempDir('llm-recovery-runtime-combo-');
   cleanupDirs.push(dir);
   const fs = new NodeFileSystem({ baseDir: dir });
@@ -327,6 +332,9 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
     retryDelayMs: 1,
     events: sink,
   };
+  const reloadConfigOf = () => opts?.reloadPrimaryOf !== undefined
+    ? { primary: opts.reloadPrimaryOf(), maxAttempts: 1, retryDelayMs: 1, events: sink }
+    : fixedConfig;
 
   const runtimeLlm = {
     reloadConfig: (cfg: unknown) => {
@@ -343,7 +351,10 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
     clawDir: dir,
     idleTimeoutMs: 0,
     llmConfig: { primary: { name: 'primary', apiKey: 'key-primary', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, maxAttempts: 1, retryDelayMs: 1 },
-    configReloader: () => fixedConfig as never,
+    configReloader: () => reloadConfigOf() as never,
+    ...(opts?.configIdentityOf !== undefined
+      ? { configIdentityOf: opts.configIdentityOf as never }
+      : {}),
     dependencies: {
       auditWriter: audit,
       inboxReader,
@@ -651,5 +662,51 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     expect(h.reloadCalls()).toBe(reloadsAfterFirst);
     expect(h.emitted.filter(e => e.type === 'recovery_facts_accepted').length)
       .toBe(acceptedAfterFirst);
+  });
+
+  it('Phase 1946：仅投影外字段（temperature）变化——注入 identity 时产生新修订并解除 permanent 阻断', async () => {
+    // 与初始 llmConfig 同一 provider 元组（name/apiKey/model/timeoutMs 不变），
+    // 仅 temperature 漂移：旧 computeConfigRevision 不变（→ 不 apply、不恢复），
+    // identity 投影变化（→ apply + 新 revision + recovery 重新评估）。
+    let currentTemperature = 0;
+    const h = await makeRuntimeHarness({
+      configIdentityOf: (config) => {
+        const primary = (config as { primary: { name: string; temperature: number } }).primary;
+        return `id-${primary.name}-${primary.temperature}`;
+      },
+      reloadPrimaryOf: () => ({
+        name: 'primary', apiKey: 'key-primary', model: 'model-primary',
+        temperature: currentTemperature, timeoutMs: 1_000, apiFormat: 'anthropic',
+      }),
+    });
+    h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
+    h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
+
+    // 第一次：permanent 失败 → 安排 on_change。
+    await h.eventLoop.run();
+    expect(h.providerCalls.length).toBe(1);
+    expect((await h.session.inspect()).kind).toBe('on_change');
+
+    // 用户只改 temperature（identity 可见、旧 revision 投影外）→ reload 落盘。
+    currentTemperature = 0.5;
+    h.writeReload();
+    const running = h.eventLoop.run();
+    await waitFor(() => h.providerCalls.length === 2, 5_000, 10);
+    h.eventLoop.abort();
+    await running;
+
+    // 配置被真实 apply 一次，第二次真实请求发生（permanent 阻断被新修订重置）。
+    expect(h.reloadCalls()).toBe(1);
+    expect(h.providerCalls.length).toBe(2);
+    const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
+    const batch = accepted.at(-1);
+    if (batch?.type === 'recovery_facts_accepted') {
+      // revision 来自 identity 短指纹
+      expect(batch.configurationRevision).toBe('id-primary-0.5');
+    } else {
+      throw new Error('expected recovery_facts_accepted event');
+    }
+    const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
+    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
   });
 });

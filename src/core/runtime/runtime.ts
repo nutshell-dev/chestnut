@@ -107,7 +107,10 @@ function canonicalJson(value: unknown): string {
 
 /**
  * Phase 1826: 配置身份修订（不透明指纹，不入明文凭据）。
- * Runtime 用它幂等应用 reload：同修订不重复替换 provider/breaker。
+ * Phase 1946：仅作 `configIdentityOf` 未注入的测试/兼容上下文回退；
+ * 生产路径的 skip 判定与 revision 统一用 applied identity（llmConfigIdentity）
+ * 同一投影——本投影窄于 identity（不覆盖 temperature/timeoutMs/retry/breaker
+ * 等），继续用于生产判定会让投影外字段变化静默不生效。
  */
 function computeConfigRevision(config: LLMOrchestratorConfig): string {
   const identities = [config.primary, ...(config.fallbacks ?? [])].map(c => [
@@ -244,7 +247,11 @@ export class Runtime {
   private contextTrimmingEnabled: boolean;
   /** phase 1861 (CM-D1)：裁剪规则边界值（options.contextTrimPolicy 覆盖、缺省回落模块常量）。 */
   private contextTrimPolicy: TrimRuntimePolicy;
-  /** Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。 */
+  /**
+   * Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。
+   * Phase 1946：注入 configIdentityOf 时为 applied identity 的短指纹（slice 0,16），
+   * 与 skip 判定同一投影；未注入时为旧 computeConfigRevision 回退值。
+   */
   private appliedConfigRevision?: string;
   /**
    * Phase 1945 Step C：本进程实际 apply 过的配置身份（configIdentityOf 派生）。
@@ -876,6 +883,10 @@ export class Runtime {
    * Phase 1945 Step C：reloadConfig 成功后发布「已应用」身份（注入 publisher 时）；
    * 应用失败与发布失败分型——发布失败独立 audit（LLM_IDENTITY_PUBLISH_FAILED）、
    * 不伪装成 reload 失败；skip 分支仅补偿尚未成功的发布（只发 appliedConfigIdentity）。
+   * Phase 1946：skip 判定与返回的 configRevision 统一到注入投影（configIdentityOf
+   * 派生的 identity；revision = identity 短指纹），identity 可见的任一业务字段
+   * 变化都触发 apply 并进入 recovery 的新修订记账；未注入 identity 的测试/兼容
+   * 上下文回退旧 computeConfigRevision，行为与 Phase 1945 一致。
    */
   private async _applyConfigReload(triggeredBy: number): Promise<string | undefined> {
     if (!this.options.configReloader) {
@@ -898,16 +909,28 @@ export class Runtime {
       return undefined;
     }
 
-    const revision = computeConfigRevision(newConfig);
-    if (revision === this.appliedConfigRevision) {
+    // 同一 newConfig 对象只派生一次（不二次读盘、不从另一对象派生——TOCTOU 会
+    // 判定/发布未应用的身份）。
+    const derived = this._deriveAppliedConfigIdentity(newConfig);
+    const identity = derived.identity;
+
+    // 判定与 revision 同一投影：生产路径两者都用 identity（revision 是其短指纹）；
+    // 仅未注入时回退旧投影。
+    const revision = identity !== undefined
+      ? identity.slice(0, 16)
+      : computeConfigRevision(newConfig);
+    const alreadyApplied = identity !== undefined
+      ? identity === this.appliedConfigIdentity
+      : revision === this.appliedConfigRevision;
+
+    if (alreadyApplied) {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
         `count=${triggeredBy}`,
         `reason=already_applied`,
         `revision=${revision}`,
       );
-      // skip 补偿：上次发布失败时重试；只发「真正 apply 过」的身份——revision
-      // 投影窄于 identity 时本次快照身份可能未应用，发布它会伪造「已生效」。
+      // Phase 1945 补偿语义不变：上次发布失败时重试；只发「真正 apply 过」的身份。
       if (this.appliedIdentityPublishPending && this.appliedConfigIdentity !== undefined) {
         await this._publishAppliedLLMIdentity(this.appliedConfigIdentity);
       }
@@ -926,26 +949,18 @@ export class Runtime {
 
     // apply 已成功——此后只有「发布」可失败，不回滚配置、不伪装 reload 失败。
     this.appliedConfigRevision = revision;
-    let identityError: unknown;
-    try {
-      this.appliedConfigIdentity = this.options.configIdentityOf?.(newConfig);
-    } catch (err) {
-      // silent: 派生失败证据经 identityError 携带至下方 LLM_IDENTITY_PUBLISH_FAILED
-      // audit（reason=identity_derivation_failed）；不抛出——配置应用已成功，不回滚。
-      identityError = err;
-      this.appliedConfigIdentity = undefined;
-    }
+    this.appliedConfigIdentity = identity;
 
     let publishOutcome: AppliedLLMIdentityPublishOutcome | undefined;
-    if (this.appliedConfigIdentity !== undefined) {
-      publishOutcome = await this._publishAppliedLLMIdentity(this.appliedConfigIdentity);
+    if (identity !== undefined) {
+      publishOutcome = await this._publishAppliedLLMIdentity(identity);
     } else if (this.options.appliedLLMIdentityPublisher) {
       // 身份不可得但 publisher 已注入：不静默，留证并登记补偿。
       this.appliedIdentityPublishPending = true;
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
-        identityError !== undefined
-          ? `reason=identity_derivation_failed:${formatErr(identityError)}`
+        derived.error !== undefined
+          ? `reason=identity_derivation_failed:${formatErr(derived.error)}`
           : 'reason=identity_unavailable',
         `revision=${revision}`,
       );
@@ -957,13 +972,30 @@ export class Runtime {
       `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
       `triggered_by=${triggeredBy}`,
       `revision=${revision}`,
-      ...(this.appliedConfigIdentity !== undefined ? [`identity=${this.appliedConfigIdentity}`] : []),
+      ...(identity !== undefined ? [`identity=${identity}`] : []),
       ...(publishOutcome?.previousIdentity !== undefined
         ? [`previous_identity=${publishOutcome.previousIdentity}`]
         : []),
       ...(publishOutcome !== undefined ? [`previous_fact=${publishOutcome.previousFact}`] : []),
     );
     return revision;
+  }
+
+  /**
+   * Phase 1946：从注入投影派生配置身份（与出生事实/start 验证同源）。
+   * 未注入或派生失败 → 空结果；调用方回退旧 computeConfigRevision，
+   * 仅用于测试/兼容 double，不作为生产判定路径（派生失败在 apply 后按
+   * 既有 identity_derivation_failed audit 留证，不静默）。
+   */
+  private _deriveAppliedConfigIdentity(
+    config: LLMOrchestratorConfig,
+  ): { identity?: string; error?: unknown } {
+    if (!this.options.configIdentityOf) return {};
+    try {
+      return { identity: this.options.configIdentityOf(config) };
+    } catch (err) {
+      return { error: err };
+    }
   }
 
   /**
