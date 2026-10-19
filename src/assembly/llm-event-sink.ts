@@ -174,6 +174,42 @@ function writeLLMAuditEvent(audit: AuditLog, event: LLMEvent): void {
         `startup=${event.startupId ?? 'none'}`,
         `attempt=${event.attemptId ?? 'none'}`);
       break;
+    // phase 1953: 恢复决定链进 audit——此前这些事件只进 stream.jsonl，audit 侧无法
+    // 重建「失败→安排→准入→就绪」迁移；revision 与 recovery-state 磁盘 revision 对齐。
+    case 'recovery_scheduled':
+      audit.write(LLM_AUDIT_EVENTS.RECOVERY_SCHEDULED,
+        `scope=${event.scope}`, `revision=${event.revision}`,
+        `scheduleKind=${event.scheduleKind}`,
+        `resumeAt=${event.resumeAt || 'none'}`,
+        `errorClass=${event.errorClass}`,
+        `providerCount=${event.providerCount}`,
+        `failureCount=${event.failureCount}`);
+      break;
+    case 'recovery_ready':
+      audit.write(LLM_AUDIT_EVENTS.RECOVERY_READY,
+        `scope=${event.scope}`, `revision=${event.revision}`,
+        `reason=${event.reason}`);
+      break;
+    case 'recovery_attempt_admitted':
+      audit.write(LLM_AUDIT_EVENTS.RECOVERY_ATTEMPT_ADMITTED,
+        `scope=${event.scope}`, `revision=${event.revision}`,
+        `attempt=${event.attemptId}`,
+        `trigger=${event.trigger}`,
+        `interventions=${event.interventionCount}`);
+      break;
+    case 'recovery_attempt_finished':
+      audit.write(LLM_AUDIT_EVENTS.RECOVERY_ATTEMPT_FINISHED,
+        `scope=${event.scope}`, `revision=${event.revision}`,
+        `attempt=${event.attemptId}`,
+        `outcome=${event.outcome}`,
+        `accepted=${event.accepted}`);
+      break;
+    case 'recovery_state_write_failed':
+      audit.write(LLM_AUDIT_EVENTS.RECOVERY_STATE_WRITE_FAILED,
+        `scope=${event.scope}`,
+        `context=${event.context}`,
+        `reason=${event.reason}`);
+      break;
   }
 }
 

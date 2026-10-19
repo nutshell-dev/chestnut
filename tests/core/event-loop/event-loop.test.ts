@@ -1076,6 +1076,8 @@ describe('EventLoop.run', () => {
     );
     expect(deferred).toBeDefined();
     expect(deferred!.some(c => String(c) === 'owner=llm-orchestrator')).toBe(true);
+    // Phase 1953: fingerprint 关联键 = recovery.begin 的 requestKey（非空）
+    expect(deferred!.some(c => /^fingerprint=.+/.test(String(c)))).toBe(true);
     // 不进入通用 dispatch（无 FATAL 审计）
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL)).toBe(false);
   });
@@ -1118,6 +1120,8 @@ describe('EventLoop.run', () => {
     expect(deferred).toBeDefined();
     expect(deferred!.some(c => String(c) === 'stage=system_prompt')).toBe(true);
     expect(deferred!.some(c => String(c) === 'owner=llm-orchestrator')).toBe(true);
+    // Phase 1953: post-drain 变体同样携带 fingerprint 关联键
+    expect(deferred!.some(c => /^fingerprint=.+/.test(String(c)))).toBe(true);
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL)).toBe(false);
   });
 

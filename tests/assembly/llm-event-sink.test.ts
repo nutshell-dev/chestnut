@@ -187,6 +187,114 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(streamEvent.attemptId).toBe('att-9');
   });
 
+  // ---------------------------------------------------------------------------
+  // Phase 1953: 恢复决定链事件进 audit（此前只进 stream.jsonl，audit 侧无法重建迁移）
+  // ---------------------------------------------------------------------------
+
+  it('fans out recovery decision chain events to audit with revision anchor (phase 1953)', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'recovery_scheduled',
+      scope: 'foreground',
+      revision: 12,
+      scheduleKind: 'at',
+      resumeAt: '2026-10-19T06:00:00.000Z',
+      errorClass: 'rate_limit',
+      providerCount: 2,
+      failureCount: 3,
+    });
+    sink.emit({
+      type: 'recovery_attempt_admitted',
+      scope: 'foreground',
+      revision: 13,
+      attemptId: 'att-1',
+      trigger: 'user_message',
+      interventionCount: 1,
+    });
+    sink.emit({
+      type: 'recovery_attempt_finished',
+      scope: 'foreground',
+      revision: 14,
+      attemptId: 'att-1',
+      outcome: 'completed',
+      accepted: true,
+    });
+    sink.emit({ type: 'recovery_ready', scope: 'foreground', revision: 14, reason: 'success' });
+    sink.emit({
+      type: 'recovery_state_write_failed',
+      scope: 'foreground',
+      reason: 'ENOSPC',
+      context: 'noteFailure',
+    });
+
+    expect(audit.writes).toHaveLength(5);
+    expect(audit.writes[0]).toEqual([
+      'llm_recovery_scheduled',
+      'scope=foreground',
+      'revision=12',
+      'scheduleKind=at',
+      'resumeAt=2026-10-19T06:00:00.000Z',
+      'errorClass=rate_limit',
+      'providerCount=2',
+      'failureCount=3',
+    ]);
+    expect(audit.writes[1]).toEqual([
+      'llm_recovery_attempt_admitted',
+      'scope=foreground',
+      'revision=13',
+      'attempt=att-1',
+      'trigger=user_message',
+      'interventions=1',
+    ]);
+    expect(audit.writes[2]).toEqual([
+      'llm_recovery_attempt_finished',
+      'scope=foreground',
+      'revision=14',
+      'attempt=att-1',
+      'outcome=completed',
+      'accepted=true',
+    ]);
+    expect(audit.writes[3]).toEqual([
+      'llm_recovery_ready',
+      'scope=foreground',
+      'revision=14',
+      'reason=success',
+    ]);
+    expect(audit.writes[4]).toEqual([
+      'llm_recovery_state_write_failed',
+      'scope=foreground',
+      'context=noteFailure',
+      'reason=ENOSPC',
+    ]);
+    // stream 路径保持全量转发
+    expect(stream.events).toHaveLength(5);
+  });
+
+  it('recovery_scheduled with empty resumeAt renders resumeAt=none (on_change schedule)', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'recovery_scheduled',
+      scope: 'foreground',
+      revision: 5,
+      scheduleKind: 'on_change',
+      resumeAt: '',
+      errorClass: 'permanent',
+      providerCount: 1,
+      failureCount: 1,
+    });
+
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'scheduleKind=on_change',
+      'resumeAt=none',
+    ]));
+  });
+
   it('normalizes Error payload to readable string in stream', () => {
     const audit = makeAudit();
     const stream = makeStream();

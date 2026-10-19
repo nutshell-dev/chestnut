@@ -38,6 +38,14 @@ export const LLM_AUDIT_EVENTS = {
   SDK_CLIENT_CACHE_MISS: 'llm_sdk_client_cache_miss',
   // phase 1827: 恢复事实接受证据（完整新事实；admission 的单 trigger 只是显示摘要）
   RECOVERY_FACTS_ACCEPTED: 'llm_recovery_facts_accepted',
+  // phase 1953: 恢复决定链证据——此前 recovery_scheduled/ready/attempt_* /state_write_failed
+  // 只进 stream.jsonl 不进 audit.tsv，恢复决定（schedule 迁移/准入/就绪/写失败）在
+  // audit 侧不可重建。revision 列提供与 recovery-state 磁盘 revision 的对齐锚点。
+  RECOVERY_SCHEDULED: 'llm_recovery_scheduled',
+  RECOVERY_READY: 'llm_recovery_ready',
+  RECOVERY_ATTEMPT_ADMITTED: 'llm_recovery_attempt_admitted',
+  RECOVERY_ATTEMPT_FINISHED: 'llm_recovery_attempt_finished',
+  RECOVERY_STATE_WRITE_FAILED: 'llm_recovery_state_write_failed',
 } as const;
 
 
@@ -70,4 +78,9 @@ export const LLM_ORCHESTRATOR_FILE_ROUTING: Readonly<Record<string, 'audit'>> = 
   llm_sdk_client_cache_hit: 'audit',
   llm_sdk_client_cache_miss: 'audit',
   llm_recovery_facts_accepted: 'audit',
+  llm_recovery_scheduled: 'audit',
+  llm_recovery_ready: 'audit',
+  llm_recovery_attempt_admitted: 'audit',
+  llm_recovery_attempt_finished: 'audit',
+  llm_recovery_state_write_failed: 'audit',
 } as const;

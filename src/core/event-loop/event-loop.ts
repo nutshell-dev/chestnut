@@ -468,6 +468,9 @@ export class EventLoop {
         EVENTLOOP_AUDIT_EVENTS.ITERATION,
         `type=llm_failure_deferred`,
         `owner=llm-orchestrator`,
+        // Phase 1953: fingerprint = recovery.begin 的 requestKey，关联 LLM 失败与
+        // recovery-state 磁盘 activeAdmission.requestKey（turn 外无 trace_id 可用）。
+        `fingerprint=${failedRequestFingerprint}`,
       );
       return;
     }
@@ -685,6 +688,7 @@ export class EventLoop {
           `type=llm_failure_deferred`,
           `stage=${stage}`,
           `owner=llm-orchestrator`,
+          `fingerprint=${args.turnFingerprint}`,
         );
       } else {
         await this._dispatchError(error);
