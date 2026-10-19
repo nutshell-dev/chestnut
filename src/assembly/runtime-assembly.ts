@@ -20,12 +20,12 @@ import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 // phase 320: LLM hot-reload — reloader 每次调时重读磁盘
-import { loadGlobalConfig, loadClawConfig, resolveLLMConfig } from './config/config-load.js';
-import { getClawConfigPath } from '../foundation/claw-identity/index.js';
+import { loadGlobalConfig, loadClawConfig, resolveLLMConfig, llmConfigIdentity } from './config/config-load.js';
+import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool, SHADOW_DEFAULT_TIMEOUT_MS } from '../core/shadow-system/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../core/claw-topology/index.js';
 import type { AssembleConfig } from './types.js';
 import { createExecWithHandle, EXEC_TOOL_NAME, EXEC_ASYNC_MIGRATION } from '../foundation/command-tool/index.js';
 import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
@@ -181,6 +181,14 @@ export async function createRuntimeAssembly(
     return resolveLLMConfig(fresh, freshClawCfg!);
   };
 
+  // Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份。daemonDir 推导与
+  // daemon.ts 同一式（resolveClawDaemonDir(makeClawId(clawId))）——写错目录即写错事实。
+  // 身份从 reloader 返回的同一 resolved object 派生（无 TOCTOU、无第二套投影）。
+  const appliedLLMIdentityPublisher = config.createAppliedLLMIdentityPublisher?.(
+    core.processManager,
+    resolveClawDaemonDir(makeClawId(clawId)),
+  );
+
   // --- Runtime 构造（deps 注入） ---
   let runtime: Runtime;
   try {
@@ -193,6 +201,8 @@ export async function createRuntimeAssembly(
       toolProfile,
       idleTimeoutMs,
       configReloader,
+      configIdentityOf: (c) => llmConfigIdentity(c),
+      ...(appliedLLMIdentityPublisher !== undefined ? { appliedLLMIdentityPublisher } : {}),
       dependencies,
       contextTrimmingEnabled: true,
     });

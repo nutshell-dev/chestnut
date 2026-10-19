@@ -483,6 +483,7 @@
       "runtime_inbox_nack_failed",
       "runtime_inbox_terminal_query_failed",
       "runtime_inbox_unknown_type",
+      "runtime_llm_identity_publish_failed",
       "runtime_llm_reload_failed",
       "runtime_llm_reload_skipped",
       "runtime_llm_reloaded",

@@ -56,6 +56,9 @@ export const RUNTIME_AUDIT_EVENTS = {
   LLM_RELOADED: 'runtime_llm_reloaded',
   LLM_RELOAD_FAILED: 'runtime_llm_reload_failed',
   LLM_RELOAD_SKIPPED: 'runtime_llm_reload_skipped',
+  // Phase 1945 Step C：热重载已成功但「已应用身份」发布失败（独立事件，
+  // 不伪装成 reload 失败；skip 分支补偿重试见其审计行）。
+  LLM_IDENTITY_PUBLISH_FAILED: 'runtime_llm_identity_publish_failed',
   // phase 1440: ContextInjector context load failure（AGENTS.md / MEMORY.md / contract）
   CONTEXT_INJECT_LOAD_FAILED: 'context_inject_load_failed',
   // phase 690: Runtime 反应式 trim+retry 触发 - LLM 返 context-exceeded 后 trim + 同 turn 重发
@@ -94,5 +97,6 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   runtime_turn_contract_id_cache_failed: 'audit',
   runtime_reactive_trim_triggered: 'audit',  // phase 690
   runtime_reactive_trim_exhausted: 'audit',  // phase 690
+  runtime_llm_identity_publish_failed: 'audit',  // Phase 1945 Step C
   context_inject_load_failed: 'audit',  // phase 1440
 } as const;

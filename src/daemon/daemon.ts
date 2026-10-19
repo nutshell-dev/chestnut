@@ -27,11 +27,11 @@ import type { FileSystem } from '../foundation/fs/index.js';
 
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
-import { encodeMotionLLMReadyFact } from './llm-ready-fact.js';
+import { encodeMotionLLMReadyFact, createMotionLLMReadyFactPublisher } from './llm-ready-fact.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
-import type { ProcessGenerationRecord } from '../foundation/process-manager/index.js';
+import type { DaemonDir, ProcessManager, ProcessGenerationRecord } from '../foundation/process-manager/index.js';
 
 // phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）
 // phase 517 B2: handler 返 Promise（Node 忽略、但测试可 await 验 dispose + exit 时序）
@@ -145,12 +145,25 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       // 保留原 assemble 运行时校验的失败面：同一 reason 文案 + 同一审计/退出路径。
       let assembleConfig: AssembleConfig;
       if (isMotion) {
+        // Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份的 capability（motion-only；
+        // daemon own 事实 schema，Assembly 只绑定 PM/daemonDir）。generation env 缺失时
+        // activation 先行失败，不构造（发布绑定必须与激活身份一致）。
+        const createAppliedLLMIdentityPublisher = processGenerationId !== undefined
+          ? (pm: ProcessManager, pmDaemonDir: DaemonDir) =>
+              createMotionLLMReadyFactPublisher(pm, pmDaemonDir, {
+                generationId: processGenerationId,
+                pid: process.pid,
+              })
+          : undefined;
         assembleConfig = {
           identity: 'motion', // identity='motion' literal（行注释 allowlist）
           clawId: clawId,
           clawDir: dir,
           globalConfig,
           processGenerationId,
+          ...(createAppliedLLMIdentityPublisher !== undefined
+            ? { createAppliedLLMIdentityPublisher }
+            : {}),
         };
       } else {
         if (!clawConfig) {

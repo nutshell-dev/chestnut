@@ -660,6 +660,8 @@ export async function updateActiveBusinessFact(
     previousRaw = ctx.fs.readSync(factPath);
   } catch (err) {
     if (!isFileNotFound(err)) return { kind: 'retryable_failure', cause: err };
+    // silent: ENOENT = 旧事实缺失（修复路径）——previousRaw 保持 undefined 并继续写入，
+    // 非 ENOENT 已在上一行 fail-closed 返回（证据经 typed outcome 交还 caller）。
   }
 
   try {

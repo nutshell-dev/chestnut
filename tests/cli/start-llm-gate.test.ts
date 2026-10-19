@@ -682,4 +682,41 @@ describe('start command gate wiring', () => {
     expect(((err as CliError).cause as MotionLLMIdentityMismatchError).failure).toBe('identity_mismatch');
     expect(downstream.chat).not.toHaveBeenCalled();
   });
+
+  // ── Phase 1945 Step C：热重载后事实同步的消费侧结局 ──
+
+  it('R. 热重载后放行：磁盘配置已切 model-y 且 daemon 已发布新身份 → 进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    // daemon 热重载成功 → active 事实已被更新为「已应用」身份（model-y）
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
+    const deps = startDeps();
+    deps.rootConfig.loadGlobal = vi.fn(() => makeGlobal('model-y'));
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    await startCommand(deps, { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    });
+
+    expect(downstream.readBusinessFact).toHaveBeenCalledTimes(1);
+    expect(downstream.chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('S. 磁盘配置已变但 daemon 未应用（事实保持旧身份）→ identity_mismatch 不进 chat', async () => {
+    mockProbeOk();
+    seedOnboardingComplete();
+    // 事实仍是出生身份（claude-x）；本次 start 验证的是新配置（model-y）
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).identity);
+    const deps = startDeps();
+    deps.rootConfig.loadGlobal = vi.fn(() => makeGlobal('model-y'));
+    const { startCommand } = await import('../../src/cli/commands/start.js');
+
+    const err = await startCommand(deps, { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
+      nonInteractive: true,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect(((err as CliError).cause as MotionLLMIdentityMismatchError).failure).toBe('identity_mismatch');
+    expect(downstream.chat).not.toHaveBeenCalled();
+  });
 });

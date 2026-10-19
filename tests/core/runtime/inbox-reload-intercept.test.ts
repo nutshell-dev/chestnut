@@ -38,6 +38,12 @@ interface BuildOpts {
   inboxReader: any;
   llm: any;
   configReloader?: () => LLMOrchestratorConfig;
+  /** Phase 1945 Step C：身份派生/发布注入面（缺省 = 不发布，行为与 phase 1826 一致）。 */
+  configIdentityOf?: (config: LLMOrchestratorConfig) => string;
+  appliedLLMIdentityPublisher?: (identity: string) => Promise<{
+    previousIdentity?: string;
+    previousFact: 'ok' | 'missing' | 'malformed';
+  }>;
   formatterRegistry?: InboxMessageTypeRegistry;
 }
 
@@ -54,6 +60,10 @@ function build(opts: BuildOpts): TestRuntime {
       retryDelayMs: 0,
     } as any,
     configReloader: opts.configReloader,
+    ...(opts.configIdentityOf ? { configIdentityOf: opts.configIdentityOf } : {}),
+    ...(opts.appliedLLMIdentityPublisher
+      ? { appliedLLMIdentityPublisher: opts.appliedLLMIdentityPublisher }
+      : {}),
     dependencies: {
       systemFs: {} as any,
       auditWriter: opts.audit,
@@ -379,5 +389,255 @@ describe('Phase 1826: Runtime 控制入口（等待期间）', () => {
     expect(result.consumed).toBe(0);
     expect(reloader).not.toHaveBeenCalled();
     expect(reloadFn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份。
+ *
+ * - 成功：reloadConfig 后 publisher 收到 configIdentityOf(config) 派生的身份，
+ *   audit LLM_RELOADED 带 identity=/previous_identity=/previous_fact= 证据；
+ * - apply 失败：不发布、audit LLM_RELOAD_FAILED；
+ * - 发布失败：独立 audit LLM_IDENTITY_PUBLISH_FAILED（不伪装 reload 失败），
+ *   下一条同 revision reload 命中 skip 时补偿重试；
+ * - skip 不伪造：revision 相同但快照身份不同（revision 投影外字段变化）→
+ *   不发布未 apply 的身份；
+ * - 无注入（claw/测试）：行为与 phase 1826 一致，无新 audit。
+ */
+describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
+  function mkReloadInbox(ack: vi.Mock) {
+    return {
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),
+      drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,
+        entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
+        handles: [mkHandle('/p/a.md')],
+      }),
+      ack,
+    };
+  }
+
+  it('重载成功 + 发布成功：publisher 收到派生身份；LLM_RELOADED 带 identity/previous 证据；消息 ack', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const publisher = vi.fn().mockResolvedValue({ previousIdentity: 'id-old', previousFact: 'ok' });
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: reloader,
+      configIdentityOf: () => 'id-new',
+      appliedLLMIdentityPublisher: publisher,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+    const result = await rt.testDrainOwnInbox();
+
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(reloadFn).toHaveBeenCalledWith(stubCfg);
+    expect(publisher).toHaveBeenCalledTimes(1);
+    expect(publisher).toHaveBeenCalledWith('id-new');
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(result.injected).toEqual([]);
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
+      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('fallbacks=0'),
+      expect.stringContaining('triggered_by=1'),
+      expect.stringContaining('revision='),
+      'identity=id-new',
+      'previous_identity=id-old',
+      'previous_fact=ok',
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+      expect.anything(),
+    );
+  });
+
+  it('apply 失败（reloadConfig throw）→ LLM_RELOAD_FAILED；publisher 零调用', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const llm = { reloadConfig: vi.fn(() => { throw new Error('provider rejected'); }) };
+    const reloader = vi.fn(() => stubCfg);
+    const publisher = vi.fn().mockResolvedValue({ previousFact: 'ok' });
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: reloader,
+      configIdentityOf: () => 'id-new',
+      appliedLLMIdentityPublisher: publisher,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+    await rt.testDrainOwnInbox();
+
+    expect(publisher).not.toHaveBeenCalled();
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+      expect.stringContaining('provider rejected'),
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+      expect.anything(),
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('发布失败 → 独立 audit LLM_IDENTITY_PUBLISH_FAILED（不写 RELOAD_FAILED）；下一条同 revision reload 命中 skip 并补偿重试', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const publisher = vi.fn()
+      .mockRejectedValueOnce(new Error('pm write failed'))
+      .mockResolvedValueOnce({ previousIdentity: 'id-old', previousFact: 'ok' });
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: reloader,
+      configIdentityOf: () => 'id-new',
+      appliedLLMIdentityPublisher: publisher,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    // 第一次：apply 成功、发布失败 → 独立事件，reload 本身仍记成功
+    await rt.testDrainOwnInbox();
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(publisher).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+      'identity=id-new',
+      expect.stringContaining('pm write failed'),
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+      expect.anything(),
+    );
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
+      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('fallbacks=0'),
+      expect.stringContaining('triggered_by=1'),
+      expect.stringContaining('revision='),
+      'identity=id-new',
+    );
+
+    // 第二次：同 revision → skip already_applied + 补偿重试发布（不再 reloadConfig）
+    await rt.testDrainOwnInbox();
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(publisher).toHaveBeenCalledTimes(2);
+    expect(publisher).toHaveBeenNthCalledWith(2, 'id-new');
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+      expect.stringContaining('count=1'),
+      'reason=already_applied',
+      expect.stringContaining('revision='),
+    );
+  });
+
+  it('skip 不伪造：revision 相同但快照身份不同（投影外字段变化）→ 不发布未 apply 的身份', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    // revision 投影只含 name/apiFormat/model/baseUrl/apiKey；改 timeoutMs 不改变 revision
+    const driftedCfg: LLMOrchestratorConfig = {
+      ...stubCfg,
+      primary: { ...stubCfg.primary, timeoutMs: 12345 } as any,
+    };
+    const reloader = vi.fn()
+      .mockReturnValueOnce(stubCfg)
+      .mockReturnValueOnce(driftedCfg);
+    const identityOf = vi.fn()
+      .mockReturnValueOnce('id-a')
+      .mockReturnValue('id-b');
+    const publisher = vi.fn().mockResolvedValue({ previousFact: 'missing' });
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: reloader,
+      configIdentityOf: identityOf,
+      appliedLLMIdentityPublisher: publisher,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    await rt.testDrainOwnInbox();
+    expect(publisher).toHaveBeenCalledTimes(1);
+    expect(publisher).toHaveBeenCalledWith('id-a');
+
+    await rt.testDrainOwnInbox();
+    // skip 分支：不重新派生身份、不发布（无 pending）——不宣称 id-b 已应用
+    expect(identityOf).toHaveBeenCalledTimes(1);
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(publisher).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+      expect.stringContaining('count=1'),
+      'reason=already_applied',
+      expect.stringContaining('revision='),
+    );
+  });
+
+  it('身份派生失败 → 独立 audit（reason=identity_derivation_failed）+ 登记 pending，reload 仍记成功', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const publisher = vi.fn().mockResolvedValue({ previousFact: 'ok' });
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({
+      audit, inboxReader, llm,
+      configReloader: reloader,
+      configIdentityOf: () => { throw new Error('derive exploded'); },
+      appliedLLMIdentityPublisher: publisher,
+    });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+    await rt.testDrainOwnInbox();
+
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(publisher).not.toHaveBeenCalled();
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+      expect.stringContaining('reason=identity_derivation_failed'),
+      expect.stringContaining('revision='),
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+      expect.anything(),
+    );
+  });
+
+  it('无身份注入（claw/测试 double）：行为与 phase 1826 一致——零发布、零新 audit、LLM_RELOADED 无 identity 列', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const inboxReader = mkReloadInbox(ack);
+
+    const rt = build({ audit, inboxReader, llm, configReloader: reloader });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+    await rt.testDrainOwnInbox();
+
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
+      expect.stringContaining('provider=reloaded-primary'),
+      expect.stringContaining('fallbacks=0'),
+      expect.stringContaining('triggered_by=1'),
+      expect.stringContaining('revision='),
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+      expect.anything(),
+    );
   });
 });

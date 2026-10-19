@@ -15,7 +15,8 @@
  */
 
 import { formatErr } from '../foundation/node-utils/index.js';
-import type { DaemonDir, ProcessManager } from '../foundation/process-manager/index.js';
+import type { DaemonDir, ProcessManager, UpdateActiveBusinessFact } from '../foundation/process-manager/index.js';
+import type { AppliedLLMIdentityPublishOutcome } from '../core/runtime/index.js';
 
 /** 业务事实 schema 版本（版本不符按 malformed fail-closed）。 */
 export const MOTION_LLM_READY_FACT_SCHEMA_VERSION = 1;
@@ -145,4 +146,60 @@ export function ensureMotionLLMIdentity(
     );
   }
   return decoded.fact;
+}
+
+// === 发布侧：热重载后刷新 active 事实（Phase 1945 Step C） ===
+
+/**
+ * 发布侧 typed 错误：PM 拒绝/失败时携带 PM typed kind，错误面只含摘要
+ * （kind + cause），不含 secret。
+ */
+export class MotionLLMReadyFactPublishError extends Error {
+  constructor(
+    readonly kind: UpdateActiveBusinessFact['kind'],
+    detail: string,
+  ) {
+    super(`motion LLM identity fact publish failed (${kind}): ${detail}`);
+    this.name = 'MotionLLMReadyFactPublishError';
+  }
+}
+
+function describePublishFailure(result: UpdateActiveBusinessFact): string {
+  switch (result.kind) {
+    case 'malformed_active':
+    case 'retryable_failure':
+      return formatErr(result.cause);
+    default:
+      return result.kind;
+  }
+}
+
+/**
+ * Phase 1945 Step C：motion daemon 的 applied identity 发布器工厂。
+ * 热重载成功后由 Runtime 经注入面调用，把「本进程当前已应用」的 LLM 身份
+ * 重写进 active generation 的业务事实（PM exact generation/pid 校验 + 原子写）。
+ * 事实 schema 与出生事实同形；旧 raw 可读时解码出旧身份交还（审计前后链），
+ * 不可解析归 malformed 分型、不阻断本次发布成功事实。
+ */
+export function createMotionLLMReadyFactPublisher(
+  pm: Pick<ProcessManager, 'updateActiveBusinessFact'>,
+  daemonDir: DaemonDir,
+  binding: { generationId: string; pid: number },
+): (identity: string) => Promise<AppliedLLMIdentityPublishOutcome> {
+  return async (identity) => {
+    const raw = encodeMotionLLMReadyFact({
+      generationId: binding.generationId,
+      llmIdentity: identity,
+      committedAt: new Date().toISOString(),
+    });
+    const result = await pm.updateActiveBusinessFact(daemonDir, binding, raw);
+    if (result.kind !== 'written') {
+      throw new MotionLLMReadyFactPublishError(result.kind, describePublishFailure(result));
+    }
+    if (result.previousRaw === undefined) return { previousFact: 'missing' };
+    const previous = decodeMotionLLMReadyFact(result.previousRaw);
+    return previous.status === 'ok'
+      ? { previousIdentity: previous.fact.llmIdentity, previousFact: 'ok' }
+      : { previousFact: 'malformed' };
+  };
 }

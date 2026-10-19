@@ -33,6 +33,8 @@ export type { DaemonHeartbeatFact, DaemonHeartbeatRead } from './heartbeat-fact.
 export {
   MOTION_LLM_READY_FACT_SCHEMA_VERSION,
   MotionLLMIdentityMismatchError,
+  MotionLLMReadyFactPublishError,
+  createMotionLLMReadyFactPublisher,
   encodeMotionLLMReadyFact,
   decodeMotionLLMReadyFact,
   ensureMotionLLMIdentity,

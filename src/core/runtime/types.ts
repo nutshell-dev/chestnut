@@ -153,6 +153,17 @@ export interface RuntimeDependencies {
   readonly contractTerminalFact?: (contractId: string) => Promise<ContractTerminalFact>;
 }
 
+/**
+ * Phase 1945 Step C：一次 applied identity 发布的结果证据（publisher 成功时返回）。
+ * 供 Runtime 在 runtime_llm_reloaded 审计中记录前后身份链。
+ */
+export interface AppliedLLMIdentityPublishOutcome {
+  /** 旧事实可读时的身份摘要；用于审计前后链。 */
+  readonly previousIdentity?: string;
+  /** 旧事实可读性证据。 */
+  readonly previousFact: 'ok' | 'missing' | 'malformed';
+}
+
 /** 1:1 保 runtime.ts:74-101 body */
 export interface RuntimeOptions {
   clawId: string;
@@ -170,6 +181,21 @@ export interface RuntimeOptions {
    * undefined → 拦截路径 silent skip + audit LLM_RELOAD_SKIPPED。
    */
   configReloader?: () => LLMOrchestratorConfig;
+
+  /**
+   * Phase 1945 Step C：从 configReloader 返回的同一 resolved object 派生配置身份
+   * （Assembly 注入 llmConfigIdentity，与出生事实/start 验证单源）。与 configReloader
+   * 分离注入，不改变既有 reloader 签名与测试 double。缺省 = 不发布身份。
+   */
+  configIdentityOf?: (config: LLMOrchestratorConfig) => string;
+
+  /**
+   * Phase 1945 Step C：热重载成功后发布「本进程已应用」LLM 身份的 capability
+   * （motion daemon 经 Assembly 注入；claw/测试未注入 = 不发布，行为与此前一致）。
+   * Runtime 只在 llm.reloadConfig 成功后调用；抛错 = 发布失败（独立 audit，
+   * 不伪装成 reload 失败，下一条 reload 命中 already_applied 时补偿重试）。
+   */
+  appliedLLMIdentityPublisher?: (identity: string) => Promise<AppliedLLMIdentityPublishOutcome>;
 
   dependencies: RuntimeDependencies;  // 必传（phase155B 起，字段随 phase155C 扩展）
 

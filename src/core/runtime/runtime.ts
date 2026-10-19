@@ -55,7 +55,7 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, ToolRegistryRuntimeCapability, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from './injector.js';
 import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
-import type { RuntimeStopOutcome } from './types.js';
+import type { RuntimeStopOutcome, AppliedLLMIdentityPublishOutcome } from './types.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
@@ -246,6 +246,14 @@ export class Runtime {
   private contextTrimPolicy: TrimRuntimePolicy;
   /** Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。 */
   private appliedConfigRevision?: string;
+  /**
+   * Phase 1945 Step C：本进程实际 apply 过的配置身份（configIdentityOf 派生）。
+   * 与 appliedConfigRevision 配对更新；skip 分支只发布本字段（真正 apply 过的身份），
+   * 绝不发布未 apply 的本次快照身份。
+   */
+  private appliedConfigIdentity?: string;
+  /** Phase 1945 Step C：上次发布失败待补偿标记（下一条 reload 命中 skip 时重试）。 */
+  private appliedIdentityPublishPending = false;
   /**
    * phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁。
    * phase 1860 (RT-D6)：MemoryOnlyState 登记——重启归 0 为 by-design（proactive trim 判据）。
@@ -865,8 +873,11 @@ export class Runtime {
    * Phase 1826: 应用磁盘上的最新 LLM 配置，返回配置身份修订。
    * - 重复 revision 不重复 reloadConfig（防二次重载清空 breaker 失败历史）。
    * - 失败以 audit 暴露并返回 undefined（调用方不据此放行新的尝试）。
+   * Phase 1945 Step C：reloadConfig 成功后发布「已应用」身份（注入 publisher 时）；
+   * 应用失败与发布失败分型——发布失败独立 audit（LLM_IDENTITY_PUBLISH_FAILED）、
+   * 不伪装成 reload 失败；skip 分支仅补偿尚未成功的发布（只发 appliedConfigIdentity）。
    */
-  private _applyConfigReload(triggeredBy: number): string | undefined {
+  private async _applyConfigReload(triggeredBy: number): Promise<string | undefined> {
     if (!this.options.configReloader) {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
@@ -875,31 +886,104 @@ export class Runtime {
       );
       return undefined;
     }
+
+    let newConfig: LLMOrchestratorConfig;
     try {
-      const newConfig = this.options.configReloader();
-      const revision = computeConfigRevision(newConfig);
-      if (revision === this.appliedConfigRevision) {
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
-          `count=${triggeredBy}`,
-          `reason=already_applied`,
-          `revision=${revision}`,
-        );
-        return revision;
-      }
-      this.llm.reloadConfig(newConfig);
-      this.appliedConfigRevision = revision;
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-        `provider=${newConfig.primary.name ?? 'unknown'}`,
-        `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
-        `triggered_by=${triggeredBy}`,
-        `revision=${revision}`,
-      );
-      return revision;
+      newConfig = this.options.configReloader();
     } catch (err) {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+        `reason=${formatErr(err)}`,
+      );
+      return undefined;
+    }
+
+    const revision = computeConfigRevision(newConfig);
+    if (revision === this.appliedConfigRevision) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+        `count=${triggeredBy}`,
+        `reason=already_applied`,
+        `revision=${revision}`,
+      );
+      // skip 补偿：上次发布失败时重试；只发「真正 apply 过」的身份——revision
+      // 投影窄于 identity 时本次快照身份可能未应用，发布它会伪造「已生效」。
+      if (this.appliedIdentityPublishPending && this.appliedConfigIdentity !== undefined) {
+        await this._publishAppliedLLMIdentity(this.appliedConfigIdentity);
+      }
+      return revision;
+    }
+
+    try {
+      this.llm.reloadConfig(newConfig);
+    } catch (err) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+        `reason=${formatErr(err)}`,
+      );
+      return undefined;
+    }
+
+    // apply 已成功——此后只有「发布」可失败，不回滚配置、不伪装 reload 失败。
+    this.appliedConfigRevision = revision;
+    let identityError: unknown;
+    try {
+      this.appliedConfigIdentity = this.options.configIdentityOf?.(newConfig);
+    } catch (err) {
+      // silent: 派生失败证据经 identityError 携带至下方 LLM_IDENTITY_PUBLISH_FAILED
+      // audit（reason=identity_derivation_failed）；不抛出——配置应用已成功，不回滚。
+      identityError = err;
+      this.appliedConfigIdentity = undefined;
+    }
+
+    let publishOutcome: AppliedLLMIdentityPublishOutcome | undefined;
+    if (this.appliedConfigIdentity !== undefined) {
+      publishOutcome = await this._publishAppliedLLMIdentity(this.appliedConfigIdentity);
+    } else if (this.options.appliedLLMIdentityPublisher) {
+      // 身份不可得但 publisher 已注入：不静默，留证并登记补偿。
+      this.appliedIdentityPublishPending = true;
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+        identityError !== undefined
+          ? `reason=identity_derivation_failed:${formatErr(identityError)}`
+          : 'reason=identity_unavailable',
+        `revision=${revision}`,
+      );
+    }
+
+    this.auditWriter.write(
+      RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
+      `provider=${newConfig.primary.name ?? 'unknown'}`,
+      `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
+      `triggered_by=${triggeredBy}`,
+      `revision=${revision}`,
+      ...(this.appliedConfigIdentity !== undefined ? [`identity=${this.appliedConfigIdentity}`] : []),
+      ...(publishOutcome?.previousIdentity !== undefined
+        ? [`previous_identity=${publishOutcome.previousIdentity}`]
+        : []),
+      ...(publishOutcome !== undefined ? [`previous_fact=${publishOutcome.previousFact}`] : []),
+    );
+    return revision;
+  }
+
+  /**
+   * Phase 1945 Step C：发布已应用身份（publisher 未注入 = 无发布语义，返回 undefined）。
+   * 失败：登记 pending 供 skip 分支补偿 + 独立 audit；不抛给调用方（配置应用已成功）。
+   */
+  private async _publishAppliedLLMIdentity(
+    identity: string,
+  ): Promise<AppliedLLMIdentityPublishOutcome | undefined> {
+    const publisher = this.options.appliedLLMIdentityPublisher;
+    if (!publisher) return undefined;
+    try {
+      const outcome = await publisher(identity);
+      this.appliedIdentityPublishPending = false;
+      return outcome;
+    } catch (err) {
+      this.appliedIdentityPublishPending = true;
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
+        `identity=${identity}`,
         `reason=${formatErr(err)}`,
       );
       return undefined;
@@ -910,7 +994,7 @@ export class Runtime {
     const reloadPaths = new Set(reloadEntries.map(e => e.filePath));
     const reloadHandles = handles.filter(h => reloadPaths.has(h.filePath));
 
-    this._applyConfigReload(reloadEntries.length);
+    await this._applyConfigReload(reloadEntries.length);
 
     for (const h of reloadHandles) {
       try {
@@ -1493,7 +1577,7 @@ export class Runtime {
     const view = await this.inboxReader.peekPending();
     const controls = view.entries.filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE);
     if (controls.length === 0) return { consumed: 0 };
-    const revision = this._applyConfigReload(controls.length);
+    const revision = await this._applyConfigReload(controls.length);
     return {
       consumed: controls.length,
       ...(revision !== undefined ? { configRevision: revision } : {}),

@@ -1,8 +1,9 @@
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
-import type { ProcessManager } from '../foundation/process-manager/index.js';
+import type { DaemonDir, ProcessManager } from '../foundation/process-manager/index.js';
 import type { Runtime } from '../core/runtime/index.js';
+import type { AppliedLLMIdentityPublishOutcome } from '../core/runtime/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import type { EventLoopExecutionRecoveryDeps, EventLoop } from '../core/event-loop/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
@@ -34,6 +35,15 @@ interface AssembleConfigBase {
   readonly globalConfig: ClawGlobalConfig;
   /** Phase 1204 Step C: parent 传入的 spawn generation identity（env CHESTNUT_PROCESS_GENERATION）。 */
   readonly processGenerationId?: string;
+  /**
+   * Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份的工厂（motion daemon 注入；
+   * claw 缺省 = 无发布语义）。Daemon own 事实 schema 与发布时机语义；Assembly 只负责
+   * 把 PM/daemonDir 绑定进去（不 import daemon 模块，避免 daemon → assembly → daemon cycle）。
+   */
+  readonly createAppliedLLMIdentityPublisher?: (
+    pm: ProcessManager,
+    daemonDir: DaemonDir,
+  ) => (identity: string) => Promise<AppliedLLMIdentityPublishOutcome>;
 }
 
 /**
