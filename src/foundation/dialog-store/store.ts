@@ -25,6 +25,9 @@ import type {
   DialogSaveResult,
   DialogSessionLifecycle,
   BlockIdAssignment,
+  TurnRecoveryPersistence,
+  TurnStepCheckpoint,
+  TurnToolUseJournalFact,
 } from './types.js';
 import type { DialogStoreAuditSink } from './audit-sink.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
@@ -49,19 +52,31 @@ const LOAD_STABLE_RETRY_BASE_DELAY_MS = 50;
 const LOAD_STABLE_DEFAULT_RETRIES = 3;
 
 interface OpenTurnTransactionRecord {
-  readonly version: 1;
-  readonly state: 'open';
-  readonly transactionId: string;
-  readonly begunAt: string;
-  readonly snapshot: SessionData;
+  version: 1;
+  state: 'open';
+  transactionId: string;
+  begunAt: string;
+  snapshot: SessionData;
+  /** Phase 1955 Step C：工具副作用 journal（跨崩溃可重建已完成事实）。 */
+  journal?: TurnToolUseJournalFact[];
+  /** Phase 1955 Step C：最近完成 step 的 durable checkpoint。 */
+  checkpoint?: TurnStepCheckpoint;
+  /** 完整 LLM 响应已收到、step 尚未提交的证据（checkpoint 时清除）。 */
+  pendingLlmResponse?: {
+    committedAt: string;
+    stopReason: string;
+    content: unknown;
+  };
 }
 
 interface CommittedTurnTransactionRecord {
-  readonly version: 1;
-  readonly state: 'committed';
-  readonly transactionId: string;
-  readonly committedAt: string;
-  readonly reason: string;
+  version: 1;
+  state: 'committed';
+  transactionId: string;
+  committedAt: string;
+  reason: string;
+  /** 部分提交（provider 失败保留已完成 step）时携带的 checkpoint 证据。 */
+  checkpoint?: TurnStepCheckpoint;
 }
 
 type TurnTransactionRecord = OpenTurnTransactionRecord | CommittedTurnTransactionRecord;
@@ -79,6 +94,18 @@ function parseTurnTransactionRecord(raw: string): TurnTransactionRecord {
     if (typeof record.begunAt !== 'string' || record.snapshot === null || typeof record.snapshot !== 'object') {
       throw new CorruptionError('open turn transaction record has invalid snapshot', value);
     }
+    if (record.checkpoint !== undefined) {
+      const cp = record.checkpoint as Record<string, unknown> | null;
+      if (cp === null || typeof cp !== 'object'
+        || typeof cp.stepIndex !== 'number'
+        || typeof cp.dialogRevision !== 'string'
+        || !Array.isArray(cp.completedToolUses)) {
+        throw new CorruptionError('open turn transaction checkpoint is invalid', value);
+      }
+    }
+    if (record.journal !== undefined && !Array.isArray(record.journal)) {
+      throw new CorruptionError('open turn transaction journal is invalid', value);
+    }
     return record as unknown as OpenTurnTransactionRecord;
   }
   if (record.state === 'committed') {
@@ -90,10 +117,22 @@ function parseTurnTransactionRecord(raw: string): TurnTransactionRecord {
   throw new CorruptionError('turn transaction record has invalid state', value);
 }
 
+function upsertJournalFact(
+  record: OpenTurnTransactionRecord,
+  fact: TurnToolUseJournalFact,
+): void {
+  const journal = record.journal ? [...record.journal] : [];
+  const index = journal.findIndex(entry => entry.toolUseId === fact.toolUseId);
+  if (index >= 0) journal[index] = { ...journal[index], ...fact };
+  else journal.push(fact);
+  record.journal = journal;
+}
+
 /**
  * Manages a Claw's dialog session
  */
-export class DialogStore implements DialogSessionLifecycle {
+export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersistence {
+  readonly turnRecovery: TurnRecoveryPersistence;
   private readonly currentPath: string;
   private readonly turnTransactionPath: string;
   private readonly archiveDir: string;
@@ -120,6 +159,7 @@ export class DialogStore implements DialogSessionLifecycle {
     this.archiveDir = path.join(dialogDir, archiveDir ?? DIALOG_ARCHIVE_SUBDIR);
     this.blockIdIndex = blockIdIndex ?? new BlockIdIndex(this.fs, dialogDir);
     this.blockIdIndex.load(this.audit);
+    this.turnRecovery = this;
   }
 
   /**
@@ -555,6 +595,136 @@ export class DialogStore implements DialogSessionLifecycle {
     await this.cleanupTurnTransactionRecord('rollback');
   }
 
+  // -------------------------------------------------------------------------
+  // Phase 1955 Step C: TurnRecoveryPersistence
+  // -------------------------------------------------------------------------
+
+  async recordLlmResponse(fact: {
+    committedAtMs: number;
+    stopReason: string;
+    content: unknown;
+  }): Promise<void> {
+    await this.updateOpenTurnTransaction(record => {
+      record.pendingLlmResponse = {
+        committedAt: new Date(fact.committedAtMs).toISOString(),
+        stopReason: fact.stopReason,
+        content: fact.content,
+      };
+    });
+  }
+
+  async recordToolStarted(fact: {
+    toolUseId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+    startedAtMs: number;
+  }): Promise<void> {
+    await this.updateOpenTurnTransaction(record => {
+      upsertJournalFact(record, {
+        toolUseId: fact.toolUseId,
+        toolName: fact.toolName,
+        status: 'started',
+        startedAt: new Date(fact.startedAtMs).toISOString(),
+      });
+    });
+  }
+
+  async recordToolResult(fact: {
+    toolUseId: string;
+    toolName: string;
+    success: boolean;
+    content?: string;
+    error?: string;
+    resultAtMs: number;
+  }): Promise<void> {
+    await this.updateOpenTurnTransaction(record => {
+      const existing = record.journal?.find(j => j.toolUseId === fact.toolUseId);
+      upsertJournalFact(record, {
+        toolUseId: fact.toolUseId,
+        toolName: fact.toolName,
+        status: 'completed',
+        startedAt: existing?.startedAt ?? new Date(fact.resultAtMs).toISOString(),
+        completedAt: new Date(fact.resultAtMs).toISOString(),
+        success: fact.success,
+        ...(fact.content !== undefined ? { content: fact.content } : {}),
+        ...(fact.error !== undefined ? { error: fact.error } : {}),
+      });
+    });
+  }
+
+  async checkpointTurn(stepIndex: number): Promise<void> {
+    await this.updateOpenTurnTransaction(record => {
+      const completed = (record.journal ?? [])
+        .filter(j => j.status === 'completed')
+        .map(j => ({
+          toolUseId: j.toolUseId,
+          toolName: j.toolName,
+          completedAt: j.completedAt ?? j.startedAt,
+          success: j.success === true,
+        }));
+      record.checkpoint = {
+        transactionId: record.transactionId,
+        stepIndex,
+        dialogRevision: `${record.transactionId}:step-${stepIndex}`,
+        completedToolUses: completed,
+        committedAt: new Date().toISOString(),
+      };
+      // step 边界已把完整响应并入 dialog；pending 证据不再需要。
+      delete record.pendingLlmResponse;
+    });
+  }
+
+  /**
+   * 部分提交：保留当前 dialog（最后 step 边界）与 checkpoint，不回滚整轮。
+   * 无 checkpoint 时返回 false，由调用方回落 rollback。
+   */
+  async commitPartial(reason: string): Promise<boolean> {
+    const current = this._turnTransaction;
+    if (!current || !current.checkpoint) return false;
+    const committed: CommittedTurnTransactionRecord = {
+      version: 1,
+      state: 'committed',
+      transactionId: current.transactionId,
+      committedAt: new Date().toISOString(),
+      reason,
+      checkpoint: current.checkpoint,
+    };
+    await this.fs.writeAtomic(this.turnTransactionPath, JSON.stringify(committed, null, 2));
+    this._turnTransaction = null;
+    this.audit.write(
+      DIALOG_AUDIT_EVENTS.TURN_COMMIT,
+      `transaction_id=${current.transactionId}`,
+      `reason=${reason}`,
+      `checkpoint_step=${current.checkpoint.stepIndex}`,
+    );
+    await this.cleanupTurnTransactionRecord('commit');
+    return true;
+  }
+
+  private async updateOpenTurnTransaction(
+    mutate: (record: OpenTurnTransactionRecord) => void,
+  ): Promise<void> {
+    const current = this._turnTransaction;
+    if (!current) {
+      throw new DialogStoreError('No active dialog turn transaction for recovery fact');
+    }
+    const next: OpenTurnTransactionRecord = {
+      version: 1,
+      state: 'open',
+      transactionId: current.transactionId,
+      begunAt: current.begunAt,
+      snapshot: current.snapshot,
+      ...(current.journal !== undefined ? { journal: current.journal } : {}),
+      ...(current.checkpoint !== undefined ? { checkpoint: current.checkpoint } : {}),
+      ...(current.pendingLlmResponse !== undefined
+        ? { pendingLlmResponse: current.pendingLlmResponse }
+        : {}),
+    };
+    mutate(next);
+    await this.fs.writeAtomic(this.turnTransactionPath, JSON.stringify(next, null, 2));
+    this._turnTransaction = next;
+  }
+
   private async ensureTurnTransactionRecovered(): Promise<void> {
     if (this._turnRecoveryChecked || this._turnTransaction !== null) return;
     if (this._turnRecoveryPromise !== null) return this._turnRecoveryPromise;
@@ -581,12 +751,33 @@ export class DialogStore implements DialogSessionLifecycle {
     try {
       record = parseTurnTransactionRecord(raw);
       if (record.state === 'open') {
-        await this.restoreTurnSnapshot(record.snapshot);
-        this.audit.write(
-          DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
-          `transaction_id=${record.transactionId}`,
-          'action=rollback_open',
-        );
+        if (record.checkpoint) {
+          // Phase 1955 Step C：已有完成 step 的 durable checkpoint → 保留最后
+          // step 边界的 current.json（不把已完成事实回滚掉）。
+          const currentExists = await this.fs.exists(this.currentPath);
+          if (currentExists) {
+            this.audit.write(
+              DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+              `transaction_id=${record.transactionId}`,
+              'action=retain_checkpoint',
+              `checkpoint_step=${record.checkpoint.stepIndex}`,
+            );
+          } else {
+            await this.restoreTurnSnapshot(record.snapshot);
+            this.audit.write(
+              DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+              `transaction_id=${record.transactionId}`,
+              'action=rollback_missing_current',
+            );
+          }
+        } else {
+          await this.restoreTurnSnapshot(record.snapshot);
+          this.audit.write(
+            DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+            `transaction_id=${record.transactionId}`,
+            'action=rollback_open',
+          );
+        }
       } else {
         this.audit.write(
           DIALOG_AUDIT_EVENTS.TURN_RECOVERED,

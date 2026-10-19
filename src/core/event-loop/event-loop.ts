@@ -633,9 +633,27 @@ export class EventLoop {
       const tools = this.runtime.getToolsForLLM();
       stage = 'session_messages';
       const sessionMessages = await this.runtime.getMessages();
+      // Phase 1955 Step C：同一 inbox 消息在失败 turn 已持久化于 dialog（checkpoint 保留）
+      // 时，重投递不得再次注入成重复 user message——按稳定 inboxId 去重。
+      const persistedInboxIds = new Set(
+        sessionMessages
+          .map(m => m.inboxId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      );
+      const injected = formatted.injected.filter(
+        m => m.inboxId === undefined || !persistedInboxIds.has(m.inboxId),
+      );
+      const dedupedCount = formatted.injected.length - injected.length;
+      if (dedupedCount > 0) {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.ITERATION,
+          `type=resume_injected_deduped`,
+          `count=${dedupedCount}`,
+        );
+      }
       stage = 'proactive_trim';
       const messages = await this.runtime.proactiveTrimIfNeeded(
-        [...sessionMessages, ...formatted.injected], systemPrompt, tools,
+        [...sessionMessages, ...injected], systemPrompt, tools,
       );
       stage = 'turn_start_callback';
       args.wrappedCallbacks?.onTurnStart?.(formatted.sources);

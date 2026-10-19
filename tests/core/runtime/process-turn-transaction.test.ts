@@ -84,8 +84,9 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
-  function makeRuntime() {
+  function makeRuntime(sessionExtra?: Record<string, unknown>) {
     const deps = createMockDeps();
+    if (sessionExtra) Object.assign(deps.sessionManager as object, sessionExtra);
     const runtime = new TransactionTestRuntime({
       clawId: 'txn-claw',
       clawDir: testClawDir,
@@ -290,6 +291,84 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
 
     expect(result.status).toBe('failed');
     expect(result.failureDisposition).toBe('unknown');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 1955 Step C: provider 失败保留已完成 step
+  // ---------------------------------------------------------------------------
+
+  function makeTurnRecovery(commitResult: unknown) {
+    return {
+      recordLlmResponse: vi.fn().mockResolvedValue(undefined),
+      recordToolStarted: vi.fn().mockResolvedValue(undefined),
+      recordToolResult: vi.fn().mockResolvedValue(undefined),
+      checkpointTurn: vi.fn().mockResolvedValue(undefined),
+      commitPartial: vi.fn().mockResolvedValue(commitResult),
+    };
+  }
+
+  it('provider failure + checkpoint -> commitPartial，不回滚，preservedCheckpoint=true', async () => {
+    const turnRecovery = makeTurnRecovery(true);
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    const original = new Error('llm boom');
+    runtime.reactError = original;
+    (deps.llm as any).getFailureDisposition.mockReturnValue('provider_recovery_scheduled');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.preservedCheckpoint).toBe(true);
+    expect(result.failureDisposition).toBe('provider_recovery_scheduled');
+    expect(turnRecovery.commitPartial).toHaveBeenCalledWith(
+      'turn_failure:provider_recovery_scheduled',
+    );
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+  });
+
+  it('provider failure 无 checkpoint -> commitPartial=false，仍回落 rollback', async () => {
+    const turnRecovery = makeTurnRecovery(false);
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    const original = new Error('llm boom');
+    runtime.reactError = original;
+    (deps.llm as any).getFailureDisposition.mockReturnValue('provider_recovery_scheduled');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.preservedCheckpoint).toBeUndefined();
+    expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('checkpoint commit 失败 -> 回落 rollback 并保留双因果', async () => {
+    const checkpointError = new Error('checkpoint write failed');
+    const turnRecovery = makeTurnRecovery(false);
+    turnRecovery.commitPartial.mockRejectedValue(checkpointError);
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    const original = new Error('llm boom');
+    runtime.reactError = original;
+    (deps.llm as any).getFailureDisposition.mockReturnValue('provider_recovery_scheduled');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBeInstanceOf(AggregateError);
+    const aggregate = result.error as AggregateError;
+    expect([...aggregate.errors]).toEqual([original, checkpointError]);
+    expect(aggregate.message).toBe('Turn failed and checkpoint commit failed; dialog rolled back');
+    expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('非可恢复失败（unknown）不调用 commitPartial，走 rollback', async () => {
+    const turnRecovery = makeTurnRecovery(true);
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    runtime.reactError = new Error('plain crash');
+    (deps.llm as any).getFailureDisposition.mockReturnValue('unknown');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(turnRecovery.commitPartial).not.toHaveBeenCalled();
+    expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
   });
 
   it('Runtime.getLLMFailureDisposition forwards the capability fact (post-drain 查询面)', () => {

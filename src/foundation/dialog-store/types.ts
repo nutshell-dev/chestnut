@@ -84,5 +84,75 @@ export interface DialogSessionLifecycle {
   commitTurn(reason?: string): Promise<void>;
   rollbackTurn(reason?: string): Promise<void>;
   archive(): Promise<void>;
+  /**
+   * Phase 1955 Step C：turn 内 step checkpoint / 工具副作用 journal 持久化能力。
+   * 可选：测试窄 mock 无此面时 Runtime 按旧 all-or-nothing 语义运行。
+   */
+  readonly turnRecovery?: TurnRecoveryPersistence;
+}
+
+/** turn 内单个工具调用的持久事实（RecoveryDelivery 的 dialog-store 侧形态）。 */
+export interface TurnToolUseJournalFact {
+  toolUseId: string;
+  toolName: string;
+  status: 'started' | 'completed';
+  startedAt: string;
+  completedAt?: string;
+  success?: boolean;
+  /** 工具结果正文（恢复时复用、不重复执行副作用）。 */
+  content?: string;
+  /** 失败结果的错误原因摘要。 */
+  error?: string;
+}
+
+/** 已完成 step 的 durable checkpoint（引用同一 transaction 与 dialog 修订身份）。 */
+export interface TurnStepCheckpoint {
+  transactionId: string;
+  stepIndex: number;
+  dialogRevision: string;
+  completedToolUses: ReadonlyArray<{
+    toolUseId: string;
+    toolName: string;
+    completedAt: string;
+    success: boolean;
+  }>;
+  committedAt: string;
+}
+
+/**
+ * Phase 1955 Step C：DialogStore 侧的 turn 恢复持久化协议。
+ * 不依赖 L3 StepExecutor——由 Runtime 把 RecoveryDelivery 事实适配到本接口，
+ * 保持 L2 不反向依赖 L3。
+ */
+export interface TurnRecoveryPersistence {
+  /** 完整 LLM 响应已收到的严格提交点（副作用前）。 */
+  recordLlmResponse(fact: {
+    committedAtMs: number;
+    stopReason: string;
+    content: unknown;
+  }): Promise<void>;
+  /** 工具意图（executor 副作用前）持久化。 */
+  recordToolStarted(fact: {
+    toolUseId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+    startedAtMs: number;
+  }): Promise<void>;
+  /** 工具结果（副作用返回后即刻）持久化。 */
+  recordToolResult(fact: {
+    toolUseId: string;
+    toolName: string;
+    success: boolean;
+    content?: string;
+    error?: string;
+    resultAtMs: number;
+  }): Promise<void>;
+  /** step 完成边界：固化 checkpoint（调用方保证 dialog 已先持久化）。 */
+  checkpointTurn(stepIndex: number): Promise<void>;
+  /**
+   * 部分提交：保留当前 dialog 与 checkpoint，不再回滚整轮。
+   * @returns false = 尚无 checkpoint（调用方回落到 rollback 语义）
+   */
+  commitPartial(reason: string): Promise<boolean>;
 }
 

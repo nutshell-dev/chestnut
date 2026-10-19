@@ -30,6 +30,7 @@ import { loadReadFileState, clearReadFileState, persistReadFileState } from '../
 import { runReact } from '../agent-executor/index.js';
 import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
 import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
+import { createTurnRecoveryDelivery } from './turn-recovery-delivery.js';
 import { isStepAbortError, abortEvidenceAuditCols } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
@@ -850,6 +851,7 @@ export class Runtime {
         origin: isUserOrigin ? 'user' : 'system',
         ...(isUserOrigin ? {} : { systemSubtype: message.type }),
         addedAt: now,
+        inboxId: message.id,
       });
       sources.push({
         text: formatted.replace(/\r?\n/g, ' '),
@@ -1203,6 +1205,11 @@ export class Runtime {
       );
     }
 
+    // Phase 1955 Step C：turn 内的严格恢复交付（工具/响应事实持久化）。
+    // 无 turnRecovery 能力的窄 mock/旧 store → 不注入，保持既有语义。
+    const turnRecovery = this.sessionManager.turnRecovery;
+    const recovery = turnRecovery ? createTurnRecoveryDelivery(turnRecovery) : undefined;
+
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
     let providerInfoEmitted = false;
     const emitProviderInfoOnce = () => {
@@ -1238,6 +1245,7 @@ export class Runtime {
           currentContractId,
           execContext: this.execContext,
         }),
+        ...(recovery ? { recovery } : {}),
         stepCallbacks: {
           onLLMResult: (info) => {
           // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
@@ -1270,6 +1278,8 @@ export class Runtime {
         onStepComplete: async (stepCount) => {
           // phase 1860 (RT-D2)：step 提交经单一编排协议（dialog save → blockId 回写 → read-state persist）。
           await this._commitStepBoundary(systemPrompt, messages, tools);
+          // Phase 1955 Step C：dialog 已持久化后固化 step checkpoint（顺序不变量）。
+          await turnRecovery?.checkpointTurn(stepCount);
           // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
           // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 step_yield 中断）
           // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
@@ -1375,6 +1385,48 @@ export class Runtime {
    */
   private async _rollbackFailedTurn(original: unknown): Promise<TurnResult> {
     const failureDisposition = this.llm.getFailureDisposition?.(original) ?? 'unknown';
+    // Phase 1955 Step C：可恢复 provider/上下文失败 → 保留最后 step checkpoint，
+    // 已完成步骤与工具副作用不回滚；无 checkpoint（首步前失败）仍走整轮回滚。
+    const preserveCompletedSteps = failureDisposition === 'provider_recovery_scheduled'
+      || failureDisposition === 'context_exceeded';
+    if (preserveCompletedSteps) {
+      try {
+        const committed = await this.sessionManager.turnRecovery?.commitPartial(
+          `turn_failure:${failureDisposition}`,
+        ) ?? false;
+        if (committed) {
+          return {
+            status: 'failed',
+            error: original,
+            failureDisposition,
+            preservedCheckpoint: true,
+          };
+        }
+      } catch (checkpointError) {
+        try {
+          await this.sessionManager.rollbackTurn(formatErr(original));
+        } catch (rollbackError) {
+          return {
+            status: 'failed',
+            error: new AggregateError(
+              [original, checkpointError, rollbackError],
+              'Turn failed; checkpoint commit and dialog rollback both failed',
+              { cause: original },
+            ),
+            failureDisposition,
+          };
+        }
+        return {
+          status: 'failed',
+          error: new AggregateError(
+            [original, checkpointError],
+            'Turn failed and checkpoint commit failed; dialog rolled back',
+            { cause: original },
+          ),
+          failureDisposition,
+        };
+      }
+    }
     try {
       await this.sessionManager.rollbackTurn(formatErr(original));
       return { status: 'failed', error: original, failureDisposition };

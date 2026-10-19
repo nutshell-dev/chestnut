@@ -26,6 +26,12 @@ export interface Message extends ProviderWireMessage {
   /** 消息写入时刻 ISO（24h 边界判断依据、phase C ContextManager 消费） */
   addedAt?: string;
 
+  /**
+   * Phase 1955 Step C/D：来源 inbox 消息的稳定身份。
+   * 同一业务消息重投递（provider 失败 nack / 幂等重发）不得在 dialog 中重复成两条。
+   */
+  inboxId?: string;
+
   /** phase C ContextManager 触发裁剪时填 */
   trimmed?: {
     trimmedAt: string;

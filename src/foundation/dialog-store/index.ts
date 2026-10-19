@@ -32,6 +32,9 @@ export type {
   DialogSaveResult,
   DialogSessionLifecycle,
   BlockIdAssignment,
+  TurnRecoveryPersistence,
+  TurnStepCheckpoint,
+  TurnToolUseJournalFact,
 } from './types.js';
 // phase 1850 Step C: save clone 分配的 blockId 显式回传写回原语
 export { applyBlockIdAssignments } from './apply-block-ids.js';

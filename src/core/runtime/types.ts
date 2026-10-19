@@ -228,6 +228,11 @@ export interface TurnResult {
    * AggregateError（含原始失败与 rollback 失败），本字段仍只描述原始主失败。
    */
   failureDisposition?: LLMFailureDisposition;
+  /**
+   * Phase 1955 Step C：provider 失败时已保留最后 step checkpoint（未回滚整轮）。
+   * true 表示失败消息重投递后将续作已有 dialog，而非从空 turn 重放。
+   */
+  preservedCheckpoint?: boolean;
 }
 
 export interface PendingTurnFacts {

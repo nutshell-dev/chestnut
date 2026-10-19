@@ -134,6 +134,113 @@ describe('DialogStore turn transaction (phase 1285)', () => {
     ]));
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 1955 Step C: step checkpoint / tool journal
+  // -------------------------------------------------------------------------
+
+  it('Phase 1955 C: checkpoint + journal 让新进程保留已完成 step（不回滚）', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+    await store.beginTurn();
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [
+        { role: 'user', content: 'task' },
+        { role: 'assistant', content: 'step-1 done' },
+      ],
+      toolsForLLM: [],
+    });
+    await store.turnRecovery!.recordToolStarted({
+      toolUseId: 'tool-1',
+      toolName: 'write_file',
+      input: { path: 'a.txt' },
+      startedAtMs: Date.now(),
+    });
+    await store.turnRecovery!.recordToolResult({
+      toolUseId: 'tool-1',
+      toolName: 'write_file',
+      success: true,
+      content: 'written',
+      resultAtMs: Date.now(),
+    });
+    await store.turnRecovery!.checkpointTurn(1);
+
+    const restarted = new DialogStore(fs, '', audit.audit, filename, clawId);
+    const result = await restarted.load();
+
+    expect(result.source).toBe('current');
+    if (result.source !== 'current') throw new Error(`unexpected source ${result.source}`);
+    expect(result.session.messages.map(m => m.content)).toEqual(['task', 'step-1 done']);
+    await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+    expect(audit.events).toContainEqual(expect.arrayContaining([
+      DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+      expect.stringMatching(/^transaction_id=/),
+      'action=retain_checkpoint',
+      'checkpoint_step=1',
+    ]));
+  });
+
+  it('Phase 1955 C: commitPartial 保留 dialog 并写入 checkpoint 证据', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+    await store.beginTurn();
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [
+        { role: 'user', content: 'task' },
+        { role: 'assistant', content: 'step-1 done' },
+      ],
+      toolsForLLM: [],
+    });
+    await store.turnRecovery!.recordToolStarted({
+      toolUseId: 'tool-1',
+      toolName: 'write_file',
+      input: {},
+      startedAtMs: Date.now(),
+    });
+    await store.turnRecovery!.recordToolResult({
+      toolUseId: 'tool-1',
+      toolName: 'write_file',
+      success: true,
+      content: 'written',
+      resultAtMs: Date.now(),
+    });
+    await store.turnRecovery!.checkpointTurn(1);
+
+    const committed = await store.turnRecovery!.commitPartial('turn_failure:provider_recovery_scheduled');
+
+    expect(committed).toBe(true);
+    const { session } = await store.load();
+    expect(session.messages.map(m => m.content)).toEqual(['task', 'step-1 done']);
+    await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+    expect(audit.events).toContainEqual(expect.arrayContaining([
+      DIALOG_AUDIT_EVENTS.TURN_COMMIT,
+      expect.stringMatching(/^transaction_id=/),
+      'reason=turn_failure:provider_recovery_scheduled',
+      'checkpoint_step=1',
+    ]));
+  });
+
+  it('Phase 1955 C: 无 checkpoint 时 commitPartial 返回 false（回落 rollback 语义）', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+    await store.beginTurn();
+
+    const committed = await store.turnRecovery!.commitPartial('turn_failure:provider_recovery_scheduled');
+
+    expect(committed).toBe(false);
+    await expect(fs.read('turn-transaction.json')).resolves.toContain('"state": "open"');
+  });
+
   it('malformed transaction record fails closed without reading partial current as authoritative', async () => {
     await store.save({ systemPrompt: 'sp', messages: [{ role: 'assistant', content: 'partial' }], toolsForLLM: [] });
     await fs.writeAtomic('turn-transaction.json', '{broken');
