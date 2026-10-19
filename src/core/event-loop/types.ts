@@ -81,36 +81,10 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   getLLMFailureDisposition(error: unknown): LLMFailureDisposition;
 }
 
-/** Phase 1268 Step B / phase 1776: recoverable LLM 失败的错误分类（waiting 判别联合的合法值）。quota = 配额时间窗类（EventLoop quota 退避，非配置类 permanent）。 */
-export type RecoverableLLMErrorClass = 'transient' | 'rate_limit' | 'quota';
-
-/**
- * Phase 1268 Step B: 已决定的 retry/cooldown 等待（schema v2 判别联合）。
- * 决定等待即先落盘；restart 按 resumeAt 恢复，不重新决策。
- * - retry: 普通退避重试，attempt 已消费（1-based），到期后允许下一次 drain。
- * - cooldown: 预算耗尽后的固定等待，attempts 保持 maxAttempts，到期只允许一次 probe。
- */
-export type LLMRetryWaitingState =
-  | {
-      kind: 'retry';
-      requestFingerprint: string;
-      errorClass: RecoverableLLMErrorClass;
-      attempt: number;
-      maxAttempts: number;
-      scheduledAt: string;
-      resumeAt: string;
-      error: string;
-    }
-  | {
-      kind: 'cooldown';
-      requestFingerprint: string;
-      errorClass: RecoverableLLMErrorClass;
-      attempts: number;
-      maxAttempts: number;
-      scheduledAt: string;
-      resumeAt: string;
-      error: string;
-    };
+// Phase 1950 Step B：provider retry/cooldown 调度类型（phase 1268 的
+// RecoverableLLMErrorClass / LLMRetryWaitingState）已随 phase 1826 owner 迁移退役，
+// 本层不再声明 provider 退避/分类词汇——恢复安排唯一归 LLMOrchestrator
+// （LLMRecoveryController 的 ready/at/on_change typed facts），EventLoop 只消费。
 
 export interface LoopErrorContext {
   audit: AuditLog;

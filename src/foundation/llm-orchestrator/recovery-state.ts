@@ -25,7 +25,11 @@ export const LLM_RECOVERY_FAILURE_EVIDENCE_MAX = 10;
 /** 保留的已接受干预/配置修订标识条数上限。 */
 export const LLM_RECOVERY_ACCEPTED_IDS_MAX = 64;
 
-/** 对外发布的安排：ready=可直接工作；at=到点再试；on_change=等干预/配置变化。 */
+/**
+ * 对外发布的安排：ready=可直接工作；at=到点再试；on_change=等干预/配置变化。
+ * Phase 1950 Step B：这是 owner（LLMOrchestrator）产生并持久化的只读事实；
+ * 调用方只消费（等待/重查），不得自行构造 schedule 或改写 revision/resumeAt。
+ */
 export type LLMRecoverySchedule =
   | { kind: 'ready'; revision: number }
   | { kind: 'at'; revision: number; resumeAt: string }

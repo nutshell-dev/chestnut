@@ -163,7 +163,15 @@ export type LLMRecoveryAdmission =
   | { kind: 'admitted'; attemptId: string; factsAccepted: true }
   | { kind: 'waiting'; schedule: LLMRecoverySchedule; factsAccepted: boolean };
 
-/** EventLoop 消费的窄 capability。 */
+/**
+ * EventLoop 消费的窄 capability。
+ *
+ * Phase 1950 Step B（恢复边界治理）：schedule / admission / factsAccepted 全部是
+ * LLMOrchestrator owner 产生并持久化的只读事实；调用方（EventLoop）只做准入、等待、
+ * ack/nack 与用户干预转发——禁止调用方填充或重算 retry/fallback/breaker/idle 策略
+ * 字段、伪造 schedule 或修改 facts 语义。`facts` 入参是 typed 观察事实
+ * （干预 ids / 配置修订 / 启动 token），不是策略通道。
+ */
 export interface LLMRecoveryController {
   inspect(): Promise<LLMRecoverySchedule>;
   begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission>;
