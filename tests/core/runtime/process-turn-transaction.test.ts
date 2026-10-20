@@ -15,6 +15,11 @@ import type { RuntimeOptions } from '../../../src/core/runtime/types.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { StepAbortError } from '../../../src/core/step-executor/index.js';
+import {
+  MaxStepsExceededError,
+  WallTimeExceededError,
+  ConsecutiveParseErrorsExceededError,
+} from '../../../src/core/agent-executor/index.js';
 
 class TransactionTestRuntime extends Runtime {
   public reactError: Error | null = null;
@@ -332,6 +337,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
     expect(result.status).toBe('failed');
+    expect(result.stepSettlement).toBe('failed_step_discarded');
     expect(result.preservedCheckpoint).toBe(true);
     expect(result.failureDisposition).toBe('provider_recovery_scheduled');
     expect(turnRecovery.discardCurrentStep).toHaveBeenCalledWith(
@@ -355,7 +361,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
   });
 
-  it('step 处置写失败 -> 回落 rollback 并保留双因果', async () => {
+  it('step 处置写失败 -> recovery_required + 双因果，不静默整轮 rollback', async () => {
     const checkpointError = new Error('checkpoint write failed');
     const turnRecovery = makeTurnRecovery({ preservedCheckpoint: null });
     turnRecovery.discardCurrentStep.mockRejectedValue(checkpointError);
@@ -367,14 +373,16 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
     expect(result.status).toBe('failed');
+    expect(result.stepSettlement).toBe('recovery_required');
     expect(result.error).toBeInstanceOf(AggregateError);
     const aggregate = result.error as AggregateError;
     expect([...aggregate.errors]).toEqual([original, checkpointError]);
-    expect(aggregate.message).toBe('Turn failed and checkpoint commit failed; dialog rolled back');
-    expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
+    expect(aggregate.message).toBe('Turn failed and current-step disposition failed; recovery required');
+    expect(aggregate.cause).toBe(original);
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
   });
 
-  it('非可恢复失败（unknown）不走 step 处置，仍走整轮 rollback（Step C 前旧语义）', async () => {
+  it('未知系统错误 -> discardCurrentStep 保留 step 事实 + recovery_required（不立即重跑）', async () => {
     const turnRecovery = makeTurnRecovery({ preservedCheckpoint: { stepIndex: 1 } });
     const { runtime, deps } = makeRuntime({ turnRecovery });
     runtime.reactError = new Error('plain crash');
@@ -383,8 +391,44 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
     expect(result.status).toBe('failed');
-    expect(turnRecovery.discardCurrentStep).not.toHaveBeenCalled();
-    expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
+    expect(result.stepSettlement).toBe('recovery_required');
+    expect(result.preservedCheckpoint).toBe(true);
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledWith('turn_failure:unknown');
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['max_steps', () => new MaxStepsExceededError(20)],
+    ['wall_time', () => new WallTimeExceededError(60000, 61000)],
+    ['parse_limit', () => new ConsecutiveParseErrorsExceededError(3, 'write_file')],
+  ])('agent loop 控制终止（%s）-> failed_step_discarded，保留已完成 step', async (_label, makeError) => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: { stepIndex: 3 } });
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    runtime.reactError = makeError();
+    (deps.llm as any).getFailureDisposition.mockReturnValue('unknown');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.stepSettlement).toBe('failed_step_discarded');
+    expect(result.preservedCheckpoint).toBe(true);
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledTimes(1);
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+  });
+
+  it('context_exceeded -> failed_step_discarded，保留已完成 step', async () => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: { stepIndex: 2 } });
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    runtime.reactError = new Error('context exceeded');
+    (deps.llm as any).getFailureDisposition.mockReturnValue('context_exceeded');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.stepSettlement).toBe('failed_step_discarded');
+    expect(result.preservedCheckpoint).toBe(true);
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledWith('turn_failure:context_exceeded');
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
   });
 
   it('Runtime.getLLMFailureDisposition forwards the capability fact (post-drain 查询面)', () => {

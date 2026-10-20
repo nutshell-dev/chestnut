@@ -84,3 +84,17 @@ export class WallTimeExceededError extends AgentError {
     );
   }
 }
+
+/**
+ * Phase 1956 Step C：agent loop 控制终止判据单源——max steps / wall time /
+ * parse-limit / max-tokens-tool-use。这类终止发生在若干完整 step 之后，
+ * 属可恢复失败：只结算当前 step（failed_step_discarded），
+ * 不是未知系统故障（不得判 recovery_required）。
+ * EventLoop 的 isAgentLoopCrashError 与本判据同源（delegate）。
+ */
+export function isAgentLoopTerminationError(err: unknown): boolean {
+  return err instanceof MaxStepsExceededError
+      || err instanceof WallTimeExceededError
+      || err instanceof ConsecutiveParseErrorsExceededError
+      || err instanceof ConsecutiveMaxTokensToolUseError;
+}

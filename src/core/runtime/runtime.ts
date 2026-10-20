@@ -27,7 +27,7 @@ import {
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
-import { runReact } from '../agent-executor/index.js';
+import { runReact, isAgentLoopTerminationError } from '../agent-executor/index.js';
 import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
 import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
 import { createTurnRecoveryDelivery } from './turn-recovery-delivery.js';
@@ -61,6 +61,7 @@ import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
   type TurnResult,
+  type TurnStepSettlement,
   type PendingTurnFacts,
   type PreparedInboxBatch,
   type PreparedInboxEntry,
@@ -1392,54 +1393,53 @@ export class Runtime {
   }
 
   /**
-   * Phase 1158 Step B: 安全 rollback，保留 original 与 recovery error 双因果。
-   * Phase 1944 Step B: 失败出口携带 LLM owner 的 typed 失败处置事实；rollback
+   * Phase 1158 Step B: 安全失败结算，保留 original 与 recovery error 双因果。
+   * Phase 1944 Step B: 失败出口携带 LLM owner 的 typed 失败处置事实；结算
    * 叠加失败时 disposition 仍只描述原始主失败（AggregateError 完整保留双因果）。
+   * Phase 1956 Step C：所有可恢复 turn failure 统一只结算当前 step——保留
+   * 1..N-1 完整 step、checkpoint 与工具 journal，丢弃第 N 步未完成片段；
+   * 无 checkpoint（首步前失败）同样只丢当前 step，不再整轮 rollback。
+   * step 处置本身失败 = transaction 无法安全定位 step → recovery_required，
+   * 不静默整轮回滚。整轮 rollback 仅剩两条显式路径：无 step 恢复能力的旧
+   * store（迁移回落）与无活跃事务（pre-turn 失败，无 step 可结算）。
    */
-  private async _rollbackFailedTurn(original: unknown): Promise<TurnResult> {
+  private async _settleFailedTurn(original: unknown): Promise<TurnResult> {
     const failureDisposition = this.llm.getFailureDisposition?.(original) ?? 'unknown';
-    // Phase 1955 Step C：可恢复 provider/上下文失败 → 保留最后 step checkpoint，
-    // 已完成步骤与工具副作用不回滚；无 checkpoint（首步前失败）仍走整轮回滚。
-    const preserveCompletedSteps = failureDisposition === 'provider_recovery_scheduled'
-      || failureDisposition === 'context_exceeded';
-    if (preserveCompletedSteps && this.sessionManager.turnRecovery?.hasActiveTurn()) {
+    const turnRecovery = this.sessionManager.turnRecovery;
+    if (turnRecovery?.hasActiveTurn()) {
       try {
-        // Phase 1956 Step B：统一走最后 step 处置——保留最近完整 checkpoint 与
-        // 工具 journal，只丢当前 step；无 checkpoint 时同样只丢当前 step。
-        const disposition = await this.sessionManager.turnRecovery.discardCurrentStep(
+        const disposition = await turnRecovery.discardCurrentStep(
           `turn_failure:${failureDisposition}`,
         );
+        // agent loop 控制终止（max steps / wall time / parse-limit 等）与已分类
+        // LLM 失败：可恢复，只丢当前 step。未知系统错误不伪装成可立即重试——
+        // 保留 step 结算事实并标 recovery_required，由 EventLoop 阻断自动重试。
+        const settlement: TurnStepSettlement =
+          failureDisposition === 'unknown' && !isAgentLoopTerminationError(original)
+            ? 'recovery_required'
+            : 'failed_step_discarded';
         return {
           status: 'failed',
           error: original,
           failureDisposition,
+          stepSettlement: settlement,
           preservedCheckpoint: disposition.preservedCheckpoint !== null,
         };
-      } catch (checkpointError) {
-        try {
-          await this.sessionManager.rollbackTurn(formatErr(original));
-        } catch (rollbackError) {
-          return {
-            status: 'failed',
-            error: new AggregateError(
-              [original, checkpointError, rollbackError],
-              'Turn failed; checkpoint commit and dialog rollback both failed',
-              { cause: original },
-            ),
-            failureDisposition,
-          };
-        }
+      } catch (settleError) {
         return {
           status: 'failed',
           error: new AggregateError(
-            [original, checkpointError],
-            'Turn failed and checkpoint commit failed; dialog rolled back',
+            [original, settleError],
+            'Turn failed and current-step disposition failed; recovery required',
             { cause: original },
           ),
           failureDisposition,
+          stepSettlement: 'recovery_required',
         };
       }
     }
+    // 无 step 恢复能力的旧 store（迁移回落）或无活跃事务（pre-turn 失败）：
+    // 无已完成 step 可保留，保持既有 all-or-nothing 语义。
     try {
       await this.sessionManager.rollbackTurn(formatErr(original));
       return { status: 'failed', error: original, failureDisposition };
@@ -1452,6 +1452,7 @@ export class Runtime {
           { cause: original },
         ),
         failureDisposition,
+        stepSettlement: 'recovery_required',
       };
     }
   }
@@ -1531,12 +1532,12 @@ export class Runtime {
             outcome = 'interrupted';
             return { status: 'interrupted', error, cause };
           } catch (commitError) {
-            return this._rollbackFailedTurn(
+            return this._settleFailedTurn(
               new AggregateError([error, commitError], 'Interrupted turn commit failed', { cause: error }),
             );
           }
         }
-        return this._rollbackFailedTurn(error);
+        return this._settleFailedTurn(error);
       }
     } finally {
       try {

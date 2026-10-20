@@ -22,6 +22,7 @@ export {
   ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError,
   WallTimeExceededError,
+  isAgentLoopTerminationError,
 } from './errors.js';
 export type { StreamCallbacks } from './stream-callbacks.js';
 export { makeStepNumber } from './step-number.js';

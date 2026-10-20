@@ -218,6 +218,15 @@ export interface RuntimeOptions {
   contextTrimPolicy?: Partial<TrimRuntimePolicy>;
 }
 
+/**
+ * Phase 1956 Step C：失败 turn 的 step 结算事实（跨层协议，EventLoop 消费）。
+ * - failed_step_discarded：当前未完成 step 已丢弃，已完成 step / checkpoint /
+ *   工具 journal 保留；已注入并持久化的消息不重复注入，按 recovery schedule resume。
+ * - recovery_required：无法安全自动恢复（事务损坏 / step 处置写失败 / 结果交付
+ *   失败 / 未知系统错误）；EventLoop 必须阻断自动重试，等待人工/恢复器处理。
+ */
+export type TurnStepSettlement = 'failed_step_discarded' | 'recovery_required';
+
 export interface TurnResult {
   status: 'success' | 'failed' | 'interrupted';
   error?: unknown;
@@ -226,10 +235,16 @@ export interface TurnResult {
    * Phase 1944 Step B：LLM 失败处置事实（LLMOrchestrator capability 产出、Runtime
    * 透传；仅 status='failed' 的失败出口填入）。rollback 叠加失败时 error 为
    * AggregateError（含原始失败与 rollback 失败），本字段仍只描述原始主失败。
+   * Phase 1956 Step C：本分类不决定 dialog 结算粒度（统一由 step 处置协议决定）。
    */
   failureDisposition?: LLMFailureDisposition;
   /**
-   * Phase 1955 Step C：provider 失败时已保留最后 step checkpoint（未回滚整轮）。
+   * Phase 1956 Step C：失败出口的 step 结算事实；缺省 = 无可结算 step
+   * （pre-turn 失败 / 无 step 恢复能力的旧 store 迁移回落）。
+   */
+  stepSettlement?: TurnStepSettlement;
+  /**
+   * Phase 1955 Step C / 1956 Step C：失败时已保留最后完整 step checkpoint（未回滚整轮）。
    * true 表示失败消息重投递后将续作已有 dialog，而非从空 turn 重放。
    */
   preservedCheckpoint?: boolean;

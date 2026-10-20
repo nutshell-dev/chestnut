@@ -13,12 +13,7 @@ import { EVENTLOOP_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js
 import { INTERRUPT_RECOVERY_DELAY_MS, UNKNOWN_ERROR_RECOVERY_DELAY_MS } from './constants.js';
 import type { LoopErrorContext } from './types.js';
 import { isStepAbortError, abortEvidenceAuditCols, type StepAbortError, type StepAbortReason } from '../step-executor/index.js';
-import {
-  MaxStepsExceededError,
-  WallTimeExceededError,
-  ConsecutiveParseErrorsExceededError,
-  ConsecutiveMaxTokensToolUseError,
-} from '../agent-executor/index.js';
+import { isAgentLoopTerminationError } from '../agent-executor/index.js';
 
 /**
  * EventLoop catch 块状态、handler 可读写以驱动恢复决策。
@@ -107,12 +102,11 @@ const priorityInboxHandler: ErrorHandler = {
  * Phase 1944 Step B: LLMAllProvidersFailedError 等 provider 聚合失败在 failed-turn /
  * post-drain 入口已凭 TurnResult.failureDisposition / getLLMFailureDisposition 的
  * owner typed 事实提前 defer，不再到达本 dispatch；handler 不再重判 provider 身份。
+ * Phase 1956 Step C: 判据单源迁 agent-executor（isAgentLoopTerminationError），
+ * Runtime step 结算与 EventLoop crash 分类共用同一判据。
  */
 export function isAgentLoopCrashError(err: unknown): boolean {
-  return err instanceof MaxStepsExceededError
-      || err instanceof WallTimeExceededError
-      || err instanceof ConsecutiveParseErrorsExceededError
-      || err instanceof ConsecutiveMaxTokensToolUseError;
+  return isAgentLoopTerminationError(err);
 }
 
 const agentLoopCrashHandler: ErrorHandler = {

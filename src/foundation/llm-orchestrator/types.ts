@@ -149,6 +149,11 @@ export type LLMStreamChunk = ProviderStreamChunk | LLMStreamResetChunk | LLMStre
  * - abort：中断语义；
  * - unknown：非 LLM 失败或无法归类（消费方走通用 dispatch）。
  */
+/**
+ * Phase 1956 Step C：本分类只描述 LLM owner 的失败处置结论，不决定 dialog
+ * 结算粒度——所有可恢复 turn failure 的 dialog 结算统一归 Runtime/DialogStore
+ * 的最后 step 协议（discardCurrentStep），本类型不含 rollback 语义。
+ */
 export type LLMFailureDisposition =
   | 'provider_recovery_scheduled'
   | 'context_exceeded'
