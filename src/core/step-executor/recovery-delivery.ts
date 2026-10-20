@@ -9,6 +9,7 @@
 
 import type { LLMResponse, ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 /**
  * LLM 调用事实载荷（结构性兼容 types.ts 的 LLMCallInfo）。
@@ -56,4 +57,33 @@ export interface RecoveryDelivery {
   llmResponseCommitted(fact: CompleteLLMResponse): Promise<void>;
   toolStarted(fact: ToolStartedFact): Promise<void>;
   toolResultCommitted(fact: ToolResultFact): Promise<void>;
+}
+
+/**
+ * Phase 1956 Step D：工具结果事实交付失败（recovery delivery failure）。
+ * 工具副作用已发生、不可撤销、不得重跑；本错误不是工具业务失败
+ * （不得吞成 ToolResult(success:false)），也不是工具未执行——
+ * 携带 toolUseId/toolName 供上层产出 recovery_required 恢复事实。
+ */
+export class ToolResultDeliveryError extends Error {
+  readonly toolUseId: ToolUseId;
+  readonly toolName: string;
+  constructor(
+    fact: { toolUseId: ToolUseId; toolName: string },
+    cause: unknown,
+  ) {
+    super(
+      `tool result delivery failed for ${fact.toolName} (${String(fact.toolUseId)}): `
+      + formatErr(cause),
+    );
+    this.name = 'ToolResultDeliveryError';
+    this.toolUseId = fact.toolUseId;
+    this.toolName = fact.toolName;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/** Phase 1956 Step D：result-delivery failure 判据（Runtime step 结算消费）。 */
+export function isToolResultDeliveryError(err: unknown): err is ToolResultDeliveryError {
+  return err instanceof ToolResultDeliveryError;
 }

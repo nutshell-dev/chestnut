@@ -682,6 +682,28 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
     });
   }
 
+  /**
+   * Phase 1956 Step D：结果提交失败证据——journal 从 started 推进为
+   * result_delivery_failed（副作用已发生、不可重跑；不标为未开始、不补结果）。
+   */
+  async recordToolResultDeliveryFailure(fact: {
+    toolUseId: string;
+    toolName: string;
+    error: string;
+    failedAtMs: number;
+  }): Promise<void> {
+    await this.updateOpenTurnTransaction(record => {
+      const existing = record.journal?.find(j => j.toolUseId === fact.toolUseId);
+      upsertJournalFact(record, {
+        toolUseId: fact.toolUseId,
+        toolName: fact.toolName,
+        status: 'result_delivery_failed',
+        startedAt: existing?.startedAt ?? new Date(fact.failedAtMs).toISOString(),
+        error: fact.error,
+      });
+    });
+  }
+
   async checkpointTurn(stepIndex: number): Promise<void> {
     // turn 已结算（例如测试/helper 在 turn 结束后才驱动 step 回调）：
     // 没有 open transaction 可固化，迟到 checkpoint 是 no-op。

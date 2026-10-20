@@ -14,6 +14,9 @@ import type { StepInput } from '../../../src/core/step-executor/types.js';
 import type {
   RecoveryDelivery, CompleteLLMResponse, ToolStartedFact, ToolResultFact,
 } from '../../../src/core/step-executor/recovery-delivery.js';
+import {
+  ToolResultDeliveryError, isToolResultDeliveryError,
+} from '../../../src/core/step-executor/recovery-delivery.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
@@ -185,13 +188,23 @@ describe('Phase 1933 Step C: RecoveryDelivery 严格恢复交付', () => {
     const { recovery, facts } = makeLoggingRecovery(log, { failOnResultCount: 1 });
     const executor = makeLoggingExecutor(log);
 
-    await expect(executeStep(makeStepInput({
+    // Phase 1956 Step D：提交失败包成 typed ToolResultDeliveryError（携带 toolUseId），
+    // 原始失败保留在 cause；副作用已发生一次且仅一次（不重试）。
+    const failure = await executeStep(makeStepInput({
       llm: makeToolUseLLM(TWO_TOOLS),
       executor,
       recovery,
-    }))).rejects.toThrow('persist-tool-result-failed');
+    })).then(
+      () => { throw new Error('expected executeStep to reject'); },
+      (err: unknown) => err,
+    );
 
-    // 副作用已发生一次且仅一次（不重试）；第 2 个工具未启动
+    expect(isToolResultDeliveryError(failure)).toBe(true);
+    const deliveryError = failure as ToolResultDeliveryError;
+    expect(String(deliveryError.toolUseId)).toBe('toolu_1');
+    expect(deliveryError.toolName).toBe('tool_a');
+    expect(deliveryError.cause).toBeInstanceOf(Error);
+    expect((deliveryError.cause as Error).message).toBe('persist-tool-result-failed');
     expect(executor.execute).toHaveBeenCalledTimes(1);
     expect(log).toEqual([
       'llmResponseCommitted',
@@ -201,6 +214,31 @@ describe('Phase 1933 Step C: RecoveryDelivery 严格恢复交付', () => {
     ]);
     // started 事实保持（不确定语义归实现方；此处断言提交记录不被重标/清除）
     expect(facts.started.map(f => f.toolUseId)).toEqual(['toolu_1']);
+  });
+
+  it('Phase 1956 D: 只读并行路径 toolResult 提交失败同样包成 typed delivery error（execute 仅一次）', async () => {
+    const log: string[] = [];
+    const { recovery } = makeLoggingRecovery(log, { failOnResultCount: 1 });
+    const executor = makeLoggingExecutor(log);
+    const registry = {
+      get: () => ({ readonly: true }),
+    } as unknown as ToolRegistry;
+
+    const failure = await executeStep(makeStepInput({
+      llm: makeToolUseLLM(TWO_TOOLS),
+      executor,
+      registry,
+      recovery,
+    })).then(
+      () => { throw new Error('expected executeStep to reject'); },
+      (err: unknown) => err,
+    );
+
+    expect(isToolResultDeliveryError(failure)).toBe(true);
+    expect((failure as ToolResultDeliveryError).toolName).toBe('tool_a');
+    // 批路径副作用恰好一次（executeParallel 单次），不重跑
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(executor.executeParallel).toHaveBeenCalledTimes(1);
   });
 
   it('无 recovery 注入：行为与现状一致（回归——不提交、正常完成）', async () => {

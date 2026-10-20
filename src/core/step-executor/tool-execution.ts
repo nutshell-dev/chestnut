@@ -15,7 +15,7 @@ import { ToolError } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepInput, StepCallbacks } from './types.js';
-import type { RecoveryDelivery } from './recovery-delivery.js';
+import { ToolResultDeliveryError, type RecoveryDelivery } from './recovery-delivery.js';
 import type { StepExecutorEventSink } from './audit-sink.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError, type AbortExecutionEvidence } from './abort-helpers.js';
@@ -54,6 +54,32 @@ function categorizeToolCalls(
 
 function isStepInput(value: StepCallbacks | StepInput): value is StepInput {
   return 'messages' in value;
+}
+
+/**
+ * Phase 1956 Step D：工具结果事实提交（execute 返回后即刻）。
+ * 提交失败 = recovery delivery failure：工具副作用已发生、不可重跑，
+ * 抛出 typed ToolResultDeliveryError（携带 toolUseId）——不吞成 ToolError、
+ * 不伪装成工具业务失败、不标为未执行。
+ */
+async function commitToolResultFact(
+  recovery: RecoveryDelivery,
+  call: ToolUseBlock,
+  result: ToolResult,
+): Promise<void> {
+  try {
+    await recovery.toolResultCommitted({
+      toolUseId: makeToolUseId(call.id),
+      toolName: call.name,
+      result,
+      resultAtMs: Date.now(),
+    });
+  } catch (err) {
+    throw new ToolResultDeliveryError(
+      { toolUseId: makeToolUseId(call.id), toolName: call.name },
+      err,
+    );
+  }
 }
 
 // Phase 1933 Step C: 从 callbacksOrInput 取严格恢复交付通道（仅 StepInput 本体携带；
@@ -138,13 +164,9 @@ async function executeReadonlyParallel(
       continue;
     }
     // Phase 1933 Step C: 批内实际结果按组内顺序逐个 await 提交；失败传播（副作用已发生，不重试）
+    // Phase 1956 Step D: 提交失败包成 typed delivery failure（不可重跑）。
     if (recovery) {
-      await recovery.toolResultCommitted({
-        toolUseId: makeToolUseId(call.id),
-        toolName: call.name,
-        result,
-        resultAtMs: Date.now(),
-      });
+      await commitToolResultFact(recovery, call, result);
     }
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, sink);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
@@ -291,14 +313,10 @@ export async function executeSingleTool(
   // Phase 1933 Step C: 严格恢复交付——execute 返回后即刻 await 提交 result 事实。
   // 提交失败传播（中止 step）：工具副作用已发生不可撤销，started 事实保持不确定、
   // 不得重标为未开始、不重试（恢复语义归实现方）。
+  // Phase 1956 Step D: 提交失败包成 typed ToolResultDeliveryError（不可重跑）。
   // 注意放在 try 外：recovery 提交失败不走 ToolError 收敛路径。
   if (recovery) {
-    await recovery.toolResultCommitted({
-      toolUseId: makeToolUseId(toolCall.id),
-      toolName: toolCall.name,
-      result,
-      resultAtMs: Date.now(),
-    });
+    await commitToolResultFact(recovery, toolCall, result);
   }
   return result;
 }

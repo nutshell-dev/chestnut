@@ -20,6 +20,8 @@ import {
   WallTimeExceededError,
   ConsecutiveParseErrorsExceededError,
 } from '../../../src/core/agent-executor/index.js';
+import { ToolResultDeliveryError } from '../../../src/core/step-executor/index.js';
+import { makeToolUseId } from '../../../src/foundation/llm-provider/index.js';
 
 class TransactionTestRuntime extends Runtime {
   public reactError: Error | null = null;
@@ -412,6 +414,27 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect(result.status).toBe('failed');
     expect(result.stepSettlement).toBe('failed_step_discarded');
     expect(result.preservedCheckpoint).toBe(true);
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledTimes(1);
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+  });
+
+  it('工具结果交付失败（ToolResultDeliveryError）-> recovery_required，不重跑、不伪装', async () => {
+    const turnRecovery = makeTurnRecovery({
+      preservedCheckpoint: null,
+      preservedToolJournalCount: 1,
+    });
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    runtime.reactError = new ToolResultDeliveryError(
+      { toolUseId: makeToolUseId('toolu_1'), toolName: 'write_file' },
+      new Error('disk full'),
+    );
+    (deps.llm as any).getFailureDisposition.mockReturnValue('unknown');
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.stepSettlement).toBe('recovery_required');
+    expect(result.error).toBeInstanceOf(ToolResultDeliveryError);
     expect(turnRecovery.discardCurrentStep).toHaveBeenCalledTimes(1);
     expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
   });

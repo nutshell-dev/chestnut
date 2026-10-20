@@ -288,6 +288,42 @@ describe('DialogStore turn transaction (phase 1285)', () => {
     expect(disposition.preservedCheckpoint).toBeNull();
   });
 
+  it('Phase 1956 D: 结果提交失败留证 result_delivery_failed，discard 时原样保留', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+    await store.beginTurn();
+    await store.turnRecovery!.beginStep(1);
+    await store.turnRecovery!.recordToolStarted({
+      toolUseId: 'tool-1',
+      toolName: 'write_file',
+      input: { path: 'a.txt' },
+      startedAtMs: Date.now(),
+    });
+    // 工具副作用已发生、结果事实提交失败 → durable 留证（不可重跑证据）
+    await store.turnRecovery!.recordToolResultDeliveryFailure({
+      toolUseId: 'tool-1',
+      toolName: 'write_file',
+      error: 'disk full',
+      failedAtMs: Date.now(),
+    });
+
+    const raw = await fs.read('turn-transaction.json');
+    expect(raw).toContain('result_delivery_failed');
+    expect(raw).toContain('disk full');
+
+    const disposition = await store.turnRecovery!.discardCurrentStep('turn_failure:unknown');
+    expect(disposition.preservedToolJournalCount).toBe(1);
+    expect(audit.events).toContainEqual(expect.arrayContaining([
+      DIALOG_AUDIT_EVENTS.TURN_COMMIT,
+      expect.stringMatching(/^transaction_id=/),
+      'action=discard_current_step',
+      'journal_facts=1',
+    ]));
+  });
+
   it('Phase 1956 B: beginStep/discardCurrentStep 无活跃事务严格抛错', async () => {
     await store.save({
       systemPrompt: 'sp',

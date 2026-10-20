@@ -31,7 +31,7 @@ import { runReact, isAgentLoopTerminationError } from '../agent-executor/index.j
 import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
 import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
 import { createTurnRecoveryDelivery } from './turn-recovery-delivery.js';
-import { isStepAbortError, abortEvidenceAuditCols } from '../step-executor/index.js';
+import { isStepAbortError, abortEvidenceAuditCols, isToolResultDeliveryError } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
 import {
@@ -1412,10 +1412,12 @@ export class Runtime {
           `turn_failure:${failureDisposition}`,
         );
         // agent loop 控制终止（max steps / wall time / parse-limit 等）与已分类
-        // LLM 失败：可恢复，只丢当前 step。未知系统错误不伪装成可立即重试——
-        // 保留 step 结算事实并标 recovery_required，由 EventLoop 阻断自动重试。
+        // LLM 失败：可恢复，只丢当前 step。工具结果交付失败（副作用已发生、
+        // 不可重跑）与未知系统错误不伪装成可立即重试——保留 step 结算事实并标
+        // recovery_required，由 EventLoop 阻断自动重试。
         const settlement: TurnStepSettlement =
-          failureDisposition === 'unknown' && !isAgentLoopTerminationError(original)
+          isToolResultDeliveryError(original)
+          || (failureDisposition === 'unknown' && !isAgentLoopTerminationError(original))
             ? 'recovery_required'
             : 'failed_step_discarded';
         return {

@@ -91,17 +91,21 @@ export interface DialogSessionLifecycle {
   readonly turnRecovery?: TurnRecoveryPersistence;
 }
 
-/** turn 内单个工具调用的持久事实（RecoveryDelivery 的 dialog-store 侧形态）。 */
+/**
+ * turn 内单个工具调用的持久事实（RecoveryDelivery 的 dialog-store 侧形态）。
+ * Phase 1956 Step D：status 增加 result_delivery_failed——工具副作用已发生、
+ * 结果事实提交失败的不可重跑证据（≠ 工具业务失败、≠ 工具未执行）。
+ */
 export interface TurnToolUseJournalFact {
   toolUseId: string;
   toolName: string;
-  status: 'started' | 'completed';
+  status: 'started' | 'completed' | 'result_delivery_failed';
   startedAt: string;
   completedAt?: string;
   success?: boolean;
   /** 工具结果正文（恢复时复用、不重复执行副作用）。 */
   content?: string;
-  /** 失败结果的错误原因摘要。 */
+  /** 失败结果 / 交付失败的错误原因摘要。 */
   error?: string;
 }
 
@@ -176,6 +180,16 @@ export interface TurnRecoveryPersistence {
     content?: string;
     error?: string;
     resultAtMs: number;
+  }): Promise<void>;
+  /**
+   * Phase 1956 Step D：工具结果事实提交失败的 durable 证据（尽力留证）。
+   * 副作用已发生、不可重跑；journal 从 started 推进为 result_delivery_failed。
+   */
+  recordToolResultDeliveryFailure(fact: {
+    toolUseId: string;
+    toolName: string;
+    error: string;
+    failedAtMs: number;
   }): Promise<void>;
   /** step 完成边界：固化 checkpoint（调用方保证 dialog 已先持久化）。 */
   checkpointTurn(stepIndex: number): Promise<void>;

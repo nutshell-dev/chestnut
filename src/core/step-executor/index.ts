@@ -19,6 +19,8 @@ export { asFinalStopReason } from './types.js';
 export type {
   RecoveryDelivery, CompleteLLMResponse, ToolStartedFact, ToolResultFact, RecoveryLLMCallInfo,
 } from './recovery-delivery.js';
+// Phase 1956 Step D: 结果事实交付失败 typed 错误（不可重跑，≠ 工具业务失败）
+export { ToolResultDeliveryError, isToolResultDeliveryError } from './recovery-delivery.js';
 export type {
   StepCallbacks, StepMeta, LLMCallInfo, FinalStopReason,
   StepInput, StepResult,
