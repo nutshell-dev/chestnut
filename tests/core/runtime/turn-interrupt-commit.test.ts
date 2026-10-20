@@ -277,7 +277,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     expect(lastTurnCommit.some((c: any) => String(c).includes('reason=idle_timeout'))).toBe(true);
   });
 
-  it('真错误（throw Error）: dialog rollback to begin snapshot + TURN_ROLLBACK', async () => {
+  it('真错误（throw Error）: 只丢当前 step（discardCurrentStep）+ TURN_COMMIT，不整轮 rollback', async () => {
     const runtime = await makeInterruptRuntime();
     // Pre-seed dialog so beginTurn snapshot is non-empty
     const sessionManager = (runtime as any).sessionManager;
@@ -289,33 +289,35 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
 
     const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
     const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
-    const origRollback = (runtime as any).sessionManager.rollbackTurn;
-    const rollbackCallSpy = vi.spyOn((runtime as any).sessionManager, 'rollbackTurn').mockImplementation(async (reason?: string) => {
-      return origRollback.call((runtime as any).sessionManager, reason);
-    });
+    const rollbackCallSpy = vi.spyOn((runtime as any).sessionManager, 'rollbackTurn');
     const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
 
     seedOneMessage(runtime, makeInfo('message', 'sender', 'hi'));
     runtime.midTurnSaves = 2;
     runtime.reactThrow = new Error('tool crash');
 
-    // Step H: 失败 turn 不冒泡——EventLoop 以 nack + rollback 结算（断言强度不变）。
+    // Phase 1956 Step C：未知系统错误只结算当前 step——已完成 step 与已注入消息
+    // 保留（不整轮 rollback）；EventLoop nack 保留原因 + recovery_required blocked。
     await driveLoop(runtime);
 
-    expect(rollbackCallSpy).toHaveBeenCalled();
+    expect(rollbackCallSpy).not.toHaveBeenCalled();
     expect(nackSpy).toHaveBeenCalled();
     expect(commitSpy).not.toHaveBeenCalled();
 
-    // Verify dialog rolled back to pre-turn state (pre-seed message only, mid-turn saves gone)
+    // dialog 保留最后 step 边界状态（中途 save 的 step-1 不丢；rollback 会回到 pre-seed）
     const { session } = await sessionManager.load();
-    expect(session.messages).toHaveLength(1);
-    expect(session.messages[0].content).toBe('pre-seed');
+    expect(session.messages.map(m => m.content)).toEqual(['hi', 'step-1']);
 
-    // Verify audit TURN_ROLLBACK
+    // TURN_COMMIT action=discard_current_step；无 TURN_ROLLBACK
+    const commitCalls = auditSpy.mock.calls.filter(
+      (c: any[]) => c[0] === DIALOG_AUDIT_EVENTS.TURN_COMMIT
+        && c.some((col: any) => String(col) === 'action=discard_current_step'),
+    );
+    expect(commitCalls.length).toBe(1);
     const rollbackCalls = auditSpy.mock.calls.filter(
       (c: any[]) => c[0] === DIALOG_AUDIT_EVENTS.TURN_ROLLBACK,
     );
-    expect(rollbackCalls.length).toBe(1);
+    expect(rollbackCalls.length).toBe(0);
   });
 
   it('invariant: rollbackTurn ≤ 1 call site in runtime.ts (真错误 else 分支)', async () => {

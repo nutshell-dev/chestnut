@@ -190,8 +190,8 @@ describe('runtime reactive trim+retry path', () => {
     await writePendingMsg('m1');
     const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
 
-    // 非 context-exceeded 错不进 retry path；现行 EventLoop 不冒泡，
-    // 经 dispatchError 落 eventloop_fatal 审计（error= 列含原 message）。
+    // 非 context-exceeded 错不进 retry path；Phase 1956 Step C/E：未知系统错误
+    // 不再 FATAL + 延迟重跑——EventLoop 消费 recovery_required，nack + blocked 阻断。
     const auditWrites: string[][] = [];
     vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
       auditWrites.push([type, ...args]);
@@ -202,7 +202,9 @@ describe('runtime reactive trim+retry path', () => {
     // 仅一次 runReact、trim 未触发
     expect(runReactCalls).toBe(1);
     expect(trimSpy).not.toHaveBeenCalled();
-    expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('Some other error')))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'eventloop_iteration' && a.some(c => c === 'type=turn_recovery_required'))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'eventloop_context_blocked' && a.some(c => c === 'reason=recovery_required'))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('Some other error')))).toBe(false);
   });
 
   it('SDK-path context-exceeded by message regex still triggers retry', async () => {

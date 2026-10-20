@@ -1101,6 +1101,83 @@ describe('EventLoop.run', () => {
     )).toBe(true);
   });
 
+  // ---------------------------------------------------------------------------
+  // Phase 1956 Step E: EventLoop 消费 typed step settlement
+  // ---------------------------------------------------------------------------
+
+  it('failed turn: stepSettlement=failed_step_discarded -> nack path=failed_step_discarded（非 rollback）', async () => {
+    const audit = createMockAudit();
+    const turnError = new Error('llm boom');
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.resolve(makeTurnResult('failed', {
+        error: turnError,
+        failureDisposition: 'provider_recovery_scheduled',
+        stepSettlement: 'failed_step_discarded',
+        preservedCheckpoint: true,
+      })),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'llm boom', 'failed_step_discarded');
+    // 可恢复失败仍按 recovery schedule defer，不进通用 dispatch
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c) === 'type=llm_failure_deferred'),
+    )).toBe(true);
+    expect(readBlockedState()).toBeUndefined();
+  });
+
+  it('failed turn: stepSettlement=recovery_required -> nack 保留原因 + blocked，不热循环不 dispatch', async () => {
+    const audit = createMockAudit();
+    const turnError = new Error('tool result delivery failed for write_file');
+    const { runtime, nackHandles, ackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.resolve(makeTurnResult('failed', {
+        error: turnError,
+        failureDisposition: 'unknown',
+        stepSettlement: 'recovery_required',
+      })),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    // 消息回 pending（保留原因），不 ack、不立即重跑
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(
+      ['handle-1'],
+      'tool result delivery failed for write_file',
+      'recovery_required',
+    );
+    expect(ackHandles).not.toHaveBeenCalled();
+    // blocked 持久化（阻断自动重试）+ 专项 audit；不进通用 dispatch
+    const blocked = readBlockedState();
+    expect(blocked).toBeDefined();
+    expect(blocked!.reason).toBe('recovery_required');
+    expect(String(blocked!.detail)).toContain('tool result delivery failed');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c) === 'type=turn_recovery_required'),
+    )).toBe(true);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED && e.some(c => String(c) === 'reason=recovery_required'),
+    )).toBe(true);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL)).toBe(false);
+  });
+
+  it('failed turn: 缺省 settlement（pre-turn/旧 store 语义）-> nack path 保持 rollback', async () => {
+    const audit = createMockAudit();
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.resolve(makeTurnResult('failed', { error: new Error('turn failed') })),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'turn failed', 'rollback');
+    expect(readBlockedState()).toBeUndefined();
+  });
+
   it('post-drain catch: Runtime 返回 provider_recovery_scheduled -> deferred audit（带 stage），不 dispatch', async () => {
     const audit = createMockAudit();
     const llmError = new LLMNetworkError('primary', new Error('offline'));

@@ -144,8 +144,11 @@ hi
       });
       await createTestEventLoop({ runtime: r, clawDir: clawDir2, clawId: 'sig-claw' }).run();
       // Step H: 旧 helper 的 runtime_catch_unhandled 已随 processBatch 退役；
-      // 现行等价面 = EventLoop fallbackHandler 的 FATAL 审计（error= 列含原 message）。
-      expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('reason=non_llm_error')) && a.some(c => String(c).includes('unexpected crash')))).toBe(true);
+      // Phase 1956 Step C/E：未知系统错误的现行等价面 = recovery_required blocked
+      //（nack 保留原因、不 FATAL、不延迟重跑）。
+      expect(auditWrites.some(a => a[0] === 'eventloop_iteration' && a.some(c => c === 'type=turn_recovery_required'))).toBe(true);
+      expect(auditWrites.some(a => a[0] === 'eventloop_context_blocked' && a.some(c => c === 'reason=recovery_required'))).toBe(true);
+      expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('reason=non_llm_error')) && a.some(c => String(c).includes('unexpected crash')))).toBe(false);
     });
   });
 

@@ -241,11 +241,20 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     expect(rollbackSpy).not.toHaveBeenCalled();
   });
 
-  it('MaxStepsExceededError calls rollbackTurn + ack(agent_loop_crash) + outbox notification', async () => {
+  it('MaxStepsExceededError -> discardCurrentStep + ack(agent_loop_crash)，不整轮 rollback', async () => {
     const runtime = await makeInterruptRuntime();
     const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
     const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
     const rollbackSpy = vi.spyOn((runtime as any).sessionManager, 'rollbackTurn').mockResolvedValue(undefined);
+    const discardSpy = vi.spyOn((runtime as any).sessionManager, 'discardCurrentStep').mockResolvedValue({
+      transactionId: 'txn',
+      preservedCheckpoint: null,
+      discardedStepIndex: 1,
+      discardedPendingLlmResponse: false,
+      preservedToolJournalCount: 0,
+      reason: 'turn_failure',
+      settledAt: new Date().toISOString(),
+    });
 
     runtime.fakeBatch = makeFakeBatch(
       [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
@@ -255,11 +264,13 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     runtime.reactThrow = new MaxStepsExceededError(10);
 
     // Step H: 现行 EventLoop 不冒泡 crash——turn 以 failed TurnResult 结算；
-    // phase 1121 Step B：agent-loop crash 不 mutate Contract、ack 破热循环
-    //（旧 helper 的 nack('rollback') 断言退役，现行等价面 = ack + rollback + FATAL 审计）。
+    // phase 1121 Step B：agent-loop crash 不 mutate Contract、ack 破热循环。
+    // Phase 1956 Step C：agent-loop 控制终止只结算当前 step（discardCurrentStep），
+    // 不再整轮 rollback。
     await driveLoop(runtime);
 
-    expect(rollbackSpy).toHaveBeenCalled();
+    expect(discardSpy).toHaveBeenCalled();
+    expect(rollbackSpy).not.toHaveBeenCalled();
     expect(ackSpy).toHaveBeenCalled();
     expect(nackSpy).not.toHaveBeenCalled();
   });

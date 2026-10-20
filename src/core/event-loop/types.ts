@@ -107,6 +107,16 @@ export type LLMRequestBlockedState =
       reason: 'retry_exhausted';
       attempts: number;
       maxAttempts: number;
+    })
+  | (LLMRequestBlockedBase & {
+      /**
+       * Phase 1956 Step E：TurnResult.stepSettlement=recovery_required——
+       * 无法安全自动恢复（事务损坏 / 结果交付失败 / 未知系统错误）；
+       * 阻断自动重试，等待人工/新事实改变 fingerprint 释放。
+       */
+      reason: 'recovery_required';
+      /** 阻断原因证据（原始失败摘要）。 */
+      detail: string;
     });
 // phase 1890 Step D：provider 类阻断（invalid_request / permanent_provider_error）
 // 归 LLMOrchestrator owner（phase 1826）；EventLoop 不再持有其状态变体。

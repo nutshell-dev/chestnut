@@ -342,12 +342,14 @@ Test message`;
         auditWrites.push([type, ...args]);
       });
 
-      // 现行 EventLoop 架构：turn 失败不冒泡，经 dispatchError 落 eventloop_fatal 审计。
-      // 原「rejects + runtime_catch_unhandled」的等价强度 = LLM 零成功调用 + FATAL 审计。
+      // Phase 1956 Step C/E：未知系统错误不再 FATAL + 延迟重跑——EventLoop 消费
+      // recovery_required：nack 保留原因 + blocked 阻断自动重试（audit-only、0 outbox）。
       await createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' }).run();
 
       // phase 71: audit-only fallback、0 outbox transmit
-      expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => c === 'reason=non_llm_error') && a.some(c => String(c).includes('LLM API crashed')))).toBe(true);
+      expect(auditWrites.some(a => a[0] === 'eventloop_iteration' && a.some(c => c === 'type=turn_recovery_required'))).toBe(true);
+      expect(auditWrites.some(a => a[0] === 'eventloop_context_blocked' && a.some(c => c === 'reason=recovery_required'))).toBe(true);
+      expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => c === 'reason=non_llm_error') && a.some(c => String(c).includes('LLM API crashed')))).toBe(false);
     });
 
     // UserInterrupt should NOT notify sender (user aborted, not a real error)

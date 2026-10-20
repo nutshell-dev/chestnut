@@ -189,19 +189,24 @@ describe('Runtime RetryOutboxInterrupt', () => {
       });
 
       // Step H: 旧 helper 的 runtime_catch_unhandled 已随 processBatch 退役；
-      // 现行等价面 = EventLoop fallbackHandler 的 FATAL 审计；
+      // Phase 1956 Step C/E：未知系统错误的现行等价面 = recovery_required step 结算
+      // + EventLoop blocked（不再 FATAL + 延迟重跑）；
       // 原始错误对象身份经 processTurn TurnResult 保持（见上例同模式）。
       let turnError: unknown;
+      let turnSettlement: unknown;
       vi.spyOn(runtime, 'processTurn').mockImplementation(async (...args: any[]) => {
         const result = await Runtime.prototype.processTurn.apply(runtime, args as any);
         turnError = result.error;
+        turnSettlement = result.stepSettlement;
         return result;
       });
 
       await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
 
       expect(turnError).toBe(originalError);
-      expect(audit.some(e => /^eventloop_fatal\treason=non_llm_error/.test(e))).toBe(true);
+      expect(turnSettlement).toBe('recovery_required');
+      expect(audit.some(e => /^eventloop_iteration\ttype=turn_recovery_required/.test(e))).toBe(true);
+      expect(audit.some(e => /^eventloop_fatal\treason=non_llm_error/.test(e))).toBe(false);
     });
   });
 

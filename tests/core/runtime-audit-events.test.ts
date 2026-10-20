@@ -275,10 +275,21 @@ Test message
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       const loop = createTestEventLoop({ runtime, clawDir, clawId: 'test-claw' });
       await loop.run();
-      // 现行 EventLoop 架构：turn 失败不冒泡，经 dispatchError 落 FATAL 审计；
-      // 原「rejects + runtime_catch_unhandled」的等价强度 = llm_error + FATAL 双断言。
+      // Phase 1956 Step C/E：未知系统错误不再 FATAL + 延迟重跑——step 结算保留
+      // 事实并标 recovery_required，EventLoop nack 保留原因并进入 blocked 阻断。
+      // 原「rejects + runtime_catch_unhandled」的等价强度 = llm_error + blocked 双断言。
       expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('trace_id='), expect.stringContaining('error='), expect.stringContaining('latency_ms='));
       expect(auditSpy).toHaveBeenCalledWith(
+        'eventloop_iteration',
+        'type=turn_recovery_required',
+        expect.stringContaining('fingerprint='),
+      );
+      expect(auditSpy).toHaveBeenCalledWith(
+        'eventloop_context_blocked',
+        'reason=recovery_required',
+        expect.stringContaining('fingerprint='),
+      );
+      expect(auditSpy).not.toHaveBeenCalledWith(
         'eventloop_fatal',
         expect.stringContaining('reason=non_llm_error'),
         expect.any(String),

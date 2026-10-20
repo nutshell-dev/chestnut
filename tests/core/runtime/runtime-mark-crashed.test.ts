@@ -136,7 +136,6 @@ describe('Runtime crash handling (phase 1121 Step B)', () => {
     { Cls: WallTimeExceededError, args: [1000, 2000] },
     { Cls: ConsecutiveParseErrorsExceededError, args: [3] },
     { Cls: ConsecutiveMaxTokensToolUseError, args: [5] },
-    { Cls: LLMAllProvidersFailedError, args: [[{ provider: 'test', error: new Error('fail') }]] },
   ];
 
   for (const { Cls, args } of errClasses) {
@@ -161,6 +160,30 @@ describe('Runtime crash handling (phase 1121 Step B)', () => {
       markSpy.mockRestore();
     });
   }
+
+  it('LLMAllProvidersFailedError with contract_id does NOT call markCorrupted（recovery_required blocked）', async () => {
+    const runtime = await makeCrashRuntime();
+    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCorrupted').mockResolvedValue(undefined);
+    const auditWrites: string[][] = [];
+    vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...cols: string[]) => {
+      auditWrites.push([type, ...cols]);
+    });
+    const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
+    vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
+
+    seedOneMessage(runtime, { contract_id: 'test-contract' });
+    runtime.reactThrow = new LLMAllProvidersFailedError([{ provider: 'test', error: new Error('fail') }]);
+
+    // Phase 1956 Step C/E：未分类 provider 聚合失败（disposition=unknown）只结算当前
+    // step 并标 recovery_required——EventLoop nack 保留原因 + blocked，不再 FATAL 重跑。
+    await createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'edge-claw' }).run();
+
+    expect(markSpy).not.toHaveBeenCalled();
+    expect(nackSpy).toHaveBeenCalled();
+    expect(auditWrites.some(a => a[0] === 'eventloop_iteration' && a.some(c => c === 'type=turn_recovery_required'))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'eventloop_fatal')).toBe(false);
+    markSpy.mockRestore();
+  });
 
   it('contract_id 缺失 → audit-only (no Contract mutation)', async () => {
     const runtime = await makeCrashRuntime();

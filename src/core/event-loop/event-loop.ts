@@ -450,14 +450,42 @@ export class EventLoop {
     failedRequestFingerprint: string,
   ): Promise<void> {
     if (result.status !== 'failed') return;
+    // context_exceeded（含 SDK regex 检测路径）优先于 recovery_required 阻断：
+    // 该失败经 trim 有界重试恢复，不进入 blocked。
+    const contextExceeded = isContextExceededError(result.error);
+    // Phase 1956 Step E：recovery_required（Runtime step 结算判定：事务损坏 /
+    // 结果交付失败 / 未知系统错误）——消息回 pending 并保留原因，进入 blocked
+    // 阻断自动重试；EventLoop 不自行重算错误类别，等待人工/新事实释放 gate。
+    if (result.stepSettlement === 'recovery_required' && !contextExceeded) {
+      const detail = formatErr(result.error);
+      await this.runtime.nackHandles(addressedHandles, detail, 'recovery_required');
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.ITERATION,
+        `type=turn_recovery_required`,
+        `fingerprint=${failedRequestFingerprint}`,
+      );
+      this._enterLlmRequestBlocked({
+        version: 2,
+        reason: 'recovery_required',
+        requestFingerprint: failedRequestFingerprint,
+        detail,
+        blockedAt: new Date().toISOString(),
+      });
+      return;
+    }
     if (isAgentLoopCrashError(result.error)) {
       // phase 1121 Step B: process failure 不再 mutate Contract；直接 ack 破热循环，
       // 错误调度 / fatal audit 由 _dispatchError 负责。
       await this.runtime.ackHandles(addressedHandles, 'agent_loop_crash');
     } else {
-      await this.runtime.nackHandles(addressedHandles, formatErr(result.error), 'rollback');
+      // Phase 1956 Step E：nack path 表达真实结算——step 已落盘保留（只丢当前
+      // step）不是整轮 rollback；缺省 settlement 为 pre-turn/旧 store 语义。
+      const nackPath = result.stepSettlement === 'failed_step_discarded'
+        ? 'failed_step_discarded'
+        : 'rollback';
+      await this.runtime.nackHandles(addressedHandles, formatErr(result.error), nackPath);
     }
-    if (isContextExceededError(result.error)) {
+    if (contextExceeded) {
       await this._handleContextExceeded(result.error, failedRequestFingerprint);
       return;
     }
@@ -1109,6 +1137,11 @@ export class EventLoop {
     if (s.reason === 'retry_exhausted') {
       if (typeof s.attempts !== 'number' || typeof s.maxAttempts !== 'number') return false;
       return true;
+    }
+
+    // Phase 1956 Step E：recovery_required blocked（detail 为阻断原因证据）。
+    if (s.reason === 'recovery_required') {
+      return typeof s.detail === 'string';
     }
 
     // provider 类 reason（invalid_request / permanent_provider_error）归 owner
