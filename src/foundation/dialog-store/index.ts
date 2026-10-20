@@ -34,6 +34,7 @@ export type {
   BlockIdAssignment,
   TurnRecoveryPersistence,
   TurnStepCheckpoint,
+  TurnStepDisposition,
   TurnToolUseJournalFact,
 } from './types.js';
 // phase 1850 Step C: save clone 分配的 blockId 显式回传写回原语

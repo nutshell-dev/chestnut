@@ -297,19 +297,33 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
   // Phase 1955 Step C: provider 失败保留已完成 step
   // ---------------------------------------------------------------------------
 
-  function makeTurnRecovery(commitResult: unknown) {
+  function makeTurnRecovery(disposition: {
+    preservedCheckpoint: { stepIndex: number } | null;
+    discardedStepIndex?: number | null;
+    discardedPendingLlmResponse?: boolean;
+    preservedToolJournalCount?: number;
+  }) {
     return {
       hasActiveTurn: vi.fn().mockReturnValue(true),
+      beginStep: vi.fn().mockResolvedValue(undefined),
       recordLlmResponse: vi.fn().mockResolvedValue(undefined),
       recordToolStarted: vi.fn().mockResolvedValue(undefined),
       recordToolResult: vi.fn().mockResolvedValue(undefined),
       checkpointTurn: vi.fn().mockResolvedValue(undefined),
-      commitPartial: vi.fn().mockResolvedValue(commitResult),
+      discardCurrentStep: vi.fn().mockResolvedValue({
+        transactionId: 'txn-1',
+        preservedCheckpoint: disposition.preservedCheckpoint,
+        discardedStepIndex: disposition.discardedStepIndex ?? 1,
+        discardedPendingLlmResponse: disposition.discardedPendingLlmResponse ?? false,
+        preservedToolJournalCount: disposition.preservedToolJournalCount ?? 0,
+        reason: 'turn_failure',
+        settledAt: new Date().toISOString(),
+      }),
     };
   }
 
-  it('provider failure + checkpoint -> commitPartial，不回滚，preservedCheckpoint=true', async () => {
-    const turnRecovery = makeTurnRecovery(true);
+  it('provider failure + checkpoint -> discardCurrentStep，不回滚，preservedCheckpoint=true', async () => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: { stepIndex: 1 } });
     const { runtime, deps } = makeRuntime({ turnRecovery });
     const original = new Error('llm boom');
     runtime.reactError = original;
@@ -320,14 +334,14 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect(result.status).toBe('failed');
     expect(result.preservedCheckpoint).toBe(true);
     expect(result.failureDisposition).toBe('provider_recovery_scheduled');
-    expect(turnRecovery.commitPartial).toHaveBeenCalledWith(
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledWith(
       'turn_failure:provider_recovery_scheduled',
     );
     expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
   });
 
-  it('provider failure 无 checkpoint -> commitPartial=false，仍回落 rollback', async () => {
-    const turnRecovery = makeTurnRecovery(false);
+  it('provider failure 无 checkpoint -> 同样只丢当前 step，不回落整轮 rollback', async () => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: null });
     const { runtime, deps } = makeRuntime({ turnRecovery });
     const original = new Error('llm boom');
     runtime.reactError = original;
@@ -336,14 +350,15 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
     expect(result.status).toBe('failed');
-    expect(result.preservedCheckpoint).toBeUndefined();
-    expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
+    expect(result.preservedCheckpoint).toBe(false);
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledTimes(1);
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
   });
 
-  it('checkpoint commit 失败 -> 回落 rollback 并保留双因果', async () => {
+  it('step 处置写失败 -> 回落 rollback 并保留双因果', async () => {
     const checkpointError = new Error('checkpoint write failed');
-    const turnRecovery = makeTurnRecovery(false);
-    turnRecovery.commitPartial.mockRejectedValue(checkpointError);
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: null });
+    turnRecovery.discardCurrentStep.mockRejectedValue(checkpointError);
     const { runtime, deps } = makeRuntime({ turnRecovery });
     const original = new Error('llm boom');
     runtime.reactError = original;
@@ -359,8 +374,8 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
   });
 
-  it('非可恢复失败（unknown）不调用 commitPartial，走 rollback', async () => {
-    const turnRecovery = makeTurnRecovery(true);
+  it('非可恢复失败（unknown）不走 step 处置，仍走整轮 rollback（Step C 前旧语义）', async () => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: { stepIndex: 1 } });
     const { runtime, deps } = makeRuntime({ turnRecovery });
     runtime.reactError = new Error('plain crash');
     (deps.llm as any).getFailureDisposition.mockReturnValue('unknown');
@@ -368,7 +383,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
     expect(result.status).toBe('failed');
-    expect(turnRecovery.commitPartial).not.toHaveBeenCalled();
+    expect(turnRecovery.discardCurrentStep).not.toHaveBeenCalled();
     expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
   });
 

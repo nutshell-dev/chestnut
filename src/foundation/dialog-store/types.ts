@@ -120,13 +120,41 @@ export interface TurnStepCheckpoint {
 }
 
 /**
+ * Phase 1956 Step B：最后 step 处置的 typed 结果。
+ * 明确表示：保留最近完整 checkpoint、当前 step 未完成片段不进入 dialog、
+ * 工具 journal 原样保留；无任何完整 step 时也只丢当前 step，
+ * 不恢复 turn 初始快照、不删除已注入业务消息。
+ */
+export interface TurnStepDisposition {
+  transactionId: string;
+  /** 保留的最近完整 step checkpoint；turn 内尚无完整 step 时为 null。 */
+  preservedCheckpoint: TurnStepCheckpoint | null;
+  /** 被丢弃的当前 step 序号（step-start 边界记录）；未进入任何 step 时为 null。 */
+  discardedStepIndex: number | null;
+  /** 当前 step 未完成的 LLM 响应证据已丢弃（不进入 dialog）。 */
+  discardedPendingLlmResponse: boolean;
+  /** 原样保留的工具 journal 事实数（已发生副作用不丢、不重跑）。 */
+  preservedToolJournalCount: number;
+  reason: string;
+  settledAt: string;
+}
+
+/**
  * Phase 1955 Step C：DialogStore 侧的 turn 恢复持久化协议。
+ * Phase 1956 Step B：增加显式 step 边界协议（beginStep / discardCurrentStep）；
+ * 恢复点 = 注入消息 + 最近完整 dialog + checkpoint + 工具 journal，
+ * 不再只有 turn 开始快照。
  * 不依赖 L3 StepExecutor——由 Runtime 把 RecoveryDelivery 事实适配到本接口，
  * 保持 L2 不反向依赖 L3。
  */
 export interface TurnRecoveryPersistence {
   /** 当前是否有活跃 turn transaction（无事务时调用方不得注入事实写入）。 */
   hasActiveTurn(): boolean;
+  /**
+   * Phase 1956 Step B：step 开始边界——持久化当前 step 序号。
+   * 写失败传播（step boundary 写失败不得静默继续）。
+   */
+  beginStep(stepIndex: number): Promise<void>;
   /** 完整 LLM 响应已收到的严格提交点（副作用前）。 */
   recordLlmResponse(fact: {
     committedAtMs: number;
@@ -152,9 +180,11 @@ export interface TurnRecoveryPersistence {
   /** step 完成边界：固化 checkpoint（调用方保证 dialog 已先持久化）。 */
   checkpointTurn(stepIndex: number): Promise<void>;
   /**
-   * 部分提交：保留当前 dialog 与 checkpoint，不再回滚整轮。
-   * @returns false = 尚无 checkpoint（调用方回落到 rollback 语义）
+   * Phase 1956 Step B：最后 step 处置——保留最近完整 checkpoint、工具 journal
+   * 与已注入消息；只丢弃当前 step 的未完成片段（pending LLM 响应证据）。
+   * 无完整 step（preservedCheckpoint=null）时同样只丢当前 step，
+   * 不恢复 turn 初始快照。写失败传播。
    */
-  commitPartial(reason: string): Promise<boolean>;
+  discardCurrentStep(reason: string): Promise<TurnStepDisposition>;
 }
 

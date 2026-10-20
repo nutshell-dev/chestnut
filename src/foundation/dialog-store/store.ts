@@ -27,6 +27,7 @@ import type {
   BlockIdAssignment,
   TurnRecoveryPersistence,
   TurnStepCheckpoint,
+  TurnStepDisposition,
   TurnToolUseJournalFact,
 } from './types.js';
 import type { DialogStoreAuditSink } from './audit-sink.js';
@@ -61,6 +62,8 @@ interface OpenTurnTransactionRecord {
   journal?: TurnToolUseJournalFact[];
   /** Phase 1955 Step C：最近完成 step 的 durable checkpoint。 */
   checkpoint?: TurnStepCheckpoint;
+  /** Phase 1956 Step B：当前 step 的 step-start 边界（checkpoint 前在途证据）。 */
+  currentStep?: { stepIndex: number; begunAt: string };
   /** 完整 LLM 响应已收到、step 尚未提交的证据（checkpoint 时清除）。 */
   pendingLlmResponse?: {
     committedAt: string;
@@ -75,8 +78,10 @@ interface CommittedTurnTransactionRecord {
   transactionId: string;
   committedAt: string;
   reason: string;
-  /** 部分提交（provider 失败保留已完成 step）时携带的 checkpoint 证据。 */
+  /** 部分提交 / 最后 step 处置时携带的 checkpoint 证据。 */
   checkpoint?: TurnStepCheckpoint;
+  /** Phase 1956 Step B：最后 step 处置时原样保留的工具 journal 证据。 */
+  journal?: TurnToolUseJournalFact[];
 }
 
 type TurnTransactionRecord = OpenTurnTransactionRecord | CommittedTurnTransactionRecord;
@@ -106,11 +111,22 @@ function parseTurnTransactionRecord(raw: string): TurnTransactionRecord {
     if (record.journal !== undefined && !Array.isArray(record.journal)) {
       throw new CorruptionError('open turn transaction journal is invalid', value);
     }
+    if (record.currentStep !== undefined) {
+      const cs = record.currentStep as Record<string, unknown> | null;
+      if (cs === null || typeof cs !== 'object'
+        || typeof cs.stepIndex !== 'number'
+        || typeof cs.begunAt !== 'string') {
+        throw new CorruptionError('open turn transaction current step boundary is invalid', value);
+      }
+    }
     return record as unknown as OpenTurnTransactionRecord;
   }
   if (record.state === 'committed') {
     if (typeof record.committedAt !== 'string' || typeof record.reason !== 'string') {
       throw new CorruptionError('committed turn transaction record has invalid decision', value);
+    }
+    if (record.journal !== undefined && !Array.isArray(record.journal)) {
+      throw new CorruptionError('committed turn transaction journal is invalid', value);
     }
     return record as unknown as CommittedTurnTransactionRecord;
   }
@@ -603,6 +619,16 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
     return this._turnTransaction !== null;
   }
 
+  /**
+   * Phase 1956 Step B：step 开始边界——持久化当前 step 序号。
+   * 无活跃事务 / 写失败均传播（step boundary 写失败不静默继续）。
+   */
+  async beginStep(stepIndex: number): Promise<void> {
+    await this.updateOpenTurnTransaction(record => {
+      record.currentStep = { stepIndex, begunAt: new Date().toISOString() };
+    });
+  }
+
   async recordLlmResponse(fact: {
     committedAtMs: number;
     stopReason: string;
@@ -682,19 +708,35 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
   }
 
   /**
-   * 部分提交：保留当前 dialog（最后 step 边界）与 checkpoint，不回滚整轮。
-   * 无 checkpoint 时返回 false，由调用方回落 rollback。
+   * Phase 1956 Step B：最后 step 处置——保留最近完整 checkpoint、工具 journal
+   * 与 current.json（含已注入消息）；只丢弃当前 step 的未完成片段证据
+   * （pendingLlmResponse 随事务结算消失，不进入 dialog）。
+   * 无 checkpoint 时同样只丢当前 step，绝不恢复 turn 初始快照。
+   * 写失败传播（事务保持 open，由恢复路径处理）。
    */
-  async commitPartial(reason: string): Promise<boolean> {
+  async discardCurrentStep(reason: string): Promise<TurnStepDisposition> {
     const current = this._turnTransaction;
-    if (!current || !current.checkpoint) return false;
+    if (!current) {
+      throw new DialogStoreError('No active dialog turn transaction for step disposition');
+    }
+    const settledAt = new Date().toISOString();
+    const disposition: TurnStepDisposition = {
+      transactionId: current.transactionId,
+      preservedCheckpoint: current.checkpoint ?? null,
+      discardedStepIndex: current.currentStep?.stepIndex ?? null,
+      discardedPendingLlmResponse: current.pendingLlmResponse !== undefined,
+      preservedToolJournalCount: current.journal?.length ?? 0,
+      reason,
+      settledAt,
+    };
     const committed: CommittedTurnTransactionRecord = {
       version: 1,
       state: 'committed',
       transactionId: current.transactionId,
-      committedAt: new Date().toISOString(),
+      committedAt: settledAt,
       reason,
-      checkpoint: current.checkpoint,
+      ...(current.checkpoint ? { checkpoint: current.checkpoint } : {}),
+      ...(current.journal ? { journal: current.journal } : {}),
     };
     await this.fs.writeAtomic(this.turnTransactionPath, JSON.stringify(committed, null, 2));
     this._turnTransaction = null;
@@ -702,10 +744,12 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
       DIALOG_AUDIT_EVENTS.TURN_COMMIT,
       `transaction_id=${current.transactionId}`,
       `reason=${reason}`,
-      `checkpoint_step=${current.checkpoint.stepIndex}`,
+      'action=discard_current_step',
+      `checkpoint_step=${current.checkpoint ? current.checkpoint.stepIndex : 'none'}`,
+      `journal_facts=${disposition.preservedToolJournalCount}`,
     );
     await this.cleanupTurnTransactionRecord('commit');
-    return true;
+    return disposition;
   }
 
   private async updateOpenTurnTransaction(
@@ -723,6 +767,7 @@ export class DialogStore implements DialogSessionLifecycle, TurnRecoveryPersiste
       snapshot: current.snapshot,
       ...(current.journal !== undefined ? { journal: current.journal } : {}),
       ...(current.checkpoint !== undefined ? { checkpoint: current.checkpoint } : {}),
+      ...(current.currentStep !== undefined ? { currentStep: current.currentStep } : {}),
       ...(current.pendingLlmResponse !== undefined
         ? { pendingLlmResponse: current.pendingLlmResponse }
         : {}),

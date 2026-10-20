@@ -183,13 +183,14 @@ describe('DialogStore turn transaction (phase 1285)', () => {
     ]));
   });
 
-  it('Phase 1955 C: commitPartial 保留 dialog 并写入 checkpoint 证据', async () => {
+  it('Phase 1956 B: discardCurrentStep 保留 dialog/checkpoint/journal 并返回 typed disposition', async () => {
     await store.save({
       systemPrompt: 'sp',
       messages: [{ role: 'user', content: 'task' }],
       toolsForLLM: [],
     });
     await store.beginTurn();
+    await store.turnRecovery!.beginStep(1);
     await store.save({
       systemPrompt: 'sp',
       messages: [
@@ -212,10 +213,15 @@ describe('DialogStore turn transaction (phase 1285)', () => {
       resultAtMs: Date.now(),
     });
     await store.turnRecovery!.checkpointTurn(1);
+    await store.turnRecovery!.beginStep(2);
 
-    const committed = await store.turnRecovery!.commitPartial('turn_failure:provider_recovery_scheduled');
+    const disposition = await store.turnRecovery!.discardCurrentStep('turn_failure:provider_recovery_scheduled');
 
-    expect(committed).toBe(true);
+    expect(disposition.preservedCheckpoint?.stepIndex).toBe(1);
+    expect(disposition.discardedStepIndex).toBe(2);
+    expect(disposition.discardedPendingLlmResponse).toBe(false);
+    expect(disposition.preservedToolJournalCount).toBe(1);
+    expect(disposition.reason).toBe('turn_failure:provider_recovery_scheduled');
     const { session } = await store.load();
     expect(session.messages.map(m => m.content)).toEqual(['task', 'step-1 done']);
     await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
@@ -223,22 +229,74 @@ describe('DialogStore turn transaction (phase 1285)', () => {
       DIALOG_AUDIT_EVENTS.TURN_COMMIT,
       expect.stringMatching(/^transaction_id=/),
       'reason=turn_failure:provider_recovery_scheduled',
+      'action=discard_current_step',
       'checkpoint_step=1',
     ]));
   });
 
-  it('Phase 1955 C: 无 checkpoint 时 commitPartial 返回 false（回落 rollback 语义）', async () => {
+  it('Phase 1956 B: 无 checkpoint 时 discardCurrentStep 同样只丢当前 step（不回滚、保留已注入消息）', async () => {
     await store.save({
       systemPrompt: 'sp',
       messages: [{ role: 'user', content: 'task' }],
       toolsForLLM: [],
     });
     await store.beginTurn();
+    // turn 起步后注入的业务消息已持久化（首 step 尚未完成，无 checkpoint）
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }, { role: 'user', content: 'injected inbox' }],
+      toolsForLLM: [],
+    });
+    await store.turnRecovery!.beginStep(1);
 
-    const committed = await store.turnRecovery!.commitPartial('turn_failure:provider_recovery_scheduled');
+    const disposition = await store.turnRecovery!.discardCurrentStep('turn_failure:provider_recovery_scheduled');
 
-    expect(committed).toBe(false);
-    await expect(fs.read('turn-transaction.json')).resolves.toContain('"state": "open"');
+    expect(disposition.preservedCheckpoint).toBeNull();
+    expect(disposition.discardedStepIndex).toBe(1);
+    const { session } = await store.load();
+    expect(session.messages.map(m => m.content)).toEqual(['task', 'injected inbox']);
+    await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+    expect(audit.events).toContainEqual(expect.arrayContaining([
+      DIALOG_AUDIT_EVENTS.TURN_COMMIT,
+      expect.stringMatching(/^transaction_id=/),
+      'action=discard_current_step',
+      'checkpoint_step=none',
+    ]));
+  });
+
+  it('Phase 1956 B: beginStep 持久化 step-start 边界，pending 响应证据随 discard 丢弃', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+    await store.beginTurn();
+    await store.turnRecovery!.beginStep(1);
+    await store.turnRecovery!.recordLlmResponse({
+      committedAtMs: Date.now(),
+      stopReason: 'tool_use',
+      content: [{ type: 'text', text: 'partial' }],
+    });
+
+    const raw = await fs.read('turn-transaction.json');
+    expect(raw).toContain('"currentStep"');
+    expect(raw).toContain('"stepIndex": 1');
+
+    const disposition = await store.turnRecovery!.discardCurrentStep('turn_failure:unknown');
+    expect(disposition.discardedPendingLlmResponse).toBe(true);
+    expect(disposition.discardedStepIndex).toBe(1);
+    expect(disposition.preservedCheckpoint).toBeNull();
+  });
+
+  it('Phase 1956 B: beginStep/discardCurrentStep 无活跃事务严格抛错', async () => {
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'task' }],
+      toolsForLLM: [],
+    });
+
+    await expect(store.turnRecovery!.beginStep(1)).rejects.toThrow(/No active dialog turn transaction/);
+    await expect(store.turnRecovery!.discardCurrentStep('x')).rejects.toThrow(/No active dialog turn transaction/);
   });
 
   it('Phase 1955 C: turn 结算后的迟到 checkpoint 是 no-op（不抛错）', async () => {

@@ -1218,6 +1218,8 @@ export class Runtime {
       ? this.sessionManager.turnRecovery
       : undefined;
     const recovery = turnRecovery ? createTurnRecoveryDelivery(turnRecovery) : undefined;
+    // Phase 1956 Step B：step-start 边界持久化（写失败传播，不静默继续）。
+    await turnRecovery?.beginStep(1);
 
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
     let providerInfoEmitted = false;
@@ -1289,6 +1291,8 @@ export class Runtime {
           await this._commitStepBoundary(systemPrompt, messages, tools);
           // Phase 1955 Step C：dialog 已持久化后固化 step checkpoint（顺序不变量）。
           await turnRecovery?.checkpointTurn(stepCount);
+          // Phase 1956 Step B：下一 step 的 step-start 边界（step-complete 后对偶）。
+          await turnRecovery?.beginStep(stepCount + 1);
           // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
           // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 step_yield 中断）
           // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
@@ -1398,19 +1402,19 @@ export class Runtime {
     // 已完成步骤与工具副作用不回滚；无 checkpoint（首步前失败）仍走整轮回滚。
     const preserveCompletedSteps = failureDisposition === 'provider_recovery_scheduled'
       || failureDisposition === 'context_exceeded';
-    if (preserveCompletedSteps) {
+    if (preserveCompletedSteps && this.sessionManager.turnRecovery?.hasActiveTurn()) {
       try {
-        const committed = await this.sessionManager.turnRecovery?.commitPartial(
+        // Phase 1956 Step B：统一走最后 step 处置——保留最近完整 checkpoint 与
+        // 工具 journal，只丢当前 step；无 checkpoint 时同样只丢当前 step。
+        const disposition = await this.sessionManager.turnRecovery.discardCurrentStep(
           `turn_failure:${failureDisposition}`,
-        ) ?? false;
-        if (committed) {
-          return {
-            status: 'failed',
-            error: original,
-            failureDisposition,
-            preservedCheckpoint: true,
-          };
-        }
+        );
+        return {
+          status: 'failed',
+          error: original,
+          failureDisposition,
+          preservedCheckpoint: disposition.preservedCheckpoint !== null,
+        };
       } catch (checkpointError) {
         try {
           await this.sessionManager.rollbackTurn(formatErr(original));
