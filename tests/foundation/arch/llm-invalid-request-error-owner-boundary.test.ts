@@ -25,7 +25,7 @@ describe('LLMInvalidRequestError owner boundary', () => {
     // EventLoop 不再消费/导入该类（provider 类阻断不再归 EventLoop）。
     expect(eventLoopSource).not.toMatch(/LLMInvalidRequestError/);
     expect(eventLoopTestSource).not.toMatch(/LLMInvalidRequestError/);
-    const error = new LLMInvalidRequestError('openai', 'invalid_unicode');
+    const error = new LLMInvalidRequestError('openai', 'provider_json_parse_rejected');
     expect(orchestratorErrors.classifyLLMError(error)).toBe('permanent');
   });
 });

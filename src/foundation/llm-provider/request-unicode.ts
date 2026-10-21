@@ -1,101 +1,21 @@
 /**
- * LLM provider request Unicode well-formed gate.
+ * LLMInvalidRequestError — provider-side JSON parse rejection 的 typed error。
  *
- * Validates every string inside a JSON-like provider request body before it is
- * serialized for the wire. Malformed Unicode is rejected as a typed permanent
- * error instead of being sent to the provider and mis-classified as transient.
+ * 请求侧 Unicode/circular 序列化守卫随 pi-ai 接管请求序列化而退役
+ *（phase 1925 死面、phase 1961 Step B 删除）；本文件只保留 live 的
+ * provider JSON parse rejection 错误。
  */
 
-import {
-  InvalidUnicodeStringError,
-  assertWellFormedUnicode,
-} from '../node-utils/index.js';
 import { LLMError } from './errors.js';
 
-/**
- * phase 1795: 循环引用与非法 Unicode 分 reason（循环误分类治理）。
- * `circular_reference` = active-path 重复访问；malformed Unicode 仍归 `invalid_unicode`。
- */
-type InvalidRequestReason = 'invalid_unicode' | 'circular_reference' | 'provider_json_parse_rejected';
+type InvalidRequestReason = 'provider_json_parse_rejected';
 
 export class LLMInvalidRequestError extends LLMError {
   readonly code = 'LLM_INVALID_REQUEST' as const;
-  constructor(
-    readonly provider: string,
-    readonly reason: InvalidRequestReason,
-    readonly valuePath?: string,
-    readonly codeUnitIndex?: number,
-  ) {
+  constructor(readonly provider: string, readonly reason: InvalidRequestReason) {
     super(`Invalid LLM request for ${provider}: ${reason}`, {
       provider,
       reason,
-      valuePath,
-      codeUnitIndex,
     });
   }
-}
-
-function assertRequestStrings(
-  provider: string,
-  value: unknown,
-  path = '$',
-  seen = new WeakSet<object>(),
-): void {
-  if (typeof value === 'string') {
-    try {
-      assertWellFormedUnicode(value);
-    } catch (error) {
-      if (error instanceof InvalidUnicodeStringError) {
-        throw new LLMInvalidRequestError(
-          provider,
-          'invalid_unicode',
-          path,
-          error.codeUnitIndex,
-        );
-      }
-      throw error;
-    }
-    return;
-  }
-  if (value === null || typeof value !== 'object') return;
-  if (seen.has(value)) {
-    // phase 1795: active-path 重复 = 循环引用，真实原因不再压成 invalid_unicode
-    throw new LLMInvalidRequestError(provider, 'circular_reference', path);
-  }
-  seen.add(value);
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) =>
-      assertRequestStrings(provider, entry, `${path}[${index}]`, seen)
-    );
-  } else {
-    for (const [key, entry] of Object.entries(value)) {
-      try {
-        assertWellFormedUnicode(key);
-      } catch (error) {
-        if (error instanceof InvalidUnicodeStringError) {
-          throw new LLMInvalidRequestError(
-            provider,
-            'invalid_unicode',
-            `${path}.${key}`,
-            error.codeUnitIndex,
-          );
-        }
-        throw error;
-      }
-      assertRequestStrings(provider, entry, `${path}.${key}`, seen);
-    }
-  }
-  seen.delete(value);
-}
-
-/**
- * Validate every string in a provider request body is well-formed Unicode,
- * then return the JSON-serialized wire payload.
- *
- * @throws LLMInvalidRequestError if any string contains a lone surrogate or the
- *   body contains a circular reference.
- */
-export function serializeProviderRequest(provider: string, body: unknown): string {
-  assertRequestStrings(provider, body);
-  return JSON.stringify(body);
 }

@@ -49,20 +49,20 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
   });
 
   it('LLMInvalidRequestError → permanent', () => {
-    expect(classifyLLMError(new LLMInvalidRequestError('openai', 'invalid_unicode'))).toBe('permanent');
+    expect(classifyLLMError(new LLMInvalidRequestError('openai', 'provider_json_parse_rejected'))).toBe('permanent');
   });
 
   it('LLMAllProvidersFailedError with all invalid_request → permanent', () => {
     const err = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
-      { provider: 'anthropic', error: new LLMInvalidRequestError('anthropic', 'invalid_unicode') },
+      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'provider_json_parse_rejected') },
+      { provider: 'anthropic', error: new LLMInvalidRequestError('anthropic', 'provider_json_parse_rejected') },
     ]);
     expect(classifyLLMError(err)).toBe('permanent');
   });
 
   it('LLMAllProvidersFailedError mixed permanent+transient → transient', () => {
     const err = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
+      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'provider_json_parse_rejected') },
       { provider: 'anthropic', error: new LLMNetworkError('anthropic', new Error('timeout')) },
     ]);
     expect(classifyLLMError(err)).toBe('transient');
@@ -115,7 +115,7 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
 
   it('LLMAllProvidersFailedError [permanent, quota] → quota（quota 优先于 permanent）', () => {
     const err = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
+      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'provider_json_parse_rejected') },
       { provider: 'kimi', error: new Error('quota exceeded') },
     ]);
     expect(classifyLLMError(err)).toBe('quota');
