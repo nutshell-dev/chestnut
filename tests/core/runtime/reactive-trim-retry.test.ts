@@ -14,7 +14,8 @@ import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import { LLMContextExceededError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMContextExceededError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
@@ -207,7 +208,7 @@ describe('runtime reactive trim+retry path', () => {
     expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('Some other error')))).toBe(false);
   });
 
-  it('SDK-path context-exceeded by message regex still triggers retry', async () => {
+  it('aggregate with context sub-error still triggers trim+retry', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
       status: 'target_reached',
@@ -221,8 +222,11 @@ describe('runtime reactive trim+retry path', () => {
     vi.spyOn(loopModule, 'runReact').mockImplementation(async () => {
       runReactCalls++;
       if (runReactCalls === 1) {
-        // 非 LLMContextExceededError、但 message 含 regex 模式
-        throw new Error('Anthropic SDK error: prompt is too long: 250000 > 200000');
+        // Phase 1960：typed 子错误经 failures 结构化递归识别（不依赖聚合 message 文本）
+        throw new LLMAllProvidersFailedError([
+          { provider: 'p1', error: new LLMContextExceededError('p1', 400, 'prompt is too long') },
+          { provider: 'p2', error: new LLMNetworkError('p2', new Error('ECONNRESET')) },
+        ]);
       }
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
@@ -236,5 +240,31 @@ describe('runtime reactive trim+retry path', () => {
 
     expect(runReactCalls).toBe(2);
     expect(trimSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('plain Error with provider context text no longer triggers trim（typed 边界）', async () => {
+    vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: 1000,
+      after: 100,
+      newMessages: [{ role: 'user', content: 'trimmed' } as Message],
+      archived: true,
+    } as any);
+
+    let runReactCalls = 0;
+    vi.spyOn(loopModule, 'runReact').mockImplementation(async () => {
+      runReactCalls++;
+      throw new Error('Anthropic SDK error: prompt is too long: 250000 > 200000');
+    });
+
+    const runtime = await makeRuntime();
+    await writePendingMsg('m1');
+    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
+
+    await loop.run();
+
+    expect(runReactCalls).toBe(1);
+    expect(trimSpy).not.toHaveBeenCalled();
   });
 });

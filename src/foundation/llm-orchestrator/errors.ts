@@ -131,19 +131,19 @@ export function classifyLLMError(err: unknown): LLMErrorClass {
 }
 
 /**
- * Broad context-exceeded detection. Handles three paths from the orchestrator:
- *   1. Single-provider LLMContextExceededError (orchestrator throw-through, instanceof)
- *   2. All-providers LLMError("...context_window_exceeded...") (streaming generator, regex)
- *   3. SDK-adapter non-standard error messages matching Anthropic/OpenAI context patterns (regex)
+ * Context-exceeded 消费谓词（Phase 1959 §4.7）：只消费 L1 已构造的 typed evidence。
  *
- * Regex mirrors Runtime._isContextExceededError (src/core/runtime/runtime.ts:1226);
- * after this extraction, Runtime._isContextExceededError will delegate here.
+ * - LLMContextExceededError / LLMOutputBudgetExceededError → true；
+ * - LLMAllProvidersFailedError → failures 结构化递归（任一子错误是 context）；
+ * - 普通 Error 文本一律 false —— provider 文本判定归 L1（pi-ai predicate），
+ *   L2b 不再重复解析（边界收紧是有意的；raw text 出现说明 L1 typed 化有漏点）。
  */
 export function isContextExceededError(err: unknown): boolean {
-  if (err instanceof LLMContextExceededError) return true;
-  if (err instanceof Error) {
-    const msg = err.message;
-    return /maximum context length|context.{0,30}exceed|prompt is too long|reduce the length of/i.test(msg);
+  if (err instanceof LLMContextExceededError || err instanceof LLMOutputBudgetExceededError) {
+    return true;
+  }
+  if (err instanceof LLMAllProvidersFailedError) {
+    return err.failures.some(failure => isContextExceededError(failure.error));
   }
   return false;
 }
