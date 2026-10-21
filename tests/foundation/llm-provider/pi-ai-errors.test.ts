@@ -10,6 +10,7 @@ import type { AssistantMessage } from '@earendil-works/pi-ai';
 import {
   classifyCapturedHttpError,
   classifyTextualError,
+  inspectSuccessfulMessage,
   isPiAiContextOverflowText,
   type HttpErrorCapture,
 } from '../../../src/foundation/llm-provider/pi-ai-errors.js';
@@ -34,9 +35,7 @@ function overflowText(provider: string, text: string): boolean {
   return isPiAiContextOverflowText(runtime.isContextOverflow, provider, text);
 }
 
-function assistantMessage(
-  overrides: Partial<Pick<AssistantMessage, 'provider' | 'stopReason' | 'errorMessage'>> = {},
-): AssistantMessage {
+function assistantMessage(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
   return {
     role: 'assistant',
     content: [],
@@ -79,6 +78,51 @@ describe('isPiAiContextOverflowText（pi-ai 官方 predicate shim）', () => {
 
   it('handles Cerebras bodyless overflow form', () => {
     expect(overflowText('cerebras', '400 status code (no body)')).toBe(true);
+  });
+});
+
+describe('inspectSuccessfulMessage（成功响应信号）', () => {
+  function successMessage(
+    stopReason: AssistantMessage['stopReason'],
+    usage: { input: number; output: number; cacheRead?: number },
+  ): AssistantMessage {
+    return assistantMessage({
+      stopReason,
+      usage: {
+        input: usage.input,
+        output: usage.output,
+        cacheRead: usage.cacheRead ?? 0,
+        cacheWrite: 0,
+        totalTokens: usage.input + usage.output + (usage.cacheRead ?? 0),
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
+  }
+
+  it('stop + 输入（含 cacheRead）> window → silent_overflow', () => {
+    const signal = inspectSuccessfulMessage(successMessage('stop', { input: 200_000, cacheRead: 60_000 }), 256_000);
+    expect(signal).toEqual({ kind: 'silent_overflow', inputTokens: 260_000, contextWindow: 256_000 });
+  });
+
+  it('stop + 输入 == window → null（严格大于）', () => {
+    expect(inspectSuccessfulMessage(successMessage('stop', { input: 256_000 }), 256_000)).toBeNull();
+  });
+
+  it('length + output=0 + 输入≥99% → length_stop_no_output', () => {
+    const signal = inspectSuccessfulMessage(successMessage('length', { input: 253_440, output: 0 }), 256_000);
+    expect(signal).toEqual({ kind: 'length_stop_no_output', inputTokens: 253_440, contextWindow: 256_000 });
+  });
+
+  it('length + output=0 + 输入<99% → null', () => {
+    expect(inspectSuccessfulMessage(successMessage('length', { input: 253_439, output: 0 }), 256_000)).toBeNull();
+  });
+
+  it('length + output>0 → null（bounded retry 另议）', () => {
+    expect(inspectSuccessfulMessage(successMessage('length', { input: 260_000, output: 5 }), 256_000)).toBeNull();
+  });
+
+  it('thinking/toolUse stop → null', () => {
+    expect(inspectSuccessfulMessage(successMessage('toolUse', { input: 300_000, output: 10 }), 256_000)).toBeNull();
   });
 });
 

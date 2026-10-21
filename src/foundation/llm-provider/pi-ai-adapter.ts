@@ -30,6 +30,7 @@ import type {
 import {
   LLMError,
   LLMEmptyResponseError,
+  LLMContextExceededError,
   LLMNetworkError,
   LLMOutputBudgetExceededError,
   LLMTimeoutError,
@@ -55,10 +56,13 @@ import {
   classifyCapturedHttpError,
   classifyTextualError,
   createCapturingFetch,
+  inspectSuccessfulMessage,
   isGoogleFamilyApi,
   isPiAiContextOverflowText,
   type HttpErrorCapture,
+  type SuccessContextSignal,
 } from './pi-ai-errors.js';
+import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 
 /** pi-ai ThinkingLevel（streamSimple 的 reasoning 档位）。 */
 type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -142,10 +146,29 @@ export class PiAiAdapter implements ProviderAdapter {
         finalMessage = event.message;
       }
     }
-    if (!finalMessage || finalMessage.content.length === 0) {
+    if (!finalMessage) {
+      throw new LLMEmptyResponseError(this.name);
+    }
+    // length-stop 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
+    const signal = inspectSuccessfulMessage(finalMessage, resolveContextWindow(this.name, this.model));
+    if (signal?.kind === 'length_stop_no_output') {
+      throw new LLMContextExceededError(
+        this.name,
+        0,
+        'length-stop with zero output (input at/over 99% context window)',
+      );
+    }
+    if (signal) this.observeContextOverflow(signal);
+    if (finalMessage.content.length === 0) {
       throw new LLMEmptyResponseError(this.name);
     }
     return assistantMessageToLLMResponse(finalMessage);
+  }
+
+  /** silent overflow：只写 audit observation，不改变响应/不触发 trim。 */
+  private observeContextOverflow(signal: SuccessContextSignal): void {
+    if (signal.kind !== 'silent_overflow') return;
+    this.config.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.CONTEXT_OVERFLOW_OBSERVED, `provider=${this.name}`, `model=${this.model}`, `kind=silent_overflow`, `input_tokens=${signal.inputTokens}`, `context_window=${signal.contextWindow}`, 'stop_reason=stop');
   }
 
   private async *streamOnce(
@@ -155,6 +178,17 @@ export class PiAiAdapter implements ProviderAdapter {
   ): AsyncIterableIterator<ProviderStreamChunk> {
     const state = createEventTranslationState();
     for await (const event of this.runEvents('stream', options, maxTokensOverride)) {
+      if (event.type === 'done') {
+        const signal = inspectSuccessfulMessage(event.message, resolveContextWindow(this.name, this.model));
+        if (signal?.kind === 'length_stop_no_output') {
+          throw new LLMContextExceededError(
+            this.name,
+            0,
+            'length-stop with zero output (input at/over 99% context window)',
+          );
+        }
+        if (signal) this.observeContextOverflow(signal);
+      }
       const chunks = translatePiAiEvent(event, state);
       if (!chunks) continue; // error 事件已由 runEvents 抛错
       for (const chunk of chunks) {

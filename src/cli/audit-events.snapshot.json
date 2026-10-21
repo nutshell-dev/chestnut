@@ -44,6 +44,19 @@
       "llm_stream_reset",
       "llm_tool_arg_parse_error"
     ],
+    "foundation_llm-provider_audit-events": [
+      {
+        "type": "llm_context_overflow_observed",
+        "cols": [
+          { "name": "provider", "type": "string", "required": true },
+          { "name": "model", "type": "string", "required": true },
+          { "name": "kind", "type": "string", "required": true },
+          { "name": "input_tokens", "type": "number", "required": true },
+          { "name": "context_window", "type": "number", "required": true },
+          { "name": "stop_reason", "type": "string", "required": true }
+        ]
+      }
+    ],
     "cli_audit-events": [
       "cli_claw_create",
       "cli_claw_daemon_start",

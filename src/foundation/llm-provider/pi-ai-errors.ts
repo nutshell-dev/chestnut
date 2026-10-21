@@ -88,6 +88,34 @@ export function isPiAiContextOverflowText(
   return isOverflow(probe);
 }
 
+/** 成功响应的 context 信号（只观测 / 判 length-stop 两类）。 */
+export type SuccessContextSignal =
+  | { kind: 'silent_overflow'; inputTokens: number; contextWindow: number }
+  | { kind: 'length_stop_no_output'; inputTokens: number; contextWindow: number };
+
+/**
+ * 成功响应检查（Phase 1959 §4.6）：
+ * - length + output=0 + 输入≥99% 窗口 → length_stop_no_output（调用方 throw）；
+ * - stop + 输入>窗口 → silent_overflow（调用方只写 audit，不改变响应）。
+ */
+export function inspectSuccessfulMessage(
+  message: PiAi.AssistantMessage,
+  contextWindow: number,
+): SuccessContextSignal | null {
+  const inputTokens = message.usage.input + message.usage.cacheRead;
+  if (
+    message.stopReason === 'length'
+    && message.usage.output === 0
+    && inputTokens >= contextWindow * 0.99
+  ) {
+    return { kind: 'length_stop_no_output', inputTokens, contextWindow };
+  }
+  if (message.stopReason === 'stop' && inputTokens > contextWindow) {
+    return { kind: 'silent_overflow', inputTokens, contextWindow };
+  }
+  return null;
+}
+
 /**
  * capture body → provider error message 文本。
  *
