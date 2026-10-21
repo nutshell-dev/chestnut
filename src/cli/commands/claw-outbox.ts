@@ -63,6 +63,17 @@ export async function drainOutbox(
       process.stderr.write(`[claw-outbox] ${msg}\n`);
       throw new CliError(msg);
     }
+    if (claimed.status === 'recovery_required') {
+      // Claim is stuck in processing: read failed and rollback failed. Do NOT
+      // continue draining or silently degrade — surface claim identity so the
+      // operator (or restart reconcile) can settle it.
+      const msg =
+        `Outbox claim requires recovery: read failed (${claimed.readError}); ` +
+        `rollback failed (${claimed.rollbackError}); ` +
+        `file remains in processing: ${claimed.claimPath} (original: ${claimed.filename})`;
+      process.stderr.write(`[claw-outbox] ${msg}\n`);
+      throw new CliError(msg);
+    }
 
     raceCount = 0;
     results.push(claimed.content);

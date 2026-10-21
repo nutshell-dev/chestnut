@@ -32,6 +32,7 @@ type ClaimResult =
   | { status: 'empty' }
   | { status: 'race_lost'; error: string }
   | { status: 'io_error'; error: string }
+  | { status: 'recovery_required'; readError: string; rollbackError: string; claimPath: string; filename: string }
   | { status: 'claimed'; claimPath: string; filename: string; content: string };
 
 /**
@@ -391,7 +392,14 @@ export class OutboxReader {
    *
    * Returns a discriminated result so callers can distinguish:
    *   - `empty`: nothing to claim (including race-lost cases)
-   *   - `io_error`: filesystem error while listing/moving/reading
+   *   - `io_error`: filesystem error while listing/moving/reading; for read failures
+   *     this status additionally guarantees the claim was settled (rolled back to pending)
+   *   - `recovery_required`: read failed AND rollback to pending failed — the claimed
+   *     file remains in processing and disposition is incomplete. Carries the original
+   *     read error, the rollback error, claimPath and original filename; callers must
+   *     surface it explicitly and must not degrade it to empty/io_error. Any rollback
+   *     error — including ambiguous ones where the file location is not provably pending
+   *     (e.g. transient EIO/timeout or vanished source) — maps here conservatively.
    *
    * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed()/markSkipped().
    *
@@ -440,23 +448,34 @@ export class OutboxReader {
       try {
         content = await this.fs.read(relClaimedPath);
       } catch (err) {
-        // Rollback: move back to pending so message is not stuck in processing
-        try {
-          await this.fs.move(relClaimedPath, relPendingPath);
-        } catch (rollbackErr) {
-          // Rollback failed: leave audit trail, message will be recovered by reconcile on next restart
-          emitOutboxClaimFailed(this.audit, {
-            file: fileName,
-            op: 'read_rollback',
-            reason: formatErr(rollbackErr),
-          });
-        }
         const reason = formatErr(err);
         emitOutboxClaimFailed(this.audit, {
           file: fileName,
           op: 'read',
           reason,
         });
+        // Rollback: move back to pending so message is not stuck in processing
+        try {
+          await this.fs.move(relClaimedPath, relPendingPath);
+        } catch (rollbackErr) {
+          // Rollback failed (or outcome undecidable): the file stays in processing
+          // and disposition is incomplete. Return recovery_required carrying both
+          // errors + claim identity; do NOT delete the file — restart reconcile
+          // (or manual recovery) handles it, and the caller learns about it now.
+          const rollbackReason = formatErr(rollbackErr);
+          emitOutboxClaimFailed(this.audit, {
+            file: fileName,
+            op: 'read_rollback',
+            reason: rollbackReason,
+          });
+          return {
+            status: 'recovery_required',
+            readError: reason,
+            rollbackError: rollbackReason,
+            claimPath: path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`),
+            filename: fileName,
+          };
+        }
         return { status: 'io_error', error: reason };
       }
     }

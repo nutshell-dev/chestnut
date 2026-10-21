@@ -250,4 +250,47 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
     expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EACCES list') });
     expect(auditEvents.some(e => e[0] === 'outbox_list_failed')).toBe(true);
   });
+
+  it('returns recovery_required carrying both errors and claim identity when read fails and rollback fails', async () => {
+    const fs = makeMockOutboxFs({
+      move: vi.fn()
+        .mockResolvedValueOnce(undefined) // claim move succeeds
+        .mockRejectedValueOnce(Object.assign(new Error('EPERM rollback'), { code: 'EPERM' })),
+      read: vi.fn().mockRejectedValue(Object.assign(new Error('EIO read'), { code: 'EIO' })),
+    });
+    const reader = new OutboxReader(fs, audit);
+
+    const result = await reader.claimNext('/claw');
+
+    expect(result.status).toBe('recovery_required');
+    if (result.status !== 'recovery_required') throw new Error('unreachable');
+    expect(result.readError).toContain('EIO read');
+    expect(result.rollbackError).toContain('EPERM rollback');
+    expect(result.filename).toBe('1717480000000_normal_aaa.md');
+    expect(result.claimPath).toMatch(/^outbox\/processing\/cli_.*_1717480000000_normal_aaa\.md$/);
+    // claim move + failed rollback move, nothing else (no deletion of the stuck file)
+    expect(fs.move).toHaveBeenCalledTimes(2);
+    expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=read'))).toBe(true);
+    expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=read_rollback'))).toBe(true);
+  });
+
+  it('maps undecidable rollback outcome (claimed file vanished) to recovery_required, not io_error', async () => {
+    const fs = makeMockOutboxFs({
+      move: vi.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+      read: vi.fn().mockRejectedValue(Object.assign(new Error('EIO'), { code: 'EIO' })),
+    });
+    const reader = new OutboxReader(fs, audit);
+
+    const result = await reader.claimNext('/claw');
+
+    // File location is not provably pending → caller must observe recovery_required
+    // (conservative), not a plain io_error that would claim settlement completed.
+    expect(result.status).toBe('recovery_required');
+    if (result.status !== 'recovery_required') throw new Error('unreachable');
+    expect(result.readError).toContain('EIO');
+    expect(result.rollbackError).toContain('ENOENT');
+    expect(result.claimPath).toContain('outbox/processing/');
+  });
 });

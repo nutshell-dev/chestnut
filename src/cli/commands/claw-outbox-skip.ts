@@ -68,6 +68,16 @@ export async function skipOutbox(
       process.stderr.write(`[claw-outbox-skip] ${msg}\n`);
       throw new CliError(msg);
     }
+    if (claimed.status === 'recovery_required') {
+      // Unreachable with readContent:false today (no read, no rollback), but the
+      // ClaimResult union requires explicit handling — never degrade to empty/io_error.
+      const msg =
+        `Outbox claim requires recovery: read failed (${claimed.readError}); ` +
+        `rollback failed (${claimed.rollbackError}); ` +
+        `file remains in processing: ${claimed.claimPath} (original: ${claimed.filename})`;
+      process.stderr.write(`[claw-outbox-skip] ${msg}\n`);
+      throw new CliError(msg);
+    }
 
     raceCount = 0;
     await outboxReader.markSkipped('.', claimed.claimPath, claimed.filename);
