@@ -34,7 +34,8 @@ import type { PermissionChecker, ToolProfile } from '../../foundation/tool-proto
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { SubAgentRecoveryStore, ResumeCursor } from './recovery-state.js';
 // Phase 1933 Step G: 不确定副作用 typed 错误（值导入：resume 段 throw 用）
-import { RecoveryUncertainSideEffectError, SubAgentRecoveryStoreError } from './recovery-state.js';
+// Phase 1958 Step B: SubAgentRecoveryRequiredError —— 恢复事实不可判定的 typed 阻断
+import { RecoveryUncertainSideEffectError, SubAgentRecoveryRequiredError, SubAgentRecoveryStoreError } from './recovery-state.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
@@ -138,6 +139,12 @@ export class SubAgent {
   /** phase 1858 Step G (SA-D6): best-effort 写点降级证据 */
   private degradedArtifacts: DegradedArtifact[] = [];
 
+  /**
+   * Phase 1958 Step B: 恢复事实不可判定已 typed 阻断 —— finally 不再 best-effort
+   * 落盘对话（避免 fresh/部分对话覆盖不可读但仍在盘的 dialog 事实），也不推进游标。
+   */
+  private recoveryBlocked = false;
+
   constructor(options: SubAgentOptions) {
     this.agentId = options.agentId;
     this.resultDir = options.resultDir;
@@ -236,14 +243,11 @@ export class SubAgent {
 
       // Phase 1933 Step D: 通用安全续跑——timeout controller 建立后、runReact 前，
       // 从最后安全 checkpoint 恢复（完整 LLM 响应已提交则不重复请求、已提交工具结果不重复执行）。
-      // 无 store / 无 cursor / 损坏回退时本段零行为变化（messages 保持上方全新构建）。
+      // Phase 1958 Step B: 无 store / cursor 确定缺席时本段零行为变化（messages 保持上方
+      // 全新构建）；cursor/对话/已提交事实不可读 → typed recovery-required 阻断，不再回退。
       // 本段在 try 内：resume 段 toolExecutor 的 abort/timeout 走既有 classifyAndAuditError 路径。
       if (this.recoveryStore) {
-        // freshBaseline：全新构建基线浅拷贝（message 对象共享、数组结构独立）——
-        // resume 中段发现事实不自洽时回退「无 cursor」路径用。
-        const freshBaseline = [...messages];
         await this.resumeFromRecoveryCheckpoint(this.recoveryStore, {
-          freshBaseline,
           // ctx 与 runReact 相同的 getExecContext 构造（timeout.signal 生效、abort 传播）
           ctx: executor.getExecContext(executorProfile, {
             clawId: this.agentId,
@@ -460,21 +464,25 @@ export class SubAgent {
         stream.closeSw();
       }
       // 持久化 messages — finally 保证超时/中断/正常结束都落盘（best-effort）
+      // Phase 1958 Step B: recoveryBlocked（恢复事实不可判定已阻断）→ 跳过落盘，
+      // 不以 fresh/部分对话覆盖仍在盘的 dialog 事实、不推进游标。
       let finalSaved = false;
-      try {
-        const finalMessages = this.messages ?? [];
-        const saved = await this.messageStore
-          .save({
-            systemPrompt: this.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
-            messages: finalMessages,
-            toolsForLLM: this.resolvedToolsForLLM ?? this.toolsForLLM ?? [],
-          });
-        // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
-        applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
-        finalSaved = true;
-      } catch (e) {
-        this.recordDegraded('dialog', 'final_save', e);
-        this.sink.persistFailed({ error: formatErr(e) });
+      if (!this.recoveryBlocked) {
+        try {
+          const finalMessages = this.messages ?? [];
+          const saved = await this.messageStore
+            .save({
+              systemPrompt: this.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+              messages: finalMessages,
+              toolsForLLM: this.resolvedToolsForLLM ?? this.toolsForLLM ?? [],
+            });
+          // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+          applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
+          finalSaved = true;
+        } catch (e) {
+          this.recordDegraded('dialog', 'final_save', e);
+          this.sink.persistFailed({ error: formatErr(e) });
+        }
       }
       // Phase 1933 Step G: finally save 成功同样允许推进游标（onStepComplete 不覆盖
       // 最终 step —— end_turn/终态不触发步进回调）；save 失败 → 不推进。
@@ -500,26 +508,40 @@ export class SubAgent {
   }
 
   /**
-   * Phase 1933 Step D: 安全续跑入口。无 cursor → 零行为变化；cursor 损坏 →
-   * sink 留证（recoveryFallback）后按无 cursor 继续；否则按 kind 分发。
+   * Phase 1958 Step B: typed recovery-required 阻断统一出口 —— 留证（recoveryFallback
+   * 携带原始 reason）+ 标记 recoveryBlocked（finally 不落盘、不推进游标）+ throw
+   * SubAgentRecoveryRequiredError 入既有 catch 分类/audit 路径。事实不可判定时
+   * 不猜、不按无 cursor 继续、不发起新 LLM、不重执行工具、不删 recovery 文件。
+   */
+  private blockRecovery(reason: string, cause?: unknown): never {
+    this.sink.recoveryFallback({ reason });
+    this.recoveryBlocked = true;
+    throw new SubAgentRecoveryRequiredError(reason, cause !== undefined ? { cause } : undefined);
+  }
+
+  /**
+   * Phase 1933 Step D: 安全续跑入口。无 cursor → 零行为变化；否则按 kind 分发。
+   * Phase 1958 Step B: 严格三态分派（单一判断点 loadCursorStrict）——仅确定
+   * missing 允许 fresh baseline；unreadable（损坏/IO/旧 schema 缺字段）→ 留证
+   * + typed recovery-required 阻断（SubAgentRecoveryRequiredError），不按无
+   * cursor 继续、不发起新 LLM、不重执行工具。
    * 保持 _hasRun 一次性语义——resume 发生在单次 run 内。
    */
   private async resumeFromRecoveryCheckpoint(
     store: SubAgentRecoveryStore,
     opts: {
-      freshBaseline: Message[];
       ctx: ExecContext;
       signal: AbortSignal;
       systemPrompt: string;
       tools: ToolDefinition[];
     },
   ): Promise<void> {
-    const loaded = await store.loadCursor();
-    if (loaded.fallbackReason) {
-      this.sink.recoveryFallback({ reason: loaded.fallbackReason });
+    const loaded = await store.loadCursorStrict();
+    if (loaded.kind === 'unreadable') {
+      this.blockRecovery(loaded.reason);
     }
+    if (loaded.kind === 'missing') return;
     const cursor = loaded.cursor;
-    if (!cursor) return;
     if (cursor.kind === 'next-llm') {
       await this.resumeAtNextLlm(store, opts);
     } else if (cursor.kind === 'awaiting-conversation-commit') {
@@ -531,20 +553,19 @@ export class SubAgent {
 
   /**
    * next-llm 续跑：上一回合事实已全部提交，从持久化 messages 恢复对话后直接进 runReact
-   * （下一步是新 LLM 调用）。source 'empty' / 空 session → 保持现状全新构建。
+   * （下一步是新 LLM 调用）。source 'empty'（确定缺席）→ 保持现状全新构建；
+   * io_error/no_session → 已提交游标在场但对话不可读：保留事实 + typed
+   * recovery-required 阻断（Phase 1958 Step B，不静默新建对话）。
    */
   private async resumeAtNextLlm(
     store: SubAgentRecoveryStore,
-    opts: { freshBaseline: Message[]; systemPrompt: string; tools: ToolDefinition[] },
+    opts: { systemPrompt: string; tools: ToolDefinition[] },
   ): Promise<void> {
     const persisted = await this.messageStore.load();
     if (persisted.source === 'empty') return;
     if (persisted.source === 'io_error' || !persisted.session) {
-      // 不猜：持久边界不可读 → 回退全新构建（留证）
-      this.sink.recoveryFallback({
-        reason: `dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
-      });
-      return;
+      // 不猜：持久边界不可读 + 已提交游标在场 → 阻断交上层处置（不落 fresh baseline）
+      this.blockRecovery(`dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`);
     }
     const restored = persisted.session.messages;
     if (restored.length === 0) return;
@@ -559,11 +580,13 @@ export class SubAgent {
    * dangling 修补：崩溃窗口（最后工具结果已提交、appendToolResults+save 未发生）会在
    * 持久化 messages 末尾留下无配对 tool_result 的 assistant tool_use——runReact 不修复
    * dangling（API 拒），resume 必须先补齐。已提交结果全部在场 → 复原补齐（确定事实、
-   * 不重复执行）；任一缺失/不可读 → 不猜，回退全新构建并留证。
+   * 不重复执行）；任一缺失/不可读 → 不猜：留证 + typed recovery-required 阻断
+   * （Phase 1958 Step B——已提交事实不可判定，fresh baseline 会让 LLM 在丢失已提交
+   * 事实的对话上继续，可能重请求同一工具造成重复副作用）。
    */
   private async repairDanglingToolUseTail(
     store: SubAgentRecoveryStore,
-    opts: { freshBaseline: Message[]; systemPrompt: string; tools: ToolDefinition[] },
+    opts: { systemPrompt: string; tools: ToolDefinition[] },
   ): Promise<void> {
     const messages = this.messages!;
     const last = messages[messages.length - 1];
@@ -577,17 +600,13 @@ export class SubAgent {
     try {
       committed = await store.loadCommittedToolResults();
     } catch (err) {
-      this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
-      this.resetMessagesToBaseline(opts.freshBaseline);
-      return;
+      this.blockRecovery(`committed_tool_results_unreadable: ${formatErr(err)}`, err);
     }
     const blocks: ToolResultBlock[] = [];
     for (const id of toolUseIds) {
       const fact = committed.get(id);
       if (!fact) {
-        this.sink.recoveryFallback({ reason: `dangling_tool_use_without_committed_result: ${id}` });
-        this.resetMessagesToBaseline(opts.freshBaseline);
-        return;
+        this.blockRecovery(`dangling_tool_use_without_committed_result: ${id}`);
       }
       blocks.push(toToolResultBlock(makeToolUseId(id), fact.result));
     }
@@ -604,20 +623,19 @@ export class SubAgent {
     store: SubAgentRecoveryStore,
     cursor: Extract<ResumeCursor, { kind: 'awaiting-tools' }>,
     opts: {
-      freshBaseline: Message[];
       ctx: ExecContext;
       signal: AbortSignal;
       systemPrompt: string;
       tools: ToolDefinition[];
     },
   ): Promise<void> {
-    // a. 已提交完整响应是续跑锚点；不可读/损坏 → 留证 + 按无 cursor 继续（此时尚未 mutate messages）
+    // a. 已提交完整响应是续跑锚点；不可读/损坏 → 不猜：留证 + typed recovery-required
+    //    阻断（Phase 1958 Step B——committed 游标在场时不得落 fresh baseline 发起新 LLM）
     let committed: CompleteLLMResponse;
     try {
       committed = await store.loadCommittedResponse(cursor.responseId);
     } catch (err) {
-      this.sink.recoveryFallback({ reason: `committed_response_unreadable: ${formatErr(err)}` });
-      return;
+      this.blockRecovery(`committed_response_unreadable: ${formatErr(err)}`, err);
     }
     const response = committed.response;
     const toolUses = response.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
@@ -625,14 +643,12 @@ export class SubAgent {
     const prebuiltIds = new Set(prebuiltResults.map((b) => String(b.tool_use_id)));
     const responseToolUseIds = toolUses.map((t) => String(t.id));
 
-    // b. 持久 messages 基底。source 'empty'/空 session → 保留全新构建序列（assistant 追加其上）；
-    //    io_error → 持久边界不可读、不猜 → 留证回退（此时尚未 mutate messages）
+    // b. 持久 messages 基底。source 'empty'（确定缺席）→ 保留全新构建序列（assistant
+    //    追加其上）；io_error/no_session → 已提交游标在场但持久边界不可读、不猜 →
+    //    留证 + typed recovery-required 阻断（Phase 1958 Step B，不落 fresh baseline）
     const persisted = await this.messageStore.load();
     if (persisted.source === 'io_error' || !persisted.session) {
-      this.sink.recoveryFallback({
-        reason: `dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
-      });
-      return;
+      this.blockRecovery(`dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`);
     }
     const messages = this.messages!;
     if (persisted.session.messages.length > 0) {
@@ -654,7 +670,8 @@ export class SubAgent {
     // c. 已提交结果复原 + pending 执行。先加载全部已提交结果；不可读时——
     //    若存在「不可证明未开始」的 pending 工具（已 started 无结果 / 旧 cursor 缺
     //    started 证据）→ 外部副作用不确定：留证 + 停 uncertain（不删文件、不全新重启）；
-    //    全部 pending 可证明未开始（started=[]）→ 无副作用风险，回退全新构建。
+    //    全部 pending 可证明未开始（started=[]）→ 无副作用风险，但事实不可读仍不得
+    //    落 fresh baseline（Phase 1958 Step B）：留证 + typed recovery-required 阻断。
     let committedResults: Map<string, ToolResultFact>;
     try {
       committedResults = await store.loadCommittedToolResults();
@@ -664,20 +681,16 @@ export class SubAgent {
         this.sink.recoveryFallback({ reason: `uncertain_side_effect_results_unreadable: ${unprovable}` });
         throw new RecoveryUncertainSideEffectError(unprovable, `committed tool results unreadable: ${formatErr(err)}`);
       }
-      this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
-      this.resetMessagesToBaseline(opts.freshBaseline);
-      return;
+      this.blockRecovery(`committed_tool_results_unreadable: ${formatErr(err)}`, err);
     }
     // 一致性预检（执行任何工具前）：响应/pending/已提交三方必须对得上，对不上即
-    // checkpoint 自相矛盾 → 不猜，回退全新构建。
+    // checkpoint 自相矛盾 → 不猜：留证 + typed recovery-required 阻断（Phase 1958 Step B）。
     const pendingSet = new Set(cursor.pendingToolIds);
     const executableIds = responseToolUseIds.filter((id) => !prebuiltIds.has(id));
     const inconsistent = executableIds.some((id) => !committedResults.has(id) && !pendingSet.has(id))
       || cursor.pendingToolIds.some((id) => !executableIds.includes(id));
     if (inconsistent) {
-      this.sink.recoveryFallback({ reason: 'cursor_response_fact_mismatch' });
-      this.resetMessagesToBaseline(opts.freshBaseline);
-      return;
+      this.blockRecovery('cursor_response_fact_mismatch');
     }
 
     // 合成 user 消息（对齐 handleToolUseStop 顺序：prebuilt 在前，其余按响应原始顺序）
@@ -763,7 +776,7 @@ export class SubAgent {
   private async resumeAwaitingConversationCommit(
     store: SubAgentRecoveryStore,
     cursor: Extract<ResumeCursor, { kind: 'awaiting-conversation-commit' }>,
-    opts: { freshBaseline: Message[]; systemPrompt: string; tools: ToolDefinition[] },
+    opts: { systemPrompt: string; tools: ToolDefinition[] },
   ): Promise<void> {
     // a. 已提交完整响应是重建锚点；不可读/损坏 → 不猜不绕过：留证 + typed error 传播
     let committed: CompleteLLMResponse;
@@ -889,13 +902,6 @@ export class SubAgent {
     if (!cursor.startedToolIds) return cursor.pendingToolIds[0];
     const started = new Set(cursor.startedToolIds);
     return cursor.pendingToolIds.find((id) => started.has(id));
-  }
-
-  /** 回退「无 cursor」路径：就地重置为全新构建基线（保持数组引用）。 */
-  private resetMessagesToBaseline(baseline: Message[]): void {
-    const messages = this.messages!;
-    messages.length = 0;
-    messages.push(...baseline);
   }
 
   /**

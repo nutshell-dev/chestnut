@@ -6,8 +6,9 @@
  *    同 resultDir 续跑 → llm stream 仅被调 1 次（第 2 步 end_turn），不重放第 1 步请求。
  * ② 已提交工具不重复执行：工具 1 结果来自 tool-results 存储；结果消息按原始顺序完整。
  * ③ 完整响应继续工具：续跑入口直接执行 pending 工具（先于第二次 LLM 调用）。
- * ④ cursor 损坏回退：坏 JSON / 缺字段 → resume 回退无 cursor 路径 + audit 留证原因；
- *    （Step B）坏记录不按无记录继续 —— 新响应提交被屏障 typed 拒绝、现场保留。
+ * ④ cursor 损坏/不可读阻断（Phase 1958 Step B）：坏 JSON / 缺字段（旧 schema）/ 读取
+ *    IO 失败 → resume 入口 typed recovery-required 阻断（SubAgentRecoveryRequiredError），
+ *    留证保留、不发起新 LLM、不执行工具、现场保留（不按无 cursor 继续）。
  * ⑤ 取消不误判：resume 段执行 pending 工具时 abort → 按 abort 分类传播，不落 LLM 失败。
  * ⑥ 无 checkpoint 回归（runSubagent 全链路）：全新 resultDir 行为与现状一致。
  * ⑦ next-llm 续跑：首轮工具全部提交后崩溃于下一步 LLM 前 → 从持久 messages 继续、
@@ -41,7 +42,7 @@ import { SubAgent } from '../../../src/core/subagent/agent.js';
 import { runSubagent } from '../../../src/core/subagent/run.js';
 import {
   createSubAgentRecoveryStore,
-  SubAgentRecoveryStoreError,
+  SubAgentRecoveryRequiredError,
   type SubAgentRecoveryStore,
 } from '../../../src/core/subagent/recovery-state.js';
 import type { CompleteLLMResponse } from '../../../src/core/step-executor/index.js';
@@ -315,56 +316,95 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(log).toEqual(['execute:tool_b', 'llm.stream#1']);
   });
 
-  it('④a cursor 坏 JSON → resume 回退留证保留；Phase 1934 Step B: 坏记录不按无记录继续，新响应提交被屏障 typed 拒绝、现场保留', async () => {
+  it('④a cursor 坏 JSON → Phase 1958 Step B: resume 入口 typed recovery-required 阻断，不发起新 LLM、现场保留', async () => {
     const { tempDir: dir } = await setup('corrupt-json');
     await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
     await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'not-json{{{');
 
-    const llm = makeFakeLlm([endTurnChunks('fresh ok')]);
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
     const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
     const auditRows: unknown[][] = [];
     const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
 
-    // resume 段仍回退无 cursor 路径（留证 + 全新构建），但首个新响应提交时屏障
-    // 拒绝覆盖未知现场（typed throw）——损坏/读取未知不按无记录继续
+    // 损坏游标不再按无 cursor 继续：resume 入口即 typed 阻断（恢复事实不可判定 → 不猜）
     const err = await agent.run().then(
       () => { throw new Error('expected run to reject'); },
       (e: unknown) => e,
     );
-    expect(err).toBeInstanceOf(SubAgentRecoveryStoreError);
-    expect((err as SubAgentRecoveryStoreError).kind).toBe('corrupt');
-    expect((err as Error).message).toContain('llmResponseCommitted blocked');
-    // 回退留证保留（原因仍入 audit）
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('cursor_parse_failed');
+    // 阻断发生在 resume 入口：不发起新 LLM、不执行任何工具
+    expect(llm.callCount()).toBe(0);
+    expect(exec.calls).toHaveLength(0);
+    // 阻断留证（原因入 audit）
     const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
     expect(fallbackRows).toHaveLength(1);
     expect(String(fallbackRows[0].join(' '))).toContain('cursor_parse_failed');
-    // 坏记录现场保留（不自动重放、不清理 recovery 目录）
+    // 坏记录现场保留（不自动重放、不清理 recovery 目录、不以 fresh 对话覆盖）
     expect(await fsp.readFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'utf-8')).toBe('not-json{{{');
+    expect(await fs.exists(`${resultDir}/messages.json`)).toBe(false);
   });
 
-  it('④b cursor 缺字段（schema 校验失败）→ resume 回退留证保留；新响应提交被屏障 typed 拒绝、现场保留', async () => {
+  it('④b cursor 缺字段（旧 schema 校验失败）→ unreadable 而非 missing：typed 阻断、现场保留', async () => {
     const { tempDir: dir } = await setup('corrupt-schema');
     const badCursor = JSON.stringify({ schema_version: 1, kind: 'awaiting-tools' }); // 缺 responseId/pendingToolIds
     await fsp.mkdir(path.join(dir, resultDir, 'recovery'), { recursive: true });
     await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), badCursor);
 
-    const llm = makeFakeLlm([endTurnChunks('fresh ok')]);
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
     const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
     const auditRows: unknown[][] = [];
     const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
 
-    // 同 ④a：回退留证保留；屏障 typed 拒绝（不按无记录继续）
+    // 旧 schema 缺字段只能进 unreadable（不得猜成 missing）：resume 入口 typed 阻断
     const err = await agent.run().then(
       () => { throw new Error('expected run to reject'); },
       (e: unknown) => e,
     );
-    expect(err).toBeInstanceOf(SubAgentRecoveryStoreError);
-    expect((err as SubAgentRecoveryStoreError).kind).toBe('corrupt');
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('cursor_invalid');
+    expect(llm.callCount()).toBe(0);
     const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
     expect(fallbackRows).toHaveLength(1);
     expect(String(fallbackRows[0].join(' '))).toContain('cursor_invalid');
     // 坏记录现场保留
     expect(await fsp.readFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'utf-8')).toBe(badCursor);
+  });
+
+  it('④c cursor 读取 IO 失败 → resume 入口 typed 阻断（保留 io 原因），不发起新 LLM', async () => {
+    await setup('corrupt-io');
+    // 有效 checkpoint 在场，但读路径注入 EACCES（只拦截 cursor.json 的 read）
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
+    class CursorIoFailFs extends NodeFileSystem {
+      override async read(p: string): Promise<string> {
+        if (p.endsWith(path.join('recovery', 'cursor.json'))) {
+          throw new Error('EACCES: injected cursor read failure');
+        }
+        return super.read(p);
+      }
+    }
+    const ioFs = new CursorIoFailFs({ baseDir: tempDir });
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(ioFs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('cursor_read_failed');
+    expect(llm.callCount()).toBe(0);
+    expect(exec.calls).toHaveLength(0);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('cursor_read_failed');
+    // cursor 现场保留（有效内容未被覆盖）
+    const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(loaded.fallbackReason).toBeUndefined();
+    expect(loaded.cursor?.kind).toBe('awaiting-tools');
   });
 
   it('⑤ 取消不误判：resume 段执行 pending 工具时 abort → abort 分类传播、不落 LLM 失败事实', async () => {
@@ -579,6 +619,113 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(msgs[0]).toMatchObject({ role: 'user', content: 'do the task' });
     // 缺席非损坏：零回退留证
     expect(resume.auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK)).toHaveLength(0);
+  });
+
+  it('⑫ next-llm 游标在场但 dialog I/O 失败 → typed recovery-required 阻断，不落 fresh baseline、不发起 LLM', async () => {
+    await setup('next-llm-dialog-io');
+    // 构造合法 next-llm 游标（首轮无工具响应 + 对话已提交），messages.json 在场
+    const store0 = createSubAgentRecoveryStore({ fs, resultDir });
+    await store0.llmResponseCommitted({
+      response: {
+        content: [{ type: 'text', text: 'prior final' }],
+        stop_reason: 'end_turn',
+      },
+      llmInfo: { model: 'fake-model', inputTokens: 5, outputTokens: 5, latencyMs: 1 },
+      committedAtMs: Date.now(),
+    });
+    await store0.commitConversation();
+    const seeded = await store0.loadCursor();
+    expect(seeded.cursor?.kind).toBe('next-llm');
+    // dialog 边界不可读（已提交游标在场）
+    const unreadableDialog = { source: 'io_error', error: 'injected dialog io', session: null };
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, {
+      llm: llm.orchestrator,
+      executor: exec.executor,
+      auditRows,
+      wrapMessageStore: (ms) => {
+        (ms as unknown as { load: unknown }).load = async () => unreadableDialog;
+        return ms;
+      },
+    });
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('dialog_load_failed: injected dialog io');
+    // 不发起新 LLM、不以 fresh baseline 覆盖不可读对话（finally 落盘被阻断跳过）
+    expect(llm.callCount()).toBe(0);
+    expect(await fs.exists(`${resultDir}/messages.json`)).toBe(false);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('dialog_load_failed');
+    // 已提交游标现场保留（next-llm 不被推进/覆写）
+    const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(loaded.cursor?.kind).toBe('next-llm');
+  });
+
+  it('⑬ awaiting-tools 游标在场但 dialog I/O 失败 → typed 阻断，不执行工具、不发起 LLM', async () => {
+    await setup('awaiting-tools-dialog-io');
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, {
+      llm: llm.orchestrator,
+      executor: exec.executor,
+      auditRows,
+      wrapMessageStore: (ms) => {
+        (ms as unknown as { load: unknown }).load = async () => ({ source: 'io_error', error: 'injected dialog io', session: null });
+        return ms;
+      },
+    });
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('dialog_load_failed');
+    // 不重执行已提交工具、不执行 pending 工具、不发起新 LLM
+    expect(exec.calls).toHaveLength(0);
+    expect(llm.callCount()).toBe(0);
+    // cursor 现场保留（awaiting-tools 不被推进）
+    const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
+    expect(loaded.cursor).toMatchObject({ kind: 'awaiting-tools', pendingToolIds: ['toolu_b'] });
+  });
+
+  it('⑭ awaiting-tools 已提交响应不可读 → typed 阻断（不落 fresh baseline）', async () => {
+    const { tempDir: dir } = await setup('response-unreadable');
+    await buildAwaitingToolsCheckpoint(fs, resultDir);
+    // 损坏已提交响应事实文件（cursor 仍指向它）
+    const responsesDir = path.join(dir, resultDir, 'recovery', 'responses');
+    const [responseFile] = await fsp.readdir(responsesDir);
+    await fsp.writeFile(path.join(responsesDir, responseFile), 'corrupt{{{');
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('committed_response_unreadable');
+    expect(llm.callCount()).toBe(0);
+    expect(exec.calls).toHaveLength(0);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('committed_response_unreadable');
+    // 损坏事实现场保留（不清理、不覆盖）
+    expect(await fsp.readFile(path.join(responsesDir, responseFile), 'utf-8')).toBe('corrupt{{{');
   });
 
   it('⑩ 正常完成路径末尾：cursor 为 next-llm 且含 responseId（对话持久化后才发布）', async () => {

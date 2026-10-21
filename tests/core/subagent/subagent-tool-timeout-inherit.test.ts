@@ -56,6 +56,9 @@ function makeRunSubagentOpts(overrides: { toolTimeoutMs?: number } = {}) {
     ensureDir: vi.fn().mockResolvedValue(undefined),
     append: vi.fn().mockResolvedValue(undefined),
     appendSync: vi.fn(),
+    // Phase 1958 Step B: recovery 游标读严格三态——mock fs 必须提供 exists
+    // （确定缺席 = false），缺失方法不再被吞成「按无 cursor 继续」
+    exists: vi.fn().mockResolvedValue(false),
   };
 
   return {

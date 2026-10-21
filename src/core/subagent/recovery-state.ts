@@ -9,6 +9,10 @@
  * Phase 1934 Step B（F-12）：提交屏障 —— llmResponseCommitted 在任何新 response
  * 文件写入前拒绝覆盖未提交游标（仅确定不存在或 next-llm 允许）；损坏/读取未知
  * 经 loadCursorStrict 转 typed throw，不按无记录继续（fallbackReason 不得绕过）。
+ * Phase 1958 Step B：恢复入口严格三态 —— loadCursorStrict 公开返回
+ * missing / valid / unreadable 判别联合；resume 入口仅 missing 允许 fresh
+ * baseline，unreadable（损坏/IO/旧 schema 缺字段）由调用方转 typed
+ * recovery-required 阻断（SubAgentRecoveryRequiredError），不猜、不按无游标继续。
  *
  * 实现 step-executor 的 RecoveryDelivery 严格交付契约，把「完整 LLM 响应 /
  * 工具意图 / 工具结果」三类事实落盘在 `${resultDir}/recovery/` 下：
@@ -57,6 +61,35 @@ export type ResumeCursor =
 export interface RecoveryCursorLoadResult {
   cursor?: ResumeCursor;
   fallbackReason?: string;
+}
+
+/**
+ * Phase 1958 Step B：游标读取严格三态（恢复决策唯一入口）。
+ * - missing：确定不存在（文件缺席）——唯一允许 fresh baseline 的分支；
+ * - valid：schema 校验通过，cursor 可按 kind 分发；
+ * - unreadable：损坏 / IO / 旧 schema 缺字段（缺字段一律 unreadable，不猜成
+ *   missing）——reason 保留原始失败描述，errorKind 区分 io/corrupt；
+ *   调用方必须产生 typed recovery-required 阻断，不得按无 cursor 继续。
+ */
+export type RecoveryCursorStrictLoad =
+  | { kind: 'missing' }
+  | { kind: 'valid'; cursor: ResumeCursor }
+  | { kind: 'unreadable'; reason: string; errorKind: 'io' | 'corrupt' };
+
+/**
+ * Phase 1958 Step B：恢复必需错误 —— 恢复事实不可判定（cursor/dialog/已提交事实
+ * 不可读或不自洽）时的 typed 阻断 disposition。携带原始 reason 证据；经 run()
+ * 既有 catch 分类/audit 路径交上层处置。不删 recovery 文件绕过、不静默全新重启、
+ * 不发起下一 LLM、不重执行工具。
+ */
+export class SubAgentRecoveryRequiredError extends Error {
+  readonly reason: string;
+  constructor(reason: string, options?: { cause?: unknown }) {
+    super(`subagent recovery required: ${reason}`);
+    this.name = 'SubAgentRecoveryRequiredError';
+    this.reason = reason;
+    if (options && 'cause' in options) this.cause = options.cause;
+  }
 }
 
 /**
@@ -236,7 +269,7 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
     // 未提交游标（awaiting-tools / awaiting-conversation-commit 的上一响应尚未走完
     // 工具结果 + 对话提交）；损坏/读取未知由 loadCursorStrict 转 typed throw，
     // 不按无记录继续。仅确定不存在或 next-llm（上一回合全部事实已提交）允许写入。
-    if (!this.current) await this.loadCursorStrict('llmResponseCommitted');
+    if (!this.current) await this.assertCursorReadableForWrite('llmResponseCommitted');
     if (this.current && this.current.kind !== 'next-llm') {
       throw new SubAgentRecoveryStoreError(
         'invalid_state',
@@ -348,7 +381,7 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
    * awaiting-conversation-commit）。仅确定不存在（文件缺席）允许无 cursor no-op。
    */
   async commitConversation(): Promise<void> {
-    if (!this.current) await this.loadCursorStrict('commitConversation');
+    if (!this.current) await this.assertCursorReadableForWrite('commitConversation');
     const current = this.current;
     if (!current || current.kind !== 'awaiting-conversation-commit') return;
     await this.writeCursor({
@@ -413,6 +446,24 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
         conversationVersion: file.conversationVersion!,
       },
     };
+  }
+
+  /**
+   * Phase 1958 Step B：公开严格三态加载 —— 恢复入口（agent resume）与写路径提交
+   * 屏障共用同一判断点。确定不存在 → missing；校验通过 → valid；损坏/IO/旧 schema
+   * 缺字段 → unreadable（保留原始 reason，绝不猜成 missing）。
+   */
+  async loadCursorStrict(): Promise<RecoveryCursorStrictLoad> {
+    const loaded = await this.loadCursor();
+    if (loaded.cursor) return { kind: 'valid', cursor: loaded.cursor };
+    if (loaded.fallbackReason) {
+      return {
+        kind: 'unreadable',
+        reason: loaded.fallbackReason,
+        errorKind: loaded.fallbackReason.startsWith('cursor_read_failed') ? 'io' : 'corrupt',
+      };
+    }
+    return { kind: 'missing' };
   }
 
   /** 加载已提交完整响应；损坏/缺失 → throw typed error（调用方决定回退）。 */
@@ -491,16 +542,14 @@ export class SubAgentRecoveryStore implements RecoveryDelivery {
    * Phase 1934 Step B: 严格加载 —— 供写路径提交屏障使用。损坏/IO 不按无记录继续
    * （fallbackReason 不得绕过屏障）：read 失败 → kind 'io'，parse/schema 失败 →
    * kind 'corrupt'，均 typed throw；仅确定不存在（文件缺席）允许无 cursor。
+   * Phase 1958 Step B: 与恢复入口共用 loadCursorStrict 单一判断点。
    */
-  private async loadCursorStrict(site: string): Promise<void> {
-    const loaded = await this.loadCursor();
-    if (!loaded.fallbackReason) return;
-    const kind: SubAgentRecoveryErrorKind = loaded.fallbackReason.startsWith('cursor_read_failed')
-      ? 'io'
-      : 'corrupt';
+  private async assertCursorReadableForWrite(site: string): Promise<void> {
+    const loaded = await this.loadCursorStrict();
+    if (loaded.kind !== 'unreadable') return;
     throw new SubAgentRecoveryStoreError(
-      kind,
-      `${site} blocked: existing cursor unreadable (${loaded.fallbackReason})`,
+      loaded.errorKind,
+      `${site} blocked: existing cursor unreadable (${loaded.reason})`,
       this.cursorPath,
     );
   }

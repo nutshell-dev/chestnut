@@ -565,6 +565,37 @@ describe('Phase 1934 Step B: 严格恢复提交屏障（F-12）', () => {
     expect(await fs.exists(`${resultDir}/recovery/cursor.json`)).toBe(false);
   });
 
+  it('S6 store 严格三态（Phase 1958 Step B）：loadCursorStrict 区分 missing / valid / unreadable（保留原始原因）', async () => {
+    const { tempDir: dir } = await setup('store-strict-tristate');
+    // missing：确定不存在
+    const store = createSubAgentRecoveryStore({ fs, resultDir });
+    expect(await store.loadCursorStrict()).toEqual({ kind: 'missing' });
+    // valid：schema 校验通过
+    await store.llmResponseCommitted(oneToolResponseFact());
+    const valid = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursorStrict();
+    expect(valid.kind).toBe('valid');
+    expect(valid).toMatchObject({ cursor: { kind: 'awaiting-tools', pendingToolIds: ['toolu_a'] } });
+    // unreadable：损坏保留原始 reason + errorKind=corrupt（不猜成 missing）
+    await fsp.writeFile(path.join(dir, resultDir, 'recovery', 'cursor.json'), 'not-json{{{');
+    const unreadable = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursorStrict();
+    expect(unreadable.kind).toBe('unreadable');
+    if (unreadable.kind === 'unreadable') {
+      expect(unreadable.reason).toContain('cursor_parse_failed');
+      expect(unreadable.errorKind).toBe('corrupt');
+    }
+    // unreadable：旧 schema 缺字段同样只能进 unreadable
+    await fsp.writeFile(
+      path.join(dir, resultDir, 'recovery', 'cursor.json'),
+      JSON.stringify({ schema_version: 1, kind: 'awaiting-tools' }),
+    );
+    const legacy = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursorStrict();
+    expect(legacy.kind).toBe('unreadable');
+    if (legacy.kind === 'unreadable') {
+      expect(legacy.reason).toContain('cursor_invalid');
+      expect(legacy.errorKind).toBe('corrupt');
+    }
+  });
+
   it('R1 反向：展示 callback（steps.jsonl append）失败不改变严格结果（save+commit 仍完成、cursor 推进）', async () => {
     await setup('display-callback-fail');
     // 仅 steps.jsonl 追加失败（展示面）；dialog save / cursor 写不受影响
