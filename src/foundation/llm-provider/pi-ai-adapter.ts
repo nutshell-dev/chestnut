@@ -262,6 +262,31 @@ export class PiAiAdapter implements ProviderAdapter {
     }
   }
 
+  /** capture → typed error（stream/thrown 共同尾段；contextWindow 单源）。 */
+  private async classifyCapturedFailure(
+    capture: HttpErrorCapture,
+    eventError: PiAi.AssistantMessage | undefined,
+  ): Promise<Error | undefined> {
+    return classifyCapturedHttpError(
+      this.name,
+      this.model,
+      capture,
+      eventError,
+      resolveContextWindow(this.name, this.model),
+    );
+  }
+
+  /** 退化族文本分类（Google / 无 status）：共享 pi-ai predicate，替换本地 context 正则。 */
+  private async classifyTextualFailure(message: string): Promise<Error> {
+    const runtime = await loadPiAiRuntime();
+    return classifyTextualError(
+      this.name,
+      this.model,
+      message,
+      (provider, text) => isPiAiContextOverflowText(runtime.isContextOverflow, provider, text),
+    );
+  }
+
   /** error 事件 → typed error。 */
   private async constructStreamError(
     event: Extract<PiAi.AssistantMessageEvent, { type: 'error' }>,
@@ -274,19 +299,9 @@ export class PiAiAdapter implements ProviderAdapter {
       return this.timeoutOrAbortError(timeoutMs);
     }
     const message = event.error.errorMessage ?? 'unknown provider error';
-    const contextWindow = resolveContextWindow(this.name, this.model);
-    const captured = await classifyCapturedHttpError(
-      this.name, this.model, capture, event.error, contextWindow,
-    );
+    const captured = await this.classifyCapturedFailure(capture, event.error);
     if (captured) return captured;
-    // 退化族（Google / 无 status）：共享 pi-ai predicate，替换本地 context 正则
-    const runtime = await loadPiAiRuntime();
-    return classifyTextualError(
-      this.name,
-      this.model,
-      message,
-      (provider, text) => isPiAiContextOverflowText(runtime.isContextOverflow, provider, text),
-    );
+    return this.classifyTextualFailure(message);
   }
 
   /** 事件循环抛出的异常 → typed error（abort/网络/已分类透传）。 */
@@ -302,9 +317,7 @@ export class PiAiAdapter implements ProviderAdapter {
     if (err instanceof ExternalAbortError) return err;
     const abortClassified = classifyFetchAbortError(err, signal, timeoutMs, this.name);
     if (abortClassified) return abortClassified;
-    const captured = await classifyCapturedHttpError(
-      this.name, this.model, capture, undefined, resolveContextWindow(this.name, this.model),
-    );
+    const captured = await this.classifyCapturedFailure(capture, undefined);
     if (captured) return captured;
     return new LLMNetworkError(
       this.name,
