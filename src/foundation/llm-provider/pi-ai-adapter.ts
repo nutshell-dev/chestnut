@@ -146,7 +146,11 @@ export class PiAiAdapter implements ProviderAdapter {
       throw new LLMEmptyResponseError(this.name);
     }
     // length-stop 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
-    const signal = inspectSuccessfulMessage(finalMessage, resolveContextWindow(this.name, this.model));
+    const signal = inspectSuccessfulMessage(
+      (await loadPiAiRuntime()).isContextOverflow,
+      finalMessage,
+      resolveContextWindow(this.name, this.model),
+    );
     if (signal?.kind === 'length_stop_no_output') {
       throw new LLMContextExceededError(
         this.name,
@@ -175,7 +179,11 @@ export class PiAiAdapter implements ProviderAdapter {
     const state = createEventTranslationState();
     for await (const event of this.runEvents('stream', options, maxTokensOverride)) {
       if (event.type === 'done') {
-        const signal = inspectSuccessfulMessage(event.message, resolveContextWindow(this.name, this.model));
+        const signal = inspectSuccessfulMessage(
+          (await loadPiAiRuntime()).isContextOverflow,
+          event.message,
+          resolveContextWindow(this.name, this.model),
+        );
         if (signal?.kind === 'length_stop_no_output') {
           throw new LLMContextExceededError(
             this.name,
