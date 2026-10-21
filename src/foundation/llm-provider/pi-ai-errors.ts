@@ -30,6 +30,15 @@ import { LLMInvalidRequestError } from './request-unicode.js';
 import { throwHttpErrorResponse, parseOutputBudgetError } from './_helpers.js';
 import { loadPiAiRuntime, type PiAiRuntime } from './pi-ai-support.js';
 
+/**
+ * capture 兜底无 HTTP status 时的合成 status。
+ *
+ * derivation：文本退化族（Google / 无 status）的 context overflow 历史上统一
+ * 归 400（旧 `classifyTextualError` 的 `LLMContextExceededError(provider, 400, …)`
+ * 分支）；413 必须由真实 status 权威判定，不在无 status 时猜测。
+ */
+const DEFAULT_CONTEXT_OVERFLOW_STATUS = 400;
+
 /** 注入 fetch 的截获结果（每请求一份）。 */
 export interface HttpErrorCapture {
   status?: number;
@@ -213,7 +222,7 @@ export async function classifyCapturedHttpError(
   if (status === 400 || status === undefined) {
     const text = extractProviderErrorText(body);
     if (text !== '' && isPiAiContextOverflowText(runtime.isContextOverflow, provider, text)) {
-      return new LLMContextExceededError(provider, status ?? 400, body);
+      return new LLMContextExceededError(provider, status ?? DEFAULT_CONTEXT_OVERFLOW_STATUS, body);
     }
   }
 
