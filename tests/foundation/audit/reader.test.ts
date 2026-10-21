@@ -17,10 +17,14 @@ import { waitFor } from '../../helpers/wait-for.js';
 const FOLLOW_APPEND_DELAY_MS = 50;
 
 /**
- * Follow-mode test 总 deadline (400ms): hang fail-safe.
- * Derivation: >>> append delay (50ms) + iter callback budget / 不死等.
+ * follow 测试的关闭死线（safety deadline，不是同步点）。
+ *
+ * derivation（phase 1965 Step E）：append 由 50ms timer 调度；全量并发下真实 timer
+ * 可能被显著延迟。400ms 与 50ms 的余量在高负载下不足（N=1 观测：close 先于
+ * append）。5000ms 是负载容忍 safety bound；循环命中 1 条记录即 close+break，
+ * happy path 不变。
  */
-const FOLLOW_CLOSE_DEADLINE_MS = 400;
+const FOLLOW_CLOSE_DEADLINE_MS = 5_000;
 
 function makeFs(entries: Record<string, string | { size: number; isDirectory?: boolean }>): FileSystem {
   const store: Record<string, string> = {};
