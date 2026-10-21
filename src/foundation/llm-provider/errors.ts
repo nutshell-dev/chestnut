@@ -1,9 +1,9 @@
 /**
- * LLM Provider (L1) error classes — thrown by provider adapters.
+ * LLM Provider (L1) error classes — thrown by the provider adapter.
  *
- * Canonical owner per M#5: L1 modules do not depend on L2b. Since L1 provider
- * adapters (anthropic, openai, gemini, custom-anthropic) throw these errors,
- * they must live in L1, not L2b.
+ * Canonical owner per M#5: L1 modules do not depend on L2b. Since the L1 provider
+ * adapter（phase 1925 后为 pi-ai adapter 唯一实现，经 pi-ai-errors/_helpers 构造）
+ * throws these errors, they must live in L1, not L2b.
  *
  * classifyLLMError / getUserActionHint (retry policy) remain in L2b
  * llm-orchestrator/errors.ts, importing base classes from here.

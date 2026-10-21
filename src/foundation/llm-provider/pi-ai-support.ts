@@ -11,7 +11,8 @@
  *   provider 自带完整 auth（api_key env/ambient AWS 链/ADC/OAuth refresh）与
  *   lazy api 绑定，chestnut 不自建 provider 不伪造 auth；stored credential 经
  *   pi-ai-credentials.ts 的 CredentialStore 桥接用户级 Credentials owner。
- *   自建 Model 路径（ollama/custom-*）保留窄表四族 HTTP 协议 + 单 apiKey auth。
+ *   自建 Model 路径（ollama/custom-*）保留窄表三族（anthropic/openai/gemini）
+ *   HTTP 协议 + 单 apiKey auth。
  * - 全部 10 个 catalog api 的 lazy 工厂均注册（inventory 门禁测试逐一对账；
  *   缺失即红灯，不再 loud "out of scope"）。
  */
@@ -228,7 +229,7 @@ export async function createPiAiEndpoint(
 
   const apiFactory = runtime.apis[model.api as string];
   if (!apiFactory) {
-    // 自建路径 api 由 apiFormat 显式映射（四族 HTTP 协议）；理论不可达，防御 loud。
+    // 自建路径 api 由 apiFormat 显式映射（三族 anthropic/openai/gemini HTTP 协议）；理论不可达，防御 loud。
     throw new LLMError(
       `Provider "${config.name}": pi-ai api "${String(model.api)}" (model "${model.id}") has no ` +
       `registered lazy factory (registered: ${Object.keys(runtime.apis).join(', ')})`,

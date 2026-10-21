@@ -17,8 +17,8 @@ const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid 
  * - 5xx → LLMError "server error" tier
  * - else → LLMError generic
  *
- * Used by 3 fetch-based LLM provider adapters (openai / custom-anthropic / gemini)
- * to deduplicate ~22 lines × 3 site of byte-identical error handling logic.
+ * Called by classifyCapturedHttpError (pi-ai-errors.ts)：pi-ai 捕获的 HTTP 错误
+ * 以合成 Response + captured errorText 喂入本函数分类（phase 1925 后唯一生产调用点）。
  *
  * Message format unified: `Provider ${provider} (server )?error (${status}): ${text}`
  * (gemini's historical "Server error" / "Request failed" format aligned to standard
@@ -116,8 +116,8 @@ export function parseOutputBudgetError(message: string): ParsedOutputBudgetError
  * - NaN 是 type liar (number) / D2 silent NaN propagation 是 latent bug
  * - 加 `Number.isNaN(ms) ? undefined : ms` guard 严格化返值 type 契约
  *
- * Used by 4 LLM provider adapters (anthropic / custom-anthropic / gemini / openai)
- * + throwHttpErrorResponse helper (phase 592).
+ * Used by throwHttpErrorResponse (phase 592)——pi-ai 路径的 retry-after 只取
+ * typed header（429 分类时经本函数解析 delta-seconds）。
  */
 export function parseRetryAfter(
   headerValue: string | null | undefined,
