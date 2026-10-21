@@ -192,10 +192,16 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
       return { blockIndexPersisted: true, assignedBlockIds: [] };
     });
 
+    // phase 1965 Step B: 测试显式持有 turn——step 回调与 persist 完成前不放行 runReact，
+    // 避免 runtime 先收尾关闭 turn transaction 与手动 onStepComplete 竞争。
+    let releaseRunReact!: () => void;
+    const runReactGate = new Promise<void>((resolve) => { releaseRunReact = resolve; });
+
     let capturedOnStepComplete: ((stepCount: number) => Promise<void>) | undefined;
     vi.spyOn(loopModule, 'runReact').mockImplementation(async (options) => {
       capturedOnStepComplete = options.onStepComplete;
-      // Return without awaiting onStepComplete so the test can inspect the barrier.
+      // Return only after the test releases the gate so the test can inspect the barrier.
+      await runReactGate;
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
 
@@ -211,8 +217,12 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
       .catch(() => false);
     expect(fileExistsBefore).toBe(false);
 
-    saveResolve!();
-    await stepPromise;
+    try {
+      saveResolve!();
+      await stepPromise;
+    } finally {
+      releaseRunReact();
+    }
     await batchPromise;
 
     // After the barrier, the real persistence primitive wrote the file.
