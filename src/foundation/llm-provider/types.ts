@@ -14,15 +14,12 @@ import type { ToolUseId } from './tool-use-id.js';
 
 /**
  * Minimal audit sink interface — L1 owns this duck-typed interface, L2b implements.
- * phase 692 Step A: 加 preview()、收 LLMProvider 4 callsite (custom-anthropic / gemini /
- * openai / openai-message-formatter) 真用方法集（write + preview）。preview 是 string
- * truncation 工具、非 audit business concept、L1 可 own。message/summary 是 audit 业务级
- * 截断（reason / tool_result 长度配置），LLMProvider 不用、保留在 AuditLog L2a 不外露。
+ * L1 唯一使用是 .write()（pi-ai-adapter 的 silent overflow observation）；
+ * 截断/message/summary 等方法归上层 AuditLog/其他 sink 的接口，不在 L1 契约
+ *（phase 1961 Step E 收窄：删除旧 formatter guard 时代遗留的方法）。
  */
 export interface AuditSink {
   write(event: string, ...details: string[]): void;
-  /** Truncate s to a short preview length (caller-agnostic, L1 接口契约) */
-  preview(s: string): string;
 }
 
 // ============================================================================

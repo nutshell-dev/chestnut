@@ -353,7 +353,7 @@ describe('PiAiAdapter — Phase 1960 成功响应 context 观测', () => {
   const CONTEXT_WINDOW = 256_000;
 
   function auditSink() {
-    return { write: vi.fn(), preview: (s: string) => s };
+    return { write: vi.fn() };
   }
 
   function openaiFramesWithUsage(

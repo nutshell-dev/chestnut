@@ -33,7 +33,7 @@ describe('pi-ai 单一路由（Phase 1925 Step C/D，取代 phase 1797 transport
 
   it('factory 不写任何 audit（无迁移默认概念）', () => {
     const events: Array<[string, ...string[]]> = [];
-    const sink: AuditSink = { write: (t: string, ...c: string[]) => { events.push([t, ...c]); }, preview: (s: string) => s };
+    const sink: AuditSink = { write: (t: string, ...c: string[]) => { events.push([t, ...c]); } };
     createLLMProvider(baseConfig({ model: 'claude-3-7-sonnet-20250219', auditLog: sink }));
     expect(events).toHaveLength(0);
   });
