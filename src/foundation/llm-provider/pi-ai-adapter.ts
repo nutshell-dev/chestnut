@@ -107,8 +107,8 @@ export class PiAiAdapter implements ProviderAdapter {
     } catch (err) {
       // output budget 自动调低重试一次（OpenAI 族；沿用旧适配器纪律）
       if (err instanceof LLMOutputBudgetExceededError) {
-        const adjusted = err.contextLimit - err.inputTokens;
-        if (adjusted > 0) {
+        const adjusted = this.adjustedBudgetMaxTokens(err);
+        if (adjusted !== undefined) {
           return await this.callOnce(options, adjusted);
         }
       }
@@ -123,8 +123,8 @@ export class PiAiAdapter implements ProviderAdapter {
     } catch (err) {
       // 已产出 chunk 不重试（部分内容已交付，重试会重复）
       if (!yielded && err instanceof LLMOutputBudgetExceededError) {
-        const adjusted = err.contextLimit - err.inputTokens;
-        if (adjusted > 0) {
+        const adjusted = this.adjustedBudgetMaxTokens(err);
+        if (adjusted !== undefined) {
           yield* this.streamOnce(options, adjusted, () => { yielded = true; });
           return;
         }
@@ -134,6 +134,30 @@ export class PiAiAdapter implements ProviderAdapter {
   }
 
   // ── 内部实现 ─────────────────────────────────────────────────────────────
+
+  /** output budget 自动重试的调整 maxTokens（>0 才重试；call/stream 共用）。 */
+  private adjustedBudgetMaxTokens(err: LLMOutputBudgetExceededError): number | undefined {
+    const adjusted = err.contextLimit - err.inputTokens;
+    return adjusted > 0 ? adjusted : undefined;
+  }
+
+  /** 成功响应 context 检查（call/stream 共用）：length-stop throw；silent observe。 */
+  private async guardSuccessfulContext(message: PiAi.AssistantMessage): Promise<void> {
+    const runtime = await loadPiAiRuntime();
+    const signal = inspectSuccessfulMessage(
+      runtime.isContextOverflow,
+      message,
+      resolveContextWindow(this.name, this.model),
+    );
+    if (signal?.kind === 'length_stop_no_output') {
+      throw new LLMContextExceededError(
+        this.name,
+        0,
+        'length-stop with zero output (input at/over 99% context window)',
+      );
+    }
+    if (signal) this.observeContextOverflow(signal);
+  }
 
   private async callOnce(options: LLMCallOptions, maxTokensOverride: number | undefined): Promise<LLMResponse> {
     let finalMessage: PiAi.AssistantMessage | undefined;
@@ -146,19 +170,7 @@ export class PiAiAdapter implements ProviderAdapter {
       throw new LLMEmptyResponseError(this.name);
     }
     // length-stop 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
-    const signal = inspectSuccessfulMessage(
-      (await loadPiAiRuntime()).isContextOverflow,
-      finalMessage,
-      resolveContextWindow(this.name, this.model),
-    );
-    if (signal?.kind === 'length_stop_no_output') {
-      throw new LLMContextExceededError(
-        this.name,
-        0,
-        'length-stop with zero output (input at/over 99% context window)',
-      );
-    }
-    if (signal) this.observeContextOverflow(signal);
+    await this.guardSuccessfulContext(finalMessage);
     if (finalMessage.content.length === 0) {
       throw new LLMEmptyResponseError(this.name);
     }
@@ -179,19 +191,7 @@ export class PiAiAdapter implements ProviderAdapter {
     const state = createEventTranslationState();
     for await (const event of this.runEvents('stream', options, maxTokensOverride)) {
       if (event.type === 'done') {
-        const signal = inspectSuccessfulMessage(
-          (await loadPiAiRuntime()).isContextOverflow,
-          event.message,
-          resolveContextWindow(this.name, this.model),
-        );
-        if (signal?.kind === 'length_stop_no_output') {
-          throw new LLMContextExceededError(
-            this.name,
-            0,
-            'length-stop with zero output (input at/over 99% context window)',
-          );
-        }
-        if (signal) this.observeContextOverflow(signal);
+        await this.guardSuccessfulContext(event.message);
       }
       const chunks = translatePiAiEvent(event, state);
       if (!chunks) continue; // error 事件已由 runEvents 抛错
