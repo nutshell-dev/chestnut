@@ -41,7 +41,8 @@ import {
   makeExternalAbortError,
   withCombinedAbortSignal,
 } from './abort-helper.js';
-import { createPiAiEndpoint, type PiAiEndpoint } from './pi-ai-support.js';
+import { createPiAiEndpoint, loadPiAiRuntime, type PiAiEndpoint } from './pi-ai-support.js';
+import { resolveContextWindow } from './model-context-windows.js';
 import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import { buildPiAiContext } from './pi-ai-wire.js';
 import {
@@ -55,6 +56,7 @@ import {
   classifyTextualError,
   createCapturingFetch,
   isGoogleFamilyApi,
+  isPiAiContextOverflowText,
   type HttpErrorCapture,
 } from './pi-ai-errors.js';
 
@@ -234,9 +236,19 @@ export class PiAiAdapter implements ProviderAdapter {
       return this.timeoutOrAbortError(timeoutMs);
     }
     const message = event.error.errorMessage ?? 'unknown provider error';
-    const captured = await classifyCapturedHttpError(this.name, this.model, capture);
+    const contextWindow = resolveContextWindow(this.name, this.model);
+    const captured = await classifyCapturedHttpError(
+      this.name, this.model, capture, event.error, contextWindow,
+    );
     if (captured) return captured;
-    return classifyTextualError(this.name, this.model, message);
+    // 退化族（Google / 无 status）：共享 pi-ai predicate，替换本地 context 正则
+    const runtime = await loadPiAiRuntime();
+    return classifyTextualError(
+      this.name,
+      this.model,
+      message,
+      (provider, text) => isPiAiContextOverflowText(runtime.isContextOverflow, provider, text),
+    );
   }
 
   /** 事件循环抛出的异常 → typed error（abort/网络/已分类透传）。 */
@@ -252,7 +264,9 @@ export class PiAiAdapter implements ProviderAdapter {
     if (err instanceof ExternalAbortError) return err;
     const abortClassified = classifyFetchAbortError(err, signal, timeoutMs, this.name);
     if (abortClassified) return abortClassified;
-    const captured = await classifyCapturedHttpError(this.name, this.model, capture);
+    const captured = await classifyCapturedHttpError(
+      this.name, this.model, capture, undefined, resolveContextWindow(this.name, this.model),
+    );
     if (captured) return captured;
     return new LLMNetworkError(
       this.name,

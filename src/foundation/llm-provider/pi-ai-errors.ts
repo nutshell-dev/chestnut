@@ -4,8 +4,9 @@
  * pi-ai 路径 typed error 构造（Phase 1925 Step C，设计稿 D2）。
  *
  * 主信号源 = 注入 fetch 截获（status + retry-after + 非 2xx body clone；成功路径
- * 是 SSE 流，绝不 clone——G2 实现约束）。判定复用本模块 owner 分类器
- * throwHttpErrorResponse（合成 Response 喂入，predicate/正则单源不复制）；
+ * 是 SSE 流，绝不 clone——G2 实现约束）。status 分类复用 owner 分类器
+ * throwHttpErrorResponse（合成 Response 喂入）；context overflow 判定使用 pi-ai
+ * 官方 `isContextOverflow`（动态装载），本地不复制 provider pattern 列表。
  * retry-after 只取 typed header（phase 1268 禁令，不从 message 正则推导）。
  *
  * Google 族（google-generative-ai / google-vertex）= 已登记退化族（设计稿 §7 G1）：
@@ -27,6 +28,7 @@ import {
 } from './errors.js';
 import { LLMInvalidRequestError } from './request-unicode.js';
 import { throwHttpErrorResponse, parseOutputBudgetError } from './_helpers.js';
+import { loadPiAiRuntime, type PiAiRuntime } from './pi-ai-support.js';
 
 /** 注入 fetch 的截获结果（每请求一份）。 */
 export interface HttpErrorCapture {
@@ -68,27 +70,86 @@ export function isGoogleFamilyApi(api: PiAi.Api | string): boolean {
 }
 
 /**
- * 由截获事实构造 typed error（复用 owner 分类器 throwHttpErrorResponse，
- * 合成 Response 仅作 status/header 载体）。返回 undefined = 无截获事实。
+ * 将 capture 原始 body 作为 errorMessage 喂给 pi-ai 官方 predicate。
+ * isContextOverflow 的 error 分支只读 stopReason/errorMessage/provider/usage，
+ * 其余字段不参与判定；此 shim 是 L1 唯一的类型跨界点，不复制 pattern 列表。
+ */
+export function isPiAiContextOverflowText(
+  isOverflow: PiAiRuntime['isContextOverflow'],
+  provider: string,
+  text: string,
+): boolean {
+  const probe = {
+    stopReason: 'error',
+    errorMessage: text,
+    provider,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+  } as unknown as PiAi.AssistantMessage;
+  return isOverflow(probe);
+}
+
+/**
+ * capture body → provider error message 文本。
+ *
+ * pi-ai predicate 的 NON_OVERFLOW_PATTERNS（Bedrock throttling 等）以 ^ 锚定
+ * message 起始；直接把 JSON envelope 当 errorMessage 会因 `{` 前缀绕过排除。
+ * JSON body 抽取 `error.message` / 顶层 `message`，其余（SSE 帧、纯文本）用原文。
+ */
+function extractProviderErrorText(body: string): string {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === 'object') {
+      const errorField = (parsed as { error?: unknown }).error;
+      if (errorField && typeof errorField === 'object') {
+        const message = (errorField as { message?: unknown }).message;
+        if (typeof message === 'string' && message !== '') return message;
+      }
+      const message = (parsed as { message?: unknown }).message;
+      if (typeof message === 'string' && message !== '') return message;
+    }
+  } catch {
+    // silent: 非 JSON body（SSE 帧/纯文本）→ 用原文
+  }
+  return body;
+}
+
+/**
+ * normalizeProviderError 的 display form 是 `<status>: <body>`（body 为 JSON 时
+ * 带 envelope）。predicate 的 NON_OVERFLOW 锚定在 message 起始，需先去前缀与
+ * envelope；非 JSON payload 保持原文（不改变上游 pattern 的适用面）。
+ */
+function normalizeProviderErrorText(text: string): string {
+  const statusPrefix = /^\d{3}:\s*/.exec(text);
+  if (!statusPrefix) return text;
+  const payload = text.slice(statusPrefix[0].length);
+  if (!payload.startsWith('{') && !payload.startsWith('[')) return text;
+  return extractProviderErrorText(payload);
+}
+
+/**
+ * 由截获事实构造 typed error。固定优先级（Phase 1959 §4.2，不得调换）：
+ * output budget → HTTP 413 → pi-ai error event predicate → capture 原文兜底 →
+ * 既有 status 分类。返回 undefined = 无截获事实。
  */
 export async function classifyCapturedHttpError(
   provider: string,
   model: string,
   capture: HttpErrorCapture,
+  eventError?: PiAi.AssistantMessage,
+  contextWindow?: number,
 ): Promise<Error | undefined> {
-  if (capture.status === undefined) {
-    if (capture.networkError !== undefined) {
-      return new LLMNetworkError(
-        provider,
-        capture.networkError instanceof Error ? capture.networkError : new Error(String(capture.networkError)),
-      );
-    }
-    return undefined;
+  if (capture.status === undefined && capture.networkError !== undefined) {
+    return new LLMNetworkError(
+      provider,
+      capture.networkError instanceof Error ? capture.networkError : new Error(String(capture.networkError)),
+    );
   }
+  const runtime = await loadPiAiRuntime();
   const status = capture.status;
   const body = capture.body ?? '';
 
-  // OpenAI 族 output budget 形态（400 特例，先于通用 400 分类）
+  // 1) OpenAI 族 output budget 形态（400 特例，先于 context 判定——
+  //    budget 文本同时含 "maximum context length"，先跑 context 会吞掉自动调低重试）
   if (status === 400 && body !== '') {
     const budget = parseOutputBudgetError(body);
     if (budget) {
@@ -101,6 +162,34 @@ export async function classifyCapturedHttpError(
       );
     }
   }
+
+  // 2) 413 的 status 是权威事实，先于 event 文本判定
+  if (status === 413) {
+    return new LLMContextExceededError(provider, 413, body || 'Request Entity Too Large');
+  }
+
+  // 3) pi-ai 官方 predicate（error event 完整消息；display form 先归一化）
+  if (eventError) {
+    const rawText = eventError.errorMessage;
+    const probe = rawText === undefined
+      ? eventError
+      : { ...eventError, errorMessage: normalizeProviderErrorText(rawText) };
+    if (runtime.isContextOverflow(probe, contextWindow)) {
+      return new LLMContextExceededError(provider, status ?? 0, rawText ?? 'context overflow');
+    }
+  }
+
+  // 4) capture 原文兜底：只对 400 / 无 status；429/401/403/404/5xx 不进此步。
+  //    顶层 message JSON（DashScope 等）经 pi-ai 归一化后只剩 "400 status code
+  //    (no body)"，只有 capture.body 能恢复原文。
+  if (status === 400 || status === undefined) {
+    const text = extractProviderErrorText(body);
+    if (text !== '' && isPiAiContextOverflowText(runtime.isContextOverflow, provider, text)) {
+      return new LLMContextExceededError(provider, status ?? 400, body);
+    }
+  }
+
+  if (status === undefined) return undefined;
 
   const synthetic = new Response(null, {
     status,
@@ -124,7 +213,6 @@ export async function classifyCapturedHttpError(
 const TEXT_AUTH_RE = /401|403|unauthorized|unauthenticated|permission[_ ]denied|invalid (api )?key|api key not valid|not configured|invalid_grant|refresh token|(token|oauth).{0,20}(refresh|expired|revoked|rejected)/i;
 const TEXT_NOT_FOUND_RE = /404|not[_ ]found|does not exist/i;
 const TEXT_RATE_LIMIT_RE = /429|rate.?limit|resource_exhausted|too many requests|quota/i;
-const TEXT_CONTEXT_RE = /maximum context length|context.{0,30}(exceeded|exceed)|prompt is too long|input.{0,30}(too long|exceed)|reduce the length of|context_length_exceeded|token count.{0,30}exceed/i;
 const TEXT_NETWORK_RE = /econnrefused|enotfound|etimedout|econnreset|fetch failed|network|socket hang up|dns/i;
 const TEXT_INVALID_JSON_RE = /failed to parse the request body as json|invalid json request body/i;
 
@@ -133,7 +221,12 @@ const TEXT_INVALID_JSON_RE = /failed to parse the request body as json|invalid j
  * 精度上限显式低于注入 fetch 通路：status 为约数（401/404/400），
  * LLMRateLimitError 恒不带 retryAfter（设计稿 G1 登记的退化）。
  */
-export function classifyTextualError(provider: string, model: string, message: string): Error {
+export function classifyTextualError(
+  provider: string,
+  model: string,
+  message: string,
+  isOverflowText: (provider: string, text: string) => boolean,
+): Error {
   if (TEXT_RATE_LIMIT_RE.test(message)) {
     return new LLMRateLimitError(provider, undefined);
   }
@@ -143,7 +236,7 @@ export function classifyTextualError(provider: string, model: string, message: s
   if (TEXT_NOT_FOUND_RE.test(message)) {
     return new LLMModelNotFoundError(provider, model, message);
   }
-  if (TEXT_CONTEXT_RE.test(message)) {
+  if (isOverflowText(provider, normalizeProviderErrorText(message))) {
     return new LLMContextExceededError(provider, 400, message);
   }
   if (TEXT_INVALID_JSON_RE.test(message)) {

@@ -96,63 +96,45 @@ describe('parseRetryAfter', () => {
 });
 
 /**
- * phase 690 Step A: LLMContextExceededError + throwHttpErrorResponse 400 识别
+ * Phase 1960: _helpers 只是 status mapper —— 400 context 文本判定归
+ * pi-ai-errors.classifyCapturedHttpError（pi-ai 官方 predicate）；413 保留在这里。
  */
 
-describe('throwHttpErrorResponse context pattern classification', () => {
-  it.each([
-    "This model's maximum context length is 128000 tokens, but you requested 200000.",
-    'Please reduce the length of the messages.',
-    'context_length_exceeded',
-    'prompt is too long: 250000 tokens > 200000 maximum',
-    'input length and `max_tokens` exceed context limit',
-    'The input token count exceeds the maximum',
-  ])('classifies matching message as context exceeded: %s', async message => {
-    await expect(throwHttpErrorResponse(
-      'test-provider',
-      'test-model',
-      new Response('', { status: 400 }),
-      message,
-    )).rejects.toBeInstanceOf(LLMContextExceededError);
-  });
-
-  it.each([
-    'invalid_request: missing field "model"',
-    'Rate limit reached for requests',
-  ])('does not classify unrelated message as context exceeded: %s', async message => {
-    await expect(throwHttpErrorResponse(
-      'test-provider',
-      'test-model',
-      new Response('', { status: 400 }),
-      message,
-    )).rejects.not.toBeInstanceOf(LLMContextExceededError);
-  });
-});
-
-describe('throwHttpErrorResponse 400 context-exceeded', () => {
-  it('throws LLMContextExceededError on 400 with OpenAI context-length message', async () => {
-    const response = new Response(
-      '{"error":{"message":"This model\'s maximum context length is 8192 tokens, however you requested 9000 tokens"}}',
-      { status: 400 },
-    );
+describe('throwHttpErrorResponse 401/413', () => {
+  it('throws LLMAuthError on 401', async () => {
+    const response = new Response('{"error":{"message":"bad key"}}', { status: 401 });
     await expect(throwHttpErrorResponse('test-provider', 'test-model', response))
-      .rejects.toBeInstanceOf(LLMContextExceededError);
+      .rejects.toMatchObject({ name: 'LLMAuthError', context: { provider: 'test-provider', statusCode: 401 } });
   });
 
-  it('throws LLMContextExceededError on 400 with Anthropic prompt-too-long message', async () => {
+  it('throws LLMContextExceededError on 413 with status/body preserved', async () => {
+    const response = new Response(
+      '{"error":{"message":"request too large"}}',
+      { status: 413 },
+    );
+    try {
+      await throwHttpErrorResponse('anthropic', 'claude-3', response);
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(LLMContextExceededError);
+      const e = err as LLMContextExceededError;
+      expect(e.provider).toBe('anthropic');
+      expect(e.status).toBe(413);
+      expect(e.providerMessage).toContain('request too large');
+      expect(e.code).toBe('LLM_CONTEXT_EXCEEDED');
+    }
+  });
+
+  it('does not text-classify 400 context messages (single entry owns predicate)', async () => {
     const response = new Response(
       '{"error":{"message":"prompt is too long: 250000 tokens > 200000 maximum"}}',
       { status: 400 },
     );
     await expect(throwHttpErrorResponse('anthropic', 'claude-3', response))
-      .rejects.toMatchObject({
-        name: 'LLMContextExceededError',
-        provider: 'anthropic',
-        status: 400,
-      });
+      .rejects.not.toBeInstanceOf(LLMContextExceededError);
   });
 
-  it('throws generic LLMError on 400 NOT matching context or JSON parse patterns', async () => {
+  it('throws generic LLMError on 400 NOT matching JSON parse patterns', async () => {
     const response = new Response(
       '{"error":{"message":"invalid_request: missing field model"}}',
       { status: 400 },
@@ -161,36 +143,12 @@ describe('throwHttpErrorResponse 400 context-exceeded', () => {
       .rejects.toMatchObject({
         name: 'LLMError',
       });
-    // 不应是 LLMContextExceededError
-    await expect(
-      throwHttpErrorResponse('test-provider', 'test-model',
-        new Response('{"error":{"message":"invalid_request: missing field model"}}', { status: 400 })
-      )
-    ).rejects.not.toBeInstanceOf(LLMContextExceededError);
     // 不应是 LLMInvalidRequestError
     await expect(
       throwHttpErrorResponse('test-provider', 'test-model',
         new Response('{"error":{"message":"invalid_request: missing field model"}}', { status: 400 })
       )
     ).rejects.not.toBeInstanceOf(LLMInvalidRequestError);
-  });
-
-  it('LLMContextExceededError exposes provider/status/providerMessage', async () => {
-    const response = new Response(
-      '{"error":{"message":"prompt is too long: 300000 > 200000"}}',
-      { status: 400 },
-    );
-    try {
-      await throwHttpErrorResponse('claude', 'claude-3', response);
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(LLMContextExceededError);
-      const e = err as LLMContextExceededError;
-      expect(e.provider).toBe('claude');
-      expect(e.status).toBe(400);
-      expect(e.providerMessage).toContain('prompt is too long');
-      expect(e.code).toBe('LLM_CONTEXT_EXCEEDED');
-    }
   });
 });
 

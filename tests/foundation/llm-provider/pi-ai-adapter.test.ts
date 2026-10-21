@@ -252,6 +252,98 @@ describe('PiAiAdapter — openai-completions 协议', () => {
 });
 
 /**
+ * Phase 1960 Step B：context overflow 检测矩阵（L1 单一入口）。
+ * pi-ai 官方 predicate 为 event 主判定，capture 原文兜底顶层 message/SSE；
+ * 429/401/5xx 与普通 400 不得被拖入 context。
+ */
+describe('PiAiAdapter — Phase 1960 context overflow 检测', () => {
+  it('aliyun SSE event:error（HTTP 400）→ LLMContextExceededError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      'event:error\ndata: {"error":{"message":"Range of input length should be [1, 1000000]","type":"invalid_parameter_error"}}\n\n',
+      { status: 400, headers: { 'content-type': 'text/event-stream' } },
+    )));
+    const adapter = createLLMProvider(baseConfig({
+      name: 'aliyun-ds',
+      model: 'deepseek-v4-pro',
+    }));
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as InstanceType<typeof LLMContextExceededError>).status).toBe(400);
+  });
+
+  it('aliyun 顶层 message JSON（HTTP 400）→ LLMContextExceededError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { message: 'Range of input length should be [1, 1000000]' },
+      400,
+    )));
+    const adapter = createLLMProvider(baseConfig({
+      name: 'aliyun-ds',
+      model: 'deepseek-v4-pro',
+    }));
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toBeInstanceOf(LLMContextExceededError);
+  });
+
+  it('HTTP 413 → LLMContextExceededError(status=413)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { error: { message: 'request too large' } },
+      413,
+    )));
+    const adapter = createLLMProvider(baseConfig());
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as InstanceType<typeof LLMContextExceededError>).status).toBe(413);
+  });
+
+  it('429 + rate-limit 文案不被拖入 context', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { error: { message: 'rate limit reached: too many requests' } },
+      429,
+      { 'retry-after': '3' },
+    )));
+    const adapter = createLLMProvider(baseConfig());
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMRateLimitError);
+    expect(err).not.toBeInstanceOf(LLMContextExceededError);
+  });
+
+  it('Bedrock throttling "Too many tokens" → 非 context', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { error: { message: 'Throttling error: Too many tokens, please wait before trying again.' } },
+      400,
+    )));
+    const adapter = createLLMProvider(baseConfig());
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMError);
+    expect(err).not.toBeInstanceOf(LLMContextExceededError);
+  });
+
+  it('普通 400 invalid_request → 非 context', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { error: { message: 'invalid_request: missing field model' } },
+      400,
+    )));
+    const adapter = createLLMProvider(baseConfig());
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMError);
+    expect(err).not.toBeInstanceOf(LLMContextExceededError);
+  });
+
+  it('output budget 400 仍走 LLMOutputBudgetExceededError（priority 不回归）', async () => {
+    const budgetMessage = 'maximum context length is 8192 tokens. requested 9000 tokens (8000 in the messages, 1000 in the completion)';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: { message: budgetMessage } }, 400))
+      .mockResolvedValueOnce(jsonResponse({ error: { message: budgetMessage } }, 400));
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = createLLMProvider(baseConfig());
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 1000 }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMOutputBudgetExceededError);
+    expect(err).not.toBeInstanceOf(LLMContextExceededError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
  * Phase 1941 (D1) 时限分层回归：
  * - stream 的 timeoutMs 只覆盖首事件前握手；首 event 后持续 chunk 总时长超过
  *   timeoutMs 不得被 adapter 内部 timer 中止（本 phase 修复的缺陷形态）；

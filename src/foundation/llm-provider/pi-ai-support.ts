@@ -34,6 +34,8 @@ export interface PiAiRuntime {
   builtinProviders: () => PiAi.Provider[];
   /** catalog api → lazy 实现工厂（自建 Model 路径用；inventory 门禁对账）。 */
   apis: Record<string, () => PiAi.ProviderStreams>;
+  /** pi-ai 官方 context overflow 判定（error/silent/length 三态，Phase 1960）。 */
+  isContextOverflow: typeof PiAi.isContextOverflow;
 }
 
 let runtimePromise: Promise<PiAiRuntime> | undefined;
@@ -73,6 +75,7 @@ export function loadPiAiRuntime(): Promise<PiAiRuntime> {
         'openai-responses': openaiResp.openAIResponsesApi,
         'pi-messages': piMessages.piMessagesApi,
       },
+      isContextOverflow: main.isContextOverflow,
     };
   })().catch((err) => {
     runtimePromise = undefined;
