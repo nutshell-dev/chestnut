@@ -458,9 +458,11 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
   /**
    * phase 1882: SIGKILL 后组死亡确认段的真实墙钟总预算（防死循环安全阀，
    * 非判定依据）。derivation：隔离实测整文件 tests ~1.0s、该 case 确认段
-   * <<1s；取 5s 满载余量（OS 信号投递/回收调度延迟上限），且 < case timeout 20s。
+   * <<1s；phase 1965 Step G 将 5s 放大到 15s（满载观察值的 3× 余量——满载下
+   * OS 信号投递/回收调度延迟可能超过 5s），仍 ≤ case timeout 20s 的安全范围；
+   * settled 即提前退出，happy path 仍 ~100ms 量级。
    */
-  const REAL_CONFIRM_BUDGET_MS = 5_000;
+  const REAL_CONFIRM_BUDGET_MS = 15_000;
 
   // Node platform fact: a single setTimeout delay is capped at the signed
   // 32-bit ms max; larger delays overflow and fire after ~1ms.
@@ -661,7 +663,9 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
 
       // The re-armed tail reaches the real deadline.
       await vi.advanceTimersByTimeAsync(TAIL_BEYOND_CAP_MS);
-      await advanceWithRealYield(2_000);
+      // phase 1965 Step G: 确认段真实时间化（对齐 :603 用例的 phase 1882 模式），
+      // 满载下 OS 回收与 L1 确认窗 1:1 映射，still_alive 不再由调度抖动触发。
+      await advanceConfirmRealTime(() => settled);
       const err = await handle.promise.catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ProcessExecError);
       expect((err as ProcessExecError).termination!.trigger).toBe('timeout');
