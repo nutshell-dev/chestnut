@@ -10,8 +10,6 @@ function createMockProvider(name: string): ProviderAdapter {
     model: 'test-model',
     call: vi.fn(),
     stream: vi.fn(),
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 }
 

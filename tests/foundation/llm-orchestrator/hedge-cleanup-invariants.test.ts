@@ -71,8 +71,6 @@ describe('hedge-post-first-chunk-failure', () => {
             }
           }
         : undefined,
-      onStreamParseError: undefined,
-      onToolArgParseError: undefined,
     };
   }
 
@@ -226,8 +224,6 @@ describe('hedge-double-fail-generator-cleanup', () => {
             }
           }
         : undefined,
-      onStreamParseError: undefined,
-      onToolArgParseError: undefined,
     };
   }
 
@@ -403,8 +399,6 @@ describe('hedge-bwins-cleanup', () => {
             }
           }
         : undefined,
-      onStreamParseError: undefined,
-      onToolArgParseError: undefined,
     };
   }
 

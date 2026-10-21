@@ -65,8 +65,6 @@ function createMockProvider(
           }
         }
       : undefined,
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 }
 

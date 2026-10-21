@@ -82,8 +82,6 @@ function createMockProvider(
           }
         }
       : undefined,
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 }
 
@@ -311,8 +309,6 @@ function createMockStreamProvider(
           yield { type: 'text_delta', delta: `Chunk from ${name}` };
           yield { type: 'done' };
         },
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 }
 

@@ -71,8 +71,6 @@ function createMockProvider(
           }
         }
       : undefined,
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 }
 
@@ -248,8 +246,6 @@ describe('hedge state machine cluster (phase 991)', () => {
           // Throw a real provider error even though user may have aborted
           throw new LLMNetworkError('primary', new Error('ECONNRESET'));
         },
-        onStreamParseError: undefined,
-        onToolArgParseError: undefined,
       };
       const fallback = createMockProvider('fb1', {
         callResponse: {

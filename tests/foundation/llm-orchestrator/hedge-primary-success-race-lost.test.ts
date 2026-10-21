@@ -70,8 +70,6 @@ function createDeferredMockProvider(
             }
           }
         : undefined,
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 
   return { provider, resolveCall, rejectCall, resolveStream };

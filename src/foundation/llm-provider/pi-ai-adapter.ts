@@ -76,10 +76,6 @@ export class PiAiAdapter implements ProviderAdapter {
   readonly name: string;
   readonly model: string;
 
-  /** Set by LLMOrchestratorImpl（观测通道；pi-ai 路径不产生 SSE parse/tool arg parse 降级） */
-  onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
-  onToolArgParseError?: (event: { provider: string; toolName: string; rawArgs: string; error: string }) => void;
-
   private readonly config: ProviderConfig;
   private readonly options: PiAiAdapterOptions | undefined;
   private endpointPromise?: Promise<PiAiEndpoint>;

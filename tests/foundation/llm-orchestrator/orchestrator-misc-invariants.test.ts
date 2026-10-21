@@ -291,8 +291,6 @@ describe('all-providers-context-exceeded-emit', () => {
             }
           }
         : undefined,
-      onStreamParseError: undefined,
-      onToolArgParseError: undefined,
     };
   }
 
@@ -609,8 +607,6 @@ describe('race-loser-cleanup', () => {
             }
           }
         : undefined,
-      onStreamParseError: undefined,
-      onToolArgParseError: undefined,
     };
   }
 
@@ -824,8 +820,6 @@ describe('hedge-cache-token-emit', () => {
             }
           }
         : undefined,
-      onStreamParseError: undefined,
-      onToolArgParseError: undefined,
     };
   }
 

@@ -270,18 +270,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           },
         ))
       : [];
-
-    // Wire onStreamParseError for A.4 (Step 5 calls this)
-    const parseErrHandler = (e: { provider: string; raw: string; error: string }) =>
-      this.events.emit({ type: 'stream_parse_error', ...e });
-    this.primary.onStreamParseError = parseErrHandler;
-    this.fallbacks.forEach(fb => { fb.onStreamParseError = parseErrHandler; });
-
-    // Wire onToolArgParseError for tool args JSON.parse failures
-    const toolArgErrHandler = (e: { provider: string; toolName: string; rawArgs: string; error: string }) =>
-      this.events.emit({ type: 'tool_arg_parse_error', ...e });
-    this.primary.onToolArgParseError = toolArgErrHandler;
-    this.fallbacks.forEach(fb => { fb.onToolArgParseError = toolArgErrHandler; });
   }
 
   /**
@@ -1809,16 +1797,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           },
         ))
       : [];
-
-    const parseErrHandler = (e: { provider: string; raw: string; error: string }) =>
-      this.events.emit({ type: 'stream_parse_error', ...e });
-    this.primary.onStreamParseError = parseErrHandler;
-    this.fallbacks.forEach(fb => { fb.onStreamParseError = parseErrHandler; });
-
-    const toolArgErrHandler = (e: { provider: string; toolName: string; rawArgs: string; error: string }) =>
-      this.events.emit({ type: 'tool_arg_parse_error', ...e });
-    this.primary.onToolArgParseError = toolArgErrHandler;
-    this.fallbacks.forEach(fb => { fb.onToolArgParseError = toolArgErrHandler; });
 
     // Phase 900: 旧 provider 移出 cache 但暂不 close，避免 reload 中断活跃请求；
     // 延迟到 orchestrator.close() 统一回收。

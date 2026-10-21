@@ -285,10 +285,4 @@ export interface ProviderAdapter {
    * Stream LLM response
    */
   stream?(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk>;
-
-  /** Set by LLMOrchestratorImpl; providers call this for SSE parse errors (A.4) */
-  onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
-
-  /** Set by LLMOrchestratorImpl; providers call this when tool_call.function.arguments fails JSON.parse */
-  onToolArgParseError?: (event: { provider: string; toolName: string; rawArgs: string; error: string }) => void;
 }
