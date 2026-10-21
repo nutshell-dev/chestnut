@@ -47,6 +47,13 @@ afterEach(() => {
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const deps = { fsFactory };
 
+/**
+ * 工作流用例的显式超时预算（phase 1965 Step D）。derivation：fast project 全局 15s
+ * 是 harness 默认值；该用例做真实 fs/版本仓库/CAS 工作流，满载下可能超过 15s，
+ * 但断言的是工作流语义而非 deadline。60s = 满载观察值的 ≥3× 余量。
+ */
+const WORKFLOW_TEST_TIMEOUT_MS = 60_000;
+
 function makeSkillSource(parent: string, version: string): string {
   const src = path.join(testDir, parent, 'myskill');
   fs.mkdirSync(src, { recursive: true });
@@ -223,7 +230,7 @@ describe('Phase 1919 Step F: 安装来源版本固定（sourceVersion pinning）
     expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'SKILL.md'), 'utf-8')).toBe('# myskill v1\n');
     expect(fs.readFileSync(path.join(clawSkillDir('bob'), 'run.sh'), 'utf-8')).toBe('echo v1\n');
     expect(fs.existsSync(clawClaimPath('bob'))).toBe(false);
-  });
+  }, WORKFLOW_TEST_TIMEOUT_MS);
 
   it('重启后快照缺失按固定 commit 重建：仍旧版、不回读 live', async () => {
     await publishDispatch('a', 'v1');

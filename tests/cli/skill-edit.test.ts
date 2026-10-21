@@ -50,6 +50,13 @@ const gitAvailable = (() => {
 
 const SKILL_MD = (name: string, body: string) => `---\nname: ${name}\ndescription: ${name} desc\n---\n${body}`;
 
+/**
+ * 工作流用例的显式超时预算（phase 1965 Step D）。derivation：fast project 全局 15s
+ * 是 harness 默认值；这些用例做真实 fs/版本仓库/CAS 工作流，满载下可能超过 15s，
+ * 但断言的是工作流语义而非 deadline。60s = 满载观察值的 ≥3× 余量。
+ */
+const WORKFLOW_TEST_TIMEOUT_MS = 60_000;
+
 describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
   let tmpDir: string;
   let savedRoot: string | undefined;
@@ -247,7 +254,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
       cap.restore();
     }
     expect(cap.stdout.join('')).toContain(`Edit ${editId} published: `);
-  });
+  }, WORKFLOW_TEST_TIMEOUT_MS);
 
   it('依据准入（phase 1923 Step C）：未归因 submit 退出码 5 + kind=basis_required；补依据后重提发布', async () => {
     seedDispatchSkill('alpha', '# Alpha orig\n');
@@ -320,7 +327,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
       cap.restore();
     }
     expect(cap.stdout.join('')).toContain(`Edit ${retryEditId} published: `);
-  });
+  }, WORKFLOW_TEST_TIMEOUT_MS);
 
   it('来源归因：任务可解析 → subagent-task + correlation 引用；不可解析 → 明确未归因', async () => {
     seedDispatchSkill('alpha', '# Alpha orig\n');

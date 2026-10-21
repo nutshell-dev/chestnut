@@ -45,6 +45,13 @@ const gitAvailable = (() => {
 const SKILL_MD = (name: string, body: string) => `---\nname: ${name}\ndescription: ${name} desc\n---\n${body}`;
 const CONTRACT_ID = 'c-retro-1';
 
+/**
+ * 工作流用例的显式超时预算（phase 1965 Step D）。derivation：fast project 全局 15s
+ * 是 harness 默认值；该用例做真实 fs/in-process 版本仓库工作流，满载下可能超过
+ * 15s，但断言的是工作流语义而非 deadline。60s = 满载观察值的 ≥3× 余量。
+ */
+const WORKFLOW_TEST_TIMEOUT_MS = 60_000;
+
 describe.skipIf(!gitAvailable)('复盘分支编辑工作流（phase 1919 Step E）', () => {
   let tmpDir: string;
   let savedRoot: string | undefined;
@@ -219,7 +226,7 @@ describe.skipIf(!gitAvailable)('复盘分支编辑工作流（phase 1919 Step E�
     expect(aPublished.basis.actor).toBe(`subagent:${deriveShortIdFromTaskId(makeFullTaskId(taskA.id))}`);
     expect(aPublished.basis.sourceRefs).toEqual([`subagent-task:${taskA.id}`, taskA.correlationRef]);
     expect(bConflict.basis.sourceRefs).toEqual([`subagent-task:${taskB.id}`, taskB.correlationRef]);
-  });
+  }, WORKFLOW_TEST_TIMEOUT_MS);
 
   it('timeout/中断：工作区与候选留存、依据不丢，不伪报已发布', async () => {
     const versions = await makeVersions();
