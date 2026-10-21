@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,6 +49,17 @@ describe(
     let exitListeners: Array<() => void>;
     const dumpFiles: string[] = [];
 
+    // phase 1965 Step F: 本 worker 私有 TMPDIR——fallback dump 不再落共享 os.tmpdir()，
+    // 其他 audit 测试/worker 的 reconcileFallbackDumps 扫描不到本文件的 dump
+    // （参照 reader.test.ts phase 880 的 per-worker TMPDIR 模式）。
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const workerTmp = mkdtempSync(join(tmpdir(), 'phase176-mfcw-root-'));
+    let originalTmpdir: string | undefined;
+
+    afterAll(() => {
+      rmSync(workerTmp, { recursive: true, force: true });
+    });
+
     async function writeDump(lines: string[]): Promise<string> {
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const dumpDir = tmpdir();
@@ -64,6 +75,8 @@ describe(
     }
 
     beforeEach(() => {
+      originalTmpdir = process.env.TMPDIR;
+      process.env.TMPDIR = workerTmp;
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tmpDir = mkdtempSync(join(tmpdir(), 'phase176-mfcw-'));
       _resetFallbackForTest();
@@ -83,6 +96,8 @@ describe(
       vi.restoreAllMocks();
       vi.mocked(nodeFs.writeFileSync).mockClear();
       _resetFallbackForTest();
+      if (originalTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTmpdir;
     });
 
     it('per-file seq 独立计数（cross-instance emit 不 cross-contamination）', () => {
