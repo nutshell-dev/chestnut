@@ -379,8 +379,14 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
     vi.unstubAllGlobals();
   });
 
-  /** 可控滴流 SSE Response：按 delays 逐帧 enqueue；signal abort 时以 AbortError 终止 body。 */
-  function dripSseResponse(lines: string[], delays: number[], signal?: AbortSignal): Response {
+  /**
+   * 可控滴流 SSE Response：按 delays 逐帧 enqueue；signal abort 时以 AbortError 终止 body。
+   *
+   * syncFirst（phase 1965 Step C）：首帧同步入队而非走 timer。全量并发下真实 timer
+   * 可能晚于 provider 握手窗触发，导致首事件超时与调度顺序相关；syncFirst 使进入流
+   * 消费时首帧已可读。syncFirst 下 delays[0] 不参与调度，后续帧间隔不变。
+   */
+  function dripSseResponse(lines: string[], delays: number[], signal?: AbortSignal, syncFirst = false): Response {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -398,10 +404,12 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
             return;
           }
           const idx = i++;
-          timer = setTimeout(() => {
+          const enqueue = () => {
             controller.enqueue(encoder.encode(`${lines[idx]}\n\n`));
             push();
-          }, delays[idx] ?? 0);
+          };
+          if (syncFirst && idx === 0) enqueue();
+          else timer = setTimeout(enqueue, delays[idx] ?? 0);
         };
         push();
       },
@@ -442,8 +450,9 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
     // chunk 间隔 < streamIdleTimeoutMs=4000，但总时长 ~2s > timeoutMs=800。
     // 旧行为：adapter 内部 800ms 总时长 timer 在流中段误 abort → stream_reset/恢复循环。
     // （时序边距按全量并行负载加宽，防 CI 调度抖动）
+    // phase 1965 Step C：首帧同步入队，握手窗不再被满载下的 timer 调度延迟消耗
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
-      dripSseResponse(openaiSse(dripFrames()), [20, 1000, 1000, 5], init.signal ?? undefined)));
+      dripSseResponse(openaiSse(dripFrames()), [20, 1000, 1000, 5], init.signal ?? undefined, true)));
 
     const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
