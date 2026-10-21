@@ -10,7 +10,8 @@ const piAiErrorsSource = readFileSync(
   'utf8',
 );
 const piAiSupportSource = readFileSync(
-  new URL('../../../src/foundation/llm-provider/pi-ai-support.ts', import.meta.url),
+  // phase 1964 Step B：实现拆至 pi-ai-runtime.ts（pi-ai-support.ts 为 facade）
+  new URL('../../../src/foundation/llm-provider/pi-ai-runtime.ts', import.meta.url),
   'utf8',
 );
 

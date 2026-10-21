@@ -3,7 +3,7 @@
  *
  * pi-ai 无 CJS `require` 条件（exports 仅 import）——barrel/任何 L1 模块
  * 静态 import pi-ai 都会让 `require('chestnut')` 直接炸。因此 pi-ai 只经
- * 动态 import 触达（pi-ai-support.ts），本测试锁定该不变量：
+ * 动态 import 触达（pi-ai-runtime.ts），本测试锁定该不变量：
  *
  * 1. dist 产物（index.cjs + index.js + chunks）源码扫描无静态 pi-ai 引入；
  * 2. `require(dist/index.cjs)` 真实加载成功（CJS 消费者入口不炸）。

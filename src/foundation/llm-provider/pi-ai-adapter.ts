@@ -4,7 +4,7 @@
  * PiAiAdapter —— pi-ai 作为唯一 L1 provider 实现（Phase 1925 Step C）。
  *
  * 对外保持既有 ProviderAdapter 契约（call/stream/chunk 语义/typed errors）；
- * pi-ai 只在模块内部可见（动态 import，见 pi-ai-support.ts）。职责四件
+ * pi-ai 只在模块内部可见（动态 import，见 pi-ai-runtime.ts）。职责四件
  * （设计稿 D1）：wire 映射（pi-ai-wire.ts）、事件翻译（pi-ai-events.ts）、
  * 失败构造（pi-ai-errors.ts）、配置语义（apiFormat 显式协议 + catalog/自建 Model）。
  *
