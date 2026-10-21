@@ -71,8 +71,10 @@ export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | Thinking
  * phase 1800: Provider wire message —— LLM API 仅看 role + content。
  *
  * chestnut 内部元数据（origin/systemSubtype/addedAt/trimmed）不属于 wire 协议，
- * 归 DialogStore canonical `Message`（phase 436 立、phase 421 ratify）；provider 边界
- * 经 sanitizeForLLMCall 单向投影剥离，provider 类型面不再暴露上层元数据。
+ * 归 DialogStore canonical `Message`（phase 436 立、phase 421 ratify）；provider 类型面
+ * 不暴露上层元数据。生产 pi-ai 路径的投影由 pi-ai-wire.buildPiAiContext 完成
+ * （重建消息只取 role/content）；sanitizeForLLMCall 是做同一纯投影的测试/工具 helper
+ * （phase 1961 Step C 名实核对：生产零调用）。
  */
 export interface ProviderWireMessage {
   role: Role;

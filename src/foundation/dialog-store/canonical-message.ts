@@ -7,14 +7,15 @@
  *
  * 归属理由：这些字段是 dialog 消息的生命周期元数据（写入时刻 / 来源 / 裁剪记录），
  * DialogStore 是 dialog 持久化 schema owner；LLMProvider 只见 ProviderWireMessage
- * （role + content），provider 边界经 sanitizeForLLMCall 单向剥离。
+ * （role + content）。生产 pi-ai 路径的剥离在 pi-ai-wire.buildPiAiContext 完成；
+ * sanitizeForLLMCall 是做同一投影的测试/工具 helper（phase 1961 Step C）。
  */
 
 import type { ProviderWireMessage } from '../llm-provider/index.js';
 
 /**
  * 业务 canonical dialog message = provider wire + chestnut 内部元数据。
- * LLM API 不感知元数据（调用前必经 sanitize 投影）。
+ * LLM API 不感知元数据（生产 pi-ai 路径经 buildPiAiContext 投影剥离）。
  */
 export interface Message extends ProviderWireMessage {
   /** 仅 role='user' 时有意义；tool_result 不填（内部 block.type 已区分） */

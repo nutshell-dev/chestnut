@@ -3,7 +3,9 @@
  *
  * - llm-provider 不再声明含上层元数据的 Message；wire 类型 ProviderWireMessage 仅 role+content。
  * - canonical Message 归 DialogStore（origin/systemSubtype/addedAt/trimmed 唯一声明点）。
- * - provider 边界单向投影（sanitizeForLLMCall）运行时剥离元数据。
+ * - phase 1961 Step C 名实核对：本 ratchet 验证 sanitizeForLLMCall 的投影语义，
+ *   不代表生产调用点（该 helper 生产零调用）；生产 pi-ai 路径的投影是
+ *   pi-ai-wire.buildPiAiContext。
  */
 
 import { readFileSync } from 'node:fs';
