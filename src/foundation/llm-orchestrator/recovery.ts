@@ -12,6 +12,10 @@
  * Phase 1827：一次 begin 接收本轮全部恢复事实（干预 ids / 配置修订 / 启动 token），
  * 事实互不遮蔽；接受记账、安排与至多一次准入在同一原子提交中完成，完整接受事实
  * 持久保留，单一显示原因不替代全部证据。
+ *
+ * Phase 1958 Step C：durable commit 屏障 —— noteSuccess/noteFailure 先构造候选
+ * 状态，durable commit 成功后才替换内存；写失败保持旧内存与旧磁盘一致，事件
+ * revision 只来自已提交状态（内存不得越过磁盘事实）。
  */
 
 import { formatErr, newUuid } from '../node-utils/index.js';
@@ -240,7 +244,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       if (residual.started) {
         // 已开始 → 结果未知：清除句柄并留证据（不虚构成功或失败）。
         this.state = { ...this.state, activeAdmission: null, revision: this.state.revision + 1 };
-        this.pushFailure({
+        this.pushFailure(this.state, {
           at: new Date(this.now()).toISOString(),
           providerId: 'unknown',
           errorClass: 'unknown',
@@ -256,7 +260,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         };
       }
       this.state.schedule = { ...this.state.schedule, revision: this.state.revision };
-      this.commit();
+      this.commit(this.state);
     }
 
     this.llm = this.createScopedView(deps.orchestrator);
@@ -498,7 +502,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       this.state.schedule = { kind: 'ready', revision: this.state.revision + 1 };
       this.state.revision += 1;
     }
-    if (dirty) this.commit();
+    if (dirty) this.commit(this.state);
     this.emit({
       type: 'recovery_attempt_finished',
       scope: this.scopeId,
@@ -526,7 +530,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     if (!active || active.started) return;
     active.started = true;
     active.startedAt = new Date(this.now()).toISOString();
-    this.commit();
+    this.commit(this.state);
   }
 
   noteSuccess(): void {
@@ -536,18 +540,27 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       && budget.retryDelayMs === LLM_RECOVERY_RETRY_INITIAL_DELAY_MS
       && budget.quotaDelayMs === LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS;
     // Phase 1955 Step B：成功清零 rate-limit 连续失败与 blocked 事实。
-    const rateLimitClean = this.state.providers.every(
-      p => p.rateLimitFailures === undefined && p.rateLimitBlocked !== true,
+    // Phase 1958 Step C：候选状态语义要求「无变化」判据覆盖全部会被重写的字段
+    // （含 permanent 过滤）——否则早退会跳过持久化却丢弃内存事实。
+    const providersClean = this.state.providers.every(
+      p => p.errorClass !== 'permanent'
+        && p.rateLimitFailures === undefined
+        && p.rateLimitBlocked !== true,
     );
-    this.state.budget = initialBudget();
-    this.state.providers = this.state.providers
-      .filter(p => p.errorClass !== 'permanent')
-      .map(clearRateLimitFact);
-    if (alreadyReady && budgetClean && rateLimitClean) return;  // 无变化不写盘
-    this.state.revision += 1;
-    this.state.schedule = { kind: 'ready', revision: this.state.revision };
+    if (alreadyReady && budgetClean && providersClean) return;  // 无变化不写盘
+    // Phase 1958 Step C: durable commit 屏障 —— 先构造候选状态，durable commit 成功后
+    // 才替换内存；写失败保持旧内存与旧磁盘一致，仅发出 write_failed 证据事件。
+    const next: LLMRecoveryStateV1 = {
+      ...this.state,
+      budget: initialBudget(),
+      providers: this.state.providers
+        .filter(p => p.errorClass !== 'permanent')
+        .map(clearRateLimitFact),
+      revision: this.state.revision + 1,
+    };
+    next.schedule = { kind: 'ready', revision: next.revision };
     try {
-      this.commit();
+      this.commitNext(next);
     } catch (error) {
       this.emit({
         type: 'recovery_state_write_failed',
@@ -557,10 +570,11 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       });
       return;
     }
+    // 事件 revision 只能来自已提交状态
     this.emit({
       type: 'recovery_ready',
       scope: this.scopeId,
-      revision: this.state.revision,
+      revision: next.revision,
       reason: 'success',
     });
   }
@@ -574,6 +588,14 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     if (failures.length === 0) return;
     const nowMs = this.now();
     const nowIso = new Date(nowMs).toISOString();
+    // Phase 1958 Step C: 候选状态工作副本 —— 嵌套 budget/providers/failures 全部克隆，
+    // mutation 只落在候选上，durable commit 失败时旧内存与旧磁盘保持一致。
+    const next: LLMRecoveryStateV1 = {
+      ...this.state,
+      budget: { ...this.state.budget },
+      providers: this.state.providers.map(p => ({ ...p })),
+      failures: [...this.state.failures],
+    };
     let nextAtMs: number | undefined;
     let lastErrorClass = 'unknown';
 
@@ -587,8 +609,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         }
         continue;
       }
-      this.upsertProviderFact(failure, nowIso);
-      this.pushFailure({
+      this.upsertProviderFact(next, failure, nowIso);
+      this.pushFailure(next, {
         at: nowIso,
         providerId: failure.providerId,
         errorClass: failure.errorClass,
@@ -596,8 +618,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       });
 
       if (failure.errorClass === 'quota') {
-        const delay = this.state.budget.quotaDelayMs;
-        this.state.budget.quotaDelayMs = Math.min(delay * 2, LLM_RECOVERY_QUOTA_MAX_DELAY_MS);
+        const delay = next.budget.quotaDelayMs;
+        next.budget.quotaDelayMs = Math.min(delay * 2, LLM_RECOVERY_QUOTA_MAX_DELAY_MS);
         nextAtMs = minDefined(nextAtMs, nowMs + delay);
       } else if (failure.errorClass === 'rate_limit') {
         // 服务端 Retry-After 是权威可尝试时刻：不早于其要求，也不早于独立 cooldown；
@@ -608,7 +630,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         } else {
           // Phase 1955 Step B：无服务端时间的 rate-limit 按 provider 独立计数，
           // 30/60/120/300/600s 有界增长；达到上限 → blocked（on_change，不自动重试）。
-          const fact = this.state.providers.find(p => p.providerId === failure.providerId);
+          const fact = next.providers.find(p => p.providerId === failure.providerId);
           if (fact) {
             fact.rateLimitFailures = (fact.rateLimitFailures ?? 0) + 1;
             if (fact.rateLimitFailures >= LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS) {
@@ -622,16 +644,16 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
               nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index]);
             }
           } else {
-            nextAtMs = minDefined(nextAtMs, nowMs + this.state.budget.retryDelayMs);
+            nextAtMs = minDefined(nextAtMs, nowMs + next.budget.retryDelayMs);
           }
         }
       } else if (failure.errorClass === 'permanent') {
         // 无自动恢复路径；只有干预/配置变化可再试。
       } else if (failure.errorClass === 'transient' || failure.errorClass === 'unknown') {
-        if (this.state.budget.retryCount < LLM_RECOVERY_MAX_RETRIES) {
-          this.state.budget.retryCount += 1;
-          const delay = this.state.budget.retryDelayMs;
-          this.state.budget.retryDelayMs = Math.min(delay * 2, LLM_RECOVERY_RETRY_MAX_DELAY_MS);
+        if (next.budget.retryCount < LLM_RECOVERY_MAX_RETRIES) {
+          next.budget.retryCount += 1;
+          const delay = next.budget.retryDelayMs;
+          next.budget.retryDelayMs = Math.min(delay * 2, LLM_RECOVERY_RETRY_MAX_DELAY_MS);
           nextAtMs = minDefined(nextAtMs, nowMs + delay);
         } else {
           nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_COOLDOWN_MS);
@@ -640,14 +662,15 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       // context_exceeded/abort 不进入失败策略（前者归 caller trim，后者非供应商失败）。
     }
 
-    this.state.revision += 1;
-    this.state.schedule = nextAtMs === undefined
-      ? { kind: 'on_change', revision: this.state.revision }
-      : { kind: 'at', revision: this.state.revision, resumeAt: new Date(nextAtMs).toISOString() };
+    next.revision += 1;
+    next.schedule = nextAtMs === undefined
+      ? { kind: 'on_change', revision: next.revision }
+      : { kind: 'at', revision: next.revision, resumeAt: new Date(nextAtMs).toISOString() };
     try {
-      this.commit();
+      this.commitNext(next);
     } catch (error) {
-      // 内存安排已生效（不继续真发）；持久化失败单独暴露，不掩盖原始 LLM 错误。
+      // durable commit 失败：内存安排未生效（不继续真发）、磁盘保持旧状态；
+      // 持久化失败单独暴露，不掩盖原始 LLM 错误。
       this.emit({
         type: 'recovery_state_write_failed',
         scope: this.scopeId,
@@ -656,15 +679,16 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       });
       return;
     }
+    // 事件 revision/统计只能来自已提交状态
     this.emit({
       type: 'recovery_scheduled',
       scope: this.scopeId,
-      revision: this.state.revision,
-      scheduleKind: this.state.schedule.kind === 'at' ? 'at' : 'on_change',
-      resumeAt: this.state.schedule.kind === 'at' ? this.state.schedule.resumeAt : '',
+      revision: next.revision,
+      scheduleKind: next.schedule.kind === 'at' ? 'at' : 'on_change',
+      resumeAt: next.schedule.kind === 'at' ? next.schedule.resumeAt : '',
       errorClass: lastErrorClass,
-      providerCount: this.state.providers.length,
-      failureCount: this.state.failures.length,
+      providerCount: next.providers.length,
+      failureCount: next.failures.length,
     });
   }
 
@@ -688,8 +712,9 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     };
   }
 
-  private upsertProviderFact(failure: RecoveryFailureInput, atIso: string): void {
-    const existing = this.state.providers.find(p => p.providerId === failure.providerId);
+  /** 在候选 state 上原地更新 provider 故障事实（mutation 不触旧状态）。 */
+  private upsertProviderFact(state: LLMRecoveryStateV1, failure: RecoveryFailureInput, atIso: string): void {
+    const existing = state.providers.find(p => p.providerId === failure.providerId);
     if (existing) {
       existing.errorClass = failure.errorClass;
       existing.at = atIso;
@@ -697,7 +722,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       existing.detail = failure.message;
       return;
     }
-    this.state.providers.push({
+    state.providers.push({
       providerId: failure.providerId,
       errorClass: failure.errorClass,
       at: atIso,
@@ -706,23 +731,28 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     });
   }
 
-  private pushFailure(evidence: {
+  /** 在候选 state 上追加失败证据（有界截断；mutation 不触旧状态）。 */
+  private pushFailure(state: LLMRecoveryStateV1, evidence: {
     at: string;
     providerId: string;
     errorClass: string;
     message: string;
   }): void {
-    this.state.failures.push(evidence);
-    if (this.state.failures.length > LLM_RECOVERY_FAILURE_EVIDENCE_MAX) {
-      this.state.failures = this.state.failures.slice(
-        this.state.failures.length - LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
+    state.failures.push(evidence);
+    if (state.failures.length > LLM_RECOVERY_FAILURE_EVIDENCE_MAX) {
+      state.failures = state.failures.slice(
+        state.failures.length - LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
       );
     }
   }
 
-  private commit(): void {
-    this.state.updatedAt = new Date(this.now()).toISOString();
-    saveRecoveryState(this.fs, this.state);
+  /**
+   * 持久化指定状态（显式入参，不隐式读取可变 this.state —— Phase 1958 Step C）。
+   * 调用方负责保证传入状态即意图提交的唯一事实。
+   */
+  private commit(state: LLMRecoveryStateV1): void {
+    state.updatedAt = new Date(this.now()).toISOString();
+    saveRecoveryState(this.fs, state);
   }
 
   /** 先保存后替换内存：写失败抛错时调用方不得继续真发，内存仍为旧状态。 */

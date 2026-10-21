@@ -823,3 +823,133 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     expect(session.attemptContext().allowBreakerProbe).toBe(false);   // 配置不授予 breaker 资格
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Phase 1958 Step C: durable commit 屏障 —— noteSuccess/noteFailure 先 durable
+// commit 再替换内存；写失败时内存与磁盘均保持旧状态，事件 revision 只来自已提交状态。
+// ---------------------------------------------------------------------------
+
+describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
+  it('noteSuccess 写盘失败：内存不越过磁盘、不发布 recovery_ready；写入恢复后可重提交', async () => {
+    const writeState = { failing: false };
+    let shouldFail = true;
+    // 在 adapter 内才打开写失败开关：noteAttemptStarted 的 commit 发生在真实请求之前，
+    // 目标失败点仅为 noteSuccess 的 durable commit。
+    let armWriteFailure = false;
+    const f = await makeFixture({
+      call: async () => {
+        if (armWriteFailure) writeState.failing = true;
+        if (shouldFail) throw new LLMNetworkError('boom');
+        return OK_RESPONSE;
+      },
+      wrapFs: (fs) => wrapWriteFailure(fs, writeState),
+    });
+    const session = f.makeSession();
+    // 制造非 clean 状态：一次真实 transient 失败（schedule=at、含失败证据）
+    const a1 = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (a1.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await session.finish(a1.attemptId, 'failed');
+    const readyEventsBefore = f.emitted.filter(e => e.type === 'recovery_ready').length;
+
+    // 到期后 begin 准入成功（写盘正常），随后注入写盘失败再成功调用
+    f.advance(1_000_000);
+    shouldFail = false;
+    const a2 = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (a2.kind !== 'admitted') throw new Error('expected admitted');
+    const memoryBefore = await session.inspect();
+    const diskBefore = f.readState();
+
+    armWriteFailure = true;
+    await session.llm.call(CALL);   // 调用成功，但 noteSuccess 的 durable commit 失败
+    armWriteFailure = false;
+
+    // 事件证据：write_failed 发出、recovery_ready 未发布
+    const writeFailed = f.emitted.filter(e => e.type === 'recovery_state_write_failed');
+    expect(writeFailed).toHaveLength(1);
+    expect(writeFailed[0]).toMatchObject({ context: 'noteSuccess' });
+    expect(f.emitted.filter(e => e.type === 'recovery_ready')).toHaveLength(readyEventsBefore);
+    // 内存不越过磁盘：schedule/revision 保持旧状态（未转 ready）
+    const memoryAfter = await session.inspect();
+    expect(memoryAfter).toEqual(memoryBefore);
+    // 磁盘的恢复事实不变（失败证据/at 安排/revision 原样保留；activeAdmission.started
+    // 是 noteAttemptStarted 的合法先行提交，不属 noteSuccess 事实）
+    const diskAfterSuccess = f.readState();
+    expect(diskAfterSuccess.revision).toBe(diskBefore.revision);
+    expect(diskAfterSuccess.schedule).toEqual(diskBefore.schedule);
+    expect(diskAfterSuccess.budget).toEqual(diskBefore.budget);
+    expect(diskAfterSuccess.providers).toEqual(diskBefore.providers);
+    expect(diskAfterSuccess.failures).toEqual(diskBefore.failures);
+
+    // 写入恢复：同准入内再次成功调用 → 候选状态 durable commit 后替换内存
+    writeState.failing = false;
+    await session.llm.call(CALL);
+    const readyEvents = f.emitted.filter(e => e.type === 'recovery_ready');
+    expect(readyEvents.length).toBe(readyEventsBefore + 1);
+    const saved = f.readState();
+    // 事件 revision 只能来自已提交状态
+    expect(readyEvents[readyEvents.length - 1]).toMatchObject({ revision: saved.revision });
+    expect(saved.schedule.kind).toBe('ready');
+    expect(saved.budget.retryCount).toBe(0);
+    // 非 permanent 的 provider 故障事实按既有语义保留（noteSuccess 只清预算与 rate-limit 事实）
+    expect(saved.providers).toHaveLength(1);
+    expect((await session.inspect()).kind).toBe('ready');
+  });
+
+  it('noteFailure 写盘失败：内存不越过磁盘、不发布 recovery_scheduled；写入恢复后失败事实可重提交', async () => {
+    const writeState = { failing: false };
+    // 在 adapter 内才打开写失败开关：noteAttemptStarted 的 commit 发生在真实请求之前，
+    // 目标失败点仅为 noteFailure 的 durable commit。
+    let armWriteFailure = false;
+    const f = await makeFixture({
+      call: async () => {
+        if (armWriteFailure) writeState.failing = true;
+        throw new LLMNetworkError('boom');
+      },
+      wrapFs: (fs) => wrapWriteFailure(fs, writeState),
+    });
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    const memoryBefore = await session.inspect();
+    const diskBefore = f.readState();
+
+    armWriteFailure = true;
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    armWriteFailure = false;
+
+    // write_failed 证据（含原始错误原因）、recovery_scheduled 未发布
+    const writeFailed = f.emitted.filter(e => e.type === 'recovery_state_write_failed');
+    expect(writeFailed).toHaveLength(1);
+    expect(writeFailed[0]).toMatchObject({ context: 'noteFailure', reason: expect.stringContaining('injected write failure') });
+    expect(f.emitted.filter(e => e.type === 'recovery_scheduled')).toHaveLength(0);
+    // 内存保持旧状态：schedule 仍 ready、revision 未前移
+    expect(await session.inspect()).toEqual(memoryBefore);
+    // 磁盘的恢复事实不变：无失败证据、无新安排（activeAdmission.started 是
+    // noteAttemptStarted 的合法先行提交，不属 noteFailure 事实）
+    const diskAfterFailure = f.readState();
+    expect(diskAfterFailure.revision).toBe(diskBefore.revision);
+    expect(diskAfterFailure.schedule).toEqual(diskBefore.schedule);
+    expect(diskAfterFailure.budget).toEqual(diskBefore.budget);
+    expect(diskAfterFailure.providers).toEqual(diskBefore.providers);
+    expect(diskAfterFailure.failures).toEqual(diskBefore.failures);
+
+    // 写入恢复：finish + 新一轮准入（schedule 仍 ready → 直接准入）→ 失败事实 durable commit
+    writeState.failing = false;
+    await session.finish(admission.attemptId, 'failed');
+    const a2 = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (a2.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+
+    const scheduled = f.emitted.filter(e => e.type === 'recovery_scheduled');
+    expect(scheduled).toHaveLength(1);
+    const saved = f.readState();
+    // 事件 revision 与已提交磁盘状态一致；失败证据与安排都已落盘
+    expect(scheduled[0]).toMatchObject({ revision: saved.revision, scheduleKind: 'at' });
+    expect(saved.failures).toHaveLength(1);
+    expect(saved.providers).toHaveLength(1);
+    expect(saved.schedule.kind).toBe('at');
+    expect((await session.inspect()).kind).toBe('at');
+  });
+});
