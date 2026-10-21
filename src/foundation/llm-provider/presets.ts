@@ -5,8 +5,6 @@
 
 export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
 
-type AuthMethod = 'api_key';
-
 /**
  * Phase 1926 Step D：preset 的认证装配类别（CLI 提示与缺参判定依据）。
  * - api_key：配置必须带 api_key（${REF} 或明文经 Credentials owner 落凭据文件）；
@@ -44,7 +42,6 @@ interface ProviderPreset {
    * Phase 1926 Step D：ambient/oauth catalog preset 不再携带伪协议，故可选。
    */
   apiFormat?: ApiFormat;
-  authMethod: AuthMethod;
   /** Phase 1926 Step D：认证装配类别（缺席按 api_key 处理，back-compat）。 */
   authProfile?: AuthProfile;
   /** ambient/oauth preset 的认证来源提示（CLI 交互/失败提示展示，不含 secret）。 */
@@ -68,7 +65,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'anthropic',
     displayName: 'Anthropic',
     apiFormat: 'anthropic',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.anthropic.com',
     defaultModel: 'claude-3-7-sonnet-20250219',
     envVar: 'ANTHROPIC_API_KEY',
@@ -78,7 +74,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'openai',
     displayName: 'OpenAI',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o',
     envVar: 'OPENAI_API_KEY',
@@ -88,7 +83,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'deepseek',
     displayName: 'DeepSeek',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.deepseek.com',
     defaultModel: 'deepseek-chat',
     envVar: 'DEEPSEEK_API_KEY',
@@ -98,7 +92,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'moonshot',
     displayName: 'Moonshot AI',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     defaultModel: 'kimi-k2.5',
     envVar: 'MOONSHOT_API_KEY',
@@ -108,7 +101,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'kimi',
     displayName: 'Kimi (Coding)',
     apiFormat: 'anthropic',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.kimi.com/coding',
     defaultModel: 'kimi-k2.5',
     envVar: 'KIMI_API_KEY',
@@ -118,7 +110,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'minimax',
     displayName: 'MiniMax',
     apiFormat: 'anthropic',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.minimax.io/anthropic',
     defaultModel: 'MiniMax-M1',
     envVar: 'MINIMAX_API_KEY',
@@ -128,7 +119,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'gemini',
     displayName: 'Google Gemini',
     apiFormat: 'gemini',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     defaultModel: 'gemini-2.5-pro-preview-03-25',
     envVar: 'GEMINI_API_KEY',
@@ -138,7 +128,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'ollama',
     displayName: 'Ollama',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'http://localhost:11434/v1',
     defaultModel: 'llama3.1',
     envVar: 'OLLAMA_API_KEY',
@@ -147,7 +136,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'grok',
     displayName: 'xAI Grok',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.x.ai/v1',
     defaultModel: 'grok-4',
     envVar: 'XAI_API_KEY',
@@ -157,7 +145,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'openrouter',
     displayName: 'OpenRouter',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'openai/gpt-4o',
     envVar: 'OPENROUTER_API_KEY',
@@ -167,7 +154,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'openrouter-anthropic',
     displayName: 'OpenRouter (Anthropic format)',
     apiFormat: 'anthropic',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'anthropic/claude-sonnet-4-5',
     envVar: 'OPENROUTER_API_KEY',
@@ -177,7 +163,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'zai',
     displayName: 'Z.AI (Anthropic format)',
     apiFormat: 'anthropic',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://api.z.ai/api/anthropic',
     defaultModel: 'glm-4.6',
     envVar: 'ZAI_API_KEY',
@@ -187,7 +172,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'qwen-coder',
     displayName: 'Qwen Coder (Alibaba)',
     apiFormat: 'openai',
-    authMethod: 'api_key',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     defaultModel: 'qwen-coder-plus-latest',
     envVar: 'DASHSCOPE_API_KEY',
@@ -196,7 +180,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
   'amazon-bedrock': {
     id: 'amazon-bedrock',
     displayName: 'Amazon Bedrock',
-    authMethod: 'api_key',
     authProfile: 'ambient',
     authHint: 'AWS 凭证链（AWS_PROFILE / 默认链 / ECS / web identity）+ AWS_REGION；无需 api_key。',
     defaultModel: 'anthropic.claude-sonnet-4-6',
@@ -205,7 +188,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
   'google-vertex': {
     id: 'google-vertex',
     displayName: 'Google Vertex AI',
-    authMethod: 'api_key',
     authProfile: 'ambient',
     authHint: 'GOOGLE_CLOUD_API_KEY 或 ADC（GOOGLE_APPLICATION_CREDENTIALS / gcloud）+ GOOGLE_CLOUD_PROJECT/LOCATION；无需 api_key。',
     defaultModel: 'gemini-2.5-pro',
@@ -214,7 +196,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
   'openai-codex': {
     id: 'openai-codex',
     displayName: 'OpenAI Codex (OAuth)',
-    authMethod: 'api_key',
     authProfile: 'oauth',
     authHint: '需先经 config provider login <label> 完成 OAuth 登录（纯 OAuth provider，api_key 无效）。',
     defaultModel: 'gpt-5.5',
@@ -223,7 +204,6 @@ export const PRESETS: Record<string, ProviderPreset> = {
   'github-copilot': {
     id: 'github-copilot',
     displayName: 'GitHub Copilot (OAuth)',
-    authMethod: 'api_key',
     authProfile: 'oauth',
     authHint: '需先经 config provider login <label> 完成 OAuth 登录（device code）。',
     defaultModel: 'gpt-5.5',
@@ -233,19 +213,16 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'custom-anthropic',
     displayName: 'Custom (Anthropic Format)',
     apiFormat: 'anthropic',
-    authMethod: 'api_key',
   },
   'custom-openai': {
     id: 'custom-openai',
     displayName: 'Custom (OpenAI Format)',
     apiFormat: 'openai',
-    authMethod: 'api_key',
   },
   'custom-gemini': {
     id: 'custom-gemini',
     displayName: 'Custom (Gemini Format)',
     apiFormat: 'gemini',
-    authMethod: 'api_key',
   },
 };
 

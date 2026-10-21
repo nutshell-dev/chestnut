@@ -256,11 +256,12 @@ export interface LLMCallOptions {
 }
 
 /**
- * LLMProvider interface — single provider call primitive
+ * LLMProvider — single provider call primitive（ProviderAdapter 的公开别名）。
  *
  * Implemented by all provider adapters (Anthropic, OpenAI, Gemini, etc.)
+ * phase 1961 Step F：空 interface 继承收窄为 type alias（无声明合并需求、公开名字保留）。
  */
-export interface LLMProvider extends ProviderAdapter {}
+export type LLMProvider = ProviderAdapter;
 
 /**
  * LLM Provider adapter interface
