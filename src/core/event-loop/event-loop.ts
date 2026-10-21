@@ -32,7 +32,7 @@ import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js'
 import { dispatchError, isAgentLoopCrashError } from './error-handlers.js';
 import { dedupeReinjectedInboxMessages } from './inbox-dedupe.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
-import { waitForInbox } from './inbox-watcher.js';
+import { waitForInbox, type InboxWaitResult } from './inbox-watcher.js';
 import {
   isContextExceededError,
 } from '../../foundation/llm-orchestrator/index.js';
@@ -231,13 +231,7 @@ export class EventLoop {
             : EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_PEEK_FAILED,
           `fingerprint=${this.llmRequestBlocked?.requestFingerprint ?? ''}`,
         );
-        await waitForInbox(
-          this.loopFs,
-          this.audit,
-          this.inboxPendingDir,
-          this.fallbackTimeoutMs,
-          this.waitAbortController.signal,
-        );
+        await this._waitInboxObserved(this.fallbackTimeoutMs, this.waitAbortController.signal);
         return;
       }
       if (gate.kind === 'released') {
@@ -250,13 +244,7 @@ export class EventLoop {
 
       // Phase 1826: 空工作不烧准入（用户干预权留给真消息）。
       if (!(await this._hasPendingWork())) {
-        await waitForInbox(
-          this.loopFs,
-          this.audit,
-          this.inboxPendingDir,
-          this.fallbackTimeoutMs,
-          this.waitAbortController.signal,
-        );
+        await this._waitInboxObserved(this.fallbackTimeoutMs, this.waitAbortController.signal);
         return;
       }
 
@@ -371,13 +359,7 @@ export class EventLoop {
   private async _waitForFactsRetry(): Promise<boolean> {
     if (this.stopped) return false;
     const signal = this.waitAbortController?.signal;
-    await waitForInbox(
-      this.loopFs,
-      this.audit,
-      this.inboxPendingDir,
-      this.fallbackTimeoutMs,
-      signal,
-    );
+    await this._waitInboxObserved(this.fallbackTimeoutMs, signal);
     return !this.stopped;
   }
 
@@ -395,13 +377,7 @@ export class EventLoop {
         `schedule=on_change`,
         `revision=${schedule.revision}`,
       );
-      await waitForInbox(
-        this.loopFs,
-        this.audit,
-        this.inboxPendingDir,
-        this.fallbackTimeoutMs,
-        signal,
-      );
+      await this._waitInboxObserved(this.fallbackTimeoutMs, signal);
       return this.stopped ? 'stopped' : 'recheck';
     }
 
@@ -414,10 +390,12 @@ export class EventLoop {
       `revision=${schedule.revision}`,
       `remaining_ms=${remainingMs}`,
     );
-    await Promise.race([
+    const waitOutcome = await Promise.race([
       this._sleep(remainingMs, signal),
       waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, remainingMs, signal),
     ]);
+    // Phase 1958 Step D: sleep 分支结果为 undefined；watcher 分支的观察失败显式留证
+    if (waitOutcome !== undefined) this._auditInboxWaitOutcome(waitOutcome);
     return this.stopped ? 'stopped' : 'recheck';
   }
 
@@ -587,6 +565,27 @@ export class EventLoop {
         resolve();
       }, { once: true });
     });
+  }
+
+  /**
+   * Phase 1958 Step D: inbox 等待的统一出口 —— 消费 typed InboxWaitResult 全部分支；
+   * 观察失败（observation_failed）显式 FATAL 留证后按原控制流继续（不折叠为正常
+   * idle），new_file/timeout/aborted 无需额外动作。
+   */
+  private async _waitInboxObserved(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    const outcome = await waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, timeoutMs, signal);
+    this._auditInboxWaitOutcome(outcome);
+  }
+
+  /** 观察失败显式留证（保留 context 与原始 reason）；其余分支为正常路径。 */
+  private _auditInboxWaitOutcome(outcome: InboxWaitResult): void {
+    if (outcome.kind !== 'observation_failed') return;
+    this.audit.write(
+      EVENTLOOP_AUDIT_EVENTS.FATAL,
+      `context=inbox_observation`,
+      `watch_context=${outcome.context}`,
+      `reason=${outcome.error}`,
+    );
   }
 
   /**
@@ -768,13 +767,7 @@ export class EventLoop {
               : EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_PEEK_FAILED,
             `fingerprint=${this.llmRequestBlocked?.requestFingerprint ?? ''}`,
           );
-          await waitForInbox(
-            this.loopFs,
-            this.audit,
-            this.inboxPendingDir,
-            this.fallbackTimeoutMs,
-            this.waitAbortController?.signal,
-          );
+          await this._waitInboxObserved(this.fallbackTimeoutMs, this.waitAbortController?.signal);
           return sawFailure ? 'failed' : 'completed';
         }
         if (gate.kind === 'released') {
@@ -835,13 +828,7 @@ export class EventLoop {
       return sawFailure ? 'failed' : 'completed';
     }
 
-    await waitForInbox(
-      this.loopFs,
-      this.audit,
-      this.inboxPendingDir,
-      this.fallbackTimeoutMs,
-      this.waitAbortController?.signal,
-    );
+    await this._waitInboxObserved(this.fallbackTimeoutMs, this.waitAbortController?.signal);
     return 'idle';
   }
 

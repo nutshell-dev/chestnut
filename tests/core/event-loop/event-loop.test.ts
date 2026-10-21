@@ -290,6 +290,52 @@ describe('EventLoop.run', () => {
     expect(fatalEntries.length).toBeGreaterThan(0);
   });
 
+  it('Phase 1958 Step D: inbox 观察失败显式上交 —— observation_failed 留 FATAL 证据，不折叠为正常 idle', async () => {
+    const audit = createMockAudit();
+    // loopFs（agentDir/..）的 inbox pending 目录 listSync 注入非 ENOENT 失败
+    const parentDir = path.join(agentDir, '..');
+    const wrappedFsFactory = (dir: string): FileSystem => {
+      const base = fsFactory(dir);
+      if (path.resolve(dir) !== path.resolve(parentDir)) return base;
+      return new Proxy(base, {
+        get(target, prop) {
+          if (prop === 'listSync') {
+            return (p: string) => {
+              if (p.includes(path.join('inbox', 'pending'))) throw new Error('EIO: inbox unreadable');
+              return target.listSync(p);
+            };
+          }
+          const value = (target as unknown as Record<string | symbol, unknown>)[prop];
+          return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        },
+      }) as FileSystem;
+    };
+
+    const runtime = {
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      abort: vi.fn(),
+    } as unknown as Runtime;
+
+    const eventLoop = new EventLoop({
+      runtime,
+      fsFactory: wrappedFsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+    await eventLoop.run();
+
+    // 观察失败被调用方显式消费：FATAL 留证（保留 watch context 与原始 reason）
+    const fatalEntries = audit.entries.filter(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('inbox_observation')),
+    );
+    expect(fatalEntries).toHaveLength(1);
+    expect(String(fatalEntries[0].join(' '))).toContain('EIO: inbox unreadable');
+    expect(String(fatalEntries[0].join(' '))).toContain('watch_context=snapshot');
+  });
+
   it('crash error 无 contract_id 时仍 ackHandles、不调用任何 Contract mutation', async () => {
     const audit = createMockAudit();
     const crashErr = new MaxStepsExceededError(10);

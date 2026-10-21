@@ -69,15 +69,17 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   // --------------------------------------------------------------------------
 
   describe('waitForInbox', () => {
-    it('反向 1：空 inbox 时 timeout 兜底 resolve', async () => {
+    it('反向 1：空 inbox 时 timeout 兜底 resolve（typed outcome = timeout）', async () => {
       const fs = new NodeFileSystem({ baseDir: path.join(agentDir, '..') });
       const audit = createMockAudit();
       const TIMEOUT_MS = 100;
 
-      await waitForInbox(fs, audit, inboxPendingDir, TIMEOUT_MS);
+      const outcome = await waitForInbox(fs, audit, inboxPendingDir, TIMEOUT_MS);
+      // 干净 timeout：不得误报为观察失败
+      expect(outcome).toEqual({ kind: 'timeout' });
     });
 
-    it('反向 2：inbox 出现 file 时 watcher 触发提前 resolve（不走 timeout）', async () => {
+    it('反向 2：inbox 出现 file 时 watcher 触发提前 resolve（typed outcome = new_file）', async () => {
       const fs = new NodeFileSystem({ baseDir: path.join(agentDir, '..') });
       const audit = createMockAudit();
       const TIMEOUT_MS = 5000;
@@ -87,20 +89,29 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       await new Promise(r => setTimeout(r, WATCHER_SETUP_BUDGET_MS));
       fsNative.writeFileSync(path.join(inboxPendingDir, 'test.md'), '# hello');
 
-      await promise;
+      const outcome = await promise;
+      expect(outcome).toEqual({ kind: 'new_file' });
     });
 
-    it('反向 3：fs.ensureDirSync 抛错时 audit 记录 + promise 仍 resolve', async () => {
+    it('反向 3：fs.ensureDirSync 抛错时 audit 记录 + typed observation_failed(init)', async () => {
       const audit = createMockAudit();
       const mockFs = {
         ensureDirSync: vi.fn(() => {
           throw new Error('ensureDir failed');
         }),
         resolve: vi.fn((p: string) => p),
+        // Phase 1958 Step D: snapshot 先行——提供正常空 list，让失败点落在 init
+        listSync: vi.fn().mockReturnValue([]),
       } as unknown as FileSystem;
 
-      await waitForInbox(mockFs, audit, inboxPendingDir, 50);
+      const outcome = await waitForInbox(mockFs, audit, inboxPendingDir, 50);
 
+      // 观察失败显式返回（不折叠为正常 resolve）
+      expect(outcome).toEqual({
+        kind: 'observation_failed',
+        error: expect.stringContaining('ensureDir failed'),
+        context: 'init',
+      });
       expect(audit.entries.length).toBeGreaterThanOrEqual(1);
       expect(audit.entries[0][0]).toBe(MESSAGING_AUDIT_EVENTS.INBOX_WATCHER_FAILED);
       const cols = audit.entries[0].slice(1) as string[];
