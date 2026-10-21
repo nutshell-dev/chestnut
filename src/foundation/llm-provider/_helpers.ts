@@ -17,7 +17,7 @@ const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid 
  * - 5xx → LLMError "server error" tier
  * - else → LLMError generic
  *
- * Called by classifyCapturedHttpError (pi-ai-errors.ts)：pi-ai 捕获的 HTTP 错误
+ * Called by classifyCapturedHttpError (pi-ai-classify.ts)：pi-ai 捕获的 HTTP 错误
  * 以合成 Response + captured errorText 喂入本函数分类（phase 1925 后唯一生产调用点）。
  *
  * Message format unified: `Provider ${provider} (server )?error (${status}): ${text}`

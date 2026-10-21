@@ -6,7 +6,8 @@ const helpersSource = readFileSync(
   'utf8',
 );
 const piAiErrorsSource = readFileSync(
-  new URL('../../../src/foundation/llm-provider/pi-ai-errors.ts', import.meta.url),
+  // phase 1964 Step C：实现拆至 pi-ai-classify.ts（pi-ai-errors.ts 为 facade）
+  new URL('../../../src/foundation/llm-provider/pi-ai-classify.ts', import.meta.url),
   'utf8',
 );
 const piAiSupportSource = readFileSync(
