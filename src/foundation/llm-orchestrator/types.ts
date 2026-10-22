@@ -72,8 +72,6 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.STREAM_IDLE_PROBE_SUCCEEDED; provider: string }
   | { type: typeof STREAM_EVENT_NAMES.CONTEXT_EXCEEDED_FAILOVER; provider: string; stopReason: string }
   | { type: typeof STREAM_EVENT_NAMES.CONTEXT_EXCEEDED_THROWTHROUGH; provider: string }
-  // Phase 1955 Step E: 输入预算预警（>= 70% 最小 provider window）
-  | { type: typeof STREAM_EVENT_NAMES.CONTEXT_BUDGET_WARNING; provider: string; estimatedTokens: number; contextWindow: number; ratio: number }
   // Phase 1826: 确定性错误短路同时覆盖 permanent 与 quota（quota 走 owner 时间窗安排）。
   | { type: typeof STREAM_EVENT_NAMES.PERMANENT_SKIP_RETRY; provider: string; attempt: number; errorClass: 'permanent' | 'quota' }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_STARTED; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }

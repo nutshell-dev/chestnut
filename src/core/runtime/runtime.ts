@@ -853,7 +853,8 @@ export class Runtime {
    *   由 caller 经 deferHandles 回 pending 轮转；
    * - 单条超预算且为当前首条 → 显式单独放行（不截断/不摘要）+
    *   runtime_inbox_oversized_alone 审计，后续消息全部 deferred；
-   * - 超 orchestrator 80% 硬上限仍由既有 guardContextBudget 阻断（不截断）。
+   * - Phase 1969 起 orchestrator 不做 80% 预检阻断，超限由 provider 真实判定
+   *   → typed context_exceeded → reactive trim（不截断）。
    *
    * 任一被选中项的 formatter 拒绝向调用者抛原 error：批次整体交给调用者回队，
    * 不返回不完整 injected 伪装成功（已格式化的文本未发给 LLM）。

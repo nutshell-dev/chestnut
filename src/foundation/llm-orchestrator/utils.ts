@@ -15,8 +15,6 @@ import {
 } from '../llm-provider/index.js';
 import type { LLMCallOptions } from './types.js';
 import {
-  LLM_CONTEXT_BUDGET_HARD_RATIO,
-  LLM_CONTEXT_BUDGET_WARN_RATIO,
   LLM_TIMEOUT_MAX_MS,
   LLM_TIMEOUT_TOKENS_PER_SECOND,
 } from './defaults.js';
@@ -53,19 +51,6 @@ export function estimatePromptTokens(options: LLMCallOptions): number {
   return estimateMessagesTokens(messages)
     + estimateTextTokens(options.system ?? '')
     + estimateToolsTokens(tools);
-}
-
-export type ContextBudgetClass = 'ok' | 'warn' | 'exceeded';
-
-/** 预算分类：>= 80% 硬上限；>= 70% 预警。调用方保证 contextWindow > 0。 */
-export function classifyContextBudget(
-  estimatedTokens: number,
-  contextWindow: number,
-): ContextBudgetClass {
-  const ratio = estimatedTokens / contextWindow;
-  if (ratio >= LLM_CONTEXT_BUDGET_HARD_RATIO) return 'exceeded';
-  if (ratio >= LLM_CONTEXT_BUDGET_WARN_RATIO) return 'warn';
-  return 'ok';
 }
 
 /**

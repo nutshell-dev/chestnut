@@ -23,7 +23,6 @@
       "llm_call_audit_write_failed",
       "llm_call_invocation_started",
       "llm_call_selection",
-      "llm_context_budget_warning",
       "llm_context_exceeded_failover",
       "llm_context_exceeded_throwthrough",
       "llm_fallback_switched",

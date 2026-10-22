@@ -33,12 +33,10 @@ import type {
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput, SharedRecoveryDecision } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { LLMCircuitBreakerOpenError } from './errors.js';
-import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, LLMContextExceededError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
+import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
-import { resolveContextWindow } from '../llm-provider/index.js';
 import {
-  classifyContextBudget,
   computeDynamicCallTimeoutMs,
   delay,
   estimatePromptTokens,
@@ -875,44 +873,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     };
   }
 
-  /**
-   * Phase 1955 Step E：调用前输入预算（最小 provider context window 为基准）。
-   * >= 80% → 不发给 provider，抛 typed context_exceeded；>= 70% → 发布预警事件。
-   * @returns 估计输入 token 数（供动态 timeout 使用）
-   */
-  private guardContextBudget(options: LLMCallOptions): number {
-    const candidates = [this.config.primary, ...(this.config.fallbacks ?? [])];
-    let contextWindow = Number.POSITIVE_INFINITY;
-    let provider = this.config.primary.name;
-    for (const candidate of candidates) {
-      const window = resolveContextWindow(candidate.name, candidate.model);
-      if (window < contextWindow) {
-        contextWindow = window;
-        provider = candidate.name;
-      }
-    }
-    const estimatedTokens = estimatePromptTokens(options);
-    const classification = classifyContextBudget(estimatedTokens, contextWindow);
-    if (classification === 'exceeded') {
-      this.events.emit({ type: 'context_exceeded_throwthrough', provider });
-      throw new LLMContextExceededError(
-        provider,
-        0,
-        `estimated input ${estimatedTokens} tokens >= 80% of ${contextWindow} context window (preflight; provider not called)`,
-      );
-    }
-    if (classification === 'warn') {
-      this.events.emit({
-        type: 'context_budget_warning',
-        provider,
-        estimatedTokens,
-        contextWindow,
-        ratio: estimatedTokens / contextWindow,
-      });
-    }
-    return estimatedTokens;
-  }
-
   /** provider 配置的基础 timeout（动态 timeout 的起点）。 */
   private baseTimeoutFor(adapter: LLMProvider, isFallback: boolean): number {
     const config = isFallback
@@ -925,8 +885,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
   private async _callCore(options: LLMCallOptions, limits: CallLimits, inv: CallPathAudit): Promise<LLMResponse> {
     const allowBreakerProbe = limits.allowBreakerProbe;
-    // Phase 1955 Step E：预算/硬上限在候选循环前统一判定（不把必然 400 送 provider）。
-    const estimatedInputTokens = this.guardContextBudget(options);
+    // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
+    const estimatedInputTokens = estimatePromptTokens(options);
     const isBreakerOpen = (index: number): boolean => {
       const breaker = this.breakers[index];
       return breaker ? breaker.isOpen() : false;
@@ -1061,8 +1021,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     limits: CallLimits,
     inv: CallPathAudit,
   ): AsyncIterableIterator<LLMStreamChunk> {
-    // Phase 1955 Step E：输入预算在候选循环前统一判定（硬上限不发给 provider）。
-    const estimatedInputTokens = this.guardContextBudget(options);
+    // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
+    const estimatedInputTokens = estimatePromptTokens(options);
     // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
     const primaryBreakerOpen = this.breakers[0]?.isOpen() ?? false;
     const openCause = this.breakers[0]?.getOpenCause() ?? null;
