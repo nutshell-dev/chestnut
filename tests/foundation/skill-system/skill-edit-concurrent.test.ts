@@ -39,7 +39,10 @@ function git(cwd: string, ...args: string[]): string {
 const SKILL_MD = (name: string, body: string) => `---\nname: ${name}\ndescription: ${name} desc\n---\n${body}`;
 const basis: SkillBasis = { actor: 'test-agent', reason: 'concurrent edit test', sourceRefs: ['ref-1'] };
 
-describe.skipIf(!gitAvailable)('技能分支编辑事务：并发（phase 1919 Step C）', () => {
+/** 工作流用例显式预算：真实 git/版本仓库操作，满载下可能超过 fast project 默认 15s。 */
+const WORKFLOW_TEST_TIMEOUT_MS = 60_000;
+
+describe.skipIf(!gitAvailable)('技能分支编辑事务：并发（phase 1919 Step C）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   let tmpDir: string;
 
   beforeEach(async () => {
