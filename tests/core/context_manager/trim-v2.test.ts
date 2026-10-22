@@ -61,6 +61,11 @@ function withAnchor(messages: Message[]): Message[] {
   return [...messages, anchor];
 }
 
+function findMessageWithToolUse(messages: readonly Message[], id: string): Message | undefined {
+  return messages.find(m => Array.isArray(m.content)
+    && m.content.some(b => b.type === 'tool_use' && b.id === id));
+}
+
 describe('trimV2', () => {
   it('1. 全消息在 24h 内 → 不裁', () => {
     const messages: Message[] = [
@@ -131,8 +136,10 @@ describe('trimV2', () => {
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     expect(result.metrics.collapsedToolUseFields).toBe(1);
-    // newMessages: [assistant tool_use (collapsed), summary, anchor]
-    const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
+    // newMessages: [summary, assistant tool_use (collapsed), anchor]
+    // 未配对 tool_use 的开放 span 让摘要钳制到 assistant 之前。
+    const assistant = findMessageWithToolUse(result.outcome.newMessages, 'call_2_abc')!;
+    const tu = (assistant.content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
     expect(tu.input.path).toBe('/short');
     expect(tu.input.content).toContain('<...>');
     expect(tu.input.content).toContain('1500 bytes');
@@ -489,7 +496,8 @@ describe('trimV2', () => {
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     expect(result.metrics.collapsedToolUseFields).toBe(0);
-    const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
+    const assistant = findMessageWithToolUse(result.outcome.newMessages, 'call_send')!;
+    const tu = (assistant.content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
     expect(tu.input.content).toBe(longContent);
   });
 
@@ -594,6 +602,89 @@ describe('trimV2', () => {
     expect(result.outcome.newMessages[1].content).toBe('anchor');
     expect(result.droppedMessages.length).toBe(2);
   });
+
+  it('32. 24h 新窗口 = 尾部连续 run；mid-array recent summary 不锚定边界', () => {
+    const recentMid = makeSystemMsg(
+      '[system message] recent mid ' + '测'.repeat(500),
+      'task_result',
+      NOW - 10,
+    );
+    const oldSystem = makeSystemMsg(
+      '[system message] old ' + '测'.repeat(500),
+      'task_result',
+      NOW - RECENT_WINDOW_MS - 1,
+    );
+    const messages = withAnchor([recentMid, oldSystem]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+
+    // 新窗口只能从 anchor 开始；两条 system 都归 old 并压缩，摘要插在 anchor 前。
+    expect(result.outcome.newMessages[0].content).toContain('<...>');
+    expect(result.outcome.newMessages[1].content).toContain('<...>');
+    expect(result.outcome.newMessages).toHaveLength(4);
+    expect(result.outcome.newMessages[2].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages[3].content).toBe('anchor');
+    expect(result.droppedMessages).toHaveLength(0);
+  });
+
+  it('33. 跨 24h 边界的 turn 不参与选择性丢弃', () => {
+    const messages: Message[] = withAnchor([
+      makeTextMsg('old turn', { addedAt: new Date(NOW - RECENT_WINDOW_MS - 100).toISOString() }),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '测'.repeat(200) },
+          { type: 'text', text: '测'.repeat(200) },
+          { type: 'tool_use', id: 'call_straddle', name: 'read', input: { path: '/x' } },
+        ],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 99).toISOString(),
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_straddle', content: '测'.repeat(500) }],
+        addedAt: new Date(NOW - 10).toISOString(),
+      },
+    ]);
+    // target 远小于压缩后体积：旧实现会进入 selective drop 并切掉跨边界 turn。
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(100) }));
+
+    expect(result.droppedMessages).toHaveLength(0);
+    expect(result.outcome.status).toBe('policy_conflict');
+    expect(result.outcome.newMessages.some(m => Array.isArray(m.content)
+      && m.content.some(b => b.type === 'tool_use' && b.id === 'call_straddle'))).toBe(true);
+    expect(result.outcome.newMessages.some(m => Array.isArray(m.content)
+      && m.content.some(b => b.type === 'tool_result' && b.tool_use_id === 'call_straddle'))).toBe(true);
+  });
+
+  it('34. 摘要注入点不拆分跨 24h 边界的 tool pair', () => {
+    const messages: Message[] = withAnchor([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '测'.repeat(200) },
+          { type: 'text', text: '测'.repeat(200) },
+          { type: 'tool_use', id: 'call_boundary', name: 'read', input: { path: '/x' } },
+        ],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_boundary', content: 'ok' }],
+        addedAt: new Date(NOW - 10).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    const out = result.outcome.newMessages;
+    const summaryIdx = out.findIndex(m => m.systemSubtype === 'context_trim_summary');
+    const useIdx = out.findIndex(m => Array.isArray(m.content)
+      && m.content.some(b => b.type === 'tool_use' && b.id === 'call_boundary'));
+    const resultIdx = out.findIndex(m => Array.isArray(m.content)
+      && m.content.some(b => b.type === 'tool_result' && b.tool_use_id === 'call_boundary'));
+
+    expect(result.metrics.summaryMessageInjected).toBe(true);
+    expect(summaryIdx).toBeGreaterThanOrEqual(0);
+    expect(resultIdx).toBe(useIdx + 1);
+    expect(summaryIdx < useIdx || summaryIdx > resultIdx).toBe(true);
+  });
 });
 
 
@@ -672,7 +763,8 @@ describe('trimV2 UTF-8 preview safety', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
-    const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
+    const assistant = findMessageWithToolUse(result.outcome.newMessages, 'call_utf8_input')!;
+    const tu = (assistant.content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
     const trimmed = tu.input.content as string;
 
     expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();

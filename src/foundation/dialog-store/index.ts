@@ -16,6 +16,8 @@ export {
   buildContextTrimSummaryMessage,
   type ContextTrimSummaryStats,
 } from './summaries.js';
+// Phase 1970 Step C: trim 摘要插入点的 tool pair 结构安全查询 — message shape owner.
+export { findToolPairSafeInsertionIndex } from './boundary.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 // phase 1850 Step F: 单一公开校验入口 + 结果协议类型

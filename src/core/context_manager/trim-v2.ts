@@ -8,6 +8,7 @@ import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   classifyMessage,
   buildContextTrimSummaryMessage,
+  findToolPairSafeInsertionIndex,
   type ContextTrimSummaryStats,
 } from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
@@ -190,7 +191,9 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
           didCompress,
         );
       } else {
-        // 压缩不够 → 先选择性丢弃 Tier 3 最旧 turn，再注入摘要
+        // 压缩不够 → 先选择性丢弃 Tier 3 最旧 turn，再注入摘要。
+        // dropTurnsSelective 只处理完整位于 boundary 之前的 turn，因此所有
+        // dropped 消息都严格在边界前，减法等价于结构位置左移。
         const dropped = dropTurnsSelective(compressed, before, opts, {
           onlyBeforeIndex: compressed.boundaryIndex,
         });
@@ -267,7 +270,8 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 
 /** 在 24h 边界处注入摘要消息（顺手裁用：摘要放在 Tier 3 和 Tier 2 之间） */
 function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message[] {
-  const processedCount = Math.max(0, result.boundaryIndex);
+  const insertAt = findToolPairSafeInsertionIndex(result.messages, result.boundaryIndex);
+  const processedCount = Math.max(0, insertAt);
   const summary = buildContextTrimSummaryMessage({
     processedCount,
     subtypeStat: result.subtypeStat,
@@ -275,7 +279,6 @@ function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message
     nowMs,
   });
 
-  const insertAt = result.boundaryIndex;
   const newMessages = [...result.messages];
   newMessages.splice(insertAt, 0, summary);
   return newMessages;
@@ -283,14 +286,18 @@ function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message
 
 /** 在消息列表末尾注入摘要消息（触底裁用：全部消息都参与了压缩） */
 function injectSummaryAtEnd(result: CompressResult, nowMs: number): Message[] {
-  const processedCount = result.messages.length;
+  const insertAt = findToolPairSafeInsertionIndex(result.messages, result.messages.length);
+  const processedCount = Math.max(0, insertAt);
   const summary = buildContextTrimSummaryMessage({
     processedCount,
     subtypeStat: result.subtypeStat,
     toolStat: result.toolStat,
     nowMs,
   });
-  return [...result.messages, summary];
+
+  const newMessages = [...result.messages];
+  newMessages.splice(insertAt, 0, summary);
+  return newMessages;
 }
 
 function makeTrimResult(
@@ -517,6 +524,9 @@ function dropTurnsSelective(
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
     const seg = segments[segIdx];
     if (seg.start >= eligibleEnd) break; // 超过可丢范围，停
+    // 跨边界 turn 的尾部属于 recent 区；丢弃它会让
+    // boundaryIndex - droppedMessages.length 不再等于结构位置。
+    if (seg.endExclusive > eligibleEnd) break;
 
     const turnMsgs = bestMessages.slice(seg.start, seg.endExclusive);
     const { kept, dropped, modified } = selectiveDropTurn(turnMsgs);
@@ -602,18 +612,21 @@ function splitBy24h(
   const anchorMs = latestAddedAtMs > 0 ? latestAddedAtMs : now;
   const thresholdMs = anchorMs - recentWindowMs;
 
+  // 新窗口 = 尾部连续 recent run。mid-array 的 recent summary（历史 trim 注入）
+  // 不改变边界；若其后仍有 old 消息，它归入 old（仅压缩预览，原文在 archive）。
+  let firstNewer = messages.length;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const addedAt = messages[i].addedAt;
+    if (addedAt === undefined) break;
+    const ts = new Date(addedAt).getTime();
+    if (Number.isNaN(ts) || ts <= thresholdMs) break;
+    firstNewer = i;
+  }
+
   const olderIndices: number[] = [];
   const newerIndices: number[] = [];
-
   for (let i = 0; i < messages.length; i++) {
-    const addedAt = messages[i].addedAt;
-    if (addedAt === undefined) {
-      olderIndices.push(i);
-    } else {
-      const ts = new Date(addedAt).getTime();
-      if (ts > thresholdMs) newerIndices.push(i);
-      else olderIndices.push(i);
-    }
+    (i < firstNewer ? olderIndices : newerIndices).push(i);
   }
 
   return { olderIndices, newerIndices };
