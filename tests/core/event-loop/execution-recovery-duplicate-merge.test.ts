@@ -101,6 +101,10 @@ describe('EventLoop 重复提醒合并 (phase 1869 Step C)', () => {
       sources: batch.entries.map(e => ({ text: e.message.content, type: e.message.type })),
       count: batch.entries.length,
       infos: batch.entries.map(e => e.message),
+      // Phase 1967 Step B: 无预算场景 mock = 全选（selected=entries、无 deferred）
+      selected: batch.entries,
+      deferred: [],
+      oversizedAlone: false,
     }));
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
     const ackHandles = vi.fn().mockResolvedValue(undefined);

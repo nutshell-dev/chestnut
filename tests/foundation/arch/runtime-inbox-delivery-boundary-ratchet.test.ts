@@ -6,7 +6,7 @@ const root = process.cwd();
 const read = (relative: string): string => fs.readFileSync(path.join(root, relative), 'utf8');
 
 describe('phase 1365: Runtime inbox delivery boundary', () => {
-  it('Messaging owns an exact seven-operation delivery session', () => {
+  it('Messaging owns an exact eight-operation delivery session', () => {
     const source = read('src/foundation/messaging/inbox-reader.ts');
     const barrel = read('src/foundation/messaging/index.ts');
     const body = source.match(
@@ -14,12 +14,14 @@ describe('phase 1365: Runtime inbox delivery boundary', () => {
     )?.groups?.body;
 
     expect(body).toBeDefined();
-    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(7);
+    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(8);
     for (const member of [
       'init',
       'drainAndDeliver',
       'ack',
       'nack',
+      // Phase 1967 Step B: 预算延后（inflight→pending，不计 delivery_attempts）
+      'defer',
       'markMisrouted',
       'peekMetas',
       'peekPending',

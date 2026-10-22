@@ -10,6 +10,15 @@ export type { RuntimeOptions, RuntimeDependencies, TurnResult, GuidanceCompose, 
 export type { TurnLifecycleCallbacks, ProviderLifecycleCallbacks, RuntimeTurnCallbacks } from './turn-callbacks.js';
 // phase 1847: 原始批次交接 / 可失败格式化边界类型
 export type { PreparedInboxEntry, PreparedInboxBatch, FormattedInboxBatch } from './types.js';
+// Phase 1967 Step B: inbox 注入预算常量/类型与选择辅助
+export {
+  INBOX_BATCH_MAX_ITEMS,
+  INBOX_BATCH_MAX_FORMATTED_BYTES,
+  DEFAULT_INBOX_FORMAT_BUDGET,
+  orderInboxEntries,
+  formattedMessageBytes,
+  type InboxFormatBudget,
+} from './inbox-budget.js';
 export { createRuntime } from './create-runtime.js';
 // phase 488: reload inbox protocol barrel re-export (cli/config caller)
 export { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';

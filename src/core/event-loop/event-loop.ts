@@ -624,6 +624,11 @@ export class EventLoop {
    * 成功后检查 stopped：尚未调用 processTurn 时选择 nack 全批
    * （reason='interrupted_before_injection', path='before_injection'）并返回
    * break，不将未执行消息 ack 为完成。
+   *
+   * Phase 1967 Step B: 预算边界——format 返回 selected/deferred 后先把 deferred
+   * 经 deferHandles 回 pending（不计 delivery_attempts）；defer 失败 → 已选+
+   * 失败句柄回队并中止本轮。此后 disposition 只作用于 selected；defer 前的
+   * 失败仍回队全批。
    */
   private async _processDrainedBatch(args: {
     prepared: PreparedInboxBatch;
@@ -639,17 +644,37 @@ export class EventLoop {
       | 'process_turn'
       | 'turn_result';
 
-    const addressedHandles = args.prepared.entries.map(e => e.handle);
+    // Phase 1967 Step B: allHandles = prepare 领取的全批；defer 成功后 disposition
+    // 切换为 selected（deferred 已安全回 pending，不再被本轮 ack/nack）。
+    const allHandles = args.prepared.entries.map(e => e.handle);
+    let dispositionHandles = allHandles;
     let dispositionSelected = false;
     let stage: PostDrainStage = 'inbox_format';
     try {
       // Phase 1847: format 前中断 —— 未注入消息回队，不 ack 为完成
       if (this.stopped) {
         dispositionSelected = true;
-        await this.runtime.nackHandles(addressedHandles, 'interrupted_before_injection', 'before_injection');
+        await this.runtime.nackHandles(allHandles, 'interrupted_before_injection', 'before_injection');
         return 'break';
       }
       const formatted = await this.runtime.formatPreparedInbox(args.prepared);
+      // Phase 1967 Step B: 预算未选消息 defer 回 pending（不 ack/nack、不计
+      // delivery_attempts）；defer 失败 → 已选+失败句柄回队并中止本轮，不继续注入。
+      const deferredHandles = formatted.deferred.map(e => e.handle);
+      if (deferredHandles.length > 0) {
+        const failedDefers = await this.runtime.deferHandles(deferredHandles, 'budget_deferred');
+        if (failedDefers.length > 0) {
+          dispositionSelected = true;
+          await this.runtime.nackHandles(
+            [...formatted.selected.map(e => e.handle), ...failedDefers],
+            'budget_defer_failed',
+            'post_drain_failure',
+          );
+          return 'break';
+        }
+      }
+      const addressedHandles = formatted.selected.map(e => e.handle);
+      dispositionHandles = addressedHandles;
       // Phase 1847: format 成功后、processTurn 前中断 —— 同上回队
       if (this.stopped) {
         dispositionSelected = true;
@@ -706,15 +731,17 @@ export class EventLoop {
     } catch (error) {
       if (!dispositionSelected) {
         dispositionSelected = true;
+        // Phase 1967 Step B: defer 前出错回队全批；defer 成功后只回队 selected
+        // （deferred 已在 pending，不重复结算）。
         await this.runtime.nackHandles(
-          addressedHandles,
+          dispositionHandles,
           formatErr(error),
           'post_drain_failure',
         );
         this.audit.write(
           EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED,
           `stage=${stage}`,
-          `handles=${addressedHandles.length}`,
+          `handles=${dispositionHandles.length}`,
           `error=${formatErr(error)}`,
         );
       }

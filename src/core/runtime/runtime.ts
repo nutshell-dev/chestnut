@@ -68,6 +68,12 @@ import {
   type FormattedInboxBatch,
 } from './types.js';
 import {
+  DEFAULT_INBOX_FORMAT_BUDGET,
+  formattedMessageBytes,
+  orderInboxEntries,
+  type InboxFormatBudget,
+} from './inbox-budget.js';
+import {
   maybeTrimProactive,
   CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
@@ -667,12 +673,23 @@ export class Runtime {
       );
       throw error;
     }
+    // Phase 1967 Step B: 预算未选消息回 pending 轮转（不 ack/nack、不计
+    // delivery_attempts）；defer 失败的句柄回队走 nack 兜底，不留在 inflight。
+    if (formatted.deferred.length > 0) {
+      const failedDefers = await this.deferHandles(
+        formatted.deferred.map(e => e.handle),
+        'budget_deferred',
+      );
+      if (failedDefers.length > 0) {
+        await this.nackHandles(failedDefers, 'budget_defer_failed', 'inbox_format_failure');
+      }
+    }
     return {
       injected: formatted.injected,
       sources: formatted.sources,
       count: formatted.count,
       infos: formatted.infos,
-      addressedHandles: prepared.entries.map(e => e.handle),
+      addressedHandles: formatted.selected.map(e => e.handle),
     };
   }
 
@@ -828,18 +845,38 @@ export class Runtime {
    * Phase 1847: 已领取批次的格式化 —— 输入仅是 prepared.entries，不调用 reader、
    * 不查目录、不结算。这是通用格式化边界，不是契约判定/业务筛选入口。
    *
-   * 每项成功格式化后发原 INBOX_INJECT 列（格式化交付记录，不是 LLM 已执行的证明）；
-   * file 使用 handle.originalFileName（等价 basename 原路径）、trace_id 规则保持。
-   * 任一 formatter 拒绝向调用者抛原 error：批次整体交给调用者回队，不返回不完整
-   * injected 伪装成功（已格式化的文本未发给 LLM）。
+   * Phase 1967 Step B: 单轮注入预算（1939 拍板 20 条 / 64KiB，1940 D3 按最终
+   * 格式化表示计量）。按稳定 priority→age 顺序选择：
+   * - 选中（selected）项成功格式化后发原 INBOX_INJECT 列（格式化交付记录，
+   *   不是 LLM 已执行的证明）；file 使用 handle.originalFileName、trace_id 规则保持；
+   * - 未选（deferred）项不格式化到注入、不发 INBOX_INJECT、不产生交付记录，
+   *   由 caller 经 deferHandles 回 pending 轮转；
+   * - 单条超预算且为当前首条 → 显式单独放行（不截断/不摘要）+
+   *   runtime_inbox_oversized_alone 审计，后续消息全部 deferred；
+   * - 超 orchestrator 80% 硬上限仍由既有 guardContextBudget 阻断（不截断）。
+   *
+   * 任一被选中项的 formatter 拒绝向调用者抛原 error：批次整体交给调用者回队，
+   * 不返回不完整 injected 伪装成功（已格式化的文本未发给 LLM）。
    */
-  async formatPreparedInbox(batch: PreparedInboxBatch): Promise<FormattedInboxBatch> {
+  async formatPreparedInbox(
+    batch: PreparedInboxBatch,
+    budget: InboxFormatBudget = DEFAULT_INBOX_FORMAT_BUDGET,
+  ): Promise<FormattedInboxBatch> {
     const injected: Message[] = [];
     const sources: Array<{ text: string; type: string }> = [];
     const infos: InboxMessage[] = [];
+    const selected: PreparedInboxEntry[] = [];
+    const deferred: PreparedInboxEntry[] = [];
+    let usedBytes = 0;
+    let oversizedAlone = false;
     const now = new Date().toISOString();
     const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
-    for (const { message, handle } of batch.entries) {
+    for (const entry of orderInboxEntries(batch.entries)) {
+      if (selected.length >= budget.maxItems) {
+        deferred.push(entry);
+        continue;
+      }
+      const { message, handle } = entry;
       const formatted = await this.formatInboxMessage(
         message.type,
         message.from,
@@ -851,20 +888,52 @@ export class Runtime {
       // phase 436: user_chat + user_inbox_message → 用户意图来源（origin='user'）
       // 其他 inbox type → 系统事件（origin='system' + systemSubtype = InboxMessage.type 单源）
       const isUserOrigin = message.type === 'user_chat' || message.type === 'user_inbox_message';
-      injected.push({
+      const candidate: Message = {
         role: 'user',
         content: formatted,
         origin: isUserOrigin ? 'user' : 'system',
         ...(isUserOrigin ? {} : { systemSubtype: message.type }),
         addedAt: now,
         inboxId: message.id,
-      });
+      };
+      // 1940 D3: 预算按最终格式化表示（注入 Message 的 JSON 字节）计量。
+      const bytes = formattedMessageBytes(candidate);
+      if (bytes > budget.maxFormattedBytes) {
+        if (selected.length > 0) {
+          // 本轮已有选中 → 超预算单条不搭车，defer 到下一轮单独放行。
+          deferred.push(entry);
+          continue;
+        }
+        // 单条超预算显式单独放行：不截断、不摘要；后续消息全部 deferred。
+        oversizedAlone = true;
+        selected.push(entry);
+        injected.push(candidate);
+        sources.push({ text: formatted.replace(/\r?\n/g, ' '), type: message.type });
+        infos.push(message);
+        usedBytes += bytes;
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.INBOX_OVERSIZED_ALONE,
+          `file=${handle.originalFileName}`,
+          `bytes=${bytes}`,
+          `budget_bytes=${budget.maxFormattedBytes}`,
+          traceCol,
+        );
+        continue;
+      }
+      if (usedBytes + bytes > budget.maxFormattedBytes) {
+        deferred.push(entry);
+        continue;
+      }
+      selected.push(entry);
+      injected.push(candidate);
       sources.push({
         text: formatted.replace(/\r?\n/g, ' '),
         type: message.type,
       });
       infos.push(message);
+      usedBytes += bytes;
       // phase 1847: 审计时点迁到单项格式化成功之后（phase 565 forensic 列保持）
+      // Phase 1967 Step B: 只对 selected 发 INBOX_INJECT；deferred 不产生交付记录。
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.INBOX_INJECT,
         `file=${handle.originalFileName}`,
@@ -875,7 +944,15 @@ export class Runtime {
         traceCol,
       );
     }
-    return { injected, sources, count: batch.entries.length, infos };
+    return {
+      injected,
+      sources,
+      count: selected.length,
+      infos,
+      selected,
+      deferred,
+      oversizedAlone,
+    };
   }
 
   /**
@@ -1168,6 +1245,29 @@ export class Runtime {
         );
       }
     }
+  }
+
+  /**
+   * Phase 1967 Step B: per-handle defer（预算延后回 pending，不计 delivery_attempts）
+   * with atomic audit on failure。返回失败句柄集合，由 caller 决定回队/中止。
+   */
+  async deferHandles(handles: readonly InboxHandle[], reason: string): Promise<InboxHandle[]> {
+    const failed: InboxHandle[] = [];
+    for (const h of handles) {
+      try {
+        await this.inboxReader.defer(h, reason);
+      } catch (deferErr) {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.INBOX_DEFER_FAILED,
+          `file=${h.originalFileName}`,
+          `reason=${reason}`,
+          `trace_id=${String(this.execContext.trace_id ?? '')}`,
+          `error=${formatErr(deferErr)}`,
+        );
+        failed.push(h);
+      }
+    }
+    return failed;
   }
 
   /**

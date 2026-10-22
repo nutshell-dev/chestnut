@@ -252,6 +252,19 @@ export function emitInboxNack(
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_NACK, ...cols);
 }
 
+// ─── INBOX_DEFERRED (Phase 1967 Step B) ─────────────────────────────────────
+// 预算延后：inflight→pending，不做 redelivery 计数（区别于 nack 的失败重投语义）。
+export function emitInboxDeferred(
+  audit: MessagingAuditSink,
+  opts: { file: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_DEFERRED,
+    `file=${opts.file}`,
+    `reason=${opts.reason}`,
+  );
+}
+
 // ─── INBOX_RESTORE_CONFLICT (phase 1020) ──────────────────────────────────────
 export function emitInboxRestoreConflict(
   audit: MessagingAuditSink,

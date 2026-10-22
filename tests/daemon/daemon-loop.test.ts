@@ -368,6 +368,13 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
           sources: [{ text: 'hi', type: 'user_chat' }],
           count: 1,
           infos: [] as InboxMessage[],
+          // Phase 1967 Step B: 无预算场景 mock = 全选（selected=entries、无 deferred）
+          selected: [{
+            message: { id: 'm-1', type: 'user_chat' } as unknown as InboxMessage,
+            handle: 'handle-1' as unknown as InboxHandle,
+          }],
+          deferred: [],
+          oversizedAlone: false,
         }),
         getSystemPrompt: vi.fn().mockResolvedValue('sys'),
         getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),

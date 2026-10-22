@@ -56,12 +56,22 @@ export interface PreparedInboxBatch {
 /**
  * Phase 1847: Runtime.formatPreparedInbox 的返回 —— 已领取批次的注入数据。
  * 格式化是可失败的后续动作；任一拒绝则整体抛原 error（不返回不完整 injected）。
+ *
+ * Phase 1967 Step B: 预算选择结果显式三分——
+ * - selected：预算选中集合，注入数据（injected/sources/infos）只覆盖它，
+ *   disposition（ack/nack）只作用于它；
+ * - deferred：预算未选集合，caller 负责经 InboxReader.defer 回 pending
+ *   （不 ack、不 nack、不计 delivery_attempts），下一轮继续轮转；
+ * - oversizedAlone：单条超预算消息显式单独放行标记（不截断/不摘要，已审计）。
  */
 export interface FormattedInboxBatch {
   readonly injected: Message[];
   readonly sources: Array<{ text: string; type: string }>;
   readonly count: number;
   readonly infos: InboxMessage[];
+  readonly selected: readonly PreparedInboxEntry[];
+  readonly deferred: readonly PreparedInboxEntry[];
+  readonly oversizedAlone: boolean;
 }
 
 

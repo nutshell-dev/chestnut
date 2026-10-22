@@ -77,13 +77,18 @@ function legacyBatchEntries(batch: LegacyDrainBatch) {
 
 /** Phase 1847: prepare 返回原消息/同一 handles，format 返回原期望注入内容。 */
 function mockInboxBoundary(batch: LegacyDrainBatch) {
+  // Phase 1967 Step B: 无预算场景 mock = 全选（selected=entries、无 deferred）
+  const entries = legacyBatchEntries(batch);
   return {
-    prepareInbox: vi.fn().mockResolvedValue({ entries: legacyBatchEntries(batch) }),
+    prepareInbox: vi.fn().mockResolvedValue({ entries }),
     formatPreparedInbox: vi.fn().mockResolvedValue({
       injected: batch.injected,
       sources: batch.sources,
       count: batch.injected.length,
       infos: batch.infos as InboxMessage[],
+      selected: entries,
+      deferred: [],
+      oversizedAlone: false,
     }),
   };
 }
@@ -104,6 +109,10 @@ function mockSequentialInboxBoundary(batches: LegacyDrainBatch[]) {
       sources: current.sources,
       count: current.injected.length,
       infos: current.infos as InboxMessage[],
+      // Phase 1967 Step B: 无预算场景 mock = 全选（selected=entries、无 deferred）
+      selected: legacyBatchEntries(current),
+      deferred: [],
+      oversizedAlone: false,
     })),
   };
 }
@@ -1320,6 +1329,7 @@ describe('EventLoop.run', () => {
     let loop: EventLoop | undefined;
     const formatPreparedInbox = vi.fn().mockResolvedValue({
       injected: [], sources: [], count: 0, infos: [] as InboxMessage[],
+      selected: [], deferred: [], oversizedAlone: false,
     });
     const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({
       formatPreparedInbox: formatPreparedInbox as unknown as (batch: unknown) => Promise<unknown>,
@@ -1354,6 +1364,9 @@ describe('EventLoop.run', () => {
         sources: [{ text: 'hi', type: 'user_chat' }],
         count: 1,
         infos: [] as InboxMessage[],
+        selected: [{ message: { id: 'm-1' } as unknown as InboxMessage, handle: 'handle-1' as unknown as InboxHandle }],
+        deferred: [],
+        oversizedAlone: false,
       };
     });
     const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({

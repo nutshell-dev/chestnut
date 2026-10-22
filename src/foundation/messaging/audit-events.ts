@@ -28,6 +28,8 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_MARK_DONE_FAILED: 'inbox_mark_done_failed',
   INBOX_RECONCILE: 'inbox_reconcile',
   INBOX_NACK: 'inbox_nack',
+  // Phase 1967 Step B: 预算延后（inflight→pending，不计 delivery_attempts、区别于 nack 失败重投）
+  INBOX_DEFERRED: 'inbox_deferred',
   // phase 1020: inbox restore to pending 时发现同名不同内容 → stage 入 failed/DLQ
   INBOX_RESTORE_CONFLICT: 'inbox_restore_conflict',
   // phase 1034: 旧版 .tmp_<uuid>_<original>.md stage 文件无法可靠解析原文件名 → 移入 failed/ 隔离审计
@@ -89,6 +91,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<MessagingAuditEvent, 'audit
   inbox_mark_done_failed: 'audit',
   inbox_reconcile: 'audit',
   inbox_nack: 'audit',
+  inbox_deferred: 'audit',  // Phase 1967 Step B
   inbox_restore_conflict: 'audit',
   inbox_stage_quarantine: 'audit',
   inbox_misrouted: 'audit',

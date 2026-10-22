@@ -79,12 +79,15 @@ class ReadStateTestRuntime extends Runtime {
 
   protected override async formatPreparedInbox(): Promise<FormattedInboxBatch> {
     const batch = this.preparedSnapshot;
-    if (!batch) return { injected: [], sources: [], count: 0, infos: [] };
+    if (!batch) return { injected: [], sources: [], count: 0, infos: [], selected: [], deferred: [], oversizedAlone: false };
     return {
       injected: batch.injected,
       sources: batch.sources,
       count: batch.injected.length,
       infos: batch.infos,
+      selected: batch.handles.map((handle, i) => ({ message: batch.infos[i], handle })),
+      deferred: [],
+      oversizedAlone: false,
     };
   }
 

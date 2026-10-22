@@ -183,6 +183,10 @@ async function makeHarness(): Promise<Harness> {
       sources: batch.entries.map(e => ({ text: e.message.content, type: e.message.type })),
       count: batch.entries.length,
       infos: batch.entries.map(e => e.message),
+      // Phase 1967 Step B: 无预算场景 mock = 全选（selected=entries、无 deferred）
+      selected: batch.entries,
+      deferred: [],
+      oversizedAlone: false,
     }),
     getMessages: async () => [],
     getSystemPrompt: async () => 'sys',
@@ -390,6 +394,10 @@ async function makeRuntimeHarness(opts?: {
     sources: batch.entries.map(e => ({ text: e.message.content, type: e.message.type })),
     count: batch.entries.length,
     infos: batch.entries.map(e => e.message),
+    // Phase 1967 Step B: 无预算场景 mock = 全选（selected=entries、无 deferred）
+    selected: batch.entries,
+    deferred: [],
+    oversizedAlone: false,
   });
   runtimeAny.getMessages = async () => [];
   runtimeAny.getSystemPrompt = async () => 'sys';

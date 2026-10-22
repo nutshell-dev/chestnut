@@ -25,6 +25,7 @@ import { decodeInbox, encodeInbox } from './codec-inbox.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitInboxDeduped,
+  emitInboxDeferred,
   emitInboxDone,
   emitInboxFailed,
   emitInboxLegacyClawIdField,
@@ -166,6 +167,11 @@ export interface InboxDeliverySession {
   drainAndDeliver(): Promise<InboxDeliveryResult>;
   ack(handle: InboxHandle): Promise<void>;
   nack(handle: InboxHandle, reason?: string): Promise<void>;
+  /**
+   * Phase 1967 Step B: 预算延后 —— inflight→pending，不做 redelivery 计数
+   * （不调 _markRedelivery、不递增 delivery_attempts），区别于 nack 的失败重投语义。
+   */
+  defer(handle: InboxHandle, reason: string): Promise<void>;
   markMisrouted(handle: InboxHandle): Promise<void>;
   peekMetas(filter?: { priority?: Priority[] }): Promise<InboxMessageMeta[]>;
   peekPending(): Promise<PendingView>;
@@ -924,6 +930,30 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       throw new InboxMoveFailed(handle.filePath, 'misrouted', err);
     }
     emitInboxMisrouted(this.audit, { file: fileName });
+  }
+
+  /**
+   * Phase 1967 Step B: 预算延后 —— inflight/ 回 pending/，不做 redelivery 计数。
+   * defer 是预算轮转（本轮未选中），不是失败重投；崩溃窗口由 inflight reconcile 兜底。
+   */
+  async defer(handle: InboxHandle, reason: string): Promise<void> {
+    const sourcePath = this._validateHandle(handle);
+    const fileName = handle.originalFileName;
+    try {
+      // 不调 _markRedelivery：defer 不递增 delivery_attempts。
+      const restored = await this._restoreToPending(sourcePath, fileName, 'defer');
+      if (!restored) return;
+    } catch (err) {
+      const errReason = formatErr(err);
+      emitInboxMoveFailed(this.audit, {
+        file: fileName,
+        op: 'defer_pending',
+        errorCode: classifyErrno(err),
+        reason: errReason,
+      });
+      throw new InboxMoveFailed(handle.filePath, 'defer_pending', err);
+    }
+    emitInboxDeferred(this.audit, { file: fileName, reason });
   }
 
   /** Negative acknowledge: move from inflight/ back to pending/ */

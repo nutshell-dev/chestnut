@@ -55,8 +55,15 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   /**
    * Phase 1847: 已持有句柄后的可失败格式化（只生成注入数据，不领取/不结算）；
    * 失败抛原 error，由 EventLoop 的 disposition guard 回队全批。
+   * Phase 1967 Step B: 返回预算选择结果——selected（注入与 disposition 对象）
+   * 与 deferred（预算未选，由 EventLoop 经 deferHandles 回 pending 轮转）。
    */
   formatPreparedInbox(batch: PreparedInboxBatch): Promise<FormattedInboxBatch>;
+  /**
+   * Phase 1967 Step B: 预算延后——deferred 句柄回 pending（不 ack/nack、
+   * 不计 delivery_attempts）；返回失败句柄集合（成功为空数组）。
+   */
+  deferHandles(handles: readonly InboxHandle[], reason: string): Promise<InboxHandle[]>;
   getMessages(): Promise<Message[]>;
   getSystemPrompt(): Promise<string>;
   getToolsForLLM(): ToolDefinition[];
