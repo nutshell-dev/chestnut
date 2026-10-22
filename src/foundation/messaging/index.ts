@@ -34,7 +34,7 @@ export { PendingViewError } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
 // phase 1781: init typed recovery outcome — runtime caller 显式处理 degraded
 export type { InboxInitResult } from './types.js';
-export { PRIORITY_ORDER, PRIORITY_VALUES } from './types.js';
+export { PRIORITY_ORDER } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 // phase 1423 F4: dirs path const re-export — 跨模块 (daemon / core) 路径合成走 barrel。

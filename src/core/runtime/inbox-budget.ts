@@ -11,7 +11,7 @@
  */
 
 import type { Message } from '../../foundation/dialog-store/index.js';
-import { PRIORITY_VALUES } from '../../foundation/messaging/index.js';
+import { PRIORITY_ORDER } from '../../foundation/messaging/index.js';
 import type { PreparedInboxEntry } from './types.js';
 
 /** 单轮注入条数上限（1939 拍板）。 */
@@ -38,7 +38,7 @@ export function orderInboxEntries(
   entries: readonly PreparedInboxEntry[],
 ): PreparedInboxEntry[] {
   return [...entries].sort((a, b) =>
-    PRIORITY_VALUES[b.message.priority] - PRIORITY_VALUES[a.message.priority]
+    PRIORITY_ORDER.indexOf(a.message.priority) - PRIORITY_ORDER.indexOf(b.message.priority)
     || Date.parse(a.message.timestamp) - Date.parse(b.message.timestamp));
 }
 
