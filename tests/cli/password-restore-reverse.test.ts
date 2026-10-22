@@ -46,9 +46,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 }));
 
 let processExitSpy: ReturnType<typeof vi.spyOn>;
+const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   processExitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null | undefined) => {
     throw new Error(`process.exit(${_code})`);
   });
@@ -56,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   processExitSpy.mockRestore();
+  Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
 });
 
 const { initCommand } = await import('../../src/cli/commands/init.js');
@@ -86,15 +89,15 @@ describe('passwordQuestion reverse — _writeToOutput restored after password pr
     teardownTempDir();
   });
 
-  it('Branch 2 手动配置：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
-    rlAnswers.queue = ['2', '2', 'https://api.openai.com/v1', 'sk-test', 'gpt-4o'];
+  it('服务目录 Anthropic：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
+    rlAnswers.queue = ['8', 'sk-ant-xxx', '', 'y'];
     await initCommand(commandDeps, true);
     // wrapper 包含 muted 变量，恢复后的 original 不包含
     expect(mockRl._writeToOutput.toString()).not.toContain('muted');
   });
 
-  it('Branch 3 选择 provider：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
-    rlAnswers.queue = ['3', '1', 'sk-ant-xxx', ''];
+  it('Other 高级路径：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
+    rlAnswers.queue = ['12', '2', 'https://api.openai.com/v1', 'sk-test', 'gpt-4o', 'y'];
     await initCommand(commandDeps, true);
     expect(mockRl._writeToOutput.toString()).not.toContain('muted');
   });
