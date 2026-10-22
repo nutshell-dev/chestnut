@@ -17,7 +17,7 @@ import { CliError } from '../errors.js';
 import { fitLine } from '../../viewport/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../../viewport/index.js';
-import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
+import { DEFAULT_LLM_TIMEOUT_MS, FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -30,11 +30,19 @@ import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
-import { CONFIG_RELOAD_NOTICE } from '../../templates/messages/index.js';
+import {
+  CONFIG_RELOAD_NOTICE,
+  SETUP_OTHER_FORMAT_LINES,
+  SETUP_CANCELLED,
+  SETUP_PROBE_FAILED_NOT_SAVED,
+  setupDraftPreviewLines,
+} from '../../templates/messages/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
+import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice } from '../setup-provider-catalog.js';
+import { passwordQuestion } from '../utils/password-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
 import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
@@ -178,107 +186,149 @@ function configAudit(deps: ConfigCommandDeps): AuditLog {
 }
 
 // provider add command
+async function selectSetupService(
+  rl: readline.Interface,
+): Promise<{ kind: 'setup'; choice: SetupProviderChoice } | { kind: 'advanced' }> {
+  console.log('\nSelect service:');
+  SETUP_PROVIDER_CATALOG.forEach((choice, index) => {
+    console.log(`  ${index + 1}. ${choice.label} — ${choice.description}`);
+  });
+  console.log(`  ${SETUP_PROVIDER_CATALOG.length + 1}. Advanced (all presets / catalog providers / custom endpoint)`);
+  const raw = await question(rl, '\n> ');
+  const num = parseInt(raw, 10);
+  if (Number.isNaN(num)) throw new CliError('Invalid choice: not a number');
+  const choice = SETUP_PROVIDER_CATALOG[num - 1];
+  if (choice) return { kind: 'setup', choice };
+  if (num === SETUP_PROVIDER_CATALOG.length + 1) return { kind: 'advanced' };
+  throw new CliError('Invalid selection');
+}
+
 async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   const config = deps.rootConfig.loadGlobal();
   const rl = createRL();
-  
-  try {
-    // Select preset / catalog provider（Phase 1927 Step D：判别选择）
-    const selection = await selectPreset(rl);
-    const preset = selection.kind === 'preset' ? PRESETS[selection.id] : undefined;
-    const providerId = selection.kind === 'catalog' ? selection.id : undefined;
-    // catalog 选择的认证类别由 inventory auth 类派生（OAuth-only → oauth，其余 → api_key）
-    const profile = preset ? presetAuthProfile(preset) : deriveCatalogAuthProfile(providerId!);
 
-    // Label (optional)
-    const defaultLabel = selection.id;
-    const labelInput = await question(rl, '\nLabel (optional, press Enter to use preset name)', defaultLabel);
+  try {
+    const service = await selectSetupService(rl);
+
+    let presetId: string | undefined;
+    let providerId: string | undefined;
+    let serviceName: string;
+    let authProfile: 'api_key' | 'local' | 'oauth' | 'ambient' = 'api_key';
+    let defaultModel: string | undefined;
+    let envVar: string | undefined;
+
+    if (service.kind === 'setup') {
+      const choice = service.choice;
+      serviceName = choice.label;
+      if (choice.auth === 'advanced') {
+        SETUP_OTHER_FORMAT_LINES.forEach(line => console.log(line));
+        const fmt = await question(rl, '> ', '2');
+        presetId = FORMAT_MAP[fmt] ?? '';
+        if (!presetId) throw new CliError('Invalid API format');
+      } else {
+        presetId = choice.target.preset;
+        providerId = choice.target.providerId;
+        const preset = presetId ? PRESETS[presetId] : undefined;
+        if (!preset) throw new CliError(`Internal provider mapping missing for ${choice.label}`);
+        defaultModel = choice.defaultModel ?? preset.defaultModel;
+        envVar = choice.envVar ?? preset.envVar;
+        authProfile = choice.auth === 'local' ? 'local' : (presetAuthProfile(preset) as typeof authProfile);
+      }
+    } else {
+      const adv = await selectPreset(rl);
+      const preset = adv.kind === 'preset' ? PRESETS[adv.id] : undefined;
+      presetId = adv.kind === 'preset' ? adv.id : undefined;
+      providerId = adv.kind === 'catalog' ? adv.id : undefined;
+      serviceName = preset?.displayName ?? adv.id;
+      defaultModel = preset?.defaultModel;
+      envVar = preset?.envVar;
+      authProfile = preset
+        ? (presetAuthProfile(preset) as typeof authProfile)
+        : (deriveCatalogAuthProfile(adv.id) === 'oauth' ? 'oauth' : 'api_key');
+    }
+
+    const defaultLabel = presetId ?? providerId ?? 'provider';
+    const labelInput = await question(rl, '\nLabel (press Enter to use service name)', defaultLabel);
     const label = labelInput || defaultLabel;
 
-    // Check for duplicate label
-    const existing = findProviderIndex(config, label);
-    if (existing) {
+    if (findProviderIndex(config, label)) {
       throw new CliError(`A provider with label "${label}" already exists`);
     }
 
-    // API Key（Phase 1925 Step B：明文经 Credentials owner 落凭据文件，配置只存 `${REF}`）
-    // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key——
-    // 认证来源见 preset.authHint（ambient 环境解析 / config provider login）。
     let apiKey: string | undefined;
-    if (profile === 'api_key') {
-      const apiKeyInput = await question(rl, 'API Key (or ${ENV_VAR})');
-      if (!apiKeyInput) {
+    if (authProfile === 'api_key') {
+      const envReady = Boolean(envVar && process.env[envVar]);
+      const hint = envReady ? ` (press Enter to use ${envVar})` : '';
+      const rawKey = await passwordQuestion(rl, `API Key${hint}: `);
+      if (!rawKey && envReady && envVar) {
+        apiKey = '${' + envVar + '}';
+        console.log(`✓ Will read from ${envVar} at runtime`);
+      } else if (!rawKey) {
         throw new CliError('API Key is required');
+      } else {
+        apiKey = await storeKeyAsCredential(deps, rawKey, { envVar, seed: label });
       }
-      apiKey = await storeKeyAsCredential(deps, apiKeyInput, { envVar: preset?.envVar, seed: label });
-    } else if (preset) {
-      console.log(`\nℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
+    } else if (authProfile === 'local') {
+      console.log(`ℹ ${serviceName}: local provider, no API key required.`);
+    } else if (presetId) {
+      const preset = PRESETS[presetId];
+      console.log(`\nℹ ${preset?.displayName ?? serviceName} 认证来源：${preset?.authHint ?? authProfile}`);
     } else {
-      console.log(`\nℹ ${providerId} 为 OAuth provider——配置后运行 "chestnut config provider login ${label}" 完成登录。`);
+      console.log(`\nℹ ${serviceName} 为 OAuth provider——配置后运行 "chestnut config provider login ${label}" 完成登录。`);
     }
 
-    // Base URL for custom presets
     let baseUrl: string | undefined;
-    if (preset && presetRequiresBaseUrl(preset)) {
+    if (presetId && PRESETS[presetId] && presetRequiresBaseUrl(PRESETS[presetId])) {
       baseUrl = await question(rl, 'Base URL');
-      if (!baseUrl) {
-        throw new CliError('Base URL is required for custom presets');
-      }
+      if (!baseUrl) throw new CliError('Base URL is required for this provider');
     }
 
-    // Model（preset 有默认；catalog 选择无默认——必须显式，静态 seed 合法性由 adapter 裁决）
     let model: string;
     if (providerId) {
       model = await question(rl, 'Model');
-      if (!model) {
-        throw new CliError('Model is required for catalog providers');
-      }
+      if (!model) throw new CliError('Model is required for catalog providers');
     } else {
-      const defaultModel = preset!.defaultModel || 'unknown';
-      model = await question(rl, 'Model', defaultModel);
+      model = await question(
+        rl,
+        `Model${defaultModel ? ` (default: ${defaultModel})` : ''}`,
+        defaultModel ?? '',
+      );
+      if (!model) throw new CliError('Model is required');
     }
-    
-    // Role selection
+
     console.log('\nRole:');
     console.log('1. primary');
     console.log('2. fallback');
     const roleAnswer = await question(rl, '> ', '2');
     const role = roleAnswer === '1' ? 'primary' : 'fallback';
-    
-    // Build provider config（ambient/oauth profile 无 api_key 字段；catalog 选择写 provider_id）
+
     const providerConfig: LLMProviderConfig = {
-      ...(providerId ? { provider_id: providerId } : { preset: selection.id }),
+      ...(providerId ? { provider_id: providerId } : { preset: presetId }),
       label,
       ...(apiKey !== undefined && { api_key: apiKey }),
       model,
-
       temperature: 0.7,
       timeout_ms: DEFAULT_LLM_TIMEOUT_MS,
     };
     if (baseUrl) {
       providerConfig.base_url = baseUrl;
     }
-    
-    // Apply to config —— 交互阶段只用快照做展示/预检并记录用户选择；
-    // 真正提交在锁内对新鲜配置重放（见下方 mutateGlobalLocked）。
+
     let positionFromPrompt = 0;
     if (role === 'primary') {
       const currentPrimary = config.llm.primary;
       console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset || currentPrimary.provider_id}) will become fallback #1.`);
       const confirm = await question(rl, 'Confirm? [y/N]', 'N');
       if (confirm.toLowerCase() !== 'y') {
-        console.log('Cancelled');
-        rl.close();
+        console.log(SETUP_CANCELLED);
         return;
       }
     } else {
-      // Fallback role
       const currentFallbacks = config.llm.fallbacks ?? [];
       console.log(`\nCurrent fallbacks: ${currentFallbacks.length === 0 ? '(none)' : ''}`);
       currentFallbacks.forEach((f, i) => {
         console.log(`#${i + 1}: ${f.label || f.preset}`);
       });
-
       const posDefault = String(currentFallbacks.length + 1);
       const posStr = await question(rl, 'Position', posDefault);
       const position = parseInt(posStr, 10) - 1;
@@ -287,10 +337,50 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       }
       positionFromPrompt = position;
     }
-    
-    // Phase 1910 Step D（RACE-CONFIG-READ-MODIFY-WRITE）：提交改为锁内
-    // 重读新鲜配置 + 重放 mutation —— 交互期间的旧快照只用于展示/预检，
-    // 并发另一成功 mutation 的字段不会被本提交抹掉。
+
+    // Phase 1972: redacted preview before probe/commit (never includes the secret).
+    setupDraftPreviewLines({
+      label,
+      model,
+      auth: authProfile === 'local' ? 'local' : authProfile === 'api_key' ? 'API key' : authProfile,
+      role,
+      ...(baseUrl && { baseUrl }),
+      ...(apiKey && { keyRef: apiKey }),
+    }).forEach(line => console.log(line));
+
+    const saveAnswer = await question(rl, 'Save this provider? [Y/n]', 'Y');
+    if (saveAnswer.toLowerCase() === 'n') {
+      console.log(SETUP_CANCELLED);
+      return;
+    }
+
+    // Phase 1972: probe before commit. Unverified providers are not persisted.
+    console.log('\nTesting connection...');
+    const providerConfigRuntime = toProviderConfig(providerConfig);
+    if (providerConfigRuntime.apiKey !== undefined) {
+      const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
+      if (resolvedKey === undefined) {
+        throw new CliError(
+          `API key reference ${providerConfig.api_key} could not be resolved ` +
+          `(not in process env, credentials file, or .env fallbacks)`,
+        );
+      }
+      providerConfigRuntime.apiKey = resolvedKey;
+    }
+    const probe = await checkLLMConnectionFor(providerConfigRuntime, {
+      credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+    });
+    if (!probe.ok) {
+      formatLLMError({
+        errorType: probe.errorType,
+        message: probe.message,
+        provider: probe.provider,
+        hint: LLM_ERROR_HINTS[probe.errorType],
+      }).forEach(line => console.log(line));
+      console.log(SETUP_PROBE_FAILED_NOT_SAVED);
+      return;
+    }
+
     await deps.rootConfig.mutateGlobalLocked((fresh) => {
       if (findProviderIndex(fresh, label)) {
         throw new CliError(`A provider with label "${label}" already exists`);
@@ -301,7 +391,6 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         fresh.llm.primary = providerConfig;
       } else {
         const currentFallbacks = [...(fresh.llm.fallbacks ?? [])];
-        // 并发 mutation 可能改变了 fallbacks 长度 —— clamp 到当前有效范围
         const position = Math.min(positionFromPrompt, currentFallbacks.length);
         currentFallbacks.splice(position, 0, providerConfig);
         fresh.llm.fallbacks = currentFallbacks;
@@ -314,50 +403,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     }
     configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
     notifyRunningDaemons(deps, 'add');
-
-    // phase 451: 改 config 必 probe
-    console.log('\nTesting connection...');
-    const providerConfigRuntime = toProviderConfig(providerConfig);
-    // Phase 1925 Step B：内存态 api_key 可能是 `${REF}` 引用 —— probe 前经
-    // Credentials owner 分层解析（磁盘链路在 load 时已展开，内存链路需显式解析）。
-    // Phase 1926 Step D：ambient/oauth profile 无 api_key——跳过解析，probe 期由
-    // pi-ai 原生 auth.resolve（env/ambient/stored credential）裁决。
-    if (providerConfigRuntime.apiKey !== undefined) {
-      const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
-      if (resolvedKey === undefined) {
-        throw new CliError(
-          `API key reference ${providerConfig.api_key} could not be resolved ` +
-          `(not in process env, credentials file, or .env fallbacks)`,
-        );
-      }
-      providerConfigRuntime.apiKey = resolvedKey;
-    }
-    // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
-    const probe = await checkLLMConnectionFor(providerConfigRuntime, {
-      credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
-    });
-    if (probe.ok) {
-      console.log(`✓ ${probe.model}`);
-    } else {
-      formatLLMError({
-        errorType: probe.errorType,
-        message: probe.message,
-        provider: probe.provider,
-        hint: LLM_ERROR_HINTS[probe.errorType],
-      }).forEach(line => console.log(line));
-      if (role === 'primary' && (probe.errorType === 'auth' || probe.errorType === 'model')) {
-        // primary 失败 + actionable → 进 reconfigure
-        const rlProbe = createRL();
-        try {
-          await promptReconfigure(deps, rlProbe, probe.errorType);
-        } finally {
-          rlProbe.close();
-        }
-      } else if (role === 'fallback') {
-        // fallback 失败 → 警告、保留配置（用户可手动 remove）
-        console.log('⚠ Fallback config saved but unreachable. Use "chestnut config provider remove" to clean up.');
-      }
-    }
+    console.log(`✓ ${probe.model}`);
 
   } finally {
     rl.close();

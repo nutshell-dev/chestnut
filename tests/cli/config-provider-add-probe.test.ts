@@ -95,8 +95,11 @@ function writeInitialConfig() {
   );
 }
 
+const originalIsTTY = process.stdin.isTTY;
+
 describe('config provider add — primary probe', () => {
   beforeEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     setupTempDir();
     writeInitialConfig();
     rlAnswers.queue = [];
@@ -105,12 +108,15 @@ describe('config provider add — primary probe', () => {
     mockRl.question.mockClear();
     mockRl.close.mockClear();
   });
-  afterEach(() => teardownTempDir());
+  afterEach(() => {
+    teardownTempDir();
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
 
   it('adds primary and probes the new primary on success', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
-    // preset #1, custom label, api key, model default, role primary, confirm y
-    rlAnswers.queue = ['1', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
+    // service 8 (Anthropic), label, key, model default, role primary, role confirm, save confirm
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y', 'y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -132,23 +138,22 @@ describe('config provider add — primary probe', () => {
   it('adds primary, probes fail auth, enters reconfigure', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'anthropic' });
     connMock.promptReconfigure.mockResolvedValue(undefined);
-    rlAnswers.queue = ['1', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y', 'y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
-    expect(connMock.promptReconfigure).toHaveBeenCalledOnce();
-    expect(connMock.promptReconfigure).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      'auth',
-    );
+    // Phase 1972: probe failure does not commit and does not enter reconfigure.
+    expect(connMock.promptReconfigure).not.toHaveBeenCalled();
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.api_key).toBe('sk-ant-old');
   });
 });
 
 describe('config provider add — fallback probe', () => {
   beforeEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     setupTempDir();
     writeInitialConfig();
     rlAnswers.queue = [];
@@ -157,12 +162,15 @@ describe('config provider add — fallback probe', () => {
     mockRl.question.mockClear();
     mockRl.close.mockClear();
   });
-  afterEach(() => teardownTempDir());
+  afterEach(() => {
+    teardownTempDir();
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
 
   it('adds fallback and probes it; failure does not block or trigger reconfigure', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'openai' });
-    // preset #1, custom label, api key, model default, role fallback, position 1
-    rlAnswers.queue = ['1', 'new-openai', 'sk-openai', '', '2', '1'];
+    // service 6 (OpenAI), label, key, model default, role fallback, position default, save confirm
+    rlAnswers.queue = ['6', 'new-openai', 'sk-openai', '', '2', '1', 'y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -170,8 +178,8 @@ describe('config provider add — fallback probe', () => {
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
 
+    // Phase 1972: unverified fallback is not persisted.
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.fallbacks).toHaveLength(1);
-    expect(config.llm.fallbacks![0].api_key).toBe('sk-openai');
+    expect(config.llm.fallbacks ?? []).toHaveLength(0);
   });
 });
