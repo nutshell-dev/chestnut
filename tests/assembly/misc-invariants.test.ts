@@ -95,8 +95,13 @@ describe('llm-event-sink', () => {
         expect.stringMatching(/^\[LLM EVENT SINK CRITICAL\]\s*audit/),
       );
 
-      // stream 分支仍执行
-      expect(stream.write).toHaveBeenCalledTimes(1);
+      // stream 分支仍执行；Phase 1968 Step B：审计写失败另写显式
+      // call_audit_write_failed marker（stream 独立通道）→ 2 次写入。
+      expect(stream.write).toHaveBeenCalledTimes(2);
+      expect(stream.write.mock.calls[0][0]).toMatchObject({
+        type: 'call_audit_write_failed',
+        eventType: 'provider_attempt_failed',
+      });
 
       consoleSpy.mockRestore();
     });

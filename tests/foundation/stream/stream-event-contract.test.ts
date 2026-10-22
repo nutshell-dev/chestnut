@@ -65,9 +65,9 @@ void _providerAttemptFailed;
 void _taskStarted;
 
 describe('StreamEvent contract', () => {
-  it('STREAM_EVENT_NAMES 成员数 == 47（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1955 +1 预算预警）', () => {
+  it('STREAM_EVENT_NAMES 成员数 == 51（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1955 +1 预算预警；phase 1968 +4 调用路径审计）', () => {
     const keys = Object.keys(STREAM_EVENT_NAMES);
-    expect(keys.length).toBe(47);
+    expect(keys.length).toBe(51);
   });
 
   it('协议层不含上层业务事件（分层拆件：agent 6 / task 3 / daemon 1 归各模块 const）', () => {
@@ -86,7 +86,7 @@ describe('StreamEvent contract', () => {
     expect(STREAM_EVENT_NAMES).not.toHaveProperty('USER_REPLY_END');
   });
 
-  it('LLMEvent 33 个 type 字面量均存在于 STREAM_EVENT_NAMES（27 + phase 1826 恢复安排 5 + phase 1827 事实接受 1）', () => {
+  it('LLMEvent 37 个 type 字面量均存在于 STREAM_EVENT_NAMES（27 + phase 1826 恢复安排 5 + phase 1827 事实接受 1 + phase 1968 调用路径审计 4）', () => {
     // 运行时双重检查：确保 LLMEvent 的所有 type 值都被 STREAM_EVENT_NAMES 覆盖。
     const names = new Set<string>(Object.values(STREAM_EVENT_NAMES));
     const llmEventTypes: LLMEventType[] = [
@@ -117,6 +117,11 @@ describe('StreamEvent contract', () => {
       'sdk_client_cache_hit',
       'sdk_client_cache_miss',
       'provider_close_failed',
+      // phase 1968: provider 调用路径审计（invocation/attempt/selection + sink 侧写失败暴露）
+      'call_invocation_started',
+      'call_attempt_result',
+      'call_selection',
+      'call_audit_write_failed',
       // phase 1826: 恢复安排事件（owner = llm-orchestrator）
       'recovery_scheduled',
       'recovery_ready',

@@ -38,6 +38,12 @@ export interface LLMProviderFailure {
   provider: string;
   error: Error;
   providerId?: string;
+  /**
+   * Phase 1968 Step B：该候选在本次 invocation 实际执行序列中的序位（含跳过），
+   * 与 llm_call_attempt_result 审计事件的 attemptIndex 同源。缺省仅出现于外部
+   * 手工构造（测试/第三方）或 1968 前的代码路径。
+   */
+  attemptIndex?: number;
 }
 
 export class LLMAllProvidersFailedError extends Error {

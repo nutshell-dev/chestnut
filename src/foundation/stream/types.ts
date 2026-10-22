@@ -72,6 +72,12 @@ export const STREAM_EVENT_NAMES = {
   SDK_CLIENT_CACHE_HIT: 'sdk_client_cache_hit',
   SDK_CLIENT_CACHE_MISS: 'sdk_client_cache_miss',
   PROVIDER_CLOSE_FAILED: 'provider_close_failed',
+  // Phase 1968 Step B：provider 调用路径审计（invocation/attempt/selection 关联键 +
+  // sink 侧审计写失败显式暴露）。
+  CALL_INVOCATION_STARTED: 'call_invocation_started',
+  CALL_ATTEMPT_RESULT: 'call_attempt_result',
+  CALL_SELECTION: 'call_selection',
+  CALL_AUDIT_WRITE_FAILED: 'call_audit_write_failed',
   // 通用系统通知通道（1）：系统/契约侧主动通知用户（subtype 区分 contract_created 等）；
   // 曾名 user_notify（2026-08-07 phase 1319 改名——user_ 前缀族语义为「用户来源」、此事件是「通知用户」接收方、命名歧义治理）。
   // 归协议层另因：写端跨 L2-L6，L2 写端（audit-size-monitor）引用上层 const 会反向依赖违规；

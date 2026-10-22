@@ -66,6 +66,16 @@ export interface RecoveryFailureInput {
   localSkip?: boolean;
   /** localSkip 时的最早可尝试时刻（本地 breaker reset）。 */
   probeAllowedAtMs?: number;
+  /**
+   * Phase 1968 Step B：身份↔label 关系与调用路径关联（可选，旧路径缺省不猜）。
+   * providerLabel = 显示名（改名会产生新身份指纹，label 随事实留存供对齐）；
+   * invocationId/attemptIndex 与 llm_call_invocation_started/llm_call_attempt_result
+   * 审计事件同源；configRevision = orchestrator 配置代次。
+   */
+  providerLabel?: string;
+  invocationId?: string;
+  attemptIndex?: number;
+  configRevision?: number;
 }
 
 /**
@@ -615,6 +625,11 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         providerId: failure.providerId,
         errorClass: failure.errorClass,
         message: failure.message,
+        // Phase 1968 Step B：调用路径关联随证据持久化（可选字段，缺省不伪造）。
+        ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
+        ...(failure.invocationId !== undefined ? { invocationId: failure.invocationId } : {}),
+        ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
+        ...(failure.configRevision !== undefined ? { configRevision: failure.configRevision } : {}),
       });
 
       if (failure.errorClass === 'quota') {
@@ -720,6 +735,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       existing.at = atIso;
       existing.consecutiveFailures += 1;
       existing.detail = failure.message;
+      // Phase 1968 Step B：label 随最新事实更新（身份不变、显示名可能随配置演化）。
+      if (failure.providerLabel !== undefined) existing.providerLabel = failure.providerLabel;
       return;
     }
     state.providers.push({
@@ -728,6 +745,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       at: atIso,
       consecutiveFailures: 1,
       detail: failure.message,
+      ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
     });
   }
 
@@ -737,6 +755,10 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     providerId: string;
     errorClass: string;
     message: string;
+    providerLabel?: string;
+    invocationId?: string;
+    attemptIndex?: number;
+    configRevision?: number;
   }): void {
     state.failures.push(evidence);
     if (state.failures.length > LLM_RECOVERY_FAILURE_EVIDENCE_MAX) {

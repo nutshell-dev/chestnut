@@ -86,6 +86,16 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_HIT; preset: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_MISS; preset: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.PROVIDER_CLOSE_FAILED; error: string }
+  // Phase 1968 Step B：provider 调用路径可审计（LLM-CALL-SUCCESS-PROVENANCE-NOT-AUDITABLE）。
+  // invocationId 关联一次 call/stream 的全部 attempt/selection 事实；attemptIndex 是
+  // 实际执行序列号（含跳过），非配置数组下标；providerId 为不可逆身份指纹（不含凭据）。
+  // outcome 'discarded'：候选已执行但未成为最终选择（hedge race loser 已产出内容）——
+  // 不伪造成功也不伪造失败。
+  | { type: typeof STREAM_EVENT_NAMES.CALL_INVOCATION_STARTED; invocationId: string; kind: 'call' | 'stream'; configRevision: number; candidates: { name: string; providerId: string }[] }
+  | { type: typeof STREAM_EVENT_NAMES.CALL_ATTEMPT_RESULT; invocationId: string; attemptIndex: number; provider: string; providerId: string; outcome: 'success' | 'failure' | 'skipped' | 'discarded'; errorClass?: LLMErrorClass; error?: string; reason?: string }
+  | { type: typeof STREAM_EVENT_NAMES.CALL_SELECTION; invocationId: string; outcome: 'selected' | 'exhausted'; provider?: string; providerId?: string; attemptIndex?: number }
+  // 由装配层 sink 在审计持久化降级/失败时产生（LLMOrchestrator 不产生本事件）。
+  | { type: typeof STREAM_EVENT_NAMES.CALL_AUDIT_WRITE_FAILED; eventType: string; invocationId?: string; reason: string }
   // Phase 1826: 恢复安排事件（owner 唯一发布；调用方只观察，不重算策略）
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_SCHEDULED; scope: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number }
   // Phase 1827: 事实接受证据（完整新事实；admission 事件的单 trigger 只是显示摘要）

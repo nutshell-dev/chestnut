@@ -52,6 +52,11 @@ export interface LLMRecoveryProviderFact {
   /** 达到上限后的 blocked 事实（等用户干预或配置变化，不自动重试）。 */
   rateLimitBlocked?: boolean;
   rateLimitBlockedAt?: string;
+  /**
+   * Phase 1968 Step B：显示名（label）。身份指纹不含可读名称，label 随事实留存
+   * 使身份↔名称关系可见（改名产生新身份时可解释健康状态迁移）。可选：旧文件缺失。
+   */
+  providerLabel?: string;
 }
 
 /** 转义自既有已批准参数的恢复预算与曲线（数值不变）。 */
@@ -97,6 +102,15 @@ export interface LLMRecoveryFailureEvidence {
   providerId: string;
   errorClass: string;
   message: string;
+  /**
+   * Phase 1968 Step B：调用路径关联（可选，旧文件缺失不猜）。
+   * 与 llm_call_invocation_started/llm_call_attempt_result 审计事件同源——
+   * 重启后可由 invocationId 对齐磁盘审计与恢复证据，不伪造未发生的成功。
+   */
+  providerLabel?: string;
+  invocationId?: string;
+  attemptIndex?: number;
+  configRevision?: number;
 }
 
 /**
@@ -191,6 +205,8 @@ function isProviderFact(v: unknown): v is LLMRecoveryProviderFact {
   if (p.rateLimitFailures !== undefined && typeof p.rateLimitFailures !== 'number') return false;
   if (p.rateLimitBlocked !== undefined && typeof p.rateLimitBlocked !== 'boolean') return false;
   if (p.rateLimitBlockedAt !== undefined && typeof p.rateLimitBlockedAt !== 'string') return false;
+  // Phase 1968 Step B：label 可选，出现时严格校验。
+  if (p.providerLabel !== undefined && typeof p.providerLabel !== 'string') return false;
   return true;
 }
 
@@ -226,10 +242,16 @@ function isAcceptedFactBatch(v: unknown): v is LLMRecoveryAcceptedFactBatch {
 function isFailureEvidence(v: unknown): v is LLMRecoveryFailureEvidence {
   if (typeof v !== 'object' || v === null) return false;
   const f = v as Record<string, unknown>;
-  return typeof f.at === 'string'
-    && typeof f.providerId === 'string'
-    && typeof f.errorClass === 'string'
-    && typeof f.message === 'string';
+  if (typeof f.at !== 'string'
+    || typeof f.providerId !== 'string'
+    || typeof f.errorClass !== 'string'
+    || typeof f.message !== 'string') return false;
+  // Phase 1968 Step B：调用路径关联字段可选，出现时严格校验类型。
+  if (f.providerLabel !== undefined && typeof f.providerLabel !== 'string') return false;
+  if (f.invocationId !== undefined && typeof f.invocationId !== 'string') return false;
+  if (f.attemptIndex !== undefined && typeof f.attemptIndex !== 'number') return false;
+  if (f.configRevision !== undefined && typeof f.configRevision !== 'number') return false;
+  return true;
 }
 
 function isStringArray(v: unknown): v is string[] {

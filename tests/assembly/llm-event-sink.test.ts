@@ -119,8 +119,15 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       userActionHint: 'retry',
     });
 
-    expect(stream.events).toHaveLength(1);
-    expect(stream.events[0]).toMatchObject({ type: 'provider_attempt_failed' });
+    // Phase 1968 Step B：审计写失败不再静默——除原事件仍写 stream 外，另写显式
+    // llm_call_audit_write_failed marker（stream 独立通道），并尽力回写 audit
+    // （本例 audit mock 恒抛、marker 回写也被吸收，不扩散）。
+    expect(stream.events).toHaveLength(2);
+    expect(stream.events[0]).toMatchObject({
+      type: 'call_audit_write_failed',
+      eventType: 'provider_attempt_failed',
+    });
+    expect(stream.events[1]).toMatchObject({ type: 'provider_attempt_failed' });
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[LLM EVENT SINK CRITICAL\]\s*audit/));
 
     consoleSpy.mockRestore();
