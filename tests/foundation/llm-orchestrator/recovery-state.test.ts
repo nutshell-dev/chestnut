@@ -191,4 +191,94 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 1968 Step C：调用路径关联字段（providerLabel/invocationId/attemptIndex/
+  // configRevision）——可选、旧文件缺省兼容、出现时严格校验、落盘往返不丢失。
+  // -------------------------------------------------------------------------
+
+  it('1968 关联字段随 providers/failures 落盘往返（label↔identity 可见）', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const state = createInitialRecoveryState(SCOPE, budget(), T0);
+    state.providers.push({
+      providerId: 'fp-abc',
+      errorClass: 'transient',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 1,
+      detail: 'boom',
+      providerLabel: 'kimi-year',
+    });
+    state.failures.push({
+      at: new Date(T0).toISOString(),
+      providerId: 'fp-abc',
+      errorClass: 'transient',
+      message: 'boom',
+      providerLabel: 'kimi-year',
+      invocationId: 'inv-1',
+      attemptIndex: 0,
+      configRevision: 0,
+    });
+    expect(validateRecoveryState(state, SCOPE).ok).toBe(true);
+    saveRecoveryState(fs, state);
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind !== 'ok') return;
+    expect(loaded.state.providers[0].providerLabel).toBe('kimi-year');
+    expect(loaded.state.failures[0]).toMatchObject({
+      providerLabel: 'kimi-year',
+      invocationId: 'inv-1',
+      attemptIndex: 0,
+      configRevision: 0,
+    });
+  });
+
+  it('1968 前旧格式（无关联字段）仍然兼容加载', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const state = createInitialRecoveryState(SCOPE, budget(), T0);
+    state.providers.push({
+      providerId: 'fp-old',
+      errorClass: 'permanent',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 2,
+      detail: 'auth',
+    });
+    state.failures.push({
+      at: new Date(T0).toISOString(),
+      providerId: 'fp-old',
+      errorClass: 'permanent',
+      message: 'auth',
+    });
+    saveRecoveryState(fs, state);
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind !== 'ok') return;
+    expect(loaded.state.providers[0].providerLabel).toBeUndefined();  // 不伪造
+    expect(loaded.state.failures[0].invocationId).toBeUndefined();
+  });
+
+  it('1968 关联字段类型非法时拒绝加载（field_type_mismatch）', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    const bad = {
+      ...base,
+      failures: [{
+        at: new Date(T0).toISOString(),
+        providerId: 'fp-x',
+        errorClass: 'transient',
+        message: 'm',
+        attemptIndex: 'zero',  // 应为 number
+      }],
+    };
+    fsNative.mkdirSync(path.join(dir, 'status'), { recursive: true });
+    fsNative.writeFileSync(
+      path.join(dir, 'status', LLM_RECOVERY_STATE_FILE),
+      JSON.stringify(bad),
+    );
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('unusable');
+    if (loaded.kind === 'unusable') {
+      expect(loaded.reason).toBe('field_type_mismatch');
+      expect(loaded.detail).toBe('failures');
+    }
+  });
+
 });
