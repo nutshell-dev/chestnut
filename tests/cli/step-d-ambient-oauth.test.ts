@@ -123,7 +123,12 @@ beforeEach(() => {
   loginMock.providerLoginTypes.mockReset();
 });
 
-afterEach(() => teardownTempDir());
+const originalIsTTY = process.stdin.isTTY;
+
+afterEach(() => {
+  teardownTempDir();
+  Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+});
 
 /* ── missingStartLLMParams：profile 驱动的缺参规则 ─────────────────────────── */
 
@@ -159,6 +164,7 @@ describe('missingStartLLMParams — Phase 1926 Step D profile 规则', () => {
 
 describe('config provider add — ambient preset（Phase 1926 Step D）', () => {
   beforeEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     // provider add 要求已初始化（loadGlobal 既有配置）
     const configDir = path.join(tempDir, '.chestnut');
     fs.mkdirSync(configDir, { recursive: true });
@@ -170,8 +176,8 @@ describe('config provider add — ambient preset（Phase 1926 Step D）', () => 
 
   it('amazon-bedrock：不索 API key、配置不落 api_key、probe 配置带 authProfile', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'anthropic.claude-sonnet-4-6' });
-    // preset #14 = amazon-bedrock；label 默认；无 key 问题；model 默认；role fallback；position 默认
-    rlAnswers.queue = ['14', '', '', '2', ''];
+    // service 13 = Advanced；preset #14 = amazon-bedrock；label 默认；无 key；model 默认；role fallback；position 默认；save y
+    rlAnswers.queue = ['13', '14', '', '', '2', '', 'y'];
 
     const cmd = createConfigCommand(commandDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -197,7 +203,7 @@ describe('config provider add — ambient preset（Phase 1926 Step D）', () => 
 
   it('api_key preset 仍必索 key（back-compat）', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
-    rlAnswers.queue = ['1', 'second-anthropic', 'sk-ant-x', '', '2', ''];
+    rlAnswers.queue = ['13', '1', 'second-anthropic', 'sk-ant-x', '', '2', '', 'y'];
 
     const cmd = createConfigCommand(commandDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -284,49 +290,5 @@ describe('config provider login/logout — Phase 1926 Step D', () => {
   });
 });
 
-/* ── init 向导：ambient 跳 key / OAuth 引导登录 ────────────────────────────── */
-
-describe('init 向导 — ambient / OAuth preset（Phase 1926 Step D）', () => {
-  it('ambient（amazon-bedrock）：跳过 API key 步骤，配置无 api_key', async () => {
-    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'anthropic.claude-sonnet-4-6', identity: 'id-x' });
-    // 菜单 3（select provider）→ #11 amazon-bedrock → model auto
-    rlAnswers.queue = ['3', '11', 'auto'];
-
-    await initCommand(commandDeps);
-
-    const prompts = mockRl.question.mock.calls.map((c) => String(c[0]));
-    expect(prompts.some((p) => p.includes('API Key'))).toBe(false);
-    expect(loginMock.runProviderLogin).not.toHaveBeenCalled();
-
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('amazon-bedrock');
-    expect(config.llm.primary.api_key).toBeUndefined();
-  });
-
-  it('oauth（openai-codex）：配置保存后引导 OAuth 登录（缝调用）', async () => {
-    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'gpt-5.5', identity: 'id-y' });
-    // 菜单 3 → #13 openai-codex → model auto → 登录确认 Y
-    rlAnswers.queue = ['3', '13', 'auto', 'Y'];
-
-    await initCommand(commandDeps);
-
-    expect(loginMock.runProviderLogin).toHaveBeenCalledWith(
-      expect.objectContaining({ piAiProvider: 'openai-codex', type: 'oauth' }),
-    );
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('openai-codex');
-    expect(config.llm.primary.api_key).toBeUndefined();
-  });
-
-  it('oauth 登录失败：warn 不阻断，probe 仍执行（向导兜底）', async () => {
-    loginMock.runProviderLogin.mockRejectedValue(new Error('user cancelled'));
-    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'gpt-5.5', identity: 'id-z' });
-    rlAnswers.queue = ['3', '13', 'auto', 'Y'];
-
-    await initCommand(commandDeps);
-
-    expect(connMock.probeLLMConnection).toHaveBeenCalled();
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('openai-codex');
-  });
-});
+// Phase 1972: init 首屏固定 12 项服务；ambient/OAuth 不再从 init 进入，
+// 相关配置走 `config provider add` 的 Advanced 入口（上面的测试覆盖）。

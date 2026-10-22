@@ -34,6 +34,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import { buildInitialConfig } from './commands/init.js';
+import { findSetupProvider } from './setup-provider-catalog.js';
 import { storeKeyAsCredential } from './credentials-prompt.js';
 import {
   probeLLMConnection,
@@ -95,19 +96,27 @@ export function missingStartLLMParams(opts: StartLLMOptions): string[] {
   const missing: string[] = [];
   if (!opts.provider) missing.push('--provider');
   if (opts.provider) {
-    const preset = PRESETS[opts.provider];
+    const setup = findSetupProvider(opts.provider);
+    if (setup?.auth === 'advanced') {
+      throw new CliError(
+        'Setup provider "other" requires the interactive wizard; run "chestnut start" without non-interactive flags.',
+        { code: START_USAGE_EXIT_CODE },
+      );
+    }
+    const providerRef = setup?.target.preset ?? opts.provider;
+    const preset = PRESETS[providerRef];
     if (preset) {
       const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
       if (presetAuthProfile(preset) === 'api_key' && !hasKey) {
         missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
       }
       if (presetRequiresBaseUrl(preset) && !opts.baseUrl) missing.push('--base-url (required for this provider)');
-    } else if (isCatalogProvider(opts.provider)) {
+    } else if (isCatalogProvider(providerRef)) {
       // Phase 1927 Step D：显式 catalog provider（无 preset 别名）——无默认 model，
       // 必须显式 --model；key 需求按 catalog 派生 profile（OAuth-only 免 key）。
       if (!opts.model) missing.push('--model (required for catalog provider without preset default)');
       const hasKey = opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV];
-      if (deriveCatalogAuthProfile(opts.provider) === 'api_key' && !hasKey) {
+      if (deriveCatalogAuthProfile(providerRef) === 'api_key' && !hasKey) {
         missing.push(`--api-key-env (or env ${START_LLM_API_KEY_ENV})`);
       }
     } else {
@@ -159,7 +168,14 @@ export async function applyStartLLMOptions(
   opts: StartLLMOptions,
   phase: 'first-run' | 'initialized',
 ): Promise<void> {
-  const presetId = opts.provider ?? deps.rootConfig.loadGlobal().llm.primary.preset;
+  const setup = opts.provider ? findSetupProvider(opts.provider) : undefined;
+  if (setup?.auth === 'advanced') {
+    throw new CliError(
+      'Setup provider "other" requires the interactive wizard; run "chestnut start" without non-interactive flags.',
+      { code: START_USAGE_EXIT_CODE },
+    );
+  }
+  const presetId = setup?.target.preset ?? opts.provider ?? deps.rootConfig.loadGlobal().llm.primary.preset;
   if (!presetId) {
     throw new CliError('--provider is required (no existing primary preset)', { code: START_USAGE_EXIT_CODE });
   }

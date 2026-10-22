@@ -9,6 +9,15 @@
  */
 
 export { executionRecoveryMessage } from './execution-recovery.js';
+export {
+  SETUP_WELCOME,
+  SETUP_OTHER_FORMAT_LINES,
+  SETUP_CANCELLED,
+  SETUP_PROBE_FAILED_NOT_SAVED,
+  setupProviderMenuLines,
+  setupDraftPreviewLines,
+  type SetupDraftPreviewInput,
+} from './setup.js';
 export { startupCheckMessage } from './startup.js';
 export {
   verificationPassedNotice,

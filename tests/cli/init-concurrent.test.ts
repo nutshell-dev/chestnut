@@ -71,7 +71,10 @@ function configPath(): string {
   return path.join(tempDir, '.chestnut', 'config.yaml');
 }
 
+const originalIsTTY = process.stdin.isTTY;
+
 beforeEach(() => {
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tempDir = path.join(tmpdir(), `chestnut-init-race-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
@@ -89,6 +92,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   fs.rmSync(tempDir, { recursive: true, force: true });
+  Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
 });
 
 describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
@@ -99,12 +103,12 @@ describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
       () => new Promise((resolve) => { releaseProbe = resolve; }),
     );
 
-    rlAnswers.queue = ['1', '1', 'model-winner'];
+    rlAnswers.queue = ['8', '', 'model-winner', 'y'];
     const winner = initCommand(commandDeps, true, { audit: mockAudit });
     // 等 winner 完成交互 + 独占提交、进入 probe 等待
     await vi.waitUntil(() => connMock.probeLLMConnection.mock.calls.length > 0);
 
-    rlAnswers.queue = ['1', '1', 'model-loser'];
+    rlAnswers.queue = ['8', '', 'model-loser', 'y'];
     await initCommand(commandDeps, true, { audit: mockAudit }); // loser 同步完成
 
     releaseProbe({ ok: true, model: 'model-winner' });
@@ -124,7 +128,7 @@ describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
 
   it('事后重放：已初始化 → 直接返回（pre-check 不回归）', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'model-winner' });
-    rlAnswers.queue = ['1', '1', 'model-winner'];
+    rlAnswers.queue = ['8', '', 'model-winner', 'y'];
     await initCommand(commandDeps, true, { audit: mockAudit });
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('model-winner');
 

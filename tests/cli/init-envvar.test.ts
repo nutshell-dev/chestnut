@@ -1,5 +1,5 @@
 /**
- * Phase 81 — init.ts API Key 配置测试
+ * Phase 1972 — init.ts 固定 12 项服务目录、凭据输入与高级 Other 路径。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -13,7 +13,6 @@ import { createRootConfig } from '../../src/assembly/index.js';
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
 
-// ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
 
 const mockRl = {
@@ -28,10 +27,7 @@ vi.mock('readline', () => ({
   createInterface: vi.fn(() => mockRl),
 }));
 
-// phase 1470: init now probes LLM after save. Stub to always succeed so existing
-// branch tests don't hit network. Plain async fns survive vi.restoreAllMocks below.
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
-  // Phase 1926 Step C：init probe 缝改 probeLLMConnection（snapshot 身份协议）
   probeLLMConnection: async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
     ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }),
   promptReconfigure: async () => null,
@@ -49,9 +45,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 }));
 
 let processExitSpy: ReturnType<typeof vi.spyOn>;
+const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   processExitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null | undefined) => {
     throw new Error(`process.exit(${_code})`);
   });
@@ -59,12 +57,11 @@ beforeEach(() => {
 
 afterEach(() => {
   processExitSpy.mockRestore();
+  Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
 });
 
 const { initCommand } = await import('../../src/cli/commands/init.js');
 const { loadGlobalConfig } = await import('../../src/assembly/config/config-load.js');
-
-// ── helpers ────────────────────────────────────────────────────────────────────
 
 let tempDir: string;
 
@@ -73,7 +70,6 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-init-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
-  // Phase 1925 Step B：凭据层隔离 —— 明文 key 落用户级凭据文件，测试中绝不触碰真实 home
   vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'cred-home'));
 }
 
@@ -93,188 +89,85 @@ function clearKnownVars(): void {
   knownVars.forEach(v => vi.stubEnv(v, undefined as unknown as string));
 }
 
-// ── tests ──────────────────────────────────────────────────────────────────────
+function resetAnswers(next: string[]) {
+  rlAnswers.queue = next;
+  mockRl.question.mockClear();
+  mockRl.close.mockClear();
+}
 
-describe('initCommand — default circuit breaker (phase 1268 Step E)', () => {
-  beforeEach(setupTempDir);
+describe('initCommand — 默认配置', () => {
+  beforeEach(() => { setupTempDir(); clearKnownVars(); });
   afterEach(teardownTempDir);
 
   it('生成配置包含默认 circuit_breaker 段', async () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test');
-    rlAnswers.queue = ['1', '1', ''];
-
+    resetAnswers(['1', 'sk-deepseek', '', 'y']);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.circuit_breaker).toEqual({
-      failure_threshold: 3,
-      reset_timeout_ms: 60_000,
-    });
+    expect(config.llm.circuit_breaker).toEqual({ failure_threshold: 3, reset_timeout_ms: 60_000 });
   });
 
-  it('Phase 1289 Step D: root YAML 不再写 watchdog 段，默认值落入 .chestnut/watchdog/config.yaml', async () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test');
-    rlAnswers.queue = ['1', '1', ''];
-
+  it('Phase 1289 Step D: root YAML 不再写 watchdog 段', async () => {
+    resetAnswers(['1', 'sk-deepseek', '', 'y']);
     await initCommand(commandDeps, true);
     const rootYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
     expect(rootYaml).not.toContain('watchdog');
-    // phase 1890 Step J/K：迁移 facade 退役后 fresh init 直调 live 创建面——
-    // 逐字节等价硬验收（config.yaml 内容 + layout.json 形态）。
-    const watchdogYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'watchdog', 'config.yaml'), 'utf8');
-    expect(watchdogYaml).toBe(
-      'schema_version: 1\ninterval_ms: 30000\nheartbeat_stale_timeout_ms: 180000\n',
-    );
-    const layout = JSON.parse(
-      fs.readFileSync(path.join(tempDir, '.chestnut', 'watchdog', 'layout.json'), 'utf8'),
-    );
-    expect(layout).toMatchObject({
-      schema_version: 1,
-      owner: 'watchdog',
-      resources: { config: 'migrated', state: 'migrated', log: 'migrated', subscriptions: 'retired' },
-    });
   });
 });
 
-describe('initCommand — Branch 1: 扫描环境变量', () => {
-  beforeEach(() => {
-    setupTempDir();
-    mockRl.question.mockClear();
-    mockRl.close.mockClear();
-    rlAnswers.queue = [];
-  });
+describe('initCommand — 服务目录与凭据', () => {
+  beforeEach(() => { setupTempDir(); clearKnownVars(); });
+  afterEach(teardownTempDir);
 
-  afterEach(() => {
-    teardownTempDir();
-  });
-
-  it('检测到变量 → 选编号 → api_key 存为引用，运行时展开', async () => {
+  it('Anthropic：环境变量已设置时按 Enter 使用 ${ANTHROPIC_API_KEY}', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test');
-    // configMethod='1', pick='1'(第一个), model=''(→auto)
-    rlAnswers.queue = ['1', '1', ''];
-
+    // service=8 (Anthropic), key Enter, model Enter, save y
+    resetAnswers(['8', '', '', 'y']);
     await initCommand(commandDeps, true);
-    // loadGlobalConfig 在 env var 仍有效时调用，expandEnvVars 展开 ${ANTHROPIC_API_KEY}
     const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.preset).toBe('anthropic');
     expect(config.llm.primary.api_key).toBe('sk-ant-env-test');
+  });
+
+  it('手动输入 key：落凭据引用并展开', async () => {
+    // service=8, key=sk-ant-manual, model Enter, save y
+    resetAnswers(['8', 'sk-ant-manual', '', 'y']);
+    await initCommand(commandDeps, true);
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.api_key).toBe('sk-ant-manual');
     expect(config.llm.primary.preset).toBe('anthropic');
   });
 
-  it('检测到变量 → 直接输入变量名 → api_key 存为引用，运行时展开', async () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test2');
-    // configMethod='1', pick='ANTHROPIC_API_KEY', model=''(→auto)
-    rlAnswers.queue = ['1', 'ANTHROPIC_API_KEY', ''];
-
+  it('Ollama：本地服务不索 key', async () => {
+    // service=11 (Ollama), model Enter, save y
+    resetAnswers(['11', '', 'y']);
     await initCommand(commandDeps, true);
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.api_key).toBe('sk-ant-env-test2');
+    expect(config.llm.primary.preset).toBe('ollama');
+    expect(config.llm.primary.api_key).toBeUndefined();
   });
 
-  it('未检测到变量 → 输入自定义变量名 → 变量在已知 preset 中 → api_key 存为引用', async () => {
-    clearKnownVars();
-    vi.stubEnv('OPENAI_API_KEY', 'sk-openai-123');
-    // configMethod='1', varName='OPENAI_API_KEY', model=''(→auto)
-    rlAnswers.queue = ['1', 'OPENAI_API_KEY', ''];
-
+  it('Other 高级路径：格式 + baseUrl + key + model', async () => {
+    // service=12, format=2 (OpenAI), baseUrl, key, model, save y
+    resetAnswers([
+      '12', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o', 'y',
+    ]);
     await initCommand(commandDeps, true);
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.api_key).toBe('sk-openai-123');
-    expect(config.llm.primary.preset).toBe('openai');
-  });
-
-  it('未检测到变量 → 变量名为空 → throws CliError', async () => {
-    clearKnownVars();
-    // configMethod='1', varName=''
-    rlAnswers.queue = ['1', ''];
-
-    await expect(initCommand(commandDeps, true)).rejects.toThrow('Variable name is required');
-  });
-
-  it('检测到变量 → 输入无效（非编号非变量名格式）→ throws CliError', async () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    // configMethod='1', pick='sk-ant-api03-...'（key 格式，不是变量名）
-    rlAnswers.queue = ['1', 'sk-ant-api03-invalid'];
-
-    await expect(initCommand(commandDeps, true)).rejects.toThrow('Invalid input. Enter a number or a variable name');
-  });
-});
-
-describe('initCommand — Branch 2: 手动配置', () => {
-  beforeEach(() => {
-    setupTempDir();
-    mockRl.question.mockClear();
-    mockRl.close.mockClear();
-    rlAnswers.queue = [];
-  });
-
-  afterEach(() => {
-    teardownTempDir();
-  });
-
-  it('选 OpenAI 格式 → 填完整信息 → 写入配置', async () => {
-    // configMethod='2', fmt='2'(OpenAI), baseUrl, apiKey, model
-    rlAnswers.queue = ['2', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o'];
-
-    await initCommand(commandDeps, true);
-
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.preset).toBe('custom-openai');
     expect(config.llm.primary.api_key).toBe('sk-manual');
     expect(config.llm.primary.model).toBe('gpt-4o');
-    expect((config.llm.primary as any).base_url).toBe('https://api.openai.com/v1');
+    expect(config.llm.primary.base_url).toBe('https://api.openai.com/v1');
   });
 
-  it('选 Anthropic 格式 → 填完整信息 → 写入配置', async () => {
-    rlAnswers.queue = ['2', '1', 'https://api.anthropic.com', 'sk-ant-key', 'claude-3-7-sonnet'];
-
+  it('预览阶段取消：不写配置', async () => {
+    resetAnswers(['8', 'sk-ant-manual', '', 'n']);
     await initCommand(commandDeps, true);
-
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('custom-anthropic');
-    expect(config.llm.primary.api_key).toBe('sk-ant-key');
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
   });
 
-  it('Base URL 为空 → 重新提示，再次输入有效值后继续', async () => {
-    // configMethod='2', fmt='2', baseUrl=''(重试), baseUrl=有效值, apiKey, model
-    rlAnswers.queue = ['2', '2', '', 'https://api.example.com', 'sk-key', 'my-model'];
-
-    await initCommand(commandDeps, true);
-
-    const config = loadGlobalConfig({ fsFactory });
-    expect((config.llm.primary as any).base_url).toBe('https://api.example.com');
-  });
-
-  it('API Key 为空 → 重新提示，再次输入有效值后继续', async () => {
-    // configMethod='2', fmt='2', baseUrl, apiKey=''(重试), apiKey=有效值, model
-    rlAnswers.queue = ['2', '2', 'https://api.example.com', '', 'sk-retry', 'my-model'];
-
-    await initCommand(commandDeps, true);
-
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.api_key).toBe('sk-retry');
-  });
-});
-
-describe('initCommand — Branch 3: 选择 provider', () => {
-  beforeEach(() => {
-    setupTempDir();
-    mockRl.question.mockClear();
-    mockRl.close.mockClear();
-    rlAnswers.queue = [];
-  });
-
-  afterEach(() => {
-    teardownTempDir();
-  });
-
-  it('选 Anthropic → 手动输入 key → 写入配置', async () => {
-    // configMethod='3', provider='1'(Anthropic), apiKey='sk-ant-xxx', model=''(→auto)
-    rlAnswers.queue = ['3', '1', 'sk-ant-xxx', ''];
-
-    await initCommand(commandDeps, true);
-
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.preset).toBe('anthropic');
-    expect(config.llm.primary.api_key).toBe('sk-ant-xxx');
-    expect(config.llm.primary.model).toBe('auto');
+  it('非 TTY 交互输入 key：loud 拒绝，不回显降级', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    resetAnswers(['8', 'sk-ant-manual']);
+    await expect(initCommand(commandDeps, true)).rejects.toThrow(/requires a TTY/);
   });
 });

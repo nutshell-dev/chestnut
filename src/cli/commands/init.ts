@@ -10,8 +10,14 @@ import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
-// Phase 1927 Step D：catalog-only provider 列表与派生 profile（显式 catalog 配置入口）
-import { catalogProvidersWithoutPreset, deriveCatalogAuthProfile } from '../../foundation/llm-provider/index.js';
+import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice } from '../setup-provider-catalog.js';
+import {
+  setupProviderMenuLines,
+  setupDraftPreviewLines,
+  SETUP_WELCOME,
+  SETUP_OTHER_FORMAT_LINES,
+  SETUP_CANCELLED,
+} from '../../templates/messages/index.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,
@@ -30,28 +36,6 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { probeLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS, type VerifiedLLMConfig } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from '../credentials-prompt.js';
-// Phase 1926 Step D：preset 认证类别 + OAuth 登录运行缝
-import { presetAuthProfile } from '../../foundation/llm-provider/index.js';
-import { runProviderLogin } from '../llm-login.js';
-
-// Known providers shown in "Select provider" list (excludes generic custom-* entries)
-// Phase 1926 Step D：+ ambient（bedrock/vertex）与 OAuth（codex/copilot）catalog preset
-const PROVIDER_LIST = [
-  'anthropic',
-  'openai',
-  'deepseek',
-  'moonshot',
-  'minimax',
-  'gemini',
-  'ollama',
-  'grok',
-  'openrouter',
-  'qwen-coder',
-  'amazon-bedrock',
-  'google-vertex',
-  'openai-codex',
-  'github-copilot',
-];
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -164,247 +148,73 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     let model = '';
     let baseUrl: string | undefined;
 
-    // Outer menu loop — lets option 2 / 3 return here via 'back'
-    outer: while (true) {
-      console.log('Configure LLM API:');
-      console.log('1. Scan environment variables');
-      console.log('2. Enter API key manually');
-      console.log('3. Select provider');
-      const configMethod = await question('\n> ', '1');
+    console.log(SETUP_WELCOME.trimEnd());
+    setupProviderMenuLines(SETUP_PROVIDER_CATALOG).forEach(line => console.log(line));
 
-      if (configMethod === '1') {
-        // ── Branch 1: scan env vars ──
-        const detected = Object.values(PRESETS)
-          .map(p => p.envVar)
-          .filter((v): v is string => !!v && !!process.env[v])
-          .filter((v, i, arr) => arr.indexOf(v) === i);
-
-        if (detected.length > 0) {
-          console.log('\nDetected:');
-          detected.forEach((v, i) => console.log(`${i + 1}. ${v}`));
-          const pick = await question('\n> (number or variable name)');
-          const idx = parseInt(pick, 10) - 1;
-          let varName: string;
-          if (pick.trim() && idx >= 0 && idx < detected.length) {
-            varName = detected[idx];
-          } else if (/^[A-Z][A-Z0-9_]*$/.test(pick.trim())) {
-            varName = pick.trim();
-          } else {
-            throw new CliError('Invalid input. Enter a number or a variable name (e.g. MY_API_KEY).');
-          }
-
-          if (!process.env[varName]) { throw new CliError(`Environment variable ${varName} is not set`); }
-          apiKey = '${' + varName + '}';
-          console.log(`✓ Will read from ${varName} at runtime`);
-
-          const matchedEntry = Object.entries(PRESETS).find(([, p]) => p.envVar === varName);
-          if (matchedEntry) {
-            [presetId] = matchedEntry;
-            model = await question(`Model (auto = ${matchedEntry[1].defaultModel ?? 'preset default'})`, 'auto');
-          } else {
-            console.log('\nCould not determine provider. Select API format:');
-            console.log('1. Anthropic');
-            console.log('2. OpenAI');
-            console.log('3. Gemini');
-            const fmt = await question('\n> ', '2');
-            presetId = FORMAT_MAP[fmt] ?? 'custom-openai';
-            baseUrl = await question('Base URL');
-            if (!baseUrl) { throw new CliError('Base URL is required'); }
-            model = await question('Model');
-            if (!model) { throw new CliError('Model is required'); }
-          }
-
-        } else {
-          console.log('\nNo API key environment variables detected.');
-          const varName = await question('Enter environment variable name (e.g. MY_API_KEY)');
-          if (!varName) { throw new CliError('Variable name is required'); }
-
-          if (!process.env[varName]) { throw new CliError(`Environment variable ${varName} is not set`); }
-          apiKey = '${' + varName + '}';
-          console.log(`✓ Will read from ${varName} at runtime`);
-
-          console.log('\nSelect API format:');
-          console.log('1. Anthropic');
-          console.log('2. OpenAI');
-          console.log('3. Gemini');
-          const fmt = await question('\n> ', '2');
-          presetId = FORMAT_MAP[fmt] ?? 'custom-openai';
-          baseUrl = await question('Base URL');
-          if (!baseUrl) { throw new CliError('Base URL is required'); }
-          model = await question('Model');
-          if (!model) { throw new CliError('Model is required'); }
-        }
-
-        break outer;
-
-      } else if (configMethod === '2') {
-        // ── Branch 2: manual (step machine with back navigation) ──
-        // Steps: format → baseUrl → apiKey → model
-        // 'b' goes back one step; 'b' at format returns to outer menu
-
-        type ManualStep = 'format' | 'baseUrl' | 'apiKey' | 'model' | 'done';
-        let step: ManualStep = 'format';
-
-        let manualFormat = '';
-        let manualBaseUrl = '';
-        let manualApiKey = '';
-        let manualModel = '';
-
-        while (step !== 'done') {
-          if (step === 'format') {
-            console.log('\nAPI Format (b = back to menu):');
-            console.log('1. Anthropic');
-            console.log('2. OpenAI');
-            console.log('3. Gemini');
-            const fmt = await question('\n> ');
-            if (fmt === 'b') { console.log(); continue outer; }
-            manualFormat = FORMAT_MAP[fmt] ?? '';
-            if (!manualFormat) { console.log('Invalid choice.'); continue; }
-            step = 'baseUrl';
-
-          } else if (step === 'baseUrl') {
-            const raw = await question('Base URL (b = back)');
-            if (raw === 'b') { step = 'format'; continue; }
-            if (!raw) { console.log('Base URL is required.'); continue; }
-            manualBaseUrl = raw;
-            step = 'apiKey';
-
-          } else if (step === 'apiKey') {
-            const raw = await passwordQuestion(rl, 'API Key (b = back): ');
-            if (raw === 'b') { step = 'baseUrl'; continue; }
-            if (!raw) { console.log('API Key is required.'); continue; }
-            manualApiKey = await storeKeyAsCredential(deps, raw, { seed: manualFormat });
-            step = 'model';
-
-          } else if (step === 'model') {
-            const raw = await question('Model (b = back)');
-            if (raw === 'b') { step = 'apiKey'; continue; }
-            if (!raw) { console.log('Model is required.'); continue; }
-            manualModel = raw;
-            step = 'done';
-          }
-        }
-
-        presetId = manualFormat;
-        baseUrl = manualBaseUrl;
-        apiKey = manualApiKey;
-        model = manualModel;
-        break outer;
-
-      } else if (configMethod === '3') {
-        // ── Branch 3: select provider from preset list + catalog-only providers ──
-        // Steps: provider → apiKey → model
-        // 'b' goes back one step; 'b' at provider list returns to outer menu
-
-        const providers = PROVIDER_LIST
-          .map(id => PRESETS[id])
-          .filter(Boolean);
-        // Phase 1927 Step D：无 preset 别名的 catalog provider 同样可选（inventory
-        // 单源派生——不再是 PRESETS 封闭清单）；catalog 选择无默认 model，必须显式输入。
-        const catalogOnly = catalogProvidersWithoutPreset();
-
-        type ProviderStep = 'pick' | 'apiKey' | 'model' | 'done';
-        let step: ProviderStep = 'pick';
-
-        let pickedPresetId = '';
-        let pickedProviderId = '';
-        let pickedApiKey = '';
-        let pickedModel = '';
-
-        while (step !== 'done') {
-          if (step === 'pick') {
-            console.log('\nSelect provider (b = back to menu):');
-            providers.forEach((p, i) =>
-              console.log(`${i + 1}. ${p.displayName}  (${p.defaultModel ?? 'custom model'})`)
-            );
-            catalogOnly.forEach((id, i) =>
-              console.log(`${providers.length + i + 1}. ${id}  (pi-ai catalog)`)
-            );
-            const raw = await question('\n> ');
-            if (raw === 'b') { console.log(); continue outer; }
-            const idx = parseInt(raw, 10) - 1;
-            if (isNaN(idx) || idx < 0 || idx >= providers.length + catalogOnly.length) {
-              console.log('Invalid choice.');
-              continue;
-            }
-            if (idx < providers.length) {
-              const preset = providers[idx];
-              pickedPresetId = preset.id;
-              pickedProviderId = '';
-              // Phase 1926 Step D：ambient（AWS 链/ADC/env）与 OAuth preset 不索 key
-              const profile = presetAuthProfile(preset);
-              if (profile !== 'api_key') {
-                console.log(`ℹ ${preset.displayName} 认证来源：${preset.authHint ?? profile}`);
-                step = 'model';
-              } else {
-                step = 'apiKey';
-              }
-            } else {
-              pickedProviderId = catalogOnly[idx - providers.length];
-              pickedPresetId = '';
-              const profile = deriveCatalogAuthProfile(pickedProviderId);
-              if (profile === 'oauth') {
-                console.log(`ℹ ${pickedProviderId} 为 OAuth provider——保存后按提示完成登录（或稍后 chestnut config provider login）。`);
-                step = 'model';
-              } else {
-                step = 'apiKey';
-              }
-            }
-
-          } else if (step === 'apiKey') {
-            const preset = pickedPresetId ? PRESETS[pickedPresetId] : undefined;
-            // Suggest env var if available and set
-            const envHint = preset?.envVar && process.env[preset.envVar]
-              ? ` (or press Enter to use ${preset.envVar})`
-              : '';
-            const raw = await passwordQuestion(rl, `API Key${envHint} (b = back): `);
-            if (raw === 'b') { step = 'pick'; continue; }
-            if (!raw && preset?.envVar && process.env[preset.envVar]) {
-              pickedApiKey = '${' + preset.envVar + '}';
-              console.log(`✓ Will read from ${preset.envVar} at runtime`);
-            } else if (!raw) {
-              console.log('API Key is required.');
-              continue;
-            } else {
-              pickedApiKey = await storeKeyAsCredential(deps, raw, { envVar: preset?.envVar, seed: pickedPresetId || pickedProviderId });
-            }
-            step = 'model';
-
-          } else if (step === 'model') {
-            if (pickedProviderId) {
-              // catalog 选择无默认 model——必须显式（静态 seed 合法性由 adapter 裁决）
-              const raw = await question('Model (b = back)');
-              if (raw === 'b') {
-                step = deriveCatalogAuthProfile(pickedProviderId) === 'api_key' ? 'apiKey' : 'pick';
-                continue;
-              }
-              if (!raw) { console.log('Model is required.'); continue; }
-              pickedModel = raw;
-            } else {
-              const preset = PRESETS[pickedPresetId];
-              const raw = await question(`Model (b = back, auto = ${preset.defaultModel ?? 'preset default'})`, 'auto');
-              if (raw === 'b') {
-                // ambient/oauth 无 apiKey 步骤，back 回 provider 选择
-                step = presetAuthProfile(preset) === 'api_key' ? 'apiKey' : 'pick';
-                continue;
-              }
-              pickedModel = raw;
-            }
-            step = 'done';
-          }
-        }
-
-        presetId = pickedPresetId;
-        providerId = pickedProviderId;
-        apiKey = pickedApiKey;  // ambient/oauth profile 保持 ''（不落 api_key 字段）
-        model = pickedModel;
-        // baseUrl comes from preset / catalog; no manual entry needed
-        break outer;
-
-      } else {
-        console.log('Invalid selection.\n');
-        // loop back to menu
+    let selected: SetupProviderChoice | undefined;
+    while (!selected) {
+      const raw = await question('\n> ');
+      const idx = parseInt(raw, 10) - 1;
+      if (Number.isNaN(idx) || idx < 0 || idx >= SETUP_PROVIDER_CATALOG.length) {
+        console.log('Invalid choice.');
+        continue;
       }
+      selected = SETUP_PROVIDER_CATALOG[idx];
+    }
+    const chosen = selected;
+
+    if (chosen.auth === 'advanced') {
+      // Other: explicit API format + base URL + key + model.
+      SETUP_OTHER_FORMAT_LINES.forEach(line => console.log(line));
+      const fmt = await question('\n> ', '2');
+      presetId = FORMAT_MAP[fmt] ?? '';
+      if (!presetId) throw new CliError('Invalid API format');
+      baseUrl = await question('Base URL');
+      if (!baseUrl) throw new CliError('Base URL is required');
+      const rawKey = await passwordQuestion(rl, 'API Key: ');
+      if (!rawKey) throw new CliError('API Key is required');
+      apiKey = await storeKeyAsCredential(deps, rawKey, { seed: presetId });
+      model = await question('Model');
+      if (!model) throw new CliError('Model is required');
+    } else {
+      presetId = chosen.target.preset ?? '';
+      const preset = PRESETS[presetId];
+      if (!preset) throw new CliError(`Internal provider mapping missing for ${chosen.label}`);
+      if (chosen.auth === 'api_key') {
+        const envReady = Boolean(preset.envVar && process.env[preset.envVar]);
+        const hint = envReady ? ` (press Enter to use ${preset.envVar})` : '';
+        const rawKey = await passwordQuestion(rl, `API Key${hint}: `);
+        if (!rawKey && envReady && preset.envVar) {
+          apiKey = '${' + preset.envVar + '}';
+          console.log(`✓ Will read from ${preset.envVar} at runtime`);
+        } else if (!rawKey) {
+          throw new CliError('API Key is required');
+        } else {
+          apiKey = await storeKeyAsCredential(deps, rawKey, { envVar: preset.envVar, seed: presetId });
+        }
+      } else if (chosen.auth === 'local') {
+        console.log(`ℹ ${chosen.label}: local provider, no API key required.`);
+      }
+      model = await question(
+        `Model${preset.defaultModel ? ` (default: ${preset.defaultModel})` : ''}`,
+        preset.defaultModel ?? '',
+      );
+      if (!model) throw new CliError('Model is required');
+    }
+
+    setupDraftPreviewLines({
+      label: chosen.label,
+      model,
+      auth: chosen.auth === 'local' ? 'local' : 'API key',
+      role: 'primary',
+      ...(baseUrl && { baseUrl }),
+      ...(apiKey && { keyRef: apiKey }),
+    }).forEach(line => console.log(line));
+
+    const saveAnswer = await question('\nSave this configuration? [Y/n]', 'Y');
+    if (saveAnswer.toLowerCase() === 'n') {
+      console.log(SETUP_CANCELLED);
+      return {};
     }
 
     // Build config（模板单源：buildInitialConfig，与 start --non-interactive 共用）
@@ -433,26 +243,9 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     // 可见性不再先于必需布局。
     deps.rootConfig.completeInitialization();
 
-    // Phase 1926 Step D：OAuth preset 引导登录（凭证经 pi-ai login 流持久化到用户级
-    // Credentials owner）；失败不阻断——随后的 probe/reconfigure 向导兜底。
-    // Phase 1927 Step D：catalog-only OAuth provider 同等待遇。
-    // Phase 1927 Step E：OAuth 引导与随后的 probe 共用同一装配创建的 CredentialStore
+    // Phase 1927 Step E：probe 共用装配创建的 CredentialStore。
+    // Phase 1972：首屏目录不含 OAuth provider；OAuth 登录仍走 `config provider login`。
     const piAiCredentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
-    const oauthProvider = providerId
-      ? (deriveCatalogAuthProfile(providerId) === 'oauth' ? providerId : undefined)
-      : (PRESETS[presetId] && presetAuthProfile(PRESETS[presetId]) === 'oauth' ? PRESETS[presetId].piAiProvider : undefined);
-    if (oauthProvider) {
-      const displayName = providerId || PRESETS[presetId].displayName;
-      const loginNow = await question(`\n${displayName} 需要 OAuth 登录。现在登录？ [Y/n]`, 'Y');
-      if (loginNow.toLowerCase() !== 'n') {
-        try {
-          await runProviderLogin({ piAiProvider: oauthProvider, type: 'oauth', credentials: piAiCredentials, rl });
-        } catch (err) {
-          console.log(`⚠ OAuth login failed: ${formatErr(err)}`);
-          console.log('  可稍后运行 "chestnut config provider login" 重试。');
-        }
-      }
-    }
 
     // ── Verify LLM API reachable ─────────────────────────────────────────────
     // Per DP「事后审计」+ DP「智能体是决策主体」(init 阶段 user 主体):

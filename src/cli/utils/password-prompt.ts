@@ -1,4 +1,5 @@
 import type * as readline from 'readline';
+import { CliError } from '../errors.js';
 
 /**
  * readline.Interface 私有 API `_writeToOutput` 显式 augment
@@ -14,10 +15,24 @@ type ReadlineWithWriteToOutput = readline.Interface & {
  *
  * 抽自 cli/commands/{start,init}.ts inline passwordQuestion N=2 dup（phase 829 F fork）。
  */
+export interface PasswordQuestionOptions {
+  /**
+   * Phase 1972: 交互输入要求 TTY；非 TTY 不允许退回明文回显，
+   * 调用方应改用 ${ENV_VAR} 引用或非交互配置。
+   */
+  requireTty?: boolean;
+}
+
 export function passwordQuestion(
   rl: readline.Interface,
   prompt: string,
+  options: PasswordQuestionOptions = {},
 ): Promise<string> {
+  if ((options.requireTty ?? true) && !process.stdin.isTTY) {
+    throw new CliError(
+      'Interactive API key input requires a TTY. Use an ${ENV_VAR} reference or non-interactive provider configuration instead.',
+    );
+  }
   return new Promise((resolve) => {
     const rlx = rl as ReadlineWithWriteToOutput;
     let muted = false;

@@ -71,7 +71,10 @@ const mockAudit = {
 
 let processExitSpy: ReturnType<typeof vi.spyOn>;
 
+const originalIsTTY = process.stdin.isTTY;
+
 beforeEach(() => {
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   processExitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null | undefined) => {
     throw new Error(`process.exit(${_code})`);
   });
@@ -79,6 +82,7 @@ beforeEach(() => {
 
 afterEach(() => {
   processExitSpy.mockRestore();
+  Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
 });
 
 const { initCommand } = await import('../../src/cli/commands/init.js');
@@ -114,7 +118,7 @@ describe('initCommand — probe success path', () => {
   it('probe succeeds → config saved + INIT_PROBE_SUCCEEDED audit', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['1', '1', '']; // branch 1, pick 1, model=auto
+    rlAnswers.queue = ['8', '', '', 'y']; // branch 1, pick 1, model=auto
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -144,7 +148,7 @@ describe('initCommand — probe failure: auth → reconfigure success', () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401 Unauthorized' });
     connMock.promptReconfigure.mockResolvedValue({ config: { primary: { model: 'fixed-model' } }, identity: 'fixed-identity' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-bad');
-    rlAnswers.queue = ['1', '1', ''];
+    rlAnswers.queue = ['8', '', '', 'y'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -179,7 +183,7 @@ describe('initCommand — probe failure: auth → user exits reconfigure', () =>
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'model', message: '404 model not found' });
     connMock.promptReconfigure.mockResolvedValue(null); // user picks 'n' exit
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['1', '1', 'bogus-model'];
+    rlAnswers.queue = ['8', '', 'bogus-model', 'y'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -209,7 +213,7 @@ describe('initCommand — probe failure: network → warn but continue', () => {
   it('network error → no reconfigure prompt + INIT_PROBE_SKIPPED(transient_network)', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: 'ECONNREFUSED' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['1', '1', ''];
+    rlAnswers.queue = ['8', '', '', 'y'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -238,7 +242,7 @@ describe('initCommand — probe failure: error message truncation', () => {
     const longMsg = 'X'.repeat(500);
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: longMsg });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['1', '1', ''];
+    rlAnswers.queue = ['8', '', '', 'y'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
