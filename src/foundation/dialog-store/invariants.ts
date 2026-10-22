@@ -20,6 +20,7 @@ export function assertDialogShapeInvariants(
   if (!Array.isArray(messages)) return;
   checkNoConsecutivePlainUserChat(messages, audit);
   checkToolUseResultPairing(messages, audit);
+  checkToolUseResultAdjacency(messages, audit);
 }
 
 /**
@@ -142,5 +143,73 @@ function checkToolUseResultPairing(
         `messages_length=${messages.length}`,
       );
     }
+  }
+}
+
+/**
+ * 不变量 3：tool_result 必须紧邻其 assistant tool_use（Phase 1970）。
+ *
+ * 从 assistant 的下一条开始，在连续 user 消息中收集匹配 tool_result，
+ * 直到 pending 清空。若中途遇到 role != user，或一条不含任何匹配
+ * tool_result 的 user 消息（纯文本摘要即此类），则邻接断裂并 emit。
+ *
+ * 纯缺失（扫到数组末尾仍未配对）不在此 emit——由不变量 2 的
+ * orphan_tool_use 定性，避免同一事实双重归因。
+ */
+function checkToolUseResultAdjacency(
+  messages: ReadonlyArray<Message>,
+  audit: DialogStoreAuditSink,
+): void {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+
+    const pending = new Set<string>();
+    for (const block of msg.content) {
+      const b = block as { type?: string; id?: string };
+      if (b.type === 'tool_use' && typeof b.id === 'string' && b.id) pending.add(b.id);
+    }
+    if (pending.size === 0) continue;
+
+    for (let j = i + 1; j < messages.length && pending.size > 0; j++) {
+      const next = messages[j];
+      if (next.role !== 'user' || !Array.isArray(next.content)) {
+        emitToolUseResultNotAdjacent(audit, pending, i, j, messages.length);
+        break;
+      }
+
+      let matched = 0;
+      for (const block of next.content) {
+        const b = block as { type?: string; tool_use_id?: string };
+        if (b.type === 'tool_result'
+            && typeof b.tool_use_id === 'string'
+            && pending.delete(b.tool_use_id)) {
+          matched++;
+        }
+      }
+      if (pending.size > 0 && matched === 0) {
+        emitToolUseResultNotAdjacent(audit, pending, i, j, messages.length);
+        break;
+      }
+    }
+  }
+}
+
+function emitToolUseResultNotAdjacent(
+  audit: DialogStoreAuditSink,
+  pending: ReadonlySet<string>,
+  toolUseIdx: number,
+  nextIdx: number,
+  messagesLength: number,
+): void {
+  for (const id of pending) {
+    audit.write(
+      DIALOG_AUDIT_EVENTS.DIALOG_INVARIANT_VIOLATED,
+      `kind=tool_use_result_not_adjacent`,
+      `tool_use_id=${id}`,
+      `tool_use_idx=${toolUseIdx}`,
+      `next_idx=${nextIdx}`,
+      `messages_length=${messagesLength}`,
+    );
   }
 }

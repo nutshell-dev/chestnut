@@ -148,6 +148,102 @@ describe('dialog shape invariants (phase 227)', () => {
     });
   });
 
+  describe('不变量 3：tool_use / tool_result 邻接', () => {
+    it('紧邻配对 0 adjacency emit', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e => e.some(c => String(c).includes('tool_use_result_not_adjacent')))).toBe(false);
+    });
+
+    it('摘要夹在 assistant tool_use 与 tool_result 之间 → emit not_adjacent', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'send', input: {} }] },
+        { role: 'user', content: '[context-trim summary] boundary' },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      const evt = events.find(e =>
+        e[0] === DIALOG_AUDIT_EVENTS.DIALOG_INVARIANT_VIOLATED &&
+        e.some(c => String(c).includes('kind=tool_use_result_not_adjacent')),
+      );
+      expect(evt).toBeDefined();
+      expect(evt?.some(c => String(c).includes('tool_use_id=t1'))).toBe(true);
+      expect(evt?.some(c => String(c).includes('tool_use_idx=0'))).toBe(true);
+      expect(evt?.some(c => String(c).includes('next_idx=1'))).toBe(true);
+    });
+
+    it('text + tool_result 同一 user 消息不算邻接断裂', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: {} }] },
+        { role: 'user', content: [
+          { type: 'text', text: 'note' },
+          { type: 'tool_result', tool_use_id: 't1', content: 'ok' },
+        ] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e => e.some(c => String(c).includes('tool_use_result_not_adjacent')))).toBe(false);
+    });
+
+    it('多个结果分散在连续 user 消息中不算断裂', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [
+          { type: 'tool_use', id: 't1', name: 'exec', input: {} },
+          { type: 'tool_use', id: 't2', name: 'exec', input: {} },
+        ] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e => e.some(c => String(c).includes('tool_use_result_not_adjacent')))).toBe(false);
+    });
+
+    it('result 前出现 assistant 消息 → emit not_adjacent', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: {} }] },
+        { role: 'assistant', content: 'intervening' },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e => e.some(c => String(c).includes('tool_use_result_not_adjacent')))).toBe(true);
+    });
+
+    it('尾部未配对 tool_use 只归 orphan_tool_use，不重复 emit adjacency', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: {} }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e => e.some(c => String(c).includes('orphan_tool_use')))).toBe(true);
+      expect(events.some(e => e.some(c => String(c).includes('tool_use_result_not_adjacent')))).toBe(false);
+    });
+
+    it('多 tool_use 只对仍未配对的 id emit', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [
+          { type: 'tool_use', id: 't1', name: 'exec', input: {} },
+          { type: 'tool_use', id: 't2', name: 'exec', input: {} },
+        ] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+        { role: 'user', content: '[context-trim summary] boundary' },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      const adjacencyEvents = events.filter(e => e.some(c => String(c).includes('tool_use_result_not_adjacent')));
+      expect(adjacencyEvents).toHaveLength(1);
+      expect(adjacencyEvents[0].some(c => String(c).includes('tool_use_id=t2'))).toBe(true);
+      expect(adjacencyEvents[0].some(c => String(c).includes('tool_use_id=t1'))).toBe(false);
+    });
+  });
+
   describe('phase 224 fixture 重放', () => {
     it('fixture 在末段连续 user chat 处 emit consecutive_plain_user_chat', () => {
       const { audit, events } = makeAudit();
