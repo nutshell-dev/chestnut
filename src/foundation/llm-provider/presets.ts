@@ -106,7 +106,9 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.kimi.com/coding',
     defaultModel: 'k3-256k',
     envVar: 'KIMI_API_KEY',
-    piAiProvider: 'kimi-coding', // Anthropic catalog; baseUrl 由 setup 候选显式覆盖
+    // Phase 1975 Step B：piAiProvider 移除（安全中间态）——pi-ai 1.4.0 的 kimi-coding
+    // catalog 已变为 openai-completions + /coding/v1，保留会把 curated Anthropic wire 改成
+    // OpenAI。Step C 以 catalogProvider/catalogModel metadata-only 方式接回元数据。
   },
   'minimax': {
     id: 'minimax',
@@ -211,7 +213,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     displayName: 'OpenAI Codex (OAuth)',
     authProfile: 'oauth',
     authHint: '需先经 config provider login <label> 完成 OAuth 登录（纯 OAuth provider，api_key 无效）。',
-    defaultModel: 'gpt-5.5',
+    // Phase 1975 Step B：pi-ai 1.4.0 catalog 已无 gpt-5.5；取当前 catalog 命中值。
+    defaultModel: 'gpt-6.1-sol',
     piAiProvider: 'openai-codex',
   },
   'github-copilot': {
@@ -219,7 +222,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     displayName: 'GitHub Copilot (OAuth)',
     authProfile: 'oauth',
     authHint: '需先经 config provider login <label> 完成 OAuth 登录（device code）。',
-    defaultModel: 'gpt-5.5',
+    // Phase 1975 Step B：pi-ai 1.4.0 catalog 已无 gpt-5.5；取当前 catalog 命中值。
+    defaultModel: 'gpt-6.1-sol',
     piAiProvider: 'github-copilot',
   },
   'custom-anthropic': {

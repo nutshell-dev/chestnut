@@ -5,8 +5,11 @@
  *
  * pi-ai 只经动态 import 触达（CJS 产物无 require 条件——静态 import 必炸，
  * 设计稿 K7）；模块级 promise 缓存，装载失败清缓存以便下次重试。
- * 全部 10 个 catalog api 的 lazy 工厂均注册（inventory 门禁测试逐一对账；
+ * 全部 15 个 catalog api 的 lazy 工厂均注册（inventory 门禁测试逐一对账；
  * 缺失即红灯，不再 loud "out of scope"）。
+ * Phase 1975 Step B：pi-ai 1.4.0 新增 5 个 lazy 模块，其中 4 个是 classifier、
+ * 1 个是 images（非 chat streaming）——注册在 `auxApis`，wire 路径 `apis`
+ * 保持 10 个 streaming factory 的完整类型。
  */
 
 import type * as PiAi from '@earendil-works/pi-ai';
@@ -21,6 +24,12 @@ export interface PiAiRuntime {
   builtinProviders: () => PiAi.Provider[];
   /** catalog api → lazy 实现工厂（自建 Model 路径用；inventory 门禁对账）。 */
   apis: Record<string, () => PiAi.ProviderStreams>;
+  /**
+   * Phase 1975 Step B：1.4.0 新增的非 streaming capability API（classifier/images）
+   * lazy 工厂。不进 wire 路径（builtin chat model 的 api 不会指向它们），仅供
+   * 装载面对账与未来 capability 消费。
+   */
+  auxApis: Record<string, () => PiAi.ProviderClassifier | PiAi.ProviderImages>;
   /** pi-ai 官方 context overflow 判定（error/silent/length 三态，Phase 1960）。 */
   isContextOverflow: typeof PiAi.isContextOverflow;
 }
@@ -30,19 +39,24 @@ let runtimePromise: Promise<PiAiRuntime> | undefined;
 /** 动态装载 pi-ai（模块级缓存；失败清缓存不缓存 rejection）。 */
 export function loadPiAiRuntime(): Promise<PiAiRuntime> {
   runtimePromise ??= (async (): Promise<PiAiRuntime> => {
-    const [main, catalog, anthropic, azure, bedrock, google, vertex, mistral, codex, openaiComp, openaiResp, piMessages] = await Promise.all([
+    const [main, catalog, anthropic, azure, bedrock, cloudflare, google, vertex, llamaCpp, mistral, codex, openaiComp, openaiDecisions, openaiResp, openrouterImages, piMessages, typesafe] = await Promise.all([
       import('@earendil-works/pi-ai'),
       import('@earendil-works/pi-ai/providers/all'),
       import('@earendil-works/pi-ai/api/anthropic-messages.lazy'),
       import('@earendil-works/pi-ai/api/azure-openai-responses.lazy'),
       import('@earendil-works/pi-ai/api/bedrock-converse-stream.lazy'),
+      import('@earendil-works/pi-ai/api/cloudflare-workers-ai-system-one.lazy'),
       import('@earendil-works/pi-ai/api/google-generative-ai.lazy'),
       import('@earendil-works/pi-ai/api/google-vertex.lazy'),
+      import('@earendil-works/pi-ai/api/llama-cpp-classify.lazy'),
       import('@earendil-works/pi-ai/api/mistral-conversations.lazy'),
       import('@earendil-works/pi-ai/api/openai-codex-responses.lazy'),
       import('@earendil-works/pi-ai/api/openai-completions.lazy'),
+      import('@earendil-works/pi-ai/api/openai-decisions.lazy'),
       import('@earendil-works/pi-ai/api/openai-responses.lazy'),
+      import('@earendil-works/pi-ai/api/openrouter-images.lazy'),
       import('@earendil-works/pi-ai/api/pi-messages.lazy'),
+      import('@earendil-works/pi-ai/api/typesafe-system-one.lazy'),
     ]);
     return {
       createModels: main.createModels,
@@ -61,6 +75,13 @@ export function loadPiAiRuntime(): Promise<PiAiRuntime> {
         'openai-completions': openaiComp.openAICompletionsApi,
         'openai-responses': openaiResp.openAIResponsesApi,
         'pi-messages': piMessages.piMessagesApi,
+      },
+      auxApis: {
+        'cloudflare-workers-ai-system-one': cloudflare.cloudflareWorkersAISystemOneApi,
+        'llama-cpp-classify': llamaCpp.llamaCppClassifyApi,
+        'openai-decisions': openaiDecisions.openAIDecisionsApi,
+        'openrouter-images': openrouterImages.openrouterImagesApi,
+        'typesafe-system-one': typesafe.typesafeSystemOneApi,
       },
       isContextOverflow: main.isContextOverflow,
     };

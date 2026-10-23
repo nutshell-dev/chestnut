@@ -1,24 +1,29 @@
 /**
  * GENERATED FILE — 请勿手改。由 scripts/generate-provider-inventory.mjs 生成（Phase 1926 Step D）。
- * 来源：@earendil-works/pi-ai@0.87.1
- * 生成时间：2026-09-29T13:26:23.526Z；provider 数：41；api 数：10
+ * 来源：@earendil-works/pi-ai@1.4.0
+ * 生成时间：2026-10-23T02:38:46.248Z；provider 数：42；api 数：15
  * 再生成：node scripts/generate-provider-inventory.mjs（pi-ai 升级后必须重跑；漂移有测试门禁）
  */
 
-export const PROVIDER_INVENTORY_PI_AI_VERSION = "0.87.1";
+export const PROVIDER_INVENTORY_PI_AI_VERSION = "1.4.0";
 
 /** catalog api id 集（lazy 子路径装载核验过的全量支持表）。 */
 export const PROVIDER_INVENTORY_APIS: readonly string[] = [
   "anthropic-messages",
   "azure-openai-responses",
   "bedrock-converse-stream",
+  "cloudflare-workers-ai-system-one",
   "google-generative-ai",
   "google-vertex",
+  "llama-cpp-classify",
   "mistral-conversations",
   "openai-codex-responses",
   "openai-completions",
+  "openai-decisions",
   "openai-responses",
-  "pi-messages"
+  "openrouter-images",
+  "pi-messages",
+  "typesafe-system-one"
 ];
 
 export interface ProviderInventoryEntry {
@@ -65,9 +70,10 @@ export const PROVIDER_INVENTORY: Record<string, ProviderInventoryEntry> = {
       "oauth": true
     }
   },
-  "azure-openai-responses": {
+  "azure": {
     "apis": [
-      "azure-openai-responses"
+      "azure-openai-responses",
+      "openai-completions"
     ],
     "auth": {
       "apiKey": true,
@@ -192,7 +198,7 @@ export const PROVIDER_INVENTORY: Record<string, ProviderInventoryEntry> = {
   },
   "kimi-coding": {
     "apis": [
-      "anthropic-messages"
+      "openai-completions"
     ],
     "auth": {
       "apiKey": true,
@@ -277,7 +283,7 @@ export const PROVIDER_INVENTORY: Record<string, ProviderInventoryEntry> = {
     "auth": {
       "apiKey": true,
       "apiKeyLogin": true,
-      "oauth": false
+      "oauth": true
     }
   },
   "openai-codex": {
@@ -306,6 +312,7 @@ export const PROVIDER_INVENTORY: Record<string, ProviderInventoryEntry> = {
   "opencode-go": {
     "apis": [
       "anthropic-messages",
+      "google-generative-ai",
       "openai-completions",
       "openai-responses"
     ],
@@ -370,6 +377,14 @@ export const PROVIDER_INVENTORY: Record<string, ProviderInventoryEntry> = {
     "apis": [
       "openai-completions"
     ],
+    "auth": {
+      "apiKey": true,
+      "apiKeyLogin": true,
+      "oauth": false
+    }
+  },
+  "typesafe": {
+    "apis": [],
     "auth": {
       "apiKey": true,
       "apiKeyLogin": true,

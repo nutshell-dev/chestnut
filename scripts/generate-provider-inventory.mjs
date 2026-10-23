@@ -41,18 +41,25 @@ for (const id of getBuiltinProviders().sort()) {
   };
 }
 
-// 10 个 catalog api 的 lazy 子路径逐个动态装载核验（缺失/改名 → 生成期红灯）
+// 15 个 catalog api 的 lazy 子路径逐个动态装载核验（缺失/改名 → 生成期红灯）
+// Phase 1975 Step B：pi-ai 1.4.0 新增 5 个 lazy 模块（cloudflare-workers-ai-system-one /
+// llama-cpp-classify / openai-decisions / openrouter-images / typesafe-system-one）。
 const API_MODULES = [
   ['anthropic-messages', 'anthropicMessagesApi'],
   ['azure-openai-responses', 'azureOpenAIResponsesApi'],
   ['bedrock-converse-stream', 'bedrockConverseStreamApi'],
+  ['cloudflare-workers-ai-system-one', 'cloudflareWorkersAISystemOneApi'],
   ['google-generative-ai', 'googleGenerativeAIApi'],
   ['google-vertex', 'googleVertexApi'],
+  ['llama-cpp-classify', 'llamaCppClassifyApi'],
   ['mistral-conversations', 'mistralConversationsApi'],
   ['openai-codex-responses', 'openAICodexResponsesApi'],
   ['openai-completions', 'openAICompletionsApi'],
+  ['openai-decisions', 'openAIDecisionsApi'],
   ['openai-responses', 'openAIResponsesApi'],
+  ['openrouter-images', 'openrouterImagesApi'],
   ['pi-messages', 'piMessagesApi'],
+  ['typesafe-system-one', 'typesafeSystemOneApi'],
 ];
 const apis = [];
 for (const [apiId, exportName] of API_MODULES) {
