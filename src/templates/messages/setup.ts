@@ -50,6 +50,13 @@ export function setupDraftPreviewLines(input: SetupDraftPreviewInput): string[] 
 export const SETUP_PROBE_FAILED_NOT_SAVED =
   'Provider was not saved because the connection check failed. Fix the credentials/endpoint and run the command again.';
 
+/**
+ * 多端点混合失败：只给一条提示。用户的 key 通常只属于某个 endpoint/plan，
+ * 其他 endpoint 的 auth/model 失败是预期差异，不应各给一条 hint。
+ */
+export const SETUP_MULTI_ENDPOINT_HINT =
+  'Your API key likely matches only one endpoint/plan; check the provider console for the matching endpoint and configure it via the Advanced/Other endpoint option.';
+
 /** Phase 1976：单一 start 配置向导的阶段文案（失败后留在向导内修复）。 */
 export function setupConnectingLine(label: string, model: string): string {
   return `Connecting to ${label} (${model})...`;

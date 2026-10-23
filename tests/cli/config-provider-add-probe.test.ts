@@ -375,7 +375,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     const out = consoleLines.join('\n');
     expect(out).toContain('✗ All 4 endpoints failed — configuration not saved.');
     expect(out).toContain('API key invalid or unauthorized:');
-    expect(out).toContain('    Hint: Update API key.');
+    expect(out).toContain('  Hint: Update API key.');
+    expect(out.split('Hint:').length - 1).toBe(1);
     expect(out).not.toContain('not saved because the connection check failed');
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'kimi-test')).toBe(false);
@@ -417,7 +418,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     const out = consoleLines.join('\n');
     expect(out).toContain('✗ All 7 endpoints failed — configuration not saved.');
     expect(out).toContain('Model not found or unavailable:');
-    expect(out).toContain('    Hint: Check model name.');
+    expect(out).toContain('  Hint: Check model name.');
+    expect(out.split('Hint:').length - 1).toBe(1);
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'qwen-test')).toBe(false);
   });
@@ -444,9 +446,12 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     expect(out).toContain('    https://api.kimi.ai/coding');
     expect(out).toContain('    https://api.moonshot.cn/anthropic');
     expect(out).toContain('    https://api.moonshot.ai/anthropic');
-    expect(out).toContain('    Hint: Update API key.');
-    expect(out).toContain('    Hint: Check model name.');
-    expect(out).toContain('    Hint: See raw message.');
+    // 混合失败只给一条 endpoint/plan hint，不再按错误类别重复
+    expect(out.split('Hint:').length - 1).toBe(1);
+    expect(out).toContain('Your API key likely matches only one endpoint/plan');
+    expect(out).not.toContain('Hint: Update API key.');
+    expect(out).not.toContain('Hint: Check model name.');
+    expect(out).not.toContain('Hint: See raw message.');
     expect(out).toContain('    boom');
     expect(connMock.formatLLMError).not.toHaveBeenCalled();
   });

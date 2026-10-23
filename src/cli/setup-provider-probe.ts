@@ -22,6 +22,7 @@ import {
 } from './llm-connection-check.js';
 import type { SetupProbeCandidate } from './setup-provider-catalog.js';
 import { truncateLLMMessage } from './utils/text.js';
+import { SETUP_MULTI_ENDPOINT_HINT } from '../templates/messages/index.js';
 
 /**
  * 单候选 probe 的 bounded timeout：不把用户生产 timeout 拉满。
@@ -64,7 +65,6 @@ export async function probeSetupCandidates(
 export interface SetupProbeFailureGroup {
   errorType: LLMErrorType;
   label: string;
-  hint?: string;
   attempts: SetupProbeAttempt[];
 }
 
@@ -78,11 +78,9 @@ export function groupSetupProbeFailures(
     const { errorType } = attempt.result;
     let group = groups.get(errorType);
     if (!group) {
-      const hint = LLM_ERROR_HINTS[errorType];
       group = {
         errorType,
         label: LLM_ERROR_LABELS[errorType],
-        ...(hint !== undefined && { hint }),
         attempts: [],
       };
       groups.set(errorType, group);
@@ -93,8 +91,10 @@ export function groupSetupProbeFailures(
 }
 
 /**
- * 全败摘要：每个错误类别一组，URL 归组；每种错误只给一次 hint。
- * unknown 附首条原始消息（其 hint 指向原始消息），避免只看到 “Unrecognized”。
+ * 全败摘要：每个错误类别一组，URL 归组；hint 只给一条。
+ * - 同类失败：该类别 hint；
+ * - 混合失败：用户的 key 通常只属于某个 endpoint/plan，给一条 endpoint/plan 提示。
+ * unknown 附首条原始消息，避免只看到 “Unrecognized”。
  */
 export function formatSetupProbeFailureLines(
   attempts: readonly SetupProbeAttempt[],
@@ -115,7 +115,13 @@ export function formatSetupProbeFailureLines(
         lines.push(`    ${truncateLLMMessage(representative.message)}`);
       }
     }
-    if (group.hint) lines.push(`    Hint: ${group.hint}`);
+  }
+
+  if (groups.length === 1) {
+    const hint = LLM_ERROR_HINTS[groups[0].errorType];
+    if (hint !== undefined) lines.push(`  Hint: ${hint}`);
+  } else {
+    lines.push(`  Hint: ${SETUP_MULTI_ENDPOINT_HINT}`);
   }
   return lines;
 }
