@@ -481,7 +481,8 @@ describe('package.json identity invariant (phase 621)', () => {
     expect(pkg.license).toBe('MIT');
     const nodeRange = pkg.engines?.node;
     expect(typeof nodeRange).toBe('string');
-    expect((nodeRange as string).startsWith('>=20')).toBe(true);
+    // Phase 1975：engines.node 随 pi-ai 1.4.0 升至 >=22.19.0（pi-ai engines 硬前置）
+    expect((nodeRange as string).startsWith('>=22')).toBe(true);
     expect(Array.isArray(pkg.keywords)).toBe(true);
     expect((pkg.keywords as unknown[]).length).toBeGreaterThan(0);
   });

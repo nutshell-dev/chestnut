@@ -33,4 +33,4 @@ tsc 挂但合并已记录的事故。为避免重演：
     pnpm test:run        # vitest one-shot run
     pnpm run lint        # alias for typecheck
 
-CI 在 push / PR 时跑这三项于 Node 20.19.0（engines 下限）/ 22.x / 24.x matrix。
+CI 在 push / PR 时跑这三项于 Node 22.x / 24.x matrix（engines 下限 >=22.19.0，Phase 1975 随 pi-ai 1.4.0 升级）。

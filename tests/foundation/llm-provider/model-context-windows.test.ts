@@ -9,14 +9,17 @@ import { resolveContextWindow } from '../../../src/foundation/llm-provider/model
 describe('resolveContextWindow (phase 684 + Phase 1925 Step C)', () => {
   describe('目录命中（exact (provider, model) 优先于启发式）', () => {
     it('pi-ai provider id 直接命中取目录值', () => {
-      expect(resolveContextWindow('anthropic', 'claude-sonnet-4-5')).toBe(1_000_000);
+      // pi-ai 1.4.0：anthropic claude-sonnet-4-5 目录值由 1M 修正为 200K
+      // （目录 200K ≠ 启发式 1M（claude 子串）→ 仍证明目录优先）
+      expect(resolveContextWindow('anthropic', 'claude-sonnet-4-5')).toBe(200_000);
       // 目录值与启发式 1M 不同 → 证明目录优先（gemini-2.5-pro 目录 1048576）
       expect(resolveContextWindow('google', 'gemini-2.5-pro')).toBe(1_048_576);
       expect(resolveContextWindow('deepseek', 'deepseek-v4-pro')).toBe(1_000_000);
     });
 
-    it('chestnut preset id 经 piAiProvider 别名命中', () => {
-      // preset kimi → pi-ai provider kimi-coding；k3-256k 目录值 262144（启发式不会产出）
+    it('chestnut preset id 经 piAiProvider/catalogProvider 别名命中', () => {
+      // Phase 1975：preset kimi 已移除 piAiProvider，改经 catalogProvider（kimi-coding）
+      // 别名命中；k3-256k 目录值 262144（启发式不会产出）
       expect(resolveContextWindow('kimi', 'k3-256k')).toBe(262_144);
       expect(resolveContextWindow('gemini', 'gemini-2.5-pro')).toBe(1_048_576);
     });

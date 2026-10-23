@@ -2,16 +2,16 @@
  * Phase 1926 Step D：provider inventory 漂移门禁 + 支持表对账。
  *
  * provider-inventory.generated.ts 是 scripts/generate-provider-inventory.mjs 的
- * 静态产物（41 provider / 10 api，含每 provider 的 api 集与 auth 类）。pi-ai
+ * 静态产物（42 provider / 15 lazy api，含每 provider 的 api 集与 auth 类）。pi-ai
  * 依赖升级导致 inventory 改变时本测试必须失败，要求重新生成 manifest——
  * 与 model-catalog 门禁同纪律。
  *
  * 另守三条不变量：
  * 1. 活安装枚举与快照逐项一致（漂移即红）；
- * 2. 快照出现的每个 api 都有注册 lazy 工厂，且 runtime 注册表与快照 api 集互等
- *    （任一 inventory API 无 factory → 红）；
+ * 2. 快照出现的每个 api 都有注册 lazy 工厂，且 runtime 注册表（streaming `apis`
+ *    + capability `auxApis`）与快照 api 集互等（任一 inventory API 无 factory → 红）；
  * 3. 每个带 piAiProvider 的 preset：provider ∈ inventory 且 defaultModel ∈ 其
- *    静态 catalog（preset↔catalog 一致性；动态 provider radius 无静态 model，
+ *    静态 catalog（preset↔catalog 一致性；动态 provider radius/typesafe 无静态 model，
  *    不在 chestnut 配置面，见快照注释）。
  */
 import { describe, it, expect } from 'vitest';
@@ -60,9 +60,13 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
 
   it('快照 api 集 == 运行时注册 lazy 工厂集（任一 api 无 factory 即红）', async () => {
     const runtime = await loadPiAiRuntime();
-    expect(Object.keys(runtime.apis).sort()).toEqual([...PROVIDER_INVENTORY_APIS].sort());
+    // Phase 1975 Step B：1.4.0 的 15 个 lazy api 中 10 个是 streaming（wire 路径），
+    // 5 个是 classifier/images capability（auxApis）——两者并集对账 inventory。
+    const registered = [...Object.keys(runtime.apis), ...Object.keys(runtime.auxApis)].sort();
+    expect(registered).toEqual([...PROVIDER_INVENTORY_APIS].sort());
     for (const [id, entry] of Object.entries(PROVIDER_INVENTORY)) {
       for (const api of entry.apis) {
+        // chat model 的 api 必是 streaming 工厂（classifier/images 不服务 chat wire）
         expect(runtime.apis[api], `provider ${id} api ${api} has registered factory`).toBeDefined();
       }
     }
@@ -91,8 +95,9 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
       .filter(([, e]) => e.auth.oauth)
       .map(([id]) => id)
       .sort();
+    // pi-ai 1.4.0：新增 meta；openai 获得 oauth（github-copilot/kimi-coding/openrouter/radius/xai 保持）
     expect(oauthProviders).toEqual(
-      ['anthropic', 'github-copilot', 'kimi-coding', 'meta', 'openai-codex', 'openrouter', 'radius', 'xai'],
+      ['anthropic', 'github-copilot', 'kimi-coding', 'meta', 'openai', 'openai-codex', 'openrouter', 'radius', 'xai'],
     );
   });
 
@@ -123,6 +128,12 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
 
     for (const id of Object.keys(PROVIDER_INVENTORY)) {
       const models = getBuiltinModels(id) as Array<{ id: string }>;
+      if (models.length === 0) {
+        // 动态 provider（pi-ai 1.4.0 起含 typesafe）：无静态 seed、apis 为空，
+        // 配置入口不适用静态 seed 规则——跳过（快照注释同上）。
+        expect(PROVIDER_INVENTORY[id].apis, `dynamic provider ${id} has empty apis`).toEqual([]);
+        continue;
+      }
       // 显式 model 规则：静态 seed 必须非空（动态 provider 的配置入口也是 seed）
       expect(models.length, `provider ${id} has static catalog seed models`).toBeGreaterThan(0);
 

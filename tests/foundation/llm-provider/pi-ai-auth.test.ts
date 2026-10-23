@@ -73,17 +73,19 @@ afterEach(() => {
 
 describe('api_key 类：override > stored > env（pi-ai 原生优先级）', () => {
   it('无 override / stored / env → unconfigured（undefined）', async () => {
+    const { store } = fakeStore(); // pi-ai 1.4.0：openai 已 OAuth-capable，缺注入 store 会 loud
     const ep = await createPiAiEndpoint(
       catalogConfig({ piAiProvider: 'openai', model: 'gpt-4o' }),
-      { authContext: fakeAuthContext() },
+      { authContext: fakeAuthContext(), credentials: store },
     );
     await expect(ep.models.getAuth(ep.model)).resolves.toBeUndefined();
   });
 
   it('provider env（OPENAI_API_KEY）→ AuthResult', async () => {
+    const { store } = fakeStore(); // 同上：注入空 store 过装配门
     const ep = await createPiAiEndpoint(
       catalogConfig({ piAiProvider: 'openai', model: 'gpt-4o' }),
-      { authContext: fakeAuthContext({ OPENAI_API_KEY: 'sk-env' }) },
+      { authContext: fakeAuthContext({ OPENAI_API_KEY: 'sk-env' }), credentials: store },
     );
     const auth = await ep.models.getAuth(ep.model);
     expect(auth?.auth.apiKey).toBe('sk-env');
@@ -152,7 +154,7 @@ describe('oauth 类：stored credential 生命周期（toAuth / refresh / 持久
   const codexConfig = () => catalogConfig({
     name: 'codex',
     piAiProvider: 'openai-codex',
-    model: 'gpt-5.5',
+    model: 'gpt-6.1-sol',
     authProfile: 'oauth',
   });
 

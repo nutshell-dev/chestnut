@@ -41,7 +41,7 @@ describe('toProviderConfig — auth profile 透传', () => {
     const config = toProviderConfig(llmProviderConfigSchema.parse({ preset: 'openai-codex' }));
     expect(config.authProfile).toBe('oauth');
     expect(config.apiKey).toBeUndefined();
-    expect(config.model).toBe('gpt-5.5');
+    expect(config.model).toBe('gpt-6.1-sol');
   });
 
   it('api_key preset：形状不变（apiFormat 必填、authProfile undefined=api_key 语义）', () => {

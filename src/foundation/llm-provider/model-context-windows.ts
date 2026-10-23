@@ -7,7 +7,9 @@
  * phase 684 改为「默认 256K + 子串特判 1M」机制（替代精确 model 名映射、避免表 stale）、
  * Phase 1925 Step C 改 provider 感知签名（设计稿 G3 决策）：
  *   1. exact `(pi-ai provider id, model id)` 命中生成快照 MODEL_CATALOG → 取目录值；
- *   2. provider 为 chestnut preset id 时经 PRESETS.piAiProvider 显式别名再查一次；
+ *   2. provider 为 chestnut preset id 时经 PRESETS.piAiProvider 显式别名再查一次
+ *      （Phase 1975：piAiProvider 缺省时回退 catalogProvider——metadata-only
+ *      映射同样是 catalog 权威来源）；
  *   3. 未命中 → 既有启发式（默认 256K + 子串特判 1M）回退，不做 id-only 兜底
  *      （网关限额与官方端点可不同——azure vs openai 同 model id 差 3.9×，宁保守）。
  *
@@ -39,7 +41,8 @@ const MILLION_TOKEN_PATTERNS: readonly string[] = [
  * 解析 (provider, model) 对应的 context window 上限。
  *
  * providerId 接受 pi-ai catalog provider id 或 chestnut preset id（经
- * PRESETS.piAiProvider 显式别名）；undefined/未知 → 启发式回退。
+ * PRESETS.piAiProvider 显式别名，缺省回退 catalogProvider）；undefined/未知 →
+ * 启发式回退。
  * Phase 1925 Step C 界面变更：签名由 (modelName?) 改为 (providerId, modelName)，
  * 调用点（runtime.ts ×3）传 providerInfo?.name。
  */
@@ -50,7 +53,9 @@ export function resolveContextWindow(
   if (modelName) {
     const direct = providerId ? MODEL_CATALOG[`${providerId}/${modelName}`] : undefined;
     if (direct) return direct.contextWindow;
-    const aliased = providerId ? PRESETS[providerId]?.piAiProvider : undefined;
+    const aliased = providerId
+      ? (PRESETS[providerId]?.piAiProvider ?? PRESETS[providerId]?.catalogProvider)
+      : undefined;
     if (aliased) {
       const hit = MODEL_CATALOG[`${aliased}/${modelName}`];
       if (hit) return hit.contextWindow;

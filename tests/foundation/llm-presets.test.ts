@@ -26,8 +26,9 @@ describe('resolvePreset', () => {
   it('should return kimi preset with apiFormat=anthropic and default model k3-256k', () => {
     const preset = resolvePreset('kimi');
     expect(preset).toMatchObject({ apiFormat: 'anthropic', defaultModel: 'k3-256k' });
-    // kimi-coding 是 Anthropic catalog，可保留用于 catalog 元数据。
-    expect(preset.piAiProvider).toBe('kimi-coding');
+    // Phase 1975 Step B：pi-ai 1.4.0 的 kimi-coding catalog 已变 OpenAI——alias 必须移除，
+    // 元数据改由 catalogProvider/catalogModel metadata-only 提供（Step C）。
+    expect(preset.piAiProvider).toBeUndefined();
   });
 
   it('should return qwen preset with apiFormat=anthropic (Phase 1973 新增)', () => {
@@ -79,6 +80,26 @@ describe('resolvePreset', () => {
     // Error message includes available presets
     expect(() => resolvePreset('nonexistent-provider')).toThrow(/anthropic/);
     expect(() => resolvePreset('nonexistent-provider')).toThrow(/openai/);
+  });
+});
+
+describe('Phase 1975：五家 curated preset 的 catalog metadata-only 映射', () => {
+  it('五家均有 catalogProvider/catalogModel，且与 wire model/apiFormat 分离', () => {
+    expect(PRESETS.deepseek).toMatchObject({ catalogProvider: 'deepseek', catalogModel: 'deepseek-flash' });
+    expect(PRESETS.kimi).toMatchObject({ catalogProvider: 'kimi-coding', catalogModel: 'k3-256k' });
+    expect(PRESETS.qwen).toMatchObject({ catalogProvider: 'qwen-token-plan', catalogModel: 'qwen3.8-max' });
+    expect(PRESETS.zai).toMatchObject({ catalogProvider: 'zai', catalogModel: 'glm-5.3' });
+    expect(PRESETS.minimax).toMatchObject({ catalogProvider: 'minimax', catalogModel: 'MiniMax-M3.1-Flash' });
+  });
+
+  it('metadata-only 不设 piAiProvider（catalog api 权威会改写 Anthropic wire）', () => {
+    // deepseek/qwen/zai/kimi 的 catalog provider 在 pi-ai 1.4.0 中均为非 anthropic-messages；
+    // minimax 的 piAiProvider 保留（Anthropic identity），但 metadata 路径优先。
+    expect(PRESETS.deepseek.piAiProvider).toBeUndefined();
+    expect(PRESETS.qwen.piAiProvider).toBeUndefined();
+    expect(PRESETS.zai.piAiProvider).toBeUndefined();
+    expect(PRESETS.kimi.piAiProvider).toBeUndefined();
+    expect(PRESETS.minimax.piAiProvider).toBe('minimax');
   });
 });
 

@@ -24,6 +24,7 @@ import {
   LLMEmptyResponseError,
 } from '../../../src/foundation/llm-provider/index.js';
 import { ExternalAbortError } from '../../../src/foundation/llm-provider/abort-helper.js';
+import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -723,7 +724,14 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
       baseUrl: 'https://api.openai.com/v1',
       piAiProvider: 'openai',
       apiFormat: 'openai', // 显式映射是 openai-completions；catalog 权威为 openai-responses
-    }));
+    }), {
+      // pi-ai 1.4.0：openai 变为 OAuth-capable（inventory oauth=true）——缺注入 store 会 loud；
+      // 本用例只观测请求 URL，注入空 store 过装配门。
+      credentialStore: createPiAiCredentialStore({
+        read: () => Promise.resolve(undefined),
+        modify: (_ref, fn) => fn(undefined),
+      }),
+    });
     await adapter.call({ messages: [{ role: 'user', content: 'hi' }] })
       .catch(() => { /* silent: 本用例只观测请求 URL（api 权威性），错误路径另案覆盖 */ });
     const [url] = fetchMock.mock.calls[0];
@@ -767,7 +775,7 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
-  it('Phase 1926 Step D：azure-openai-responses（catalog baseUrl 空 + config.baseUrl 覆盖）走 builtin provider', async () => {
+  it('Phase 1926 Step D：azure（pi-ai 1.4.0 provider 归并；catalog baseUrl 空 + config.baseUrl 覆盖）走 builtin provider', async () => {
     // azure catalog model baseUrl 为空（deployment 由用户给）——config.baseUrl 覆盖后
     // 经全局 fetch 发请求；fetch stub 401 → LLMAuthError（证明路由+auth 装配完成）
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'unauthorized' } }, 401));
@@ -776,7 +784,8 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
       name: 'azure',
       model: 'gpt-4.1',
       baseUrl: 'https://my-deployment.openai.azure.com',
-      piAiProvider: 'azure-openai-responses',
+      // pi-ai 1.4.0：provider id 由 azure-openai-responses 归并为 azure（api 仍是 azure-openai-responses）
+      piAiProvider: 'azure',
       apiFormat: undefined,
     }));
     await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
@@ -788,7 +797,7 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
   it('Phase 1926 Step D：OAuth-only provider 配 api_key → loud LLMError（不静默忽略 override）', async () => {
     const adapter = createLLMProvider(baseConfig({
       name: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-6.1-sol',
       piAiProvider: 'openai-codex',
       apiFormat: undefined,
       apiKey: 'sk-should-not-be-here',
