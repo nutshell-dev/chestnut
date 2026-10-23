@@ -3,7 +3,8 @@
  *
  * 锁定：
  * A. 固定服务默认 model 无低信息量 preview；单次 probe 后提交 config + ready；
- * B. 自定义 model / Other 条件性 preview + 确认；取消不 probe 不落盘；
+ * B. Phase 1983 Step B：仅 Other 自定义配置有 preview + 确认；固定服务（含自定义
+ *    model）无 preview/确认；取消不 probe 不落盘；
  * C. auth/model/network/rate_limit/quota/unknown 失败统一显示错误类别与修复菜单；
  * D. retry / edit-key / edit-model / edit-provider / cancel 的终态；
  * E. 失败/取消不发布 config/ready，本次新建凭据被清理，secret 不回显；
@@ -228,29 +229,18 @@ describe('first-run wizard — 展示与提交', () => {
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('MiniMax-M3.1-Flash');
   });
 
-  it('固定服务自定义 model：条件性 preview + 确认后提交', async () => {
+  it('固定服务自定义 model：无 preview/确认，直接 probe 提交（Phase 1983 Step B）', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-xxx';
-    h.rlAnswers.queue = ['8', '', 'custom-model', 'y'];
+    h.rlAnswers.queue = ['8', '', 'custom-model'];
 
     const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
 
     expect(outcome.kind).toBe('verified');
-    expect(output.join('\n')).toContain('Configuration preview');
+    expect(output.join('\n')).not.toContain('Configuration preview');
+    // 普通服务不出现参数确认提示
+    expect(mockRl.question.mock.calls.map(c => String(c[0])).some(p => p.includes('Continue with this configuration?'))).toBe(false);
     expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('custom-model');
     expect(conn.probeCalls).toBe(1);
-  });
-
-  it('自定义 model 确认取消 → 零 probe、零落盘', async () => {
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-xxx';
-    h.rlAnswers.queue = ['8', '', 'custom-model', 'n'];
-
-    const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
-
-    expect(outcome).toEqual({ kind: 'cancelled', reason: 'user_cancelled' });
-    expect(conn.probeCalls).toBe(0);
-    expect(fs.existsSync(configPath())).toBe(false);
-    expect(fs.existsSync(readyPath())).toBe(false);
-    expect(output.join('\n')).toContain('Configuration preview');
   });
 
   it('Other 服务：条件确认取消 → 零 probe、零落盘', async () => {

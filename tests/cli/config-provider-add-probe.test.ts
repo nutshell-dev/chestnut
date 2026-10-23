@@ -73,6 +73,7 @@ vi.mock('../../src/watchdog/ensure.js', () => ({
 
 const { createConfigCommand } = await import('../../src/cli/commands/config.js');
 const { loadGlobalConfig } = await import('../../src/assembly/config/config-load.js');
+const { PRESETS } = await import('../../src/foundation/llm-provider/index.js');
 
 let tempDir: string;
 
@@ -204,16 +205,20 @@ describe('config provider add — primary probe', () => {
     expect((config.llm.fallbacks ?? []).some((f) => f.label === 'custom-anthropic')).toBe(true);
   });
 
-  it('Other (custom endpoint) skips preview/Save, shows endpoint, probes directly', async () => {
+  it('Other (custom endpoint) 显示脱敏 preview + 确认，确认后 probe（Phase 1983 Step B）', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'gpt-custom' });
-    // service 12 (Other), format 2 (OpenAI), label, key, baseUrl, model, role fallback, position
-    rlAnswers.queue = ['12', '2', 'other-test', 'sk-other', 'https://example.com/v1', 'gpt-custom', '2', '1'];
+    // service 12 (Other), format 2 (OpenAI), label, key, baseUrl, model, role fallback, position, confirm y
+    rlAnswers.queue = ['12', '2', 'other-test', 'sk-other', 'https://example.com/v1', 'gpt-custom', '2', '1', 'y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     const out = consoleLines.join('\n');
-    expect(out).not.toContain('Configuration preview');
+    // 自定义配置：与 start/init 同一份脱敏 preview + 同一确认提示
+    expect(out).toContain('Configuration preview');
+    expect(out).toContain('Base URL: https://example.com/v1');
+    expect(out).not.toContain('sk-other');
+    expect(questionPrompts().some((p) => p.includes('Continue with this configuration?'))).toBe(true);
     expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(false);
     expect(out).toContain('Connecting to Other (gpt-custom)...');
     expect(out).toContain('Endpoint: https://example.com/v1');
@@ -221,6 +226,39 @@ describe('config provider add — primary probe', () => {
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some((f) => f.label === 'other-test')).toBe(true);
+  });
+
+  it('Other 确认取消：零 probe、不落盘（Phase 1983 Step B）', async () => {
+    // service 12 (Other), format 2, label, key, baseUrl, model, role fallback, position, confirm n
+    rlAnswers.queue = ['12', '2', 'other-test', 'sk-other', 'https://example.com/v1', 'gpt-custom', '2', '1', 'n'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const out = consoleLines.join('\n');
+    expect(out).toContain('Configuration preview');
+    expect(out).toContain('Cancelled');
+    expect(out).not.toContain('Connecting to');
+    expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some((f) => f.label === 'other-test')).toBe(false);
+  });
+
+  it('Advanced 菜单路径：显示 preview + 确认，确认后 probe（Phase 1983 Step B）', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
+    // service 13 (Advanced), preset anthropic, label, key, model default, role fallback, position, confirm y
+    const anthropicNum = String(Object.keys(PRESETS).indexOf('anthropic') + 1);
+    rlAnswers.queue = ['13', anthropicNum, 'adv-anthropic', 'sk-ant-adv', '', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const out = consoleLines.join('\n');
+    expect(out).toContain('Configuration preview');
+    expect(questionPrompts().some((p) => p.includes('Continue with this configuration?'))).toBe(true);
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some((f) => f.label === 'adv-anthropic')).toBe(true);
   });
 });
 

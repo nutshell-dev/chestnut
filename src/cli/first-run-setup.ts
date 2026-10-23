@@ -55,6 +55,7 @@ import {
   SETUP_PROVIDER_CATALOG,
   describeEffectiveThinking,
   findSetupProvider,
+  isCustomSetupChoice,
   type SetupProviderChoice,
   type SetupProbeCandidate,
 } from './setup-provider-catalog.js';
@@ -418,7 +419,6 @@ async function collectSetupDraft(
 
   const presetId = choice.target.preset;
   const providerId = choice.target.providerId;
-  const preset = presetId ? PRESETS[presetId] : undefined;
   if (!presetId && !providerId) {
     throw new CliError(`Internal provider mapping missing for ${choice.label}`);
   }
@@ -430,9 +430,10 @@ async function collectSetupDraft(
     console.log(`ℹ ${choice.label}: local provider, no API key required.`);
   }
 
-  const defaultModel = choice.defaultModel ?? preset?.defaultModel ?? '';
   const model = await promptModel(choice, question);
-  const requiresConfirmation = defaultModel === '' || model !== defaultModel;
+  // Phase 1983 Step B：仅 Other/Advanced 自定义配置需要参数确认；
+  // 普通目录服务（含自定义 model）不确认，probe-before-commit 是真实校验门。
+  const requiresConfirmation = isCustomSetupChoice(choice);
 
   return {
     choice,

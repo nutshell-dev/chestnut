@@ -39,6 +39,14 @@ export type SetupProviderId =
   | 'ollama'
   | 'other';
 
+/**
+ * Phase 1983 Step B：start/init 与 provider add 共享的「自定义配置」谓词。
+ * 仅 Other（advanced auth）需要参数确认；普通目录服务（含自定义 model）不确认。
+ */
+export function isCustomSetupChoice(choice: SetupProviderChoice): boolean {
+  return choice.auth === 'advanced';
+}
+
 export interface SetupProviderTarget {
   /** 内部 preset id（catalog preset 别名）。 */
   preset?: string;

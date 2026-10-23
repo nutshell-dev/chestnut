@@ -34,14 +34,22 @@ import {
   CONFIG_RELOAD_NOTICE,
   SETUP_OTHER_FORMAT_LINES,
   SETUP_CANCELLED,
+  SETUP_CONFIRM_PROMPT,
   SETUP_PROBE_FAILED_NOT_SAVED,
   setupConnectingLine,
+  setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
-import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice, type SetupProbeCandidate } from '../setup-provider-catalog.js';
+import {
+  SETUP_PROVIDER_CATALOG,
+  describeEffectiveThinking,
+  isCustomSetupChoice,
+  type SetupProviderChoice,
+  type SetupProbeCandidate,
+} from '../setup-provider-catalog.js';
 import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
@@ -343,8 +351,31 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       positionFromPrompt = position;
     }
 
-    // Phase 1980 follow-up: provider add 不显示完整 preview/Save（固定与自定义一致）；
-    // probe-before-commit 是真实校验门；仅 Primary 降级确认保留。
+    // Phase 1983 Step B：仅 Other/Advanced 自定义配置显示脱敏参数预览 + 确认
+    // （与 start/init 同一谓词、同一文案）；普通服务（含自定义 model）不确认。
+    // 顺序：Primary 降级确认（上方角色分支）→ 参数确认 → Connecting → probe。
+    const custom =
+      service.kind === 'advanced' ||
+      (service.kind === 'setup' && isCustomSetupChoice(service.choice));
+    if (custom) {
+      const thinking = describeEffectiveThinking(presetId, model);
+      setupDraftPreviewLines({
+        label,
+        model,
+        auth: authProfile === 'local' ? 'local' : authProfile === 'api_key' ? 'API key' : authProfile,
+        role,
+        ...(thinking !== undefined && { thinking }),
+        ...(baseUrl && { baseUrl }),
+        ...(apiKey && { keyRef: apiKey }),
+      }).forEach(line => console.log(line));
+      const confirm = await question(rl, SETUP_CONFIRM_PROMPT, 'Y');
+      if (confirm.toLowerCase() === 'n') {
+        console.log(SETUP_CANCELLED);
+        return;
+      }
+    }
+
+    // probe-before-commit 是真实校验门；未通过 probe 的 provider 不落盘。
     const probeCandidates =
       service.kind === 'setup' ? service.choice.probeCandidates : undefined;
     console.log(setupConnectingLine(serviceName, model));
