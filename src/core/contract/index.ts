@@ -32,6 +32,14 @@ export { createExecutionFailureSink } from './execution-failure.js';
 export type { ExecutionFailureSinkDeps } from './execution-failure.js';
 export { CONTRACT_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
 export { createContractObserverJob } from './jobs/contract-observer.js';
+// Phase 1974 Step B: active contract executor 可用性监督 cron job
+export { createExecutorSupervisorJob } from './jobs/executor-supervisor/index.js';
+export { EXECUTOR_SUPERVISOR_AUDIT_EVENTS } from './jobs/executor-supervisor/audit-events.js';
+export type {
+  ExecutorSupervisorDeps,
+  ExecutorHeartbeatRead,
+  RestartDaemonResult,
+} from './jobs/executor-supervisor/types.js';
 // phase 484: verification-types barrel re-export
 export type { NotifyClawFn } from './verification-types.js';
 

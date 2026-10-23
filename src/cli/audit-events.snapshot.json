@@ -1023,6 +1023,18 @@
       "cron_outbox_summary_failed",
       "cron_outbox_summary_written"
     ],
+    "core_contract_jobs_executor-supervisor_audit-events": [
+      "executor_supervisor_contract_scan_failed",
+      "executor_supervisor_ensured",
+      "executor_supervisor_heartbeat_stale",
+      "executor_supervisor_heartbeat_unknown",
+      "executor_supervisor_liveness_probe_failed",
+      "executor_supervisor_restart_failed",
+      "executor_supervisor_restarted",
+      "executor_supervisor_scan_failed",
+      "executor_supervisor_skipped",
+      "executor_supervisor_start_failed"
+    ],
     "viewport_viewport-audit-events": [
       "chat_viewport_history_replay_failed",
       "chat_viewport_invalid_task_id",

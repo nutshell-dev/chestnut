@@ -24,7 +24,7 @@ import { createDreamTriggerJob } from '../core/memory/index.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { createClawContractBridge } from '../core/memory/index.js';
-import { createContractObserverJob } from '../core/contract/index.js';
+import { createContractObserverJob, createExecutorSupervisorJob } from '../core/contract/index.js';
 import { createContractSystem, type ContractSystem } from '../core/contract/index.js';
 import { createOutboxSummaryJob } from '../core/claw-topology/index.js';
 import { createGateway } from '../core/gateway/index.js';
@@ -35,7 +35,8 @@ import { formatClawStatusHint } from '../cli-protocol/index.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
+import { makeClawId, makeChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
+import { createDaemonSpawnOptions, readDaemonHeartbeat } from '../daemon/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { closeBridgeContractSystems, type ContractBridgeDisposeResult } from './contract-bridge-dispose.js';
@@ -305,6 +306,43 @@ export async function createMotionAddons(
           legacyAuditPath: path.join(chestnutRoot, AUDIT_LEGACY_PATHS.audit),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
           streamEventType: STREAM_EVENT_NAMES.SYSTEM_NOTIFY,
+        }, globalConfig),
+        // Phase 1974 Step B：有已发布 active contract 的 claw，其 executor daemon 由
+        // ContractSystem cron 确保运行。daemonDir/spawn 规格推导经 ClawTopology/Daemon
+        // owner barrel；ChestnutRoot brand 由 core.chestnutRoot 显式构造（不用 ambient）。
+        createExecutorSupervisorJob({
+          clawTopology: core.topology,
+          motionClawId: MOTION_CLAW_ID,
+          fsFactory,
+          audit: auditWriter,
+          liveness: (rawId) => core.processManager.liveness(resolveClawDaemonDir(makeClawId(rawId))),
+          ensureDaemon: (rawId) => core.processManager.ensureRunning(
+            resolveClawDaemonDir(makeClawId(rawId)),
+            createDaemonSpawnOptions({
+              clawId: makeClawId(rawId),
+              agentDir: getClawDir(rawId),
+              chestnutRoot: makeChestnutRoot(core.chestnutRoot),
+            }),
+          ),
+          restartDaemon: async (rawId) => {
+            const daemonDir = resolveClawDaemonDir(makeClawId(rawId));
+            // stop outcome 不吞：failed 也仍尝试 ensureRunning 收敛，结果由 job audit。
+            const stop = await core.processManager.stop(daemonDir);
+            const ensured = await core.processManager.ensureRunning(
+              daemonDir,
+              createDaemonSpawnOptions({
+                clawId: makeClawId(rawId),
+                agentDir: getClawDir(rawId),
+                chestnutRoot: makeChestnutRoot(core.chestnutRoot),
+              }),
+            );
+            return { stop, ensured };
+          },
+          readHeartbeat: (rawId) => {
+            const hb = readDaemonHeartbeat(fsFactory(getClawDir(rawId)));
+            return hb.kind === 'ok' ? { kind: 'ok', ts: hb.fact.ts } : { kind: hb.kind };
+          },
+          heartbeatStaleTimeoutMs: globalConfig.cron.jobs.executor_supervisor.heartbeat_stale_timeout_ms,
         }, globalConfig),
         createOutboxSummaryJob({
           clawTopology: core.topology,  // phase 259

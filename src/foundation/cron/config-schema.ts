@@ -35,6 +35,12 @@ const cronJobsConfigSchema = z.object({
     enabled: z.boolean().default(true),
     schedule: cronJobScheduleField.default('interval:1s'),
   }).default({}),
+  // Phase 1974 Step B: ContractSystem executor-supervisor job（active contract → ensure daemon）
+  executor_supervisor: z.object({
+    enabled: z.boolean().default(true),
+    schedule: cronJobScheduleField.default('interval:30s'),
+    heartbeat_stale_timeout_ms: z.number().min(60_000).default(180_000),
+  }).default({}),
 });
 
 export const cronConfigSchema = z.object({
