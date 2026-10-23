@@ -9,10 +9,10 @@ export const STREAM_FILE = 'stream.jsonl';
 
 /**
  * stream.jsonl type 权威单源 const（phase 1312 治理；phase 1321 分层收窄 50→40；phase 1826 +5 恢复安排；
- * phase 1827 +1 事实接受证据；phase 1955 +1 预算预警）。
+ * phase 1827 +1 事实接受证据；phase 1955 +1 预算预警；phase 1978 +2 context trim 展示）。
  * StreamEventType 由本 const 派生（typeof）→ 值集合 0 漂移。
- * 本 const 只含协议层事件（47）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 29
- * + LLM 恢复安排 5 + 通用系统通知通道 1 + stream 自身 1。上层业务事件 const 归各语义模块（phase 1321 分层拆件，
+ * 本 const 只含协议层事件（52）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 29
+ * + LLM 恢复安排 5 + context trim 展示 2 + 通用系统通知通道 1 + stream 自身 1。上层业务事件 const 归各语义模块（phase 1321 分层拆件，
  * 修复 M#1/M#3/M#5——stream 不再为不属于自己的业务语义负责）：
  *   - subagent SUBAGENT_EVENTS（6：turn_start/llm_start/tool_result/turn_end/turn_interrupted/turn_error；phase 1789 自 agent-executor 迁回语义 owner）
  *   - async-task-system STREAM_TASK_EVENTS（3：task_started/task_completed/task_attempt_start）
@@ -77,6 +77,9 @@ export const STREAM_EVENT_NAMES = {
   CALL_ATTEMPT_RESULT: 'call_attempt_result',
   CALL_SELECTION: 'call_selection',
   CALL_AUDIT_WRITE_FAILED: 'call_audit_write_failed',
+  // context trim 展示（2，phase 1978；EventLoop trim 路径的结构化状态，供 viewport 分流）
+  CONTEXT_TRIM_RETRY_SCHEDULED: 'context_trim_retry_scheduled',
+  CONTEXT_TRIM_BLOCKED: 'context_trim_blocked',
   // 通用系统通知通道（1）：系统/契约侧主动通知用户（subtype 区分 contract_created 等）；
   // 曾名 user_notify（2026-08-07 phase 1319 改名——user_ 前缀族语义为「用户来源」、此事件是「通知用户」接收方、命名歧义治理）。
   // 归协议层另因：写端跨 L2-L6，L2 写端（audit-size-monitor）引用上层 const 会反向依赖违规；
@@ -89,7 +92,7 @@ export const STREAM_EVENT_NAMES = {
 export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVENT_NAMES];
 
 /**
- * stream.jsonl 协议层事件 payload 判别映射（47 key，phase 1316；phase 1321 收窄；phase 1826 +5；phase 1827 +1；phase 1955 +1）。
+ * stream.jsonl 协议层事件 payload 判别映射（52 key，phase 1316；phase 1321 收窄；phase 1826 +5；phase 1827 +1；phase 1955 +1；phase 1978 +2）。
  * payload 权威双份策略：LLMEvent 的 payload 在此重定义（orchestrator 特有类型降级）；
  * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 13 个以写端对象字面量为准。
  * 全部成员含 trace_id?: string，因为 stream-callbacks checkWrite 可能注入 trace_id。
@@ -145,6 +148,9 @@ export interface StreamEventMap {
   sdk_client_cache_hit: { preset: string; model: string; trace_id?: string };
   sdk_client_cache_miss: { preset: string; model: string; trace_id?: string };
   provider_close_failed: { error: string; trace_id?: string };
+  // context trim 展示（2，phase 1978）
+  context_trim_retry_scheduled: { attempt: number; maxAttempts: number; delayMs: number; before: number; after: number; trace_id?: string };
+  context_trim_blocked: { reason: 'no_progress' | 'policy_conflict' | 'retry_exhausted'; before?: number; after?: number; attempts?: number; maxAttempts?: number; trace_id?: string };
   // system_notify（1，边界 co-writer 宽松契约）
   system_notify: { subtype: string; [key: string]: unknown };
   // stream writer（1）

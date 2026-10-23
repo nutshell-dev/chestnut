@@ -14,7 +14,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { TurnResult } from '../runtime/index.js';
-import type { StreamWriter } from '../../foundation/stream/index.js';
+import { STREAM_EVENT_NAMES, type StreamEvent, type StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import {
@@ -496,13 +496,21 @@ export class EventLoop {
     failedRequestFingerprint: string,
   ): Promise<void> {
     if (this.contextTrimRetryCount >= CONTEXT_TRIM_RETRY_MAX) {
+      const attempts = this.contextTrimRetryCount;
       this._enterLlmRequestBlocked({
         version: 2,
         reason: 'retry_exhausted',
         requestFingerprint: failedRequestFingerprint,
-        attempts: this.contextTrimRetryCount,
+        attempts,
         maxAttempts: CONTEXT_TRIM_RETRY_MAX,
         blockedAt: new Date().toISOString(),
+      });
+      this._emitStreamEvent({
+        ts: Date.now(),
+        type: STREAM_EVENT_NAMES.CONTEXT_TRIM_BLOCKED,
+        reason: 'retry_exhausted',
+        attempts,
+        maxAttempts: CONTEXT_TRIM_RETRY_MAX,
       });
       this._resetContextTrimRetryState();
       return;
@@ -515,7 +523,7 @@ export class EventLoop {
         if (!outcome.archived || outcome.after >= outcome.before) {
           throw new Error(`invalid persisted trim outcome: ${outcome.status}`);
         }
-        await this._scheduleContextTrimRetry(error);
+        await this._scheduleContextTrimRetry(error, outcome);
         return;
       case 'no_progress':
       case 'policy_conflict':
@@ -527,6 +535,15 @@ export class EventLoop {
           after: outcome.after,
           blockedAt: new Date().toISOString(),
         });
+        this._emitStreamEvent({
+          ts: Date.now(),
+          type: STREAM_EVENT_NAMES.CONTEXT_TRIM_BLOCKED,
+          reason: outcome.status,
+          before: outcome.before,
+          after: outcome.after,
+          attempts: this.contextTrimRetryCount,
+          maxAttempts: CONTEXT_TRIM_RETRY_MAX,
+        });
         this._resetContextTrimRetryState();
         return;
       default: {
@@ -536,8 +553,21 @@ export class EventLoop {
     }
   }
 
+  /**
+   * Phase 1978: context trim 状态的结构化 stream 事实（viewport 分流 retry/blocked 展示）。
+   * 只在 trim 路径发；普通错误路径不经此方法。streamWriter 缺席时静默（测试/无 stream 场景）。
+   */
+  private _emitStreamEvent(event: StreamEvent): void {
+    if (!this.streamWriter) return;
+    const traceId = this.runtime.getCurrentTraceId();
+    this.streamWriter.write(traceId ? { ...event, trace_id: traceId } : event);
+  }
+
   /** Phase 1826: trim 后有界重试（EventLoop 自有预算；不写 LLM 恢复状态）。 */
-  private async _scheduleContextTrimRetry(error: unknown): Promise<void> {
+  private async _scheduleContextTrimRetry(
+    error: unknown,
+    outcome: { before: number; after: number },
+  ): Promise<void> {
     this.contextTrimRetryCount++;
     this.audit.write(
       EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
@@ -546,6 +576,16 @@ export class EventLoop {
       `delay_ms=${this.contextTrimRetryDelayMs}`,
       `error=${(error as Error).message}`,
     );
+    // Phase 1978: 结构化 retry 状态（viewport 据此显示非终局提示）；audit 原事实保留。
+    this._emitStreamEvent({
+      ts: Date.now(),
+      type: STREAM_EVENT_NAMES.CONTEXT_TRIM_RETRY_SCHEDULED,
+      attempt: this.contextTrimRetryCount,
+      maxAttempts: CONTEXT_TRIM_RETRY_MAX,
+      delayMs: this.contextTrimRetryDelayMs,
+      before: outcome.before,
+      after: outcome.after,
+    });
     await this._sleep(this.contextTrimRetryDelayMs, this.waitAbortController?.signal);
     this.contextTrimRetryDelayMs = Math.min(
       this.contextTrimRetryDelayMs * 2,

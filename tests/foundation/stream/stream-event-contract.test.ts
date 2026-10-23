@@ -40,6 +40,22 @@ const _llmRetryWaiting: StreamEvent = {
   resumeAt: '2026-08-06T00:00:00.000Z',
   errorClass: 'transient',
 };
+const _contextTrimRetryScheduled: StreamEvent = {
+  ts: 1,
+  type: STREAM_EVENT_NAMES.CONTEXT_TRIM_RETRY_SCHEDULED,
+  attempt: 1,
+  maxAttempts: 3,
+  delayMs: 30_000,
+  before: 1000,
+  after: 100,
+};
+const _contextTrimBlocked: StreamEvent = {
+  ts: 1,
+  type: STREAM_EVENT_NAMES.CONTEXT_TRIM_BLOCKED,
+  reason: 'retry_exhausted',
+  attempts: 3,
+  maxAttempts: 3,
+};
 const _providerAttemptFailed: StreamEvent = {
   ts: 1,
   type: STREAM_EVENT_NAMES.PROVIDER_ATTEMPT_FAILED,
@@ -61,13 +77,15 @@ const _taskStarted: CliStreamEvent = {
 void _thinkingDelta;
 void _toolResult;
 void _llmRetryWaiting;
+void _contextTrimRetryScheduled;
+void _contextTrimBlocked;
 void _providerAttemptFailed;
 void _taskStarted;
 
 describe('StreamEvent contract', () => {
-  it('STREAM_EVENT_NAMES 成员数 == 50（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1968 +4 调用路径审计；phase 1969 -1 预算预警）', () => {
+  it('STREAM_EVENT_NAMES 成员数 == 52（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1968 +4 调用路径审计；phase 1969 -1 预算预警；phase 1978 +2 context trim）', () => {
     const keys = Object.keys(STREAM_EVENT_NAMES);
-    expect(keys.length).toBe(50);
+    expect(keys.length).toBe(52);
   });
 
   it('协议层不含上层业务事件（分层拆件：agent 6 / task 3 / daemon 1 归各模块 const）', () => {
