@@ -1,0 +1,325 @@
+import Foundation
+import XCTest
+@testable import LauncherCore
+
+/// Step D：失败恢复语义——send/stream 适配层对 ack、EOF、非零退出、daemon stopped、
+/// resync、取消和重复 stop 的处理。fixture 为内存 fake，不触碰真实进程/凭据/daemon。
+final class RecoveryTests: XCTestCase {
+    private func envelopeLine(_ kind: String, sequence: Int, payload: String = "{}") -> String {
+        """
+        {"protocolVersion":"chestnut.launcher.v1","sequence":\(sequence),"sessionId":"s1","kind":"\(kind)","payload":\(payload)}
+        """
+    }
+
+    // MARK: send
+
+    func testSendAcceptedWithAckEnvelope() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(
+                stdoutLines: [self.envelopeLine("ack", sequence: 1, payload: #"{"requestId":"r1"}"#)],
+                stderr: "",
+                exitCode: 0,
+                terminationSignal: nil
+            ))
+        }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        let ack = try await client.submit(requestId: "r1", text: "hi")
+        XCTAssertTrue(ack.accepted)
+        XCTAssertEqual(ack.requestId, "r1")
+        XCTAssertNil(ack.detail)
+        XCTAssertEqual(process.runArgv, [["send", "hi"]])
+    }
+
+    func testSendAcceptedWithoutAckEnvelopeLocksTheGap() async throws {
+        // 当前 CLI 无 ack envelope：exit 0 = inbox 已收，但缺口必须显式标注、不冒充协议成功
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(stdoutLines: ["Delivered to inbox"], stderr: "", exitCode: 0, terminationSignal: nil))
+        }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        let ack = try await client.submit(requestId: "r1", text: "hi")
+        XCTAssertTrue(ack.accepted)
+        XCTAssertEqual(ack.detail, "ack envelope pending (CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)")
+    }
+
+    func testSendNonZeroExitWithStderrIsRejected() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(stdoutLines: [], stderr: "claw not found\n", exitCode: 1, terminationSignal: nil))
+        }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        do {
+            _ = try await client.submit(requestId: "r1", text: "hi")
+            XCTFail("expected rejection")
+        } catch let error as ChatError {
+            guard case let .rejected(detail) = error else {
+                return XCTFail("expected rejected, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("claw not found"))
+        }
+    }
+
+    func testSendDaemonStoppedEnvelopeMapsToDaemonError() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(
+                stdoutLines: [self.envelopeLine("error", sequence: 1, payload: #"{"class":"daemon_stopped","detail":"motion daemon not running"}"#)],
+                stderr: "",
+                exitCode: 0,
+                terminationSignal: nil
+            ))
+        }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        do {
+            _ = try await client.submit(requestId: "r1", text: "hi")
+            XCTFail("expected daemon error")
+        } catch let error as ChatError {
+            guard case let .daemon(detail) = error else {
+                return XCTFail("expected daemon, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("motion daemon not running"))
+        }
+    }
+
+    func testSendAckRequestIdMismatchIsProtocolError() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(
+                stdoutLines: [self.envelopeLine("ack", sequence: 1, payload: #"{"requestId":"other"}"#)],
+                stderr: "",
+                exitCode: 0,
+                terminationSignal: nil
+            ))
+        }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        do {
+            _ = try await client.submit(requestId: "r1", text: "hi")
+            XCTFail("expected protocol error")
+        } catch let error as ChatError {
+            guard case .protocolMismatch = error else {
+                return XCTFail("expected protocolMismatch, got \(error)")
+            }
+        }
+    }
+
+    func testSendSignalTerminationIsTransport() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(stdoutLines: [], stderr: "", exitCode: 0, terminationSignal: 9))
+        }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        do {
+            _ = try await client.submit(requestId: "r1", text: "hi")
+            XCTFail("expected transport error")
+        } catch let error as ChatError {
+            guard case .transport = error else {
+                return XCTFail("expected transport, got \(error)")
+            }
+        }
+    }
+
+    func testSendLaunchFailureIsTransport() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in .failure(ChatError.transport(detail: "launch failed")) }
+        let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
+        do {
+            _ = try await client.submit(requestId: "r1", text: "hi")
+            XCTFail("expected transport error")
+        } catch let error as ChatError {
+            guard case .transport = error else {
+                return XCTFail("expected transport, got \(error)")
+            }
+        }
+    }
+
+    // MARK: stream
+
+    func testStreamDeliversEventsAndTerminalFinishesClean() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in
+            FakeStreamScript(lines: [
+                self.envelopeLine("event", sequence: 1, payload: #"{"messageId":"m1","text":"hi"}"#),
+                self.envelopeLine("terminal", sequence: 2),
+            ])
+        }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+        var envelopes: [LauncherEnvelope] = []
+        for try await envelope in client.events(fromSequence: nil) {
+            envelopes.append(envelope)
+        }
+        XCTAssertEqual(envelopes.map(\.kind), [.event, .terminal])
+    }
+
+    func testStreamEOFBeforeTerminalIsTransportError() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in
+            FakeStreamScript(lines: [self.envelopeLine("event", sequence: 1)])
+        }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+        do {
+            for try await _ in client.events(fromSequence: nil) {}
+            XCTFail("expected EOF transport error")
+        } catch let error as ChatError {
+            guard case let .transport(detail) = error else {
+                return XCTFail("expected transport, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("EOF"))
+        }
+    }
+
+    func testStreamMalformedLineIsProtocolError() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in FakeStreamScript(lines: ["not json at all"]) }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+        do {
+            for try await _ in client.events(fromSequence: nil) {}
+            XCTFail("expected protocol error")
+        } catch let error as ChatError {
+            guard case .protocolMismatch = error else {
+                return XCTFail("expected protocolMismatch, got \(error)")
+            }
+        }
+    }
+
+    func testStreamDaemonStoppedEnvelopeMapsToDaemonError() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in
+            FakeStreamScript(lines: [
+                self.envelopeLine("error", sequence: 1, payload: #"{"class":"daemon_stopped","detail":"gone"}"#),
+            ])
+        }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+        do {
+            for try await _ in client.events(fromSequence: nil) {}
+            XCTFail("expected daemon error")
+        } catch let error as ChatError {
+            guard case let .daemon(detail) = error else {
+                return XCTFail("expected daemon, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("gone"))
+        }
+    }
+
+    func testStreamResyncRequestFailsClosedWithoutSpawning() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in FakeStreamScript(lines: []) }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+        do {
+            for try await _ in client.events(fromSequence: 42) {}
+            XCTFail("expected fail-closed protocol error")
+        } catch let error as ChatError {
+            guard case .protocolMismatch = error else {
+                return XCTFail("expected protocolMismatch, got \(error)")
+            }
+        }
+        XCTAssertEqual(process.streamArgv.count, 0, "resync 无协议入口时不得启动进程、不伪造恢复成功")
+    }
+
+    func testStreamIsSingleFlight() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in FakeStreamScript(lines: [], waitsForStop: true) }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+
+        let first = client.events(fromSequence: nil)
+        try await Task.sleep(nanoseconds: 50_000_000) // 让第一个订阅先进入 running
+        let second = client.events(fromSequence: nil)
+        do {
+            for try await _ in second {}
+            XCTFail("second subscription must be rejected")
+        } catch let error as ChatError {
+            guard case .local = error else {
+                return XCTFail("expected local, got \(error)")
+            }
+        }
+        await client.stop()
+        for try await _ in first {}
+        XCTAssertEqual(process.stopCalls, 1)
+    }
+
+    func testStreamStopIsIdempotentAndClean() async throws {
+        let process = FakeChestnutProcess()
+        process.streamHandler = { _ in FakeStreamScript(lines: [], waitsForStop: true) }
+        let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
+        let stream = client.events(fromSequence: nil)
+        var iterator = stream.makeAsyncIterator()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        await client.stop()
+        await client.stop() // 重复 stop 安全
+        var thrown: Error?
+        do {
+            while let _ = try await iterator.next() {}
+        } catch {
+            thrown = error
+        }
+        XCTAssertNil(thrown, "用户主动 stop 不得表现为失败")
+        XCTAssertEqual(process.stopCalls, 2)
+    }
+}
+
+// MARK: - Fake process fixture
+
+struct FakeStreamScript {
+    var lines: [String]
+    var error: Error?
+    var waitsForStop: Bool
+
+    init(lines: [String], error: Error? = nil, waitsForStop: Bool = false) {
+        self.lines = lines
+        self.error = error
+        self.waitsForStop = waitsForStop
+    }
+}
+
+final class FakeChestnutProcess: ChestnutProcess, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [AsyncThrowingStream<String, Error>.Continuation] = []
+
+    var runHandler: (([String]) -> Result<ProcessOutput, Error>)?
+    var streamHandler: (([String]) -> FakeStreamScript)?
+
+    private(set) var runArgv: [[String]] = []
+    private(set) var streamArgv: [[String]] = []
+    private(set) var stopCalls = 0
+
+    func run(_ argv: [String]) async throws -> ProcessOutput {
+        let handler = lock.withLock { () -> (([String]) -> Result<ProcessOutput, Error>)? in
+            runArgv.append(argv)
+            return runHandler
+        }
+        guard let handler else { throw ChatError.local(detail: "no run handler") }
+        return try handler(argv).get()
+    }
+
+    func stream(_ argv: [String]) -> AsyncThrowingStream<String, Error> {
+        lock.lock()
+        streamArgv.append(argv)
+        let handler = streamHandler
+        lock.unlock()
+        return AsyncThrowingStream { continuation in
+            guard let handler else {
+                continuation.finish()
+                return
+            }
+            let script = handler(argv)
+            for line in script.lines { continuation.yield(line) }
+            if script.waitsForStop {
+                self.lock.lock()
+                self.pending.append(continuation)
+                self.lock.unlock()
+            } else {
+                continuation.finish(throwing: script.error)
+            }
+        }
+    }
+
+    func stop() async {
+        let pending = lock.withLock { () -> [AsyncThrowingStream<String, Error>.Continuation] in
+            stopCalls += 1
+            let pending = self.pending
+            self.pending = []
+            return pending
+        }
+        for continuation in pending { continuation.finish() }
+    }
+}
