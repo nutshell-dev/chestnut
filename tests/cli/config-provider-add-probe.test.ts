@@ -183,3 +183,114 @@ describe('config provider add — fallback probe', () => {
     expect(config.llm.fallbacks ?? []).toHaveLength(0);
   });
 });
+
+describe('config provider add — 多端点候选 probe（Phase 1973）', () => {
+  beforeEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    setupTempDir();
+    writeInitialConfig();
+    rlAnswers.queue = [];
+    connMock.checkLLMConnectionFor.mockReset();
+    connMock.promptReconfigure.mockReset();
+    mockRl.question.mockClear();
+    mockRl.close.mockClear();
+  });
+  afterEach(() => {
+    teardownTempDir();
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
+
+  it('Kimi 首胜即停：第三候选成功，第四候选未调用，winner baseUrl 落盘', async () => {
+    connMock.checkLLMConnectionFor
+      .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: true, model: 'k3-256k' });
+    // service 2 (Kimi), label, key, model default, role fallback, position default, save confirm
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(3);
+    // 每个候选 probe 使用用户 key（解析后非空）/model + 候选 baseUrl。
+    // 注意：本机进程环境可能已设 KIMI_API_KEY（分层解析 env 优先），
+    // 故不断言具体 key 值，只断言解析成功且 model 为用户输入。
+    for (const call of connMock.checkLLMConnectionFor.mock.calls) {
+      expect(typeof call[0].apiKey).toBe('string');
+      expect(call[0].apiKey.length).toBeGreaterThan(0);
+      expect(call[0].model).toBe('k3-256k');
+    }
+    expect(connMock.checkLLMConnectionFor.mock.calls.map(c => c[0].baseUrl)).toEqual([
+      'https://api.kimi.com/coding',
+      'https://api.kimi.ai/coding',
+      'https://api.moonshot.cn/anthropic',
+    ]);
+
+    // winner baseUrl + preset 落盘（不只看 mock 调用次数）
+    const config = loadGlobalConfig({ fsFactory });
+    const added = (config.llm.fallbacks ?? []).find(f => f.label === 'kimi-test');
+    expect(added).toBeDefined();
+    expect(added?.preset).toBe('kimi');
+    expect(added?.base_url).toBe('https://api.moonshot.cn/anthropic');
+    expect(added?.model).toBe('k3-256k');
+  });
+
+  it('Kimi 全败：所有候选 probe 失败时不写入配置', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some(f => f.label === 'kimi-test')).toBe(false);
+    expect(connMock.promptReconfigure).not.toHaveBeenCalled();
+  });
+
+  it('Qwen 7 候选首胜：winner baseUrl 落盘，preset 为 qwen', async () => {
+    connMock.checkLLMConnectionFor
+      .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '403', provider: 'qwen' })
+      .mockResolvedValueOnce({ ok: true, model: 'qwen3.8-max' });
+    // service 3 (Qwen), label, key, model default, role fallback, position default, save confirm
+    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
+    const config = loadGlobalConfig({ fsFactory });
+    const added = (config.llm.fallbacks ?? []).find(f => f.label === 'qwen-test');
+    expect(added?.preset).toBe('qwen');
+    expect(added?.base_url).toBe('https://dashscope-intl.aliyuncs.com/apps/anthropic');
+    expect(added?.model).toBe('qwen3.8-max');
+  });
+
+  it('Qwen 全败：7 个候选全部 probe 且不写入配置', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'model', message: '404', provider: 'qwen' });
+    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(7);
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some(f => f.label === 'qwen-test')).toBe(false);
+  });
+
+  it('非五家（Anthropic）仍只 probe 一次且无候选循环', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
+    // service 8 (Anthropic), label, key, model default, role fallback, position default, save confirm
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
+    // 非五家不写显式 base_url（走 preset 默认）
+    const config = loadGlobalConfig({ fsFactory });
+    const added = (config.llm.fallbacks ?? []).find(f => f.label === 'new-anthropic');
+    expect(added?.preset).toBe('anthropic');
+    expect(added?.base_url).toBeUndefined();
+  });
+});

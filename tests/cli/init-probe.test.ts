@@ -36,12 +36,15 @@ const { connMock } = vi.hoisted(() => ({
   connMock: {
     probeLLMConnection: vi.fn(),
     promptReconfigure: vi.fn(),
+    // Phase 1973 Step C：init 保存前的多端点候选 probe 走 checkLLMConnectionFor
+    checkLLMConnectionFor: vi.fn(),
   },
 }));
 
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: connMock.probeLLMConnection,
   promptReconfigure: connMock.promptReconfigure,
+  checkLLMConnectionFor: connMock.checkLLMConnectionFor,
   formatLLMError: vi.fn().mockReturnValue([]),
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',
@@ -250,5 +253,89 @@ describe('initCommand — probe failure: error message truncation', () => {
     const failEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_failed');
     const msgField = failEntry?.find(s => s.startsWith('message='));
     expect(msgField).toBeDefined();
+  });
+});
+
+describe('initCommand — 多端点候选 probe（Phase 1973）', () => {
+  let savedExitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    setupTempDir();
+    mockRl.question.mockClear();
+    mockRl.close.mockClear();
+    rlAnswers.queue = [];
+    auditCalls.entries = [];
+    connMock.probeLLMConnection.mockReset();
+    connMock.promptReconfigure.mockReset();
+    connMock.checkLLMConnectionFor.mockReset();
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+  });
+  afterEach(() => {
+    process.exitCode = savedExitCode;
+    teardownTempDir();
+  });
+
+  it('保存前端点选择：第二候选胜出 → winner baseUrl 进入 saved config', async () => {
+    connMock.checkLLMConnectionFor
+      .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: true, model: 'k3-256k' });
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'k3-256k' });
+    // service 2 (Kimi), api key, model default, save confirm
+    rlAnswers.queue = ['2', 'sk-kimi-key', '', 'y'];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    // 首胜即停：4 候选只 probe 2 个
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
+    expect(connMock.checkLLMConnectionFor.mock.calls.map(c => c[0].baseUrl)).toEqual([
+      'https://api.kimi.com/coding',
+      'https://api.kimi.ai/coding',
+    ]);
+    // 候选 probe 使用用户 key（解析后非空）/model。
+    // 本机进程环境可能已设 KIMI_API_KEY（分层解析 env 优先），不断言具体 key 值。
+    for (const call of connMock.checkLLMConnectionFor.mock.calls) {
+      expect(typeof call[0].apiKey).toBe('string');
+      expect(call[0].apiKey.length).toBeGreaterThan(0);
+      expect(call[0].model).toBe('k3-256k');
+    }
+
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.preset).toBe('kimi');
+    expect(config.llm.primary.base_url).toBe('https://api.kimi.ai/coding');
+    expect(config.llm.primary.model).toBe('k3-256k');
+
+    // 保存后仍保留 post-save probe（身份验证）
+    expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
+    const eventTypes = auditCalls.entries.map(e => e[0]);
+    expect(eventTypes).toContain('cli_init_probe_succeeded');
+  });
+
+  it('全败不保存：4 候选全部失败 → config 文件不存在，exitCode=2', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
+    rlAnswers.queue = ['2', 'sk-kimi-key', '', 'y'];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
+    expect(process.exitCode).toBe(2);
+    // 未保存 → 无 post-save probe
+    expect(connMock.probeLLMConnection).not.toHaveBeenCalled();
+    expect(connMock.promptReconfigure).not.toHaveBeenCalled();
+  });
+
+  it('非五家（Anthropic）保持保存后单次 probe 流程', async () => {
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
+    rlAnswers.queue = ['8', '', '', 'y'];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
+    expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.primary.preset).toBe('anthropic');
+    expect(config.llm.primary.base_url).toBeUndefined();
   });
 });
