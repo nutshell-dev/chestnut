@@ -414,13 +414,15 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         return result;
       });
       if (!outcome.winner) {
-        for (const attempt of outcome.attempts) {
-          if (attempt.result.ok) continue;
+        // Phase 1980 Step C：全败只打印一次结构化错误/hint（首个失败候选）；
+        // 每个候选的错误类型已由上方 → label ✗ type 状态行表达。
+        const firstFailure = outcome.attempts.find(attempt => !attempt.result.ok)?.result;
+        if (firstFailure && !firstFailure.ok) {
           formatLLMError({
-            errorType: attempt.result.errorType,
-            message: attempt.result.message,
-            provider: attempt.result.provider,
-            hint: LLM_ERROR_HINTS[attempt.result.errorType],
+            errorType: firstFailure.errorType,
+            message: firstFailure.message,
+            provider: firstFailure.provider,
+            hint: LLM_ERROR_HINTS[firstFailure.errorType],
           }).forEach(line => console.log(line));
         }
         console.log(SETUP_PROBE_FAILED_NOT_SAVED);

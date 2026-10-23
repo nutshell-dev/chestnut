@@ -37,6 +37,10 @@ const { connMock } = vi.hoisted(() => ({
     checkLLMConnection: vi.fn(),
     checkLLMConnectionFor: vi.fn(),
     promptReconfigure: vi.fn(),
+    // Phase 1980 Step C：暴露 formatLLMError 以断言全败时只调用一次
+    formatLLMError: vi.fn((probe: { errorType: string; message: string }) => [
+      `ERR:${probe.errorType}:${probe.message}`,
+    ]),
   },
 }));
 
@@ -44,7 +48,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: connMock.checkLLMConnection,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
   promptReconfigure: connMock.promptReconfigure,
-  formatLLMError: vi.fn().mockReturnValue([]),
+  formatLLMError: connMock.formatLLMError,
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',
     model: 'Model not found or unavailable',
@@ -81,6 +85,7 @@ beforeEach(() => {
   logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
     consoleLines.push(args.map(String).join(' '));
   });
+  connMock.formatLLMError.mockClear();
 });
 afterEach(() => {
   logSpy.mockRestore();
@@ -173,6 +178,8 @@ describe('config provider add — primary probe', () => {
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     // Phase 1972: probe failure does not commit and does not enter reconfigure.
+    // Phase 1980 Step C：单 endpoint 失败保持一次结构化错误/hint
+    expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-old');
@@ -253,6 +260,8 @@ describe('config provider add — fallback probe', () => {
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
+    // Phase 1980 Step C：单 endpoint 失败保持一次结构化错误/hint
+    expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
 
     // Phase 1972: unverified fallback is not persisted.
@@ -320,6 +329,13 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
+    // Phase 1980 Step C：全败只打印一次结构化错误/hint（首个失败候选）；
+    // 每个候选的错误类型由 → label ✗ type 状态行保留。
+    expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
+    expect(consoleLines.filter((l) => l.startsWith('→ Kimi') && l.includes('✗'))).toHaveLength(4);
+    expect(
+      consoleLines.filter((l) => l.includes('not saved because the connection check failed')),
+    ).toHaveLength(1);
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'kimi-test')).toBe(false);
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
@@ -351,6 +367,12 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(7);
+    // Phase 1980 Step C：Qwen 7 候选全败，formatLLMError 恰好一次（不再按候选重复）
+    expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
+    expect(consoleLines.filter((l) => l.startsWith('→ Qwen') && l.includes('✗'))).toHaveLength(7);
+    expect(
+      consoleLines.filter((l) => l.includes('not saved because the connection check failed')),
+    ).toHaveLength(1);
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'qwen-test')).toBe(false);
   });
