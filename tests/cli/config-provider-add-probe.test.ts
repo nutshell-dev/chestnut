@@ -185,49 +185,38 @@ describe('config provider add — primary probe', () => {
     expect(config.llm.primary.api_key).toBe('sk-ant-old');
   });
 
-  it('custom model keeps redacted preview and Save confirmation', async () => {
+  it('custom model also skips preview/Save and probes directly', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-custom' });
-    // service 8 (Anthropic), label, key, custom model, role fallback, position default, save confirm
-    rlAnswers.queue = ['8', 'custom-anthropic', 'sk-ant-new', 'claude-custom', '2', '1', 'y'];
+    // service 8 (Anthropic), label, key, custom model, role fallback, position default
+    rlAnswers.queue = ['8', 'custom-anthropic', 'sk-ant-new', 'claude-custom', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
-    // Phase 1980 Step B：非默认 model 属自定义 → 保留脱敏 preview + Save 确认
+    // provider add 不再显示完整 preview/Save（固定与自定义一致）
     const out = consoleLines.join('\n');
-    expect(out).toContain('Configuration preview');
-    expect(out).not.toContain('sk-ant-new');
-    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(true);
+    expect(out).not.toContain('Configuration preview');
+    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(false);
+    expect(out).toContain('Connecting to Anthropic (claude-custom)...');
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some((f) => f.label === 'custom-anthropic')).toBe(true);
   });
 
-  it('custom model cancel at Save does not probe or persist', async () => {
-    // service 8 (Anthropic), label, key, custom model, role fallback, position default, save 'n'
-    rlAnswers.queue = ['8', 'cancel-anthropic', 'sk-ant-new', 'claude-custom', '2', '1', 'n'];
-
-    const cmd = createConfigCommand(configDeps);
-    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
-
-    // 取消不 probe、不写配置
-    expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
-    const config = loadGlobalConfig({ fsFactory });
-    expect((config.llm.fallbacks ?? [])).toHaveLength(0);
-  });
-
-  it('Other (custom endpoint) keeps preview and Save confirmation', async () => {
+  it('Other (custom endpoint) skips preview/Save, shows endpoint, probes directly', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'gpt-custom' });
-    // service 12 (Other), format 2 (OpenAI), label, key, baseUrl, model, role fallback, position, save
-    rlAnswers.queue = ['12', '2', 'other-test', 'sk-other', 'https://example.com/v1', 'gpt-custom', '2', '1', 'y'];
+    // service 12 (Other), format 2 (OpenAI), label, key, baseUrl, model, role fallback, position
+    rlAnswers.queue = ['12', '2', 'other-test', 'sk-other', 'https://example.com/v1', 'gpt-custom', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     const out = consoleLines.join('\n');
-    expect(out).toContain('Configuration preview');
-    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(true);
+    expect(out).not.toContain('Configuration preview');
+    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(false);
+    expect(out).toContain('Connecting to Other (gpt-custom)...');
+    expect(out).toContain('Endpoint: https://example.com/v1');
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const config = loadGlobalConfig({ fsFactory });

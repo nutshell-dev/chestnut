@@ -36,13 +36,12 @@ import {
   SETUP_CANCELLED,
   SETUP_PROBE_FAILED_NOT_SAVED,
   setupConnectingLine,
-  setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
-import { SETUP_PROVIDER_CATALOG, describeEffectiveThinking, type SetupProviderChoice, type SetupProbeCandidate } from '../setup-provider-catalog.js';
+import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice, type SetupProbeCandidate } from '../setup-provider-catalog.js';
 import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
@@ -185,25 +184,6 @@ function findProviderIndex(config: ClawGlobalConfig, label: string): { type: 'pr
 // 无 scope 直调回落裸创建）；与 notifyRunningDaemons 同根（chestnutRoot）。
 function configAudit(deps: ConfigCommandDeps): AuditLog {
   return actionAuditFor(getChestnutRoot(), deps);
-}
-
-// Phase 1980 Step B：固定默认服务判据（与 first-run-setup requiresConfirmation 同原则）。
-// label 不参与判定；多端点候选此时 baseUrl 为空仍属固定（winner 在 probe 后落盘）。
-function isFixedDefaultSetup(
-  service: { kind: 'setup'; choice: SetupProviderChoice } | { kind: 'advanced' },
-  model: string,
-  baseUrl: string | undefined,
-): boolean {
-  if (service.kind !== 'setup') return false;
-  const choice = service.choice;
-  if (choice.auth === 'advanced') return false;
-  if (choice.target.providerId) return false;
-  const preset = choice.target.preset ? PRESETS[choice.target.preset] : undefined;
-  if (!preset) return false;
-  const defaultModel = choice.defaultModel ?? preset.defaultModel;
-  if (!defaultModel || model !== defaultModel) return false;
-  if (baseUrl && baseUrl !== preset.defaultBaseUrl) return false;
-  return true;
 }
 
 // provider add command
@@ -363,36 +343,13 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       positionFromPrompt = position;
     }
 
-    // Phase 1972: redacted preview before probe/commit (never includes the secret).
+    // Phase 1980 follow-up: provider add 不显示完整 preview/Save（固定与自定义一致）；
+    // probe-before-commit 是真实校验门；仅 Primary 降级确认保留。
     const probeCandidates =
       service.kind === 'setup' ? service.choice.probeCandidates : undefined;
-    // Phase 1980 Step B：固定默认服务跳过低信息量 preview/Save（对齐 phase 1976 首次 start）；
-    // 自定义（Other/Advanced/catalog-only/非默认 model/自定义 baseUrl）保留脱敏 preview + 确认。
-    if (isFixedDefaultSetup(service, model, baseUrl)) {
-      console.log(setupConnectingLine(serviceName, model));
-    } else {
-      setupDraftPreviewLines({
-        label,
-        model,
-        auth: authProfile === 'local' ? 'local' : authProfile === 'api_key' ? 'API key' : authProfile,
-        role,
-        // Phase 1979: preset 默认 thinking（custom/Other 显示；固定服务由 helper 决定）
-        ...(describeEffectiveThinking(presetId, model) !== undefined && {
-          thinking: describeEffectiveThinking(presetId, model),
-        }),
-        ...(baseUrl && { baseUrl }),
-        ...(apiKey && { keyRef: apiKey }),
-      }).forEach(line => console.log(line));
-      // Phase 1973 Step C：多端点候选的服务预览显式标注 auto-probe（不含 secret）。
-      if (probeCandidates && probeCandidates.length > 0) {
-        console.log(`  Endpoint: auto-probe (${probeCandidates.length})`);
-      }
-
-      const saveAnswer = await question(rl, 'Save this provider? [Y/n]', 'Y');
-      if (saveAnswer.toLowerCase() === 'n') {
-        console.log(SETUP_CANCELLED);
-        return;
-      }
+    console.log(setupConnectingLine(serviceName, model));
+    if (baseUrl) {
+      console.log(`  Endpoint: ${baseUrl}`);
     }
 
     // Phase 1972: probe before commit. Unverified providers are not persisted.
