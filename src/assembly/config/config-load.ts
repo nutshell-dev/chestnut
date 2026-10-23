@@ -498,6 +498,14 @@ export function snapshotLLMConfig(
   return { config, identity: llmConfigIdentity(config) };
 }
 
+/**
+ * Phase 1976：未落盘 draft 的身份快照——经 owner schema 默认填充后派生，
+ * 与磁盘 loadGlobal 的 resolved object 同形，保证 probe 的身份可跨提交比较。
+ */
+export function snapshotLLMConfigInput(input: ClawGlobalConfigInput): LLMConfigSnapshot {
+  return snapshotLLMConfig(createGlobalConfigSchema().parse(input));
+}
+
 /** typed invalidation：验证身份与消费时身份不一致（fail-closed 证据）。 */
 export class LLMConfigIdentityMismatchError extends Error {
   readonly expected: string;

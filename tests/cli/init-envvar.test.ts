@@ -34,6 +34,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnectionFor: async (provider: { model: string }) => ({ ok: true, model: provider.model }),
   promptReconfigure: async () => null,
   formatLLMError: () => [],
+  summarizeLLMFailure: (probe: { errorType: string; message: string; provider?: string }) => ({
+    ...probe,
+    repairActions: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
+  }),
+  LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',
     model: 'Model not found or unavailable',
@@ -161,8 +166,8 @@ describe('initCommand — 服务目录与凭据', () => {
     expect(config.llm.primary.base_url).toBe('https://api.openai.com/v1');
   });
 
-  it('预览阶段取消：不写配置', async () => {
-    resetAnswers(['8', 'sk-ant-manual', '', 'n']);
+  it('Other 条件确认取消：不写配置（固定服务无低信息量预览）', async () => {
+    resetAnswers(['12', '2', 'https://api.openai.com/v1', 'sk-manual', 'gpt-4o', 'n']);
     await initCommand(commandDeps, true);
     expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
   });

@@ -33,9 +33,8 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
-import { buildInitialConfig } from './commands/init.js';
 import { findSetupProvider } from './setup-provider-catalog.js';
-import { storeKeyAsCredential } from './credentials-prompt.js';
+import { storeKeyAsCredential, type StoreKeyHooks } from './credentials-prompt.js';
 import {
   probeLLMConnection,
   promptReconfigure,
@@ -68,10 +67,7 @@ export const START_GATE_EXIT_CODE = 3;
 
 interface GateDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<
-    RootConfigAdmin,
-    'loadGlobal' | 'saveGlobalExclusive' | 'patchPrimary' | 'completeInitialization'
-  >;
+  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
 /** 给了配置参数但缺 --non-interactive → 用法错误（不猜意图、不静默忽略参数）。 */
@@ -135,11 +131,13 @@ export function missingStartLLMParams(opts: StartLLMOptions): string[] {
 /**
  * 解析非交互 API key 输入为配置值（${REF} 引用）。
  * --api-key-env 优先；否则 CHESTNUT_LLM_API_KEY 明文经 Credentials owner 落凭据文件。
+ * Phase 1976：首次配置向导复用同一实现，经 hooks 记录本次新建的凭据条目。
  */
-async function resolveNonInteractiveApiKey(
-  deps: GateDeps,
+export async function resolveNonInteractiveApiKey(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
   opts: StartLLMOptions,
   presetId: string,
+  hooks?: StoreKeyHooks,
 ): Promise<string> {
   if (opts.apiKeyEnv) {
     if (!process.env[opts.apiKeyEnv]) {
@@ -155,18 +153,16 @@ async function resolveNonInteractiveApiKey(
     );
   }
   const preset = PRESETS[presetId];
-  return storeKeyAsCredential(deps, raw, { envVar: preset?.envVar, seed: presetId });
+  return storeKeyAsCredential(deps, raw, { envVar: preset?.envVar, seed: presetId }, hooks);
 }
 
 /**
- * 非交互配置输入落盘。
- * first-run：buildInitialConfig + saveGlobalExclusive（并发 loser 由 caller 重读重验）；
- * initialized：patchPrimary 部分字段（只覆盖显式给出的参数）。
+ * 已初始化 workspace 的非交互配置输入：patchPrimary 部分字段（只覆盖显式给出的参数）。
+ * Phase 1976：首次配置不再经此写入——由 first-run-setup 的 draft→probe→commit 负责。
  */
 export async function applyStartLLMOptions(
   deps: GateDeps,
   opts: StartLLMOptions,
-  phase: 'first-run' | 'initialized',
 ): Promise<void> {
   const setup = opts.provider ? findSetupProvider(opts.provider) : undefined;
   if (setup?.auth === 'advanced') {
@@ -184,26 +180,6 @@ export async function applyStartLLMOptions(
   const apiKey = (opts.apiKeyEnv || process.env[START_LLM_API_KEY_ENV])
     ? await resolveNonInteractiveApiKey(deps, opts, presetId)
     : undefined;
-
-  if (phase === 'first-run') {
-    const missing = missingStartLLMParams(opts);
-    if (missing.length > 0) {
-      throw new CliError(
-        `Missing required non-interactive params: ${missing.join(', ')}`,
-        { code: START_USAGE_EXIT_CODE },
-      );
-    }
-    // missingStartLLMParams 已按 profile 保证 apiKey 可解析（ambient/oauth 可无 key）
-    const config = buildInitialConfig({
-      ...(catalogProviderId ? { providerId: catalogProviderId } : { presetId }),
-      apiKey,
-      model: opts.model ?? 'auto',
-      baseUrl: opts.baseUrl,
-    });
-    deps.rootConfig.saveGlobalExclusive(config);
-    deps.rootConfig.completeInitialization();
-    return;
-  }
 
   // provider 换边时清除互斥字段（patch 语义：undefined = 删键）
   const patch: { preset?: string; provider_id?: string; model?: string; base_url?: string; api_key?: string } = {};

@@ -44,9 +44,15 @@ const h = vi.hoisted(() => ({
   ensureOutcome: undefined as Promise<unknown> | undefined,
 }));
 
-vi.mock('../../src/cli/commands/init.js', () => ({
-  // Phase 1926 Step C：initCommand 返回带身份的验证事实（本路径未验证 → 缺席）
-  initCommand: vi.fn(async () => ({ verified: undefined })),
+vi.mock('../../src/cli/first-run-setup.js', () => ({
+  // Phase 1976：本测试治 spawn race，首次 setup 以已验证事实 no-op。
+  runFirstRunSetup: vi.fn(async () => ({
+    kind: 'verified',
+    verified: { snapshot: { config: {}, identity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'init' },
+  })),
+  runNonInteractiveFirstRun: vi.fn(async () => {
+    throw new Error('unexpected non-interactive first-run setup');
+  }),
 }));
 
 // Phase 1925 Step E / 1926 Step C：LLM 验证门控独立 own 测试；本文件治 generation
@@ -54,6 +60,11 @@ vi.mock('../../src/cli/commands/init.js', () => ({
 vi.mock('../../src/cli/start-llm-gate.js', () => ({
   validateStartLLMOptions: vi.fn(),
   applyStartLLMOptions: vi.fn(async () => {}),
+  START_GATE_EXIT_CODE: 3,
+  START_USAGE_EXIT_CODE: 2,
+  START_LLM_API_KEY_ENV: 'CHESTNUT_LLM_API_KEY',
+  missingStartLLMParams: vi.fn(() => []),
+  resolveNonInteractiveApiKey: vi.fn(async () => '${ANTHROPIC_API_KEY}'),
   ensureStartLLMVerified: vi.fn(async () => ({
     snapshot: { config: {}, identity: 'test-gate-identity' },
     probe: { model: 'test-model' },

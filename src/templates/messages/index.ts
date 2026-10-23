@@ -14,8 +14,15 @@ export {
   SETUP_OTHER_FORMAT_LINES,
   SETUP_CANCELLED,
   SETUP_PROBE_FAILED_NOT_SAVED,
+  SETUP_CONFIRM_PROMPT,
+  SETUP_REPAIR_HEADING,
+  SETUP_ENDPOINTS_ALL_FAILED,
   setupProviderMenuLines,
   setupDraftPreviewLines,
+  setupConnectingLine,
+  setupRepairMenuLines,
+  setupCredentialDiscardedLine,
+  setupCredentialCleanupFailedLine,
   type SetupDraftPreviewInput,
 } from './setup.js';
 export { startupCheckMessage } from './startup.js';

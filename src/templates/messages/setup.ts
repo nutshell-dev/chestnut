@@ -46,3 +46,35 @@ export function setupDraftPreviewLines(input: SetupDraftPreviewInput): string[] 
 
 export const SETUP_PROBE_FAILED_NOT_SAVED =
   'Provider was not saved because the connection check failed. Fix the credentials/endpoint and run the command again.';
+
+/** Phase 1976：单一 start 配置向导的阶段文案（失败后留在向导内修复）。 */
+export function setupConnectingLine(label: string, model: string): string {
+  return `Connecting to ${label} (${model})...`;
+}
+
+export const SETUP_CONFIRM_PROMPT = 'Continue with this configuration? [Y/n]';
+
+export const SETUP_REPAIR_HEADING = 'LLM verification failed. Choose how to fix the configuration:';
+
+export function setupRepairMenuLines(): string[] {
+  return [
+    '',
+    SETUP_REPAIR_HEADING,
+    '  1. Retry connection',
+    '  2. Re-enter API key',
+    '  3. Change model',
+    '  4. Change service',
+    '  n. Cancel start',
+  ];
+}
+
+export const SETUP_ENDPOINTS_ALL_FAILED =
+  'All endpoint candidates failed — configuration not saved.';
+
+export function setupCredentialDiscardedLine(ref: string): string {
+  return `Discarded unused credential \${${ref}} (setup was not committed).`;
+}
+
+export function setupCredentialCleanupFailedLine(ref: string, reason: string): string {
+  return `⚠ Could not clean up unused credential \${${ref}}: ${reason}`;
+}

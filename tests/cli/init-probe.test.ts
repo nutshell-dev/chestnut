@@ -1,5 +1,8 @@
 /**
- * Phase 1470 — init.ts LLM API probe + reconfigure failure paths
+ * Phase 1470 / 1976 — init 首次配置向导：draft → probe → 修复 → 成功提交。
+ *
+ * 失败/取消不发布 root config 与 ready；auth/model/network 等失败统一留在
+ * 单一修复菜单（retry / edit-key / edit-model / edit-provider / cancel）。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -9,6 +12,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLocalCredentials } from '../../src/foundation/credentials/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
@@ -29,31 +33,36 @@ vi.mock('readline', () => ({
 }));
 
 // ── llm-connection-check mock ─────────────────────────────────────────────────
-// 由 caller per-test 重设 mock 行为
-// Phase 1926 Step C：init probe 缝改 probeLLMConnection（snapshot 身份协议）；
-// promptReconfigure 成功返回已 probe 的快照对象（不再是 boolean）。
 const { connMock } = vi.hoisted(() => ({
   connMock: {
     probeLLMConnection: vi.fn(),
-    promptReconfigure: vi.fn(),
-    // Phase 1973 Step C：init 保存前的多端点候选 probe 走 checkLLMConnectionFor
+    // Phase 1973 Step C：setup 多端点候选 probe 走 checkLLMConnectionFor
     checkLLMConnectionFor: vi.fn(),
   },
 }));
 
+const MOCK_LABELS: Record<string, string> = {
+  auth: 'API key invalid or unauthorized',
+  model: 'Model not found or unavailable',
+  network: 'Network error',
+  rate_limit: 'Rate limit',
+  quota: 'Account quota or credit exhausted',
+  unknown: 'Unrecognized provider error',
+};
+
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: connMock.probeLLMConnection,
-  promptReconfigure: connMock.promptReconfigure,
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
-  formatLLMError: vi.fn().mockReturnValue([]),
-  LLM_ERROR_LABELS: {
-    auth: 'API key invalid or unauthorized',
-    model: 'Model not found or unavailable',
-    network: 'Network error',
-    rate_limit: 'Rate limit',
-    quota: 'Account quota or credit exhausted',
-    unknown: 'Unrecognized provider error',
-  },
+  formatLLMError: (probe: { errorType: string; message: string }) => [
+    `✗ ${MOCK_LABELS[probe.errorType] ?? probe.errorType}`,
+    `  ${probe.message}`,
+  ],
+  summarizeLLMFailure: (probe: { errorType: string; message: string; provider?: string }) => ({
+    ...probe,
+    repairActions: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
+  }),
+  LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
+  LLM_ERROR_LABELS: MOCK_LABELS,
   LLM_ERROR_HINTS: {
     model: 'Check that model name matches provider docs exactly.',
   },
@@ -106,146 +115,110 @@ function teardownTempDir() {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
+function resetProbeMocks() {
+  rlAnswers.queue = [];
+  auditCalls.entries = [];
+  connMock.probeLLMConnection.mockReset();
+  connMock.checkLLMConnectionFor.mockReset();
+}
+
 describe('initCommand — probe success path', () => {
   beforeEach(() => {
     setupTempDir();
+    resetProbeMocks();
     mockRl.question.mockClear();
     mockRl.close.mockClear();
-    rlAnswers.queue = [];
-    auditCalls.entries = [];
-    connMock.probeLLMConnection.mockReset();
-    connMock.promptReconfigure.mockReset();
   });
   afterEach(() => teardownTempDir());
 
-  it('probe succeeds → config saved + INIT_PROBE_SUCCEEDED audit', async () => {
+  it('固定服务默认 model → 单次 probe → config + ready 提交', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', '', 'y']; // branch 1, pick 1, model=auto
+    rlAnswers.queue = ['8', '', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.preset).toBe('anthropic');
 
+    expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_attempted');
     expect(eventTypes).toContain('cli_init_probe_succeeded');
     expect(eventTypes).toContain('cli_init_done');
-    expect(connMock.promptReconfigure).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', '.initialized'))).toBe(true);
   });
 });
 
-describe('initCommand — probe failure: auth → reconfigure success', () => {
+describe('initCommand — 失败后留在向导内修复', () => {
   beforeEach(() => {
     setupTempDir();
-    mockRl.question.mockClear();
-    rlAnswers.queue = [];
-    auditCalls.entries = [];
-    connMock.probeLLMConnection.mockReset();
-    connMock.promptReconfigure.mockReset();
+    resetProbeMocks();
   });
   afterEach(() => teardownTempDir());
 
-  it('auth error → promptReconfigure invoked → user fixes → INIT_PROBE_RECONFIGURED', async () => {
-    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401 Unauthorized' });
-    connMock.promptReconfigure.mockResolvedValue({ config: { primary: { model: 'fixed-model' } }, identity: 'fixed-identity' });
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-bad');
-    rlAnswers.queue = ['8', '', '', 'y'];
+  it('auth 失败 → 重输 key 成功 → INIT_PROBE_RECONFIGURED + 提交', async () => {
+    connMock.probeLLMConnection
+      .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401 Unauthorized' })
+      .mockResolvedValue({ ok: true, model: 'claude-test' });
+    rlAnswers.queue = ['8', 'sk-ant-bad', '', '2', 'sk-ant-good'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
-    expect(connMock.promptReconfigure).toHaveBeenCalledOnce();
-    expect(connMock.promptReconfigure).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      'auth',
-    );
-
+    expect(connMock.probeLLMConnection).toHaveBeenCalledTimes(2);
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_failed');
     expect(eventTypes).toContain('cli_init_probe_reconfigured');
+    expect(eventTypes).toContain('cli_init_probe_succeeded');
     expect(eventTypes).toContain('cli_init_done');
 
     const failEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_failed');
     expect(failEntry?.some(s => s.includes('auth'))).toBe(true);
+    // 配置只存 ${REF}，load 时展开为用户级凭据值
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
+    expect(rawYaml).not.toContain('sk-ant-good');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('sk-ant-good');
   });
-});
 
-describe('initCommand — probe failure: auth → user exits reconfigure', () => {
-  beforeEach(() => {
-    setupTempDir();
-    rlAnswers.queue = [];
-    auditCalls.entries = [];
-    connMock.probeLLMConnection.mockReset();
-    connMock.promptReconfigure.mockReset();
-  });
-  afterEach(() => teardownTempDir());
-
-  it('user exits reconfigure → INIT_PROBE_SKIPPED + config still saved', async () => {
-    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'model', message: '404 model not found' });
-    connMock.promptReconfigure.mockResolvedValue(null); // user picks 'n' exit
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', 'bogus-model', 'y'];
+  it('auth 失败 → 用户取消 → 不发布 config/ready，清理本次新建凭据', async () => {
+    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'auth', message: '401 Unauthorized' });
+    rlAnswers.queue = ['8', 'sk-ant-bad', '', 'n'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
-    // config still saved (user can fix later)
-    const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.model).toBe('bogus-model');
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', '.initialized'))).toBe(false);
 
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_failed');
     expect(eventTypes).toContain('cli_init_probe_skipped');
-
     const skipEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_skipped');
-    expect(skipEntry?.some(s => s.includes('user_exit_reconfigure'))).toBe(true);
-  });
-});
+    expect(skipEntry?.some(s => s.includes('user_cancel'))).toBe(true);
 
-describe('initCommand — probe failure: network → warn but continue', () => {
-  beforeEach(() => {
-    setupTempDir();
-    rlAnswers.queue = [];
-    auditCalls.entries = [];
-    connMock.probeLLMConnection.mockReset();
-    connMock.promptReconfigure.mockReset();
+    const credentials = createLocalCredentials({ fsFactory });
+    expect(credentials.resolve('ANTHROPIC_API_KEY')).toBeUndefined();
   });
-  afterEach(() => teardownTempDir());
 
-  it('network error → no reconfigure prompt + INIT_PROBE_SKIPPED(transient_network)', async () => {
-    connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: 'ECONNREFUSED' });
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', '', 'y'];
+  it('network 失败 → retry 成功 → 提交', async () => {
+    connMock.probeLLMConnection
+      .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'ECONNREFUSED' })
+      .mockResolvedValue({ ok: true, model: 'claude-test' });
+    rlAnswers.queue = ['8', 'sk-ant-xxx', '', '1'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
-    expect(connMock.promptReconfigure).not.toHaveBeenCalled();
-
+    expect(connMock.probeLLMConnection).toHaveBeenCalledTimes(2);
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.preset).toBe('anthropic');
     const eventTypes = auditCalls.entries.map(e => e[0]);
-    expect(eventTypes).toContain('cli_init_probe_failed');
-    expect(eventTypes).toContain('cli_init_probe_skipped');
-
-    const skipEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_skipped');
-    expect(skipEntry?.some(s => s.includes('transient_network'))).toBe(true);
+    expect(eventTypes).toContain('cli_init_probe_succeeded');
+    expect(eventTypes).toContain('cli_init_done');
   });
-});
 
-describe('initCommand — probe failure: error message truncation', () => {
-  beforeEach(() => {
-    setupTempDir();
-    rlAnswers.queue = [];
-    auditCalls.entries = [];
-    connMock.probeLLMConnection.mockReset();
-    connMock.promptReconfigure.mockReset();
-  });
-  afterEach(() => teardownTempDir());
-
-  it('long error message → delegated to audit.message for truncation', async () => {
+  it('长错误消息 → 经 audit.message 截断', async () => {
     const longMsg = 'X'.repeat(500);
     connMock.probeLLMConnection.mockResolvedValue({ ok: false, errorType: 'network', message: longMsg });
-    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', '', 'y'];
+    rlAnswers.queue = ['8', 'sk-ant-xxx', '', 'n'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -256,33 +229,19 @@ describe('initCommand — probe failure: error message truncation', () => {
   });
 });
 
-describe('initCommand — 多端点候选 probe（Phase 1973）', () => {
-  let savedExitCode: typeof process.exitCode;
-
+describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
   beforeEach(() => {
     setupTempDir();
-    mockRl.question.mockClear();
-    mockRl.close.mockClear();
-    rlAnswers.queue = [];
-    auditCalls.entries = [];
-    connMock.probeLLMConnection.mockReset();
-    connMock.promptReconfigure.mockReset();
-    connMock.checkLLMConnectionFor.mockReset();
-    savedExitCode = process.exitCode;
-    process.exitCode = undefined;
+    resetProbeMocks();
   });
-  afterEach(() => {
-    process.exitCode = savedExitCode;
-    teardownTempDir();
-  });
+  afterEach(() => teardownTempDir());
 
-  it('保存前端点选择：第二候选胜出 → winner baseUrl 进入 saved config', async () => {
+  it('保存前端点选择：第二候选胜出 → winner baseUrl 进入 committed config', async () => {
     connMock.checkLLMConnectionFor
       .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'kimi' })
       .mockResolvedValueOnce({ ok: true, model: 'k3-256k' });
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'k3-256k' });
-    // service 2 (Kimi), api key, model default, save confirm
-    rlAnswers.queue = ['2', 'sk-kimi-key', '', 'y'];
+    rlAnswers.queue = ['2', 'sk-kimi-key', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
@@ -292,8 +251,6 @@ describe('initCommand — 多端点候选 probe（Phase 1973）', () => {
       'https://api.kimi.com/coding',
       'https://api.kimi.ai/coding',
     ]);
-    // 候选 probe 使用用户 key（解析后非空）/model。
-    // 本机进程环境可能已设 KIMI_API_KEY（分层解析 env 优先），不断言具体 key 值。
     for (const call of connMock.checkLLMConnectionFor.mock.calls) {
       expect(typeof call[0].apiKey).toBe('string');
       expect(call[0].apiKey.length).toBeGreaterThan(0);
@@ -305,30 +262,30 @@ describe('initCommand — 多端点候选 probe（Phase 1973）', () => {
     expect(config.llm.primary.base_url).toBe('https://api.kimi.ai/coding');
     expect(config.llm.primary.model).toBe('k3-256k');
 
-    // 保存后仍保留 post-save probe（身份验证）
+    // 端点选择后仅一次身份 probe（probe-before-commit）
     expect(connMock.probeLLMConnection).toHaveBeenCalledOnce();
     const eventTypes = auditCalls.entries.map(e => e[0]);
     expect(eventTypes).toContain('cli_init_probe_succeeded');
   });
 
-  it('全败不保存：4 候选全部失败 → config 文件不存在，exitCode=2', async () => {
+  it('全败不保存：候选全失败 → 修复菜单取消 → config 不存在、零身份 probe', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
-    rlAnswers.queue = ['2', 'sk-kimi-key', '', 'y'];
+    rlAnswers.queue = ['2', 'sk-kimi-key', '', 'n'];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
     expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
-    expect(process.exitCode).toBe(2);
-    // 未保存 → 无 post-save probe
     expect(connMock.probeLLMConnection).not.toHaveBeenCalled();
-    expect(connMock.promptReconfigure).not.toHaveBeenCalled();
+    const eventTypes = auditCalls.entries.map(e => e[0]);
+    expect(eventTypes).toContain('cli_init_probe_failed');
+    expect(eventTypes).toContain('cli_init_probe_skipped');
   });
 
-  it('非五家（Anthropic）保持保存后单次 probe 流程', async () => {
+  it('非五家（Anthropic）保持单 endpoint 流程', async () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
-    rlAnswers.queue = ['8', '', '', 'y'];
+    rlAnswers.queue = ['8', '', ''];
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 

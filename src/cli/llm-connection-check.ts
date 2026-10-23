@@ -81,6 +81,41 @@ export const LLM_ERROR_HINTS: Partial<Record<LLMErrorType, string>> = {
 const LLM_ERROR_PREVIEW_CHARS = 200;
 
 /**
+ * Phase 1976：首次 setup 失败后的修复动作。菜单呈现归 setup 向导；
+ * 本模块只提供稳定的动作集合与失败摘要，不再持有 start 的首屏菜单。
+ */
+export type LLMRepairAction = 'retry' | 'edit-key' | 'edit-model' | 'edit-provider' | 'cancel';
+
+export const LLM_REPAIR_ACTIONS: readonly LLMRepairAction[] = [
+  'retry',
+  'edit-key',
+  'edit-model',
+  'edit-provider',
+  'cancel',
+];
+
+export interface LLMFailureSummary {
+  errorType: LLMErrorType;
+  message: string;
+  provider?: string;
+  hint?: string;
+  repairActions: readonly LLMRepairAction[];
+}
+
+export function summarizeLLMFailure(
+  probe: { errorType: LLMErrorType; message: string; provider?: string },
+): LLMFailureSummary {
+  const hint = LLM_ERROR_HINTS[probe.errorType];
+  return {
+    errorType: probe.errorType,
+    message: probe.message,
+    ...(probe.provider !== undefined && { provider: probe.provider }),
+    ...(hint !== undefined && { hint }),
+    repairActions: LLM_REPAIR_ACTIONS,
+  };
+}
+
+/**
  * Format a failed LLM probe result as console output lines (callers do console.log(...lines)).
  * Single source of truth for LLM error display across init / config / reconfigure.
  */

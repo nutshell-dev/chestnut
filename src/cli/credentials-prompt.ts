@@ -41,6 +41,11 @@ export interface StoreKeyContext {
   seed?: string;
 }
 
+/** Phase 1976：setup 向导需要知道本次是否新建了凭据文件条目，以便失败/取消时清理。 */
+export interface StoreKeyHooks {
+  onStored?(ref: string, info: { created: boolean; value: string }): void;
+}
+
 /**
  * 把用户输入的 API key 转为配置可存的 `${REF}` 引用：
  * - 输入已是 `${VAR}` 字面 → 原样返回（引用语义由用户显式给出，不碰凭据文件）；
@@ -53,17 +58,22 @@ export async function storeKeyAsCredential(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   input: string,
   ctx: StoreKeyContext,
+  hooks?: StoreKeyHooks,
 ): Promise<string> {
   const trimmed = input.trim();
   if (isCredentialReference(trimmed)) return trimmed;
   const ref = ctx.envVar ?? deriveCredentialRef(ctx.seed ?? 'primary');
   const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+  // 逐层已可解析（env / credentials 文件 / .env）= 已存在，取消时不得删除。
+  const existed = credentials.resolve(ref) !== undefined;
   try {
     await credentials.set(ref, trimmed);
     console.log(`✓ Stored key as credential reference \${${ref}} (user credentials file)`);
+    hooks?.onStored?.(ref, { created: !existed, value: trimmed });
   } catch (err) {
     if (isCredentialsError(err) && err.code === 'shadowed_by_env') {
       console.log(`✓ Will read ${ref} from the process environment at runtime`);
+      hooks?.onStored?.(ref, { created: false, value: trimmed });
     } else {
       throw err;
     }

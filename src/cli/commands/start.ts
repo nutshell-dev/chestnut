@@ -15,10 +15,12 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
 import type { RootConfigAdmin, InitializationState } from '../../assembly/index.js';
-import { GlobalConfigAlreadyExistsError } from '../../assembly/index.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
-import { initCommand } from './init.js';
+import {
+  runFirstRunSetup,
+  runNonInteractiveFirstRun,
+} from '../first-run-setup.js';
 import {
   initCommand as motionInitCommand,
   chatCommand as motionChatCommand,
@@ -247,6 +249,7 @@ import {
   applyStartLLMOptions,
   ensureStartLLMVerified,
   validateStartLLMOptions,
+  START_GATE_EXIT_CODE,
   type StartLLMOptions,
   type VerifiedLLMConfig,
 } from '../start-llm-gate.js';
@@ -291,22 +294,20 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
   const wasFirstRun = snapshot.initialization === 'absent';
-  // Phase 1926 Step C：init 交接带身份的验证事实；门控只在 identity 相等时复用
+  const interactive = !llmOptions.nonInteractive && process.stdin.isTTY !== false;
+  // Phase 1926 Step C：setup 交接带身份的验证事实；门控只在 identity 相等时复用
   let preVerified: VerifiedLLMConfig | undefined;
   if (wasFirstRun) {
-    if (llmOptions.nonInteractive) {
-      // 非交互首次配置：参数完整校验 → 写盘（O_EXCL，并发 loser 落 AlreadyExists 分支）
-      // → 布局 ready；LLM 验证由下方门控统一承担
-      try {
-        await applyStartLLMOptions(deps, llmOptions, 'first-run');
-      } catch (err) {
-        if (!(err instanceof GlobalConfigAlreadyExistsError)) throw err;
-        // 并发 winner 已提交：不覆盖，门控重读 winner 配置重验
-        deps.rootConfig.completeInitialization();
-      }
-    } else {
-      const initResult = await initCommand(deps, true);
-      preVerified = initResult.verified;
+    // Phase 1976：草稿 → 单次 probe → 修复/取消 → 成功后才独占提交。
+    // 取消/失败不进门控（取消 exit 3）；并发 loser 交门控重验 winner 配置。
+    const outcome = interactive
+      ? await runFirstRunSetup(deps, { audit })
+      : await runNonInteractiveFirstRun(deps, llmOptions, audit);
+    if (outcome.kind === 'cancelled') {
+      throw new CliError('Setup cancelled by user; start aborted', { code: START_GATE_EXIT_CODE });
+    }
+    if (outcome.kind === 'verified') {
+      preVerified = outcome.verified;
     }
   } else if (snapshot.initialization === 'in_progress') {
     // Phase 1911 Step D：崩溃窗口/legacy 无 marker —— 幂等恢复完整 bootstrap
@@ -320,14 +321,12 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmO
   }
   // 已初始化 + 非交互配置参数 → patch primary 后由门控重验
   if (!wasFirstRun && llmOptions.nonInteractive) {
-    await applyStartLLMOptions(deps, llmOptions, 'initialized');
+    await applyStartLLMOptions(deps, llmOptions);
   }
 
   // Step 1.5（Phase 1925 Step E / 1926 Step C）：LLM 验证门控 —— 对当前有效配置的
-  // 真实调用成功前不进入 supervision / motion / onboarding / chat。交互失败留在向导
-  // retry/edit/cancel；非交互缺参/失败抛 CliError（非零退出）。返回带身份的
-  // 验证事实，identity 随 spawn options 交给 daemon 装配前复核（消费侧协议）。
-  const interactive = !llmOptions.nonInteractive && process.stdin.isTTY !== false;
+  // 真实调用成功前不进入 supervision / motion / onboarding / chat。首次 setup 成功
+  // 路径复用向导的验证事实（identity 相等即零 probe）；既有配置失败留在门控向导。
   const verified = await ensureStartLLMVerified(deps, { audit, interactive, preVerified });
 
   // phase 1280: workspace bootstrap（config 完整落盘）后才恢复 Watchdog；

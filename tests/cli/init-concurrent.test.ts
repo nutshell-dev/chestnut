@@ -45,6 +45,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: connMock.probeLLMConnection,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),
+  summarizeLLMFailure: (probe: { errorType: string; message: string; provider?: string }) => ({
+    ...probe,
+    repairActions: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
+  }),
+  LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
   LLM_ERROR_LABELS: {},
   LLM_ERROR_HINTS: {},
   classifyLLMError: vi.fn().mockReturnValue('unknown'),
@@ -95,30 +100,38 @@ afterEach(() => {
   Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
 });
 
-describe('initCommand — 并发初始化（Phase 1910 Step D）', () => {
-  it('交错双 init：winner 配置保留，loser already_exists 返回、不覆盖、不写 INIT_DONE', async () => {
-    // winner 的 probe 挂起，保证 loser 在 winner 提交后、probe 完成前进入
-    let releaseProbe: (v: { ok: true; model: string }) => void = () => {};
+describe('initCommand — 并发初始化（Phase 1910 Step D / 1976）', () => {
+  it('交错双 init：先提交者配置保留，后提交者 already_exists 返回、不覆盖、不重复 INIT_DONE', async () => {
+    // 先启动的一方 probe 挂起；后启动的一方 probe 立即成功并提交。
+    let releaseFirst: (v: { ok: true; model: string }) => void = () => {};
+    let probeCalls = 0;
     connMock.probeLLMConnection.mockImplementation(
-      () => new Promise((resolve) => { releaseProbe = resolve; }),
+      async (snapshot: { config: { primary: { model: string } }; identity: string }) => {
+        probeCalls++;
+        if (probeCalls === 1) {
+          return new Promise((resolve) => { releaseFirst = resolve; });
+        }
+        return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
+      },
     );
 
-    rlAnswers.queue = ['8', '', 'model-winner', 'y'];
-    const winner = initCommand(commandDeps, true, { audit: mockAudit });
-    // 等 winner 完成交互 + 独占提交、进入 probe 等待
+    rlAnswers.queue = ['8', '', ''];
+    const first = initCommand(commandDeps, true, { audit: mockAudit });
+    // 等 first 完成交互 + 进入 probe 等待（尚未提交）
     await vi.waitUntil(() => connMock.probeLLMConnection.mock.calls.length > 0);
 
-    rlAnswers.queue = ['8', '', 'model-loser', 'y'];
-    await initCommand(commandDeps, true, { audit: mockAudit }); // loser 同步完成
+    // 第二个 init（OpenAI 默认 model）probe 成功并独占提交
+    rlAnswers.queue = ['6', 'sk-openai-race', ''];
+    await initCommand(commandDeps, true, { audit: mockAudit });
 
-    releaseProbe({ ok: true, model: 'model-winner' });
-    await winner;
+    // 第一个 init 的 probe 完成后提交失败 → 保留 winner 配置
+    releaseFirst({ ok: true, model: 'claude-3-7-sonnet-20250219' });
+    await first;
 
-    // winner 的配置原样保留（loser 未覆盖）
     const config = loadGlobalConfig({ fsFactory });
-    expect(config.llm.primary.model).toBe('model-winner');
+    expect(config.llm.primary.preset).toBe('openai');
 
-    // 恰好一次完整 init（INIT_DONE 只有 winner 写）
+    // 恰好一次完整 init（INIT_DONE 只有提交者写）
     const doneEvents = auditCalls.entries.filter(e => e[0] === 'cli_init_done');
     expect(doneEvents).toHaveLength(1);
 

@@ -66,6 +66,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     `✗ ${probe.errorType}`,
     `  ${probe.message}`,
   ]),
+  summarizeLLMFailure: (probe: { errorType: string; message: string; provider?: string }) => ({
+    ...probe,
+    repairActions: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
+  }),
+  LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',
     model: 'Model not found or unavailable',
@@ -420,15 +425,18 @@ describe('start LLM gate (unit)', () => {
     expect(() => validateStartLLMOptions({ nonInteractive: true })).not.toThrow();
   });
 
-  it('I. 非交互首次配置落盘：key 只写 ${VAR} 引用；缺参 → code=2 零落盘', async () => {
+  it('I. 非交互首次配置：draft probe 成功后提交；key 只写 ${VAR} 引用；缺参 → code=2 零 probe 零落盘', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-test-secret';
-    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+    mockProbeOk();
+    const { runNonInteractiveFirstRun } = await import('../../src/cli/first-run-setup.js');
 
-    // 完整参数：落盘且 api_key 是引用而非明文
+    // 完整参数：probe 后才落盘且 api_key 是引用而非明文
     const deps = makeGateDeps(() => makeGlobal('claude-x'));
-    await applyStartLLMOptions(deps, {
+    const outcome = await runNonInteractiveFirstRun(deps, {
       provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'ANTHROPIC_API_KEY', nonInteractive: true,
-    }, 'first-run');
+    }, mockAudit);
+    expect(outcome.kind).toBe('verified');
+    expect(conn.probeLLMConnection).toHaveBeenCalledTimes(1);
     expect(deps.rootConfig.saveGlobalExclusive).toHaveBeenCalledTimes(1);
     const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as {
       llm: { primary: { api_key: string; model: string; preset: string } };
@@ -437,26 +445,47 @@ describe('start LLM gate (unit)', () => {
     expect(JSON.stringify(saved)).not.toContain('sk-test-secret');
     expect(deps.rootConfig.completeInitialization).toHaveBeenCalledTimes(1);
 
-    // 缺 key（无 --api-key-env 且无 CHESTNUT_LLM_API_KEY）→ code=2 零落盘
+    // 缺 key（无 --api-key-env 且无 CHESTNUT_LLM_API_KEY）→ code=2 零 probe 零落盘
+    conn.probeLLMConnection.mockReset();
     const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
-    const err = await applyStartLLMOptions(deps2, {
+    const err = await runNonInteractiveFirstRun(deps2, {
       provider: 'anthropic', model: 'claude-x', nonInteractive: true,
-    }, 'first-run').catch((e: unknown) => e);
+    }, mockAudit).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe(START_USAGE_EXIT_CODE);
+    expect(conn.probeLLMConnection).not.toHaveBeenCalled();
     expect(deps2.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+    expect(h.rlCreateCalls).toBe(0);
+  });
+
+  it('I2. 非交互首次 probe 失败：code=3 且不落盘', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test-secret';
+    mockProbeFail();
+    const { runNonInteractiveFirstRun } = await import('../../src/cli/first-run-setup.js');
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+
+    const err = await runNonInteractiveFirstRun(deps, {
+      provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'ANTHROPIC_API_KEY', nonInteractive: true,
+    }, mockAudit).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as CliError).code).toBe(START_GATE_EXIT_CODE);
+    expect(deps.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+    expect(deps.rootConfig.completeInitialization).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
   });
 
   it('R. 非交互 catalog provider（无 preset）：写 provider_id 不落 preset；缺 --model / 缺 key → code=2', async () => {
     process.env.MISTRAL_API_KEY = 'sk-mistral-test';
-    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+    mockProbeOk();
+    const { runNonInteractiveFirstRun } = await import('../../src/cli/first-run-setup.js');
 
     // 完整参数：provider_id 落盘、preset 缺席、key 只写引用
     const deps = makeGateDeps(() => makeGlobal('claude-x'));
-    await applyStartLLMOptions(deps, {
+    const outcome = await runNonInteractiveFirstRun(deps, {
       provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
-    }, 'first-run');
+    }, mockAudit);
+    expect(outcome.kind).toBe('verified');
     expect(deps.rootConfig.saveGlobalExclusive).toHaveBeenCalledTimes(1);
     const saved = deps.rootConfig.saveGlobalExclusive.mock.calls[0][0] as {
       llm: { primary: Record<string, unknown> };
@@ -469,9 +498,9 @@ describe('start LLM gate (unit)', () => {
 
     // 缺 --model → code=2 零落盘（catalog provider 无默认 model）
     const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
-    const errNoModel = await applyStartLLMOptions(deps2, {
+    const errNoModel = await runNonInteractiveFirstRun(deps2, {
       provider: 'mistral', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
-    }, 'first-run').catch((e: unknown) => e);
+    }, mockAudit).catch((e: unknown) => e);
     expect(errNoModel).toBeInstanceOf(CliError);
     expect((errNoModel as CliError).code).toBe(START_USAGE_EXIT_CODE);
     expect((errNoModel as CliError).message).toMatch(/--model/);
@@ -479,9 +508,9 @@ describe('start LLM gate (unit)', () => {
 
     // 缺 key（api_key 派生 profile）→ code=2 零落盘
     const deps3 = makeGateDeps(() => makeGlobal('claude-x'));
-    const errNoKey = await applyStartLLMOptions(deps3, {
+    const errNoKey = await runNonInteractiveFirstRun(deps3, {
       provider: 'mistral', model: 'codestral-latest', nonInteractive: true,
-    }, 'first-run').catch((e: unknown) => e);
+    }, mockAudit).catch((e: unknown) => e);
     expect(errNoKey).toBeInstanceOf(CliError);
     expect((errNoKey as CliError).code).toBe(START_USAGE_EXIT_CODE);
     expect(deps3.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
@@ -494,7 +523,7 @@ describe('start LLM gate (unit)', () => {
     const deps = makeGateDeps(() => makeGlobal('claude-x'));
     await applyStartLLMOptions(deps, {
       provider: 'mistral', model: 'codestral-latest', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
-    }, 'initialized');
+    });
     expect(deps.rootConfig.patchPrimary).toHaveBeenCalledTimes(1);
     const patch = deps.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
     expect(patch['provider_id']).toBe('mistral');
@@ -503,7 +532,7 @@ describe('start LLM gate (unit)', () => {
     const deps2 = makeGateDeps(() => makeGlobal('claude-x'));
     await applyStartLLMOptions(deps2, {
       provider: 'anthropic', model: 'claude-x', apiKeyEnv: 'MISTRAL_API_KEY', nonInteractive: true,
-    }, 'initialized');
+    });
     const patch2 = deps2.rootConfig.patchPrimary.mock.calls[0][0] as Record<string, unknown>;
     expect(patch2['preset']).toBe('anthropic');
     expect('provider_id' in patch2 && patch2['provider_id'] === undefined).toBe(true);
@@ -564,6 +593,29 @@ describe('start command gate wiring', () => {
     expect(ensureSupervision).not.toHaveBeenCalled();
     expect(downstream.init).not.toHaveBeenCalled();
     expect(h.rlCreateCalls).toBe(0);
+  });
+
+  it('K2. 非 TTY 首次（无 --non-interactive）：走非交互分支，缺参 code=2、零 readline', async () => {
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    try {
+      const { startCommand } = await import('../../src/cli/commands/start.js');
+      const ensureSupervision = vi.fn(async () => {});
+      const deps = startDeps();
+      deps.rootConfig.isInitialized = () => false;
+      deps.rootConfig.getInitializationState = () => 'absent' as const;
+
+      const err = await startCommand(deps, { audit: mockAudit, ensureSupervision }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).code).toBe(START_USAGE_EXIT_CODE);
+      expect(conn.probeLLMConnection).not.toHaveBeenCalled();
+      expect(deps.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
+      expect(ensureSupervision).not.toHaveBeenCalled();
+      expect(h.rlCreateCalls).toBe(0);
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+    }
   });
 
   // ── Phase 1927 Step C：ready 后 LLM 身份业务事实消费（三 outcome 统一 fail-closed）──

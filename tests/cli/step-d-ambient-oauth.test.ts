@@ -51,6 +51,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnectionFor: connMock.checkLLMConnectionFor,
   promptReconfigure: connMock.promptReconfigure,
   formatLLMError: vi.fn().mockReturnValue([]),
+  summarizeLLMFailure: (probe: { errorType: string; message: string; provider?: string }) => ({
+    ...probe,
+    repairActions: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
+  }),
+  LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',
     model: 'Model not found or unavailable',
