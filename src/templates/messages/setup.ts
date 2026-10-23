@@ -28,6 +28,8 @@ export interface SetupDraftPreviewInput {
   role?: string;
   baseUrl?: string;
   keyRef?: string;
+  /** Phase 1979: effective thinking（preset 默认）；固定服务为空、不显示。 */
+  thinking?: string;
 }
 
 /** 脱敏预览：不打印明文 key，只显示引用/local/credential 说明。 */
@@ -40,6 +42,7 @@ export function setupDraftPreviewLines(input: SetupDraftPreviewInput): string[] 
     lines.push(`  API key: ${input.keyRef}`);
   }
   lines.push(`  Model:   ${input.model}`);
+  if (input.thinking) lines.push(`  Thinking: ${input.thinking}`);
   if (input.baseUrl) lines.push(`  Base URL: ${input.baseUrl}`);
   return lines;
 }

@@ -6,7 +6,24 @@
  * 模型时走 OpenRouter + 高级模型输入。
  */
 
-import { PRESETS } from '../foundation/llm-provider/index.js';
+import { PRESETS, resolveThinkingDefaults } from '../foundation/llm-provider/index.js';
+
+/**
+ * Phase 1979: 条件确认预览的 effective thinking 描述（preset 默认 + model）。
+ * 无 preset / 无默认 → undefined（固定服务不显示该行）。
+ */
+export function describeEffectiveThinking(
+  presetId: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (!presetId) return undefined;
+  const defaults = resolveThinkingDefaults(presetId, model);
+  if (!defaults) return undefined;
+  if (defaults.reasoning_effort) return `reasoning ${defaults.reasoning_effort}`;
+  const mode = defaults.thinking_mode ?? (defaults.thinking ? 'enabled' : 'adaptive');
+  const effort = defaults.thinking_effort ?? 'high';
+  return `${mode} (${effort})`;
+}
 
 export type SetupProviderId =
   | 'deepseek'

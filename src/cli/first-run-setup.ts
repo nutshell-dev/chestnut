@@ -39,6 +39,7 @@ import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import {
   probeLLMConnection,
+  classifyLLMError,
   formatLLMError,
   summarizeLLMFailure,
   type LLMFailureSummary,
@@ -52,6 +53,7 @@ import {
 } from './credentials-prompt.js';
 import {
   SETUP_PROVIDER_CATALOG,
+  describeEffectiveThinking,
   findSetupProvider,
   type SetupProviderChoice,
   type SetupProbeCandidate,
@@ -214,10 +216,12 @@ async function probeDraft(
     snapshot = snapshotForProbe(deps, input);
   } catch (err) {
     const message = formatErr(err);
-    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_FAILED, 'error_type=auth', `message=${audit.message(message)}`);
+    // Phase 1979: 不再硬编码 auth——凭据/配置解析失败按同一分类器归类。
+    const errorType = classifyLLMError(err);
+    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_FAILED, `error_type=${errorType}`, `message=${audit.message(message)}`);
     return {
       ok: false,
-      failure: { errorType: 'auth', message, provider: input.presetId ?? input.providerId ?? 'unknown' },
+      failure: { errorType, message, provider: input.presetId ?? input.providerId ?? 'unknown' },
     };
   }
 
@@ -446,6 +450,9 @@ function showDraftPreview(draft: SetupDraft): void {
     model: draft.model,
     auth: draft.choice.auth === 'local' ? 'local' : 'API key',
     role: 'primary',
+    ...(describeEffectiveThinking(draft.presetId, draft.model) !== undefined && {
+      thinking: describeEffectiveThinking(draft.presetId, draft.model),
+    }),
     ...(draft.baseUrl !== undefined && { baseUrl: draft.baseUrl }),
     ...(draft.apiKey !== undefined && { keyRef: draft.apiKey }),
   }).forEach(line => console.log(line));

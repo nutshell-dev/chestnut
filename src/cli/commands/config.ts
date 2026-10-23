@@ -41,7 +41,7 @@ import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
-import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice, type SetupProbeCandidate } from '../setup-provider-catalog.js';
+import { SETUP_PROVIDER_CATALOG, describeEffectiveThinking, type SetupProviderChoice, type SetupProbeCandidate } from '../setup-provider-catalog.js';
 import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
@@ -347,6 +347,10 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       model,
       auth: authProfile === 'local' ? 'local' : authProfile === 'api_key' ? 'API key' : authProfile,
       role,
+      // Phase 1979: preset 默认 thinking（custom/Other 显示；固定服务由 helper 决定）
+      ...(describeEffectiveThinking(presetId, model) !== undefined && {
+        thinking: describeEffectiveThinking(presetId, model),
+      }),
       ...(baseUrl && { baseUrl }),
       ...(apiKey && { keyRef: apiKey }),
     }).forEach(line => console.log(line));

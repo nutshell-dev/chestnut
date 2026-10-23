@@ -128,6 +128,7 @@ function resetRun() {
   auditEvents.entries = [];
   conn.probeQueue = [];
   conn.probeCalls = 0;
+  conn.checkLLMConnectionFor.mockClear();
   conn.probeLLMConnection.mockReset();
   conn.probeLLMConnection.mockImplementation(async (snapshot: { config: { primary: { model: string } }; identity: string }) => {
     conn.probeCalls++;
@@ -206,6 +207,27 @@ describe('first-run wizard — 展示与提交', () => {
     expect(auditEvents.entries.map(e => e[0])).toContain('cli_init_done');
   });
 
+  it('MiniMax 默认：probe 配置带 adaptive/max；YAML 不写 thinking 字段（Phase 1979）', async () => {
+    h.rlAnswers.queue = ['5', 'sk-mm-test', ''];
+
+    const outcome = await runFirstRunSetup(makeDeps(), { audit: mockAudit });
+
+    expect(outcome.kind).toBe('verified');
+    // 候选 probe 使用 resolved preset thinking（adaptive/max + dropThinkingBlocks）
+    const probed = conn.checkLLMConnectionFor.mock.calls[0]?.[0] as {
+      thinkingMode?: string; thinkingEffort?: string; dropThinkingBlocks?: boolean;
+    };
+    expect(probed).toMatchObject({
+      thinkingMode: 'adaptive',
+      thinkingEffort: 'max',
+      dropThinkingBlocks: true,
+    });
+    // 生成的 YAML 保持现有字段面：不写 thinking/reasoning
+    const yaml = fs.readFileSync(configPath(), 'utf8');
+    expect(yaml).not.toMatch(/thinking|reasoning_effort/);
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.model).toBe('MiniMax-M3.1-Flash');
+  });
+
   it('固定服务自定义 model：条件性 preview + 确认后提交', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-xxx';
     h.rlAnswers.queue = ['8', '', 'custom-model', 'y'];
@@ -240,6 +262,8 @@ describe('first-run wizard — 展示与提交', () => {
     expect(conn.probeCalls).toBe(0);
     expect(fs.existsSync(configPath())).toBe(false);
     expect(output.join('\n')).toContain('Configuration preview');
+    // Phase 1979: custom 入口显示 effective thinking
+    expect(output.join('\n')).toContain('Thinking: adaptive (max)');
     expect(output.join('\n')).not.toContain('sk-other');
   });
 });
