@@ -82,11 +82,13 @@ export const PRESETS: Record<string, ProviderPreset> = {
   'deepseek': {
     id: 'deepseek',
     displayName: 'DeepSeek',
-    apiFormat: 'openai',
-    defaultBaseUrl: 'https://api.deepseek.com',
-    defaultModel: 'deepseek-chat',
+    apiFormat: 'anthropic',
+    defaultBaseUrl: 'https://api.deepseek.com/anthropic',
+    defaultModel: 'deepseek-flash[1m]',
     envVar: 'DEEPSEEK_API_KEY',
-    piAiProvider: 'deepseek',
+    // Phase 1973: piAiProvider removed — pi-ai deepseek catalog is OpenAI;
+    // keeping it would make catalog hits override api to openai-completions
+    // while baseUrl is /anthropic (协议权威冲突）。
   },
   'moonshot': {
     id: 'moonshot',
@@ -102,18 +104,18 @@ export const PRESETS: Record<string, ProviderPreset> = {
     displayName: 'Kimi (Coding)',
     apiFormat: 'anthropic',
     defaultBaseUrl: 'https://api.kimi.com/coding',
-    defaultModel: 'kimi-k2.5',
+    defaultModel: 'k3-256k',
     envVar: 'KIMI_API_KEY',
-    piAiProvider: 'kimi-coding',
+    piAiProvider: 'kimi-coding', // Anthropic catalog; baseUrl 由 setup 候选显式覆盖
   },
   'minimax': {
     id: 'minimax',
     displayName: 'MiniMax',
     apiFormat: 'anthropic',
     defaultBaseUrl: 'https://api.minimax.io/anthropic',
-    defaultModel: 'MiniMax-M1',
+    defaultModel: 'MiniMax-M3.1-Flash',
     envVar: 'MINIMAX_API_KEY',
-    piAiProvider: 'minimax',
+    piAiProvider: 'minimax', // Anthropic catalog；M3.1-Flash miss 走自建 Anthropic
   },
   'gemini': {
     id: 'gemini',
@@ -164,9 +166,20 @@ export const PRESETS: Record<string, ProviderPreset> = {
     displayName: 'Z.AI (Anthropic format)',
     apiFormat: 'anthropic',
     defaultBaseUrl: 'https://api.z.ai/api/anthropic',
-    defaultModel: 'glm-4.6',
+    defaultModel: 'glm-5.3',
     envVar: 'ZAI_API_KEY',
-    piAiProvider: 'zai',
+    // Phase 1973: piAiProvider removed — pi-ai zai catalog is OpenAI; keeping it
+    // caused catalog-hit models to use openai-completions against /api/anthropic.
+  },
+  // Phase 1973：curated Anthropic preset；setup 按序 probe 中国/国际/套餐候选。
+  'qwen': {
+    id: 'qwen',
+    displayName: 'Qwen (Alibaba)',
+    apiFormat: 'anthropic',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic',
+    defaultModel: 'qwen3.8-max',
+    envVar: 'DASHSCOPE_API_KEY',
+    // no piAiProvider: pi-ai qwen catalogs are OpenAI; curated endpoint is Anthropic
   },
   'qwen-coder': {
     id: 'qwen-coder',

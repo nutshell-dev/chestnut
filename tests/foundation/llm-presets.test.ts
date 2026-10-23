@@ -12,16 +12,54 @@ describe('resolvePreset', () => {
     expect(preset.defaultModel).toBeTruthy();
   });
 
-  it('should return deepseek preset with apiFormat=openai', () => {
+  it('should return deepseek preset with apiFormat=anthropic (Phase 1973 curated Anthropic)', () => {
     const preset = resolvePreset('deepseek');
+    expect(preset).toMatchObject({
+      apiFormat: 'anthropic',
+      defaultBaseUrl: 'https://api.deepseek.com/anthropic',
+      defaultModel: 'deepseek-flash[1m]',
+    });
+    // pi-ai deepseek catalog 为 OpenAI；保留会让 catalog 命中改写协议。
+    expect(preset.piAiProvider).toBeUndefined();
+  });
+
+  it('should return kimi preset with apiFormat=anthropic and default model k3-256k', () => {
+    const preset = resolvePreset('kimi');
+    expect(preset).toMatchObject({ apiFormat: 'anthropic', defaultModel: 'k3-256k' });
+    // kimi-coding 是 Anthropic catalog，可保留用于 catalog 元数据。
+    expect(preset.piAiProvider).toBe('kimi-coding');
+  });
+
+  it('should return qwen preset with apiFormat=anthropic (Phase 1973 新增)', () => {
+    const preset = resolvePreset('qwen');
+    expect(preset).toMatchObject({
+      apiFormat: 'anthropic',
+      defaultBaseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic',
+      defaultModel: 'qwen3.8-max',
+      envVar: 'DASHSCOPE_API_KEY',
+    });
+    // pi-ai qwen catalogs 均为 OpenAI；curated endpoint 是 Anthropic。
+    expect(preset.piAiProvider).toBeUndefined();
+  });
+
+  it('should keep legacy qwen-coder preset untouched (OpenAI DashScope)', () => {
+    const preset = resolvePreset('qwen-coder');
     expect(preset.apiFormat).toBe('openai');
-    expect(preset.defaultBaseUrl).toContain('deepseek');
+    expect(preset.defaultBaseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1');
+  });
+
+  it('should return zai preset with apiFormat=anthropic and default model glm-5.3', () => {
+    const preset = resolvePreset('zai');
+    expect(preset.defaultModel).toBe('glm-5.3');
+    // pi-ai zai catalog 为 OpenAI；catalog 命中会造成「OpenAI api + Anthropic baseUrl」。
+    expect(preset.piAiProvider).toBeUndefined();
   });
 
   it('should return minimax preset with apiFormat=anthropic (MiniMax uses Anthropic-compatible API)', () => {
     const preset = resolvePreset('minimax');
     expect(preset.apiFormat).toBe('anthropic');
-    expect(preset.defaultModel).toBe('MiniMax-M1');
+    expect(preset.defaultModel).toBe('MiniMax-M3.1-Flash');
+    expect(preset.piAiProvider).toBe('minimax');
   });
 
   it('should return custom-openai with apiFormat=openai and no defaultBaseUrl', () => {
