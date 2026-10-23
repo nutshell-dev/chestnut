@@ -221,6 +221,10 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.turnTracker.abort();
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
+        // Phase 1978: context exceeded 是可恢复态（EventLoop 随后 trim + 有界重试），
+        // 由 context_trim_retry_scheduled / context_trim_blocked 结构化事件负责展示；
+        // 不显示红色终局行。普通错误仍走下方既有红行/去重。
+        if (errStr.startsWith('[LLM_CONTEXT_EXCEEDED]')) break;
         // phase 1277: 连续失败序列只报第一次 ALL_FAILED（后续轮次是重复确认，
         // 由 provider_failed + 等待行表达）。识别按 error 前缀
         // （产生端 turn_error 的 error 以 [LLM_ALL_PROVIDERS_FAILED] 开头）。
@@ -272,6 +276,27 @@ export function createEventHandler(deps: EventHandlerDeps) {
           text = `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} in ${delaySec}s，resume at ${resumeClock}`;
         }
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text });
+        break;
+      }
+
+      case 'context_trim_retry_scheduled': {
+        // Phase 1978: 可恢复超限（非终局）——黄色中性提示，等待窗口内用户可见。
+        const delaySec = Math.round(event.delayMs / 1000);
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[33m',
+          text: `⟳ Context exceeded; trimming and retrying (${event.attempt}/${event.maxAttempts}, ${delaySec}s)…`,
+        });
+        break;
+      }
+
+      case 'context_trim_blocked': {
+        // Phase 1978: trim 后仍超限 = 明确终局（blocked），与 retry 区分。
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[38;5;214m',
+          text: `⏸ Context still over limit after trim; request blocked (reason=${event.reason})`,
+        });
         break;
       }
 

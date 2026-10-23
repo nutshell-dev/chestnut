@@ -111,6 +111,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         track.currentTool = null; track.toolSuccess = null; track.textBuffer = '';
         track.bufferType = null; track.lastOutput = ''; track.lastInterrupted = false;
         track.clearOnNextDelta = false;
+        track.retryNotice = null; track.blockedNotice = null;
         track.maxSteps = 100; track.referenceMs = null;
       }
       if (stat.size > track.fileSize) {
@@ -130,24 +131,55 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 track.toolSuccess = null;
                 track.bufferType = null;
                 track.clearOnNextDelta = false;
+                track.retryNotice = null; track.blockedNotice = null;
                 break;
               case 'tool_result':
                 track.step = ev.step ?? track.step;
                 track.maxSteps = ev.maxSteps ?? track.maxSteps;
                 track.toolSuccess = ev.success ?? null;
                 break;
-              case 'turn_error':
-                track.active = false; track.lastError = ev.error ?? 'error';
+              case 'turn_error': {
+                track.active = false;
+                const errStr = typeof ev.error === 'string' ? ev.error : String(ev.error ?? 'error');
+                if (errStr.startsWith('[LLM_CONTEXT_EXCEEDED]')) {
+                  // Phase 1978: 可恢复 context exceeded 不写入 lastError；先置临时 retry 提示，
+                  // 随后 context_trim_retry_scheduled 覆盖为带 attempt/delay 的正式提示。
+                  track.lastError = null;
+                  track.retryNotice = 'context exceeded; trimming…';
+                  track.blockedNotice = null;
+                } else {
+                  track.lastError = ev.error ?? 'error';
+                  track.retryNotice = null;
+                  track.blockedNotice = null;
+                }
                 track.lastOutput = ''; track.referenceMs = Date.now();
                 break;
+              }
               case 'turn_end':
                 track.active = false; track.lastError = null;
+                track.retryNotice = null; track.blockedNotice = null;
                 if (track.textBuffer) track.lastOutput = track.textBuffer;
                 track.referenceMs = Date.now();
                 break;
               case 'turn_interrupted':
                 track.active = false; track.lastError = null;
+                track.retryNotice = null; track.blockedNotice = null;
                 track.lastInterrupted = true; track.lastOutput = '';
+                track.referenceMs = Date.now();
+                break;
+              case 'context_trim_retry_scheduled':
+                // Phase 1978: 结构化 retry 状态（attempt/max、delay）；retry 期间 claw 非 active。
+                track.active = false;
+                track.retryNotice = `context exceeded · retrying (${ev.attempt}/${ev.maxAttempts}, ${Math.round(ev.delayMs / 1000)}s)`;
+                track.blockedNotice = null;
+                track.lastError = null;
+                break;
+              case 'context_trim_blocked':
+                // Phase 1978: trim 后仍超限 = 明确终局；清空 retry 提示。
+                track.active = false;
+                track.retryNotice = null;
+                track.blockedNotice = `context blocked (${ev.reason})`;
+                track.lastError = null;
                 track.referenceMs = Date.now();
                 break;
               case 'thinking_delta': {

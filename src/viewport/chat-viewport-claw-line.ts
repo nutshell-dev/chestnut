@@ -31,6 +31,10 @@ export interface ClawTrack {
   lastInterrupted: boolean;
   referenceMs: number | null;
   clearOnNextDelta: boolean;
+
+  // Phase 1978: context trim 中间态（与 lastError 分离，避免可恢复超限被当作终局错误）
+  retryNotice: string | null;
+  blockedNotice: string | null;
 }
 
 /** 默认 ClawTrack / 1:1 保 chat-viewport.ts:682-689 body */
@@ -40,6 +44,7 @@ export function makeClawTrack(): ClawTrack {
     active: false, lastError: null, hasContract: false, isAlive: false, daemonStatus: 'stopped',
     currentTool: null, toolSuccess: null, textBuffer: '', bufferType: null,
     lastOutput: '', lastInterrupted: false, referenceMs: null, clearOnNextDelta: false,
+    retryNotice: null, blockedNotice: null,
   };
 }
 
@@ -81,6 +86,14 @@ export function buildClawLine(id: string, t: ClawTrack, cols: number): string {
   if (!t.hasContract) {
     leftText = `[${id}] ○ no contract`;
     leftColor = '\x1b[38;5;245m';
+  } else if (t.blockedNotice) {
+    // Phase 1978: trim 后仍超限 = 明确终局（优先于 retry/lastError）
+    leftText = `[${id}] ⏸ ${t.blockedNotice}`;
+    leftColor = '\x1b[38;5;214m';
+  } else if (t.retryNotice) {
+    // Phase 1978: 可恢复超限——trim/retry 等待窗口，非终局红错
+    leftText = `[${id}] ⟳ ${t.retryNotice}`;
+    leftColor = '\x1b[33m';
   } else if (t.lastError) {
     const dur = t.referenceMs ? ` · inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';
     leftText = `[${id}] ✗ ${t.lastError}${dur}`;

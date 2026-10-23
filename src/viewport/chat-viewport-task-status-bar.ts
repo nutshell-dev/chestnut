@@ -209,7 +209,8 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
       case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
       case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
       case 'all_providers_context_exceeded': case 'race_loser_cleaned':
-      case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':case 'call_invocation_started': case 'call_attempt_result': case 'call_selection': case 'call_audit_write_failed': 
+      case 'context_trim_retry_scheduled': case 'context_trim_blocked':
+      case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':case 'call_invocation_started': case 'call_attempt_result': case 'call_selection': case 'call_audit_write_failed':
       case 'system_notify':
       case 'session_boundary': case 'daemon_started':
       case 'task_started': case 'task_completed': case 'task_attempt_start':
