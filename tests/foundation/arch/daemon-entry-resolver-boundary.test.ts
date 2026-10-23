@@ -54,8 +54,10 @@ function collectDefinitions(dir: string): string[] {
 
 // phase 1284 当前 consumer 集合；合法新 caller 需显式更新本表。
 // Phase 1464 Step B：7 个 spawn 调用点（claw-daemon/claw-chat/motion-daemon/motion/start
-// + watchdog executor-recovery/watchdog）改经 createDaemonSpawnOptions 消费 entry，
-// 不再直 import resolver；仅剩 status/stop 两个非 spawn 查询消费方。
+// + watchdog executor-recovery/watchdog）改经 createDaemonSpawnOptions 消费 entry；
+// Phase 1974 Step C：watchdog executor-recovery 退役（监督迁 ContractSystem
+// executor-supervisor cron job，经同一 createDaemonSpawnOptions 消费）；
+// 仅剩 status/stop 两个非 spawn 查询消费方。
 // src/daemon/spawn-options.ts 是 owner internal consumer（同模块相对 import、不走 barrel）。
 const EXPECTED_CONSUMERS = [
   'src/cli/commands/status.ts',

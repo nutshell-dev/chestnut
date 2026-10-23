@@ -66,7 +66,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
     process.env.CHESTNUT_ROOT = '/test/root';
 
@@ -185,7 +185,7 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
     process.env.CHESTNUT_ROOT = '/test/root';
 
@@ -292,7 +292,7 @@ describe('实例身份记录：绝对规范化与相对拒绝（Phase 1931 Step 
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
     process.env.CHESTNUT_ROOT = '/test/root';
 

@@ -33,10 +33,7 @@ type WorkspaceWatchdogConfigResult =
   | { kind: 'invalid'; message: string };
 
 export function sameWatchdogConfig(a: WatchdogConfig, b: WatchdogConfig): boolean {
-  return (
-    a.interval_ms === b.interval_ms &&
-    a.heartbeat_stale_timeout_ms === b.heartbeat_stale_timeout_ms
-  );
+  return a.interval_ms === b.interval_ms;
 }
 
 /** 序列化为拍板磁盘形态（schema_version 在前、key 顺序固定）。 */
@@ -44,7 +41,6 @@ function serializeWorkspaceWatchdogConfig(config: WatchdogConfig): string {
   return yaml.dump({
     schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
     interval_ms: config.interval_ms,
-    heartbeat_stale_timeout_ms: config.heartbeat_stale_timeout_ms,
   });
 }
 
@@ -76,7 +72,6 @@ export function loadWorkspaceWatchdogConfig(fs: FileSystem): WorkspaceWatchdogCo
     kind: 'ok',
     config: {
       interval_ms: result.data.interval_ms,
-      heartbeat_stale_timeout_ms: result.data.heartbeat_stale_timeout_ms,
     },
   };
 }

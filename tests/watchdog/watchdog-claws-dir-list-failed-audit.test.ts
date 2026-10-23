@@ -92,7 +92,7 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     // Phase 1289 Step C: watchdog runtime 消费自家 workspace config store（此处经 context mock）
     vi.mocked(getWatchdogConfig).mockReturnValue({
-      interval_ms: 5_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 5_000,
     });
     vi.mocked(getChestnutFs).mockImplementation((factory: (baseDir: string) => FileSystem) => factory(chestnutDir));
 

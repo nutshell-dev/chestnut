@@ -55,21 +55,8 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_UNCLEAN_TERMINATION_DETECTED: 'watchdog_unclean_termination_detected',
   WATCHDOG_TERMINAL_WRITE_FAILED: 'watchdog_terminal_write_failed',
   WATCHDOG_TERMINAL_RECORDED: 'watchdog_terminal_recorded',
-  // Phase 1396 Step F: claw daemon executor recovery events
-  EXECUTOR_RECOVERY_SKIPPED: 'watchdog_executor_recovery_skipped',
-  EXECUTOR_UNAVAILABLE_DELIVERED: 'watchdog_executor_unavailable_delivered',
-  EXECUTOR_UNAVAILABLE_DELIVERY_FAILED: 'watchdog_executor_unavailable_delivery_failed',
-  /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留证据并上抛 */
-  EXECUTOR_UNAVAILABLE_DELIVERY_REJECTED: 'watchdog_executor_unavailable_delivery_rejected',
-  // Phase 1878 Step B: daemon 心跳监督（alive-but-loop-stale 发现与升级窗口显式语义）
-  /** 进程 alive 但心跳过期 → 走既有重启 machinery（审计含判定依据） */
-  EXECUTOR_HEARTBEAT_STALE: 'watchdog_executor_heartbeat_stale',
-  /** 心跳缺失（旧版本升级窗口）/ 读取损坏 → unknown：不重启、不误判（tick 路由防噪声） */
-  EXECUTOR_HEARTBEAT_UNKNOWN: 'watchdog_executor_heartbeat_unknown',
-  /** Phase 1878 Step F: 损坏 evidence 显式隔离 + 审计（含原因与隔离位置，原文保留） */
-  EXECUTOR_RECOVERY_EVIDENCE_CORRUPT: 'watchdog_executor_recovery_evidence_corrupt',
-  /** Phase 1878 Step G: state.json 无效 executor 条目显式处置（key + 原因 + 原文隔离） */
-  STATE_EXECUTOR_ENTRY_INVALID: 'watchdog_state_executor_entry_invalid',
+  // Phase 1974 Step C: EXECUTOR_* / STATE_EXECUTOR_ENTRY_INVALID 事件随 watchdog
+  // executor recovery 退役（监督职责迁 ContractSystem executor-supervisor cron job）。
 } as const;
 
 
@@ -116,12 +103,4 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> =
   watchdog_unclean_termination_detected: 'audit',
   watchdog_terminal_write_failed: 'audit',
   watchdog_terminal_recorded: 'audit',
-  watchdog_executor_recovery_skipped: 'audit',
-  watchdog_executor_unavailable_delivered: 'audit',
-  watchdog_executor_unavailable_delivery_failed: 'audit',
-  watchdog_executor_unavailable_delivery_rejected: 'audit',
-  watchdog_executor_heartbeat_stale: 'audit',
-  watchdog_executor_heartbeat_unknown: 'tick',
-  watchdog_executor_recovery_evidence_corrupt: 'audit',
-  watchdog_state_executor_entry_invalid: 'audit',
 } as const;

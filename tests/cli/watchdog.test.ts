@@ -96,7 +96,6 @@ import {
   getChestnutFs,
   _resetWatchdogContextForTest,
   motionRestartStateAPI,
-  executorRestartStateAPI,
 } from '../../src/watchdog/watchdog-context.js';
 import { writeWatchdogCrash, loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
 import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
@@ -129,7 +128,7 @@ describe('logWithAudit — A1 clearance', () => {
     fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
 
     auditWriter = new AuditWriter(
@@ -218,7 +217,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     fs.writeFileSync(path.join(chestnutDir, 'watchdog.pid'), JSON.stringify({ pid: FAKE_LIVE_PID }));
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
 
     auditWriter = new AuditWriter(
@@ -521,7 +520,7 @@ describe('runWatchdogLoop', () => {
     fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 5_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 5_000,
     });
 
     mockPm = {
@@ -801,7 +800,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
   });
 
@@ -857,7 +856,6 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
 
     // Seed stale durable state
     motionRestartStateAPI.replace({ status: 'retrying', consecutiveAttempts: 5, nextAttemptAt: 9999, awaitingStability: false });
-    executorRestartStateAPI.replace({ claw1: { status: 'open', consecutiveAttempts: 1, openedAt: 1000 } });
 
     // 写真正 corrupt 的 JSON
     fs.writeFileSync(stateFile, '{ not valid json');
@@ -869,7 +867,6 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
 
     // corrupt 路径 catch 内应清空 durable state，防止 partial populate 泄漏
     expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
-    expect(executorRestartStateAPI.snapshot()).toEqual({});
   });
 
   it('loadWatchdogState audits move failure separately', () => {

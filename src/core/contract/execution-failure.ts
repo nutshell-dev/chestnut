@@ -2,8 +2,10 @@
  * @module L4.ContractSystem.ExecutionFailure
  *
  * Phase 1878 Step D（watchdog-contract-sink-overassembly）：`ExecutionFailureSink`
- * 窄能力提供面——消费方（Watchdog executor-recovery）不再为每次交付构造完整
+ * 窄能力提供面——消费方不再为每次交付构造完整
  * ContractSystem（含 ToolRegistry / notifyClaw / bootReconcile 等无关装配）。
+ * （Phase 1974 Step C：原消费方 Watchdog executor-recovery 已退役；API 保留，
+ * 后续确认无外部 consumer 可另立 phase 退役。）
  *
  * 结构（语义 1:1 零漂移）：
  * - `failActiveContractsForExecutor`：`ContractSystem.failActiveForExecutor` 的

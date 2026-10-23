@@ -70,7 +70,7 @@ describe('watchdog action audit in CLI (phase 1878 Step I)', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, heartbeat_stale_timeout_ms: 180_000,
+      interval_ms: 30_000,
     });
 
     setAuditWriter(null);

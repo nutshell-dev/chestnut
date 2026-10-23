@@ -12,7 +12,6 @@
  * - watchdog-pid.ts       PID file mgmt
  * - watchdog-log.ts       log + audit helpers
  * - watchdog-state.ts     state 持久化
- * - executor-recovery.ts  per-claw daemon availability recovery
  * - spawn.ts             spawnWatchdogCandidate（spawn + poll 原语，不含 CLI）
  *
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
@@ -47,7 +46,7 @@ import { createDaemonSpawnOptions } from '../daemon/index.js';
 
 import {
   getChestnutDir, getChestnutFs, getWatchdogConfig, setAuditWriter, getAuditWriter,
-  motionRestartStateAPI, executorRestartStateAPI,
+  motionRestartStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
 import {
@@ -71,7 +70,6 @@ import {
   reduceMotionRestartOutcome,
   type MotionSpawnOutcome,
 } from './motion-restart-state.js';
-import { maybeCronExecutorRecovery } from './executor-recovery.js';
 
 /**
  * Watchdog motion restart exponential backoff cap（ms）= 5 minutes.
@@ -627,19 +625,8 @@ export async function runWatchdogLoop(
     // Persist restart transitions before cron/sleep may fail.
     saveWatchdogState(fsFactory);
 
-    // 2. Executor availability recovery (Phase 1396 Step F/H)
-    // Phase 1878 Step C: 心跳过期阈值自 workspace config 消费（B 的判定面）。
-    const nextExecutorMap = await maybeCronExecutorRecovery(
-      executorRestartStateAPI.snapshot(),
-      {
-        pm,
-        audit: auditWriter,
-        fsFactory,
-        heartbeatStaleTimeoutMs: getWatchdogConfig(fsFactory).heartbeat_stale_timeout_ms,
-      },
-    );
-    executorRestartStateAPI.replace(nextExecutorMap);
-    saveWatchdogState(fsFactory);
+    // Phase 1974 Step C: executor daemon 可用性监督已迁 ContractSystem
+    // executor-supervisor cron job；watchdog 只保留 motion daemon 监督。
 
     // 3. Sleep with backoff on consecutive failures (max 5 minutes) — or circuit-open idle
     await setTimeout(nextSleepMs);

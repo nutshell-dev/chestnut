@@ -2,8 +2,9 @@
  * @module L6.Watchdog.Context
  * Module-level singleton state for watchdog daemon.
  *
- * Phase 1396 Step H: retired crash/inactivity/subscription cron state; only
- * motion restart and executor restart durable state remain.
+ * Phase 1396 Step H: retired crash/inactivity/subscription cron state.
+ * Phase 1974 Step C: executor restart durable state 随 executor recovery 退役；
+ * 只保留 motion restart durable state。
  */
 
 import * as path from 'path';
@@ -47,30 +48,6 @@ export const motionRestartStateAPI = {
   },
   reset(): void {
     _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
-  },
-} as const;
-
-// Phase 1396 Step F: per-claw executor restart durable state (mirrors motionRestartStateAPI)
-export type ExecutorRestartState =
-  | { status: 'closed'; consecutiveAttempts: 0 }
-  | { status: 'retrying'; consecutiveAttempts: number; nextAttemptAt: number; awaitingStability: boolean }
-  | { status: 'open'; consecutiveAttempts: number; openedAt: number; sinkDelivered?: boolean };
-
-export type ExecutorRestartMap = Record<string, ExecutorRestartState>;
-
-const EMPTY_EXECUTOR_RESTART_MAP: ExecutorRestartMap = {};
-
-let _executorRestartMap: ExecutorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
-
-export const executorRestartStateAPI = {
-  snapshot(): ExecutorRestartMap {
-    return { ..._executorRestartMap };
-  },
-  replace(state: ExecutorRestartMap): void {
-    _executorRestartMap = { ...state };
-  },
-  reset(): void {
-    _executorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
   },
 } as const;
 
@@ -142,5 +119,4 @@ export function _resetWatchdogContextForTest(): void {
   _auditWriter = null;
   // durable state
   _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
-  _executorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
 }

@@ -43,8 +43,9 @@ export async function clearCleanStop(
 /**
  * Phase 1878 Step E（watchdog-clean-stop-storage-bypass）：clean-stop 意图稳定查询。
  *
- * marker 路径知识与演化收归 PM owner；caller（Watchdog executor-recovery）
- * 不再直读 `'clean-stop'` 文件字面量。查询语义 1:1 = 存在即 true（现状语义）。
+ * marker 路径知识与演化收归 PM owner；caller 不再直读 `'clean-stop'` 文件
+ * 字面量。查询语义 1:1 = 存在即 true（现状语义）。
+ * （Phase 1974 Step C：原消费方 Watchdog executor-recovery 已退役；本查询 API 保留。）
  * 写端一致性：signalCleanStop 写 `<daemonDir>/clean-stop`；CLI stop 的 per-claw
  * marker 写 `<clawDir>/clean-stop`——local claw 的 daemonDir 即 clawDir
  * （makeDaemonDirFromLocation 恒等），同一路径语义。

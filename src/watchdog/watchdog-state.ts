@@ -10,8 +10,8 @@
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import {
-  getChestnutFs, getAuditWriter, motionRestartStateAPI, executorRestartStateAPI,
-  type MotionRestartState, type ExecutorRestartMap, type ExecutorRestartState,
+  getChestnutFs, getAuditWriter, motionRestartStateAPI,
+  type MotionRestartState,
 } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';
@@ -23,7 +23,8 @@ const CURRENT_WATCHDOG_SCHEMA_VERSION = 3;
 interface WatchdogState {
   schema_version: number;
   motionRestart?: MotionRestartState;
-  executorRestart?: ExecutorRestartMap;
+  // Phase 1974 Step C: executorRestart 键随 executor recovery 退役——
+  // 旧 state.json 残留键 JSON.parse 后不读取即可（不 bump schema、不另立迁移）。
 }
 
 function normalizeMotionRestartState(value: unknown): MotionRestartState {
@@ -65,72 +66,6 @@ function normalizeMotionRestartState(value: unknown): MotionRestartState {
   throw new Error('watchdog-state.json invalid motionRestart');
 }
 
-/** 无效条目原因分类（判定标准保持现状：closed/retrying/open 两态 schema，只加可观察性）。 */
-function classifyInvalidExecutorEntry(rawState: unknown): string {
-  if (typeof rawState !== 'object' || rawState === null) return 'not_an_object';
-  const s = rawState as Record<string, unknown>;
-  if (s.status !== 'closed' && s.status !== 'retrying' && s.status !== 'open') {
-    return `unknown_status:${String(s.status)}`;
-  }
-  return `invalid_${String(s.status)}_shape`;
-}
-
-function normalizeExecutorRestartMap(
-  value: unknown,
-  onInvalidEntry?: (key: string, reason: string, raw: unknown) => void,
-): ExecutorRestartMap {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return {};
-  }
-  const raw = value as Record<string, unknown>;
-  const out: ExecutorRestartMap = {};
-  for (const [key, rawState] of Object.entries(raw)) {
-    if (typeof rawState === 'object' && rawState !== null) {
-      const s = rawState as Record<string, unknown>;
-      if (s.status === 'closed' && s.consecutiveAttempts === 0) {
-        out[key] = { status: 'closed', consecutiveAttempts: 0 };
-        continue;
-      }
-      if (
-        s.status === 'retrying'
-        && Number.isInteger(s.consecutiveAttempts)
-        && (s.consecutiveAttempts as number) > 0
-        && typeof s.nextAttemptAt === 'number'
-        && Number.isFinite(s.nextAttemptAt)
-        && typeof s.awaitingStability === 'boolean'
-      ) {
-        out[key] = {
-          status: 'retrying',
-          consecutiveAttempts: s.consecutiveAttempts as number,
-          nextAttemptAt: s.nextAttemptAt,
-          awaitingStability: s.awaitingStability,
-        };
-        continue;
-      }
-      if (
-        s.status === 'open'
-        && Number.isInteger(s.consecutiveAttempts)
-        && (s.consecutiveAttempts as number) > 0
-        && typeof s.openedAt === 'number'
-        && Number.isFinite(s.openedAt)
-      ) {
-        const open: ExecutorRestartState = {
-          status: 'open',
-          consecutiveAttempts: s.consecutiveAttempts as number,
-          openedAt: s.openedAt,
-        };
-        if (s.sinkDelivered === true) open.sinkDelivered = true;
-        out[key] = open;
-        continue;
-      }
-    }
-    // Phase 1878 Step G: 无效条目不再静默跳过——caller 审计留证 + 原文隔离；
-    // 载入语义不变（跳过 = 视为无该条目，但显式可观察、原文不丢）。
-    onInvalidEntry?.(key, classifyInvalidExecutorEntry(rawState), rawState);
-  }
-  return out;
-}
-
 class WatchdogSchemaError extends Error {
   constructor(public actualVersion: unknown, public currentVersion: number) {
     super(`watchdog-state.json unknown schema_version ${String(actualVersion)} (current=${currentVersion})`);
@@ -163,44 +98,6 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
 
     const motionRestart = normalizeMotionRestartState(state.motionRestart);
     motionRestartStateAPI.replace(motionRestart);
-
-    // Phase 1878 Step G: 无效 executor 条目显式处置——audit（key + 原因）+ 原文
-    // 隔离保存（防静默归零导致的重启风暴/重复交付；载入跳过语义不变）。
-    const invalidEntries: { key: string; reason: string; raw: unknown }[] = [];
-    executorRestartStateAPI.replace(
-      normalizeExecutorRestartMap(state.executorRestart, (key, reason, rawEntry) => {
-        invalidEntries.push({ key, reason, raw: rawEntry });
-      }),
-    );
-    if (invalidEntries.length > 0) {
-      const quarantinePath = `${WATCHDOG_PATHS.quarantine}/executor-restart-invalid-entries-${Date.now()}.json`;
-      let quarantineOk = true;
-      let quarantineErr: string | undefined;
-      try {
-        fs.writeAtomicSync(quarantinePath, JSON.stringify({
-          schema_version: 1,
-          retired_at: new Date().toISOString(),
-          source: statePath,
-          entries: Object.fromEntries(invalidEntries.map((e) => [e.key, e.raw])),
-        }, null, 2));
-      } catch (qErr) {
-        quarantineOk = false;
-        quarantineErr = formatErr(qErr);
-      }
-      const entryAudit = getAuditWriter();
-      for (const entry of invalidEntries) {
-        entryAudit?.write(
-          WATCHDOG_AUDIT_EVENTS.STATE_EXECUTOR_ENTRY_INVALID,
-          `key=${entry.key}`,
-          `reason=${entry.reason}`,
-          `quarantine=${quarantinePath}`,
-          `quarantine_ok=${quarantineOk}`,
-          ...(quarantineErr !== undefined
-            ? [`quarantine_error=${entryAudit?.message(quarantineErr) ?? quarantineErr}`]
-            : []),
-        );
-      }
-    }
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
@@ -209,7 +106,6 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
 
     // corrupt path: reset to empty durable state
     motionRestartStateAPI.reset();
-    executorRestartStateAPI.reset();
 
     const fs = getChestnutFs(fsFactory);
     const backupPath = `${statePath}.corrupt-${Date.now()}`;
@@ -240,7 +136,6 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
   const state: WatchdogState = {
     schema_version: CURRENT_WATCHDOG_SCHEMA_VERSION,
     motionRestart: motionRestartStateAPI.snapshot(),
-    executorRestart: executorRestartStateAPI.snapshot(),
   };
   const fs = getChestnutFs(fsFactory);
   // Phase 1455 Step A: 生产写只走目标路径（writeAtomicSync 自建父目录）；
