@@ -3,7 +3,23 @@
  * Defines known providers and their configurations
  */
 
+import type { ThinkingLevel } from './thinking-levels.js';
+
 export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
+
+/**
+ * Phase 1979: preset 自带的 thinking/effort 全参数（preset = 完整参数包）。
+ * 仅在用户配置未显式给出任何 thinking 字段时由 config-adapter 填充；
+ * 不写入 YAML、不做存量迁移。
+ */
+export interface PresetThinkingDefaults {
+  thinking?: boolean;
+  thinkingMode?: 'adaptive' | 'enabled';
+  thinkingEffort?: ThinkingLevel;
+  reasoningEffort?: ThinkingLevel;
+  thinkingBudgetTokens?: number;
+  dropThinkingBlocks?: boolean;
+}
 
 /**
  * Phase 1926 Step D：preset 的认证装配类别（CLI 提示与缺参判定依据）。
@@ -33,7 +49,7 @@ export class UnknownPresetError extends Error {
   }
 }
 
-interface ProviderPreset {
+export interface ProviderPreset {
   id: string;
   displayName: string;
   /**
@@ -68,6 +84,8 @@ interface ProviderPreset {
   catalogProvider?: string;
   /** metadata-only catalog 查询的 model id（可与 wire model id 不同）。 */
   catalogModel?: string;
+  /** Phase 1979：preset 自带 thinking/effort 默认（curated reasoning-capable 服务）。 */
+  thinkingDefaults?: PresetThinkingDefaults;
 }
 
 export const PRESETS: Record<string, ProviderPreset> = {
@@ -79,6 +97,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'claude-3-7-sonnet-20250219',
     envVar: 'ANTHROPIC_API_KEY',
     piAiProvider: 'anthropic',
+    // Phase 1979: adaptive thinking 默认全档 max（pi-ai 按模型 clamp）
+    thinkingDefaults: { thinkingMode: 'adaptive', thinkingEffort: 'max' },
   },
   'openai': {
     id: 'openai',
@@ -88,6 +108,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'gpt-4o',
     envVar: 'OPENAI_API_KEY',
     piAiProvider: 'openai',
+    // Phase 1979: reasoning 默认 max（gpt-4o 等 catalog reasoning:false 时由 resolve 跳过）
+    thinkingDefaults: { reasoningEffort: 'max' },
   },
   'deepseek': {
     id: 'deepseek',
@@ -102,6 +124,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step C：metadata-only——只取 catalog 元数据，wire 仍是 Anthropic preset。
     catalogProvider: 'deepseek',
     catalogModel: 'deepseek-flash', // 实际 wire model 仍是 deepseek-flash[1m]
+    // Phase 1979: Anthropic-wire 克隆走 budget 路径（thinking: true + effort max）
+    thinkingDefaults: { thinking: true, thinkingEffort: 'max' },
   },
   'moonshot': {
     id: 'moonshot',
@@ -111,6 +135,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'kimi-k2.5',
     envVar: 'MOONSHOT_API_KEY',
     piAiProvider: 'moonshotai',
+    thinkingDefaults: { reasoningEffort: 'max' },
   },
   'kimi': {
     id: 'kimi',
@@ -124,6 +149,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // OpenAI。Step C 以 catalogProvider/catalogModel metadata-only 方式接回元数据。
     catalogProvider: 'kimi-coding',
     catalogModel: 'k3-256k',
+    thinkingDefaults: { thinking: true, thinkingEffort: 'max' },
   },
   'minimax': {
     id: 'minimax',
@@ -136,6 +162,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step C：metadata-only 优先——catalog 只供元数据，不接管 wire。
     catalogProvider: 'minimax',
     catalogModel: 'MiniMax-M3.1-Flash',
+    // Phase 1979: MiniMax 需要 adaptive thinking；回放 thinking blocks 会被拒绝
+    thinkingDefaults: { thinkingMode: 'adaptive', thinkingEffort: 'max', dropThinkingBlocks: true },
   },
   'gemini': {
     id: 'gemini',
@@ -145,6 +173,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'gemini-2.5-pro-preview-03-25',
     envVar: 'GEMINI_API_KEY',
     piAiProvider: 'google',
+    thinkingDefaults: { reasoningEffort: 'max' },
   },
   'ollama': {
     id: 'ollama',
@@ -162,6 +191,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'grok-4',
     envVar: 'XAI_API_KEY',
     piAiProvider: 'xai',
+    thinkingDefaults: { reasoningEffort: 'max' },
   },
   'openrouter': {
     id: 'openrouter',
@@ -171,6 +201,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'openai/gpt-4o',
     envVar: 'OPENROUTER_API_KEY',
     piAiProvider: 'openrouter',
+    thinkingDefaults: { reasoningEffort: 'max' },
   },
   'openrouter-anthropic': {
     id: 'openrouter-anthropic',
@@ -180,6 +211,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'anthropic/claude-sonnet-4-5',
     envVar: 'OPENROUTER_API_KEY',
     piAiProvider: 'openrouter',
+    thinkingDefaults: { thinking: true, thinkingEffort: 'max' },
   },
   'zai': {
     id: 'zai',
@@ -193,6 +225,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step C：metadata-only——只取 catalog 元数据。
     catalogProvider: 'zai',
     catalogModel: 'glm-5.3',
+    thinkingDefaults: { thinking: true, thinkingEffort: 'max' },
   },
   // Phase 1973：curated Anthropic preset；setup 按序 probe 中国/国际/套餐候选。
   'qwen': {
@@ -206,6 +239,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step C：metadata-only——只取 catalog 元数据。
     catalogProvider: 'qwen-token-plan',
     catalogModel: 'qwen3.8-max',
+    thinkingDefaults: { thinking: true, thinkingEffort: 'max' },
   },
   'qwen-coder': {
     id: 'qwen-coder',
@@ -254,16 +288,20 @@ export const PRESETS: Record<string, ProviderPreset> = {
     id: 'custom-anthropic',
     displayName: 'Custom (Anthropic Format)',
     apiFormat: 'anthropic',
+    thinkingDefaults: { thinkingMode: 'adaptive', thinkingEffort: 'max' },
   },
   'custom-openai': {
     id: 'custom-openai',
     displayName: 'Custom (OpenAI Format)',
     apiFormat: 'openai',
+    // custom 入口无 catalog 能力信息 → 信任 preset；未知模型可显式 thinking:false 关闭
+    thinkingDefaults: { thinkingMode: 'adaptive', thinkingEffort: 'max' },
   },
   'custom-gemini': {
     id: 'custom-gemini',
     displayName: 'Custom (Gemini Format)',
     apiFormat: 'gemini',
+    thinkingDefaults: { thinkingMode: 'adaptive', thinkingEffort: 'max' },
   },
 };
 

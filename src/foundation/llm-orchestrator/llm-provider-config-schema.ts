@@ -4,6 +4,7 @@
  * Source: 迁自 foundation/config/schemas.ts:41-59 createLLMProviderSchema
  */
 import { z } from 'zod';
+import { THINKING_LEVELS } from '../llm-provider/index.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
 } from './defaults.js';
@@ -39,10 +40,11 @@ export const llmProviderConfigSchema = z.object({
   thinking: z.boolean().optional(),
   thinking_budget_tokens: z.number().min(1).optional(),
   thinking_mode: z.enum(['adaptive', 'enabled']).optional(),
-  thinking_effort: z.enum(['low', 'medium', 'high']).optional(),
+  // Phase 1979：effort 全档（minimal..max），由 pi-ai 按模型能力 clamp
+  thinking_effort: z.enum(THINKING_LEVELS).optional(),
   extra_headers: z.record(z.string()).optional(),
   drop_thinking_blocks: z.boolean().optional(),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
+  reasoning_effort: z.enum(THINKING_LEVELS).optional(),
   // Phase 1925 Step D: transport 字段已删除（pi-ai 唯一路径）；zod 默认 strip 未知键，
   // 既有 yaml 中的 transport 键静默忽略、配置可读（回滚兼容）
 });

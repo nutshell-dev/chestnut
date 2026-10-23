@@ -5,6 +5,11 @@
  * Exports: LLMProvider interface, provider adapters, factory
  */
 
+export { THINKING_LEVELS } from './thinking-levels.js';
+export type { ThinkingLevel } from './thinking-levels.js';
+export { resolveThinkingDefaults } from './thinking-defaults.js';
+export type { ResolvedThinkingDefaults } from './thinking-defaults.js';
+
 export type {
   ProviderConfig,
   LLMCallOptions,
@@ -17,7 +22,7 @@ export {
   makeExternalAbortError,
   ExternalAbortError } from './abort-helper.js';
 export { PRESETS, resolvePreset, presetAuthProfile, presetRequiresBaseUrl } from './presets.js';
-export type { AuthProfile } from './presets.js';
+export type { AuthProfile, PresetThinkingDefaults } from './presets.js';
 // Phase 1927 Step D：显式 catalog provider 配置策略单源（CLI 经 barrel 触达）
 export {
   UnknownCatalogProviderError,

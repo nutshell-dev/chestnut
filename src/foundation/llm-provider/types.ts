@@ -7,6 +7,7 @@
 
 import type { ApiFormat, AuthProfile } from './presets.js';
 import type { ToolUseId } from './tool-use-id.js';
+import type { ThinkingLevel } from './thinking-levels.js';
 
 // phase 692 Step A: 删 AuditLog import + re-export
 // L1 LLMProvider 收窄至 AuditSink (L1 owned duck-typed)、不知 L2a AuditLog 业务概念。
@@ -148,7 +149,7 @@ export interface ProviderConfig {
   thinkingMode?: 'adaptive' | 'enabled';
 
   /** Effort level for adaptive thinking (Claude 4.6+), defaults to 'high' */
-  thinkingEffort?: 'low' | 'medium' | 'high';
+  thinkingEffort?: ThinkingLevel;
 
   /** Extra headers to include in API requests (e.g., for OpenRouter) */
   extraHeaders?: Record<string, string>;
@@ -169,7 +170,7 @@ export interface ProviderConfig {
   authProfile?: AuthProfile;
 
   /** Reasoning effort for OpenAI o-series models */
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: ThinkingLevel;
 
   /**
    * Phase 1925 Step C：pi-ai catalog provider id（由 preset.piAiProvider 经 config-adapter 带入）。

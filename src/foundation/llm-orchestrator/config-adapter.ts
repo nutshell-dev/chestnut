@@ -13,6 +13,7 @@ import {
   validateCatalogAuthProfile,
   catalogModelKnown,
   CatalogModelNotFoundError,
+  resolveThinkingDefaults,
 } from '../llm-provider/index.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
 
@@ -83,24 +84,38 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
   // Detect bare env var names that should be wrapped in ${...}
   assertNotBareEnvVar(p.api_key, p.label ?? presetId);
 
+  // Phase 1979: preset = 完整参数包——仅当配置完全未显式给出 thinking 字段时
+  // 填充 preset 默认；任一显式字段（含 thinking:false）整体优先。
+  const thinkingExplicit =
+    p.thinking !== undefined ||
+    p.thinking_budget_tokens !== undefined ||
+    p.thinking_mode !== undefined ||
+    p.thinking_effort !== undefined ||
+    p.reasoning_effort !== undefined ||
+    p.drop_thinking_blocks !== undefined;
+  const resolvedModel = (!p.model || p.model === 'auto')
+    ? (preset.defaultModel ?? 'unknown')
+    : p.model;
+  const presetThinking = thinkingExplicit ? undefined : resolveThinkingDefaults(presetId, resolvedModel);
+
   return {
     name: p.label ?? presetId,
     apiKey: p.api_key,
     baseUrl: p.base_url ?? preset.defaultBaseUrl,
-    model: (!p.model || p.model === 'auto') ? (preset.defaultModel ?? 'unknown') : p.model,
+    model: resolvedModel,
     maxTokens: p.max_tokens,
     temperature: p.temperature,
     timeoutMs: p.timeout_ms,
-    thinking: p.thinking,
-    thinkingBudgetTokens: p.thinking_budget_tokens,
-    thinkingMode: p.thinking_mode,
-    thinkingEffort: p.thinking_effort,
+    thinking: p.thinking ?? presetThinking?.thinking,
+    thinkingBudgetTokens: p.thinking_budget_tokens ?? presetThinking?.thinking_budget_tokens,
+    thinkingMode: p.thinking_mode ?? presetThinking?.thinking_mode,
+    thinkingEffort: p.thinking_effort ?? presetThinking?.thinking_effort,
     extraHeaders: p.extra_headers,
-    dropThinkingBlocks: p.drop_thinking_blocks,
+    dropThinkingBlocks: p.drop_thinking_blocks ?? presetThinking?.drop_thinking_blocks,
     apiFormat: preset.apiFormat,
     // Phase 1926 Step D：认证装配类别透传（ambient/oauth 时 apiKey 合法缺席）
     authProfile: preset.authProfile,
-    reasoningEffort: p.reasoning_effort,
+    reasoningEffort: p.reasoning_effort ?? presetThinking?.reasoning_effort,
     // Phase 1925 Step C：pi-ai catalog provider id 显式映射（无对应者 undefined → 自建 Model）
     piAiProvider: preset.piAiProvider,
     // Phase 1975 Step C：metadata-only catalog 查询透传（wire 不被接管）
