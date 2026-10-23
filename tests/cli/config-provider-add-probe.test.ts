@@ -271,6 +271,93 @@ describe('config provider add — primary probe', () => {
   });
 });
 
+describe('config provider add — API Key 输入矩阵（Phase 1984 Step C）', () => {
+  beforeEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    setupTempDir();
+    writeInitialConfig();
+    rlAnswers.queue = [];
+    connMock.checkLLMConnectionFor.mockReset();
+    connMock.promptReconfigure.mockReset();
+    mockRl.question.mockClear();
+    mockRl.close.mockClear();
+  });
+  afterEach(() => {
+    teardownTempDir();
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
+
+  it('env 已设置 + typed key → 派生 ref 生效，输入值落凭据文件', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'k3-256k' });
+    vi.stubEnv('KIMI_API_KEY', 'env-key');
+    // service 2 (Kimi), label, key, model default, role fallback, position default
+    rlAnswers.queue = ['2', 'kimi-typed', 'typed-key', '', '2', '1'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    // 配置引用派生 ref（seed=label），加载后 = 用户输入值
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('${CHESTNUT_KIMI_TYPED_API_KEY}');
+    expect(rawYaml).not.toContain('${KIMI_API_KEY}');
+    const config = loadGlobalConfig({ fsFactory });
+    const added = (config.llm.fallbacks ?? []).find(f => f.label === 'kimi-typed');
+    expect(added?.api_key).toBe('typed-key');
+    // 提示同时说明两种行为
+    expect(
+      questionPrompts().some(
+        (p) => p.includes('Enter = use KIMI_API_KEY') && p.includes('type a value'),
+      ),
+    ).toBe(true);
+  });
+
+  it('env 已设置 + 空输入 → ${ENV}，不写凭据', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    // service 8 (Anthropic), label, key 空（用 env）, model default, role fallback, position
+    rlAnswers.queue = ['8', 'env-anthropic', '', '', '2', '1'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
+    const config = loadGlobalConfig({ fsFactory });
+    const added = (config.llm.fallbacks ?? []).find(f => f.label === 'env-anthropic');
+    expect(added?.api_key).toBe('env-key');
+    expect(fs.existsSync(path.join(tempDir, 'cred-home', 'credentials.yaml'))).toBe(false);
+  });
+
+  it('派生 ref 也被 env 遮蔽 → loud 失败，不写配置', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'k3-256k' });
+    vi.stubEnv('KIMI_API_KEY', 'env-key');
+    vi.stubEnv('CHESTNUT_KIMI_TYPED_API_KEY', 'derived-env-key');
+    rlAnswers.queue = ['2', 'kimi-typed', 'typed-key', '', '2', '1'];
+
+    // providerAdd 的 CliError 经 withCliErrorHandling → console.error + process.exit(1)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const errLines: string[] = [];
+    const errSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errLines.push(args.map(String).join(' '));
+    });
+    try {
+      const cmd = createConfigCommand(configDeps);
+      await expect(cmd.parseAsync(['node', 'test', 'provider', 'add'])).rejects.toThrow(
+        'process.exit(1)',
+      );
+    } finally {
+      exitSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+    expect(errLines.join('\n')).toContain('Unset CHESTNUT_KIMI_TYPED_API_KEY');
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some(f => f.label === 'kimi-typed')).toBe(false);
+    expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
+  });
+});
+
 describe('config provider add — fallback probe', () => {
   beforeEach(() => {
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });

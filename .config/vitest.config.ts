@@ -53,6 +53,7 @@ const VI_MOCK_FILES = [
   'tests/cli/config-audit-emit.test.ts',  // phase 1452 Step B: vi.mock watchdog/ensure（补登记，phase 316 invariant）
   'tests/cli/config-provider-add-probe.test.ts',  // phase 451 Step A
   'tests/cli/config-provider-set-primary-probe.test.ts',  // phase 451 Step A
+  'tests/cli/credentials-env-shadow.test.ts',  // phase 1984 Step C: vi.mock readline + llm-orchestrator barrel
   'tests/cli/contract-events.test.ts',
   'tests/cli/contract.test.ts',
   'tests/cli/daemon-command.test.ts',

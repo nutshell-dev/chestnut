@@ -229,6 +229,92 @@ describe('initCommand — 失败后留在向导内修复', () => {
   });
 });
 
+describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
+  beforeEach(() => {
+    setupTempDir();
+    resetProbeMocks();
+    mockRl.question.mockClear();
+    mockRl.close.mockClear();
+  });
+  afterEach(() => teardownTempDir());
+
+  function questionPrompts(): string[] {
+    return mockRl.question.mock.calls.map((c) => String(c[0]));
+  }
+
+  it('env 已设置 + typed key → 派生 ref 生效，输入值落凭据文件', async () => {
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    rlAnswers.queue = ['8', 'typed-key', ''];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    // 配置引用派生 ref，不再引用被 env 遮蔽的 ${ANTHROPIC_API_KEY}
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('${CHESTNUT_ANTHROPIC_API_KEY}');
+    expect(rawYaml).not.toContain('${ANTHROPIC_API_KEY}');
+    expect(rawYaml).not.toContain('typed-key');
+    // 加载后 key = 用户输入值（env 不遮蔽派生 ref）
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
+    // 凭据文件保存输入值（断言 ref/值，不打印 secret）
+    const credentials = createLocalCredentials({ fsFactory });
+    expect(credentials.resolve('CHESTNUT_ANTHROPIC_API_KEY')?.value).toBe('typed-key');
+    // 提示同时说明两种行为
+    expect(
+      questionPrompts().some(
+        (p) => p.includes('Enter = use ANTHROPIC_API_KEY') && p.includes('type a value'),
+      ),
+    ).toBe(true);
+  });
+
+  it('env 已设置 + 空输入 → ${ENV}，不写凭据', async () => {
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    rlAnswers.queue = ['8', '', ''];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('env-key');
+    // 空输入不写凭据文件
+    expect(fs.existsSync(path.join(tempDir, 'cred-home', 'credentials.yaml'))).toBe(false);
+    // 提示同样说明两种行为
+    expect(
+      questionPrompts().some(
+        (p) => p.includes('Enter = use ANTHROPIC_API_KEY') && p.includes('type a value'),
+      ),
+    ).toBe(true);
+  });
+
+  it('env 未设置 + typed key → 原 envVar ref（行为保持）', async () => {
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
+    rlAnswers.queue = ['8', 'typed-key', ''];
+
+    await initCommand(commandDeps, true, { audit: mockAudit });
+
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
+    expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
+    // env 不可用时不显示 env 说明
+    expect(questionPrompts().some((p) => p.includes('Enter = use ANTHROPIC_API_KEY'))).toBe(false);
+    expect(questionPrompts()).toContain('API Key: ');
+  });
+
+  it('派生 ref 也被 env 遮蔽 → loud CliError，不静默回退', async () => {
+    connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'claude-test' });
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    vi.stubEnv('CHESTNUT_ANTHROPIC_API_KEY', 'derived-env-key');
+    rlAnswers.queue = ['8', 'typed-key', ''];
+
+    await expect(initCommand(commandDeps, true, { audit: mockAudit })).rejects.toThrow(
+      /Unset CHESTNUT_ANTHROPIC_API_KEY/,
+    );
+    // 失败不发布 config
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'config.yaml'))).toBe(false);
+  });
+});
+
 describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
   beforeEach(() => {
     setupTempDir();
