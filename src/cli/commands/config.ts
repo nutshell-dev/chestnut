@@ -35,6 +35,7 @@ import {
   SETUP_OTHER_FORMAT_LINES,
   SETUP_CANCELLED,
   SETUP_PROBE_FAILED_NOT_SAVED,
+  setupConnectingLine,
   setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
@@ -186,6 +187,25 @@ function configAudit(deps: ConfigCommandDeps): AuditLog {
   return actionAuditFor(getChestnutRoot(), deps);
 }
 
+// Phase 1980 Step B：固定默认服务判据（与 first-run-setup requiresConfirmation 同原则）。
+// label 不参与判定；多端点候选此时 baseUrl 为空仍属固定（winner 在 probe 后落盘）。
+function isFixedDefaultSetup(
+  service: { kind: 'setup'; choice: SetupProviderChoice } | { kind: 'advanced' },
+  model: string,
+  baseUrl: string | undefined,
+): boolean {
+  if (service.kind !== 'setup') return false;
+  const choice = service.choice;
+  if (choice.auth === 'advanced') return false;
+  if (choice.target.providerId) return false;
+  const preset = choice.target.preset ? PRESETS[choice.target.preset] : undefined;
+  if (!preset) return false;
+  const defaultModel = choice.defaultModel ?? preset.defaultModel;
+  if (!defaultModel || model !== defaultModel) return false;
+  if (baseUrl && baseUrl !== preset.defaultBaseUrl) return false;
+  return true;
+}
+
 // provider add command
 async function selectSetupService(
   rl: readline.Interface,
@@ -318,7 +338,11 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     let positionFromPrompt = 0;
     if (role === 'primary') {
       const currentPrimary = config.llm.primary;
-      console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset || currentPrimary.provider_id}) will become fallback #1.`);
+      // Phase 1980 Step B：Primary 确认包含即将加入的 service/model。
+      console.log(
+        `\nAdd ${serviceName} (${model}) as primary? ` +
+        `Current primary (${currentPrimary.label || currentPrimary.preset || currentPrimary.provider_id}) will become fallback #1.`,
+      );
       const confirm = await question(rl, 'Confirm? [y/N]', 'N');
       if (confirm.toLowerCase() !== 'y') {
         console.log(SETUP_CANCELLED);
@@ -342,27 +366,33 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     // Phase 1972: redacted preview before probe/commit (never includes the secret).
     const probeCandidates =
       service.kind === 'setup' ? service.choice.probeCandidates : undefined;
-    setupDraftPreviewLines({
-      label,
-      model,
-      auth: authProfile === 'local' ? 'local' : authProfile === 'api_key' ? 'API key' : authProfile,
-      role,
-      // Phase 1979: preset 默认 thinking（custom/Other 显示；固定服务由 helper 决定）
-      ...(describeEffectiveThinking(presetId, model) !== undefined && {
-        thinking: describeEffectiveThinking(presetId, model),
-      }),
-      ...(baseUrl && { baseUrl }),
-      ...(apiKey && { keyRef: apiKey }),
-    }).forEach(line => console.log(line));
-    // Phase 1973 Step C：多端点候选的服务预览显式标注 auto-probe（不含 secret）。
-    if (probeCandidates && probeCandidates.length > 0) {
-      console.log(`  Endpoint: auto-probe (${probeCandidates.length})`);
-    }
+    // Phase 1980 Step B：固定默认服务跳过低信息量 preview/Save（对齐 phase 1976 首次 start）；
+    // 自定义（Other/Advanced/catalog-only/非默认 model/自定义 baseUrl）保留脱敏 preview + 确认。
+    if (isFixedDefaultSetup(service, model, baseUrl)) {
+      console.log(setupConnectingLine(serviceName, model));
+    } else {
+      setupDraftPreviewLines({
+        label,
+        model,
+        auth: authProfile === 'local' ? 'local' : authProfile === 'api_key' ? 'API key' : authProfile,
+        role,
+        // Phase 1979: preset 默认 thinking（custom/Other 显示；固定服务由 helper 决定）
+        ...(describeEffectiveThinking(presetId, model) !== undefined && {
+          thinking: describeEffectiveThinking(presetId, model),
+        }),
+        ...(baseUrl && { baseUrl }),
+        ...(apiKey && { keyRef: apiKey }),
+      }).forEach(line => console.log(line));
+      // Phase 1973 Step C：多端点候选的服务预览显式标注 auto-probe（不含 secret）。
+      if (probeCandidates && probeCandidates.length > 0) {
+        console.log(`  Endpoint: auto-probe (${probeCandidates.length})`);
+      }
 
-    const saveAnswer = await question(rl, 'Save this provider? [Y/n]', 'Y');
-    if (saveAnswer.toLowerCase() === 'n') {
-      console.log(SETUP_CANCELLED);
-      return;
+      const saveAnswer = await question(rl, 'Save this provider? [Y/n]', 'Y');
+      if (saveAnswer.toLowerCase() === 'n') {
+        console.log(SETUP_CANCELLED);
+        return;
+      }
     }
 
     // Phase 1972: probe before commit. Unverified providers are not persisted.

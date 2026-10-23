@@ -72,6 +72,24 @@ const { loadGlobalConfig } = await import('../../src/assembly/config/config-load
 
 let tempDir: string;
 
+// Phase 1980 Step B：捕获 stdout 以断言 preview/Connecting/确认文案。
+let consoleLines: string[] = [];
+let logSpy: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  consoleLines = [];
+  logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    consoleLines.push(args.map(String).join(' '));
+  });
+});
+afterEach(() => {
+  logSpy.mockRestore();
+});
+
+function questionPrompts(): string[] {
+  return mockRl.question.mock.calls.map((c) => String(c[0]));
+}
+
 function setupTempDir() {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tempDir = path.join(tmpdir(), `chestnut-config-add-probe-test-${randomUUID()}`);
@@ -115,8 +133,9 @@ describe('config provider add — primary probe', () => {
 
   it('adds primary and probes the new primary on success', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
-    // service 8 (Anthropic), label, key, model default, role primary, role confirm, save confirm
-    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y', 'y'];
+    // service 8 (Anthropic), label, key, model default, role primary, role confirm
+    // Phase 1980 Step B：固定服务无 Save 确认，队列不再带末尾 save 'y'
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -124,6 +143,15 @@ describe('config provider add — primary probe', () => {
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
     const calledWith = connMock.checkLLMConnectionFor.mock.calls[0][0];
     expect(calledWith.apiKey).toBe('sk-ant-new');
+
+    // Phase 1980 Step B：固定服务无低信息量 preview / Save 确认，只有 Connecting 行
+    const out = consoleLines.join('\n');
+    expect(out).not.toContain('Configuration preview');
+    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(false);
+    expect(out).toContain('Connecting to Anthropic (claude-3-7-sonnet-20250219)...');
+    // Primary 确认包含即将加入的 service/model
+    expect(out).toContain('Add Anthropic (claude-3-7-sonnet-20250219) as primary?');
+    expect(out).toContain('will become fallback #1.');
 
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-new');
@@ -138,7 +166,7 @@ describe('config provider add — primary probe', () => {
   it('adds primary, probes fail auth, enters reconfigure', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'anthropic' });
     connMock.promptReconfigure.mockResolvedValue(undefined);
-    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y', 'y'];
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -148,6 +176,55 @@ describe('config provider add — primary probe', () => {
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-old');
+  });
+
+  it('custom model keeps redacted preview and Save confirmation', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-custom' });
+    // service 8 (Anthropic), label, key, custom model, role fallback, position default, save confirm
+    rlAnswers.queue = ['8', 'custom-anthropic', 'sk-ant-new', 'claude-custom', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    // Phase 1980 Step B：非默认 model 属自定义 → 保留脱敏 preview + Save 确认
+    const out = consoleLines.join('\n');
+    expect(out).toContain('Configuration preview');
+    expect(out).not.toContain('sk-ant-new');
+    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(true);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some((f) => f.label === 'custom-anthropic')).toBe(true);
+  });
+
+  it('custom model cancel at Save does not probe or persist', async () => {
+    // service 8 (Anthropic), label, key, custom model, role fallback, position default, save 'n'
+    rlAnswers.queue = ['8', 'cancel-anthropic', 'sk-ant-new', 'claude-custom', '2', '1', 'n'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    // 取消不 probe、不写配置
+    expect(connMock.checkLLMConnectionFor).not.toHaveBeenCalled();
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? [])).toHaveLength(0);
+  });
+
+  it('Other (custom endpoint) keeps preview and Save confirmation', async () => {
+    connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'gpt-custom' });
+    // service 12 (Other), format 2 (OpenAI), label, key, baseUrl, model, role fallback, position, save
+    rlAnswers.queue = ['12', '2', 'other-test', 'sk-other', 'https://example.com/v1', 'gpt-custom', '2', '1', 'y'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const out = consoleLines.join('\n');
+    expect(out).toContain('Configuration preview');
+    expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(true);
+
+    expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
+    const config = loadGlobalConfig({ fsFactory });
+    expect((config.llm.fallbacks ?? []).some((f) => f.label === 'other-test')).toBe(true);
   });
 });
 
@@ -169,8 +246,8 @@ describe('config provider add — fallback probe', () => {
 
   it('adds fallback and probes it; failure does not block or trigger reconfigure', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'openai' });
-    // service 6 (OpenAI), label, key, model default, role fallback, position default, save confirm
-    rlAnswers.queue = ['6', 'new-openai', 'sk-openai', '', '2', '1', 'y'];
+    // service 6 (OpenAI), label, key, model default, role fallback, position default
+    rlAnswers.queue = ['6', 'new-openai', 'sk-openai', '', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -205,8 +282,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
       .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' })
       .mockResolvedValueOnce({ ok: false, errorType: 'network', message: 'timeout', provider: 'kimi' })
       .mockResolvedValueOnce({ ok: true, model: 'k3-256k' });
-    // service 2 (Kimi), label, key, model default, role fallback, position default, save confirm
-    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1', 'y'];
+    // service 2 (Kimi), label, key, model default, role fallback, position default
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -237,7 +314,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
 
   it('Kimi 全败：所有候选 probe 失败时不写入配置', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' });
-    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1', 'y'];
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -252,8 +329,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     connMock.checkLLMConnectionFor
       .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '403', provider: 'qwen' })
       .mockResolvedValueOnce({ ok: true, model: 'qwen3.8-max' });
-    // service 3 (Qwen), label, key, model default, role fallback, position default, save confirm
-    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1', 'y'];
+    // service 3 (Qwen), label, key, model default, role fallback, position default
+    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -268,7 +345,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
 
   it('Qwen 全败：7 个候选全部 probe 且不写入配置', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: false, errorType: 'model', message: '404', provider: 'qwen' });
-    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1', 'y'];
+    rlAnswers.queue = ['3', 'qwen-test', 'sk-qwen-key', '', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
@@ -280,8 +357,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
 
   it('非五家（Anthropic）仍只 probe 一次且无候选循环', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'claude-3' });
-    // service 8 (Anthropic), label, key, model default, role fallback, position default, save confirm
-    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '2', '1', 'y'];
+    // service 8 (Anthropic), label, key, model default, role fallback, position default
+    rlAnswers.queue = ['8', 'new-anthropic', 'sk-ant-new', '', '2', '1'];
 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
