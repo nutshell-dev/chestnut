@@ -27,7 +27,7 @@ import {
 import { LLMInvalidRequestError } from './request-unicode.js';
 import { throwHttpErrorResponse, parseOutputBudgetError } from './_helpers.js';
 import { loadPiAiRuntime } from './pi-ai-runtime.js';
-import { isPiAiContextOverflowText } from './pi-ai-error-text.js';
+import { isPiAiContextOverflowText, normalizeKimiModelTokenLimitText } from './pi-ai-error-text.js';
 import type { HttpErrorCapture } from './pi-ai-capture.js';
 
 /**
@@ -71,10 +71,13 @@ function extractProviderErrorText(body: string): string {
  */
 function normalizeProviderErrorText(text: string): string {
   const statusPrefix = /^\d{3}:\s*/.exec(text);
-  if (!statusPrefix) return text;
-  const payload = text.slice(statusPrefix[0].length);
-  if (!payload.startsWith('{') && !payload.startsWith('[')) return text;
-  return extractProviderErrorText(payload);
+  const payload = statusPrefix ? text.slice(statusPrefix[0].length) : text;
+  const stripped = statusPrefix && (payload.startsWith('{') || payload.startsWith('['))
+    ? extractProviderErrorText(payload)
+    : text;
+  // Phase 1977: Kimi 在 `exceeded` 后插入 model id，上游 predicate 只认
+  // `exceeded model token limit`；归一化后再交给 pi-ai 判定（仅修文本形态）。
+  return normalizeKimiModelTokenLimitText(stripped);
 }
 
 /**
