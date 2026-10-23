@@ -312,6 +312,8 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
       'https://api.moonshot.cn/anthropic',
     ]);
 
+    // winner URL 直接显示在 Selected 行（不使用 CN/Intl 标签）
+    expect(consoleLines.some((l) => l.includes('Selected: https://api.moonshot.cn/anthropic'))).toBe(true);
     // winner baseUrl + preset 落盘（不只看 mock 调用次数）
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'kimi-test');
@@ -330,9 +332,11 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
     // Phase 1980 Step C：全败只打印一次结构化错误/hint（首个失败候选）；
-    // 每个候选的错误类型由 → label ✗ type 状态行保留。
+    // 每个候选的错误类型由 → baseUrl ✗ type 状态行保留。
     expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
-    expect(consoleLines.filter((l) => l.startsWith('→ Kimi') && l.includes('✗'))).toHaveLength(4);
+    const failedLines = consoleLines.filter((l) => l.startsWith('→ https://') && l.includes('✗'));
+    expect(failedLines).toHaveLength(4);
+    expect(failedLines[0]).toContain('https://api.kimi.com/coding');
     expect(
       consoleLines.filter((l) => l.includes('not saved because the connection check failed')),
     ).toHaveLength(1);
@@ -352,6 +356,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
+    expect(consoleLines.some((l) => l.includes('Selected: https://dashscope-intl.aliyuncs.com/apps/anthropic'))).toBe(true);
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'qwen-test');
     expect(added?.preset).toBe('qwen');
@@ -369,7 +374,9 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(7);
     // Phase 1980 Step C：Qwen 7 候选全败，formatLLMError 恰好一次（不再按候选重复）
     expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
-    expect(consoleLines.filter((l) => l.startsWith('→ Qwen') && l.includes('✗'))).toHaveLength(7);
+    const failedLines = consoleLines.filter((l) => l.startsWith('→ https://') && l.includes('✗'));
+    expect(failedLines).toHaveLength(7);
+    expect(failedLines[0]).toContain('https://dashscope.aliyuncs.com/apps/anthropic');
     expect(
       consoleLines.filter((l) => l.includes('not saved because the connection check failed')),
     ).toHaveLength(1);

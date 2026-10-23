@@ -410,12 +410,12 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       );
       const outcome = await probeSetupCandidates(probeCandidates, async (candidate: SetupProbeCandidate) => {
         const result = await candidateProbe(candidate);
-        console.log(`→ ${candidate.label} ... ${result.ok ? '✓' : `✗ ${result.errorType}`}`);
+        console.log(`→ ${candidate.baseUrl} ... ${result.ok ? '✓' : '✗'}`);
         return result;
       });
       if (!outcome.winner) {
         // Phase 1980 Step C：全败只打印一次结构化错误/hint（首个失败候选）；
-        // 每个候选的错误类型已由上方 → label ✗ type 状态行表达。
+        // 候选行只给 URL + ✓/✗；具体原因由下方一次结构化错误表达。
         const firstFailure = outcome.attempts.find(attempt => !attempt.result.ok)?.result;
         if (firstFailure && !firstFailure.ok) {
           formatLLMError({
@@ -429,7 +429,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         return;
       }
       providerConfig.base_url = outcome.winner.baseUrl;
-      console.log(`Selected: ${outcome.winner.label} — ${outcome.winner.baseUrl}`);
+      console.log(`Selected: ${outcome.winner.baseUrl}`);
       verifiedModel = outcome.winnerModel ?? model;
     } else {
       const providerConfigRuntime = toProviderConfig(providerConfig);

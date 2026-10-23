@@ -486,7 +486,7 @@ async function selectSetupEndpoint(
   try {
     outcome = await probeSetupCandidates(candidates, async (candidate: SetupProbeCandidate) => {
       const result = await candidateProbe(candidate);
-      console.log(`→ ${candidate.label} ... ${result.ok ? '✓' : `✗ ${result.errorType}`}`);
+      console.log(`→ ${candidate.baseUrl} ... ${result.ok ? '✓' : '✗'}`);
       return result;
     });
   } catch (err) {
@@ -514,7 +514,7 @@ async function selectSetupEndpoint(
   }
 
   draft.baseUrl = outcome.winner.baseUrl;
-  console.log(`Selected: ${outcome.winner.label} — ${outcome.winner.baseUrl}`);
+  console.log(`Selected: ${outcome.winner.baseUrl}`);
   return { ok: true };
 }
 

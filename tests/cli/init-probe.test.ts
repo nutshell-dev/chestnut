@@ -243,7 +243,19 @@ describe('initCommand — 多端点候选 probe（Phase 1973 / 1976）', () => {
     connMock.probeLLMConnection.mockResolvedValue({ ok: true, model: 'k3-256k' });
     rlAnswers.queue = ['2', 'sk-kimi-key', ''];
 
-    await initCommand(commandDeps, true, { audit: mockAudit });
+    const output: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      output.push(args.map(String).join(' '));
+    });
+    try {
+      await initCommand(commandDeps, true, { audit: mockAudit });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    // 候选行与 Selected 行使用 baseUrl，不显示 CN/Intl 标签
+    expect(output.some((l) => l.startsWith('→ https://api.kimi.com/coding'))).toBe(true);
+    expect(output.some((l) => l.includes('Selected: https://api.kimi.ai/coding'))).toBe(true);
 
     // 首胜即停：4 候选只 probe 2 个
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(2);
