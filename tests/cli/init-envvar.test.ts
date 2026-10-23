@@ -30,6 +30,8 @@ vi.mock('readline', () => ({
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: async (snapshot: { config: { primary: { model: string } }; identity: string }) =>
     ({ ok: true, model: snapshot.config.primary.model, identity: snapshot.identity }),
+  // Phase 1973 Step C：五家 setup 保存前的候选 probe 缝；本文件不测 probe 语义，恒 ok。
+  checkLLMConnectionFor: async (provider: { model: string }) => ({ ok: true, model: provider.model }),
   promptReconfigure: async () => null,
   formatLLMError: () => [],
   LLM_ERROR_LABELS: {

@@ -176,8 +176,8 @@ describe('config provider add — ambient preset（Phase 1926 Step D）', () => 
 
   it('amazon-bedrock：不索 API key、配置不落 api_key、probe 配置带 authProfile', async () => {
     connMock.checkLLMConnectionFor.mockResolvedValue({ ok: true, model: 'anthropic.claude-sonnet-4-6' });
-    // service 13 = Advanced；preset #14 = amazon-bedrock；label 默认；无 key；model 默认；role fallback；position 默认；save y
-    rlAnswers.queue = ['13', '14', '', '', '2', '', 'y'];
+    // service 13 = Advanced；preset #15 = amazon-bedrock（Phase 1973 新增 qwen 后后移一位）；label 默认；无 key；model 默认；role fallback；position 默认；save y
+    rlAnswers.queue = ['13', '15', '', '', '2', '', 'y'];
 
     const cmd = createConfigCommand(commandDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
