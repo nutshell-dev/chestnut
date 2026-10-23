@@ -661,6 +661,19 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
     expect(mockMemorySystem.runDeepDream).toHaveBeenCalledTimes(1);
     expect(mockMemorySystem.runRandomDream).toHaveBeenCalledTimes(1);
   });
+
+  // Phase 1974 Step D：executor-supervisor cron job 接入装配面——descriptor 存在、
+  // 空 workspace（无 claw 候选）handler 安全返回、不抛错。
+  it('executor-supervisor job handler 空 workspace 安全返回（Phase 1974）', async () => {
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
+
+    const jobs = (CronRunner as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const supervisorJob = jobs.find((j: any) => j.name === 'executor-supervisor');
+    expect(supervisorJob).toBeDefined();
+    expect(supervisorJob.enabled).toBe(true);
+
+    await expect(supervisorJob.handler()).resolves.toBeUndefined();
+  });
 });
 });
 

@@ -15,6 +15,7 @@
  * - 第一版不做 backoff/circuit：30s tick 自然重试。
  */
 import { formatErr } from '../../../../foundation/node-utils/index.js';
+import { isFileNotFound } from '../../../../foundation/fs/index.js';
 import type { ClawId } from '../../../../foundation/claw-identity/index.js';
 import { listActiveContracts } from '../../lightweight-query.js';
 import { EXECUTOR_SUPERVISOR_AUDIT_EVENTS as EV } from './audit-events.js';
@@ -27,6 +28,8 @@ export async function runExecutorSupervisorTick(deps: ExecutorSupervisorDeps): P
   try {
     clawIds = deps.clawTopology.enumerate();
   } catch (err) {
+    // 空 workspace（claws/ 未建）= 正常状态，静默返回（对齐 contract-observer）。
+    if (isFileNotFound(err)) return;
     deps.audit.write(EV.SCAN_FAILED, `error=${formatErr(err)}`);
     return;
   }
