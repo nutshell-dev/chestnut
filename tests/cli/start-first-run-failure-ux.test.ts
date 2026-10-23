@@ -197,6 +197,8 @@ describe('first-run wizard — 展示与提交', () => {
 
     expect(outcome.kind).toBe('verified');
     expect(output.join('\n')).not.toContain('Configuration preview');
+    // Phase 1983 Step C：model 默认值只显示一次（共享 helper 追加）
+    expect(mockRl.question.mock.calls.map(c => String(c[0]))).toContain('Model [claude-3-7-sonnet-20250219]: ');
     expect(conn.probeCalls).toBe(1);
     expect(fs.existsSync(configPath())).toBe(true);
     expect(fs.existsSync(readyPath())).toBe(true);
@@ -252,6 +254,8 @@ describe('first-run wizard — 展示与提交', () => {
     expect(conn.probeCalls).toBe(0);
     expect(fs.existsSync(configPath())).toBe(false);
     expect(output.join('\n')).toContain('Configuration preview');
+    // Phase 1983 Step C：确认提示与 provider add 完全一致（helper 追加一次默认值）
+    expect(mockRl.question.mock.calls.map(c => String(c[0]))).toContain('\nContinue with this configuration? [Y]: ');
     // Phase 1979: custom 入口显示 effective thinking
     expect(output.join('\n')).toContain('Thinking: adaptive (max)');
     expect(output.join('\n')).not.toContain('sk-other');

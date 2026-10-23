@@ -35,6 +35,7 @@ import { createLocalCredentials } from '../foundation/credentials/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
+import { question as askQuestion } from './utils/prompt.js';
 import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -305,16 +306,10 @@ async function commitFirstRun(
   return 'committed';
 }
 
+// Phase 1983 Step C：question 统一为 cli/utils/prompt.ts 共享 helper（默认值只显示一次）。
 function makeQuestion(rl: readline.Interface): Question {
   return (prompt: string, defaultValue?: string): Promise<string> =>
-    new Promise((resolve) => {
-      const fullPrompt = defaultValue !== undefined
-        ? `${prompt} (default: ${defaultValue}): `
-        : `${prompt}: `;
-      rl.question(fullPrompt, (answer) => {
-        resolve(answer.trim() || defaultValue || '');
-      });
-    });
+    askQuestion(rl, prompt, defaultValue);
 }
 
 async function discardCreatedCredentials(
@@ -375,10 +370,8 @@ async function promptModel(
 ): Promise<string> {
   const preset = choice.target.preset ? PRESETS[choice.target.preset] : undefined;
   const defaultModel = choice.defaultModel ?? preset?.defaultModel ?? '';
-  const model = await question(
-    `Model${defaultModel ? ` (default: ${defaultModel})` : ''}`,
-    defaultModel || undefined,
-  );
+  // Phase 1983 Step C：默认值由共享 question helper 追加，prompt 文本不手写。
+  const model = await question('Model', defaultModel || undefined);
   if (!model) throw new CliError('Model is required');
   return model;
 }

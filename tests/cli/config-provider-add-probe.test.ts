@@ -155,6 +155,9 @@ describe('config provider add — primary probe', () => {
     expect(out).not.toContain('Configuration preview');
     expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(false);
     expect(out).toContain('Connecting to Anthropic (claude-3-7-sonnet-20250219)...');
+    // Phase 1983 Step C：默认值只显示一次（helper 追加，不手写）
+    expect(questionPrompts()).toContain('Model [claude-3-7-sonnet-20250219]: ');
+    expect(questionPrompts()).toContain('Confirm? [N]: ');
     // Primary 确认包含即将加入的 service/model
     expect(out).toContain('Add Anthropic (claude-3-7-sonnet-20250219) as primary?');
     expect(out).toContain('will become fallback #1.');
@@ -219,6 +222,8 @@ describe('config provider add — primary probe', () => {
     expect(out).toContain('Base URL: https://example.com/v1');
     expect(out).not.toContain('sk-other');
     expect(questionPrompts().some((p) => p.includes('Continue with this configuration?'))).toBe(true);
+    // Phase 1983 Step C：确认默认值由 helper 追加一次
+    expect(questionPrompts()).toContain('\nContinue with this configuration? [Y]: ');
     expect(questionPrompts().some((p) => p.includes('Save this provider?'))).toBe(false);
     expect(out).toContain('Connecting to Other (gpt-custom)...');
     expect(out).toContain('Endpoint: https://example.com/v1');

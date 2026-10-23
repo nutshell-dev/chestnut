@@ -55,7 +55,8 @@ export function setupConnectingLine(label: string, model: string): string {
   return `Connecting to ${label} (${model})...`;
 }
 
-export const SETUP_CONFIRM_PROMPT = 'Continue with this configuration? [Y/n]';
+// Phase 1983 Step C：默认值 [Y] 由共享 question helper 追加，本文案不手写。
+export const SETUP_CONFIRM_PROMPT = 'Continue with this configuration?';
 
 export const SETUP_REPAIR_HEADING = 'LLM verification failed. Choose how to fix the configuration:';
 

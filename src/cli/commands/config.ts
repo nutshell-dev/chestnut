@@ -52,6 +52,7 @@ import {
 } from '../setup-provider-catalog.js';
 import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
+import { question } from '../utils/prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
 import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
@@ -123,18 +124,6 @@ function createRL() {
   return readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-  });
-}
-
-// Promise wrapper for rl.question
-function question(rl: readline.Interface, prompt: string, defaultValue?: string): Promise<string> {
-  return new Promise((resolve) => {
-    const fullPrompt = defaultValue !== undefined
-      ? `${prompt} [${defaultValue}]: `
-      : `${prompt}: `;
-    rl.question(fullPrompt, (answer) => {
-      resolve(answer.trim() || defaultValue || '');
-    });
   });
 }
 
@@ -297,11 +286,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       model = await question(rl, 'Model');
       if (!model) throw new CliError('Model is required for catalog providers');
     } else {
-      model = await question(
-        rl,
-        `Model${defaultModel ? ` (default: ${defaultModel})` : ''}`,
-        defaultModel ?? '',
-      );
+      model = await question(rl, 'Model', defaultModel || undefined);
       if (!model) throw new CliError('Model is required');
     }
 
@@ -331,7 +316,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         `\nAdd ${serviceName} (${model}) as primary? ` +
         `Current primary (${currentPrimary.label || currentPrimary.preset || currentPrimary.provider_id}) will become fallback #1.`,
       );
-      const confirm = await question(rl, 'Confirm? [y/N]', 'N');
+      const confirm = await question(rl, 'Confirm?', 'N');
       if (confirm.toLowerCase() !== 'y') {
         console.log(SETUP_CANCELLED);
         return;
@@ -368,7 +353,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         ...(baseUrl && { baseUrl }),
         ...(apiKey && { keyRef: apiKey }),
       }).forEach(line => console.log(line));
-      const confirm = await question(rl, SETUP_CONFIRM_PROMPT, 'Y');
+      const confirm = await question(rl, `\n${SETUP_CONFIRM_PROMPT}`, 'Y');
       if (confirm.toLowerCase() === 'n') {
         console.log(SETUP_CANCELLED);
         return;
@@ -567,7 +552,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
 
   console.log(`\nCurrent primary (${currentPrimary.label || currentPrimary.preset}) will become fallback #1.`);
   const rl = createRL();
-  const confirm = await question(rl, 'Confirm? [y/N]', 'N');
+  const confirm = await question(rl, 'Confirm?', 'N');
   rl.close();
 
   if (confirm.toLowerCase() !== 'y') {
