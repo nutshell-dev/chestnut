@@ -59,6 +59,7 @@ const VI_MOCK_FILES = [
   'tests/cli/daemon-loop.test.ts',
   'tests/cli/init-concurrent.test.ts',  // phase 1911 Step I: vi.mock readline + llm-connection-check
   'tests/cli/init-envvar.test.ts',
+  'tests/cli/llm-probe-budget.test.ts',  // phase 1979 Step D: vi.mock orchestrator barrel（probe 预算断言）
   'tests/cli/motion-steps-action-error.test.ts',
   'tests/cli/password-restore-reverse.test.ts',
   'tests/cli/start-first-run-failure-ux.test.ts',  // phase 1976 Step D: vi.mock readline + llm-connection-check + start 下游缝

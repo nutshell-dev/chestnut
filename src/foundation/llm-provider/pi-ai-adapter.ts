@@ -63,9 +63,7 @@ import {
   type SuccessContextSignal,
 } from './pi-ai-errors.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
-
-/** pi-ai ThinkingLevel（streamSimple 的 reasoning 档位）。 */
-type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+import type { ThinkingLevel } from './thinking-levels.js';
 
 /** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
 export interface PiAiAdapterOptions {
@@ -94,10 +92,17 @@ export class PiAiAdapter implements ProviderAdapter {
     return this.endpointPromise;
   }
 
-  /** thinking/reasoning 配置 → pi-ai reasoning 档位（undefined = 不启用）。 */
+  /**
+   * thinking/reasoning 配置 → pi-ai reasoning 档位（undefined = 不启用）。
+   * Phase 1979 优先级：reasoningEffort > thinkingMode > thinking > thinkingEffort；
+   * `thinking: false` 是显式关闭（压过 mode/effort）。实际档位由 pi-ai 按模型 clamp。
+   */
   private reasoningLevel(): ThinkingLevel | undefined {
     if (this.config.reasoningEffort) return this.config.reasoningEffort;
+    if (this.config.thinking === false) return undefined;
+    if (this.config.thinkingMode) return this.config.thinkingEffort ?? 'high';
     if (this.config.thinking) return this.config.thinkingEffort ?? 'high';
+    if (this.config.thinkingEffort !== undefined) return this.config.thinkingEffort;
     return undefined;
   }
 

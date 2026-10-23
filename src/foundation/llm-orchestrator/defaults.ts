@@ -19,6 +19,13 @@ export const INIT_LLM_IDLE_TIMEOUT_MS = 120000;
 /** Default LLM API call timeout (ms) */
 export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
 
+/**
+ * Phase 1979: probe 的最小响应预算（token）。
+ * reasoning 模型需要 thinking+text 的空间；固定 1 token 可能返回空响应。
+ * 三处 probe（probeLLMConnection / checkLLMConnectionFor / _minimalProbe）共用。
+ */
+export const LLM_PROBE_MAX_TOKENS = 64;
+
 /** Default circuit breaker reset timeout (ms) */
 export const DEFAULT_RESET_TIMEOUT_MS = 60_000;
 

@@ -13,7 +13,7 @@ import type { LLMConfigSnapshot } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
 import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.js';
-import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
+import { FORMAT_MAP, LLM_PROBE_MAX_TOKENS } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { ProviderConfig, PiAiCredentialStore } from '../foundation/llm-provider/index.js';
@@ -160,7 +160,7 @@ export async function probeLLMConnection(
   try {
     await svc.call({
       messages: [{ role: 'user', content: 'Hi' }],
-      maxTokens: 1,
+      maxTokens: LLM_PROBE_MAX_TOKENS,
     });
     return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
   } catch (err) {
@@ -204,7 +204,7 @@ export async function checkLLMConnectionFor(
   try {
     await svc.call({
       messages: [{ role: 'user', content: 'Hi' }],
-      maxTokens: 1,
+      maxTokens: LLM_PROBE_MAX_TOKENS,
     });
     return { ok: true, model: provider.model };
   } catch (err) {

@@ -27,6 +27,18 @@ export const API_FORMAT_TO_PI_AI_API: Readonly<Record<ApiFormat, string>> = {
 /** 自建 Model 缺省 maxTokens（catalog 未命中、用户未配 max_tokens 时）。 */
 const CUSTOM_MODEL_DEFAULT_MAX_TOKENS = 65_536;
 
+/**
+ * Phase 1979：自建 / metadata-only Model 的 reasoning 能力派生。
+ * mode/effort 显式给出即视为 reasoning-capable（`thinking: false` 只是运行时关闭，
+ * 不否定模型能力）；实际是否发送 reasoning 由 adapter.reasoningLevel 裁决。
+ */
+function reasoningEnabled(config: ProviderConfig): boolean {
+  return config.thinking === true
+    || config.thinkingMode !== undefined
+    || config.thinkingEffort !== undefined
+    || config.reasoningEffort !== undefined;
+}
+
 export interface ResolvedPiAiModel {
   model: PiAi.Model<PiAi.Api>;
   /** true = catalog 命中（能力元数据来自 pi-ai 目录）；false = 显式自建。 */
@@ -61,18 +73,27 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
         { provider: config.name, field: 'catalogProvider' },
       );
     }
+    // Phase 1979：只补 thinking 能力元数据（adaptive/level map），不整包拷贝 compat、
+    // 不接管 wire（api/baseUrl/id 仍由 preset/config 决定）。
+    const metadataCompat = metadata?.compat as { forceAdaptiveThinking?: boolean } | undefined;
     const model: PiAi.Model<PiAi.Api> = {
       id: config.model,
       name: config.model,
       api: api as PiAi.Api,
       provider: config.piAiProvider ?? config.name,
       baseUrl: config.baseUrl,
-      reasoning: metadata?.reasoning ?? (config.thinking === true || config.reasoningEffort !== undefined),
+      reasoning: metadata?.reasoning ?? reasoningEnabled(config),
       input: metadata?.input ?? ['text'],
       cost: metadata?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: metadata?.contextWindow
         ?? resolveContextWindow(config.piAiProvider ?? config.name, config.model),
       maxTokens: config.maxTokens ?? metadata?.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+      ...(metadataCompat?.forceAdaptiveThinking === true && {
+        compat: { forceAdaptiveThinking: true } as unknown as PiAi.Model<PiAi.Api>['compat'],
+      }),
+      ...(metadata?.thinkingLevelMap !== undefined && {
+        thinkingLevelMap: metadata.thinkingLevelMap,
+      }),
     };
     return { model, fromCatalog: false };
   }
@@ -116,7 +137,7 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
     api: api as PiAi.Api,
     provider: config.piAiProvider ?? config.name,
     baseUrl,
-    reasoning: config.thinking === true || config.reasoningEffort !== undefined,
+    reasoning: reasoningEnabled(config),
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: resolveContextWindow(config.piAiProvider ?? config.name, config.model),

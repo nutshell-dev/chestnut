@@ -49,9 +49,10 @@ import { formatErr } from '../node-utils/index.js';  // Phase 1933 Step B: probe
 import { newShortUuid } from '../node-utils/index.js';  // Phase 1968 Step B: invocation 关联键
 import {
   DEFAULT_LLM_TIMEOUT_MS,
+  LLM_PROBE_MAX_TOKENS,
   LLM_RECOVERY_COOLDOWN_MS,
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
-} from './defaults.js';  // Phase 1933 Step F / 1934 Step C / 1955 Step E 常量
+} from './defaults.js';  // Phase 1933 Step F / 1934 Step C / 1955 Step E / 1979 常量
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -1500,7 +1501,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     try {
       await provider.call({
         messages: [{ role: 'user', content: 'Hi' }],
-        maxTokens: 1,
+        maxTokens: LLM_PROBE_MAX_TOKENS,
         signal,
       });
       return { ok: true };

@@ -885,3 +885,49 @@ describe('PiAiAdapter — wire 映射', () => {
     // compat.requiresToolResultName 时携带 name 字段，缺省 compat 不携带
   });
 });
+
+/**
+ * Phase 1979: adapter reasoningLevel 优先级与请求体透传。
+ * 自建 Model 无 thinkingLevelMap → pi-ai 将 xhigh/max clamp 为 high（已登记行为）。
+ */
+describe('PiAiAdapter — Phase 1979 thinking/effort', () => {
+  const openaiBase = { baseUrl: 'https://api.openai.com/v1' } as const;
+
+  async function bodyFor(overrides: Record<string, unknown>) {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('ok'))));
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = createLLMProvider(baseConfig({ ...openaiBase, ...overrides }));
+    await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    return JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  }
+
+  it('reasoningEffort 优先于 thinkingMode/thinking', async () => {
+    const body = await bodyFor({
+      reasoningEffort: 'medium',
+      thinkingMode: 'adaptive',
+      thinkingEffort: 'low',
+      thinking: true,
+    });
+    expect(body.reasoning_effort).toBe('medium');
+  });
+
+  it('thinkingMode 生效（无 thinking:true）→ 发送 reasoning_effort', async () => {
+    const body = await bodyFor({ thinkingMode: 'adaptive', thinkingEffort: 'low' });
+    expect(body.reasoning_effort).toBe('low');
+  });
+
+  it('thinking:false 显式关闭（压过 mode/effort）', async () => {
+    const body = await bodyFor({ thinking: false, thinkingMode: 'adaptive', thinkingEffort: 'high' });
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it('单独 thinkingEffort 也可启用', async () => {
+    const body = await bodyFor({ thinkingEffort: 'minimal' });
+    expect(body.reasoning_effort).toBe('minimal');
+  });
+
+  it('max 在无 thinkingLevelMap 的自建模型上被 pi-ai clamp 为 high', async () => {
+    const body = await bodyFor({ reasoningEffort: 'max' });
+    expect(body.reasoning_effort).toBe('high');
+  });
+});
