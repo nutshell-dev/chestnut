@@ -21,7 +21,7 @@ import {
   type LLMErrorType,
 } from './llm-connection-check.js';
 import type { SetupProbeCandidate } from './setup-provider-catalog.js';
-import { truncateLLMMessage } from './utils/text.js';
+import { stripOrchestratorWrapper, truncateLLMMessage } from './utils/text.js';
 import { SETUP_MULTI_ENDPOINT_HINT } from '../templates/messages/index.js';
 
 /**
@@ -112,7 +112,7 @@ export function formatSetupProbeFailureLines(
     if (group.errorType === 'unknown') {
       const representative = group.attempts[0]?.result;
       if (representative && !representative.ok) {
-        lines.push(`    ${truncateLLMMessage(representative.message)}`);
+        lines.push(`    ${truncateLLMMessage(stripOrchestratorWrapper(representative.message))}`);
       }
     }
   }

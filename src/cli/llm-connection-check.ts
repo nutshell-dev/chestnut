@@ -47,7 +47,16 @@ export function classifyLLMError(err: unknown): LLMErrorType {
     return 'quota';
   }
 
-  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('api key') || msg.includes('authenticat')) return 'auth';
+  if (
+    msg.includes('401') ||
+    msg.includes('unauthorized') ||
+    msg.includes('api key') ||
+    msg.includes('invalid_api_key') ||
+    msg.includes('invalid api-key') ||
+    msg.includes('invalid access token') ||
+    msg.includes('token expired') ||
+    msg.includes('authenticat')
+  ) return 'auth';
   if (msg.includes('404') || msg.includes('not found') || (msg.includes('model') && !msg.includes('network'))) return 'model';
   if (msg.includes('429') || msg.includes('rate limit')) return 'rate_limit';
   // network：含 5xx 服务器错（短暂性、重试可救）
@@ -78,7 +87,7 @@ export const LLM_ERROR_HINTS: Partial<Record<LLMErrorType, string>> = {
   unknown: 'See raw provider message above; report bug if persistent.',
 };
 
-import { truncateLLMMessage } from './utils/text.js';
+import { stripOrchestratorWrapper, truncateLLMMessage } from './utils/text.js';
 
 /**
  * Phase 1976：首次 setup 失败后的修复动作。菜单呈现归 setup 向导；
@@ -127,8 +136,9 @@ export function formatLLMError(
   if (probe.provider) {
     lines.push(`  Provider: ${probe.provider}`);
   }
-  // phase 464 (review N3-L): 按 codepoint 截断，避免 UTF-16 surrogate pair 被切断
-  lines.push(`  ${truncateLLMMessage(probe.message)}`);
+  // phase 464 (review N3-L): 按 codepoint 截断，避免 UTF-16 surrogate pair 被切断；
+  // Phase 1983 follow-up：用户可见输出剥离 orchestrator 聚合包装。
+  lines.push(`  ${truncateLLMMessage(stripOrchestratorWrapper(probe.message))}`);
   if (probe.hint) {
     lines.push(`  Hint: ${probe.hint}`);
   }

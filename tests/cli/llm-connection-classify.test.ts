@@ -13,6 +13,9 @@ describe('classifyLLMError', () => {
       ['Failed to authenticate user'],
       ['Please check your API key'],
       ['Authenticating with provider failed'],
+      ['invalid_api_key'],
+      ['invalid access token or token expired'],
+      ['All LLM providers failed: Qwen ({"error":{"code":"invalid_api_key","message":"invalid access token or token expired","param":null,"type":"invalid_request_error"}})'],
     ])('classifies %j as auth', (msg) => {
       expect(classifyLLMError(new Error(msg))).toBe('auth');
     });

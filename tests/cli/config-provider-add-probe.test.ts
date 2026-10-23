@@ -428,7 +428,12 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     connMock.checkLLMConnectionFor
       .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' })
       .mockResolvedValueOnce({ ok: false, errorType: 'model', message: '404', provider: 'kimi' })
-      .mockResolvedValueOnce({ ok: false, errorType: 'unknown', message: 'boom', provider: 'kimi' })
+      .mockResolvedValueOnce({
+        ok: false,
+        errorType: 'unknown',
+        message: '[LLM_ALL_PROVIDERS_FAILED] All LLM providers failed: Qwen (boom)',
+        provider: 'kimi',
+      })
       .mockResolvedValueOnce({ ok: false, errorType: 'model', message: '404b', provider: 'kimi' });
     rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
 
@@ -453,6 +458,7 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     expect(out).not.toContain('Hint: Check model name.');
     expect(out).not.toContain('Hint: See raw message.');
     expect(out).toContain('    boom');
+    expect(out).not.toContain('[LLM_ALL_PROVIDERS_FAILED]');
     expect(connMock.formatLLMError).not.toHaveBeenCalled();
   });
 

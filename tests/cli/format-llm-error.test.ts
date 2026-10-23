@@ -70,4 +70,15 @@ describe('formatLLMError', () => {
 
     expect(lines).toContain('  Hint: Wait a few seconds.');
   });
+
+  it('strips orchestrator wrapper from user-facing message', () => {
+    const lines = formatLLMError({
+      errorType: 'unknown',
+      message: '[LLM_ALL_PROVIDERS_FAILED] All LLM providers failed: Qwen ({"error":{"message":"boom"}})',
+    });
+
+    const messageLine = lines.find(l => l.startsWith('  '))!;
+    expect(messageLine).toBe('  {"error":{"message":"boom"}}');
+    expect(lines.join('\n')).not.toContain('LLM_ALL_PROVIDERS_FAILED');
+  });
 });
