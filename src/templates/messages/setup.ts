@@ -54,6 +54,17 @@ export const SETUP_PROBE_FAILED_NOT_SAVED =
  * 多端点混合失败：只给一条提示。用户的 key 通常只属于某个 endpoint/plan，
  * 其他 endpoint 的 auth/model 失败是预期差异，不应各给一条 hint。
  */
+/**
+ * Phase 1984 Step B：API Key 提示文案单源。
+ * env 同名变量在进程环境可用时，必须同时说明两种行为：
+ * 回车 = 运行时读环境变量；输入非空值 = 使用输入值（存派生 ref，不被 env 遮蔽）。
+ */
+export function setupApiKeyPrompt(envVar?: string): string {
+  return envVar
+    ? `API Key (Enter = use ${envVar} from environment; type a value to use it)`
+    : 'API Key';
+}
+
 export const SETUP_MULTI_ENDPOINT_HINT =
   'Your API key likely matches only one endpoint/plan; check the provider console for the matching endpoint and configure it via the Advanced/Other endpoint option.';
 

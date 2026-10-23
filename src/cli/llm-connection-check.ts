@@ -255,12 +255,16 @@ export async function promptReconfigure(
       if (raw === 'b') continue;
       if (!raw) { console.log('API key is required.'); continue; }
       // Phase 1925 Step B：ref 优先取当前 primary preset 的 envVar 约定名
+      // Phase 1984 Step B：env 同名已设置时，typed key 改用派生 ref 保存（不被 env
+      // 遮蔽）；派生 ref 仍被遮蔽则 loud 失败，不静默回退为环境变量。
       const currentPrimary = deps.rootConfig.loadGlobal().llm.primary;
       const currentPreset = currentPrimary.preset ? PRESETS[currentPrimary.preset] : undefined;
-      const stored = await storeKeyAsCredential(deps, raw, {
-        envVar: currentPreset?.envVar,
-        seed: currentPrimary.label ?? currentPrimary.preset,
-      });
+      const envVar = currentPreset?.envVar;
+      const envReady = Boolean(envVar && process.env[envVar]);
+      const seed = currentPrimary.label ?? currentPrimary.preset ?? 'primary';
+      const stored = await storeKeyAsCredential(deps, raw, envReady
+        ? { seed, onShadowedEnv: 'error' as const }
+        : { envVar, seed, onShadowedEnv: 'error' as const });
       await deps.rootConfig.patchPrimary({ api_key: stored });
 
     } else if (choice === '2') {

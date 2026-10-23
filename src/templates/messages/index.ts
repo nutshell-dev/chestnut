@@ -17,6 +17,7 @@ export {
   SETUP_MULTI_ENDPOINT_HINT,
   SETUP_CONFIRM_PROMPT,
   SETUP_REPAIR_HEADING,
+  setupApiKeyPrompt,
   setupProviderMenuLines,
   setupDraftPreviewLines,
   setupConnectingLine,

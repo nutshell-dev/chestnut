@@ -36,6 +36,7 @@ import {
   SETUP_CANCELLED,
   SETUP_CONFIRM_PROMPT,
   SETUP_PROBE_FAILED_NOT_SAVED,
+  setupApiKeyPrompt,
   setupConnectingLine,
   setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
@@ -260,15 +261,20 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     let apiKey: string | undefined;
     if (authProfile === 'api_key') {
       const envReady = Boolean(envVar && process.env[envVar]);
-      const hint = envReady ? ` (press Enter to use ${envVar})` : '';
-      const rawKey = await passwordQuestion(rl, `API Key${hint}: `);
+      // Phase 1984 Step B：提示同时说明两种行为——回车=读环境变量，输入=使用输入值。
+      const rawKey = await passwordQuestion(rl, `${setupApiKeyPrompt(envReady ? envVar : undefined)}: `);
       if (!rawKey && envReady && envVar) {
         apiKey = '${' + envVar + '}';
         console.log(`✓ Will read from ${envVar} at runtime`);
       } else if (!rawKey) {
         throw new CliError('API Key is required');
       } else {
-        apiKey = await storeKeyAsCredential(deps, rawKey, { envVar, seed: label });
+        // env 同名已设置时，typed key 改用派生 ref 保存（不被 env 遮蔽）；派生 ref 仍被
+        // 遮蔽则 loud 失败。env 未设置时保持 preset envVar ref。
+        const storeCtx = envReady
+          ? { seed: label, onShadowedEnv: 'error' as const }
+          : { envVar, seed: label, onShadowedEnv: 'error' as const };
+        apiKey = await storeKeyAsCredential(deps, rawKey, storeCtx);
       }
     } else if (authProfile === 'local') {
       console.log(`ℹ ${serviceName}: local provider, no API key required.`);

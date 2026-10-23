@@ -70,6 +70,7 @@ import {
   SETUP_CANCELLED,
   SETUP_OTHER_FORMAT_LINES,
   SETUP_CONFIRM_PROMPT,
+  setupApiKeyPrompt,
   setupProviderMenuLines,
   setupDraftPreviewLines,
   setupConnectingLine,
@@ -345,24 +346,30 @@ async function promptApiKey(
   created: StoredCredential[],
 ): Promise<string> {
   if (choice.auth === 'advanced') {
-    const rawKey = await passwordQuestion(rl, 'API Key: ');
+    const rawKey = await passwordQuestion(rl, `${setupApiKeyPrompt()}: `);
     if (!rawKey) throw new CliError('API Key is required');
-    return storeKeyAsCredential(deps, rawKey, { seed: choice.id }, {
+    return storeKeyAsCredential(deps, rawKey, { seed: choice.id, onShadowedEnv: 'error' }, {
       onStored: (ref, info) => recordCreatedCredential(created, ref, info),
     });
   }
 
   const presetId = choice.target.preset ?? '';
   const preset = PRESETS[presetId];
-  const envReady = Boolean(preset?.envVar && process.env[preset.envVar]);
-  const hint = envReady ? ` (press Enter to use ${preset.envVar})` : '';
-  const rawKey = await passwordQuestion(rl, `API Key${hint}: `);
-  if (!rawKey && envReady && preset?.envVar) {
-    console.log(`✓ Will read from ${preset.envVar} at runtime`);
-    return '${' + preset.envVar + '}';
+  const envVar = preset?.envVar;
+  const envReady = Boolean(envVar && process.env[envVar]);
+  // Phase 1984 Step B：提示同时说明两种行为——回车=读环境变量，输入=使用输入值。
+  const rawKey = await passwordQuestion(rl, `${setupApiKeyPrompt(envReady ? envVar : undefined)}: `);
+  if (!rawKey && envReady && envVar) {
+    console.log(`✓ Will read from ${envVar} at runtime`);
+    return '${' + envVar + '}';
   }
   if (!rawKey) throw new CliError('API Key is required');
-  return storeKeyAsCredential(deps, rawKey, { envVar: preset?.envVar, seed: presetId }, {
+  // env 同名已设置时，typed key 改用派生 ref 保存（不被 env 遮蔽）；派生 ref 仍被
+  // 遮蔽则 loud 失败，不静默回退。env 未设置时保持 preset envVar ref。
+  const storeCtx = envReady
+    ? { seed: presetId, onShadowedEnv: 'error' as const }
+    : { envVar, seed: presetId, onShadowedEnv: 'error' as const };
+  return storeKeyAsCredential(deps, rawKey, storeCtx, {
     onStored: (ref, info) => recordCreatedCredential(created, ref, info),
   });
 }

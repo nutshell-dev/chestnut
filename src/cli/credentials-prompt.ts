@@ -12,6 +12,7 @@ import {
   createLocalCredentials,
   isCredentialsError,
 } from '../foundation/credentials/index.js';
+import { CliError } from './errors.js';
 
 /** `${VAR}` 字面引用判定（整串恰为一个引用）。 */
 const REF_LITERAL_RE = /^\$\{[^}]+\}$/;
@@ -39,6 +40,13 @@ export interface StoreKeyContext {
   envVar?: string;
   /** 无 preset envVar 时的派生种子（label / preset id / format id）。 */
   seed?: string;
+  /**
+   * Phase 1984 Step B：typed key 路径语义。'error' 时派生 ref 仍被进程环境
+   * 同名遮蔽则 loud 抛 CliError（提示 unset 其一），不静默回退为环境变量；
+   * 缺省/'fallback' 保持原有静默回退行为（空输入用 `${ENV}` 的路径不受影响——
+   * 该路径不经过本函数）。
+   */
+  onShadowedEnv?: 'fallback' | 'error';
 }
 
 /** Phase 1976：setup 向导需要知道本次是否新建了凭据文件条目，以便失败/取消时清理。 */
@@ -50,8 +58,9 @@ export interface StoreKeyHooks {
  * 把用户输入的 API key 转为配置可存的 `${REF}` 引用：
  * - 输入已是 `${VAR}` 字面 → 原样返回（引用语义由用户显式给出，不碰凭据文件）；
  * - 明文 → credentials.set(ref, value) 后返回 `${ref}`；
- * - shadowed_by_env（进程环境已提供同名值）→ 不写文件，同样返回 `${ref}`
- *   （env 层优先，引用可解析）；
+ * - shadowed_by_env（进程环境已提供同名值）→ 默认不写文件，同样返回 `${ref}`
+ *   （env 层优先，引用可解析）；`ctx.onShadowedEnv === 'error'` 时改为 loud
+ *   抛 CliError（typed key 路径要求输入值生效，不静默回退）；
  * - 其它 CredentialsError（permissions/io_error 等）loud 上抛。
  */
 export async function storeKeyAsCredential(
@@ -72,6 +81,12 @@ export async function storeKeyAsCredential(
     hooks?.onStored?.(ref, { created: !existed, value: trimmed });
   } catch (err) {
     if (isCredentialsError(err) && err.code === 'shadowed_by_env') {
+      if (ctx.onShadowedEnv === 'error') {
+        throw new CliError(
+          `Credential ref ${ref} is set in the process environment; ` +
+          `the key you typed cannot be stored. Unset ${ref} and retry.`,
+        );
+      }
       console.log(`✓ Will read ${ref} from the process environment at runtime`);
       hooks?.onStored?.(ref, { created: false, value: trimmed });
     } else {
