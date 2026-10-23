@@ -35,12 +35,48 @@ export interface ResolvedPiAiModel {
 
 /**
  * 解析 ProviderConfig → pi-ai Model。
+ * 0. Phase 1975 Step C：`catalogProvider` + `catalogModel` 同时存在 → metadata-only
+ *    路径：catalog 只供 contextWindow/maxTokens/reasoning/input/cost 元数据，
+ *    wire（model.id/api/baseUrl）由 preset/配置决定，`fromCatalog: false`；
  * 1. `config.piAiProvider` 命中 catalog provider 且 model id 命中 → catalog model
  *    （api/baseUrl/能力元数据权威；config.baseUrl 显式给出且不同时覆盖 baseUrl）；
  * 2. 否则自建 Model 字面量：api 由 apiFormat 显式映射，baseUrl 必填（缺失 loud），
  *    contextWindow 走 resolveContextWindow（catalog/启发式回退）。
  */
 export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): ResolvedPiAiModel {
+  // Phase 1975 Step C：metadata-only——catalog 元数据与 wire 分离。
+  // 不得返回 fromCatalog: true（createPiEndpoint 会接管 api/baseUrl）；
+  // model.id 必须是 config.model（实际 wire model），不是 catalogModel。
+  if (config.catalogProvider && config.catalogModel) {
+    const metadata = runtime
+      .getBuiltinModels(config.catalogProvider)
+      .find((m) => m.id === config.catalogModel);
+    const api = config.apiFormat ? API_FORMAT_TO_PI_AI_API[config.apiFormat] : undefined;
+    if (!api || !config.baseUrl) {
+      // curated preset 必须显式 api/baseUrl——metadata-only 不提供 wire 兜底
+      throw new LLMError(
+        `Provider "${config.name}": catalog metadata mapping (catalogProvider="${config.catalogProvider}", ` +
+        `catalogModel="${config.catalogModel}") requires explicit apiFormat and baseUrl on the preset/config ` +
+        `(apiFormat="${config.apiFormat ?? 'none'}", baseUrl="${config.baseUrl ?? 'none'}")`,
+        { provider: config.name, field: 'catalogProvider' },
+      );
+    }
+    const model: PiAi.Model<PiAi.Api> = {
+      id: config.model,
+      name: config.model,
+      api: api as PiAi.Api,
+      provider: config.piAiProvider ?? config.name,
+      baseUrl: config.baseUrl,
+      reasoning: metadata?.reasoning ?? (config.thinking === true || config.reasoningEffort !== undefined),
+      input: metadata?.input ?? ['text'],
+      cost: metadata?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: metadata?.contextWindow
+        ?? resolveContextWindow(config.piAiProvider ?? config.name, config.model),
+      maxTokens: config.maxTokens ?? metadata?.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+    };
+    return { model, fromCatalog: false };
+  }
+
   if (config.piAiProvider) {
     if (runtime.getBuiltinProviders().includes(config.piAiProvider)) {
       const hit = runtime

@@ -53,11 +53,21 @@ interface ProviderPreset {
   /**
    * Phase 1925 Step C：preset → pi-ai catalog provider id 显式映射（G3 决策 3）。
    * 同名可直连 6 个；别名 5 个（gemini→google、grok→xai、moonshot→moonshotai、
-   * kimi→kimi-coding、openrouter-anthropic→openrouter）；无对应者（ollama、
-   * qwen-coder、custom-*）= undefined → catalog 未命中走显式自建 Model + 启发式回退，
+   * openrouter-anthropic→openrouter）；无对应者（ollama、qwen-coder、custom-*）
+   * = undefined → catalog 未命中走显式自建 Model + 启发式回退，
    * 不做名字相似度猜测。
+   * Phase 1975：curated Anthropic preset 不设此字段（catalog api 权威会改写 wire）。
    */
   piAiProvider?: string;
+  /**
+   * Phase 1975 Step C：metadata-only catalog 查询（provider id）。只取
+   * contextWindow/maxTokens/reasoning/input/cost 等元数据；实际 model id、
+   * apiFormat、baseUrl 仍由 preset/配置决定（wire 不被 catalog 接管）。
+   * 必须与 catalogModel 同时出现；不进 yaml schema、不由用户配置。
+   */
+  catalogProvider?: string;
+  /** metadata-only catalog 查询的 model id（可与 wire model id 不同）。 */
+  catalogModel?: string;
 }
 
 export const PRESETS: Record<string, ProviderPreset> = {
@@ -89,6 +99,9 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1973: piAiProvider removed — pi-ai deepseek catalog is OpenAI;
     // keeping it would make catalog hits override api to openai-completions
     // while baseUrl is /anthropic (协议权威冲突）。
+    // Phase 1975 Step C：metadata-only——只取 catalog 元数据，wire 仍是 Anthropic preset。
+    catalogProvider: 'deepseek',
+    catalogModel: 'deepseek-flash', // 实际 wire model 仍是 deepseek-flash[1m]
   },
   'moonshot': {
     id: 'moonshot',
@@ -109,6 +122,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
     // Phase 1975 Step B：piAiProvider 移除（安全中间态）——pi-ai 1.4.0 的 kimi-coding
     // catalog 已变为 openai-completions + /coding/v1，保留会把 curated Anthropic wire 改成
     // OpenAI。Step C 以 catalogProvider/catalogModel metadata-only 方式接回元数据。
+    catalogProvider: 'kimi-coding',
+    catalogModel: 'k3-256k',
   },
   'minimax': {
     id: 'minimax',
@@ -118,6 +133,9 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'MiniMax-M3.1-Flash',
     envVar: 'MINIMAX_API_KEY',
     piAiProvider: 'minimax', // Anthropic catalog；M3.1-Flash miss 走自建 Anthropic
+    // Phase 1975 Step C：metadata-only 优先——catalog 只供元数据，不接管 wire。
+    catalogProvider: 'minimax',
+    catalogModel: 'MiniMax-M3.1-Flash',
   },
   'gemini': {
     id: 'gemini',
@@ -172,6 +190,9 @@ export const PRESETS: Record<string, ProviderPreset> = {
     envVar: 'ZAI_API_KEY',
     // Phase 1973: piAiProvider removed — pi-ai zai catalog is OpenAI; keeping it
     // caused catalog-hit models to use openai-completions against /api/anthropic.
+    // Phase 1975 Step C：metadata-only——只取 catalog 元数据。
+    catalogProvider: 'zai',
+    catalogModel: 'glm-5.3',
   },
   // Phase 1973：curated Anthropic preset；setup 按序 probe 中国/国际/套餐候选。
   'qwen': {
@@ -182,6 +203,9 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'qwen3.8-max',
     envVar: 'DASHSCOPE_API_KEY',
     // no piAiProvider: pi-ai qwen catalogs are OpenAI; curated endpoint is Anthropic
+    // Phase 1975 Step C：metadata-only——只取 catalog 元数据。
+    catalogProvider: 'qwen-token-plan',
+    catalogModel: 'qwen3.8-max',
   },
   'qwen-coder': {
     id: 'qwen-coder',

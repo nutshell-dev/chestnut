@@ -103,5 +103,8 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
     reasoningEffort: p.reasoning_effort,
     // Phase 1925 Step C：pi-ai catalog provider id 显式映射（无对应者 undefined → 自建 Model）
     piAiProvider: preset.piAiProvider,
+    // Phase 1975 Step C：metadata-only catalog 查询透传（wire 不被接管）
+    ...(preset.catalogProvider && { catalogProvider: preset.catalogProvider }),
+    ...(preset.catalogModel && { catalogModel: preset.catalogModel }),
   };
 }

@@ -178,6 +178,15 @@ export interface ProviderConfig {
    */
   piAiProvider?: string;
 
+  /**
+   * Phase 1975 Step C：metadata-only catalog 查询（由 preset.catalogProvider/catalogModel
+   * 经 config-adapter 带入）。只取 contextWindow/maxTokens/reasoning/input/cost 元数据；
+   * 实际 model id、api（apiFormat 映射）、baseUrl 仍由 preset/配置决定，fromCatalog=false。
+   */
+  catalogProvider?: string;
+  /** metadata-only catalog 查询的 model id（可与 wire model id 不同）。 */
+  catalogModel?: string;
+
   /** Optional audit sink for formatter guard events / SSE parse error clipping (L2b injects via config) */
   auditLog?: AuditSink;
 }
