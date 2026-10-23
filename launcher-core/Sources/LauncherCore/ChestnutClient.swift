@@ -57,3 +57,155 @@ public protocol StreamClient: Sendable {
     func events(fromSequence: Int?) -> AsyncThrowingStream<LauncherEnvelope, Error>
     func stop() async
 }
+
+/// 结构化 error envelope → ChatError 映射（class 字段为 Step C 协议决策的 fixture 形状）。
+public enum WireErrorMapper {
+    public static func map(_ envelope: LauncherEnvelope) -> ChatError {
+        let classRaw = envelope.payload["class"]?.stringValue ?? "unknown"
+        let detail = envelope.payload["detail"]?.stringValue ?? classRaw
+        switch classRaw {
+        case "daemon_stopped", "daemon_unavailable": return .daemon(detail: detail)
+        case "rejected": return .rejected(detail: detail)
+        case "protocol_mismatch": return .protocolMismatch(detail: detail)
+        default: return .transport(detail: "error envelope class '\(classRaw)': \(detail)")
+        }
+    }
+}
+
+/// send 一次性进程适配：argvPrefix + [text]，等待 stdout 结果与进程终止的完整结果。
+/// ack 只表示 inbox 接收；stdout 人类行只作诊断，只有版本化 envelope 才作协议数据。
+public struct ChestnutSendClient: SendClient {
+    private let process: any ChestnutProcess
+    private let argvPrefix: [String]
+    private let decoder: JsonlWireDecoder
+
+    public init(process: any ChestnutProcess, argvPrefix: [String], decoder: JsonlWireDecoder = JsonlWireDecoder()) {
+        self.process = process
+        self.argvPrefix = argvPrefix
+        self.decoder = decoder
+    }
+
+    public func submit(requestId: RequestId, text: String) async throws -> SendAck {
+        let output: ProcessOutput
+        do {
+            output = try await process.run(argvPrefix + [text])
+        } catch let error as ChatError {
+            throw error
+        } catch {
+            throw ChatError.transport(detail: "send process failed: \(error.localizedDescription)")
+        }
+        switch Self.evaluate(output: output, requestId: requestId, decoder: decoder) {
+        case .accepted(let ack):
+            return ack
+        case .rejected(let error):
+            throw error
+        case let .terminated(code, signal):
+            throw ChatError.transport(
+                detail: "send terminated unexpectedly (code: \(code.map(String.init) ?? "nil"), signal: \(signal.map(String.init) ?? "nil"))"
+            )
+        }
+    }
+
+    /// 结果评估顺序：结构化 error envelope > 信号终止 > 非零退出 > ack envelope。
+    static func evaluate(output: ProcessOutput, requestId: RequestId, decoder: JsonlWireDecoder) -> ProcessOutcome<SendAck> {
+        var ackEnvelope: LauncherEnvelope?
+        for line in output.stdoutLines {
+            guard let envelope = try? decoder.decode(line: line) else { continue }
+            if envelope.kind == .error {
+                return .rejected(WireErrorMapper.map(envelope))
+            }
+            if envelope.kind == .ack {
+                ackEnvelope = envelope
+            }
+        }
+        if let signal = output.terminationSignal {
+            return .terminated(code: nil, signal: signal)
+        }
+        if output.exitCode != 0 {
+            let detail = output.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .rejected(.rejected(detail: detail.isEmpty ? "exit \(output.exitCode)" : detail))
+        }
+        if let ack = ackEnvelope, let ackRequestId = ack.payload["requestId"]?.stringValue, ackRequestId != requestId {
+            return .rejected(.protocolMismatch(detail: "ack requestId mismatch: expected \(requestId), got \(ackRequestId)"))
+        }
+        // exit 0 = inbox 已接收（当前 CLI 的真实语义）；ack envelope 缺口登记在案、不伪造
+        return .accepted(SendAck(
+            requestId: requestId,
+            accepted: true,
+            detail: ackEnvelope == nil ? "ack envelope pending (CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)" : nil
+        ))
+    }
+}
+
+/// stream 长驻进程适配：逐行解码、single-flight、EOF/terminal/取消语义明确。
+public actor ChestnutStreamClient: StreamClient {
+    private let process: any ChestnutProcess
+    private let argvPrefix: [String]
+    private let decoder: JsonlWireDecoder
+    private var running = false
+    private var stopRequested = false
+
+    public init(process: any ChestnutProcess, argvPrefix: [String], decoder: JsonlWireDecoder = JsonlWireDecoder()) {
+        self.process = process
+        self.argvPrefix = argvPrefix
+        self.decoder = decoder
+    }
+
+    public nonisolated func events(fromSequence: Int?) -> AsyncThrowingStream<LauncherEnvelope, Error> {
+        AsyncThrowingStream { continuation in
+            Task { await self.run(fromSequence: fromSequence, continuation: continuation) }
+        }
+    }
+
+    public func stop() async {
+        stopRequested = true
+        await process.stop()
+    }
+
+    private func run(
+        fromSequence: Int?,
+        continuation: AsyncThrowingStream<LauncherEnvelope, Error>.Continuation
+    ) async {
+        guard !running else {
+            continuation.finish(throwing: ChatError.local(detail: "stream already running"))
+            return
+        }
+        running = true
+        stopRequested = false
+        defer { running = false }
+
+        // 缺口锁死：当前 CLI 无序号恢复入口，resync 请求 fail closed、不伪造恢复成功
+        if let fromSequence {
+            continuation.finish(throwing: ChatError.protocolMismatch(
+                detail: "resync from sequence \(fromSequence) requires chestnut.launcher.v1 support (pending CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)"
+            ))
+            return
+        }
+
+        var sawTerminal = false
+        do {
+            for try await line in process.stream(argvPrefix) {
+                if stopRequested { break }
+                let envelope = try decoder.decode(line: line)
+                switch envelope.kind {
+                case .error:
+                    throw WireErrorMapper.map(envelope)
+                case .terminal:
+                    sawTerminal = true
+                    continuation.yield(envelope)
+                default:
+                    continuation.yield(envelope)
+                }
+            }
+            if stopRequested || sawTerminal {
+                continuation.finish()
+            } else {
+                continuation.finish(throwing: ChatError.transport(detail: "stream EOF before terminal event"))
+            }
+        } catch let error as ChatError {
+            continuation.finish(throwing: error)
+        } catch {
+            continuation.finish(throwing: ChatError.transport(detail: "stream failed: \(error.localizedDescription)"))
+        }
+    }
+}

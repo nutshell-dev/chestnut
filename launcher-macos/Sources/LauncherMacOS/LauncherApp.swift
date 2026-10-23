@@ -15,15 +15,31 @@ enum LauncherApp {
     }
 }
 
-/// CLI 装配。Step B 不接真实 Chestnut 进程：一律返回本地失败的 client
-/// （degraded、不伪造连接成功）；真实 Process 适配由 Step C 接入。
+/// CLI 装配：CHESTNUT_CLI_JS 指向 chestnut dist/cli.js；CHESTNUT_CLAW_NAME 默认 motion。
+/// 未配置时返回本地失败的 client（degraded、不伪造连接成功）；不自动启动 daemon。
 enum LauncherClientFactory {
     static func makeSendClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SendClient {
-        UnconfiguredSendClient()
+        guard let argvPrefix = argvPrefix(environment: environment, suffix: ["send"]) else {
+            return UnconfiguredSendClient()
+        }
+        return ChestnutSendClient(process: makeProcess(), argvPrefix: argvPrefix)
     }
 
     static func makeStreamClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any StreamClient {
-        UnconfiguredStreamClient()
+        guard let argvPrefix = argvPrefix(environment: environment, suffix: ["stream"]) else {
+            return UnconfiguredStreamClient()
+        }
+        return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
+    }
+
+    private static func makeProcess() -> any ChestnutProcess {
+        MacOSChestnutProcess(executableURL: URL(fileURLWithPath: "/usr/bin/env"))
+    }
+
+    private static func argvPrefix(environment: [String: String], suffix: [String]) -> [String]? {
+        guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return nil }
+        let claw = environment["CHESTNUT_CLAW_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "motion"
+        return ["node", cliPath, "claw", claw] + suffix
     }
 }
 
