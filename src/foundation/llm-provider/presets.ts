@@ -49,7 +49,7 @@ export class UnknownPresetError extends Error {
   }
 }
 
-export interface ProviderPreset {
+interface ProviderPreset {
   id: string;
   displayName: string;
   /**

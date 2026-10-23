@@ -10,8 +10,12 @@
  */
 
 import { MODEL_CATALOG } from './model-catalog.generated.js';
-import { resolvePreset, type ProviderPreset } from './presets.js';
+import { resolvePreset } from './presets.js';
 import type { ThinkingLevel } from './thinking-levels.js';
+
+// phase 1538 契约：ProviderPreset 保持 presets.ts 本地（不经深 export 泄漏）；
+// 本模块经 resolvePreset 返回类型派生，不触碰 presets.ts 的本地声明。
+type ProviderPreset = ReturnType<typeof resolvePreset>;
 
 /** `resolveThinkingDefaults` 的 snake_case 输出（与 YAML 字段同名，便于填充）。 */
 export interface ResolvedThinkingDefaults {
