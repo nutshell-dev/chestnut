@@ -35,7 +35,9 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { probeLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS, type VerifiedLLMConfig } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
-import { storeKeyAsCredential } from '../credentials-prompt.js';
+import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
+import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
+import type { SetupProbeCandidate } from '../setup-provider-catalog.js';
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -215,6 +217,43 @@ export async function initCommand(deps: InitCommandDeps, silent = false, extraDe
     if (saveAnswer.toLowerCase() === 'n') {
       console.log(SETUP_CANCELLED);
       return {};
+    }
+
+    // Phase 1973 Step C：多端点候选的服务在保存前完成端点选择——首胜者
+    // baseUrl 进入初始配置；全败不保存、逐候选报告（exitCode=2）。
+    const probeCandidates = chosen.probeCandidates;
+    if (probeCandidates && probeCandidates.length > 0) {
+      console.log(`\nEndpoint probes (model=${model}):`);
+      const candidateProbe = makeSetupCandidateProbe(
+        { label: chosen.label, ...(apiKey && { apiKey }), model },
+        {
+          resolveKey: (ref) => resolveCredentialReference(deps, ref),
+          credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+        },
+      );
+      const outcome = await probeSetupCandidates(probeCandidates, async (candidate: SetupProbeCandidate) => {
+        const result = await candidateProbe(candidate);
+        console.log(`→ ${candidate.label} ... ${result.ok ? '✓' : `✗ ${result.errorType}`}`);
+        return result;
+      });
+      if (!outcome.winner) {
+        for (const attempt of outcome.attempts) {
+          if (attempt.result.ok) continue;
+          formatLLMError({
+            errorType: attempt.result.errorType,
+            message: attempt.result.message,
+            provider: attempt.result.provider,
+            hint: LLM_ERROR_HINTS[attempt.result.errorType],
+          }).forEach(line => console.log(line));
+        }
+        console.log('⚠ All endpoint candidates failed — configuration not saved. ' +
+          'Check that the API key belongs to the right platform/plan and the model matches it, ' +
+          'or use the advanced (Other) option.');
+        process.exitCode = 2;
+        return {};
+      }
+      baseUrl = outcome.winner.baseUrl;
+      console.log(`Selected: ${outcome.winner.label} — ${outcome.winner.baseUrl}`);
     }
 
     // Build config（模板单源：buildInitialConfig，与 start --non-interactive 共用）

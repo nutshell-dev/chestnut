@@ -41,7 +41,8 @@ import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
-import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice } from '../setup-provider-catalog.js';
+import { SETUP_PROVIDER_CATALOG, type SetupProviderChoice, type SetupProbeCandidate } from '../setup-provider-catalog.js';
+import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
@@ -339,6 +340,8 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     }
 
     // Phase 1972: redacted preview before probe/commit (never includes the secret).
+    const probeCandidates =
+      service.kind === 'setup' ? service.choice.probeCandidates : undefined;
     setupDraftPreviewLines({
       label,
       model,
@@ -347,6 +350,10 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       ...(baseUrl && { baseUrl }),
       ...(apiKey && { keyRef: apiKey }),
     }).forEach(line => console.log(line));
+    // Phase 1973 Step C：多端点候选的服务预览显式标注 auto-probe（不含 secret）。
+    if (probeCandidates && probeCandidates.length > 0) {
+      console.log(`  Endpoint: auto-probe (${probeCandidates.length})`);
+    }
 
     const saveAnswer = await question(rl, 'Save this provider? [Y/n]', 'Y');
     if (saveAnswer.toLowerCase() === 'n') {
@@ -356,29 +363,64 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
 
     // Phase 1972: probe before commit. Unverified providers are not persisted.
     console.log('\nTesting connection...');
-    const providerConfigRuntime = toProviderConfig(providerConfig);
-    if (providerConfigRuntime.apiKey !== undefined) {
-      const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
-      if (resolvedKey === undefined) {
-        throw new CliError(
-          `API key reference ${providerConfig.api_key} could not be resolved ` +
-          `(not in process env, credentials file, or .env fallbacks)`,
-        );
+    let verifiedModel: string;
+    if (probeCandidates && probeCandidates.length > 0) {
+      // Phase 1973 Step C：按候选顺序 probe，首胜者 baseUrl 落盘；全败不 commit。
+      console.log(`Endpoint probes (model=${model}):`);
+      const candidateProbe = makeSetupCandidateProbe(
+        { label, ...(apiKey !== undefined && { apiKey }), model },
+        {
+          resolveKey: (ref) => resolveCredentialReference(deps, ref),
+          credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+        },
+      );
+      const outcome = await probeSetupCandidates(probeCandidates, async (candidate: SetupProbeCandidate) => {
+        const result = await candidateProbe(candidate);
+        console.log(`→ ${candidate.label} ... ${result.ok ? '✓' : `✗ ${result.errorType}`}`);
+        return result;
+      });
+      if (!outcome.winner) {
+        for (const attempt of outcome.attempts) {
+          if (attempt.result.ok) continue;
+          formatLLMError({
+            errorType: attempt.result.errorType,
+            message: attempt.result.message,
+            provider: attempt.result.provider,
+            hint: LLM_ERROR_HINTS[attempt.result.errorType],
+          }).forEach(line => console.log(line));
+        }
+        console.log(SETUP_PROBE_FAILED_NOT_SAVED);
+        return;
       }
-      providerConfigRuntime.apiKey = resolvedKey;
-    }
-    const probe = await checkLLMConnectionFor(providerConfigRuntime, {
-      credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
-    });
-    if (!probe.ok) {
-      formatLLMError({
-        errorType: probe.errorType,
-        message: probe.message,
-        provider: probe.provider,
-        hint: LLM_ERROR_HINTS[probe.errorType],
-      }).forEach(line => console.log(line));
-      console.log(SETUP_PROBE_FAILED_NOT_SAVED);
-      return;
+      providerConfig.base_url = outcome.winner.baseUrl;
+      console.log(`Selected: ${outcome.winner.label} — ${outcome.winner.baseUrl}`);
+      verifiedModel = outcome.winnerModel ?? model;
+    } else {
+      const providerConfigRuntime = toProviderConfig(providerConfig);
+      if (providerConfigRuntime.apiKey !== undefined) {
+        const resolvedKey = resolveCredentialReference(deps, providerConfigRuntime.apiKey);
+        if (resolvedKey === undefined) {
+          throw new CliError(
+            `API key reference ${providerConfig.api_key} could not be resolved ` +
+            `(not in process env, credentials file, or .env fallbacks)`,
+          );
+        }
+        providerConfigRuntime.apiKey = resolvedKey;
+      }
+      const probe = await checkLLMConnectionFor(providerConfigRuntime, {
+        credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+      });
+      if (!probe.ok) {
+        formatLLMError({
+          errorType: probe.errorType,
+          message: probe.message,
+          provider: probe.provider,
+          hint: LLM_ERROR_HINTS[probe.errorType],
+        }).forEach(line => console.log(line));
+        console.log(SETUP_PROBE_FAILED_NOT_SAVED);
+        return;
+      }
+      verifiedModel = probe.model;
     }
 
     await deps.rootConfig.mutateGlobalLocked((fresh) => {
@@ -403,7 +445,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     }
     configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
     notifyRunningDaemons(deps, 'add');
-    console.log(`✓ ${probe.model}`);
+    console.log(`✓ ${verifiedModel}`);
 
   } finally {
     rl.close();
