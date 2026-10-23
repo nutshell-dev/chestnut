@@ -27,6 +27,9 @@ import { LLMInvalidRequestError } from '../../../src/foundation/llm-provider/req
 
 let runtime: PiAiRuntime;
 
+/** Phase 1977：Kimi 实际报文在 exceeded 后插入 model id（上游 predicate 期望无 model id）。 */
+const KIMI_TOKEN_LIMIT = 'Your request exceeded k3-256k model token limit: 262144';
+
 beforeAll(async () => {
   runtime = await loadPiAiRuntime();
 });
@@ -63,6 +66,8 @@ describe('isPiAiContextOverflowText（pi-ai 官方 predicate shim）', () => {
     'prompt is too long: 250000 tokens > 200000 maximum',
     'The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)',
     'Your request exceeded model token limit: 200000 (requested: 250000)',
+    // Phase 1977：实际 Kimi 文案在 exceeded 后插入 model id，归一化后复用上游 predicate
+    KIMI_TOKEN_LIMIT,
   ])('matches provider overflow text: %s', (text) => {
     expect(overflowText('aliyun', text)).toBe(true);
   });
@@ -72,6 +77,9 @@ describe('isPiAiContextOverflowText（pi-ai 官方 predicate shim）', () => {
     'rate limit reached: too many requests',
     'You exceeded your current quota, please check your plan',
     'invalid_request: missing field model',
+    // 归一化不得绕过上游 NON_OVERFLOW 排除
+    `Throttling error: ${KIMI_TOKEN_LIMIT}`,
+    `rate limit: ${KIMI_TOKEN_LIMIT}`,
   ])('does not match non-overflow text: %s', (text) => {
     expect(overflowText('bedrock', text)).toBe(false);
   });
@@ -187,6 +195,34 @@ describe('classifyCapturedHttpError 固定优先级', () => {
     expect((err as LLMContextExceededError).status).toBe(0);
   });
 
+  it('Kimi 实际报文经 event.errorMessage → LLMContextExceededError', async () => {
+    const eventError = assistantMessage({ provider: 'custom-anthropic', errorMessage: KIMI_TOKEN_LIMIT });
+    const err = await classifyCapturedHttpError('custom-anthropic', 'k3-256k', {}, eventError);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as LLMContextExceededError).status).toBe(0);
+  });
+
+  it('Kimi 实际报文经 capture body（status=400）→ LLMContextExceededError', async () => {
+    const capture: HttpErrorCapture = {
+      status: 400,
+      body: JSON.stringify({ error: { message: KIMI_TOKEN_LIMIT } }),
+    };
+    const err = await classifyCapturedHttpError('custom-anthropic', 'k3-256k', capture);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as LLMContextExceededError).status).toBe(400);
+  });
+
+  it('429 携带 Kimi token limit 文案 → rate limit 优先，非 context', async () => {
+    const capture: HttpErrorCapture = {
+      status: 429,
+      body: JSON.stringify({ error: { message: KIMI_TOKEN_LIMIT } }),
+      retryAfter: '5',
+    };
+    const err = await classifyCapturedHttpError('custom-anthropic', 'k3-256k', capture);
+    expect(err).toBeInstanceOf(LLMRateLimitError);
+    expect(err).not.toBeInstanceOf(LLMContextExceededError);
+  });
+
   it('Bedrock Throttling 文案不被 event predicate 判 context', async () => {
     const eventError = assistantMessage({
       provider: 'amazon-bedrock',
@@ -290,6 +326,11 @@ describe('classifyTextualError 注入共享 predicate', () => {
       'Range of input length should be [1, 1000000]',
       overflowText,
     );
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+  });
+
+  it('Kimi 实际报文（文本退化路径）→ LLMContextExceededError', () => {
+    const err = classifyTextualError('custom-anthropic', 'k3-256k', KIMI_TOKEN_LIMIT, overflowText);
     expect(err).toBeInstanceOf(LLMContextExceededError);
   });
 

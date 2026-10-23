@@ -59,6 +59,9 @@ function jsonResponse(data: unknown, status: number, headers: Record<string, str
   });
 }
 
+/** Phase 1977：Kimi 实际报文（exceeded 后带 model id，上游 predicate 0.87.1/1.4.0 均 miss）。 */
+const KIMI_TOKEN_LIMIT = 'Your request exceeded k3-256k model token limit: 262144';
+
 /** OpenAI chat.completions SSE 帧 */
 function openaiSse(frames: unknown[]): string[] {
   return [...frames.map((f) => `data: ${JSON.stringify(f)}`), 'data: [DONE]'];
@@ -294,6 +297,27 @@ describe('PiAiAdapter — Phase 1960 context overflow 检测', () => {
     const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
     expect(err).toBeInstanceOf(LLMContextExceededError);
     expect((err as InstanceType<typeof LLMContextExceededError>).status).toBe(413);
+  });
+
+  it('Kimi 400（带 model id 文案）call → LLMContextExceededError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { error: { message: KIMI_TOKEN_LIMIT } },
+      400,
+    )));
+    const adapter = createLLMProvider(baseConfig({ name: 'custom-anthropic', model: 'k3-256k' }));
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as InstanceType<typeof LLMContextExceededError>).status).toBe(400);
+  });
+
+  it('Kimi 400（带 model id 文案）stream → LLMContextExceededError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { error: { message: KIMI_TOKEN_LIMIT } },
+      400,
+    )));
+    const adapter = createLLMProvider(baseConfig({ name: 'custom-anthropic', model: 'k3-256k' }));
+    const err = await collectChunks(adapter).catch((e) => e);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
   });
 
   it('429 + rate-limit 文案不被拖入 context', async () => {

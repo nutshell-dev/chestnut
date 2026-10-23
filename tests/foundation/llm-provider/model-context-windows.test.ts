@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { resolveContextWindow } from '../../../src/foundation/llm-provider/model-context-windows.js';
+import { MODEL_CATALOG } from '../../../src/foundation/llm-provider/model-catalog.generated.js';
 
 /**
  * Phase 1925 Step C 签名变更：resolveContextWindow(providerId, modelName)。
- * 优先级：exact (pi-ai provider, model) 目录命中 → preset piAiProvider 别名命中
- * → 启发式（默认 256K + 子串特判 1M）。明确不做 id-only 兜底（G3）。
+ *
+ * Phase 1977 用户改判：context window **模型优先**——model id 在目录中唯一时
+ * 直接使用（不依赖 provider/preset label）；同名多值由 provider/preset 精确
+ * 消歧，仍无法消歧取保守最小值；目录未命中保留启发式。
+ * （Phase 1925 G3「不做 id-only 兜底」由 Phase 1977 显式覆盖。）
  */
-describe('resolveContextWindow (phase 684 + Phase 1925 Step C)', () => {
+describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', () => {
   describe('目录命中（exact (provider, model) 优先于启发式）', () => {
     it('pi-ai provider id 直接命中取目录值', () => {
       // pi-ai 1.4.0：anthropic claude-sonnet-4-5 目录值由 1M 修正为 200K
@@ -30,6 +34,45 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C)', () => {
     });
   });
 
+  describe('Phase 1977 模型优先（唯一目录值不依赖 provider label）', () => {
+    it('custom label + k3-256k → 262144', () => {
+      expect(resolveContextWindow('custom-anthropic', 'k3-256k')).toBe(262_144);
+      expect(resolveContextWindow('kimi-year', 'k3-256k')).toBe(262_144);
+      expect(resolveContextWindow('kimi-year2', 'k3-256k')).toBe(262_144);
+      expect(resolveContextWindow(undefined, 'k3-256k')).toBe(262_144);
+    });
+
+    it('claude-sonnet-4-5 在目录中唯一 → 模型值优先于 claude 子串启发式', () => {
+      expect(resolveContextWindow(undefined, 'claude-sonnet-4-5')).toBe(200_000);
+      expect(resolveContextWindow('custom-openai', 'claude-sonnet-4-5')).toBe(200_000);
+    });
+
+    it('k3-256k 在目录中只有唯一 contextWindow（数据完整性）', () => {
+      const windows = new Set<number>();
+      for (const [key, entry] of Object.entries(MODEL_CATALOG)) {
+        if (key.slice(key.indexOf('/') + 1) === 'k3-256k') windows.add(entry.contextWindow);
+      }
+      expect([...windows]).toEqual([262_144]);
+    });
+  });
+
+  describe('Phase 1977 同名多值消歧', () => {
+    it('provider 精确命中取精确值（不取 min）', () => {
+      expect(resolveContextWindow('openai', 'gpt-5')).toBe(400_000);
+      expect(resolveContextWindow('cloudflare-ai-gateway', 'gpt-5')).toBe(128_000);
+    });
+
+    it('preset 别名命中取精确值（qwen → qwen-token-plan）', () => {
+      expect(resolveContextWindow('qwen', 'qwen3.8-max')).toBe(1_000_000);
+    });
+
+    it('无法消歧 → 保守最小值', () => {
+      expect(resolveContextWindow(undefined, 'gpt-5')).toBe(128_000);
+      expect(resolveContextWindow('custom-anthropic', 'gpt-5')).toBe(128_000);
+      expect(resolveContextWindow(undefined, 'glm-5')).toBe(202_752);
+    });
+  });
+
   describe('启发式回退（provider undefined / 目录未命中）', () => {
     it('returns default 256K for undefined model', () => {
       expect(resolveContextWindow(undefined, undefined)).toBe(256_000);
@@ -43,8 +86,8 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C)', () => {
       expect(resolveContextWindow(undefined, 'qwen-coder-plus-latest')).toBe(256_000);
     });
 
-    it('returns 1M for claude substring', () => {
-      expect(resolveContextWindow(undefined, 'claude-sonnet-4-5')).toBe(1_000_000);
+    it('returns 1M for claude substring（目录未命中的 model）', () => {
+      // 'anthropic/claude-opus-4-7' 以 model id 整体含 '/' → 索引未命中 → 启发式
       expect(resolveContextWindow(undefined, 'anthropic/claude-opus-4-7')).toBe(1_000_000);
       expect(resolveContextWindow(undefined, 'claude-3-7-sonnet-20250219')).toBe(1_000_000);
     });
@@ -61,8 +104,8 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C)', () => {
       expect(resolveContextWindow(undefined, 'deepseek-v3')).toBe(256_000);
     });
 
-    it('returns 1M for glm-5 substring, default for glm-4.x', () => {
-      expect(resolveContextWindow(undefined, 'glm-5')).toBe(1_000_000);
+    it('glm-5 目录多值取 min；glm-5-chat 目录未命中走 1M 子串', () => {
+      expect(resolveContextWindow(undefined, 'glm-5')).toBe(202_752);
       expect(resolveContextWindow(undefined, 'glm-5-chat')).toBe(1_000_000);
       expect(resolveContextWindow(undefined, 'glm-4.6')).toBe(256_000);
     });
@@ -74,16 +117,19 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C)', () => {
       expect(resolveContextWindow(undefined, 'MiniMax-M2')).toBe(256_000);
     });
 
-    it('is case-sensitive (does not match lowercase minimax-m3)', () => {
-      expect(resolveContextWindow(undefined, 'minimax-m3')).toBe(256_000);
+    it('heuristic is case-sensitive (lowercase minimax-m3-* not matched by MiniMax-M3)', () => {
+      // 注：裸 'minimax-m3' 是目录内 model id（多值 → min），不走启发式；
+      // 此处用目录外变体验证启发式子串大小写敏感。
+      expect(resolveContextWindow(undefined, 'minimax-m3-custom')).toBe(256_000);
     });
 
     it('returns 1M when multiple million-token substrings present', () => {
       expect(resolveContextWindow(undefined, 'hypothetical-claude-glm-5')).toBe(1_000_000);
     });
 
-    it('provider 已知但 model 不在目录 → 启发式（不做 id-only 兜底）', () => {
-      // G3：同 model id 不同 provider 限额可差 3.9×，宁走保守启发式
+    it('provider 已知但 model 不在目录 → 启发式（目录未命中兜底）', () => {
+      // Phase 1977：唯一目录值优先与多值 min 只作用于目录内 model；
+      // 目录外 model 仍按 1M 子串/默认 256K 启发式。
       expect(resolveContextWindow('anthropic', 'claude-future-unknown-model')).toBe(1_000_000);
       expect(resolveContextWindow('openai', 'gpt-99-unknown')).toBe(256_000);
     });
