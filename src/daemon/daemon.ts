@@ -28,6 +28,8 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
 import { encodeMotionLLMReadyFact, createMotionLLMReadyFactPublisher } from './llm-ready-fact.js';
+import { createDaemonSpawnOptions } from './spawn-options.js';
+import { readDaemonHeartbeat } from './heartbeat-fact.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
@@ -164,6 +166,15 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
           ...(createAppliedLLMIdentityPublisher !== undefined
             ? { createAppliedLLMIdentityPublisher }
             : {}),
+          // Phase 1974 Step B：executor-supervisor cron job 的 daemon 协议 capability
+          // （spawn 规格 + 心跳事实协议归 Daemon owner；Assembly 只绑定 PM/clawDir）。
+          executorDaemonProtocol: {
+            createSpawnOptions: createDaemonSpawnOptions,
+            readHeartbeat: (agentDirFs) => {
+              const hb = readDaemonHeartbeat(agentDirFs);
+              return hb.kind === 'ok' ? { kind: 'ok' as const, ts: hb.fact.ts } : { kind: hb.kind };
+            },
+          },
         };
       } else {
         if (!clawConfig) {

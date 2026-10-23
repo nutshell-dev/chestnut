@@ -19,7 +19,8 @@ describe('Cron cronJobScheduleField deep surface', () => {
     const reusePoints = configSchemaSource.match(
       /schedule:\s*cronJobScheduleField\.default\('(?:hourly|daily:\d{1,2}:\d{2}|interval:\d+[smh])'\),/g,
     );
-    expect(reusePoints).toHaveLength(4);
+    // Phase 1974 Step B: executor_supervisor 加入（4→5）
+    expect(reusePoints).toHaveLength(5);
     expect(configSchemaSource).toMatch(/schedule:\s*cronJobScheduleField\.default\('daily:04:00'\),/);
     expect(configSchemaSource).toMatch(/schedule:\s*cronJobScheduleField\.default\('interval:1s'\),/);
     expect(configSchemaSource).toMatch(/schedule:\s*cronJobScheduleField\.default\('interval:1h'\),/);

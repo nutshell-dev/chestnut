@@ -608,6 +608,12 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
     identity: 'motion' as const,
     clawId: 'motion',
     clawDir: '/tmp/motion',
+    // Phase 1974 Step B：executor-supervisor 的 daemon 协议 capability
+    // （生产由 daemon.ts 经 AssembleConfig 注入；测试给窄 fake）。
+    executorDaemonProtocol: {
+      createSpawnOptions: () => ({ command: 'node', args: [], logFile: '/tmp/executor.log' }),
+      readHeartbeat: () => ({ kind: 'missing' as const }),
+    },
     globalConfig: buildTestGlobalConfig({
       cron: {
         enabled: true,
