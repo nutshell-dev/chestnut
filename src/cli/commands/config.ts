@@ -50,7 +50,11 @@ import {
   type SetupProviderChoice,
   type SetupProbeCandidate,
 } from '../setup-provider-catalog.js';
-import { makeSetupCandidateProbe, probeSetupCandidates } from '../setup-provider-probe.js';
+import {
+  formatSetupProbeFailureLines,
+  makeSetupCandidateProbe,
+  probeSetupCandidates,
+} from '../setup-provider-probe.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { question } from '../utils/prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
@@ -389,16 +393,9 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       if (!outcome.winner) {
         // Phase 1980 Step C：全败只打印一次结构化错误/hint（首个失败候选）；
         // 候选行只给 URL + ✓/✗；具体原因由下方一次结构化错误表达。
-        const firstFailure = outcome.attempts.find(attempt => !attempt.result.ok)?.result;
-        if (firstFailure && !firstFailure.ok) {
-          formatLLMError({
-            errorType: firstFailure.errorType,
-            message: firstFailure.message,
-            provider: firstFailure.provider,
-            hint: LLM_ERROR_HINTS[firstFailure.errorType],
-          }).forEach(line => console.log(line));
-        }
-        console.log(SETUP_PROBE_FAILED_NOT_SAVED);
+        // Phase 1983 follow-up：全败按错误类别分组（URL 归组，每种错误一次 hint），
+        // 不同 endpoint 可能因不同原因失败。
+        formatSetupProbeFailureLines(outcome.attempts).forEach(line => console.log(line));
         return;
       }
       providerConfig.base_url = outcome.winner.baseUrl;

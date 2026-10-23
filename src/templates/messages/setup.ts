@@ -72,9 +72,6 @@ export function setupRepairMenuLines(): string[] {
   ];
 }
 
-export const SETUP_ENDPOINTS_ALL_FAILED =
-  'All endpoint candidates failed — configuration not saved.';
-
 export function setupCredentialDiscardedLine(ref: string): string {
   return `Discarded unused credential \${${ref}} (setup was not committed).`;
 }

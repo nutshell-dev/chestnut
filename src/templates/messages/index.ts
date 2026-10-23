@@ -16,7 +16,6 @@ export {
   SETUP_PROBE_FAILED_NOT_SAVED,
   SETUP_CONFIRM_PROMPT,
   SETUP_REPAIR_HEADING,
-  SETUP_ENDPOINTS_ALL_FAILED,
   setupProviderMenuLines,
   setupDraftPreviewLines,
   setupConnectingLine,

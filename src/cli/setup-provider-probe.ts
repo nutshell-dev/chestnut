@@ -14,8 +14,14 @@ import {
   type LLMProviderConfig,
 } from '../foundation/llm-orchestrator/index.js';
 import type { PiAiCredentialStore } from '../foundation/llm-provider/index.js';
-import { checkLLMConnectionFor, type LLMErrorType } from './llm-connection-check.js';
+import {
+  checkLLMConnectionFor,
+  LLM_ERROR_HINTS,
+  LLM_ERROR_LABELS,
+  type LLMErrorType,
+} from './llm-connection-check.js';
 import type { SetupProbeCandidate } from './setup-provider-catalog.js';
+import { truncateLLMMessage } from './utils/text.js';
 
 /**
  * 单候选 probe 的 bounded timeout：不把用户生产 timeout 拉满。
@@ -53,6 +59,65 @@ export async function probeSetupCandidates(
     if (result.ok) return { winner: candidate, winnerModel: result.model, attempts };
   }
   return { attempts };
+}
+
+export interface SetupProbeFailureGroup {
+  errorType: LLMErrorType;
+  label: string;
+  hint?: string;
+  attempts: SetupProbeAttempt[];
+}
+
+/** 按错误类别分组（保持首次出现顺序）。 */
+export function groupSetupProbeFailures(
+  attempts: readonly SetupProbeAttempt[],
+): SetupProbeFailureGroup[] {
+  const groups = new Map<LLMErrorType, SetupProbeFailureGroup>();
+  for (const attempt of attempts) {
+    if (attempt.result.ok) continue;
+    const { errorType } = attempt.result;
+    let group = groups.get(errorType);
+    if (!group) {
+      const hint = LLM_ERROR_HINTS[errorType];
+      group = {
+        errorType,
+        label: LLM_ERROR_LABELS[errorType],
+        ...(hint !== undefined && { hint }),
+        attempts: [],
+      };
+      groups.set(errorType, group);
+    }
+    group.attempts.push(attempt);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * 全败摘要：每个错误类别一组，URL 归组；每种错误只给一次 hint。
+ * unknown 附首条原始消息（其 hint 指向原始消息），避免只看到 “Unrecognized”。
+ */
+export function formatSetupProbeFailureLines(
+  attempts: readonly SetupProbeAttempt[],
+): string[] {
+  const groups = groupSetupProbeFailures(attempts);
+  const failed = groups.reduce((count, group) => count + group.attempts.length, 0);
+  if (failed === 0) return [];
+
+  const lines = [`✗ All ${failed} endpoints failed — configuration not saved.`];
+  for (const group of groups) {
+    lines.push(`  ${group.label}:`);
+    for (const attempt of group.attempts) {
+      lines.push(`    ${attempt.candidate.baseUrl}`);
+    }
+    if (group.errorType === 'unknown') {
+      const representative = group.attempts[0]?.result;
+      if (representative && !representative.ok) {
+        lines.push(`    ${truncateLLMMessage(representative.message)}`);
+      }
+    }
+    if (group.hint) lines.push(`    Hint: ${group.hint}`);
+  }
+  return lines;
 }
 
 export interface SetupCandidateProbeInput {

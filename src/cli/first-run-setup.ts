@@ -60,13 +60,16 @@ import {
   type SetupProviderChoice,
   type SetupProbeCandidate,
 } from './setup-provider-catalog.js';
-import { makeSetupCandidateProbe, probeSetupCandidates } from './setup-provider-probe.js';
+import {
+  formatSetupProbeFailureLines,
+  makeSetupCandidateProbe,
+  probeSetupCandidates,
+} from './setup-provider-probe.js';
 import {
   SETUP_WELCOME,
   SETUP_CANCELLED,
   SETUP_OTHER_FORMAT_LINES,
   SETUP_CONFIRM_PROMPT,
-  SETUP_ENDPOINTS_ALL_FAILED,
   setupProviderMenuLines,
   setupDraftPreviewLines,
   setupConnectingLine,
@@ -463,7 +466,7 @@ async function selectSetupEndpoint(
   deps: FirstRunDeps,
   draft: SetupDraft,
   audit: AuditLog | undefined,
-): Promise<{ ok: true } | { ok: false; failure: DraftProbeFailure }> {
+): Promise<{ ok: true } | { ok: false; failure: DraftProbeFailure; reported?: boolean }> {
   const candidates = draft.choice.probeCandidates ?? [];
   if (candidates.length === 0) return { ok: true };
 
@@ -494,7 +497,8 @@ async function selectSetupEndpoint(
   }
 
   if (!outcome.winner) {
-    console.log(SETUP_ENDPOINTS_ALL_FAILED);
+    // Phase 1983 follow-up：全败按错误类别分组展示（与 provider add 一致）。
+    formatSetupProbeFailureLines(outcome.attempts).forEach(line => console.log(line));
     const firstFailure = outcome.attempts.find(attempt => !attempt.result.ok)?.result;
     const failure: DraftProbeFailure = firstFailure && !firstFailure.ok
       ? { errorType: firstFailure.errorType, message: firstFailure.message, provider: firstFailure.provider }
@@ -504,7 +508,8 @@ async function selectSetupEndpoint(
       `error_type=${failure.errorType}`,
       `message=${audit.message(failure.message)}`,
     );
-    return { ok: false, failure };
+    // 摘要已展示全部失败类别；主循环不再重复打印首个失败详情。
+    return { ok: false, failure, reported: true };
   }
 
   draft.baseUrl = outcome.winner.baseUrl;
@@ -605,7 +610,7 @@ export async function runFirstRunSetup(
         const selection = await selectSetupEndpoint(deps, draft, audit);
         if (!selection.ok) {
           failure = summarizeLLMFailure(selection.failure);
-          formatLLMError(failure).forEach(line => console.log(line));
+          if (!selection.reported) formatLLMError(failure).forEach(line => console.log(line));
         }
       }
 

@@ -78,7 +78,7 @@ export const LLM_ERROR_HINTS: Partial<Record<LLMErrorType, string>> = {
   unknown: 'See raw provider message above; report bug if persistent.',
 };
 
-const LLM_ERROR_PREVIEW_CHARS = 200;
+import { truncateLLMMessage } from './utils/text.js';
 
 /**
  * Phase 1976：首次 setup 失败后的修复动作。菜单呈现归 setup 向导；
@@ -128,11 +128,7 @@ export function formatLLMError(
     lines.push(`  Provider: ${probe.provider}`);
   }
   // phase 464 (review N3-L): 按 codepoint 截断，避免 UTF-16 surrogate pair 被切断
-  const codepoints = [...probe.message];
-  const trimmed = codepoints.length > LLM_ERROR_PREVIEW_CHARS
-    ? codepoints.slice(0, LLM_ERROR_PREVIEW_CHARS).join('') + '...'
-    : probe.message;
-  lines.push(`  ${trimmed}`);
+  lines.push(`  ${truncateLLMMessage(probe.message)}`);
   if (probe.hint) {
     lines.push(`  Hint: ${probe.hint}`);
   }

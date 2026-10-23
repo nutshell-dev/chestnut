@@ -57,7 +57,11 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     quota: 'Account quota or credit exhausted',
     unknown: 'Unrecognized provider error',
   },
-  LLM_ERROR_HINTS: {},
+  LLM_ERROR_HINTS: {
+    auth: 'Update API key.',
+    model: 'Check model name.',
+    unknown: 'See raw message.',
+  },
   classifyLLMError: vi.fn().mockReturnValue('unknown'),
 }));
 
@@ -363,15 +367,16 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(4);
-    // Phase 1980 Step C：全败只打印一次结构化错误/hint（首个失败候选）；
-    // 每个候选的错误类型由 → baseUrl ✗ type 状态行保留。
-    expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
+    // Phase 1983 follow-up：全败按错误类别分组摘要，formatLLMError 不再调用
+    expect(connMock.formatLLMError).not.toHaveBeenCalled();
     const failedLines = consoleLines.filter((l) => l.startsWith('→ https://') && l.includes('✗'));
     expect(failedLines).toHaveLength(4);
     expect(failedLines[0]).toContain('https://api.kimi.com/coding');
-    expect(
-      consoleLines.filter((l) => l.includes('not saved because the connection check failed')),
-    ).toHaveLength(1);
+    const out = consoleLines.join('\n');
+    expect(out).toContain('✗ All 4 endpoints failed — configuration not saved.');
+    expect(out).toContain('API key invalid or unauthorized:');
+    expect(out).toContain('    Hint: Update API key.');
+    expect(out).not.toContain('not saved because the connection check failed');
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'kimi-test')).toBe(false);
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
@@ -404,16 +409,46 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(7);
-    // Phase 1980 Step C：Qwen 7 候选全败，formatLLMError 恰好一次（不再按候选重复）
-    expect(connMock.formatLLMError).toHaveBeenCalledTimes(1);
+    // Phase 1983 follow-up：全败按错误类别分组摘要
+    expect(connMock.formatLLMError).not.toHaveBeenCalled();
     const failedLines = consoleLines.filter((l) => l.startsWith('→ https://') && l.includes('✗'));
     expect(failedLines).toHaveLength(7);
     expect(failedLines[0]).toContain('https://dashscope.aliyuncs.com/apps/anthropic');
-    expect(
-      consoleLines.filter((l) => l.includes('not saved because the connection check failed')),
-    ).toHaveLength(1);
+    const out = consoleLines.join('\n');
+    expect(out).toContain('✗ All 7 endpoints failed — configuration not saved.');
+    expect(out).toContain('Model not found or unavailable:');
+    expect(out).toContain('    Hint: Check model name.');
     const config = loadGlobalConfig({ fsFactory });
     expect((config.llm.fallbacks ?? []).some(f => f.label === 'qwen-test')).toBe(false);
+  });
+
+  it('多端点全败按错误类别分组：不同 endpoint 的不同原因都可见', async () => {
+    connMock.checkLLMConnectionFor
+      .mockResolvedValueOnce({ ok: false, errorType: 'auth', message: '401', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: false, errorType: 'model', message: '404', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: false, errorType: 'unknown', message: 'boom', provider: 'kimi' })
+      .mockResolvedValueOnce({ ok: false, errorType: 'model', message: '404b', provider: 'kimi' });
+    rlAnswers.queue = ['2', 'kimi-test', 'sk-kimi-key', '', '2', '1'];
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'add']);
+
+    const out = consoleLines.join('\n');
+    const authIdx = out.indexOf('API key invalid or unauthorized:');
+    const modelIdx = out.indexOf('Model not found or unavailable:');
+    const unknownIdx = out.indexOf('Unrecognized provider error:');
+    expect(authIdx).toBeGreaterThanOrEqual(0);
+    expect(modelIdx).toBeGreaterThan(authIdx);
+    expect(unknownIdx).toBeGreaterThan(modelIdx);
+    expect(out).toContain('    https://api.kimi.com/coding');
+    expect(out).toContain('    https://api.kimi.ai/coding');
+    expect(out).toContain('    https://api.moonshot.cn/anthropic');
+    expect(out).toContain('    https://api.moonshot.ai/anthropic');
+    expect(out).toContain('    Hint: Update API key.');
+    expect(out).toContain('    Hint: Check model name.');
+    expect(out).toContain('    Hint: See raw message.');
+    expect(out).toContain('    boom');
+    expect(connMock.formatLLMError).not.toHaveBeenCalled();
   });
 
   it('非五家（Anthropic）仍只 probe 一次且无候选循环', async () => {
