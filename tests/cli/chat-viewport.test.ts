@@ -673,6 +673,42 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(auditWrites.filter(w => String(w[0]).includes('unknown'))).toHaveLength(0);
   });
 
+  it('Phase 1978: context turn_error 不红；retry/blocked 结构化行；普通错误仍红', async () => {
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const renders: Array<{ color?: string; text: string }> = [];
+    (deps.sink as any).emit = (d: { kind: string; color?: string; text: string }) => {
+      lines.push(d.text);
+      renders.push({ color: d.color, text: d.text });
+    };
+    const handle = createEventHandler(deps as any);
+
+    // 可恢复 context exceeded：turn_error 被抑制（无红色终局行）
+    handle({ type: 'turn_error', error: '[LLM_CONTEXT_EXCEEDED] LLM context exceeded for p (HTTP 400): too long' });
+    expect(lines).toHaveLength(0);
+
+    // retry：黄色非终局提示
+    handle({
+      type: 'context_trim_retry_scheduled', ts: FIXED_TS,
+      attempt: 1, maxAttempts: 3, delayMs: 30_000, before: 1000, after: 100,
+    });
+    expect(renders).toHaveLength(1);
+    expect(renders[0].color).toBe('\x1b[33m');
+    expect(renders[0].text).toContain('⟳ Context exceeded; trimming and retrying (1/3, 30s)');
+
+    // blocked：橙色明确终局
+    handle({ type: 'context_trim_blocked', ts: FIXED_TS, reason: 'no_progress', before: 1000, after: 1000 });
+    expect(renders).toHaveLength(2);
+    expect(renders[1].color).toBe('\x1b[38;5;214m');
+    expect(renders[1].text).toContain('⏸ Context still over limit after trim; request blocked (reason=no_progress)');
+
+    // 普通错误仍红
+    handle({ type: 'turn_error', error: 'boom' });
+    expect(renders).toHaveLength(3);
+    expect(renders[2].color).toBe('\x1b[31m');
+    expect(renders[2].text).toContain('✗ Error: boom');
+  });
+
   it('ALL_FAILED 连续失败序列只报第一次，成功 turn 后恢复（phase 1277）', async () => {
     const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();

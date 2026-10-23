@@ -11,6 +11,7 @@ import { EventLoop } from '../../src/core/event-loop/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { Runtime } from '../../src/core/runtime/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
+import type { StreamEvent, StreamWriter } from '../../src/foundation/stream/index.js';
 import type { RuntimeTestInternals } from './runtime-test-internals.js';
 
 export interface TestEventLoopOptions {
@@ -21,6 +22,8 @@ export interface TestEventLoopOptions {
   audit?: AuditLog;
   /** inbox 空转等待上限；默认 20ms（测试级小值）。 */
   fallbackTimeoutMs?: number;
+  /** Phase 1978: 结构化 stream 事件捕获（trim retry/blocked 断言用）。 */
+  streamWriter?: { write(event: StreamEvent): void };
 }
 
 /** 装配真实 EventLoop，驱动一次 run() = 一轮 begin → drain/chain → finish。 */
@@ -35,5 +38,8 @@ export function createTestEventLoop(options: TestEventLoopOptions): EventLoop {
       pendingDir: path.join(options.clawDir, 'inbox', 'pending'),
       fallbackTimeoutMs: options.fallbackTimeoutMs ?? 20,
     },
+    ...(options.streamWriter
+      ? { streamWriter: options.streamWriter as unknown as StreamWriter }
+      : {}),
   });
 }

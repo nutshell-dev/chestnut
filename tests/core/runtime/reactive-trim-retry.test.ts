@@ -20,6 +20,7 @@ import * as trimAndPersistModule from '../../../src/core/context_manager/trim-an
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
+import type { StreamEvent } from '../../../src/foundation/stream/index.js';
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 
 // Step H: EventLoop 的 trim 重试退避（30s 起）与 dispatchError fallback 退避
@@ -49,6 +50,15 @@ function createMockLLMConfig() {
     maxAttempts: 1,
     retryDelayMs: 100,
     events: { emit: () => {} },
+  };
+}
+
+/** Phase 1978: 捕获 EventLoop 经 streamWriter 发出的结构化 trim 事件。 */
+function captureStreamEvents() {
+  const events: StreamEvent[] = [];
+  return {
+    events,
+    streamWriter: { write: (event: StreamEvent) => { events.push(event); } },
   };
 }
 
@@ -114,7 +124,10 @@ describe('runtime reactive trim+retry path', () => {
 
     const runtime = await makeRuntime();
     await writePendingMsg('m1');
-    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
+    const capture = captureStreamEvents();
+    const loop = createTestEventLoop({
+      runtime, clawDir: testClawDir, clawId: 'test-claw', streamWriter: capture.streamWriter,
+    });
 
     // 第 1 轮：turn 失败 → reactiveTrim → 有界重试安排（消息 nack 回 pending）；
     // 第 2 轮：重新 drain 同消息 → turn 成功 → ack。
@@ -126,6 +139,17 @@ describe('runtime reactive trim+retry path', () => {
     expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({
       triggerKind: 'reactive_overflow',
     }));
+    // Phase 1978: trim 成功 → 恰好一条 retry 事件（无 blocked）
+    const trimEvents = capture.events.filter(e => String(e.type).startsWith('context_trim_'));
+    expect(trimEvents).toHaveLength(1);
+    expect(trimEvents[0]).toMatchObject({
+      type: 'context_trim_retry_scheduled',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 10,
+      before: 1000,
+      after: 100,
+    });
   });
 
   it('bounded retry: CONTEXT_TRIM_RETRY_MAX(3) 预算耗尽后 blocked gate、不再调 LLM', async () => {
@@ -146,7 +170,10 @@ describe('runtime reactive trim+retry path', () => {
 
     const runtime = await makeRuntime();
     await writePendingMsg('m1');
-    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
+    const capture = captureStreamEvents();
+    const loop = createTestEventLoop({
+      runtime, clawDir: testClawDir, clawId: 'test-claw', streamWriter: capture.streamWriter,
+    });
 
     // 3 次重试预算：每轮 fail → trim → 安排下一轮；第 4 次 fail 时预算耗尽
     // → 进入 blocked gate（persist 到 status/llm-request-blocked-state.json）。
@@ -158,6 +185,17 @@ describe('runtime reactive trim+retry path', () => {
 
     await loop.run();
     expect(runReactCalls).toBe(4);
+    // Phase 1978: 3 次 retry 事件 + 1 次 blocked（retry_exhausted）
+    const retryEvents = capture.events.filter(e => e.type === 'context_trim_retry_scheduled');
+    const blockedEvents = capture.events.filter(e => e.type === 'context_trim_blocked');
+    expect(retryEvents.map(e => e.attempt)).toEqual([1, 2, 3]);
+    expect(blockedEvents).toHaveLength(1);
+    expect(blockedEvents[0]).toMatchObject({
+      type: 'context_trim_blocked',
+      reason: 'retry_exhausted',
+      attempts: 3,
+      maxAttempts: 3,
+    });
     expect(trimSpy).toHaveBeenCalledTimes(3);
     const blockedState = await fs.readFile(
       path.join(testClawDir, 'status', 'llm-request-blocked-state.json'),
@@ -189,7 +227,10 @@ describe('runtime reactive trim+retry path', () => {
 
     const runtime = await makeRuntime();
     await writePendingMsg('m1');
-    const loop = createTestEventLoop({ runtime, clawDir: testClawDir, clawId: 'test-claw' });
+    const capture = captureStreamEvents();
+    const loop = createTestEventLoop({
+      runtime, clawDir: testClawDir, clawId: 'test-claw', streamWriter: capture.streamWriter,
+    });
 
     // 非 context-exceeded 错不进 retry path；Phase 1956 Step C/E：未知系统错误
     // 不再 FATAL + 延迟重跑——EventLoop 消费 recovery_required，nack + blocked 阻断。
@@ -206,6 +247,46 @@ describe('runtime reactive trim+retry path', () => {
     expect(auditWrites.some(a => a[0] === 'eventloop_iteration' && a.some(c => c === 'type=turn_recovery_required'))).toBe(true);
     expect(auditWrites.some(a => a[0] === 'eventloop_context_blocked' && a.some(c => c === 'reason=recovery_required'))).toBe(true);
     expect(auditWrites.some(a => a[0] === 'eventloop_fatal' && a.some(c => String(c).includes('Some other error')))).toBe(false);
+    // Phase 1978: 非 context 路径不得发 trim 事件
+    expect(capture.events.filter(e => String(e.type).startsWith('context_trim_'))).toHaveLength(0);
+  });
+
+  it('trim no_progress → context_trim_blocked（reason=no_progress），无 retry 事件', async () => {
+    vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'no_progress',
+      before: 1000,
+      after: 1000,
+      reason: 'already_within_target',
+      newMessages: [],
+      archived: false,
+    } as any);
+
+    vi.spyOn(loopModule, 'runReact').mockImplementation(async () => {
+      throw new LLMContextExceededError('test-provider', 400, 'prompt is too long');
+    });
+
+    const runtime = await makeRuntime();
+    await writePendingMsg('m1');
+    const capture = captureStreamEvents();
+    const loop = createTestEventLoop({
+      runtime, clawDir: testClawDir, clawId: 'test-claw', streamWriter: capture.streamWriter,
+    });
+
+    await loop.run();
+
+    const retryEvents = capture.events.filter(e => e.type === 'context_trim_retry_scheduled');
+    const blockedEvents = capture.events.filter(e => e.type === 'context_trim_blocked');
+    expect(retryEvents).toHaveLength(0);
+    expect(blockedEvents).toHaveLength(1);
+    expect(blockedEvents[0]).toMatchObject({
+      type: 'context_trim_blocked',
+      reason: 'no_progress',
+      before: 1000,
+      after: 1000,
+      attempts: 0,
+      maxAttempts: 3,
+    });
   });
 
   it('aggregate with context sub-error still triggers trim+retry', async () => {
