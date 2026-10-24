@@ -64,19 +64,28 @@ public struct ChatView: View {
         onWindowHeightChange?(target)
     }
 
-    /// composer 永远固定在顶部；Return 提交，无独立发送按钮占据初始布局。
+    /// composer 永远固定在顶部；Spotlight/Raycast 风格无边框主输入（视觉常量归 ComposerStyle）。
+    /// Return 提交，无独立发送按钮；busy 只在右侧预留槽显示，不改变输入栏高度。
     private var composer: some View {
         HStack(spacing: 8) {
-            TextField("消息…", text: $input, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+            TextField(ComposerStyle.placeholder, text: $input)
+                .textFieldStyle(.plain)
+                .font(ComposerStyle.font)
                 .disabled(isSending)
                 .onSubmit { Task { await store.submit() } }
-            if isSending {
-                ProgressView()
-                    .scaleEffect(0.7)
+            // 固定右侧状态槽：忙碌时出现小进度，空闲时占位，宽度恒定不抖动
+            ZStack {
+                if isSending {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                }
             }
+            .frame(width: ComposerStyle.statusSlotWidth)
         }
-        .padding(.vertical, 8)
+        .padding(.horizontal, ComposerStyle.horizontalPadding)
+        .frame(height: ComposerStyle.height)
+        .background(.thinMaterial, in: ComposerStyle.backgroundShape)
+        .overlay(ComposerStyle.border)
         .accessibilityIdentifier("composer")
     }
 
