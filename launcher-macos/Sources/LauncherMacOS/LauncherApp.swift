@@ -2,15 +2,16 @@ import AppKit
 import LauncherCore
 import SwiftUI
 
-/// @main 入口：AppKit 负责标准 NSWindow 生命周期，SwiftUI 负责视图。
-/// 窗口关闭只隐藏（orderOut），不触碰 ChatStore 状态；应用退出统一停止 stream task。
+/// @main 入口：AppKit 负责窗口生命周期，SwiftUI 负责视图。
+/// accessory app（不进 Dock/Cmd-Tab）+ LauncherPanel 浮窗；窗口关闭/失焦只隐藏，
+/// 不触碰 ChatStore 状态；应用退出统一停止 stream task。
 @main
 enum LauncherApp {
     static func main() {
         let app = NSApplication.shared
         let delegate = LauncherAppDelegate()
         app.delegate = delegate
-        app.setActivationPolicy(.regular)
+        app.setActivationPolicy(LauncherWindowPolicy.activation)
         app.run()
     }
 }
@@ -70,12 +71,7 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         self.store = store
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
+        let window = LauncherPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480))
         window.title = "Chestnut Launcher"
         window.contentView = NSHostingView(rootView: ChatView(store: store))
         window.delegate = self

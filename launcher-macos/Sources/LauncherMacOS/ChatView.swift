@@ -20,7 +20,10 @@ public struct ChatView: View {
             }
             composer
         }
-        .frame(minWidth: 420, minHeight: 480)
+        .padding(10)
+        // 浮层视觉外壳：材质与圆角只作用于背景层，消息文本保持不透明
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(minWidth: 620, minHeight: 440)
         .onAppear { store.startStream() }
         .onChange(of: input) { newValue in store.updateDraft(newValue) }
         .onChange(of: store.state.draft) { newValue in
@@ -49,6 +52,7 @@ public struct ChatView: View {
                     }
                     .padding(.vertical, 2)
                 }
+                .scrollContentBackground(.hidden) // 让窗口材质透过列表背景
             }
         }
     }
