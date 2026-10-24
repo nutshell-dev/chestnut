@@ -16,6 +16,9 @@ public struct ChatView: View {
     @ObservedObject private var store: ChatStore
     @State private var input: String = ""
     @State private var responseContentHeight: CGFloat = 0
+    /// 输入焦点显式管理：发送中 disabled 会丟 firstResponder，提交完成后必须恢复，
+    /// 保证用户可以连续输入（Spotlight/Raycast 语义）。
+    @FocusState private var inputFocused: Bool
 
     /// 内容高度变化时上报目标窗口高度（由 LauncherApp 接线到 panel.resize）；
     /// 单向上报，不反写消息状态。
@@ -46,7 +49,13 @@ public struct ChatView: View {
         // 浮层视觉外壳：材质与圆角只作用于背景层，消息文本保持不透明
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .frame(width: ConversationLayout.width - 20)
-        .onAppear { store.startStream() }
+        .onAppear {
+            store.startStream()
+            inputFocused = true
+        }
+        .onChange(of: isSending) { sending in
+            if !sending { inputFocused = true }
+        }
         .onChange(of: input) { newValue in store.updateDraft(newValue) }
         .onChange(of: store.state.draft) { newValue in
             if newValue != input { input = newValue }
@@ -71,6 +80,7 @@ public struct ChatView: View {
             TextField(ComposerStyle.placeholder, text: $input)
                 .textFieldStyle(.plain)
                 .font(ComposerStyle.font)
+                .focused($inputFocused)
                 .disabled(isSending)
                 .onSubmit { Task { await store.submit() } }
             // 固定右侧状态槽：忙碌时出现小进度，空闲时占位，宽度恒定不抖动
@@ -84,8 +94,8 @@ public struct ChatView: View {
         }
         .padding(.horizontal, ComposerStyle.horizontalPadding)
         .frame(height: ComposerStyle.height)
-        .background(.thinMaterial, in: ComposerStyle.backgroundShape)
-        .overlay(ComposerStyle.border)
+        //  Spotlight 语义：输入区无独立背景/边框，文字直接在窗口材质上（实机决策：
+        // 独立材质+边框在窗口材质上形成“框中框”印记）
         .accessibilityIdentifier("composer")
     }
 
