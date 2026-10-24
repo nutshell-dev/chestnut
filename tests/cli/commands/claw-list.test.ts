@@ -122,13 +122,19 @@ describe('claw-list', () => {
     await listCommand(commandDeps);
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
+    // phase 1986 Step F：motion 作为普通一行（首位，topology enumerate 顺序）
+    expect(output).toMatch(/motion .*stopped/);
     expect(output).toMatch(/claw-a.*running/);
     expect(output).toMatch(/claw-b.*stopped/);
-    expect(output).toMatch(/Total: 2 claws \(1 running\)/);
+    expect(output).toMatch(/Total: 3 claws \(1 running\)/);
   });
 
   it('handles 0 claws gracefully', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      // motion 未物化（<root>/motion 不存在）→ 不显示；claws/ 空 → 真正 0 claws
+      if (String(p) === '/tmp/test-root/motion') return false;
+      return true;
+    });
     vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
       const sp = String(p);
       if (sp.endsWith('claws')) return [] as any;
@@ -177,7 +183,9 @@ describe('claw-list', () => {
     consoleLogSpy.mockClear();
     await listCommand(commandDeps, { json: true });
     const parsed = JSON.parse(consoleLogSpy.mock.calls.flat().join('\n'));
-    expect(parsed.claws[0].pid).toBe('spawning');
+    // phase 1986 Step F：claws[0] 为 motion，claw-a 顺移至 [1]
+    expect(parsed.claws[0].name).toBe('motion');
+    expect(parsed.claws[1].pid).toBe('spawning');
   });
 
   it('propagates RootConfig loadGlobal error outside the list body', async () => {
@@ -269,18 +277,21 @@ describe('claw-list', () => {
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);
     expect(Array.isArray(parsed.claws)).toBe(true);
-    expect(parsed.claws).toHaveLength(2);
-    expect(parsed.claws[0].name).toBe('claw-a');
-    expect(parsed.claws[0].status).toBe('running');
-    expect(parsed.claws[0].pid).toBe(12345);
-    expect(typeof parsed.claws[0].last_active === 'string' || parsed.claws[0].last_active === null).toBe(true);
-    if (parsed.claws[0].last_active !== null) {
-      expect(parsed.claws[0].last_active).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    // phase 1986 Step F：motion 首位，普通 claw 行数不变
+    expect(parsed.claws).toHaveLength(3);
+    expect(parsed.claws[0].name).toBe('motion');
+    expect(parsed.claws[0].status).toBe('stopped');
+    expect(parsed.claws[1].name).toBe('claw-a');
+    expect(parsed.claws[1].status).toBe('running');
+    expect(parsed.claws[1].pid).toBe(12345);
+    expect(typeof parsed.claws[1].last_active === 'string' || parsed.claws[1].last_active === null).toBe(true);
+    if (parsed.claws[1].last_active !== null) {
+      expect(parsed.claws[1].last_active).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     }
-    expect(parsed.claws[1].name).toBe('claw-b');
-    expect(parsed.claws[1].status).toBe('stopped');
-    expect(parsed.claws[1].pid).toBeNull();
-    expect(parsed.total).toBe(2);
+    expect(parsed.claws[2].name).toBe('claw-b');
+    expect(parsed.claws[2].status).toBe('stopped');
+    expect(parsed.claws[2].pid).toBeNull();
+    expect(parsed.total).toBe(3);
     expect(parsed.running_count).toBe(1);
     expect(typeof parsed.as_of).toBe('string');
   });
@@ -322,7 +333,8 @@ describe('claw-list', () => {
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/claw-a/);
     expect(output).not.toMatch(/\.DS_Store/);
-    expect(output).toMatch(/Total: 1 claw/);
+    // phase 1986 Step F：motion + claw-a
+    expect(output).toMatch(/Total: 2 claws/);
   });
 });
 

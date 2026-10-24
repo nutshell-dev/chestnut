@@ -5,10 +5,15 @@
 
 import * as path from 'path';
 import {
-  enumerateClaws,
+  CLAWS_DIR,
   getChestnutRoot,
 } from '../../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
+import {
+  createClawTopology,
+  MOTION_CLAW_ID,
+  resolveClawDaemonDir,
+  resolveClawLocation,
+} from '../../core/claw-topology/index.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -62,7 +67,6 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   deps.rootConfig.loadGlobal();
 
   const baseDir = getChestnutRoot();
-  const clawsDir = path.join(baseDir, 'claws');
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const systemAudit = actionAuditFor(baseDir, deps);
@@ -162,19 +166,30 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
 
   // phase 687 (audit T2.11): 删 outer try/catch + handleCliError、外层 clawCommand (cli/index.ts:139) 已包 withCliErrorHandling
   const baseDirFs = deps.fsFactory(baseDir);
-  const clawsDirName = 'claws';
-  const clawsDirFs = deps.fsFactory(clawsDir);
+  // phase 1986 Step F：枚举归 ClawTopology（[motion, ...valid claws]）；
+  // motionDir 传相对名，topology 内部 path.join(chestnutRoot, motionDir)。
+  const topology = createClawTopology({
+    fs: baseDirFs,
+    chestnutRoot: baseDir,
+    motionDir: MOTION_CLAW_ID,
+  });
   // Listing is read-only: an absent container means an empty catalog, not an
-  // instruction to create filesystem state.
-  const entries = baseDirFs.existsSync(clawsDirName)
-    ? enumerateClaws(clawsDirFs, '.')
-    : [];
+  // instruction to create filesystem state. claws/ 容器缺失是合法空 catalog；
+  // motion 仍可由自身布局表达。
+  const entries = baseDirFs.existsSync(CLAWS_DIR)
+    ? topology.enumerate()
+    : [MOTION_CLAW_ID];
   const claws: ClawEntry[] = [];
   const diagnostics: { claw: string; field: string; reason: string }[] = [];
 
   for (const entry of entries) {
-    const clawFs = deps.fsFactory(path.join(clawsDir, entry));
-    if (clawFs.existsSync(CONFIG_YAML_FILE)) {
+    const isMotion = entry === MOTION_CLAW_ID;
+    const clawFs = deps.fsFactory(resolveClawLocation(makeClawId(entry)).clawDir);
+    // motion 以 <root>/motion 布局存在为依据；普通 claw 维持「已发布 = config.yaml」。
+    if (isMotion ? !clawFs.existsSync('.') : !clawFs.existsSync(CONFIG_YAML_FILE)) {
+      continue;
+    }
+    {
       const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(entry)));
 
       const contractField = getContractStatus(clawFs);
@@ -241,7 +256,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
 
   // Helper: get a FileSystem scoped to a specific claw directory
   function clawFsForClaw(name: string): FileSystem {
-    return deps.fsFactory(path.join(clawsDir, name));
+    return deps.fsFactory(resolveClawLocation(makeClawId(name)).clawDir);
   }
 
   if (opts?.json) {
