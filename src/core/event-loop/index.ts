@@ -19,6 +19,7 @@ export {
   createExecutionRecoveryController,
   createExecutionRecoveryStore,
   readStreamExecutionActivityMs,
+  readStreamToolCallActivityMs,
   parseExecutionRecoveryRecord,
 } from './execution-recovery.js';
 export type {

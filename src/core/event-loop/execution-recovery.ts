@@ -72,8 +72,14 @@ import { EVENTLOOP_AUDIT_EVENTS } from './audit-events.js';
 export interface ExecutionRecoveryRecord {
   schema_version: 1;
   contractId: string;
-  /** 本 recovery epoch 观察到的最后一次持久 activity（epoch ms）。 */
+  /** 本 recovery epoch 观察到的最后一次持久 activity（epoch ms，任意 LLM 输出）。 */
   observedActivityAt: number;
+  /**
+   * Phase 1989：最近一次 tool_call 的 ts（epoch ms）；行动信号唯一事实。
+   * 只有它前进才清零 attempts；observedActivityAt 仅作 inactivity 超时基线。
+   * 可选、旧记录缺省（视为 0，schema_version 保持 1）。
+   */
+  observedToolCallAt?: number;
   /**
    * 调度计数（1-based 累计）：本模块登记过的 resume 调度尝试次数。
    */
@@ -113,6 +119,7 @@ interface ExecutionRecoveryDeliveryBase {
 export type ExecutionRecoveryDelivery =
   | (ExecutionRecoveryDeliveryBase & { kind: 'pending' })
   | (ExecutionRecoveryDeliveryBase & { kind: 'confirmed'; confirmedAt: number })
+  // Phase 1989：superseded 不再绑定零基线——纯文本前进（attempts 不清零）同样终止补投。
   | (ExecutionRecoveryDeliveryBase & {
       kind: 'superseded';
       supersededAt: number;
@@ -194,8 +201,9 @@ function parseDelivery(
     case 'superseded':
       if (!isRepresentableMs(d.supersededAt)) return null;
       if (d.reason !== 'activity_progressed') return null;
-      // superseded 只能出现在 activity 重置后的零基线上。
-      if (attempts !== 0 || lastAttemptAt !== 0) return null;
+      // Phase 1989 前：superseded 只能出现在 activity 重置后的零基线上。
+      // Phase 1989 起：纯文本/thinking 前进（无 tool_call）同样 supersede pending 但不清零
+      // attempts——superseded 与非零基线（attempts>0）合法共存。不再限定基线。
       return { ...base, kind: 'superseded', supersededAt: d.supersededAt, reason: 'activity_progressed' };
     default:
       return null;
@@ -210,6 +218,9 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
   if (r.schema_version !== 1) return null;
   if (typeof r.contractId !== 'string' || r.contractId.length === 0) return null;
   if (typeof r.observedActivityAt !== 'number' || !Number.isFinite(r.observedActivityAt)) return null;
+  // Phase 1989：可选行动信号事实；存在时必须是有限非负数。
+  const toolCallAt = typeof r.observedToolCallAt === 'number' ? r.observedToolCallAt : undefined;
+  if (toolCallAt !== undefined && (!Number.isFinite(toolCallAt) || toolCallAt < 0)) return null;
   if (typeof r.attempts !== 'number' || !Number.isInteger(r.attempts) || r.attempts < 0) return null;
   if (typeof r.lastAttemptAt !== 'number' || !Number.isFinite(r.lastAttemptAt)) return null;
   const delivery = parseDelivery(r.delivery, r.attempts, r.lastAttemptAt);
@@ -218,6 +229,7 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
     schema_version: 1,
     contractId: r.contractId,
     observedActivityAt: r.observedActivityAt,
+    ...(toolCallAt !== undefined ? { observedToolCallAt: toolCallAt } : {}),
     attempts: r.attempts,
     lastAttemptAt: r.lastAttemptAt,
     ...(delivery ? { delivery } : {}),
@@ -391,6 +403,38 @@ export async function readStreamExecutionActivityMs(
   }
 }
 
+/**
+ * Phase 1989：读 stream.jsonl 中最近一次 tool_call 的 ts（行动信号唯一事实）。
+ * 只匹配 event.type === 'tool_call'——thinking/text/send_content/turn_interrupted
+ * 均不算行动。错误处理与 readStreamExecutionActivityMs 同（readAll/audit 同构）。
+ */
+export async function readStreamToolCallActivityMs(
+  clawFs: FileSystem,
+  audit: AuditLog,
+): Promise<number | null> {
+  try {
+    const events = await readAll(clawFs, STREAM_FILE, audit);
+    let lastEventMs: number | null = null;
+    for (const event of events) {
+      const ts = typeof event.ts === 'number' ? event.ts : null;
+      if (!ts) continue;
+      if (event.type === 'tool_call' && (lastEventMs === null || ts > lastEventMs)) {
+        lastEventMs = ts;
+      }
+    }
+    return lastEventMs;
+  } catch (err) {
+    if (!isFileNotFound(err)) {
+      audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=readStreamToolCallActivity`,
+        `reason=${formatErr(err)}`,
+      );
+    }
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Controller — observe(snapshot) 每 tick 由 EventLoop 调用
 // ---------------------------------------------------------------------------
@@ -402,6 +446,8 @@ export async function readStreamExecutionActivityMs(
 export interface ExecutionActivitySnapshot {
   activeContractId?: string;
   lastActivityAt: number;
+  /** Phase 1989：最近一次 tool_call 的 ts；无则 0。只有它前进才清零 attempts。 */
+  lastToolCallAt: number;
   turnInFlight: boolean;
   retryInFlight: boolean;
   asyncTaskInFlight: boolean;
@@ -500,53 +546,77 @@ export function createExecutionRecoveryController(
 
       let record = store.load(contractId);
 
-      // activity 前进 → 本 epoch 已恢复：先持久化零计数记录（保留「已建立本地状态」
-      // 事实，重启后按本地记录继续），再判断活动是否超时，
-      // 不留「内存已重置、磁盘旧值」窗口。
-      // Phase 1842: 旧 pending 义务同次转 superseded（停止后续补投，保留冻结身份
-      // 与正文证据；不召回已写消息，也不宣称旧消息从未投递）；旧 confirmed /
-      // superseded 保持原证据。save 失败终止本次，不能继续交付。superseded 与
-      // 后续新 pending 之间可崩溃；重启按保存状态继续。
-      if (record && snapshot.lastActivityAt > record.observedActivityAt) {
+      // activity 前进 → 本 epoch 有动静：先持久化前进事实，再判断活动是否超时，
+      // 不留「内存已更新、磁盘旧值」窗口。
+      // Phase 1989：拆分两个事实——任意 activity（含纯文本/thinking）只更新
+      // inactivity 超时基线 observedActivityAt；只有 tool_call 前进才清零 attempts
+      // （行动信号，用户方案 B：任意工具调用含 exec health check 都算行动）。
+      // Phase 1842: 旧 pending 义务在任一前进下同次转 superseded（停止后续补投，
+      // 保留冻结身份与正文证据；不召回已写消息，也不宣称旧消息从未投递）；
+      // 旧 confirmed / superseded 保持原证据。save 失败终止本次，不能继续交付。
+      // superseded 与后续新 pending 之间可崩溃；重启按保存状态继续。
+      if (record) {
         const previous = record;
-        const pendingDelivery = previous.delivery?.kind === 'pending' ? previous.delivery : undefined;
-        record = {
-          ...record,
-          observedActivityAt: snapshot.lastActivityAt,
-          attempts: 0,
-          lastAttemptAt: 0,
-          ...(pendingDelivery
-            ? {
-                delivery: {
-                  ...pendingDelivery,
-                  kind: 'superseded' as const,
-                  supersededAt: now(),
-                  reason: 'activity_progressed' as const,
-                },
-              }
-            : {}),
-        };
-        // Phase 1869 (Step F): write-ahead —— 事件先于状态覆盖写，载荷自含
-        // previous/next 全量记录（崩溃窗口方向 = 「审计有、状态未前移」，重启以
-        // 状态为准、下 tick 重推同变迁收敛）。
-        audit.write(
-          EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
-          `contract=${contractId}`,
-          `reason=activity_progressed`,
-          `previous_record=${JSON.stringify(previous)}`,
-          `next_record=${JSON.stringify(record)}`,
-        );
-        // Phase 1869 (Step F): supersede 是交付级独立变迁——独立事件承载
-        // （此前仅内嵌于 reset 载荷的 previous_record，交付链不可独立重建）。
-        if (pendingDelivery) {
-          audit.write(
-            EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_SUPERSEDED,
-            `contract=${contractId}`,
-            `delivery_id=${pendingDelivery.id}`,
-            `reason=activity_progressed`,
-          );
+        const observedToolCallAt = record.observedToolCallAt ?? 0;
+        const toolCallAdvanced = snapshot.lastToolCallAt > observedToolCallAt;
+        const activityAdvanced = snapshot.lastActivityAt > record.observedActivityAt;
+        if (toolCallAdvanced || activityAdvanced) {
+          const pendingDelivery = previous.delivery?.kind === 'pending' ? previous.delivery : undefined;
+          record = {
+            ...record,
+            ...(activityAdvanced ? { observedActivityAt: snapshot.lastActivityAt } : {}),
+            ...(toolCallAdvanced
+              ? {
+                  observedToolCallAt: snapshot.lastToolCallAt,
+                  attempts: 0,
+                  lastAttemptAt: 0,
+                }
+              : {}),
+            ...(pendingDelivery
+              ? {
+                  delivery: {
+                    ...pendingDelivery,
+                    kind: 'superseded' as const,
+                    supersededAt: now(),
+                    reason: 'activity_progressed' as const,
+                  },
+                }
+              : {}),
+          };
+          if (toolCallAdvanced) {
+            // Phase 1869 (Step F): write-ahead —— 事件先于状态覆盖写，载荷自含
+            // previous/next 全量记录（崩溃窗口方向 = 「审计有、状态未前移」，重启以
+            // 状态为准、下 tick 重推同变迁收敛）。
+            audit.write(
+              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
+              `contract=${contractId}`,
+              `reason=tool_call_progressed`,
+              `previous_record=${JSON.stringify(previous)}`,
+              `next_record=${JSON.stringify(record)}`,
+            );
+          } else {
+            // Phase 1989：不新增事件名——用既有 ITERATION 记录「只有超时基线前进、
+            // attempts 不清零」；纯文本/thinking 不再伪装成恢复证据。
+            audit.write(
+              EVENTLOOP_AUDIT_EVENTS.ITERATION,
+              `context=executionRecoveryActivity`,
+              `contract=${contractId}`,
+              `observed_activity_at=${snapshot.lastActivityAt}`,
+              `attempts=${record.attempts}`,
+            );
+          }
+          // Phase 1869 (Step F): supersede 是交付级独立变迁——独立事件承载
+          // （此前仅内嵌于 reset 载荷的 previous_record，交付链不可独立重建）。
+          if (pendingDelivery) {
+            audit.write(
+              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_SUPERSEDED,
+              `contract=${contractId}`,
+              `delivery_id=${pendingDelivery.id}`,
+              `reason=activity_progressed`,
+            );
+          }
+          store.save(record);
         }
-        store.save(record);
       }
 
       // Phase 1842: 已有 pending 义务 → 直接交付该义务（同一冻结身份/正文），
@@ -565,6 +635,8 @@ export function createExecutionRecoveryController(
         schema_version: 1,
         contractId,
         observedActivityAt: snapshot.lastActivityAt,
+        // Phase 1989：新建 record 同步冻结行动信号基线。
+        observedToolCallAt: snapshot.lastToolCallAt,
         attempts: 0,
         lastAttemptAt: 0,
       };

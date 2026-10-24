@@ -33,7 +33,7 @@ import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
 // Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink 组装（事实源 + Step D narrow sink）
 import { listActiveContracts, getActiveContractTimestamp, makeContractId, readContractTerminalFact } from '../core/contract/index.js';
-import { EventLoop, readStreamExecutionActivityMs } from '../core/event-loop/index.js';
+import { EventLoop, readStreamExecutionActivityMs, readStreamToolCallActivityMs } from '../core/event-loop/index.js';
 import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
 // phase 1873 Step C: 装配期构造 EventLoop 的 inbox 路径推导（daemon 侧迁入）
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
@@ -232,11 +232,13 @@ export async function createRuntimeAssembly(
       // 不授予清理其他记录的权利——未列出的契约不等于终态。
       const activeContractId = active[0]?.contractId;
       const streamMs = await readStreamExecutionActivityMs(systemFs, auditWriter);
+      // Phase 1989：行动信号与超时基线分离——tool_call 时间独立读取注入。
+      const toolCallMs = await readStreamToolCallActivityMs(systemFs, auditWriter);
       const createdMs = getActiveContractTimestamp(systemFs, '.', auditWriter);
       const lastActivityAt = streamMs !== null && createdMs !== null
         ? Math.max(streamMs, createdMs)
         : (streamMs ?? createdMs);
-      return { activeContractId, lastActivityAt };
+      return { activeContractId, lastActivityAt, lastToolCallAt: toolCallMs };
     },
     // phase 1863 (AT-D13)：语义 = 本进程是否有执行句柄（in-process 视图；磁盘 SoT 见 listRunning）。
     // phase 1869 (Step E 核证登记)：queued（磁盘 pending）**显式排除**——它是 dispatcher

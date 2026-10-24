@@ -140,7 +140,7 @@ describe('EventLoop 重复提醒合并 (phase 1869 Step C)', () => {
       audit,
       inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
       ...(opts.withRecoveryDeps
-        ? { executionRecovery: { probeActivity: async () => ({ lastActivityAt: null }) } }
+        ? { executionRecovery: { probeActivity: async () => ({ lastActivityAt: null, lastToolCallAt: null }) } }
         : {}),
     });
 

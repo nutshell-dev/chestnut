@@ -25,6 +25,7 @@ import { randomUUID } from 'crypto';
 import {
   createExecutionRecoveryStore,
   createExecutionRecoveryController,
+  parseExecutionRecoveryRecord,
   type ExecutionRecoveryController,
   type ExecutionRecoveryDeliveryOutcome,
   type ExecutionRecoveryDeliveryRequest,
@@ -154,11 +155,13 @@ describe('execution-recovery controller', () => {
     });
   }
 
-  /** 已超时（lastActivityAt 早于 now - timeoutMs）的停滞 snapshot。 */
+  /** 已超时（lastActivityAt 早于 now - timeoutMs）的停滞 snapshot。
+   *  Phase 1989：lastToolCallAt 缺省 0（无行动信号）——纯 activity 前进不再重置计数。 */
   function stalledSnapshot(overrides?: Partial<ExecutionActivitySnapshot>): ExecutionActivitySnapshot {
     return {
       activeContractId: CONTRACT_ID,
       lastActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+      lastToolCallAt: 0,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -273,7 +276,7 @@ describe('execution-recovery controller', () => {
   });
 
   describe('reset / dedupe / restart', () => {
-    it('activity 前进：保存零计数 record 并 audit reset（保留已建立本地状态与来源证据；恢复消息自身不算 progress 由 probe 语义保证）', async () => {
+    it('tool_call 前进：保存零计数 record 并 audit reset（Phase 1989：行动信号唯一重置源；恢复消息自身不算 progress 由 probe 语义保证）', async () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot());
       expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
@@ -281,12 +284,13 @@ describe('execution-recovery controller', () => {
         e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
       ).length;
 
-      // activity 前进到 now（turn 真的跑了）→ 零计数 record 持久化（不删除）
-      await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW }));
+      // tool_call 前进到 now（任意工具调用，含 exec health check——方案 B）→ 零计数 record 持久化（不删除）
+      await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW, lastToolCallAt: BASE_NOW }));
       const persisted = readRecordFile(CONTRACT_ID);
       expect(persisted).toMatchObject({
         contractId: CONTRACT_ID,
         observedActivityAt: BASE_NOW,
+        observedToolCallAt: BASE_NOW,
         attempts: 0,
         lastAttemptAt: 0,
       });
@@ -295,13 +299,79 @@ describe('execution-recovery controller', () => {
       );
       expect(resetAudits.length).toBe(resetAuditCountBefore + 1);
       const resetAudit = resetAudits[resetAudits.length - 1];
-      expect(resetAudit.some(col => String(col) === 'reason=activity_progressed')).toBe(true);
+      expect(resetAudit.some(col => String(col) === 'reason=tool_call_progressed')).toBe(true);
       // RESET 审计附前记录原文（含重置前 attempts=1）
       const previousCol = resetAudit.find(col => String(col).startsWith('previous_record='));
       expect(previousCol).toBeDefined();
       expect(JSON.parse(String(previousCol).slice('previous_record='.length)).attempts).toBe(1);
       // 活动未超时：reset 后本 tick 不产生新 epoch 提醒
       expect(resumeCalls).toHaveLength(1);
+    });
+
+    it('纯文本/thinking 前进（无 tool_call）：attempts 保持、只更新超时基线；不发 RESET，ITERATION 留证（Phase 1989）', async () => {
+      const { controller } = makeController();
+      await controller.observe(stalledSnapshot());
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+
+      // 纯文本输出推进 lastActivityAt、lastToolCallAt 不动 → attempts 不清零
+      await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW }));
+      const persisted = readRecordFile(CONTRACT_ID)!;
+      expect(persisted.attempts).toBe(1);
+      expect(persisted.lastAttemptAt).toBe(BASE_NOW);
+      expect(persisted.observedActivityAt).toBe(BASE_NOW);
+      expect(persisted.observedToolCallAt).toBe(0);
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(false);
+      const activityAudit = audit.entries.find(e =>
+        e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
+        e.some(col => String(col) === 'context=executionRecoveryActivity'));
+      expect(activityAudit).toBeDefined();
+      expect(activityAudit!.some(col => String(col) === 'attempts=1')).toBe(true);
+      // 活动未超时：本 tick 不产生新提醒
+      expect(resumeCalls).toHaveLength(1);
+    });
+
+    it('exec health check 也算行动（方案 B 显式覆盖）：tool_call 前进清零计数，后续到期从第 1 次重新开始', async () => {
+      const { controller } = makeController();
+      await controller.observe(stalledSnapshot());
+      currentNow += TIMEOUT_MS;
+      await controller.observe(stalledSnapshot());
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(2);
+
+      // agent 跑了一次 exec（health check）→ tool_call 前进 → attempts 清零
+      const toolCallAt = currentNow;
+      await controller.observe(stalledSnapshot({ lastActivityAt: toolCallAt, lastToolCallAt: toolCallAt }));
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(0);
+
+      // 再次停滞到期 → 从第 1 次重新开始
+      currentNow += TIMEOUT_MS;
+      await controller.observe(stalledSnapshot({ lastActivityAt: toolCallAt, lastToolCallAt: toolCallAt }));
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+    });
+
+    it('旧 record（无 observedToolCallAt、attempts=3）兼容：无 tool_call 时继续计数；tool_call 前进时清零（Phase 1989）', async () => {
+      const { store } = makeController();
+      const lastActivityAt = BASE_NOW - TIMEOUT_MS - 1;
+      store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: lastActivityAt,
+        attempts: 3,
+        lastAttemptAt: BASE_NOW - TIMEOUT_MS,
+      });
+      const controller = reopenController(makeStore());
+      // 旧记录缺省视为 0：无 tool_call（lastToolCallAt=0 不前进）→ 到期继续计数 attempt=4
+      await controller.observe(stalledSnapshot({ lastActivityAt }));
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(4);
+
+      // tool_call 前进（> 缺省 0）→ 清零并持久化行动信号事实
+      await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW, lastToolCallAt: BASE_NOW }));
+      const persisted = readRecordFile(CONTRACT_ID)!;
+      expect(persisted.attempts).toBe(0);
+      expect(persisted.observedToolCallAt).toBe(BASE_NOW);
+      const resetAudit = audit.entries.filter(
+        e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
+      ).at(-1);
+      expect(resetAudit!.some(col => String(col) === 'reason=tool_call_progressed')).toBe(true);
     });
 
     it('相同窗口重入幂等：同 tick 重复 observe 只 +1 attempt、只 enqueue 一次', async () => {
@@ -846,7 +916,7 @@ describe('execution-recovery controller', () => {
       expect(resumeCalls).toHaveLength(1);
     });
 
-    it('activity 推进 reset 写保持：旧 pending 转 superseded 后新 epoch 到期仍被未来 at 抑制', async () => {
+    it('tool_call 推进 reset 写保持：旧 pending 转 superseded 后新 epoch 到期仍被未来 at 抑制（Phase 1989：reset 唯一触发 = 行动信号）', async () => {
       const { store, controller } = makeController();
       const oldScheduledAt = BASE_NOW - 20 * TIMEOUT_MS;
       store.save({
@@ -863,10 +933,10 @@ describe('execution-recovery controller', () => {
           body: 'stale body',
         },
       });
-      // activity 前进（> observedActivityAt）但新 activity 本身仍超时
+      // tool_call 前进（> observedToolCallAt 缺省 0）但新 activity 本身仍超时
       const progressedAt = BASE_NOW - TIMEOUT_MS - 1;
       nextSchedule = futureAt();
-      await controller.observe(stalledSnapshot({ lastActivityAt: progressedAt }));
+      await controller.observe(stalledSnapshot({ lastActivityAt: progressedAt, lastToolCallAt: progressedAt }));
       // reset 必要写保持：attempts 归零、旧义务转 superseded（不吞既有证据）
       expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(true);
       const record = readRecordFile(CONTRACT_ID)!;
@@ -1017,6 +1087,51 @@ describe('execution-recovery controller', () => {
       };
       store.save(superseded);
       expect(store.load(CONTRACT_ID)).toEqual(superseded);
+
+      // Phase 1989：纯文本前进 supersede pending 但不清零——superseded 在非零基线合法
+      const supersededNonZeroBaseline: ExecutionRecoveryRecord = {
+        ...base,
+        attempts: 2,
+        lastAttemptAt: 456,
+        delivery: superseded.delivery,
+      };
+      store.save(supersededNonZeroBaseline);
+      expect(store.load(CONTRACT_ID)).toEqual(supersededNonZeroBaseline);
+    });
+
+    it('observedToolCallAt roundtrip 与校验：有限非负数合法；NaN/负数/Infinity → schema invalid（Phase 1989）', () => {
+      const { store } = makeController();
+      const withToolCall: ExecutionRecoveryRecord = {
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: 100,
+        observedToolCallAt: 99,
+        attempts: 2,
+        lastAttemptAt: 456,
+      };
+      store.save(withToolCall);
+      expect(store.load(CONTRACT_ID)).toEqual(withToolCall);
+      // 旧记录（无字段）原样 roundtrip——不补齐、不伪造
+      const legacy: ExecutionRecoveryRecord = {
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: 100,
+        attempts: 2,
+        lastAttemptAt: 456,
+      };
+      store.save(legacy);
+      expect(store.load(CONTRACT_ID)).toEqual(legacy);
+
+      // 负数经 JSON 落盘仍是数字 → load 拒绝；NaN/Infinity 经 JSON 折 null（无法落盘），
+      // 直接走 parse 层校验
+      fs.mkdirSync(path.join(agentDir, EXECUTION_RECOVERY_DIR), { recursive: true });
+      const negativeRaw = JSON.stringify({ ...legacy, observedToolCallAt: -1 });
+      fs.writeFileSync(recordFilePath(CONTRACT_ID), negativeRaw);
+      expect(() => store.load(CONTRACT_ID)).toThrow(/schema invalid/);
+      expect(fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe(negativeRaw);
+      for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -0.5]) {
+        expect(parseExecutionRecoveryRecord({ ...legacy, observedToolCallAt: bad })).toBeNull();
+      }
     });
 
     it('坏本地 delivery：显式 null / 未知 kind / 坏 id / 非正 attempt / 空 body / 与顶部计数不一致 → load 审计后抛出，原字节不变，不重置不继承', () => {
@@ -1041,10 +1156,10 @@ describe('execution-recovery controller', () => {
         // pending 与顶部计数不一致（attempt / scheduledAt 必须等于 record.attempts / lastAttemptAt）
         { ...validPending, attempt: 3 },
         { ...validPending, scheduledAt: 457 },
-        // confirmed 缺 confirmedAt / superseded 缺 reason 精确值 / superseded 在零基线以外
+        // confirmed 缺 confirmedAt / superseded 缺 reason 精确值
+        // （Phase 1989：superseded 在非零基线合法——纯文本前进 supersede 但不清零，移出坏名单）
         { kind: 'confirmed', id: 'execution_recovery-abc', attempt: 2, scheduledAt: 456, body: 'b' },
         { kind: 'superseded', id: 'execution_recovery-abc', attempt: 2, scheduledAt: 456, body: 'b', supersededAt: 999, reason: 'other' },
-        { kind: 'superseded', id: 'execution_recovery-abc', attempt: 2, scheduledAt: 456, body: 'b', supersededAt: 999, reason: 'activity_progressed' },
       ];
       fs.mkdirSync(path.join(agentDir, EXECUTION_RECOVERY_DIR), { recursive: true });
       for (const delivery of badDeliveries) {

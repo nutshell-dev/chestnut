@@ -154,10 +154,12 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     });
   }
 
-  function stalled(contractId: string, lastActivityAt: number): ExecutionActivitySnapshot {
+  // Phase 1989：lastToolCallAt 缺省 0（无行动信号）；需要 reset 语义的用例显式传 toolCallAt。
+  function stalled(contractId: string, lastActivityAt: number, lastToolCallAt = 0): ExecutionActivitySnapshot {
     return {
       activeContractId: contractId,
       lastActivityAt,
+      lastToolCallAt,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -632,13 +634,13 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     vi.spyOn(h.agentFs, 'writeAtomicSync').mockImplementation(() => {
       throw Object.assign(new Error('EIO reset'), { code: 'EIO' });
     });
-    await expect(h.controller.observe(stalled(CONTRACT_ID, BASE_NOW))).rejects.toThrow('EIO reset');
+    await expect(h.controller.observe(stalled(CONTRACT_ID, BASE_NOW, BASE_NOW))).rejects.toThrow('EIO reset');
     expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(bytesBefore);
     expect(h.requests).toHaveLength(1);
     vi.restoreAllMocks();
 
     // reset 成功：superseded 落盘，保留旧 identity/body 证据；当次不交付旧义务
-    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW));
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW, BASE_NOW));
     const superseded = readRecord(h, CONTRACT_ID)!;
     expect(superseded).toMatchObject({ attempts: 0, lastAttemptAt: 0, observedActivityAt: BASE_NOW });
     expect(superseded.delivery).toMatchObject({
@@ -684,6 +686,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     await h.controller.observe({
       activeContractId: undefined,
       lastActivityAt: 0,
+      lastToolCallAt: 0,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -1049,8 +1052,9 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       });
       await writeReminder(h, { id: 'old-reminder', contractId: CONTRACT_ID });
 
-      // activity 前进：先持久化零计数 reset（合法写，不被「抑制不写状态」阻断）
-      await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW));
+      // tool_call 前进：先持久化零计数 reset（合法写，不被「抑制不写状态」阻断）
+      // （Phase 1989：reset 唯一触发 = 行动信号；activity 同行前进保持超时基线语义）
+      await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW, BASE_NOW));
       const reset = readRecord(h, CONTRACT_ID)!;
       expect(reset).toMatchObject({ attempts: 0, lastAttemptAt: 0, observedActivityAt: BASE_NOW });
       expect(h.audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(true);

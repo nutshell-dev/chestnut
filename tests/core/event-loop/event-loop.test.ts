@@ -1433,7 +1433,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     runtime: Runtime,
     audit: AuditLog,
     recovery: {
-      probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>;
+      probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null; lastToolCallAt: number | null }>;
       isAsyncTaskInFlight?: () => Promise<boolean>;
     },
   ): EventLoop {
@@ -1471,6 +1471,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        lastToolCallAt: null,
       }),
     });
 
@@ -1498,6 +1499,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        lastToolCallAt: null,
       }),
       isAsyncTaskInFlight: async () => true,
     });
@@ -1544,7 +1546,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       clawId: string,
       pendingDir: string,
       audit: AuditLog,
-      probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>,
+      probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null; lastToolCallAt: number | null }>,
     ): EventLoop => new EventLoop({
       runtime: makeIdleRuntime(),
       fsFactory,
@@ -1562,7 +1564,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
     const motionAudit = createMockAudit();
     const workerAudit = createMockAudit();
-    const stalledProbe = async () => ({ activeContractId: CONTRACT_ID, lastActivityAt });
+    const stalledProbe = async () => ({ activeContractId: CONTRACT_ID, lastActivityAt, lastToolCallAt: null });
 
     // 两个 claw 相同 contract ID，各自 run：各自 inbox 一条高优 resume、各自本地 record=1
     await makeLoopAt(motionDir, 'motion', motionPending, motionAudit, stalledProbe).run();
@@ -1598,7 +1600,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     // worker 无 active：不读写；motion 记录原字节不变
     const motionBytes = require('fs').readFileSync(localRecordAt(motionDir), 'utf8');
     const workerBytes = require('fs').readFileSync(localRecordAt(workerDir), 'utf8');
-    const idleProbe = async () => ({ activeContractId: undefined, lastActivityAt: FIXED_NOW });
+    const idleProbe = async () => ({ activeContractId: undefined, lastActivityAt: FIXED_NOW, lastToolCallAt: null });
     await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, idleProbe).run();
     expect(require('fs').readFileSync(localRecordAt(motionDir), 'utf8')).toBe(motionBytes);
     expect(require('fs').readFileSync(localRecordAt(workerDir), 'utf8')).toBe(workerBytes);
@@ -1621,7 +1623,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       audit,
       inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
       executionRecovery: {
-        probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt: fixedActivity }),
+        probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt: fixedActivity, lastToolCallAt: null }),
         timeoutMs: RECOVERY_TIMEOUT_MS,
       },
     });
@@ -1666,6 +1668,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        lastToolCallAt: null,
       }),
     });
 
@@ -1709,6 +1712,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
         probeActivity: async () => ({
           activeContractId: CONTRACT_ID,
           lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        lastToolCallAt: null,
         }),
         timeoutMs: RECOVERY_TIMEOUT_MS,
       },
@@ -1754,6 +1758,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
         probeActivity: async () => ({
           activeContractId: CONTRACT_ID,
           lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        lastToolCallAt: null,
         }),
         timeoutMs: RECOVERY_TIMEOUT_MS,
       },

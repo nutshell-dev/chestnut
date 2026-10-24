@@ -147,7 +147,13 @@ export interface EventLoopExecutionRecoveryDeps {
    * Phase 1841: probe 只给出当前选中的一个契约 ID（底层列表异常还可能折空）；
    * 未给出的 ID 不构成终态事实，不授权对其记录做任何清理。
    */
-  probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>;
+  // Phase 1989：lastToolCallAt 为行动信号事实（最近一次 tool_call 的 ts；无则 null，
+  // EventLoop 侧 ?? 0）；与 lastActivityAt（超时基线）分离。
+  probeActivity: () => Promise<{
+    activeContractId?: string;
+    lastActivityAt: number | null;
+    lastToolCallAt: number | null;
+  }>;
   /** AsyncTaskSystem 在途 probe（async task 在途不得判 stall）。 */
   isAsyncTaskInFlight?: () => Promise<boolean>;
   /** 停滞判定超时（默认 EXECUTION_INACTIVITY_TIMEOUT_MS）。 */

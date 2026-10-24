@@ -110,10 +110,12 @@ describe('execution-recovery ownership (phase 1841)', () => {
     });
   }
 
-  function stalled(contractId: string, lastActivityAt: number): ExecutionActivitySnapshot {
+  // Phase 1989：lastToolCallAt 缺省 0（无行动信号）；需要 reset 语义的用例显式传第三参。
+  function stalled(contractId: string, lastActivityAt: number, lastToolCallAt = 0): ExecutionActivitySnapshot {
     return {
       activeContractId: contractId,
       lastActivityAt,
+      lastToolCallAt,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -122,6 +124,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
 
   const IDLE: ExecutionActivitySnapshot = {
     lastActivityAt: 0,
+    lastToolCallAt: 0,
     turnInFlight: false,
     retryInFlight: false,
     asyncTaskInFlight: false,
@@ -193,9 +196,10 @@ describe('execution-recovery ownership (phase 1841)', () => {
     // 不存在新 root 共享记录
     expect(fs.existsSync(path.join(rootDir, EXECUTION_RECOVERY_DIR))).toBe(false);
 
-    // worker activity 前进（未超时）→ 零计数；motion 字节不变
+    // worker tool_call 前进（未超时）→ 零计数；motion 字节不变
+    // （Phase 1989：纯 activity 前进不再清零；reset 唯一触发 = 行动信号）
     const motionBytes = fs.readFileSync(localRecordPath(motion.agentDir, contractId), 'utf8');
-    await worker.controller.observe(stalled(contractId, BASE_NOW));
+    await worker.controller.observe(stalled(contractId, BASE_NOW, BASE_NOW));
     expect(readLocal(worker.agentDir, contractId)).toMatchObject({
       observedActivityAt: BASE_NOW,
       attempts: 0,

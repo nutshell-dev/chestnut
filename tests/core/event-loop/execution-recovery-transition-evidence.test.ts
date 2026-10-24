@@ -115,6 +115,8 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
     return {
       activeContractId: CONTRACT_ID,
       lastActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+      // Phase 1989：reset 语义的用例显式覆盖 lastToolCallAt（行动信号唯一重置源）。
+      lastToolCallAt: 0,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -142,14 +144,15 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
     await controller.observe(stalledSnapshot());
     const beforeBytes = fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8');
 
-    // activity 前进 → reset 分支：审计先行、save 抛错 → observe rejects
-    await expect(controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW })))
+    // tool_call 前进 → reset 分支：审计先行、save 抛错 → observe rejects
+    // （Phase 1989：RESET 唯一触发 = 行动信号；reason 改 tool_call_progressed）
+    await expect(controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW, lastToolCallAt: BASE_NOW })))
       .rejects.toThrow('EIO save');
 
     const resetRows = rows(EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET);
     expect(resetRows).toHaveLength(1);
     const reset = resetRows[0];
-    expect(colOf(reset, 'reason')).toBe('activity_progressed');
+    expect(colOf(reset, 'reason')).toBe('tool_call_progressed');
     expect(JSON.parse(colOf(reset, 'previous_record')!).attempts).toBe(1);
     const intended = JSON.parse(colOf(reset, 'next_record')!);
     expect(intended).toMatchObject({ observedActivityAt: BASE_NOW, attempts: 0, lastAttemptAt: 0 });
@@ -159,7 +162,7 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
     // 重启（健康 store）重推同变迁 → 收敛：磁盘 = 意图态；两行 next_record 一致
     const healthy = makeStore();
     const controller2 = reopenController(healthy);
-    await controller2.observe(stalledSnapshot({ lastActivityAt: BASE_NOW }));
+    await controller2.observe(stalledSnapshot({ lastActivityAt: BASE_NOW, lastToolCallAt: BASE_NOW }));
     expect(readRecordFile(CONTRACT_ID)).toMatchObject({ observedActivityAt: BASE_NOW, attempts: 0, lastAttemptAt: 0 });
     const resetRows2 = rows(EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET);
     expect(resetRows2).toHaveLength(2);
@@ -175,7 +178,7 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
     expect(deliveryId).toBeDefined();
     expect(readRecordFile(CONTRACT_ID)?.delivery?.kind).toBe('pending');
 
-    await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW }));
+    await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW, lastToolCallAt: BASE_NOW }));
     const supersededRows = rows(EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_SUPERSEDED);
     expect(supersededRows).toHaveLength(1);
     expect(colOf(supersededRows[0], 'contract')).toBe(CONTRACT_ID);
@@ -187,7 +190,7 @@ describe('phase 1869 Step F: 变迁证据链（write-ahead）', () => {
 
     // 再前进一次（此时无 pending delivery）→ 不再发 superseded 行
     const countBefore = rows(EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_SUPERSEDED).length;
-    await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW + TIMEOUT_MS }));
+    await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW + TIMEOUT_MS, lastToolCallAt: BASE_NOW + TIMEOUT_MS }));
     expect(rows(EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_SUPERSEDED)).toHaveLength(countBefore);
   });
 

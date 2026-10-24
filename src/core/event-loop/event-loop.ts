@@ -920,6 +920,7 @@ export class EventLoop {
       await this.executionRecovery.observe({
         activeContractId: probe.activeContractId,
         lastActivityAt: probe.lastActivityAt ?? 0,
+        lastToolCallAt: probe.lastToolCallAt ?? 0,
         turnInFlight: this.turnInFlight,
         // Phase 1826: owner 准入在途 = 恢复/重试在途（EventLoop 不再自持等待状态）。
         retryInFlight: this.activeAttemptId !== undefined,

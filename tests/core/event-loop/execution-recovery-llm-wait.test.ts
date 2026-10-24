@@ -272,6 +272,8 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: f.activityAt,
+        // Phase 1989：本族用例不演行动信号——probe 显式 null（无 tool_call 事实）。
+        lastToolCallAt: null,
       }),
       timeoutMs: RECOVERY_TIMEOUT_MS,
     },
