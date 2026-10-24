@@ -5,6 +5,8 @@ export { MOTION_CLAW_ID } from './motion-claw-id.js';
 // phase 1864 Step C（CT-D2）：notify 发送归 Messaging；本模块只出目标位置 resolver。
 export { makeClawNotifyTargetResolver } from './notify-target.js';
 export { resolveClawDaemonDir } from './daemon-dir.js';
+export { resolveClawLocation } from './location.js';
+export type { ClawLocation } from './location.js';
 // phase 765: notify_claw tool (moved from L2c Messaging)
 export { createNotifyClawTool } from './tools/notify-claw.js';
 export type {

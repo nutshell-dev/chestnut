@@ -16,8 +16,7 @@
 
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { type DaemonDir, makeDaemonDirFromLocation } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from './motion-claw-id.js';
-import { getNamedSubrootDir, getClawDir } from '../../foundation/claw-identity/index.js';
+import { resolveClawLocation } from './location.js';
 
 /**
  * Resolve daemonDir for one clawId.
@@ -32,6 +31,5 @@ import { getNamedSubrootDir, getClawDir } from '../../foundation/claw-identity/i
  * 构造；本函数只解析位置。
  */
 export function resolveClawDaemonDir(clawId: ClawId): DaemonDir {
-  const clawDir = clawId === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(clawId);
-  return makeDaemonDirFromLocation({ kind: 'local', clawDir });
+  return makeDaemonDirFromLocation({ kind: 'local', clawDir: resolveClawLocation(clawId).clawDir });
 }

@@ -31,6 +31,9 @@ const SCOPE_DIRS = [
 // 是 owner、本就需含 makeClawId('motion') 字面、文件级 allowlist 豁免。
 const FILE_LEVEL_ALLOWLIST = [
   'src/core/claw-topology/motion-claw-id.ts',
+  // phase 1986 Step B: claw 位置解析唯一出口，discriminated union 的 'motion'
+  // kind 字面只能定义在此（同 daemon-dir.ts 的 getNamedSubrootDir bucket B 家族）
+  'src/core/claw-topology/location.ts',
 ];
 
 function inScope(filename) {
