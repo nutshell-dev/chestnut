@@ -14,13 +14,15 @@
  * 审计，渲染输出与旧兜底逐字一致；motion 装正式 registerAllMotionGuidance
  * （无匹配不追加），worker 不装 guidance。
  *
- * 覆盖（Step B §6 验收场景）：
+ * 覆盖（Step B §6 验收场景 + phase 1989 Step C）：
  *  1. 真实生成/读回：唯一消息、完整新正文 literal、envelope 与 metadata 关联正确；
  *     调度次数证据留在 record/delivery/EXECUTION_RECOVERY_RESUME 审计且一致，
- *     正文不含次数
+ *     第 1 次正文不含次数
  *  2. 最终呈现：motion 与 worker 均为 `[system message] ` + 完整正文，无
  *     unknown_type 审计、无 guidance 追加/异常（timestamp 传 undefined 隔离动态时间）
  *  3. 旧英文历史 body 经当前呈现原样保留（不重写、不追加迁移说明）
+ *  4. phase 1989：连续第 N≥2 次正文携带次数与行动要求（前 N-1 次未观察到任何
+ *     工具调用）；真实链登记 attempt 2/3，冻结 body 逐字命中 literal
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -58,6 +60,16 @@ import { makeAudit } from '../../helpers/audit.js';
 const NEW_BODY =
   '系统在检查时发现契约 1700000000000-abcd 仍活跃，且一段时间未观察到新的执行活动。'
   + '本消息用于唤醒你继续该契约尚未完成的工作。';
+
+/** phase 1989：连续第 2/3 次提醒正文 literal（与模板契约同一字面，不经模板生成）。 */
+const REPEAT_BODY_2 =
+  '系统在检查时发现契约 1700000000000-abcd 仍活跃。'
+  + '这是连续第 2 次提醒（前 1 次提醒后未观察到任何工具调用）。'
+  + '仅输出思考或文本不会推进契约；请立即调用工具执行该契约未完成的工作。';
+const REPEAT_BODY_3 =
+  '系统在检查时发现契约 1700000000000-abcd 仍活跃。'
+  + '这是连续第 3 次提醒（前 2 次提醒后未观察到任何工具调用）。'
+  + '仅输出思考或文本不会推进契约；请立即调用工具执行该契约未完成的工作。';
 
 /** phase 1845 之前落盘的历史提醒正文（旧 literal，呈现原样保留、不重写）。 */
 const LEGACY_BODY =
@@ -190,6 +202,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     await controller.observe({
       activeContractId: CONTRACT_ID,
       lastActivityAt: FIXED_NOW - 10 * TIMEOUT_MS,
+      lastToolCallAt: 0,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -210,7 +223,8 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     expect(msg.from).toBe(CLAW_ID);
     expect(msg.to).toBe('');
     expect(msg.priority).toBe('high');
-    // 正文不含调度次数/恢复措辞（证据信息安置在 record/audit，不进正文）
+    // 第 1 次正文不含调度次数/恢复措辞（证据信息安置在 record/audit，不进正文；
+    // phase 1989：仅第 1 次保持，N≥2 见下方连续提醒用例）
     expect(msg.content).not.toContain('attempt');
     expect(msg.content).not.toContain('已恢复');
     expect(msg.content).not.toMatch(/第?\d+\s*次/);
@@ -241,6 +255,62 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     const unknownTypeEvents = events.filter(e => e[0] === 'runtime_inbox_unknown_type');
     expect(unknownTypeEvents).toHaveLength(0);
     expect(events.some(e => e[0] === 'guidance_composer_failed')).toBe(false);
+  });
+
+  it('phase 1989：连续第 2/3 次提醒真实链——正文带次数与行动要求、冻结 body 逐字命中 literal', async () => {
+    const rootDir = createTrackedTempDirSync('p1989-m01-repeat-');
+    cleanups.push(rootDir);
+    const agentDir = `${rootDir}/claws/${CLAW_ID}`;
+    const pendingDir = `${agentDir}/inbox/pending`;
+    fs.mkdirSync(pendingDir, { recursive: true });
+    const { audit } = makeAudit();
+    const agentFs = new NodeFileSystem({ baseDir: agentDir });
+    const loop = new TestEventLoop({
+      runtime: {} as never,
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      agentDir,
+      clawId: CLAW_ID,
+      audit,
+      inbox: { pendingDir },
+    });
+    const store = createExecutionRecoveryStore({ agentFs, audit });
+    let currentNow = FIXED_NOW;
+    const controller = createExecutionRecoveryController({
+      store,
+      audit,
+      deliverResume: (request) => loop.deliverExecutionResume(request),
+      findPendingResume: (contractId) => loop.findPendingExecutionResume(contractId),
+      inspectLlmRecoverySchedule: async () => undefined,
+      timeoutMs: TIMEOUT_MS,
+      now: () => currentNow,
+    });
+
+    // 三个到期窗口（每窗真实 drain+ack 消费上一提醒，无 tool_call 前进）→ attempt 1/2/3
+    const expectedBodies = [NEW_BODY, REPEAT_BODY_2, REPEAT_BODY_3];
+    const recordPath = `${agentDir}/${EXECUTION_RECOVERY_DIR}/${CONTRACT_ID}.json`;
+    for (let w = 0; w < 3; w++) {
+      if (w > 0) currentNow += TIMEOUT_MS;
+      await controller.observe({
+        activeContractId: CONTRACT_ID,
+        lastActivityAt: FIXED_NOW - 10 * TIMEOUT_MS,
+        lastToolCallAt: 0,
+        turnInFlight: false,
+        retryInFlight: false,
+        asyncTaskInFlight: false,
+      });
+      const reader = createInboxReader(agentFs, audit, 'inbox');
+      const batch = await reader.drainAndDeliver();
+      expect(batch.kind).toBe('complete');
+      if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
+      expect(batch.entries).toHaveLength(1);
+      const msg = batch.entries[0]!.message;
+      // 冻结 body 逐字命中当次 literal；登记后不因后续窗口重写
+      expect(msg.content).toBe(expectedBodies[w]);
+      const record = JSON.parse(fs.readFileSync(recordPath, 'utf8')) as ExecutionRecoveryRecord;
+      expect(record.attempts).toBe(w + 1);
+      expect(record.delivery).toMatchObject({ kind: 'confirmed', attempt: w + 1, body: expectedBodies[w] });
+      await reader.ack(batch.handles[0]!);
+    }
   });
 
   it('旧英文历史 body 经当前 motion/worker 呈现原样保留，不追加指导或迁移说明', async () => {

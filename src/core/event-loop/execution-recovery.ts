@@ -736,7 +736,8 @@ export function createExecutionRecoveryController(
         id: `${DELIVERY_ID_PREFIX}${newUuid()}`,
         attempt: record.attempts + 1,
         scheduledAt: currentMs,
-        body: executionRecoveryMessage(contractId),
+        // Phase 1989：第 N≥2 次正文携带连续次数与行动要求；登记时一次渲染冻结。
+        body: executionRecoveryMessage(contractId, record.attempts + 1),
       };
       const next: ExecutionRecoveryRecord = {
         ...record,
