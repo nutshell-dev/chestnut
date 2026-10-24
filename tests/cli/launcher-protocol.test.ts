@@ -176,14 +176,15 @@ describe('stream launcher.v1 envelope', () => {
     vi.restoreAllMocks();
   });
 
-  it('text_delta 同 trace 累积快照：同 messageId、sequence 连号、其余事件不转发', async () => {
+  it('send_content_delta 同 trace 累积快照：同 messageId、sequence 连号；text_delta（LLM 裸文本）与其余事件不转发', async () => {
     await streamCommand(commandDeps, 'test-claw');
     const emit = streamMocks.onEvent!;
     emit({ ts: 1, type: 'turn_start', sources: [] });
-    emit({ ts: 2, type: 'text_delta', delta: '你', trace_id: 't1' });
+    emit({ ts: 2, type: 'text_delta', delta: '内部思考', trace_id: 't1' });
     emit({ ts: 3, type: 'provider_info', name: 'kimi' });
-    emit({ ts: 4, type: 'text_delta', delta: '好', trace_id: 't1' });
-    emit({ ts: 5, type: 'text_delta', delta: '呀', trace_id: 't1' });
+    emit({ ts: 4, type: 'send_content_delta', delta: '你', trace_id: 'r1' });
+    emit({ ts: 5, type: 'send_content_delta', delta: '好', trace_id: 'r1' });
+    emit({ ts: 6, type: 'send_content_delta', delta: '呀', trace_id: 'r1' });
 
     const envelopes = stdoutEnvelopes();
     expect(envelopes).toHaveLength(3);
@@ -193,9 +194,9 @@ describe('stream launcher.v1 envelope', () => {
       expect(e.kind).toBe('event');
       expect(e.sessionId).toBe(envelopes[0].sessionId);
     }
-    expect(envelopes[0].payload).toEqual({ messageId: 'text-t1', role: 'motion', text: '你' });
-    expect(envelopes[1].payload).toEqual({ messageId: 'text-t1', role: 'motion', text: '你好' });
-    expect(envelopes[2].payload).toEqual({ messageId: 'text-t1', role: 'motion', text: '你好呀' });
+    expect(envelopes[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你' });
+    expect(envelopes[1].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好' });
+    expect(envelopes[2].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好呀' });
   });
 
   it('send_content_delta 映射为 reply- 前缀消息；trace 切换开新消息', async () => {
@@ -240,13 +241,14 @@ describe('stream launcher.v1 envelope', () => {
 // mapper 单元语义
 // ---------------------------------------------------------------------------
 describe('LauncherEventMapper', () => {
-  it('不映射的事件返回 null；空 delta 返回 null；无 trace_id fallback 稳定', () => {
+  it('不映射的事件（含 text_delta 裸文本）返回 null；空 delta 返回 null；无 trace_id fallback 稳定', () => {
     const mapper = new LauncherEventMapper();
     expect(mapper.map({ ts: 1, type: 'provider_info' })).toBeNull();
-    expect(mapper.map({ ts: 2, type: 'text_delta', delta: '' })).toBeNull();
-    const a = mapper.map({ ts: 3, type: 'text_delta', delta: 'x' });
-    const b = mapper.map({ ts: 4, type: 'text_delta', delta: 'y' });
-    expect(a).toEqual({ messageId: 'text-untraced', role: 'motion', text: 'x' });
-    expect(b).toEqual({ messageId: 'text-untraced', role: 'motion', text: 'xy' });
+    expect(mapper.map({ ts: 2, type: 'text_delta', delta: '内部思考' })).toBeNull();
+    expect(mapper.map({ ts: 3, type: 'send_content_delta', delta: '' })).toBeNull();
+    const a = mapper.map({ ts: 4, type: 'send_content_delta', delta: 'x' });
+    const b = mapper.map({ ts: 5, type: 'send_content_delta', delta: 'y' });
+    expect(a).toEqual({ messageId: 'reply-untraced', role: 'motion', text: 'x' });
+    expect(b).toEqual({ messageId: 'reply-untraced', role: 'motion', text: 'xy' });
   });
 });

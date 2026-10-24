@@ -67,47 +67,27 @@ export function launcherErrorEnvelope(
 
 /**
  * 内部 StreamEvent → 对外消息 payload 的稳定映射（不泄漏内部 union）。
- * 只映射用户可见文本流：text_delta（Motion 正文）与 send_content_delta
- * （Motion 经 send 工具给用户的消息）；其余事件不转发（launcher 对无法
- * 解析为消息的 event 也会忽略，但 v1 主动收窄、减少协议面）。
+ * 只映射 send_content_delta（Motion 经 send 工具发给用户的消息流）——
+ * LLM 裸正文 text_delta 属内部思考/组织过程，不对外（phase 1990 实机决策）。
+ * 其余事件不转发（v1 主动收窄、减少协议面）。
  *
  * payload 为累积快照（同 messageId 幂等覆盖，consumer upsert）：
  * 同一 trace 的 delta 累积进同一消息；trace 切换开新消息。
  */
 export class LauncherEventMapper {
-  private textTrace: string | null = null;
-  private textBuf = '';
   private replyTrace: string | null = null;
   private replyBuf = '';
 
   map(event: StreamEvent): { messageId: string; role: 'motion'; text: string } | null {
-    switch (event.type) {
-      case 'text_delta': return this.delta('text', event);
-      case 'send_content_delta': return this.delta('reply', event);
-      default: return null;
-    }
-  }
-
-  private delta(
-    channel: 'text' | 'reply',
-    event: StreamEvent,
-  ): { messageId: string; role: 'motion'; text: string } | null {
+    if (event.type !== 'send_content_delta') return null;
     const deltaText = typeof event.delta === 'string' ? event.delta : null;
     if (deltaText === null || deltaText === '') return null;
     const trace = typeof event.trace_id === 'string' && event.trace_id ? event.trace_id : 'untraced';
-    if (channel === 'text') {
-      if (this.textTrace !== trace) {
-        this.textTrace = trace;
-        this.textBuf = '';
-      }
-      this.textBuf += deltaText;
-      return { messageId: `${channel}-${trace}`, role: 'motion', text: this.textBuf };
-    }
     if (this.replyTrace !== trace) {
       this.replyTrace = trace;
       this.replyBuf = '';
     }
     this.replyBuf += deltaText;
-    return { messageId: `${channel}-${trace}`, role: 'motion', text: this.replyBuf };
+    return { messageId: `reply-${trace}`, role: 'motion', text: this.replyBuf };
   }
 }
