@@ -1,7 +1,7 @@
 import Foundation
 
-/// 本地请求 ID：launcher 生成、chestnut ack 前只用于关联本地 sending 状态；
-/// 不是 chestnut 事实 ID（当前 CLI 不接收 requestId，缺口见 drift CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE）。
+/// 本地请求 ID：launcher 生成；phase 1990 起经 `send --request-id` 传给 chestnut，
+/// ack envelope 原样回带，consumer 校验对应关系。
 public typealias RequestId = String
 
 /// 时间线消息。committed = true 表示已由 chestnut 事实确认（send ack 或 stream event）；
@@ -58,6 +58,25 @@ public enum ChatState: Equatable, Sendable {
             return .sending(draft: draft, requestId: requestId, messages: messages + [message])
         case let .degraded(draft, messages, error):
             return .degraded(draft: draft, messages: messages + [message], error: error)
+        }
+    }
+
+    /// 用同 id 消息的最新快照替换原位（流式增量 upsert）；位置与其他消息不变。
+    public func replacing(_ message: Message) -> ChatState {
+        func replace(_ messages: [Message]) -> [Message] {
+            var next = messages
+            if let index = next.firstIndex(where: { $0.id == message.id }) {
+                next[index] = message
+            }
+            return next
+        }
+        switch self {
+        case let .idle(draft, messages):
+            return .idle(draft: draft, messages: replace(messages))
+        case let .sending(draft, requestId, messages):
+            return .sending(draft: draft, requestId: requestId, messages: replace(messages))
+        case let .degraded(draft, messages, error):
+            return .degraded(draft: draft, messages: replace(messages), error: error)
         }
     }
 }

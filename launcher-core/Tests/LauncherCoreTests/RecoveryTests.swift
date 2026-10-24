@@ -28,11 +28,12 @@ final class RecoveryTests: XCTestCase {
         XCTAssertTrue(ack.accepted)
         XCTAssertEqual(ack.requestId, "r1")
         XCTAssertNil(ack.detail)
-        XCTAssertEqual(process.runArgv, [["send", "hi"]])
+        // phase 1990：submit 把 requestId 经 --request-id 传给 CLI，ack envelope 回带校验
+        XCTAssertEqual(process.runArgv, [["send", "--request-id", "r1", "hi"]])
     }
 
     func testSendAcceptedWithoutAckEnvelopeLocksTheGap() async throws {
-        // 当前 CLI 无 ack envelope：exit 0 = inbox 已收，但缺口必须显式标注、不冒充协议成功
+        // 旧版 CLI 无 ack envelope：exit 0 = inbox 已收，但必须显式标注、不冒充协议成功
         let process = FakeChestnutProcess()
         process.runHandler = { _ in
             .success(ProcessOutput(stdoutLines: ["Delivered to inbox"], stderr: "", exitCode: 0, terminationSignal: nil))
@@ -40,7 +41,7 @@ final class RecoveryTests: XCTestCase {
         let client = ChestnutSendClient(process: process, argvPrefix: ["send"])
         let ack = try await client.submit(requestId: "r1", text: "hi")
         XCTAssertTrue(ack.accepted)
-        XCTAssertEqual(ack.detail, "ack envelope pending (CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)")
+        XCTAssertEqual(ack.detail, "ack envelope missing (pre-1990 CLI)")
     }
 
     func testSendNonZeroExitWithStderrIsRejected() async throws {

@@ -82,7 +82,8 @@ public enum ChatReducer {
 
     /// 事件应用规则：
     /// - 首个事件建立序号基线；之后连号应用、重复忽略、跳号置 resyncPendingFrom（不丢消息与草稿）；
-    /// - 只有 kind=event 且携带消息载荷才追加 Motion 消息（按 messageId 去重）；
+    /// - 只有 kind=event 且携带消息载荷才应用 Motion 消息：新 messageId 追加，同 messageId
+    ///   以最新快照 upsert（phase 1990 流式增量——producer 对同一消息流发累积快照）；
     /// - ack/error/terminal 不追加消息（ack ≠ 回复）；
     /// - 未知 kind 保留 envelope 元数据，以未确认的 system 消息降级展示。
     private static func applyStreamEvent(_ envelope: LauncherEnvelope, to state: inout ChatCoreState) {
@@ -106,8 +107,11 @@ public enum ChatReducer {
         case .event:
             guard let payload = MotionMessagePayload(payload: envelope.payload) else { return }
             let message = Message(id: payload.messageId, role: payload.role, text: payload.text, committed: true)
-            guard !state.chat.messages.contains(where: { $0.id == message.id }) else { return }
-            state.chat = state.chat.appending(message)
+            if state.chat.messages.contains(where: { $0.id == message.id }) {
+                state.chat = state.chat.replacing(message)
+            } else {
+                state.chat = state.chat.appending(message)
+            }
         case .unknown(let raw):
             let note = Message(
                 id: "unknown-\(envelope.sessionId)-\(envelope.sequence)",

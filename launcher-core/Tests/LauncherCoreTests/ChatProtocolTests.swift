@@ -72,6 +72,19 @@ final class ChatProtocolTests: XCTestCase {
         XCTAssertEqual(state.lastSequence, 1)
     }
 
+    /// phase 1990 流式增量：同 messageId 的后续 event 为累积快照，原位 upsert 更新文本，
+    /// 消息数量不增长、其他消息与位置不变。
+    func testSameMessageIdUpsertsLatestSnapshot() {
+        var state = ChatCoreState()
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .event, sequence: 1, payload: motionPayload("user-1", "问"))))
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .event, sequence: 2, payload: motionPayload("reply-t1", "你"))))
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .event, sequence: 3, payload: motionPayload("reply-t1", "你好"))))
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .event, sequence: 4, payload: motionPayload("reply-t1", "你好，世界"))))
+        XCTAssertEqual(state.chat.messages.map(\.id), ["user-1", "reply-t1"])
+        XCTAssertEqual(state.chat.messages[1].text, "你好，世界")
+        XCTAssertEqual(state.lastSequence, 4)
+    }
+
     // MARK: 跳号与 resync
 
     func testGapTriggersResyncAndKeepsMessagesAndDraft() {

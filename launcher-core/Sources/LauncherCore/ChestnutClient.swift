@@ -67,6 +67,7 @@ public enum WireErrorMapper {
         case "daemon_stopped", "daemon_unavailable": return .daemon(detail: detail)
         case "rejected": return .rejected(detail: detail)
         case "protocol_mismatch": return .protocolMismatch(detail: detail)
+        case "local": return .local(detail: detail)
         default: return .transport(detail: "error envelope class '\(classRaw)': \(detail)")
         }
     }
@@ -88,7 +89,8 @@ public struct ChestnutSendClient: SendClient {
     public func submit(requestId: RequestId, text: String) async throws -> SendAck {
         let output: ProcessOutput
         do {
-            output = try await process.run(argvPrefix + [text])
+            // --request-id 由 chestnut ack envelope 原样回带（phase 1990 协议闭环）。
+            output = try await process.run(argvPrefix + ["--request-id", requestId, text])
         } catch let error as ChatError {
             throw error
         } catch {
@@ -128,11 +130,11 @@ public struct ChestnutSendClient: SendClient {
         if let ack = ackEnvelope, let ackRequestId = ack.payload["requestId"]?.stringValue, ackRequestId != requestId {
             return .rejected(.protocolMismatch(detail: "ack requestId mismatch: expected \(requestId), got \(ackRequestId)"))
         }
-        // exit 0 = inbox 已接收（当前 CLI 的真实语义）；ack envelope 缺口登记在案、不伪造
+        // exit 0 = inbox 已接收；phase 1990 起 ack envelope 为协议要求，缺失说明对端是旧版 CLI
         return .accepted(SendAck(
             requestId: requestId,
             accepted: true,
-            detail: ackEnvelope == nil ? "ack envelope pending (CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)" : nil
+            detail: ackEnvelope == nil ? "ack envelope missing (pre-1990 CLI)" : nil
         ))
     }
 }

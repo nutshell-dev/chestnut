@@ -66,6 +66,18 @@ final class WireDecoderTests: XCTestCase {
         }
     }
 
+    /// phase 1990：error envelope class 映射含 local（producer 本地启动失败）。
+    func testWireErrorMapperLocalClass() throws {
+        let envelope = try decoder.decode(line: line(
+            "error",
+            payload: #"{"class":"local","detail":"reader start failed"}"#
+        ))
+        guard case ChatError.local(let detail) = WireErrorMapper.map(envelope) else {
+            return XCTFail("expected .local, got \(WireErrorMapper.map(envelope))")
+        }
+        XCTAssertEqual(detail, "reader start failed")
+    }
+
     func testJSONValueNestedAccess() throws {
         let envelope = try decoder.decode(line: line(
             "event",
