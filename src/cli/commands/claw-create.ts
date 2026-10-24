@@ -2,7 +2,9 @@
  * @module L6.CLI.Claw.Create
  */
 
-import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getClawConfigPath, makeClawId } from '../../foundation/claw-identity/index.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import {
   ClawConfigAlreadyExistsError,
   makeClawCreationIntent,
@@ -21,13 +23,18 @@ export async function createCommand(deps: ClawCreateCommandDeps, name: string, o
   // Load global config (ensures initialized)
   deps.rootConfig.loadGlobal();
 
+  // phase 1986 Step E：保留身份守卫必须先于「已存在」检查与任何目录/claim 写入。
+  if (makeClawId(name) === MOTION_CLAW_ID) {
+    throw new CliError('"motion" is a reserved Chestnut identity and cannot be created as a claw');
+  }
+
   // Friendly pre-check（诊断用 + legacy 已发布 claw 只读拒绝；创建权由下方 claim 裁决）
   const configPath = getClawConfigPath(name);
   if (deps.rootConfig.loadClaw(configPath) !== undefined) {
     throw new CliError(`Claw "${name}" already exists`);
   }
 
-  const clawDir = getClawDir(name);
+  const clawDir = resolveClawTarget(name).clawDir;
   const template = buildAgentsMdTemplate(name);
   const config = {
     name,

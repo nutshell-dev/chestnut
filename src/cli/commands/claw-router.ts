@@ -37,7 +37,6 @@ import {
 import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
-import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { assertPublishedClaw, resolveClawTarget } from './claw-target.js';
 // phase 1324 Step A：RouterDeps 收敛为 Claw 命令族共享 deps 的 type alias
 // （type-only barrel import）；Router 自身不再另行声明窄 RootConfig 形状。
@@ -231,7 +230,7 @@ async function runCreate(deps: RouterDeps, name: string, args: string[]): Promis
   if (args.length > 0) {
     throw new CliError(`'create' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  const audit = actionAuditFor(getClawDir(name), deps);
+  const audit = actionAuditFor(resolveClawTarget(name).clawDir, deps);
   await createCommand(deps, name, { audit });
 }
 
