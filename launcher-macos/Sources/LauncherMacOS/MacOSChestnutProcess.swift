@@ -145,8 +145,17 @@ public final class MacOSChestnutProcess: ChestnutProcess, @unchecked Sendable {
                 let errText = String(decoding: state.errData, as: UTF8.self)
                 state.lock.unlock()
                 if !rest.isEmpty {
-                    // EOF 前无换行的残余行仍然交付
-                    continuation.yield(String(decoding: rest, as: UTF8.self))
+                    // 与 readabilityHandler 同规则按行分割（readabilityHandler 与 termination
+                    // 存在消费竞争：termination 路径读走的残余可能含换行，不能整块当一行交付）；
+                    // 最后无换行的残余仍作为一行交付。
+                    var remainder = rest
+                    while let newline = remainder.firstIndex(of: 0x0A) {
+                        continuation.yield(String(decoding: remainder.subdata(in: remainder.startIndex..<newline), as: UTF8.self))
+                        remainder.removeSubrange(remainder.startIndex...newline)
+                    }
+                    if !remainder.isEmpty {
+                        continuation.yield(String(decoding: remainder, as: UTF8.self))
+                    }
                 }
 
                 lock.lock()

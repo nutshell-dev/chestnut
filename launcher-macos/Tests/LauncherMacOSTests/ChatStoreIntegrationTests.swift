@@ -76,6 +76,26 @@ final class ChatStoreIntegrationTests: XCTestCase {
         XCTAssertEqual(stream.subscriptions, [nil])
     }
 
+    /// phase 1990 Step D：真实闭环语义——同 messageId 的流式快照增量更新最后一条
+    /// Motion 回复，而非新增重复 bubble；消息数量不增长。
+    func testStreamDeltaUpdatesLastMotionMessage() async {
+        let stream = ScriptedStreamClient(scripts: [
+            .init(envelopes: [
+                makeEnvelope(.event, 1, payload: motionPayload("reply-t1", "你")),
+                makeEnvelope(.event, 2, payload: motionPayload("reply-t1", "你好")),
+                makeEnvelope(.event, 3, payload: motionPayload("reply-t1", "你好，世界")),
+            ]),
+        ])
+        let store = makeStore(stream: stream)
+        store.startStream()
+
+        await eventually { store.state.messages.count == 1 && store.state.messages[0].text == "你好，世界" }
+
+        XCTAssertEqual(store.state.messages.map(\.id), ["reply-t1"])
+        XCTAssertEqual(store.state.messages.map(\.text), ["你好，世界"])
+        XCTAssertEqual(store.snapshot.lastSequence, 3)
+    }
+
     func testGapTriggersResyncWithoutLosingMessagesOrDraft() async {
         let stream = ScriptedStreamClient(scripts: [
             .init(envelopes: [
