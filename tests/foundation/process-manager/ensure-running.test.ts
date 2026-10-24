@@ -47,6 +47,12 @@ import {
 } from '../../helpers/generation-fixtures.js';
 import type { DaemonDir } from '../../../src/foundation/process-manager/index.js';
 
+// Phase 1995 Step B：BOOT_DEADLINE_MS 由固定值改 hoisted mutable + getter——
+// join-success 用例（先等 audit 再写 ready）在满负载下 500ms 先到期误报
+// join_timeout；getter 让 src 在调用时读当前值，用例级可按需放宽；
+// 期待 join_timeout 的用例保持 500ms 快速失败。生产常量（30s）不变。
+const timing = vi.hoisted(() => ({ bootDeadlineMs: 500 }));
+
 // Mock constants to eliminate sleep delays
 // Phase 1303：BOOT_DEADLINE_MS 从 30s 缩到 500ms —— fake timers 推进 deadline +
 // 100ms 时 poll 轮数 3100 → 60，消除 join 每轮 4 次真实磁盘读（含 3 次 ENOENT）
@@ -57,7 +63,9 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
     ...actual,
     DAEMON_SHUTDOWN_GRACE_MS: 0,
     SPAWN_POLL_INTERVAL_MS: 10,
-    BOOT_DEADLINE_MS: 500,
+    get BOOT_DEADLINE_MS() {
+      return timing.bootDeadlineMs;
+    },
   };
 });
 
@@ -148,6 +156,7 @@ describe('ensureRunning', () => {
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
     orphanFind.impl = () => [];  // 默认无 orphan
+    timing.bootDeadlineMs = 500; // 默认窄 deadline；join-success 用例按需放宽
   });
 
   afterEach(async () => {
@@ -223,6 +232,8 @@ describe('ensureRunning', () => {
     writeSpawningGenerationSync(daemonDir, { generationId, pid: process.pid });
 
     const ctx = defaultCtx(nodeFs, audit);
+    // Phase 1995 Step B：本用例先等 audit 再写 ready，满负载下 500ms 过紧 → 放宽到 5000ms
+    timing.bootDeadlineMs = 5000;
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-spawning'));
 
     // spawn precheck 已对 foreign spawning 写 commit_lost 审计 → join 已开始轮询
@@ -276,6 +287,8 @@ describe('ensureRunning', () => {
     });
 
     const ctx = defaultCtx(fsProxy as NodeFileSystem, audit);
+    // Phase 1995 Step B：本用例先等 audit 再写 ready，满负载下 500ms 过紧 → 放宽到 5000ms
+    timing.bootDeadlineMs = 5000;
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-commit-lost'));
 
     // commit collision 已重读 winner 并写 commit_lost 审计 → join 已开始轮询
