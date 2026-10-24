@@ -90,23 +90,35 @@ public struct ChatView: View {
     }
 
     /// 回复区：用户消息次级样式、Motion 回复主要文本；stream 增量由 SwiftUI diff
-    /// 只更新最后一条 Motion 消息。高度 = min(内容, 上限)，超限内部滚动。
+    /// 只更新最后一条 Motion 消息。高度 = min(内容, 上限)，超限内部滚动并自动跟随
+    /// 到底部（新消息与流式快照更新都触发）。
     private var responseArea: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 6) {
-                ForEach(messages) { message in
-                    messageRow(message)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(messages) { message in
+                        messageRow(message)
+                            .id(message.id)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ResponseHeightPreferenceKey.self, value: geo.size.height)
+                    }
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: ResponseHeightPreferenceKey.self, value: geo.size.height)
-                }
-            )
+            .frame(height: ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight))
+            .accessibilityIdentifier("responseScrollView")
+            .onChange(of: messages.count) { _ in scrollToBottom(proxy) }
+            .onChange(of: messages.last?.text) { _ in scrollToBottom(proxy) }
         }
-        .frame(height: ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight))
-        .accessibilityIdentifier("responseScrollView")
+    }
+
+    /// 内容超过回复区后自动跟随最新位置；不改变窗口高度与输入框位置。
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        guard let last = messages.last else { return }
+        proxy.scrollTo(last.id, anchor: .bottom)
     }
 
     private func messageRow(_ message: Message) -> some View {
