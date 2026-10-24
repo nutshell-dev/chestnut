@@ -11,8 +11,8 @@
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
-import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { assertPublishedClaw } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -61,13 +61,9 @@ export async function streamCommand(
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
 
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist`);
-  }
+  const target = assertPublishedClaw(deps, name);
 
   const baseDir = getChestnutRoot();
-  const target = resolveClawTarget(name);
   const clawDir = target.clawDir;
   const fs = deps.fsFactory(clawDir);
   // audit reused for stream reader internal failure logging; stream session itself does not emit

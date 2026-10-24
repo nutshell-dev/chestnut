@@ -3,10 +3,9 @@
  * Stop the Claw daemon process
  */
 
-import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop, clearCleanStop } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
+import { assertPublishedClaw } from './claw-target.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -18,13 +17,10 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
   const audit = extraDeps?.audit;
   deps.rootConfig.loadGlobal();
 
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist`);
-  }
+  const target = assertPublishedClaw(deps, name);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-  const daemonDir = resolveClawDaemonDir(makeClawId(name));
+  const daemonDir = resolveClawDaemonDir(target.clawId);
 
   // Check if running
   if (!processManager.isAlive(daemonDir)) {

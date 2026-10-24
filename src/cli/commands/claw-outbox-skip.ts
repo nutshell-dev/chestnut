@@ -9,7 +9,7 @@
  */
 
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { resolveClawTarget } from './claw-target.js';
+import { assertClawDirExists } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -124,14 +124,8 @@ export async function outboxSkipCommand(
   const audit = opts?.audit;
   // Outbox skip is a pure filesystem operation — we don't require config.yaml,
   // same as outboxCommand (orphan claws must be skippable by motion).
-  const clawDir = resolveClawTarget(name).clawDir;
-  const clawFs = deps.fsFactory(clawDir);
-  if (!clawFs.existsSync('.')) {
-    throw new CliError(
-      `Claw directory not found: ${clawDir}. ` +
-      `Expected at {CHESTNUT_ROOT}/.chestnut/claws/<name>/.`
-    );
-  }
+  const target = assertClawDirExists(deps, name);
+  const clawFs = deps.fsFactory(target.clawDir);
 
   const modeCol = options.all === true ? 'all=true' : `limit=${options.limit ?? 1}`;
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_SKIP_START, `claw=${name}`, modeCol);

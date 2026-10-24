@@ -8,12 +8,11 @@
  */
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { assertPublishedClaw } from './claw-target.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
-import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
@@ -33,11 +32,9 @@ export async function clawDaemonCommand(
   extraDeps?: { audit?: AuditLog },
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
-  }
-  const target = resolveClawTarget(name);
+  const target = assertPublishedClaw(deps, name, {
+    notFoundHint: 'Try `chestnut claw list` to see existing claws.',
+  });
   const clawDir = target.clawDir;
   const baseDir = getChestnutRoot();
   const systemAudit = actionAuditFor(baseDir, deps);

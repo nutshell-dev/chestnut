@@ -4,9 +4,8 @@
  */
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
-import { CliError } from '../errors.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { assertPublishedClaw } from './claw-target.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
@@ -20,12 +19,7 @@ import type { ClawCommandDeps } from './claw-command-deps.js';
 export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: { json?: boolean }): Promise<void> {
   deps.rootConfig.loadGlobal();
 
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist`);
-  }
-
-  const target = resolveClawTarget(name);
+  const target = assertPublishedClaw(deps, name);
   const clawDir = target.clawDir;
   const baseDir = getChestnutRoot();
   const clawFs = deps.fsFactory(clawDir);

@@ -4,9 +4,7 @@
 
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
-import { CliError } from '../errors.js';
+import { assertPublishedClaw } from './claw-target.js';
 // phase 1874 Step B: viewport 独立模块入口（CLIProcess 只经 barrel 消费）
 import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -16,12 +14,9 @@ import type { ClawCommandDeps } from './claw-command-deps.js';
 export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<void> {
   const globalConfig = deps.rootConfig.loadGlobal();
 
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
-  }
-
-  const target = resolveClawTarget(name);
+  const target = assertPublishedClaw(deps, name, {
+    notFoundHint: 'Try `chestnut claw list` to see existing claws.',
+  });
   const clawDir = target.clawDir;
   // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
   const systemAudit = createViewportAudit(deps.fsFactory(clawDir), clawDir);

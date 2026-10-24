@@ -17,9 +17,7 @@
  */
 
 import * as path from 'path';
-import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
-import { CliError } from '../errors.js';
+import { assertPublishedClaw } from './claw-target.js';
 // CLAWS_DIR removed: phase 263
 // phase 1879 Step B: ContractSystem 装配归 Assembly 窄 action context（1874 Step F 形态）——
 // CLI 不再直构造 ContractSystem/ToolRegistry/AuditLog；audit 由 context own、动作终态 dispose。
@@ -46,12 +44,9 @@ export async function clawStatusCommand(
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
 
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
-  }
-
-  const target = resolveClawTarget(name);
+  const target = assertPublishedClaw(deps, name, {
+    notFoundHint: 'Try `chestnut claw list` to see existing claws.',
+  });
   const clawDir = target.clawDir;
   const clawFs = deps.fsFactory(clawDir);
 

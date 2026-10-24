@@ -3,9 +3,8 @@
  * Send an inbox message to a Claw
  */
 
-import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
-import { CliError } from '../errors.js';
+import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { assertPublishedClaw } from './claw-target.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';
@@ -26,13 +25,9 @@ export async function sendCommand(
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
   
-  const configPath = getClawConfigPath(name);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${name}" does not exist`);
-  }
+  const target = assertPublishedClaw(deps, name);
 
   const baseDir = getChestnutRoot();
-  const target = resolveClawTarget(name);
   const clawDir = target.clawDir;
   const fileSystem = deps.fsFactory(baseDir);
   const audit = actionAuditFor(clawDir, deps);

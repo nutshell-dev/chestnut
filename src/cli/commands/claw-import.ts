@@ -8,8 +8,7 @@
  */
 
 import * as path from 'path';
-import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
-import { resolveClawTarget } from './claw-target.js';
+import { assertPublishedClaw } from './claw-target.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -120,10 +119,7 @@ export async function importCommand(
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
 
-  const configPath = getClawConfigPath(clawName);
-  if (deps.rootConfig.loadClaw(configPath) === undefined) {
-    throw new CliError(`Claw "${clawName}" does not exist`);
-  }
+  const clawTarget = assertPublishedClaw(deps, clawName);
 
   const srcAbs = path.resolve(source);
   const srcParentDir = path.dirname(srcAbs);
@@ -136,7 +132,7 @@ export async function importCommand(
     throw new CliError(`"${source}" does not exist`);
   }
 
-  const clawDir = resolveClawTarget(clawName).clawDir;
+  const clawDir = clawTarget.clawDir;
   const clawspaceDir = path.join(clawDir, CLAWSPACE_DIR);
   const stats: CopyStats = { files: 0, dirs: 0, bytes: 0 };
 
