@@ -59,14 +59,14 @@ export {
 export { applyCommandOptions } from './command-shape.js';
 export type { CommandShapeSpec, CommandOptionShape, CommandShapeRegistrar } from './command-shape.js';
 
-// phase 1990 Step B：chestnut.launcher.v1 对外协议 envelope（producer 单源）
+// phase 1990 Step B：chestnut.launcher.v1 对外协议 envelope（静态 wire protocol 单源）
+// phase 1994 Step B：运行时 producer（LauncherEventMapper/makeLauncherSessionId）
+// 拆至 src/cli/launcher-envelope-producer.ts，不进协议 barrel。
 export {
   LAUNCHER_PROTOCOL_VERSION,
-  LauncherEventMapper,
   createLauncherSequencer,
   launcherErrorEnvelope,
   makeLauncherEnvelope,
-  makeLauncherSessionId,
   writeLauncherEnvelope,
 } from './launcher-envelope.js';
 export type {

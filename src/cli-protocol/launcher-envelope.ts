@@ -8,10 +8,11 @@
  * stdout 只含协议 JSONL（每行一个 envelope）；人类提示一律 stderr。
  * sequence 为本次订阅/调用会话内严格连号（launcher 首事件建立基线，
  * 跳号判 resync）；序号持久化恢复入口（--from-sequence）属后续 phase。
+ *
+ * 静态 wire protocol（phase 1994 Step B）：本文件零 foundation/crypto import；
+ * 运行时 producer（LauncherEventMapper / makeLauncherSessionId）归 CLIProcess，
+ * 见 src/cli/launcher-envelope-producer.ts。
  */
-
-import { randomUUID } from 'crypto';
-import type { StreamEvent } from '../foundation/stream/index.js';
 
 export const LAUNCHER_PROTOCOL_VERSION = 'chestnut.launcher.v1';
 
@@ -39,10 +40,6 @@ export function createLauncherSequencer(): () => number {
   return () => ++next;
 }
 
-export function makeLauncherSessionId(): string {
-  return randomUUID();
-}
-
 export function makeLauncherEnvelope(
   sequence: number,
   sessionId: string,
@@ -63,31 +60,4 @@ export function launcherErrorEnvelope(
   detail: string,
 ): LauncherEnvelope {
   return makeLauncherEnvelope(sequence, sessionId, 'error', { class: errorClass, detail });
-}
-
-/**
- * 内部 StreamEvent → 对外消息 payload 的稳定映射（不泄漏内部 union）。
- * 只映射 send_content_delta（Motion 经 send 工具发给用户的消息流）——
- * LLM 裸正文 text_delta 属内部思考/组织过程，不对外（phase 1990 实机决策）。
- * 其余事件不转发（v1 主动收窄、减少协议面）。
- *
- * payload 为累积快照（同 messageId 幂等覆盖，consumer upsert）：
- * 同一 trace 的 delta 累积进同一消息；trace 切换开新消息。
- */
-export class LauncherEventMapper {
-  private replyTrace: string | null = null;
-  private replyBuf = '';
-
-  map(event: StreamEvent): { messageId: string; role: 'motion'; text: string } | null {
-    if (event.type !== 'send_content_delta') return null;
-    const deltaText = typeof event.delta === 'string' ? event.delta : null;
-    if (deltaText === null || deltaText === '') return null;
-    const trace = typeof event.trace_id === 'string' && event.trace_id ? event.trace_id : 'untraced';
-    if (this.replyTrace !== trace) {
-      this.replyTrace = trace;
-      this.replyBuf = '';
-    }
-    this.replyBuf += deltaText;
-    return { messageId: `reply-${trace}`, role: 'motion', text: this.replyBuf };
-  }
 }

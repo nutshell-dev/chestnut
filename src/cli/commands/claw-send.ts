@@ -17,9 +17,9 @@ import {
   formatClawStatusHint,
   launcherErrorEnvelope,
   makeLauncherEnvelope,
-  makeLauncherSessionId,
   writeLauncherEnvelope,
 } from '../../cli-protocol/index.js';
+import { makeLauncherSessionId } from '../launcher-envelope-producer.js';
 import type { Priority } from '../../foundation/messaging/index.js';
 import { actionAuditFor } from '../action-scope.js';
 

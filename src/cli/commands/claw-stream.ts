@@ -24,12 +24,11 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import {
   createLauncherSequencer,
-  LauncherEventMapper,
   launcherErrorEnvelope,
   makeLauncherEnvelope,
-  makeLauncherSessionId,
   writeLauncherEnvelope,
 } from '../../cli-protocol/index.js';
+import { LauncherEventMapper, makeLauncherSessionId } from '../launcher-envelope-producer.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';

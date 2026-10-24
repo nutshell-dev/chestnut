@@ -19,7 +19,7 @@ import { sendCommand } from '../../src/cli/commands/claw-send.js';
 import { streamCommand } from '../../src/cli/commands/claw-stream.js';
 import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
-import { LauncherEventMapper } from '../../src/cli-protocol/index.js';
+import { LauncherEventMapper } from '../../src/cli/launcher-envelope-producer.js';
 import type { StreamReader } from '../../src/foundation/stream/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
