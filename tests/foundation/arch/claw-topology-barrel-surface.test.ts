@@ -24,6 +24,8 @@ const VALUE_EXPORTS = [
   'MOTION_CLAW_ID',
   'makeClawNotifyTargetResolver',
   'resolveClawDaemonDir',
+  // phase 1986 Step B：位置解析唯一出口（motion → <root>/motion，普通 claw → <root>/claws/<id>）
+  'resolveClawLocation',
   'createNotifyClawTool',
   'createCrossClawReadTool',
   'createCrossClawLsTool',
@@ -35,6 +37,7 @@ const VALUE_EXPORTS = [
 /** 白名单：类型导出（仅编译期）。 */
 const TYPE_EXPORTS = [
   'ClawTopology',
+  'ClawLocation',
   'ClawEnumerationSnapshot',
   'CrossTargetAccess',
   'OutboxSummaryGuidanceState',

@@ -21,14 +21,14 @@ describe('exec tool env injection', () => {
     }
   });
 
-  async function makeCtx(subagentTaskId?: string) {
+  async function makeCtx(subagentTaskId?: string, clawId = 'test-claw') {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const dir = path.join(os.tmpdir(), `exec-env-test-${randomUUID()}`);
     lastDir = dir;
     const fs = new NodeFileSystem({ baseDir: dir });
     await fs.ensureDir('.');
     const ctx = new ExecContextImpl({
-      clawId: 'test-claw',
+      clawId,
       clawDir: dir,
       profile: 'full',
       callerType: 'spawn_subagent',
@@ -55,5 +55,28 @@ describe('exec tool env injection', () => {
     const result = await tool.execute({ command: 'echo "$CHESTNUT_SUBAGENT_TASK_ID"' }, ctx);
     expect(result.success).toBe(true);
     expect((result.content as string).trim()).toBe('');
+  });
+
+  // phase 1986 Step G：每次 exec 注入调用者 agent 身份
+  it('主代理 exec（无 subagentTaskId）→ CHESTNUT_CALLER_AGENT_ID = clawId', async () => {
+    const { ctx } = await makeCtx();
+    const tool = createExecTool();
+    const result = await tool.execute({ command: 'echo "$CHESTNUT_CALLER_AGENT_ID"' }, ctx);
+    expect(result.success).toBe(true);
+    expect((result.content as string).trim()).toBe('test-claw');
+    // 既有 subagent env 行为保留：未设时不注入
+    const sub = await tool.execute({ command: 'echo "$CHESTNUT_SUBAGENT_TASK_ID"' }, ctx);
+    expect((sub.content as string).trim()).toBe('');
+  });
+
+  it('子代理 exec → caller env 与 subagent task env 并存（同为 task id）', async () => {
+    const { ctx } = await makeCtx('spawn-abc', 'spawn-abc');
+    const tool = createExecTool();
+    const result = await tool.execute(
+      { command: 'echo "$CHESTNUT_CALLER_AGENT_ID/$CHESTNUT_SUBAGENT_TASK_ID"' },
+      ctx,
+    );
+    expect(result.success).toBe(true);
+    expect((result.content as string).trim()).toBe('spawn-abc/spawn-abc');
   });
 });
