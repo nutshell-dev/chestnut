@@ -62,6 +62,8 @@ const VI_MOCK_FILES = [
   'tests/cli/daemon-loop.test.ts',
   'tests/cli/init-concurrent.test.ts',  // phase 1911 Step I: vi.mock readline + llm-connection-check
   'tests/cli/init-envvar.test.ts',
+  // phase 1994: launcher protocol envelope producer 测试（vi.mock config/process-manager/stream 等）
+  'tests/cli/launcher-protocol.test.ts',
   'tests/cli/llm-probe-budget.test.ts',  // phase 1979 Step D: vi.mock orchestrator barrel（probe 预算断言）
   'tests/cli/motion-steps-action-error.test.ts',
   'tests/cli/password-restore-reverse.test.ts',
