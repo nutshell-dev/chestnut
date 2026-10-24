@@ -1,10 +1,14 @@
 /**
  * @module L6.CLI.Claw.Stream
- * Tail a claw's stream.jsonl and emit raw JSONL events to stdout.
+ * Tail a claw's stream.jsonl and emit chestnut.launcher.v1 envelopes to stdout.
  *
  * Long-running foreground process. External viewport clients (launcher /
  * scripts) consume this to render real-time motion / claw activity without
  * binding to TUI.
+ *
+ * phase 1990 Step B：stdout 为协议 stdout——内部 StreamEvent 经 LauncherEventMapper
+ * 映射为 event envelope（稳定 payload，不泄漏内部 union）；正常终止写 terminal，
+ * daemon 死亡/启动失败写 error 后非零退出。sequence 会话内严格连号。
  *
  * Emits stream-reader lifecycle/fault audit events via createStreamReader.
  */
@@ -18,6 +22,14 @@ import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
+import {
+  createLauncherSequencer,
+  LauncherEventMapper,
+  launcherErrorEnvelope,
+  makeLauncherEnvelope,
+  makeLauncherSessionId,
+  writeLauncherEnvelope,
+} from '../../cli-protocol/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -59,6 +71,9 @@ export async function streamCommand(
   name: string,
   options?: StreamOptions,
 ): Promise<void> {
+  const sessionId = makeLauncherSessionId();
+  const nextSeq = createLauncherSequencer();
+
   deps.rootConfig.loadGlobal();
 
   const target = assertPublishedClaw(deps, name);
@@ -94,10 +109,16 @@ export async function streamCommand(
     case 'offset':      initialOffset = mode.value; break;
   }
 
+  const mapper = new LauncherEventMapper();
   const reader = createStreamReader(
     fs,
     STREAM_FILE,
-    (event) => process.stdout.write(JSON.stringify(event) + '\n'),
+    (event) => {
+      const payload = mapper.map(event);
+      if (payload) {
+        writeLauncherEnvelope(process.stdout, makeLauncherEnvelope(nextSeq(), sessionId, 'event', payload));
+      }
+    },
     audit,
     { persistent: true },
   );
@@ -105,6 +126,11 @@ export async function streamCommand(
   try {
     reader.start(initialOffset);
   } catch (err) {
+    // 启动失败：协议 stdout 写 error envelope 后以非零退出（单一终止路径）。
+    writeLauncherEnvelope(
+      process.stdout,
+      launcherErrorEnvelope(nextSeq(), sessionId, 'local', `failed to start stream reader: ${formatErr(err)}`),
+    );
     throw new CliError(`Failed to start stream reader for "${name}": ${formatErr(err)}`, { cause: err });
   }
 
@@ -115,14 +141,19 @@ export async function streamCommand(
   const shutdown = (reason: 'sigint' | 'sigterm' | 'daemon_dead'): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
     let exitCode = 0;
-    let terminalEvent: { type: 'daemon_stopped' } | undefined;
-    if (reason === 'daemon_dead') {
-      terminalEvent = { type: 'daemon_stopped' };
-      exitCode = 1;
-    }
     shutdownPromise = (async (): Promise<void> => {
-      if (terminalEvent) {
-        process.stdout.write(JSON.stringify(terminalEvent) + '\n');
+      // 单一终止路径：daemon_dead 写 error envelope（exit 1）；信号退出写 terminal（exit 0）。
+      if (reason === 'daemon_dead') {
+        exitCode = 1;
+        writeLauncherEnvelope(
+          process.stdout,
+          launcherErrorEnvelope(nextSeq(), sessionId, 'daemon_stopped', `daemon for "${name}" is no longer running`),
+        );
+      } else {
+        writeLauncherEnvelope(
+          process.stdout,
+          makeLauncherEnvelope(nextSeq(), sessionId, 'terminal', { reason }),
+        );
       }
       try {
         await reader.stop();

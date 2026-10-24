@@ -267,8 +267,17 @@ describe('streamCommand shutdown owner', () => {
       await vi.advanceTimersByTimeAsync(2000);
       await flushMicrotasks();
 
+      // phase 1990：daemon 死亡以 launcher.v1 error envelope 终止（不再写原始内部事件行）。
       const daemonStoppedLines = shutdownMocks.stdoutWrites.filter((l) => l.includes('"daemon_stopped"'));
-      expect(daemonStoppedLines).toEqual([JSON.stringify({ type: 'daemon_stopped' }) + '\n']);
+      expect(daemonStoppedLines).toHaveLength(1);
+      const envelope = JSON.parse(daemonStoppedLines[0]);
+      expect(envelope).toMatchObject({
+        protocolVersion: 'chestnut.launcher.v1',
+        kind: 'error',
+        payload: { class: 'daemon_stopped' },
+      });
+      expect(typeof envelope.sequence).toBe('number');
+      expect(typeof envelope.sessionId).toBe('string');
       expect(shutdownMocks.reader.stop).toHaveBeenCalledTimes(1);
       expect(shutdownMocks.exitCodes).toEqual([1]);
       expect(unhandledRejections).toEqual([]);

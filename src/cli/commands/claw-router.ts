@@ -267,18 +267,20 @@ async function runSend(deps: RouterDeps, name: string, args: string[]): Promise<
   const parser = makeVerbParser('send');
   parser.argument('<message>', 'message body');
   parser.option('--priority <level>', `Message priority (${PRIORITY_ORDER.join('/')})`, 'normal');
+  parser.option('--request-id <id>', 'Caller request id echoed back in the ack envelope');
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
     throw new CliError(`invalid 'claw <name> send' args: ${(err as Error).message}`, { cause: err });
   }
   const [message] = parser.processedArgs;
-  const opts = parser.opts() as { priority: string };
+  const opts = parser.opts() as { priority: string; requestId?: string };
   if (!PRIORITY_ORDER.includes(opts.priority as Priority)) {
     throw new CliError(`Invalid priority: ${opts.priority}. Must be one of: ${PRIORITY_ORDER.join(', ')}`);
   }
   await sendCommand(deps, name, message as string, {
     priority: opts.priority as Priority,
+    requestId: opts.requestId,
   });
 }
 

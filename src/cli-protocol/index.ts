@@ -58,6 +58,22 @@ export {
 // phase 1874 Step L: 命令形状 catalog 投影（motion 族首发；1798 claw 形态泛化）
 export { applyCommandOptions } from './command-shape.js';
 export type { CommandShapeSpec, CommandOptionShape, CommandShapeRegistrar } from './command-shape.js';
+
+// phase 1990 Step B：chestnut.launcher.v1 对外协议 envelope（producer 单源）
+export {
+  LAUNCHER_PROTOCOL_VERSION,
+  LauncherEventMapper,
+  createLauncherSequencer,
+  launcherErrorEnvelope,
+  makeLauncherEnvelope,
+  makeLauncherSessionId,
+  writeLauncherEnvelope,
+} from './launcher-envelope.js';
+export type {
+  LauncherEnvelope,
+  LauncherEnvelopeKind,
+  LauncherErrorClass,
+} from './launcher-envelope.js';
 export { MOTION_COMMAND_CATALOG, getMotionCommandSpec } from './motion-command-catalog.js';
 export type { MotionCommandId } from './motion-command-catalog.js';
 export { CONTRACT_COMMAND_CATALOG, getContractCommandSpec } from './contract-command-catalog.js';

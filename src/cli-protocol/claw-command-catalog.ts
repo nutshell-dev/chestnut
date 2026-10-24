@@ -89,6 +89,10 @@ export const CLAW_COMMAND_CATALOG = [
         desc: 'Message priority',
         defaultValue: `normal (${PRIORITY_ORDER.join('|')})`,
       },
+      {
+        flag: '--request-id <id>',
+        desc: 'Caller request id echoed back in the ack envelope',
+      },
     ],
     examples: [
       'chestnut claw alice send "please check the build"',

@@ -3,9 +3,8 @@
  *
  * Invariants:
  * 1. cli send uses notifyClaw wrapper (M#3 SoT)
- * 2. console.log 含 hint when target claw not alive
- * 3. console.log 不含 hint when target claw alive
- * 4. formatClawStatusHint helper shared with notify_claw tool (M#1)
+ * 2. phase 1990：stdout 只含 launcher.v1 ack envelope；status/contract hint 一律 stderr
+ * 3. formatClawStatusHint helper shared with notify_claw tool (M#1)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -52,6 +51,8 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
 describe('cli claw send status hint (phase 232)', () => {
   let tmpRoot: string;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let stderrWriteSpy: ReturnType<typeof vi.spyOn>;
+  let stdoutWriteSpy: ReturnType<typeof vi.spyOn>;
   let commandDeps: FakeClawCommandDeps;
 
   beforeEach(() => {
@@ -63,6 +64,8 @@ describe('cli claw send status hint (phase 232)', () => {
     fs.writeFileSync(path.join(chestnutRoot, 'claws', 'test-claw', 'config.yaml'), 'name: test-claw\n');
     process.env.CHESTNUT_ROOT = tmpRoot;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    stderrWriteSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stdoutWriteSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     commandDeps = makeClawCommandDeps(fsFactory);
   });
 
@@ -70,9 +73,23 @@ describe('cli claw send status hint (phase 232)', () => {
     delete process.env.CHESTNUT_ROOT;
     if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
     consoleLogSpy.mockRestore();
+    stderrWriteSpy.mockRestore();
+    stdoutWriteSpy.mockRestore();
   });
 
-  it('console.log 含 hint when target claw not alive', async () => {
+  function stderrText(): string {
+    return stderrWriteSpy.mock.calls.map(c => String(c[0])).join('');
+  }
+
+  function stdoutText(): string {
+    return stdoutWriteSpy.mock.calls.map(c => String(c[0])).join('');
+  }
+
+  function stdoutEnvelopes(): any[] {
+    return stdoutText().trim().split(/\n+/).filter(Boolean).map((l) => JSON.parse(l));
+  }
+
+  it('stderr 含 hint + stdout 只有 ack envelope when target claw not alive', async () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
@@ -81,14 +98,21 @@ describe('cli claw send status hint (phase 232)', () => {
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
 
-    const calls = consoleLogSpy.mock.calls.map(c => c[0]);
-    expect(calls).toContain('Message sent to "test-claw"');
-    expect(calls).toContain(
+    expect(stderrText()).toContain(
       'Note: claw "test-claw" is not running. Start it with: chestnut claw test-claw daemon',
     );
+    expect(stdoutText()).not.toContain('Message sent');
+    expect(stdoutText()).not.toContain('Note:');
+    const envelopes = stdoutEnvelopes();
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({
+      protocolVersion: 'chestnut.launcher.v1',
+      kind: 'ack',
+      payload: { accepted: true, claw: 'test-claw' },
+    });
   });
 
-  it('console.log 不含 hint when target claw alive', async () => {
+  it('stderr 不含 hint when target claw alive', async () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
@@ -97,11 +121,8 @@ describe('cli claw send status hint (phase 232)', () => {
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
 
-    const calls = consoleLogSpy.mock.calls.map(c => c[0]);
-    expect(calls).toContain('Message sent to "test-claw"');
-    expect(calls).not.toContain(
-      expect.stringContaining('Note: claw'),
-    );
+    expect(stderrText()).not.toContain('Note: claw');
+    expect(stdoutEnvelopes()[0]).toMatchObject({ kind: 'ack', payload: { accepted: true } });
   });
 
   it('uses notifyClaw wrapper — file written to target inbox', async () => {
@@ -130,7 +151,7 @@ describe('cli claw send status hint (phase 232)', () => {
     expect(formatClawStatusHint('my-claw', true)).toBeUndefined();
   });
 
-  it('console.log 含 contract hint when no active contract (phase 241)', async () => {
+  it('stderr 含 contract hint when no active contract (phase 241)', async () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
@@ -139,11 +160,10 @@ describe('cli claw send status hint (phase 232)', () => {
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
 
-    const calls = consoleLogSpy.mock.calls.map(c => c[0]);
-    expect(calls).toContain('Message sent to "test-claw"');
-    expect(calls).toContain(
+    expect(stderrText()).toContain(
       'No active contract for "test-claw". Ask claw to reply via send tool in message body.',
     );
+    expect(stdoutText()).not.toContain('No active contract');
   });
 
   it('console.log 不含 contract hint when has active contract (phase 241)', async () => {
@@ -158,11 +178,8 @@ describe('cli claw send status hint (phase 232)', () => {
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
 
-    const calls = consoleLogSpy.mock.calls.map(c => c[0]);
-    expect(calls).toContain('Message sent to "test-claw"');
-    expect(calls).not.toContain(
-      expect.stringContaining('active contract'),
-    );
+    expect(stderrText()).not.toContain('active contract');
+    expect(stdoutEnvelopes()[0]).toMatchObject({ kind: 'ack' });
   });
 
   it('uses formatNoActiveContractHint helper (phase 241)', async () => {
