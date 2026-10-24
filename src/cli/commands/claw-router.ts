@@ -38,6 +38,7 @@ import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 // phase 1324 Step A：RouterDeps 收敛为 Claw 命令族共享 deps 的 type alias
 // （type-only barrel import）；Router 自身不再另行声明窄 RootConfig 形状。
 import type { ClawCreateCommandDeps } from './claw-command-deps.js';
@@ -245,7 +246,7 @@ async function runStop(deps: RouterDeps, name: string, args: string[]): Promise<
   if (args.length > 0) {
     throw new CliError(`'stop' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  const audit = actionAuditFor(getClawDir(name), deps);
+  const audit = actionAuditFor(resolveClawTarget(name).clawDir, deps);
   await stopCommand(deps, name, { audit });
 }
 
@@ -291,7 +292,7 @@ async function runOutbox(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`invalid 'claw <name> outbox' options: ${(err as Error).message}`, { cause: err });
   }
   deps.rootConfig.loadGlobal();
-  const audit = actionAuditFor(getClawDir(name), deps);
+  const audit = actionAuditFor(resolveClawTarget(name).clawDir, deps);
   const opts = parser.opts() as { limit: string };
   const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
   await outboxCommand(deps, name, { limit }, { audit });
@@ -313,7 +314,7 @@ async function runOutboxSkip(deps: RouterDeps, name: string, args: string[]): Pr
     throw new CliError("options '--all' and '--limit' are mutually exclusive");
   }
   deps.rootConfig.loadGlobal();
-  const audit = actionAuditFor(getClawDir(name), deps);
+  const audit = actionAuditFor(resolveClawTarget(name).clawDir, deps);
   const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
   await outboxSkipCommand(deps, name, { all: opts.all === true, limit }, { audit });
 }
@@ -329,7 +330,7 @@ async function runImport(deps: RouterDeps, name: string, args: string[]): Promis
   }
   const [source] = parser.processedArgs;
   const opts = parser.opts() as { target?: string };
-  const audit = actionAuditFor(getClawDir(name), deps);
+  const audit = actionAuditFor(resolveClawTarget(name).clawDir, deps);
   await importCommand(deps, source as string, name, opts.target, { audit });
 }
 
@@ -391,7 +392,7 @@ async function runDaemon(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`'daemon' takes no extra arguments (got: ${args.join(' ')})`);
   }
   const { clawDaemonCommand } = await import('./claw-daemon.js');
-  const audit = actionAuditFor(getClawDir(name), deps);
+  const audit = actionAuditFor(resolveClawTarget(name).clawDir, deps);
   await clawDaemonCommand(deps, name, { audit });
 }
 
@@ -433,7 +434,7 @@ async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<vo
   if (deps.rootConfig.loadClaw(getClawConfigPath(name)) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
-  const clawDir = getClawDir(name);
+  const clawDir = resolveClawTarget(name).clawDir;
   const audit = actionAuditFor(clawDir, deps);
   await psCommand(
     {

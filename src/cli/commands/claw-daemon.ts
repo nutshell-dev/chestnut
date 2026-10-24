@@ -8,10 +8,10 @@
  */
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -37,12 +37,13 @@ export async function clawDaemonCommand(
   if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
-  const clawDir = getClawDir(name);
+  const target = resolveClawTarget(name);
+  const clawDir = target.clawDir;
   const baseDir = getChestnutRoot();
   const systemAudit = actionAuditFor(baseDir, deps);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
-  const clawId = makeClawId(name);
+  const clawId = target.clawId;
   if (pm.isAlive(resolveClawDaemonDir(clawId))) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;

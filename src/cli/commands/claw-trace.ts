@@ -11,7 +11,8 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 // phase 1874 Step B: CliStreamEvent 随 viewport 模块归位（经 barrel 消费）
 import type { CliStreamEvent } from '../../viewport/index.js';
 import * as yaml from 'js-yaml';
-import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { getContractMetadata, readContractYamlLightweight } from '../../core/contract/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
@@ -57,7 +58,7 @@ export async function clawTraceCommand(
     throw new CliError(`Claw "${clawId}" does not exist`);
   }
 
-  const clawDir = getClawDir(clawId);
+  const clawDir = resolveClawTarget(clawId).clawDir;
   const fileSystem = deps.fsFactory(clawDir);
 
   // 1. 读取 started_at

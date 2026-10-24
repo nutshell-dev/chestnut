@@ -4,12 +4,12 @@
 
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 // phase 1874 Step B: viewport 独立模块入口（CLIProcess 只经 barrel 消费）
 import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -21,7 +21,8 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
 
-  const clawDir = getClawDir(name);
+  const target = resolveClawTarget(name);
+  const clawDir = target.clawDir;
   // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
   const systemAudit = createViewportAudit(deps.fsFactory(clawDir), clawDir);
   await runChatViewport({
@@ -32,7 +33,7 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
     ensureDaemon: async () => {
       const baseDir = getChestnutRoot();
       const pm = createProcessManagerForCLI({ ...deps, baseDir });
-      const clawId = makeClawId(name);
+      const clawId = target.clawId;
       // Phase 1936 Step C: daemon ready 的唯一 capability = ensureRunning——
       // 已有 active/spawning winner 由 ProcessManager join exact generation 收敛，
       // CLI 不再组合 isAlive+spawn（TOCTOU）、不自行解释 ProcessSpawnConflictError；

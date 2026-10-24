@@ -9,10 +9,10 @@
  * Emits stream-reader lifecycle/fault audit events via createStreamReader.
  */
 
-import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
-import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -20,7 +20,6 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -68,7 +67,8 @@ export async function streamCommand(
   }
 
   const baseDir = getChestnutRoot();
-  const clawDir = path.join(baseDir, getRelativeClawDir(name));
+  const target = resolveClawTarget(name);
+  const clawDir = target.clawDir;
   const fs = deps.fsFactory(clawDir);
   // audit reused for stream reader internal failure logging; stream session itself does not emit
   const audit = actionAuditFor(clawDir, deps);
@@ -78,7 +78,7 @@ export async function streamCommand(
   const pm = createProcessManagerForCLI({ ...deps, baseDir });
   let initialDaemonPid: number | null = null;
   try {
-    const daemonDir = resolveClawDaemonDir(makeClawId(name));
+    const daemonDir = resolveClawDaemonDir(target.clawId);
     const daemonLiveness = pm.liveness(daemonDir);
     // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
     // phase 1773: probe_unavailable/malformed 不伪装 alive（fail-closed warn）

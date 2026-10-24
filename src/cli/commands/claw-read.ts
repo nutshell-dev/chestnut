@@ -5,7 +5,8 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
@@ -26,7 +27,7 @@ export async function readCommand(
     throw new CliError(`Claw "${clawName}" does not exist`);
   }
 
-  const clawDir = getClawDir(clawName);
+  const clawDir = resolveClawTarget(clawName).clawDir;
   const workspaceDir = path.join(clawDir, CLAWSPACE_DIR);
   // resolveWorkspacePath returns clawDir-relative path, so fs must be scoped to clawDir
   const fs = deps.fsFactory(clawDir);

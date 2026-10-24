@@ -9,7 +9,7 @@
  */
 
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { getClawDir } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -124,7 +124,7 @@ export async function outboxSkipCommand(
   const audit = opts?.audit;
   // Outbox skip is a pure filesystem operation — we don't require config.yaml,
   // same as outboxCommand (orphan claws must be skippable by motion).
-  const clawDir = getClawDir(name);
+  const clawDir = resolveClawTarget(name).clawDir;
   const clawFs = deps.fsFactory(clawDir);
   if (!clawFs.existsSync('.')) {
     throw new CliError(

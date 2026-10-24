@@ -4,11 +4,11 @@
  */
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
 import { peekPendingCount, listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
@@ -25,14 +25,15 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const clawDir = getClawDir(name);
+  const target = resolveClawTarget(name);
+  const clawDir = target.clawDir;
   const baseDir = getChestnutRoot();
   const clawFs = deps.fsFactory(clawDir);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const systemAudit = actionAuditFor(baseDir, deps);
 
-  const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
+  const isRunning = processManager.isAlive(resolveClawDaemonDir(target.clawId));
 
   // Read inbox/outbox pending counts in real time
   // phase 858: lightweight query helpers now return Result; -1 marks I/O error

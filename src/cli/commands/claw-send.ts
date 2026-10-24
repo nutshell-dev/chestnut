@@ -3,9 +3,8 @@
  * Send an inbox message to a Claw
  */
 
-import * as path from 'path';
-
-import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
@@ -16,7 +15,6 @@ import { actionAuditFor } from '../action-scope.js';
 
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -34,7 +32,8 @@ export async function sendCommand(
   }
 
   const baseDir = getChestnutRoot();
-  const clawDir = path.join(baseDir, getRelativeClawDir(name));
+  const target = resolveClawTarget(name);
+  const clawDir = target.clawDir;
   const fileSystem = deps.fsFactory(baseDir);
   const audit = actionAuditFor(clawDir, deps);
 
@@ -53,7 +52,7 @@ export async function sendCommand(
   console.log(`Message sent to "${name}"`);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
-  const isAlive = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
+  const isAlive = processManager.isAlive(resolveClawDaemonDir(target.clawId));
   const statusHint = formatClawStatusHint(name, isAlive);
   if (statusHint) console.log(statusHint);
 

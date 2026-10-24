@@ -3,13 +3,12 @@
  * claw steps + step commands for main-agent dialog observation
  */
 
-import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
-import { getClawDir } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
+import { resolveClawTarget } from './claw-target.js';
 import {
   loadSessionFromFile,
   parseMessagesFromSession,
@@ -18,7 +17,7 @@ import {
 } from './_message-renderer.js';
 
 function resolveDialogPath(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string): string {
-  const baseDir = name === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(name);
+  const baseDir = resolveClawTarget(name).clawDir;
   if (!deps.fsFactory(baseDir).existsSync('.')) {
     throw new CliError(
       name === MOTION_CLAW_ID

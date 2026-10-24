@@ -8,7 +8,7 @@
  * Phase 849: display ShortTaskId; MigratedExecTaskInfo carries fullTaskId separately.
  */
 
-import { getClawDir } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import type {
   MigratedExecTaskInfo,
   TaskReadError,
@@ -22,7 +22,7 @@ export async function psCommand(
   name: string,
   _args: string[],
 ): Promise<void> {
-  const clawDir = getClawDir(name);
+  const clawDir = resolveClawTarget(name).clawDir;
   const { tasks, errors } = deps.listMigratedExecTasks(clawDir);
 
   if (tasks.length === 0 && errors.length === 0) {

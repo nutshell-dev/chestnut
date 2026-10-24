@@ -4,7 +4,7 @@
  */
 
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { getClawDir } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -126,7 +126,7 @@ export async function outboxCommand(
   // Motion's outbox scanner reports any claw dir containing pending/*.md, so the
   // CLI must be able to drain the same set, including orphan claws that have
   // outbox files but no config (e.g. abandoned or half-created claws).
-  const clawDir = getClawDir(name);
+  const clawDir = resolveClawTarget(name).clawDir;
   const clawFs = deps.fsFactory(clawDir);
   if (!clawFs.existsSync('.')) {
     throw new CliError(

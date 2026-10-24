@@ -17,12 +17,13 @@
  */
 
 import * as path from 'path';
-import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { getClawConfigPath } from '../../foundation/claw-identity/index.js';
+import { resolveClawTarget } from './claw-target.js';
 import { CliError } from '../errors.js';
 // CLAWS_DIR removed: phase 263
 // phase 1879 Step B: ContractSystem 装配归 Assembly 窄 action context（1874 Step F 形态）——
 // CLI 不再直构造 ContractSystem/ToolRegistry/AuditLog；audit 由 context own、动作终态 dispose。
-import { createContractActionContext } from '../../assembly/index.js';
+import { createContractActionContext, createMotionContractActionContext } from '../../assembly/index.js';
 import {
   computeContractView,
   computeTaskView,
@@ -50,10 +51,15 @@ export async function clawStatusCommand(
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
 
-  const clawDir = getClawDir(name);
+  const target = resolveClawTarget(name);
+  const clawDir = target.clawDir;
   const clawFs = deps.fsFactory(clawDir);
 
-  const action = await createContractActionContext(deps, name);
+  // phase 1986 Step C：motion 与普通 claw 共用同一 finally dispose；
+  // 仅 Assembly context 工厂按目标身份选择（motion 读 <root>/motion）。
+  const action = target.isMotion
+    ? await createMotionContractActionContext(deps)
+    : await createContractActionContext(deps, target.clawId);
   try {
     const audit = action.audit;
 
