@@ -40,6 +40,17 @@ public final class LauncherPanel: NSPanel {
         )
     }
 
+    /// 内容驱动 resize：顶部锚定向下增长（水平中心不变），保持 key window；
+    /// 小于最小增量的变化忽略（抑制流式增量抖动）。不改 accessory/失焦语义。
+    public func resize(toHeight height: CGFloat, animated: Bool = true) {
+        guard ConversationLayout.shouldResize(from: frame.height, to: height) else { return }
+        var newFrame = frame
+        let delta = height - newFrame.height
+        newFrame.size.height = height
+        newFrame.origin.y -= delta // 顶部锚定：向下增长
+        setFrame(newFrame, display: true, animate: animated)
+    }
+
     @objc private func handleResignKey(_ notification: Notification) {
         orderOut(nil)
     }

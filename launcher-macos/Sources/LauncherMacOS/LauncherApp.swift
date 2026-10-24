@@ -71,9 +71,18 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         self.store = store
 
-        let window = LauncherPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480))
+        // 初始 compact：仅一行输入框高度；内容由 ChatView 测量后经 onWindowHeightChange 上报，
+        // panel 按三态动画 resize（顶部锚定、保持 key window）。
+        let window = LauncherPanel(contentRect: NSRect(
+            x: 0, y: 0,
+            width: ConversationLayout.width,
+            height: ConversationLayout.compactHeight
+        ))
         window.title = "Chestnut Launcher"
-        window.contentView = NSHostingView(rootView: ChatView(store: store))
+        let view = ChatView(store: store, onWindowHeightChange: { [weak window] height in
+            window?.resize(toHeight: height)
+        })
+        window.contentView = NSHostingView(rootView: view)
         window.delegate = self
         window.center()
         window.makeKeyAndOrderFront(nil)
