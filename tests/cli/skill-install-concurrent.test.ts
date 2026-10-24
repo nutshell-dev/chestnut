@@ -20,6 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/commands/skill.js';
 import { SkillSystem, SKILL_PUBLISH_MARKER, SKILL_COMMIT_PROOF, createSkillVersions } from '../../src/foundation/skill-system/index.js';
+import { VersionStoreError } from '../../src/foundation/snapshot/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { makeAudit } from '../helpers/audit.js';
@@ -48,6 +49,9 @@ afterEach(() => {
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const deps = { fsFactory };
+
+/** 工作流用例显式预算：真实 git/版本仓库操作，满载下可能超过 fast project 默认 15s。 */
+const WORKFLOW_TEST_TIMEOUT_MS = 60_000;
 
 function makeSkillSource(parent: string, version: string): string {
   const src = path.join(testDir, parent, 'myskill');
@@ -108,7 +112,7 @@ function crashDispatchPublish(): typeof createSkillVersions {
   };
 }
 
-describe('skill install target occupancy (phase 1912 Step D)', () => {
+describe('skill install target occupancy (phase 1912 Step D)', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   it('absent 目标并发出现占位：mkdirExclusive 冲突，不替换不混入', async () => {
     const src = makeSkillSource('a', 'vX');
     const userParent = path.dirname(userSkillDir());
@@ -165,7 +169,7 @@ describe('skill install target occupancy (phase 1912 Step D)', () => {
   });
 });
 
-describe('skill install multi-root consistent commit (phase 1911 Step G)', () => {
+describe('skill install multi-root consistent commit (phase 1911 Step G)', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   it('user install：两目标完整发布、无残留、audit 在完成后一次', async () => {
     const src = makeSkillSource('a', 'v1');
     const audit = { write: vi.fn() };
@@ -200,9 +204,16 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
     // loser 的合法失败语义两类：per-skill claim 冲突（in progress/conflict），或
     // 版本库首次建立的并发初始化互斥 fail-closed（Phase 1919 Step B open 锁：
     // 锁释放后 probe 瞬时失败/超时 → loud repo_init_failed，站点保留）
-    expect((failed[0] as PromiseRejectedResult).reason.message).toMatch(
-      /in progress|claim|conflict|concurrent initializer|timed out waiting for concurrent git init/i,
-    );
+    // Phase 1995 Step C：typed 断言优先——repo_init_failed 是 owner（VersionStore.open）
+    // 的 typed 分类，git config 文件锁竞争（could not lock config file ...: File exists）
+    // 只是其 message 形态之一（version-store.ts git config 分支）；不再只靠 message 子串。
+    // claim conflict message fallback 保留，覆盖 per-skill claim 冲突路径。
+    const reason = (failed[0] as PromiseRejectedResult).reason as { message?: string; cause?: unknown };
+    const claimConflict = /in progress|claim|conflict/i.test(reason.message ?? '');
+    const repoInitFailed = reason instanceof VersionStoreError && reason.kind === 'repo_init_failed';
+    const wrappedRepoInitFailed =
+      reason.cause instanceof VersionStoreError && reason.cause.kind === 'repo_init_failed';
+    expect(claimConflict || repoInitFailed || wrappedRepoInitFailed).toBe(true);
 
     // 两目标都是同一完整版本（不混写）
     const userVersion = readVersion(userSkillDir());
@@ -285,7 +296,7 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', () =>
 });
 
 
-describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PRECOMMIT-VISIBILITY）', () => {
+describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PRECOMMIT-VISIBILITY）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   it('SKILL.md 先落位、引用文件未落位的崩溃窗口：SkillSystem 不注册半版本；恢复后注册完整版本', async () => {
     // manifest 按 localeCompare 排序：'SKILL.md' < 'zzz.sh'，SKILL.md 先落位
     // Phase 1919 Step B：swap/marker 提交协议仅剩 user 目标（dispatch 走 owner
@@ -365,7 +376,7 @@ describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PREC
 });
 
 
-describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SKILL-TARGET-PRECOMMIT）', () => {
+describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SKILL-TARGET-PRECOMMIT）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   it('恢复不覆盖已提交后被用户编辑的目标（publishing + marker 缺席 → 只补登记）', async () => {
     const src = makeSkillSource('a', 'v2');
     // 模拟崩溃窗口：user 目标删 marker 提交完成、但 intent 登记 published 前崩溃
@@ -444,7 +455,7 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
 });
 
 
-describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SNAPSHOT）', () => {
+describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SNAPSHOT）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   function makeClaw(id: string): void {
     fs.mkdirSync(path.join(testDir, '.chestnut', 'claws', id), { recursive: true });
   }
@@ -590,7 +601,7 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
 });
 
 
-describe('dispatch source 协议工件边界（Phase 1916 Step B：RACE-DISPATCH-SOURCE-PROTOCOL-ARTIFACT）', () => {
+describe('dispatch source 协议工件边界（Phase 1916 Step B：RACE-DISPATCH-SOURCE-PROTOCOL-ARTIFACT）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   function makeClaw(id: string): void {
     fs.mkdirSync(path.join(testDir, '.chestnut', 'claws', id), { recursive: true });
   }
@@ -673,7 +684,7 @@ describe('dispatch source 协议工件边界（Phase 1916 Step B：RACE-DISPATCH
 });
 
 
-describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY-TARGET-IDENTITY）', () => {
+describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY-TARGET-IDENTITY）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
@@ -877,7 +888,7 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
   });
 });
 
-describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SKILL-COMMITTING-ABSENT-IDENTITY）', () => {
+describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SKILL-COMMITTING-ABSENT-IDENTITY）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
@@ -1018,7 +1029,7 @@ describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SK
 });
 
 
-describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL-SOURCE-SNAPSHOT-ORPHAN）', () => {
+describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL-SOURCE-SNAPSHOT-ORPHAN）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
