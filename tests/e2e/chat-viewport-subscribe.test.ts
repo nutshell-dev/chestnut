@@ -10,7 +10,6 @@ import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { createMainTurnUI, type MainTurnUIController } from '../../src/viewport/main-turn-ui.js';
 import { createTaskEventHandler } from '../../src/viewport/chat-viewport-task-events.js';
-import { prefixLines } from '../../src/viewport/terminal-text.js';
 
 /**
  * Stream reader settle / events propagate 间隔 (150ms).
@@ -18,6 +17,10 @@ import { prefixLines } from '../../src/viewport/terminal-text.js';
  * 同语义 = let stream reader start, or let events propagate before assertion.
  */
 const STREAM_SETTLE_BUDGET_MS = 150;
+
+function previewTextOf(mainUI: MainTurnUIController): string {
+  return mainUI.getPreviewLines().map(l => l.text).join('\n');
+}
 
 async function appendJsonl(p: string, ev: object) {
   await nativeFs.appendFile(p, JSON.stringify({ ts: Date.now(), ...ev }) + '\n');
@@ -36,8 +39,8 @@ function dispatchMainEvent(ev: StreamEvent, mainUI: MainTurnUIController) {
       mainUI.flushThinking();
       mainUI.enterPhase('streaming_text');
       const buf = mainUI.appendToBuffer((ev as Record<string, unknown>).delta as string);
-      const preview = prefixLines(buf + '▋', '\x1b[38;5;232m⏺\x1b[0m ', '  ');
-      mainUI.setPreview(preview);
+      // Phase 1992: 语义 block 直发；格式化归 MainTurnUI renderer
+      mainUI.setPreview({ kind: 'text', text: buf, streaming: true });
       break;
     }
     case 'turn_end':
@@ -110,7 +113,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
       dispatchMainEvent({ type: 'llm_start' }, mainUI);
       dispatchMainEvent({ type: 'text_delta', delta: 'hello' }, mainUI);
     });
-    const previewBefore = mainUI.getPreview();
+    const previewBefore = previewTextOf(mainUI);
     expect(previewBefore).toContain('hello');
 
     // task stream 发 tool_call/tool_result/turn_end（subagent 活动）
@@ -121,7 +124,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     });
 
     // 关键断言：task 事件过后主 preview 不被清空
-    expect(mainUI.getPreview()).toContain('hello');
+    expect(previewTextOf(mainUI)).toContain('hello');
 
     // 主 stream 继续
     mainUI.withScope('main', () => {
@@ -130,7 +133,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     });
 
     // turn_end 后 preview 清空（正常）
-    expect(mainUI.getPreview()).toBe('');
+    expect(previewTextOf(mainUI)).toBe('');
   });
 
   it('并发场景 audit 无 viewport_ui_cross_pollution', async () => {
@@ -209,7 +212,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
       audit,
     });
 
-    mainUI.withScope('task', () => mainUI.setPreview('leaked'));
+    mainUI.withScope('task', () => mainUI.setPreview({ kind: 'text', text: 'leaked', streaming: false }));
     const crossPollution = events.filter(e => e[0] === VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION);
     expect(crossPollution).toHaveLength(1);
     expect(crossPollution[0][1]).toBe('method=setPreview');
@@ -301,8 +304,8 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
           mainUI.flushThinking();
           mainUI.enterPhase('streaming_text');
           const buf = mainUI.appendToBuffer((ev as Record<string, unknown>).delta as string);
-          mainUI.setPreview(buf);
-          if (mainUI.getPreview().includes('hello')) helloPreviewResolve();
+          mainUI.setPreview({ kind: 'text', text: buf, streaming: true });
+          if (previewTextOf(mainUI).includes('hello')) helloPreviewResolve();
         }
       },
       audit,
@@ -335,7 +338,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     await appendJsonl(mainStreamPath, { type: 'llm_start' });
     await appendJsonl(mainStreamPath, { type: 'text_delta', delta: 'hello' });
     await helloPreviewP;
-    expect(mainUI.getPreview()).toContain('hello');
+    expect(previewTextOf(mainUI)).toContain('hello');
 
     // task stream：tool_call → tool_result → turn_end（subagent 活动）
     await appendJsonl(taskStreamPath, { type: 'tool_call', name: 'read_file' });
@@ -344,7 +347,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     await twoStatusBarCallsP;
 
     // 关键断言：task 事件过后主 preview 不被清空
-    expect(mainUI.getPreview()).toContain('hello');
+    expect(previewTextOf(mainUI)).toContain('hello');
 
     // 正常路径不触发 cross_pollution audit
     const crossPollution = events.filter(e => e[0] === VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION);

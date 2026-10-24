@@ -334,7 +334,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     handleTaskEvent,
     stopTaskWatch,
     taskStatusBar,
-    getThinkingMode: () => thinkingMode,
+    // Phase 1992: thinking mode 归 MainTurnUI deps 消费；event handler 不再读 mode
     fsFactory: options.fsFactory,
   });
 

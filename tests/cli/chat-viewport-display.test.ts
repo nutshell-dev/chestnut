@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { createDisplay } from '../../src/viewport/chat-viewport-display.js';
 import { createViewportObservability } from '../../src/viewport/chat-viewport-observability.js';
-import type { MainTurnUIController } from '../../src/viewport/main-turn-ui.js';
+import type { MainTurnUIController, PreviewLine } from '../../src/viewport/main-turn-ui.js';
 
 const COLS = 80;
 
@@ -19,11 +19,11 @@ function makeHarness() {
   const observability = createViewportObservability({ audit: { write: () => { /* noop */ } } });
   let rendered = '';
   let status = '';
-  let preview = '';
+  let preview: PreviewLine[] = [];
   let renders = 0;
   const mainUI = {
     getStatus: () => status,
-    getPreview: () => preview,
+    getPreviewLines: () => preview,
   } as unknown as MainTurnUIController;
   const display = createDisplay({
     label: 'test',
@@ -43,7 +43,8 @@ function makeHarness() {
     get rendered() { return rendered; },
     get renders() { return renders; },
     setStatus: (s: string) => { status = s; },
-    setPreview: (p: string) => { preview = p; },
+    setPreviewLines: (p: PreviewLine[]) => { preview = p; },
+    setPreviewText: (p: string) => { preview = p.split('\n').map(text => ({ text, style: 'plain' as const })); },
   };
 }
 
@@ -69,7 +70,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
   it('超长 preview（30 行，屏高 24）被截到 rows-1=23 行，保留最新尾部', () => {
     setSize(COLS, 24);
     const h = makeHarness();
-    h.setPreview(Array.from({ length: 30 }, (_, i) => `preview line ${i}`).join('\n'));
+    h.setPreviewText(Array.from({ length: 30 }, (_, i) => `preview line ${i}`).join('\n'));
     h.display.updateDisplay();
 
     const lines = h.rendered.split('\n');
@@ -84,7 +85,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     setSize(COLS, 24);
     const h = makeHarness();
     h.setStatus('⠋ Thinking...');
-    h.setPreview(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
+    h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
 
     const lines = h.rendered.split('\n');
@@ -97,11 +98,11 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
   it('折叠恢复：preview 清空后输出回到纯 body（后缀 0 行）', () => {
     setSize(COLS, 24);
     const h = makeHarness();
-    h.setPreview(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
+    h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
     expect(h.rendered.split('\n').length).toBe(24);
 
-    h.setPreview('');
+    h.setPreviewText('');
     h.display.updateDisplay();
     expect(h.rendered).toBe('[test] Watching daemon activity...');
   });
@@ -109,11 +110,11 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
   it('折叠删除行数 ≤ rows-1 < 屏高（不进 extraLines > height 整帧路径）', () => {
     setSize(COLS, 24);
     const h = makeHarness();
-    h.setPreview(Array.from({ length: 200 }, (_, i) => `p${i}`).join('\n'));
+    h.setPreviewText(Array.from({ length: 200 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
     const before = bodyLineCount(h.rendered);
 
-    h.setPreview('');
+    h.setPreviewText('');
     h.display.updateDisplay();
     const after = bodyLineCount(h.rendered);
 
@@ -127,7 +128,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     const h = makeHarness();
     h.display.appendOutput('', 'body 1');
     h.display.appendOutput('', 'body 2');
-    h.setPreview(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
+    h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
     // body 3 行（含初始行）+ 23 后缀
     expect(h.rendered.split('\n').length).toBe(3 + 23);
@@ -145,7 +146,7 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     setSize(COLS, 1);
     const h = makeHarness();
     h.setStatus('⠋ Thinking...');
-    h.setPreview('p1\np2');
+    h.setPreviewText('p1\np2');
     h.display.updateDisplay();
     expect(h.rendered).toBe('[test] Watching daemon activity...');
   });
@@ -155,9 +156,26 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     const h = makeHarness();
     for (let i = 0; i < 100; i++) h.display.appendOutput('', `history ${i}`);
     expect(h.display.outputLines.length).toBe(101);   // 初始行 + 100
-    h.setPreview(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
+    h.setPreviewText(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'));
     h.display.updateDisplay();
     expect(h.display.outputLines.length).toBe(101);   // 后缀预算不触碰永久历史
     expect(h.rendered.split('\n').length).toBe(101 + 23);
+  });
+
+  it('phase 1992 Step B: dim style 的 preview 行逐行套 ANSI；plain 行不套', () => {
+    setSize(COLS, 24);
+    const h = makeHarness();
+    h.setPreviewLines([
+      { text: '⏺ [thinking] line1', style: 'dim' },
+      { text: '  line2', style: 'dim' },
+    ]);
+    h.display.updateDisplay();
+    expect(h.rendered).toContain('\x1b[2m⏺ [thinking] line1\x1b[0m');
+    expect(h.rendered).toContain('\x1b[2m  line2\x1b[0m');
+
+    h.setPreviewLines([{ text: '➤ send', style: 'plain' }]);
+    h.display.updateDisplay();
+    expect(h.rendered).toContain('➤ send');
+    expect(h.rendered).not.toContain('\x1b[2m➤');
   });
 });

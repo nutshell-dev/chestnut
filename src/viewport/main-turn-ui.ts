@@ -39,6 +39,24 @@ const SPINNER_INTERVAL_MS = 80;
  */
 export const MIN_DWELL_MS = 200;
 
+/**
+ * Phase 1992：preview 语义 block。event handler 只发 {kind, text} 语义，
+ * 不构造 ANSI、不读 thinking display mode——渲染规则唯一归本模块。
+ */
+export type PreviewBlock =
+  | { kind: 'thinking'; text: string }
+  | { kind: 'text'; text: string; streaming: boolean }
+  | { kind: 'send-content'; text: string; streaming: boolean };
+
+/**
+ * Phase 1992：preview 渲染后的逐行语义（text 已含首行前缀/续行 2 空格缩进）。
+ * style 是语义 token（dim/plain），ANSI 由 Display 唯一映射。
+ */
+export interface PreviewLine {
+  text: string;
+  style: 'dim' | 'plain';
+}
+
 export interface MainTurnUIDeps {
   appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
   updateDisplay: () => void;
@@ -51,10 +69,10 @@ export interface MainTurnUIDeps {
 export interface MainTurnUIController {
   enterPhase(phase: TurnUIPhase, label?: string): void;
   getPhase(): TurnUIPhase;
-  setPreview(text: string): void;
+  setPreview(block: PreviewBlock | null): void;
   clearPreview(): void;
   getStatus(): string;
-  getPreview(): string;
+  getPreviewLines(): readonly PreviewLine[];
   appendToBuffer(delta: string): string;
   flushStreaming(): void;
   flushStreamingNormal(): void;
@@ -67,7 +85,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   let phase: TurnUIPhase = 'idle';
   let statusLabel = '';
   let statusText = '';
-  let preview = '';
+  let previewLines: readonly PreviewLine[] = [];
   let streamingBuffer = '';
   let thinkingBuffer = '';
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
@@ -202,16 +220,51 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     deps.updateDisplay();
   };
 
-  const setPreview = (text: string) => {
+  // Phase 1992: 唯一 block→PreviewLine[] 渲染规则（preview 与 final flush 共用）。
+  const renderPreviewBlock = (
+    block: PreviewBlock | null,
+    opts: { trim: boolean },
+  ): readonly PreviewLine[] => {
+    if (!block) return [];
+    const raw = opts.trim ? block.text.trim() : block.text;
+
+    if (block.kind === 'thinking') {
+      const mode = deps.getThinkingMode();
+      if (mode === 'off') return [];
+      if (mode === 'compact') {
+        const snippet = raw.replace(/\s+/g, ' ').trim().slice(-60);
+        return [{ text: `[thinking] (${snippet})`, style: 'dim' }];
+      }
+      return prefixLines(raw, '⏺ [thinking] ', '  ')
+        .split('\n')
+        .map(text => ({ text, style: 'dim' as const }));
+    }
+
+    const cursor = block.streaming ? '▋' : '';
+    const prefix = block.kind === 'text' ? '⏺ ' : '➤ ';
+    const style = block.kind === 'text' ? ('dim' as const) : ('plain' as const);
+    return prefixLines(raw + cursor, prefix, '  ')
+      .split('\n')
+      .map(text => ({ text, style }));
+  };
+
+  const setPreview = (block: PreviewBlock | null) => {
     guardWrite('setPreview');
-    preview = text ?? '';
+    previewLines = renderPreviewBlock(block, { trim: false });
     deps.updateDisplay();
   };
   const clearPreview = () => {
     guardWrite('clearPreview');
-    preview = '';
+    previewLines = [];
     deps.updateDisplay();
   };
+
+  // Phase 1992 Step C: flush 与 preview 共用同一 renderer 的字符串出口
+  const styleColor = (style: PreviewLine['style']): string =>
+    style === 'dim' ? '\x1b[2m' : '';
+
+  const formatPreviewBlock = (block: PreviewBlock, opts: { trim: boolean }): string =>
+    renderPreviewBlock(block, opts).map(line => line.text).join('\n');
 
   const appendToBuffer = (delta: string) => {
     guardWrite('appendToBuffer');
@@ -221,19 +274,25 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   const flushStreaming = () => {
     guardWrite('flushStreaming');
     if (!streamingBuffer) return;
-    const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
-    const formatted = prefixLines(content, '⏺ ', '  ');
+    const formatted = formatPreviewBlock(
+      { kind: 'text', text: streamingBuffer, streaming: false },
+      { trim: deps.trimOutputNewlines },
+    );
     streamingBuffer = '';
-    deps.appendOutput('\x1b[2m', formatted, true, '  ');   // appendOutput 内部已 updateDisplay
+    if (!formatted) return;
+    deps.appendOutput(styleColor('dim'), formatted, true, '  ');   // appendOutput 内部已 updateDisplay
   };
 
   const flushStreamingNormal = () => {
     guardWrite('flushStreamingNormal');
     if (!streamingBuffer) return;
-    const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
-    const formatted = prefixLines(content, '➤ ', '  ');
+    const formatted = formatPreviewBlock(
+      { kind: 'send-content', text: streamingBuffer, streaming: false },
+      { trim: deps.trimOutputNewlines },
+    );
     streamingBuffer = '';
-    deps.appendOutput('', formatted, true, '  ');
+    if (!formatted) return;
+    deps.appendOutput(styleColor('plain'), formatted, true, '  ');
   };
 
   const appendToThinking = (delta: string) => {
@@ -244,10 +303,13 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   const flushThinking = () => {
     guardWrite('flushThinking');
     if (!thinkingBuffer) return;
-    const content = deps.trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
-    const formatted = prefixLines(content, '⏺ [thinking] ', '  ');
-    deps.appendOutput('\x1b[2m', formatted, true, '  ');
+    const formatted = formatPreviewBlock(
+      { kind: 'thinking', text: thinkingBuffer },
+      { trim: deps.trimOutputNewlines },
+    );
     thinkingBuffer = '';
+    if (!formatted) return;
+    deps.appendOutput(styleColor('dim'), formatted, true, '  ');
   };
 
   return {
@@ -255,7 +317,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     getPhase: () => phase,
     setPreview, clearPreview,
     getStatus: () => statusText,
-    getPreview: () => preview,
+    getPreviewLines: () => previewLines,
     appendToBuffer, flushStreaming, flushStreamingNormal,
     appendToThinking, flushThinking,
     withScope,

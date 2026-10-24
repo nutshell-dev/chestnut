@@ -21,7 +21,7 @@ import {
   type ViewportTerminalLike,
 } from '../../src/viewport/chat-viewport-terminal.js';
 import { createDisplay } from '../../src/viewport/chat-viewport-display.js';
-import type { MainTurnUIController } from '../../src/viewport/main-turn-ui.js';
+import type { MainTurnUIController, PreviewLine } from '../../src/viewport/main-turn-ui.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/viewport/viewport-audit-events.js';
 
 function makeObs() {
@@ -241,10 +241,10 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
     const requestRender = vi.fn();
     const setTextCalls: string[] = [];
     let status = '';
-    let preview = '';
+    let preview: PreviewLine[] = [];
     const mainUI = {
       getStatus: () => status,
-      getPreview: () => preview,
+      getPreviewLines: () => preview,
     } as unknown as MainTurnUIController;
 
     const display = createDisplay({
@@ -271,7 +271,7 @@ describe('phase 1942 Step B: display 层指纹——相同状态/局部变化/pr
       requestRender,
       setTextCalls,
       setStatus: (s: string) => { status = s; },
-      setPreviewText: (p: string) => { preview = p; },
+      setPreviewText: (p: string) => { preview = p.split('\n').map(text => ({ text, style: 'plain' as const })); },
     };
   }
 

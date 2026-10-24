@@ -17,7 +17,7 @@ describe('MainTurnUIController', () => {
     const mainUI = createMainTurnUI(deps);
 
     mainUI.withScope('main', () => {
-      mainUI.setPreview('hello');
+      mainUI.setPreview({ kind: 'text', text: 'hello', streaming: false });
       mainUI.enterPhase('waiting_llm');
       mainUI.appendToBuffer('world');
     });
@@ -31,7 +31,7 @@ describe('MainTurnUIController', () => {
     const mainUI = createMainTurnUI(deps);
 
     mainUI.withScope('task', () => {
-      mainUI.setPreview('polluted');
+      mainUI.setPreview({ kind: 'text', text: 'polluted', streaming: false });
     });
 
     expect(deps.audit.write).toHaveBeenCalledTimes(1);
@@ -47,7 +47,7 @@ describe('MainTurnUIController', () => {
     const mainUI = createMainTurnUI(deps);
 
     mainUI.withScope('task', () => {
-      mainUI.setPreview('a');
+      mainUI.setPreview({ kind: 'text', text: 'a', streaming: false });
       mainUI.clearPreview();
       mainUI.enterPhase('waiting_llm');
       mainUI.enterPhase('idle');
@@ -74,7 +74,7 @@ describe('MainTurnUIController', () => {
     const mainUI = createMainTurnUI(deps);
 
     mainUI.withScope('system', () => {
-      mainUI.setPreview('system');
+      mainUI.setPreview({ kind: 'text', text: 'system', streaming: false });
     });
 
     expect(deps.audit.write).not.toHaveBeenCalled();
@@ -85,15 +85,15 @@ describe('MainTurnUIController', () => {
     const mainUI = createMainTurnUI(deps);
 
     mainUI.withScope('main', () => {
-      mainUI.setPreview('outer');
+      mainUI.setPreview({ kind: 'text', text: 'outer', streaming: false });
       expect(deps.audit.write).not.toHaveBeenCalled();
 
       mainUI.withScope('task', () => {
-        mainUI.setPreview('inner');
+        mainUI.setPreview({ kind: 'text', text: 'inner', streaming: false });
         expect(deps.audit.write).toHaveBeenCalledTimes(1);
       });
 
-      mainUI.setPreview('outer-again');
+      mainUI.setPreview({ kind: 'text', text: 'outer-again', streaming: false });
       expect(deps.audit.write).toHaveBeenCalledTimes(1);
     });
   });
@@ -109,7 +109,7 @@ describe('MainTurnUIController', () => {
     }).toThrow('boom');
 
     mainUI.withScope('main', () => {
-      mainUI.setPreview('safe');
+      mainUI.setPreview({ kind: 'text', text: 'safe', streaming: false });
     });
     expect(deps.audit.write).not.toHaveBeenCalled();
   });
@@ -136,10 +136,10 @@ describe('MainTurnUIController', () => {
     const mainUI = createMainTurnUI(deps);
 
     mainUI.enterPhase('waiting_llm');
-    mainUI.setPreview('preview text');
+    mainUI.setPreview({ kind: 'text', text: 'preview text', streaming: false });
 
     expect(mainUI.getStatus()).toMatch(/Thinking/);
-    expect(mainUI.getPreview()).toBe('preview text');
+    expect(mainUI.getPreviewLines()).toEqual([{ text: '⏺ preview text', style: 'dim' }]);
   });
 
   // —— 新增：min-dwell 反向防同 tick 塌缩 ——
@@ -282,11 +282,11 @@ describe('MainTurnUIController', () => {
     const updateDisplaySpy = vi.fn();
     const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
     const ui = createMainTurnUI(deps);
-    ui.setPreview('stale');
+    ui.setPreview({ kind: 'text', text: 'stale', streaming: false });
     updateDisplaySpy.mockClear();
     ui.flushStreaming();   // streamingBuffer empty
     expect(updateDisplaySpy).not.toHaveBeenCalled();
-    expect(ui.getPreview()).toBe('stale');
+    expect(ui.getPreviewLines()).toEqual([{ text: '⏺ stale', style: 'dim' }]);
   });
 
   it('flushStreaming 落盘后不写 preview（preview 清理唯一归 clearPreview）', () => {
@@ -294,22 +294,145 @@ describe('MainTurnUIController', () => {
     const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
     const ui = createMainTurnUI(deps);
     ui.appendToBuffer('hello');
-    ui.setPreview('preview-stale');
+    ui.setPreview({ kind: 'text', text: 'preview-stale', streaming: false });
     updateDisplaySpy.mockClear();
     ui.flushStreaming();
     expect(deps.appendOutput).toHaveBeenCalled();
-    expect(ui.getPreview()).toBe('preview-stale');
+    expect(ui.getPreviewLines()).toEqual([{ text: '⏺ preview-stale', style: 'dim' }]);
   });
 
   it('clearPreview 清 preview 并触发 updateDisplay', () => {
     const updateDisplaySpy = vi.fn();
     const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
     const ui = createMainTurnUI(deps);
-    ui.setPreview('x');
+    ui.setPreview({ kind: 'text', text: 'x', streaming: false });
     updateDisplaySpy.mockClear();
     ui.clearPreview();
-    expect(ui.getPreview()).toBe('');
+    expect(ui.getPreviewLines()).toEqual([]);
     expect(updateDisplaySpy).toHaveBeenCalled();
+  });
+
+  // —— phase 1992 Step B: PreviewBlock 唯一 renderer ——
+  describe('phase 1992 Step B: PreviewBlock renderer（首行前缀/续行 2 空格/逐行 style）', () => {
+    it('多行 thinking preview：首行 ⏺ [thinking]、续行 2 空格、全 dim', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.setPreview({ kind: 'thinking', text: 'line1\nline2\nline3' });
+      expect(ui.getPreviewLines()).toEqual([
+        { text: '⏺ [thinking] line1', style: 'dim' },
+        { text: '  line2', style: 'dim' },
+        { text: '  line3', style: 'dim' },
+      ]);
+    });
+
+    it('多行 text preview：首行 ⏺、续行 2 空格、dim；streaming 时行尾带 ▋', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.setPreview({ kind: 'text', text: 'a\nb', streaming: true });
+      // cursor 追加在 buffer 末尾（多行时为最后一行行尾），与旧 prefixLines(buf + '▋') 一致
+      expect(ui.getPreviewLines()).toEqual([
+        { text: '⏺ a', style: 'dim' },
+        { text: '  b▋', style: 'dim' },
+      ]);
+
+      ui.setPreview({ kind: 'text', text: 'a\nb', streaming: false });
+      expect(ui.getPreviewLines()).toEqual([
+        { text: '⏺ a', style: 'dim' },
+        { text: '  b', style: 'dim' },
+      ]);
+    });
+
+    it('多行 send-content preview：➤ 前缀、续行 2 空格、plain（无 dim）', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.setPreview({ kind: 'send-content', text: 'x\ny', streaming: true });
+      expect(ui.getPreviewLines()).toEqual([
+        { text: '➤ x', style: 'plain' },
+        { text: '  y▋', style: 'plain' },
+      ]);
+    });
+
+    it('thinking compact 模式：单行 [thinking] (...) dim', () => {
+      const deps = makeDeps();
+      deps.getThinkingMode.mockReturnValue('compact');
+      const ui = createMainTurnUI(deps);
+      ui.setPreview({ kind: 'thinking', text: 'some   long\nthinking body' });
+      expect(ui.getPreviewLines()).toEqual([
+        { text: '[thinking] (some long thinking body)', style: 'dim' },
+      ]);
+    });
+
+    it('thinking off 模式：不显示 preview（空 lines）', () => {
+      const deps = makeDeps();
+      deps.getThinkingMode.mockReturnValue('off');
+      const ui = createMainTurnUI(deps);
+      ui.setPreview({ kind: 'thinking', text: 'hidden' });
+      expect(ui.getPreviewLines()).toEqual([]);
+    });
+
+    it('clearPreview 清空 block 与 lines', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.setPreview({ kind: 'thinking', text: 't' });
+      ui.clearPreview();
+      expect(ui.getPreviewLines()).toEqual([]);
+    });
+  });
+
+  // —— phase 1992 Step C: final flush 复用同一 renderer ——
+  describe('phase 1992 Step C: final flush（与 preview 同 renderer，▋ 不进最终输出）', () => {
+    it('flushThinking 单行：⏺ [thinking] 前缀 + dim color', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.appendToThinking('single thought');
+      ui.flushThinking();
+      expect(deps.appendOutput).toHaveBeenCalledWith('\x1b[2m', '⏺ [thinking] single thought', true, '  ');
+    });
+
+    it('flushThinking 多行：首行前缀、续行 2 空格（与 preview 视觉一致）', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.appendToThinking('line1\nline2');
+      ui.flushThinking();
+      expect(deps.appendOutput).toHaveBeenCalledWith(
+        '\x1b[2m', '⏺ [thinking] line1\n  line2', true, '  ',
+      );
+    });
+
+    it('flushStreaming 多行 text：⏺ 前缀、续行 2 空格、dim', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.appendToBuffer('a\nb');
+      ui.flushStreaming();
+      expect(deps.appendOutput).toHaveBeenCalledWith('\x1b[2m', '⏺ a\n  b', true, '  ');
+    });
+
+    it('flushStreamingNormal 多行 send-content：➤ 前缀、续行 2 空格、plain（无 color）', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.appendToBuffer('x\ny');
+      ui.flushStreamingNormal();
+      expect(deps.appendOutput).toHaveBeenCalledWith('', '➤ x\n  y', true, '  ');
+    });
+
+    it('▋ 不进入最终输出（flush 用 streaming:false 渲染）', () => {
+      const deps = makeDeps();
+      const ui = createMainTurnUI(deps);
+      ui.appendToBuffer('final text');
+      ui.setPreview({ kind: 'text', text: 'final text▋', streaming: true });
+      ui.flushStreaming();
+      const [, text] = (deps.appendOutput as any).mock.calls.at(-1);
+      expect(text).not.toContain('▋');
+      expect(text).toBe('⏺ final text');
+    });
+
+    it('trimOutputNewlines=false 时保留首尾空白', () => {
+      const deps = { ...makeDeps(), trimOutputNewlines: false };
+      const ui = createMainTurnUI(deps);
+      ui.appendToBuffer('  padded  ');
+      ui.flushStreaming();
+      expect(deps.appendOutput).toHaveBeenCalledWith('\x1b[2m', '⏺   padded  ', true, '  ');
+    });
   });
 
   // —— phase 899: 3-cycle + MIN_DWELL_MS boundary ——

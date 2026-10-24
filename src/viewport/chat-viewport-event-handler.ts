@@ -18,11 +18,9 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
-import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import { type TaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../core/async-task-system/index.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
-import {  prefixLines  } from './terminal-text.js';
 import { formatIsoClock } from './time.js';
 import { formatRecoveryErrorClass } from './recovery-display.js';
 
@@ -73,15 +71,13 @@ interface ObservabilityRole {
   observability: ReturnType<typeof createViewportObservability>;
 }
 
-interface ThinkingConfigRole {
-  getThinkingMode: () => ThinkingMode;
-}
-
 interface PendingResolutionRole {
   resolvePending: (count: number) => void;
 }
 
-export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilterRole & TaskWatchRole & ObservabilityRole & ThinkingConfigRole & PendingResolutionRole;
+// Phase 1992: thinking display mode 归 MainTurnUI 消费（deps.getThinkingMode），
+// event handler 只发语义 block、不读 mode、不构造 ANSI。
+export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilterRole & TaskWatchRole & ObservabilityRole & PendingResolutionRole;
 
 export function createEventHandler(deps: EventHandlerDeps) {
   // phase 1277: 连续失败序列中 ALL_FAILED 只报第一次；成功 turn（turn_end）重置。
@@ -122,13 +118,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'thinking_delta': {
         deps.mainUI.enterPhase('waiting_llm');   // idempotent — spinner 继续转
         const thinkingBuf = deps.mainUI.appendToThinking(event.delta);
-        if (deps.getThinkingMode() === 'full') {
-          const prefix = '⏺ [thinking] ';
-          deps.mainUI.setPreview('\x1b[2m' + prefix + thinkingBuf + '\x1b[0m');
-        } else if (deps.getThinkingMode() === 'compact') {
-          const snippet = thinkingBuf.replace(/\s+/g, ' ').trim().slice(-60);
-          deps.mainUI.setPreview('\x1b[2m[thinking] (' + snippet + ')\x1b[0m');
-        }
+        // Phase 1992: 语义 block 直发；mode 判断/缩进/dim 全归 MainTurnUI renderer
+        deps.mainUI.setPreview({ kind: 'thinking', text: thinkingBuf });
         break;
       }
 
@@ -136,8 +127,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushThinking();
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta);
-        const previewText = prefixLines(streamBuf + '▋', '⏺ ', '  ');
-        deps.mainUI.setPreview('\x1b[2m' + previewText + '\x1b[0m');
+        deps.mainUI.setPreview({ kind: 'text', text: streamBuf, streaming: true });
         break;
       }
 
@@ -146,8 +136,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const streamBuf = deps.mainUI.appendToBuffer('');
         if (!streamBuf) break;
         const clean = streamBuf.endsWith('▋') ? streamBuf.slice(0, -1) : streamBuf;
-        const previewText = prefixLines(clean, '⏺ ', '  ');
-        deps.mainUI.setPreview('\x1b[2m' + previewText + '\x1b[0m');
+        deps.mainUI.setPreview({ kind: 'text', text: clean, streaming: false });
         break;
       }
 
@@ -158,8 +147,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         // stream; the accumulated buffer is flushed once at send_content_end.
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta);
-        const previewText = prefixLines(streamBuf + '▋', '➤ ', '  ');
-        deps.mainUI.setPreview(previewText);
+        deps.mainUI.setPreview({ kind: 'send-content', text: streamBuf, streaming: true });
         break;
       }
 

@@ -10,7 +10,7 @@ const OUTPUT_LINES_CAP = 5000;
 
 import {  wrapLine, fitLine  } from './terminal-text.js';
 import {  DEFAULT_TERMINAL_WIDTH, DEFAULT_TERMINAL_HEIGHT  } from './terminal-text.js';
-import type { MainTurnUIController } from './main-turn-ui.js';
+import type { MainTurnUIController, PreviewLine } from './main-turn-ui.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import type { ClawTrack } from './chat-viewport-claw-line.js';
 import type { DescriptorSink, RenderDescriptor } from './viewport-render-descriptor.js';
@@ -81,10 +81,15 @@ export function createDisplay(deps: DisplayDeps) {
     }
 
     const currentStatus = deps.mainUI ? deps.mainUI.getStatus() : '';
-    const currentPreview = deps.mainUI ? deps.mainUI.getPreview() : '';
+    // Phase 1992: Display 是唯一终端适配器——只消费 PreviewLine[]（text 已含缩进、
+    // style 是语义 token），负责折行 + 逐行 ANSI，不解析裸 ANSI 字符串。
+    const currentPreviewLines: readonly PreviewLine[] = deps.mainUI ? deps.mainUI.getPreviewLines() : [];
     // phase 1200: preview 需要 hangIndent（自动换行时保持缩进），status 不需要
     const statusLines = currentStatus ? currentStatus.split('\n').flatMap(line => wrapLine(line, cols)) : [];
-    const previewLines = currentPreview ? currentPreview.split('\n').flatMap(line => wrapLine(line, cols, PREVIEW_HANG_INDENT)) : [];
+    const previewLines = currentPreviewLines.flatMap(line =>
+      wrapLine(line.text, cols, PREVIEW_HANG_INDENT)
+        .map(text => line.style === 'dim' ? `\x1b[2m${text}\x1b[0m` : text),
+    );
     // phase 1942 Step C: 临时后缀（status + preview）按终端高度有界化。
     // 预算在 status 与 preview 合并后计算：slice(-budget) 保留最新可见尾部，
     // 只裁剪当前不可见的临时内容（永久 outputLines 不截断、不移动）。

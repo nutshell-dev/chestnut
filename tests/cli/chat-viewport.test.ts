@@ -242,20 +242,21 @@ describe('chat-viewport Phase 72', () => {
 
     it('flushStreaming 传 hangIndent 到 appendOutput', () => {
       const flushMatch = sourceCode.match(
-        /const flushStreaming[\s\S]{0,700}?appendOutput\([^)]+\)/
+        /const flushStreaming[\s\S]{0,700}?appendOutput\((?:[^()]|\([^()]*\))*\)/
       );
       // 经过 prefixLines 提取后，hangIndent 直接传 '  ' 字面量，不再经过 indent 变量
-      expect(flushMatch![0]).toMatch(/appendOutput\([^)]*'  '\)/);
+      expect(flushMatch![0]).toMatch(/appendOutput\([\s\S]{0,80}'  '\)/);
     });
 
-    it('flushThinking 用 prefixLines 统一缩进', () => {
+    it('flushThinking 与 preview 共用 renderer（phase 1992：source-scan 由行为测试替代）', () => {
+      // 旧断言扫描 prefixLines(content, 已删除；flush 行为由
+      // main-turn-ui-controller.test.ts 的 phase 1992 Step C 用例锁定。
       const flushMatch = sourceCode.match(
-        /const flushThinking[\s\S]{0,500}?appendOutput\([^)]+\)/
+        /const flushThinking[\s\S]{0,700}?appendOutput\((?:[^()]|\([^()]*\))*\)/
       );
-      // phase 1245: flushThinking 改用 prefixLines，与 flushStreaming/flushStreamingNormal 一致
-      const actual = flushMatch![0];
-      expect(actual).toContain('prefixLines(content,');
-      expect(actual).toMatch(/appendOutput\([^)]*'  '\)/);
+      expect(flushMatch).toBeTruthy();
+      expect(flushMatch![0]).toContain('formatPreviewBlock');
+      expect(flushMatch![0]).toMatch(/appendOutput\([\s\S]{0,80}'  '\)/);
     });
   });
 
@@ -292,18 +293,8 @@ describe('chat-viewport Phase 72', () => {
     });
   });
 
-  describe('Phase 91 step7: thinking_delta 不再拆分多行', () => {
-    it('thinking_delta 直接用 prefix + buffer，不用 split/map 缩进', () => {
-      const eventHandlerCode = fs.readFileSync(eventHandlerPath, 'utf-8');
-      const tdStart = eventHandlerCode.indexOf("case 'thinking_delta':");
-      expect(tdStart).toBeGreaterThan(-1);
-      const tdEnd = eventHandlerCode.indexOf('break;', tdStart);
-      expect(tdEnd).toBeGreaterThan(-1);
-      const tdSection = eventHandlerCode.slice(tdStart, tdEnd + 6);
-      expect(tdSection).toContain("prefix + thinkingBuf");
-      expect(tdSection).not.toContain('.split(');
-    });
-  });
+  // Phase 1992: 旧 thinking_delta「不拆分多行」source-scan 已删除，
+  // 由 main-turn-ui-controller 的 PreviewBlock renderer 行为测试替代。
 
   describe('Phase 164 Step 8: cleanup 时序', () => {
     it('cleanup 块内 mainUI.enterPhase(idle) 在 observability.recordShutdown 之前', () => {
@@ -525,7 +516,6 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
       taskStatusBar: { addTrack: () => {}, addMigratedExec: () => {}, removeMigratedExec: () => {} },
       audit: { write: (...args: unknown[]) => { auditWrites.push(args); } },
       observability: { recordEvent: () => {} },
-      getThinkingMode: () => 'off',
       resolvePending: () => {},
     };
     return { deps, lines, auditWrites };
@@ -749,5 +739,38 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     // Now the stream accumulates in the buffer and flushes once on end.
     expect(flushStreaming).not.toHaveBeenCalled();
     expect(flushStreamingNormal).toHaveBeenCalledTimes(1);
+  });
+
+  // Phase 1992 Step B: event handler 只发语义 block（{kind, text, streaming}），
+  // 不构造 ANSI、不读 thinking mode——替代旧 Phase 91 source-scan。
+  it('Phase 1992: stream 事件映射为语义 PreviewBlock（行为断言替 source-scan）', async () => {
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
+    const { deps } = makeHandlerDeps();
+    const previews: unknown[] = [];
+    const thinkingBufs: string[] = [];
+    (deps.mainUI as any).setPreview = (b: unknown) => previews.push(b);
+    (deps.mainUI as any).appendToThinking = (s: string) => {
+      thinkingBufs.push(s);
+      return thinkingBufs.join('');
+    };
+    (deps.mainUI as any).appendToBuffer = (s: string) => s === '' ? 'final' : s;
+    const handle = createEventHandler(deps as any);
+
+    handle({ type: 'thinking_delta', delta: 'think\nmore' });
+    expect(previews.at(-1)).toEqual({ kind: 'thinking', text: 'think\nmore' });
+
+    handle({ type: 'text_delta', delta: 'chunk' });
+    expect(previews.at(-1)).toEqual({ kind: 'text', text: 'chunk', streaming: true });
+
+    handle({ type: 'text_end' });
+    expect(previews.at(-1)).toEqual({ kind: 'text', text: 'final', streaming: false });
+
+    handle({ type: 'send_content_delta', delta: 'payload' });
+    expect(previews.at(-1)).toEqual({ kind: 'send-content', text: 'payload', streaming: true });
+
+    // 语义 block 不含 ANSI（handler 不构造样式）
+    for (const p of previews) {
+      expect(JSON.stringify(p)).not.toContain('\x1b');
+    }
   });
 });
