@@ -31,5 +31,6 @@ import { resolveClawLocation } from './location.js';
  * 构造；本函数只解析位置。
  */
 export function resolveClawDaemonDir(clawId: ClawId): DaemonDir {
-  return makeDaemonDirFromLocation({ kind: 'local', clawDir: resolveClawLocation(clawId).clawDir });
+  const clawDir = resolveClawLocation(clawId).clawDir;
+  return makeDaemonDirFromLocation({ kind: 'local', clawDir });
 }

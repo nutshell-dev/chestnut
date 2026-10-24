@@ -39,6 +39,8 @@ const VI_MOCK_FILES = [
   // 'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
   'tests/cli/chat-viewport-stream-reader-start-fail.test.ts',
   'tests/cli/claw-chat-ensure-running.test.ts',  // phase 1936 Step C: vi.mock viewport barrel + process-manager barrel
+  'tests/cli/claw-motion-gates.test.ts',  // phase 1986 Step H: vi.mock process-manager barrel + viewport barrel
+  'tests/cli/claw-motion-routing.test.ts',  // phase 1986 Step H: vi.mock stream/process-manager/process-exec/assembly 边界
   // phase 102 (SHA fb9764d0): LockContext + VerificationContext DI 替 vi.mock pattern。
   // 'tests/core/contract/lock-retry-jitter.test.ts',
   'tests/cli/claw-send-confinement.test.ts',
