@@ -446,13 +446,15 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
 
   it('持续 chunk 总时长超过 provider timeoutMs、间隔 < idleMs → 成功，无 idle 事件（缺陷回归）', async () => {
     const { sink, emitted } = createMockSink();
-    // 首帧 20ms（< provider timeoutMs=800 握手上限）；随后每 1000ms 一帧，
-    // chunk 间隔 < streamIdleTimeoutMs=4000，但总时长 ~2s > timeoutMs=800。
-    // 旧行为：adapter 内部 800ms 总时长 timer 在流中段误 abort → stream_reset/恢复循环。
-    // （时序边距按全量并行负载加宽，防 CI 调度抖动）
+    // phase 1988：首帧同步（syncFirst）消除首个 timer 依赖；随后每 1600ms 一帧，
+    // 总时长 ~3.2s > provider timeoutMs=3000，帧间隔 1.6s < streamIdleTimeoutMs=15000。
+    // 为什么放大：该用例在 fast project 全量高并发下 N=3 超时（phase 1960 N=2 +
+    // 2026-10-24 phase 1986 复现）；infra（maxWorkers:1）+ 3s provider 窗 + 15s
+    // 握手窗给调度留足余量，语义（总时长 > timeout、间隔 < idle）与断言不变。
+    // 旧行为：adapter 内部总时长 timer 在流中段误 abort → stream_reset/恢复循环。
     // phase 1965 Step C：首帧同步入队，握手窗不再被满载下的 timer 调度延迟消耗
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_u: string, init: RequestInit) =>
-      dripSseResponse(openaiSse(dripFrames()), [20, 1000, 1000, 5], init.signal ?? undefined, true)));
+      dripSseResponse(openaiSse(dripFrames()), [20, 1600, 1600, 5], init.signal ?? undefined, true)));
 
     const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
@@ -460,10 +462,10 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       retryDelayMs: 0,
       events: sink,
     });
-    (service as any).primary = realPrimaryAdapter(800);
+    (service as any).primary = realPrimaryAdapter(3000);
 
     const chunks: LLMStreamChunk[] = [];
-    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 4000 })) {
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 15000 })) {
       chunks.push(chunk);
     }
 

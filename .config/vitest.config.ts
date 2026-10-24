@@ -324,6 +324,9 @@ const INTEGRATION_IO_FILES = [
  */
 const INFRA_FILES = [
   'tests/utils/run-root-teardown-integration.test.ts',
+  // phase 1988: 真实 timer + 握手窗敏感；fast isolate:false 全量并发下 N=3 flake；
+  // 归 infra（isolate + maxWorkers:1 + 60s）隔离负载。
+  'tests/foundation/llm-orchestrator/stream-idle-probe.test.ts',
 ];
 
 /**
