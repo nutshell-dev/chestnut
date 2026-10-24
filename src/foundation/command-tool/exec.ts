@@ -19,6 +19,7 @@ import {
   EXEC_OVERFLOW_DIR_NAME,
   EXEC_COMMAND_PLACEHOLDER_CHARS,
 } from './constants.js';
+import { CALLER_AGENT_ID_ENV } from './env.js';
 
 import { exec, execWithHandle } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
@@ -90,9 +91,14 @@ function resolveExecArgs(
     : ctx.workspaceDir;
   const timeoutMs = toSafeNumber(args.timeoutMs);
   const deadlineAtMs = toSafeNumber(args.deadlineAtMs);
-  const env = ctx.subagentTaskId
-    ? { ...process.env, CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId }
-    : undefined;
+  // phase 1986 Step G：每次 exec 注入调用者 agent 身份（主代理=claw id，子代理=task id）。
+  // 主代理路径从「默认继承」变为「显式 spread 父进程 env + marker」，语义等价、仅多一个变量；
+  // 既有 CHESTNUT_SUBAGENT_TASK_ID 行为保留。
+  const env: Record<string, string> = {
+    ...process.env,
+    [CALLER_AGENT_ID_ENV]: ctx.clawId,
+    ...(ctx.subagentTaskId ? { CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId } : {}),
+  };
   return {
     command: args.command,
     cwd,

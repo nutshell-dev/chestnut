@@ -7,6 +7,10 @@ if (!process.env.CHESTNUT_ROOT) {
   process.env.CHESTNUT_ROOT = process.cwd();
 }
 
+import { captureCliCallerIdentity, registerMotionCliGuard } from './motion-cli-guard.js';
+// phase 1986 Step G：argv 解析前 capture 调用者身份并删除 env（spawn 的 daemon/watchdog 不继承）
+captureCliCallerIdentity();
+
 import { program, Help } from 'commander';
 import { CliError } from './errors.js';
 import { cliAction, cliDeferredRequiredAction, type EnsureSupervision, type SupervisionPolicy } from './supervision-policy.js';
@@ -99,6 +103,9 @@ program
       cmd.name() === 'claw' ? cmd.name() : defaultSubcommandTerm(cmd),
   });
 }
+
+// phase 1986 Step G：motion CLI 调用者守卫——全局 preAction 钩子，早于一切 action/supervision/audit
+registerMotionCliGuard(program);
 
 // config command
 program.addCommand(createConfigCommand({ fsFactory, rootConfig }));

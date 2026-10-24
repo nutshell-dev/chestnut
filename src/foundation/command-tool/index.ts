@@ -17,6 +17,8 @@
 
 export { TASKS_SYNC_EXEC_DIR } from './constants.js';
 
+export { CALLER_AGENT_ID_ENV } from './env.js';
+
 export { createCommandTools } from './exec.js';
 
 export { createExecWithHandle } from './exec.js';
