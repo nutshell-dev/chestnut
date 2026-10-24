@@ -237,6 +237,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     await controller.observe({
       activeContractId: CONTRACT_ID,
       lastActivityAt,
+      lastToolCallAt: 0,
       turnInFlight: false,
       retryInFlight: false,
       asyncTaskInFlight: false,
@@ -245,6 +246,8 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     expect(files).toHaveLength(1);
     const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, files[0]!), 'utf8'));
     // phase 1845: M01/stalled-contract 移交新语义，现场完整 literal 断言（不经模板生成）
+    // phase 1989：预置 attempts=1 → 登记 attempt=2，正文为连续第 2 次形态
+    // （第 1 次 golden 不变，见 execution-recovery-semantics.test.ts）
     const takenOver = expectCasesExceptRedesigned('M01', [{
       case: 'stalled-contract',
       body: msg.content,
@@ -253,8 +256,9 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     expect(takenOver).toEqual([{
       case: 'stalled-contract',
       body:
-        '系统在检查时发现契约 1700000000000-abcd 仍活跃，且一段时间未观察到新的执行活动。'
-        + '本消息用于唤醒你继续该契约尚未完成的工作。',
+        '系统在检查时发现契约 1700000000000-abcd 仍活跃。'
+        + '这是连续第 2 次提醒（前 1 次提醒后未观察到任何工具调用）。'
+        + '仅输出思考或文本不会推进契约；请立即调用工具执行该契约未完成的工作。',
       envelope: { type: 'execution_recovery', from: 'claw-1', to: '', priority: 'high' },
     }]);
     // Phase 1842 额外断言（不进 golden）：义务经 owner 证实后 confirmed，

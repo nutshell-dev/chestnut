@@ -14,6 +14,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
+import { executionRecoveryMessage } from '../../../src/templates/messages/index.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import {
   EXECUTION_RECOVERY_DELIVERY_META_KEY,
@@ -59,14 +60,14 @@ describe('EventLoop 重复提醒合并 (phase 1869 Step C)', () => {
   function recoveryMessage(
     id: string,
     contractId: string,
-    opts: { from?: string; timestampMs?: number; deliveryId?: string } = {},
+    opts: { from?: string; timestampMs?: number; deliveryId?: string; content?: string } = {},
   ): InboxMessage {
     return {
       id,
       type: 'execution_recovery',
       from: opts.from ?? 'test-claw',
       to: '',
-      content: `reminder ${id}`,
+      content: opts.content ?? `reminder ${id}`,
       priority: 'high',
       timestamp: new Date(opts.timestampMs ?? Date.now()).toISOString(),
       metadata: {
@@ -247,6 +248,37 @@ describe('EventLoop 重复提醒合并 (phase 1869 Step C)', () => {
     );
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'duplicate_merged');
     expect(mergeAudits(audit)).toHaveLength(1);
+  });
+
+  it('phase 1989 Step D：不同正文（attempt 1 vs 2）、同契约——仍按 contract_id/delivery id 合并，正文不参与匹配', async () => {
+    // 用真实模板生成两次不同正文（phase 1989 Step C：N≥2 正文带次数）
+    const obligationId = 'execution_recovery-obligation';
+    seedRecoveryRecord('c-1', obligationId);
+    const messages = [
+      recoveryMessage('attempt-1-msg', 'c-1', {
+        timestampMs: 1000,
+        content: executionRecoveryMessage('c-1', 1),
+      }),
+      recoveryMessage('attempt-2-msg', 'c-1', {
+        timestampMs: 2000,
+        deliveryId: obligationId,
+        content: executionRecoveryMessage('c-1', 2),
+      }),
+    ];
+    expect(messages[0].content).not.toBe(messages[1].content);
+    const { loop, audit, formatPreparedInbox, ackHandles } = makeLoop(messages, { withRecoveryDeps: true });
+
+    await loop.run();
+
+    // keeper = 当前 delivery obligation（attempt-2-msg），不是按正文或最新以外的规则
+    const formatted = formatPreparedInbox.mock.calls[0][0] as { entries: Array<{ message: InboxMessage }> };
+    expect(formatted.entries.map(e => e.message.id)).toEqual(['attempt-2-msg']);
+    expect(formatted.entries[0].message.content).toBe(executionRecoveryMessage('c-1', 2));
+    expect(ackHandles).toHaveBeenCalledWith(['handle-0'], 'duplicate_merged');
+    const merges = mergeAudits(audit);
+    expect(merges).toHaveLength(1);
+    expect(colOf(merges[0], 'merged_id')).toBe('attempt-1-msg');
+    expect(colOf(merges[0], 'kept_id')).toBe('attempt-2-msg');
   });
 
   it('单条提醒（每组唯一）不做任何合并处置', async () => {

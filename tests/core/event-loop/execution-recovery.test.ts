@@ -681,6 +681,47 @@ describe('execution-recovery controller', () => {
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
       expect(pendingResumeCalls).toEqual([CONTRACT_ID]);
       expectPendingCheckAudit(true, 'old-reminder-1', 1);
+      // Phase 1989 Step D：record 缺失时 record_delivery_id 显式 none，不伪造 id
+      const hit = audit.entries.find(e =>
+        e.some(col => String(col) === 'context=executionRecoveryPendingCheck'));
+      expect(hit!.some(col => String(col) === 'record_delivery_id=none')).toBe(true);
+    });
+
+    it('既有 confirmed 义务 + pending 未消费：审计 record_delivery_id 携带当前 obligation id（证明抑制的是同一条上一条，Phase 1989 Step D）', async () => {
+      const { store, controller } = makeController();
+      const scheduledAt = BASE_NOW - 2 * TIMEOUT_MS;
+      store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+        attempts: 1,
+        lastAttemptAt: scheduledAt,
+        delivery: {
+          kind: 'confirmed',
+          id: 'execution_recovery-prev',
+          attempt: 1,
+          scheduledAt,
+          body: 'prev body',
+          confirmedAt: scheduledAt,
+        },
+      });
+      // 窗口到期（自 confirmedAt 起算）但上一条仍未消费 → 不登记新 attempt
+      nextPendingResume = { kind: 'present', messageId: 'execution_recovery-prev', count: 1 };
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(0);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+      const hit = audit.entries.find(e =>
+        e.some(col => String(col) === 'context=executionRecoveryPendingCheck'));
+      expect(hit!.some(col => String(col) === 'reason=pending_reminder_exists')).toBe(true);
+      expect(hit!.some(col => String(col) === 'record_delivery_id=execution_recovery-prev')).toBe(true);
+
+      // 上一条进入 done（查询变 absent）→ 下一到期窗口允许新 attempt
+      nextPendingResume = { kind: 'absent' };
+      currentNow += TIMEOUT_MS;
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(1);
+      expect(resumeCalls[0].delivery.attempt).toBe(2);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(2);
     });
 
     it('既有 record（窗口到期）且 pending 已有同契约提醒：原 record 字节不变、attempt 不增、不生成新 ID', async () => {

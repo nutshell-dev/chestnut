@@ -719,6 +719,9 @@ export function createExecutionRecoveryController(
           `message_id=${pendingResume.messageId}`,
           // Phase 1869 (Step C): 命中总数（pending + inflight）——积压规模可观察。
           `count=${pendingResume.count}`,
+          // Phase 1989 (Step D): 当前 obligation id 入审计——证明抑制的是同一条
+          // 「上一条」；record 缺失时显式 none，不伪造 id。
+          `record_delivery_id=${record?.delivery?.id ?? 'none'}`,
         );
         return;
       }
