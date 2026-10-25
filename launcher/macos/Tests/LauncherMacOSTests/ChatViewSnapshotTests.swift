@@ -193,6 +193,69 @@ final class ChatViewSnapshotTests: XCTestCase {
     private func countSubviews<T: NSView>(_ type: T.Type, in view: NSView) -> Int {
         (view is T ? 1 : 0) + view.subviews.reduce(0) { $0 + countSubviews(type, in: $1) }
     }
+
+    // MARK: phase 2001 活动行结构断言
+
+    private func activityEnvelope(_ seq: Int, _ phase: String, label: String? = nil) -> LauncherEnvelope {
+        var payload: [String: JSONValue] = ["phase": .string(phase)]
+        if let label { payload["label"] = .string(label) }
+        return LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: seq, sessionId: "s1", kind: .activity, payload: .object(payload)
+        )
+    }
+
+    /// 活动行占位：idle 态无 spinner（composer 非 sending 也无），活动到达后出现且只有一个
+    /// （活动行 spinner），活动终止后撤销——活动行不进回复滚动区。
+    func testActivityBarAppearsAndDismissesWithActivityState() async {
+        let stream = ScriptedStreamClient(scripts: [.init(envelopes: [
+            activityEnvelope(1, "processing", label: "thinking"),
+        ])])
+        let store = ChatStore(send: MockSendClient(), stream: stream)
+        store.startStream()
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertEqual(store.activity, .processing(label: "thinking", detail: nil))
+        XCTAssertEqual(
+            countSubviews(NSProgressIndicator.self, in: hosting), 1,
+            "活动态必须渲染且只渲染一个活动行 spinner"
+        )
+    }
+
+    /// idle 活动（turn 终止）撤销活动行：spinner 消失。
+    func testActivityBarDisappearsAfterIdleActivity() async {
+        let stream = ScriptedStreamClient(scripts: [.init(envelopes: [
+            activityEnvelope(1, "processing", label: "tool"),
+            activityEnvelope(2, "idle"),
+        ])])
+        let store = ChatStore(send: MockSendClient(), stream: stream)
+        store.startStream()
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertEqual(store.activity, .idle)
+        XCTAssertEqual(
+            countSubviews(NSProgressIndicator.self, in: hosting), 0,
+            "活动终止后活动行必须撤销（不占高度、无 spinner）"
+        )
+    }
+
+    /// 发送即占位：send ack 完成后（waiting）活动行已可见——不等首个 stream 事件。
+    func testActivityBarAppearsImmediatelyAfterSend() async {
+        let stream = ScriptedStreamClient(scripts: [])
+        let store = ChatStore(send: MockSendClient(), stream: stream, makeRequestId: { "req-1" })
+        store.updateDraft("你好")
+        await store.submit()
+        XCTAssertEqual(store.activity, .waiting)
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertEqual(
+            countSubviews(NSProgressIndicator.self, in: hosting), 1,
+            "send 完成后等待 Motion 期间活动行必须可见"
+        )
+    }
 }
 
 @MainActor

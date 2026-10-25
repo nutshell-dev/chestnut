@@ -44,6 +44,8 @@ extension JSONValue {
 public struct LauncherEnvelope: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case event
+        /// Motion 活动行状态（phase 2001，v1 additive）。
+        case activity
         case ack
         case error
         case terminal
@@ -83,6 +85,7 @@ extension LauncherEnvelope: Decodable {
         let kind: Kind
         switch rawKind {
         case "event": kind = .event
+        case "activity": kind = .activity
         case "ack": kind = .ack
         case "error": kind = .error
         case "terminal": kind = .terminal
@@ -127,6 +130,30 @@ public struct JsonlWireDecoder: Sendable {
             )
         }
         return envelope
+    }
+}
+
+/// kind=activity 的展示载荷（phase 2001）：Motion 活动行状态，只含 phase/短标签/安全摘要。
+public struct ActivityPayload: Equatable, Sendable {
+    public enum Phase: String, Equatable, Sendable {
+        case processing
+        case responding
+        case idle
+    }
+
+    public let phase: Phase
+    public let label: String?
+    public let detail: String?
+    public let traceId: String?
+
+    /// 未知/缺失 phase 不解析（返回 nil，事件只推进 sequence 不产生活动变更）。
+    public init?(payload: JSONValue) {
+        guard let rawPhase = payload["phase"]?.stringValue,
+              let phase = Phase(rawValue: rawPhase) else { return nil }
+        self.phase = phase
+        self.label = payload["label"]?.stringValue
+        self.detail = payload["detail"]?.stringValue
+        self.traceId = payload["traceId"]?.stringValue
     }
 }
 

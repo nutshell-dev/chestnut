@@ -176,7 +176,7 @@ describe('stream launcher.v1 envelope', () => {
     vi.restoreAllMocks();
   });
 
-  it('send_content_delta 同 trace 累积快照：同 messageId、sequence 连号；text_delta（LLM 裸文本）与其余事件不转发', async () => {
+  it('send_content_delta 同 trace 累积快照：同 messageId、sequence 连号；text_delta（LLM 裸文本）只产生活动摘要、不产生消息事件', async () => {
     await streamCommand(commandDeps, 'test-claw');
     const emit = streamMocks.onEvent!;
     emit({ ts: 1, type: 'turn_start', sources: [] });
@@ -187,19 +187,25 @@ describe('stream launcher.v1 envelope', () => {
     emit({ ts: 6, type: 'send_content_delta', delta: '呀', trace_id: 'r1' });
 
     const envelopes = stdoutEnvelopes();
-    expect(envelopes).toHaveLength(3);
-    expect(envelopes.map(e => e.sequence)).toEqual([1, 2, 3]);
+    // phase 2002：turn_start → activity(processing)；text_delta → activity(processing/text 摘要)；
+    // 首个 send delta → activity(responding)（去抖后一次）+ 3 条消息 event
+    expect(envelopes).toHaveLength(6);
+    expect(envelopes.map(e => e.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
     for (const e of envelopes) {
       expect(e.protocolVersion).toBe('chestnut.launcher.v1');
-      expect(e.kind).toBe('event');
       expect(e.sessionId).toBe(envelopes[0].sessionId);
     }
-    expect(envelopes[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你' });
-    expect(envelopes[1].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好' });
-    expect(envelopes[2].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好呀' });
+    expect(envelopes[0]).toMatchObject({ kind: 'activity', payload: { phase: 'processing', label: 'turn' } });
+    expect(envelopes[1]).toMatchObject({ kind: 'activity', payload: { phase: 'processing', label: 'text', detail: '内部思考', traceId: 't1' } });
+    expect(envelopes[2]).toMatchObject({ kind: 'activity', payload: { phase: 'responding', traceId: 'r1' } });
+    const events = envelopes.filter(e => e.kind === 'event');
+    expect(events).toHaveLength(3); // text_delta 不产生消息事件
+    expect(events[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你' });
+    expect(events[1].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好' });
+    expect(events[2].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好呀' });
   });
 
-  it('send_content_delta 映射为 reply- 前缀消息；trace 切换开新消息', async () => {
+  it('send_content_delta 映射为 reply- 前缀消息；trace 切换开新消息；同 trace responding 去抖、跨 trace 放行', async () => {
     await streamCommand(commandDeps, 'test-claw');
     const emit = streamMocks.onEvent!;
     emit({ ts: 1, type: 'send_content_delta', delta: '收到', trace_id: 'r1' });
@@ -207,10 +213,71 @@ describe('stream launcher.v1 envelope', () => {
     emit({ ts: 3, type: 'send_content_delta', delta: '新消息', trace_id: 'r2' });
 
     const envelopes = stdoutEnvelopes();
-    expect(envelopes).toHaveLength(3);
-    expect(envelopes[0].payload.messageId).toBe('reply-r1');
-    expect(envelopes[1].payload).toMatchObject({ messageId: 'reply-r1', text: '收到，处理中' });
-    expect(envelopes[2].payload).toMatchObject({ messageId: 'reply-r2', text: '新消息' });
+    expect(envelopes).toHaveLength(5);
+    const activities = envelopes.filter(e => e.kind === 'activity');
+    // phase 2002：traceId 计入去抖 key——r1 连续 delta 去抖一次；r2 是新 send 块，状态变化放行
+    expect(activities).toHaveLength(2);
+    expect(activities[0].payload).toMatchObject({ phase: 'responding', traceId: 'r1' });
+    expect(activities[1].payload).toMatchObject({ phase: 'responding', traceId: 'r2' });
+    const events = envelopes.filter(e => e.kind === 'event');
+    expect(events[0].payload.messageId).toBe('reply-r1');
+    expect(events[1].payload).toMatchObject({ messageId: 'reply-r1', text: '收到，处理中' });
+    expect(events[2].payload).toMatchObject({ messageId: 'reply-r2', text: '新消息' });
+  });
+
+  it('activity 生命周期：processing(累计摘要)→responding→send_content_end 不清除→turn_end 才 idle', async () => {
+    await streamCommand(commandDeps, 'test-claw');
+    const emit = streamMocks.onEvent!;
+    emit({ ts: 1, type: 'turn_start', sources: [] });
+    emit({ ts: 2, type: 'thinking_delta', delta: '先想\n第一步', trace_id: 't1' });
+    emit({ ts: 3, type: 'thinking_delta', delta: '再验证', trace_id: 't1' });
+    emit({ ts: 4, type: 'tool_call', name: 'search', tool_use_id: 'tu1', trace_id: 't1' });
+    emit({ ts: 5, type: 'tool_use_input', name: 'search', tool_use_id: 'tu1', input: { query: '不应泄漏的完整参数' }, trace_id: 't1' });
+    emit({ ts: 6, type: 'tool_result', name: 'search', tool_use_id: 'tu1', success: true, summary: 'ok', step: 1, maxSteps: 10, trace_id: 't1' });
+    emit({ ts: 7, type: 'send_content_delta', delta: '收到', trace_id: 'r1' });
+    emit({ ts: 8, type: 'send_content_end', trace_id: 'r1' });
+    emit({ ts: 9, type: 'turn_end', trace_id: 't1' });
+
+    const envelopes = stdoutEnvelopes();
+    const activities = envelopes.filter(e => e.kind === 'activity');
+    // turn → thinking(摘要) → thinking(累计摘要) → tool → tool(去抖：tool_use_input 同 label+detail 跳过)
+    // → tool_result → responding → send_content_end 仍 responding（去抖跳过）→ idle
+    expect(activities.map(a => a.payload)).toEqual([
+      { phase: 'processing', label: 'turn' },
+      { phase: 'processing', label: 'thinking', detail: '先想 第一步', traceId: 't1' },
+      { phase: 'processing', label: 'thinking', detail: '先想 第一步再验证', traceId: 't1' },
+      { phase: 'processing', label: 'tool', detail: 'search', traceId: 't1' },
+      { phase: 'processing', label: 'tool_result', detail: 'search', traceId: 't1' },
+      { phase: 'responding', traceId: 'r1' },
+      { phase: 'idle', traceId: 't1' },
+    ]);
+    // sequence 严格连号（activity 与 event 共享序号序列）
+    expect(envelopes.map(e => e.sequence)).toEqual(envelopes.map((_, i) => i + 1));
+    // 防泄漏：activity payload 不含工具 input；thinking 摘要为单行净化+截断
+    for (const a of activities) {
+      expect(JSON.stringify(a.payload)).not.toContain('不应泄漏');
+      expect(a.payload).not.toHaveProperty('input');
+      if (typeof a.payload.detail === 'string') expect(a.payload.detail.length).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it('turn_error 产生 error activity（保留可读错误行，不伪装 idle）；下一 turn 正常恢复', async () => {
+    await streamCommand(commandDeps, 'test-claw');
+    const emit = streamMocks.onEvent!;
+    emit({ ts: 1, type: 'turn_start', sources: [] });
+    emit({ ts: 2, type: 'provider_failed', provider: 'kimi', model: 'k2', error: '网络超时', trace_id: 't1' });
+    emit({ ts: 3, type: 'turn_error', error: 'LLM 网络失败\nprovider kimi 不可用', trace_id: 't1' });
+    emit({ ts: 4, type: 'turn_start', sources: [], trace_id: 't2' });
+    emit({ ts: 5, type: 'turn_end', trace_id: 't2' });
+
+    const activities = stdoutEnvelopes().filter(e => e.kind === 'activity');
+    expect(activities.map(a => a.payload)).toEqual([
+      { phase: 'processing', label: 'turn' },
+      { phase: 'processing', label: 'provider', detail: 'kimi', traceId: 't1' },
+      { phase: 'error', label: 'turn', detail: 'LLM 网络失败 provider kimi 不可用', traceId: 't1' },
+      { phase: 'processing', label: 'turn', traceId: 't2' },
+      { phase: 'idle', traceId: 't2' },
+    ]);
   });
 
   it('SIGINT：写 terminal envelope 后 exit(0)，reader.stop 一次', async () => {

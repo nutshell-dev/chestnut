@@ -27,6 +27,9 @@ public final class ChatStore: ObservableObject {
 
     public var state: ChatState { snapshot.chat }
 
+    /// Motion 活动行状态（phase 2001）：ChatView 活动行唯一绑定源。
+    public var activity: ActivityState { snapshot.activity }
+
     public func updateDraft(_ text: String) {
         dispatch(.draftChanged(text))
     }

@@ -65,6 +65,7 @@ export type { CommandShapeSpec, CommandOptionShape, CommandShapeRegistrar } from
 export {
   LAUNCHER_PROTOCOL_VERSION,
   createLauncherSequencer,
+  launcherActivityEnvelope,
   launcherErrorEnvelope,
   makeLauncherEnvelope,
   writeLauncherEnvelope,
@@ -73,6 +74,9 @@ export type {
   LauncherEnvelope,
   LauncherEnvelopeKind,
   LauncherErrorClass,
+  LauncherActivityPayload,
+  LauncherActivityPhase,
+  LauncherActivityLabel,
 } from './launcher-envelope.js';
 export { MOTION_COMMAND_CATALOG, getMotionCommandSpec } from './motion-command-catalog.js';
 export type { MotionCommandId } from './motion-command-catalog.js';

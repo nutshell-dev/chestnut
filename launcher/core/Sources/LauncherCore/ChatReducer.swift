@@ -9,15 +9,19 @@ public struct ChatCoreState: Equatable, Sendable {
     public var lastSequence: Int?
     /// 跳号后等待 resync 的起点序号；非 nil 期间不丢已确认消息与未确认草稿。
     public var resyncPendingFrom: Int?
+    /// Motion 活动行状态（phase 2001）：独立于聊天消息，idle 时 UI 不渲染。
+    public var activity: ActivityState
 
     public init(
         chat: ChatState = .idle(draft: "", messages: []),
         lastSequence: Int? = nil,
-        resyncPendingFrom: Int? = nil
+        resyncPendingFrom: Int? = nil,
+        activity: ActivityState = .idle
     ) {
         self.chat = chat
         self.lastSequence = lastSequence
         self.resyncPendingFrom = resyncPendingFrom
+        self.activity = activity
     }
 }
 
@@ -54,9 +58,14 @@ public enum ChatReducer {
         case let .sendStarted(requestId):
             guard case let .idle(draft, messages) = state.chat, !draft.isEmpty else { break }
             next.chat = .sending(draft: draft, requestId: requestId, messages: messages)
+            // 发送即给反馈（phase 2001）：无活动时进入 waiting；
+            // 已有 processing/responding（上个 turn 未结束）不回退。
+            if case .idle = state.activity { next.activity = .waiting }
         case let .sendAccepted(requestId):
             // ack 只确认提交成功：追加用户消息、清草稿；不产生 Motion 回复。
             // requestId 不符 = 过期 ack，忽略。
+            // activity 保持 waiting（ack ≠ turn 开始）；若 stream 事件已先行到达
+            // （乱序），不得把 processing/responding 覆盖回 waiting。
             guard case let .sending(draft, currentId, messages) = state.chat, currentId == requestId else { break }
             next.chat = .idle(
                 draft: "",
@@ -66,8 +75,10 @@ public enum ChatReducer {
             // 失败保留草稿与既有消息，交用户决定重试；不自动重发。
             guard case let .sending(draft, _, messages) = state.chat else { break }
             next.chat = .degraded(draft: draft, messages: messages, error: error)
+            next.activity = .idle // 发送未成立，撤销 waiting 占位
         case let .streamFailed(error):
             next.chat = .degraded(draft: state.chat.draft, messages: state.chat.messages, error: error)
+            next.activity = .idle // stream 断线兜底清理活动行，不常驻
         case let .streamEvent(envelope):
             applyStreamEvent(envelope, to: &next)
         case .streamStoppedByUser:
@@ -112,6 +123,20 @@ public enum ChatReducer {
             } else {
                 state.chat = state.chat.appending(message)
             }
+        case .activity:
+            // 活动行迁移（phase 2001）：processing/responding 单调前进不回退 waiting；
+            // 未知/畸形 activity payload 只推进 sequence，不产生活动变更。
+            guard let payload = ActivityPayload(payload: envelope.payload) else { return }
+            switch payload.phase {
+            case .processing:
+                state.activity = .processing(label: payload.label, detail: payload.detail)
+            case .responding:
+                state.activity = .responding
+            case .idle:
+                state.activity = .idle
+            }
+        case .terminal:
+            state.activity = .idle // stream 终止兜底清理活动行
         case .unknown(let raw):
             let note = Message(
                 id: "unknown-\(envelope.sessionId)-\(envelope.sequence)",
@@ -121,7 +146,7 @@ public enum ChatReducer {
             )
             guard !state.chat.messages.contains(where: { $0.id == note.id }) else { return }
             state.chat = state.chat.appending(note)
-        case .ack, .error, .terminal:
+        case .ack, .error:
             break
         }
     }

@@ -24,11 +24,12 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import {
   createLauncherSequencer,
+  launcherActivityEnvelope,
   launcherErrorEnvelope,
   makeLauncherEnvelope,
   writeLauncherEnvelope,
 } from '../../cli-protocol/index.js';
-import { LauncherEventMapper, makeLauncherSessionId } from '../launcher-envelope-producer.js';
+import { LauncherActivityMapper, LauncherEventMapper, makeLauncherSessionId } from '../launcher-envelope-producer.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -109,10 +110,24 @@ export async function streamCommand(
   }
 
   const mapper = new LauncherEventMapper();
+  const activityMapper = new LauncherActivityMapper();
+  // activity 去抖（phase 2001 引入）：连续相同 phase/label/detail/traceId 不重复发射；
+  // 累计摘要每次变化都会放行（phase 2002：thinking/text 流式刷新），相同摘要仍去抖；
+  // traceId 计入 key：新 turn/新 send 块的状态变化不被误去抖（phase 2002）；
+  // 每个 envelope 仍各自消耗严格递增的 sequence。
+  let lastActivityKey: string | null = null;
   const reader = createStreamReader(
     fs,
     STREAM_FILE,
     (event) => {
+      const activity = activityMapper.map(event);
+      if (activity) {
+        const key = `${activity.phase}|${activity.label ?? ''}|${activity.detail ?? ''}|${activity.traceId ?? ''}`;
+        if (key !== lastActivityKey) {
+          lastActivityKey = key;
+          writeLauncherEnvelope(process.stdout, launcherActivityEnvelope(nextSeq(), sessionId, activity));
+        }
+      }
       const payload = mapper.map(event);
       if (payload) {
         writeLauncherEnvelope(process.stdout, makeLauncherEnvelope(nextSeq(), sessionId, 'event', payload));

@@ -26,6 +26,16 @@ public struct Message: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Motion 活动状态（phase 2001）：独立单行活动行的事实，不是聊天消息。
+/// waiting 是本地态（send ack 前后、首个 stream 事件之前）；processing/responding/idle
+/// 来自 activity envelope。idle 时 UI 完全不渲染活动行。
+public enum ActivityState: Equatable, Sendable {
+    case idle
+    case waiting
+    case processing(label: String?, detail: String?)
+    case responding
+}
+
 /// UI 聊天状态机。draft 守恒：sending/degraded 都保留未 ack 草稿，
 /// 只有 sendAccepted 才清草稿；窗口关闭不触碰状态。
 public enum ChatState: Equatable, Sendable {

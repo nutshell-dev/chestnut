@@ -88,4 +88,29 @@ final class WireDecoderTests: XCTestCase {
         XCTAssertEqual(envelope.payload["meta"]?["ok"], .bool(true))
         XCTAssertNil(envelope.payload["missing"])
     }
+
+    // MARK: phase 2001 activity envelope
+
+    /// activity kind 解码（v1 additive）。
+    func testDecodesActivityEnvelope() throws {
+        let envelope = try decoder.decode(line: line("activity", sequence: 3, payload: #"{"phase":"processing","label":"tool","detail":"search","traceId":"t1"}"#))
+        XCTAssertEqual(envelope.kind, .activity)
+        let activity = ActivityPayload(payload: envelope.payload)
+        XCTAssertEqual(activity?.phase, .processing)
+        XCTAssertEqual(activity?.label, "tool")
+        XCTAssertEqual(activity?.detail, "search")
+        XCTAssertEqual(activity?.traceId, "t1")
+    }
+
+    /// activity 可选字段缺省；未知 phase 返回 nil（只推进 sequence）。
+    func testActivityPayloadDefaultsAndUnknownPhase() throws {
+        let minimal = try decoder.decode(line: line("activity", payload: #"{"phase":"idle"}"#))
+        let activity = ActivityPayload(payload: minimal.payload)
+        XCTAssertEqual(activity?.phase, .idle)
+        XCTAssertNil(activity?.label)
+        XCTAssertNil(activity?.detail)
+
+        let unknown = try decoder.decode(line: line("activity", payload: #"{"phase":"exploding"}"#))
+        XCTAssertNil(ActivityPayload(payload: unknown.payload), "未知 activity phase 不解析")
+    }
 }

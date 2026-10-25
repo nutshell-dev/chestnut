@@ -76,4 +76,87 @@ final class ChatReducerTests: XCTestCase {
         let next = ChatReducer.reduce(degraded, .errorDismissed)
         XCTAssertEqual(next.chat, .idle(draft: "hi", messages: prior))
     }
+
+    // MARK: phase 2001 活动行生命周期
+
+    private func activityEnvelope(_ seq: Int, _ phase: String, label: String? = nil) -> LauncherEnvelope {
+        var payload: [String: JSONValue] = ["phase": .string(phase)]
+        if let label { payload["label"] = .string(label) }
+        return LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: seq, sessionId: "s1", kind: .activity, payload: .object(payload)
+        )
+    }
+
+    /// 发送即反馈：sendStarted → waiting；sendAccepted 后保持 waiting（ack ≠ turn 开始）。
+    func testSendStartsWaitingActivity() {
+        var state = ChatCoreState(chat: .idle(draft: "hi", messages: []))
+        state = ChatReducer.reduce(state, .sendStarted(requestId: "r1"))
+        XCTAssertEqual(state.activity, .waiting, "发送后立即出现活动占位")
+        state = ChatReducer.reduce(state, .sendAccepted(requestId: "r1"))
+        XCTAssertEqual(state.activity, .waiting, "ack 只确认提交，活动行继续等待首个 stream 事件")
+    }
+
+    /// waiting → processing → responding →（send_content_end 仍 responding）→ idle 单调迁移。
+    func testActivityLifecycleMonotonic() {
+        var state = ChatCoreState()
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "processing", label: "turn")))
+        XCTAssertEqual(state.activity, .processing(label: "turn", detail: nil))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(2, "responding")))
+        XCTAssertEqual(state.activity, .responding)
+        // send_content_end 也映射 responding：不结束活动
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(3, "responding")))
+        XCTAssertEqual(state.activity, .responding, "send_content_end 不得撤掉活动行")
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(4, "idle")))
+        XCTAssertEqual(state.activity, .idle)
+    }
+
+    /// 乱序守卫：activity 事件早于 send ack 到达时，sendAccepted 不得把 processing 覆盖回 waiting。
+    func testSendAcceptedDoesNotDowngradeProcessingToWaiting() {
+        var state = ChatCoreState(chat: .idle(draft: "hi", messages: []))
+        state = ChatReducer.reduce(state, .sendStarted(requestId: "r1"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "processing", label: "llm")))
+        XCTAssertEqual(state.activity, .processing(label: "llm", detail: nil))
+        state = ChatReducer.reduce(state, .sendAccepted(requestId: "r1"))
+        XCTAssertEqual(state.activity, .processing(label: "llm", detail: nil), "ack 晚到时不得回退活动状态")
+    }
+
+    /// 清理路径：sendFailed / streamFailed / terminal 都撤掉活动行（不常驻）。
+    func testActivityClearedOnFailuresAndTerminal() {
+        var sending = ChatCoreState(chat: .sending(draft: "hi", requestId: "r1", messages: []), activity: .waiting)
+        sending = ChatReducer.reduce(sending, .sendFailed(.rejected(detail: "x")))
+        XCTAssertEqual(sending.activity, .idle, "发送失败撤销 waiting 占位")
+
+        var active = ChatCoreState(activity: .responding)
+        active = ChatReducer.reduce(active, .streamFailed(.transport(detail: "EOF")))
+        XCTAssertEqual(active.activity, .idle, "stream 断线兜底清理活动行")
+
+        var terminalState = ChatCoreState(activity: .processing(label: "tool", detail: "search"))
+        let terminal = LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 1, sessionId: "s1", kind: .terminal, payload: .null
+        )
+        terminalState = ChatReducer.reduce(terminalState, .streamEvent(terminal))
+        XCTAssertEqual(terminalState.activity, .idle, "stream terminal 兜底清理活动行")
+    }
+
+    /// 畸形 activity payload（未知 phase）只推进 sequence，不产生活动变更。
+    func testMalformedActivityPayloadOnlyAdvancesSequence() {
+        var state = ChatCoreState(activity: .responding)
+        let bad = LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 1, sessionId: "s1", kind: .activity, payload: .object(["phase": .string("exploding")])
+        )
+        state = ChatReducer.reduce(state, .streamEvent(bad))
+        XCTAssertEqual(state.activity, .responding, "未知 activity phase 不得改变活动状态")
+        XCTAssertEqual(state.lastSequence, 1)
+    }
+
+    /// activity 不产生聊天消息。
+    func testActivityDoesNotAppendMessages() {
+        var state = ChatCoreState()
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "processing", label: "tool")))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(2, "idle")))
+        XCTAssertEqual(state.chat.messages, [], "活动行不是聊天消息")
+    }
 }

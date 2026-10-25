@@ -40,6 +40,12 @@ public struct ChatView: View {
         // section 间距由各自 padding token 承担（VStack spacing 归零，节奏可解释）。
         VStack(alignment: .leading, spacing: 0) {
             composer
+            // Motion 活动行（phase 2001）：发送后立即出现，turn 事件刷新同一行，
+            // turn 终止才撤；idle 时不渲染、不占高度。
+            if let activityText = ActivityStyle.text(for: store.activity) {
+                activityBar(activityText)
+                    .padding(.top, LauncherVisual.composerToResponseGap)
+            }
             if mode != .compact {
                 responseArea
                     .padding(.top, LauncherVisual.composerToResponseGap)
@@ -71,11 +77,21 @@ public struct ChatView: View {
             reportWindowHeight()
         }
         .onChange(of: messages.count) { _ in reportWindowHeight() }
+        .onChange(of: store.activity) { _ in reportWindowHeight() }
+    }
+
+    /// 活动行高度贡献（phase 2001）：可见时 = 行高 + 顶部间距；
+    /// compact/expanded 窗口相应增长，capped 窗口不超高（回复区让位，见 responseArea）。
+    private var activityContribution: CGFloat {
+        ActivityStyle.text(for: store.activity) != nil
+            ? ActivityStyle.height + LauncherVisual.composerToResponseGap
+            : 0
     }
 
     /// 当前内容所需窗口高度，变化超过最小增量才上报。
     private func reportWindowHeight() {
-        let target = ConversationLayout.windowHeight(for: mode, responseHeight: responseContentHeight)
+        let base = ConversationLayout.windowHeight(for: mode, responseHeight: responseContentHeight)
+        let target = mode == .capped ? base : base + activityContribution
         onWindowHeightChange?(target)
     }
 
@@ -105,6 +121,25 @@ public struct ChatView: View {
         .accessibilityIdentifier("composer")
     }
 
+    /// Motion 活动行：单行、与对话列共享同一内容轴（x=28）、caption 次级色；
+    ///  spinner 表活动进行中。行文本由 ActivityStyle 单源决定。
+    private func activityBar(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .scaleEffect(ActivityStyle.spinnerScale)
+                .frame(width: 10, height: 10)
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, LauncherVisual.responseLeadingInset)
+        .frame(height: ActivityStyle.height)
+        .accessibilityIdentifier("activityBar")
+    }
+
     /// 回复区：单一阅读列限宽 560pt 且左对齐——与 composer 共享同一左侧光学起点（phase 1996）。
     /// stream 增量由 SwiftUI diff 只更新最后一条 Motion 消息。高度 = min(内容, 上限)，超限
     /// 内部滚动并自动跟随到底部（新消息与流式快照更新都触发）。
@@ -129,7 +164,12 @@ public struct ChatView: View {
                     }
                 )
             }
-            .frame(height: ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight))
+            .frame(height: max(
+                // capped 时窗口不超高：活动行可见期间回复区让出同等高度
+                ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight)
+                    - (mode == .capped ? activityContribution : 0),
+                0
+            ))
             .accessibilityIdentifier("responseScrollView")
             .onChange(of: messages.count) { _ in scrollToBottom(proxy) }
             .onChange(of: messages.last?.text) { _ in scrollToBottom(proxy) }
