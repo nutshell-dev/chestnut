@@ -3,7 +3,7 @@
  */
 
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, resolveClawLocation } from '../../core/claw-topology/index.js';
 import { assertPublishedClaw } from './claw-target.js';
 // phase 1874 Step B: viewport 独立模块入口（CLIProcess 只经 barrel 消费）
 import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
@@ -21,7 +21,8 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
   // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
   const systemAudit = createViewportAudit(deps.fsFactory(clawDir), clawDir);
   await runChatViewport({
-    agentDir: clawDir,
+    clawId: target.clawId,
+    location: resolveClawLocation(target.clawId),
     label: name,
     audit: systemAudit,
     fsFactory: deps.fsFactory,

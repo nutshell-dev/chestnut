@@ -121,12 +121,19 @@ describe('claw motion gates (phase 1986 Step H)', () => {
     expect(out).toContain('Claw "motion" is not running');
   });
 
-  it('chat → viewport 收到的 agentDir 恰为 <root>/motion', async () => {
+  // phase 1997 Step B：identity 改 typed clawId + ClawLocation；agentDir 由 location.clawDir 承担
+  it('chat → viewport 收到的 location.clawDir 恰为 <root>/motion、kind 为 motion', async () => {
     await chatCommand(deps(), 'motion');
 
     expect(runChatViewport).toHaveBeenCalledTimes(1);
-    const viewportArgs = vi.mocked(runChatViewport).mock.calls[0][0] as { agentDir: string };
-    expect(viewportArgs.agentDir).toBe(motionDir);
+    const viewportArgs = vi.mocked(runChatViewport).mock.calls[0][0] as {
+      clawId: string;
+      location: { kind: string; clawDir: string };
+      label: string;
+    };
+    expect(viewportArgs.location.clawDir).toBe(motionDir);
+    expect(viewportArgs.location.kind).toBe('motion');
+    expect(viewportArgs.clawId).toBe('motion');
   });
 
   it('trace → 不存在的 contract 报 not found（证明已过硬门、未读 claws/motion）', async () => {

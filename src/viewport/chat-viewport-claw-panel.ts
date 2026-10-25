@@ -12,7 +12,7 @@ import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-cl
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import {  DEFAULT_TERMINAL_WIDTH  } from './terminal-text.js';
@@ -70,7 +70,9 @@ export function createClawPanel(deps: ClawPanelDeps) {
 }
 
 interface RescanClawsDirDeps {
-  clawsFs: FileSystem;
+  // Phase 1997 Step C: claw 发现归 ClawTopology；contract 读取用各 claw 自己的 FS
+  // （fsFactory(location.clawDir)），不再共享 clawsFs raw listSync。
+  fsFactory: (baseDir: string) => FileSystem;
   clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
   clawManager: ReturnType<typeof createClawManager>;
@@ -87,16 +89,19 @@ interface RescanClawsDirDeps {
 export function createRescanClawsDir(deps: RescanClawsDirDeps) {
   return async function rescanClawsDir() {
     try {
-      // clawsFs baseDir = clawsDir / 用相对路径 '.' 列 clawsDir 自身
-      const entries = deps.clawsFs.listSync('.', { includeDirs: true });
-      for (const e of entries) {
-        if (!e.isDirectory) continue;
-        const clawId = e.name;
+      // Phase 1997 Step C: claw 枚举归 ClawTopology.enumerateSnapshot()
+      // （valid 含系统 Motion 与 normal claws；topology 已跳过 claws/motion 同名目录——
+      // legacy fixture 不会被误解析成系统 Motion）。
+      const snapshot = deps.clawTopology.enumerateSnapshot();
+      for (const clawId of snapshot.valid) {
+        if (clawId === MOTION_CLAW_ID) continue;      // 系统 Motion 不在 normal claw 扫描
         if (deps.clawTrackMap.has(clawId)) continue;
-        const location = deps.clawTopology.resolve(makeClawId(clawId));
+        const location = deps.clawTopology.resolve(clawId);
         const clawDir = location.clawDir;
-        // getActiveContractTimestamp 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
-        const contractMs = getActiveContractTimestamp(deps.clawsFs, clawDir);
+        // contract 读取用该 claw 自己的 FS（root=location.clawDir），相对 '.' 即 claw 根；
+        // 不把绝对路径/共享 base 交给 query owner（消除 double-prefix/absolute 拒绝）。
+        const clawFs = deps.fsFactory(clawDir);
+        const contractMs = getActiveContractTimestamp(clawFs, '.');
         if (contractMs !== null) {
           const t = makeClawTrack();
           t.hasContract = true;
@@ -104,7 +109,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           deps.clawTrackMap.set(clawId, t);
           let alive = false;
           try {
-            const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
+            const daemonDir = resolveClawDaemonDir(clawId);
             const spawning = deps.pm.inspectSpawning(daemonDir);
             if (spawning.status === 'ok') {
               t.daemonStatus = 'starting';

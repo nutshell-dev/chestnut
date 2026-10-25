@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, resolveClawLocation, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 // phase 1874 Step B: viewport 独立模块入口（CLIProcess 只经 barrel 消费）
 import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
@@ -213,7 +213,8 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
   }
 
   await runChatViewport({
-    agentDir: motionDir,
+    clawId: MOTION_CLAW_ID,
+    location: resolveClawLocation(MOTION_CLAW_ID),
     label: MOTION_CLAW_ID,
     audit: systemAudit,
     fsFactory: deps.fsFactory,

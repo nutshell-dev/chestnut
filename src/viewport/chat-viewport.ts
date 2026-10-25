@@ -23,8 +23,10 @@ import { createStreamReader, STREAM_FILE } from '../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { createScrollbackPreservingTerminal } from './chat-viewport-terminal.js';
 import { CLAWS_DIR, getChestnutRoot } from '../foundation/claw-identity/index.js';
+import type { ClawId } from '../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
+import type { ClawLocation } from '../core/claw-topology/index.js';
+import { resolveViewportRoots } from './viewport-identity.js';
 
 
 import { submitUserMessage } from './chat-viewport-utils.js';
@@ -63,8 +65,9 @@ const CHAT_CRASH_LOG_FILE = 'logs/chat-crash.log';
  */
 
 interface ViewportIdentity {
-  agentDir: string;   // motion dir 或 claw dir
-  label: string;      // 显示名，如 'motion' 或 'claw-search'
+  clawId: ClawId;          // 实例身份（daemon 路径/liveness 用；Phase 1997 Step B）
+  location: ClawLocation;  // 磁盘位置事实；isMotion 唯一判据 = location.kind
+  label: string;           // 显示名，如 'motion' 或 'claw-search'；不作身份判据
 }
 
 interface ViewportDisplayOptions {
@@ -119,12 +122,14 @@ function tokenizeSlashArgs(s: string): string[] {
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
+  // Phase 1997 Step B: identity/路径由 typed location 推导；label 只作显示名
+  const { agentDir, chestnutRoot, isMotion } = resolveViewportRoots(options.location);
   const baseDir = getChestnutRoot();
   const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory, baseDir });
   // Phase 1936 Step B: daemon 保障不再在 TUI 构造前 await——viewport 先可见，
   // ensureDaemon 后置为受控后台 task（见 tui.start() 之后的 daemonEnsure 装配）。
 
-  const { fs } = createDirContext({ fsFactory: options.fsFactory }, options.agentDir);
+  const { fs } = createDirContext({ fsFactory: options.fsFactory }, agentDir);
   const showSystemMessages = options.showSystemMessages ?? false;
   const showContractEvents = options.showContractEvents ?? true;
   const trimOutputNewlines = options.trimOutputNewlines ?? true;
@@ -136,7 +141,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     selectCancel: 'escape',  // 只绑 ESC
   }));
 
-  const streamPath = path.join(options.agentDir, STREAM_FILE);
+  const streamPath = path.join(agentDir, STREAM_FILE);
 
   // Phase 1155 Step C: observability 必须先于 terminal adapter 构造，
   // 避免 onSuppress 闭包捕获未初始化的引用。
@@ -206,16 +211,14 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 输入组件
   const editor = new Editor(tui, editorTheme);
 
-  // Motion viewport：各 claw 步数追踪
-  const isMotion = options.label === MOTION_CLAW_ID;
-  const clawsDir = isMotion ? path.join(options.agentDir, '..', CLAWS_DIR) : '';
+  // Motion viewport：各 claw 步数追踪；isMotion 由 location.kind 得出（Phase 1997 Step B）
+  const clawsDir = isMotion ? path.join(chestnutRoot, CLAWS_DIR) : '';
   const clawsFs = isMotion && clawsDir ? createDirContext({ fsFactory: options.fsFactory }, clawsDir).fs : fs;
-  // phase 462 (review N3-M): chestnutRoot 应为 .chestnut 子目录、与 motion 路径同
-  // motion: agentDir=.chestnut/motion → ..        =.chestnut
-  // claw:   agentDir=.chestnut/claws/<n> → ../.. =.chestnut
-  // 改前非 motion 漏一层 → chestnutRoot = clawDir 自身 → clawTopology 误路由
-  const chestnutRoot = isMotion ? path.join(options.agentDir, '..') : path.join(options.agentDir, '..', '..');
-  const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, sink: options.audit, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
+  // Phase 1997 Step B: topology 用 chestnut root 的 FS（与 claw-list 同一坐标），
+  // motionDir 传相对 MOTION_CLAW_ID（topology 内部 path.join(chestnutRoot, motionDir)），
+  // 不再传绝对 agentDir（消除 double-prefix / absolute-path 拒绝）。
+  const chestnutFs = options.fsFactory(chestnutRoot);
+  const clawTopology = createClawTopology({ fs: chestnutFs, chestnutRoot, sink: options.audit, motionDir: MOTION_CLAW_ID });
   const clawTrackMap = new Map<string, ClawTrack>();
 
   const clawPanel = createClawPanel({ attachedClawBar, requestRender: () => tui.requestRender() });
@@ -326,7 +329,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     resolvePending: displayWithHolder.resolvePending,
     showSystemMessages,
     showContractEvents,
-    agentDir: options.agentDir,
+    agentDir,
     label: options.label,
     audit: options.audit,
     observability,
@@ -377,8 +380,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   let rescanClawsDirFn: (() => Promise<void>) | null = null;
   if (isMotion && clawsDir) {
     rescanClawsDirFn = createRescanClawsDir({
-      clawsFs, clawTopology, clawTrackMap, clawManager,
-      audit: options.audit, agentDir: options.agentDir, updateClawPanel: clawPanel.updateClawPanel,
+      fsFactory: options.fsFactory, clawTopology, clawTrackMap, clawManager,
+      audit: options.audit, agentDir, updateClawPanel: clawPanel.updateClawPanel,
       pm,
     });
     // initial 同步
@@ -414,7 +417,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     observability.recordShutdown('daemon_dead');
   };
   const daemonLivenessWatcher = createDaemonLivenessMonitor({
-    pidFilePath: path.join(getActiveDir(resolveClawDaemonDir(makeClawId(options.label))), PID_FILE),
+    pidFilePath: path.join(getActiveDir(resolveClawDaemonDir(options.clawId)), PID_FILE),
     onDead: onDaemonDead,
     onError: (err) => process.stderr.write(`[viewport] daemon liveness watcher error: ${err.message}\n`),
   });
@@ -490,7 +493,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // 写入成功才清草稿；失败草稿保留 + 编辑器回填供重试）
     const outcome = submitUserMessage(
       {
-        agentDir: options.agentDir,
+        agentDir,
         fs,
         audit: options.audit,
         fsFactory: options.fsFactory,
@@ -516,7 +519,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   let shutdownReason: ShutdownReason = 'user_quit';
 
   tui.addInputListener(createTuiInputHandler({
-    fs, audit: options.audit, agentDir: options.agentDir, turnTracker, mainUI, editor,
+    fs, audit: options.audit, agentDir, turnTracker, mainUI, editor,
     requestRender: () => tui.requestRender(),
     resolveExit: () => resolveExit(),
     setShutdownReason: (r) => { shutdownReason = r; },
@@ -535,8 +538,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   tui.setFocus(editor);
 
   // 防御层：任何未捕获异常先还原终端，防止 terminal emulator 因 raw mode 未还原而闪退
-  const crashLogPath = path.join(options.agentDir, CHAT_CRASH_LOG_FILE);
-  const uncaughtHandler = createUncaughtHandler({ agentDir: options.agentDir, fs, fsFactory: options.fsFactory, tui, crashLogPath, audit: options.audit });
+  const crashLogPath = path.join(agentDir, CHAT_CRASH_LOG_FILE);
+  const uncaughtHandler = createUncaughtHandler({ agentDir, fs, fsFactory: options.fsFactory, tui, crashLogPath, audit: options.audit });
   process.on('uncaughtException', uncaughtHandler);
   process.on('unhandledRejection', uncaughtHandler);
 
@@ -545,7 +548,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(options.label)))) {
+      if (!pm.isAlive(resolveClawDaemonDir(options.clawId))) {
         turnTracker.forceReset();
       }
       // spawning / io_error / corrupt → keep tracker (uncertain state)
