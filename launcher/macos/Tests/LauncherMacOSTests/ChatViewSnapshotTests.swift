@@ -131,6 +131,68 @@ final class ChatViewSnapshotTests: XCTestCase {
         await settle(hosting)
         XCTAssertFalse(containsSubview(NSButton.self, in: hosting), "正常态不得出现状态行按钮")
     }
+
+    // MARK: phase 2000 颜色稳定契约
+
+    /// 读取被测源码（harness/无 Xcode 环境下无法枚举 SwiftUI modifier，
+    /// 无 selection surface 以源码结构契约锁定；实机行为由 step-d 矩阵覆盖）。
+    private func chatViewSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // LauncherMacOSTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // macos
+            .appendingPathComponent("Sources/LauncherMacOS/ChatView.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func section(of source: String, from startMarker: String, to endMarker: String) -> String? {
+        guard let start = source.range(of: startMarker),
+              let end = source.range(of: endMarker, range: start.upperBound ..< source.endIndex)
+        else { return nil }
+        return String(source[start.lowerBound ..< end.lowerBound])
+    }
+
+    /// response 区无隐式 selection surface（phase 2000）：phase1999 实机证明 textSelection
+    /// 无论在消息行还是容器都会引起黑灰串扰，故整体移除；且不得以点击手势/选择状态替代。
+    func testResponseHasNoImplicitSelectionSurface() throws {
+        let source = try chatViewSource()
+        XCTAssertFalse(source.contains(".textSelection("), "response 区不得声明 textSelection（phase 2000 整体移除）")
+        XCTAssertFalse(source.contains(".onTapGesture"), "不得以点击手势替代 selection")
+        XCTAssertFalse(source.contains("selectedMessageId"), "不得引入按点击切换颜色的状态")
+    }
+
+    /// 消息颜色结构断言：messageRow 颜色只来自 MessageStyle 纯角色映射，
+    /// 不读取焦点/选择/点击状态。
+    func testMessageRowColorIsStaticRoleMapping() throws {
+        let source = try chatViewSource()
+        let row = section(of: source, from: "private func messageRow", to: "private func statusLine")
+        XCTAssertTrue(
+            row?.contains("MessageStyle.foreground(for:") ?? false,
+            "消息颜色必须来自 MessageStyle.foreground(for:) 纯角色映射"
+        )
+        XCTAssertFalse(row?.contains("isFocused") ?? true, "消息颜色不得读取焦点状态")
+        XCTAssertFalse(row?.contains("@FocusState") ?? true, "消息行不得持有焦点状态")
+    }
+
+    /// 多条消息共存时只有一个回复区 ScrollView，Motion/user 混排在同一容器内渲染。
+    func testMultipleMessagesShareOneResponseArea() async {
+        let stream = ScriptedStreamClient(scripts: [])
+        let store = ChatStore(send: MockSendClient(), stream: stream)
+        for i in 0 ..< 3 {
+            store.updateDraft("第 \(i) 条")
+            await store.submit()
+        }
+        XCTAssertEqual(store.state.messages.count, 3)
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertTrue(containsSubview(NSScrollView.self, in: hosting), "回复区必须存在")
+        XCTAssertEqual(countSubviews(NSScrollView.self, in: hosting), 1, "只允许一个回复区容器")
+    }
+
+    private func countSubviews<T: NSView>(_ type: T.Type, in view: NSView) -> Int {
+        (view is T ? 1 : 0) + view.subviews.reduce(0) { $0 + countSubviews(type, in: $1) }
+    }
 }
 
 @MainActor

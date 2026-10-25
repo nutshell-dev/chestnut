@@ -35,8 +35,15 @@ public enum MessageStyle {
         role == .motion ? LauncherVisual.motionBlockPadding : LauncherVisual.userBlockPadding
     }
 
+    /// user/system 为次级色、Motion 为主要色（纯角色判定）。
     public static func foregroundIsSecondary(for role: Message.Role) -> Bool {
         role != .motion
+    }
+
+    /// 静态颜色契约（phase 2000）：纯角色映射——不读取焦点、选择或点击状态；
+    /// 返回语义色（primary/secondary），浅/深色主题由系统解析，不用固定黑白。
+    public static func foreground(for role: Message.Role) -> Color {
+        foregroundIsSecondary(for: role) ? .secondary : .primary
     }
 
     /// 正常对话不显示角色名称；仅 system 消息保留标签（错误/状态需要解释来源）。

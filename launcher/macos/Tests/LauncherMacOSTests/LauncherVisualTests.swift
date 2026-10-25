@@ -1,4 +1,5 @@
 import Foundation
+import LauncherCore
 import XCTest
 @testable import LauncherMacOS
 
@@ -78,5 +79,20 @@ final class LauncherVisualTests: XCTestCase {
         XCTAssertEqual(2 * LauncherVisual.motionBlockPadding, 14)
         XCTAssertEqual(2 * LauncherVisual.userBlockPadding, 10)
         XCTAssertEqual(LauncherVisual.motionBlockPadding + LauncherVisual.userBlockPadding, 12)
+    }
+
+    /// 颜色稳定结构契约（phase 2000）：ChatView 全文无 textSelection（隐式选择/焦点渲染
+    /// 是黑灰串扰来源，phase1999 实机证伪后整体移除）；MessageStyle 暴露 foreground(for:)
+    /// 纯角色映射，Motion 主要色、user 次级色。
+    func testNoSelectionSurfaceAndStableColorTokens() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // LauncherMacOSTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // macos
+            .appendingPathComponent("Sources/LauncherMacOS/ChatView.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(source.contains(".textSelection("), "ChatView 不得声明 textSelection（phase 2000）")
+        XCTAssertFalse(MessageStyle.foregroundIsSecondary(for: .motion), "Motion 保持主要颜色")
+        XCTAssertTrue(MessageStyle.foregroundIsSecondary(for: .user), "user 保持次级颜色")
     }
 }

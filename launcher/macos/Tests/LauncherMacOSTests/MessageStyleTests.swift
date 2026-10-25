@@ -41,4 +41,17 @@ final class MessageStyleTests: XCTestCase {
         XCTAssertFalse(MessageStyle.foregroundIsSecondary(for: .motion))
         XCTAssertTrue(MessageStyle.foregroundIsSecondary(for: .system))
     }
+
+    /// 静态颜色契约（phase 2000）：foreground 是纯角色映射——Motion primary、
+    /// user/system secondary；无焦点/选择/点击输入，重复调用结果稳定。
+    func testForegroundIsStaticRoleMapping() {
+        XCTAssertEqual(String(describing: MessageStyle.foreground(for: .motion)), String(describing: Color.primary))
+        XCTAssertEqual(String(describing: MessageStyle.foreground(for: .user)), String(describing: Color.secondary))
+        XCTAssertEqual(String(describing: MessageStyle.foreground(for: .system)), String(describing: Color.secondary))
+        // 纯函数：两次调用等价（不读取任何 UI 状态）
+        XCTAssertEqual(
+            String(describing: MessageStyle.foreground(for: .motion)),
+            String(describing: MessageStyle.foreground(for: .motion))
+        )
+    }
 }

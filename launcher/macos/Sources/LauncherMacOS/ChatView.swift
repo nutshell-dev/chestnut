@@ -144,6 +144,9 @@ public struct ChatView: View {
 
     /// 无角色名单列对话（phase 1996）：所有消息从同一左侧阅读列开始；user 仅靠轻微
     /// leading inset、次级颜色和较小字号区分，Motion 保持主要文本；仅 system 保留标签。
+    /// 消息行是纯呈现（phase 2000）：无 textSelection、无点击手势、无选择/焦点状态——
+    /// phase1999 实机证明 textSelection（无论在 row 还是容器）会引起黑灰串扰，故整体移除；
+    /// 颜色仅由 MessageStyle.foreground(for:) 角色映射决定。复制能力边界见 Step C 决策。
     private func messageRow(_ message: Message) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             if MessageStyle.showsRoleLabel(for: message) {
@@ -152,10 +155,9 @@ public struct ChatView: View {
                     .foregroundColor(.secondary)
             }
             Text(message.text)
-                .textSelection(.enabled)
                 .font(MessageStyle.font(for: message.role))
                 .lineSpacing(MessageStyle.lineSpacing(for: message.role))
-                .foregroundColor(MessageStyle.foregroundIsSecondary(for: message.role) ? .secondary : .primary)
+                .foregroundStyle(MessageStyle.foreground(for: message.role))
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, MessageStyle.leadingInset(for: message.role))
