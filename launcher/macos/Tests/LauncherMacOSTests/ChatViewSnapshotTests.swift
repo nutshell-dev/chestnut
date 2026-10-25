@@ -106,6 +106,31 @@ final class ChatViewSnapshotTests: XCTestCase {
             "上报高度不得超过上限 \(ConversationLayout.expandedHeight)"
         )
     }
+
+    /// degraded 状态行结构断言（phase 1998 Step D）：错误态渲染状态行（重试/关闭按钮
+    /// 是 UI 中唯一的 NSButton 来源），与 composer/回复列同处一个内容轴。
+    func testDegradedShowsStatusLine() async {
+        let stream = ScriptedStreamClient(scripts: [])
+        let store = ChatStore(send: MockSendClient(error: .rejected(detail: "exit 1")), stream: stream)
+        store.updateDraft("你好")
+        await store.submit()
+        var isDegraded = false
+        if case .degraded = store.state { isDegraded = true }
+        XCTAssertTrue(isDegraded, "send 失败后应进入 degraded")
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertTrue(containsSubview(NSButton.self, in: hosting), "degraded 态必须渲染状态行（重试/关闭按钮）")
+        XCTAssertTrue(containsSubview(NSTextField.self, in: hosting), "composer 必须存在")
+    }
+
+    /// 正常态不出现状态行按钮（NSButton 只来自 statusLine）。
+    func testNormalStateHasNoStatusLine() async {
+        let store = makeStore(messages: 0)
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertFalse(containsSubview(NSButton.self, in: hosting), "正常态不得出现状态行按钮")
+    }
 }
 
 @MainActor

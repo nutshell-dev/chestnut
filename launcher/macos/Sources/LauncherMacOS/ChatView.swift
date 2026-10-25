@@ -36,15 +36,20 @@ public struct ChatView: View {
     }
 
     public var body: some View {
-        VStack(spacing: LauncherVisual.sectionSpacing) {
+        // 单一内容轴（phase 1998）：composer/response/status 全部 leading，
+        // section 间距由各自 padding token 承担（VStack spacing 归零，节奏可解释）。
+        VStack(alignment: .leading, spacing: 0) {
             composer
             if mode != .compact {
                 responseArea
+                    .padding(.top, LauncherVisual.composerToResponseGap)
             }
             if case let .degraded(_, _, error) = store.state {
                 statusLine(error)
+                    .padding(.top, LauncherVisual.responseToStatusGap)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(LauncherVisual.contentInset)
         // 浮层视觉外壳：材质与圆角只作用于背景层，消息文本保持不透明；
         // 单一外层材质表达浮层边界（不引入第二个表面）。
@@ -106,7 +111,8 @@ public struct ChatView: View {
     private var responseArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
+                // 块间节奏单源：spacing 归零，由 MessageStyle.blockPadding 承担（phase 1998）
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(messages) { message in
                         messageRow(message)
                             .id(message.id)
@@ -154,10 +160,11 @@ public struct ChatView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, MessageStyle.leadingInset(for: message.role))
         }
-        .padding(.vertical, MessageStyle.verticalPadding(for: message.role))
+        .padding(.vertical, MessageStyle.blockPadding(for: message.role))
     }
 
-    /// 低干扰状态行：错误一行呈现，保留重试/关闭，不把窗口撑到固定大高度。
+    /// 低干扰状态行：错误一行呈现，保留重试/关闭，不把窗口撑到固定大高度；
+    /// 与对话列共享同一 content axis（x=28），间距 token 由外层 VStack 处加（responseToStatusGap）。
     private func statusLine(_ error: ChatError) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle")
@@ -173,7 +180,7 @@ public struct ChatView: View {
             Button("关闭") { store.dismissError() }
                 .font(.caption)
         }
-        .padding(.top, 4)
+        .padding(.leading, LauncherVisual.responseLeadingInset)
         .accessibilityIdentifier("statusLine")
     }
 

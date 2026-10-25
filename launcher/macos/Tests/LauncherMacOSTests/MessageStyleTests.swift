@@ -35,7 +35,7 @@ final class MessageStyleTests: XCTestCase {
         XCTAssertEqual(LauncherVisual.userBodyFontSize, 14)
         XCTAssertGreaterThan(LauncherVisual.motionBodyFontSize, LauncherVisual.userBodyFontSize)
         XCTAssertGreaterThan(MessageStyle.lineSpacing(for: .motion), MessageStyle.lineSpacing(for: .user))
-        XCTAssertGreaterThan(MessageStyle.verticalPadding(for: .motion), MessageStyle.verticalPadding(for: .user))
+        XCTAssertGreaterThan(MessageStyle.blockPadding(for: .motion), MessageStyle.blockPadding(for: .user))
         // user 次级颜色、Motion 主要颜色
         XCTAssertTrue(MessageStyle.foregroundIsSecondary(for: .user))
         XCTAssertFalse(MessageStyle.foregroundIsSecondary(for: .motion))

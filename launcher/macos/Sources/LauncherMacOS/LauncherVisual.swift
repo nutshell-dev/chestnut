@@ -26,8 +26,6 @@ public enum LauncherVisual {
     public static let userBodyFontSize: CGFloat = 14
     public static let motionLineSpacing: CGFloat = 4
     public static let userLineSpacing: CGFloat = 2
-    public static let motionVerticalPadding: CGFloat = 4
-    public static let userVerticalPadding: CGFloat = 2
     /// user 左缩进。实机结论（1996 修正 2）：inset 20 叠加在共享缩进上使起点与输入框不齐，
     /// 已归零——user 仅次级颜色 + 较小字号区分，所有消息与输入文字共享同一 x 起点。
     public static let userLeadingInset: CGFloat = 0
@@ -36,9 +34,19 @@ public enum LauncherVisual {
     public static let panelCornerRadius: CGFloat = 12
     /// 面板内容与材质边缘的统一留白（水平与垂直同值）。
     public static let contentInset: CGFloat = 10
-    /// composer 与回复区之间的节间距。
-    public static let sectionSpacing: CGFloat = 4
     /// 回复列的 leading 内边距：与 composer 文字起点对齐（输入文字起点 = contentInset +
-    /// composerHorizontalPadding；回复列在 contentInset 基础上再缩进同一值）。
+    /// composerHorizontalPadding；回复列在 contentInset 基础上再缩进同一值）。状态行同样消费此轴。
     public static var responseLeadingInset: CGFloat { composerHorizontalPadding }
+
+    // MARK: Section 间距（phase 1998：根 VStack spacing 归零，间距由各 section 顶部 padding 承担，
+    /// 数值与 1996 实机通过版等效）
+    /// composer → response。
+    public static let composerToResponseGap: CGFloat = 4
+    /// response/composer → status（等效 1996 的 sectionSpacing 4 + statusLine 魔数 4）。
+    public static let responseToStatusGap: CGFloat = 8
+
+    // MARK: 消息块垂直节奏（单源：LazyVStack spacing 归零，块间距全由 blockPadding 承担；
+    /// 等效换算 1996：spacing 6 均摊上下各 3 叠原 verticalPadding 4/2 → 7/5，块间间隔不变）
+    public static let motionBlockPadding: CGFloat = 7
+    public static let userBlockPadding: CGFloat = 5
 }

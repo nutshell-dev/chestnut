@@ -61,4 +61,22 @@ final class LauncherVisualTests: XCTestCase {
             contentWidth
         )
     }
+
+    /// section metrics（phase 1998）：间距可解释且与 1996 实机通过版等效——
+    /// composer→response 4；response→status 8（原 sectionSpacing 4 + statusLine 魔数 4）。
+    func testSectionMetricsAreExplicit() {
+        XCTAssertEqual(LauncherVisual.composerToResponseGap, 4)
+        XCTAssertEqual(LauncherVisual.responseToStatusGap, 8)
+    }
+
+    /// 消息块节奏单源化（phase 1998）：LazyVStack spacing 归零后，块间距全由 blockPadding 承担；
+    /// 等效换算锁定：motion 7 / user 5（原 spacing 6 均摊 3 + verticalPadding 4/2），
+    /// 任意相邻两块间隔保持 1996 实机通过值（motion-motion 14 / user-user 10 / 混合 12）。
+    func testBlockRhythmEquivalence() {
+        XCTAssertEqual(LauncherVisual.motionBlockPadding, 7)
+        XCTAssertEqual(LauncherVisual.userBlockPadding, 5)
+        XCTAssertEqual(2 * LauncherVisual.motionBlockPadding, 14)
+        XCTAssertEqual(2 * LauncherVisual.userBlockPadding, 10)
+        XCTAssertEqual(LauncherVisual.motionBlockPadding + LauncherVisual.userBlockPadding, 12)
+    }
 }
