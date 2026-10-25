@@ -36,7 +36,7 @@ public struct ChatView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: LauncherVisual.sectionSpacing) {
             composer
             if mode != .compact {
                 responseArea
@@ -45,10 +45,11 @@ public struct ChatView: View {
                 statusLine(error)
             }
         }
-        .padding(10)
-        // 浮层视觉外壳：材质与圆角只作用于背景层，消息文本保持不透明
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .frame(width: ConversationLayout.width - 20)
+        .padding(LauncherVisual.contentInset)
+        // 浮层视觉外壳：材质与圆角只作用于背景层，消息文本保持不透明；
+        // 单一外层材质表达浮层边界（不引入第二个表面）。
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: LauncherVisual.panelCornerRadius, style: .continuous))
+        .frame(width: ConversationLayout.width - 2 * LauncherVisual.contentInset)
         .onAppear {
             store.startStream()
             inputFocused = true
@@ -99,9 +100,9 @@ public struct ChatView: View {
         .accessibilityIdentifier("composer")
     }
 
-    /// 回复区：用户消息次级样式、Motion 回复主要文本；stream 增量由 SwiftUI diff
-    /// 只更新最后一条 Motion 消息。高度 = min(内容, 上限)，超限内部滚动并自动跟随
-    /// 到底部（新消息与流式快照更新都触发）。
+    /// 回复区：单一阅读列限宽 560pt 且左对齐——与 composer 共享同一左侧光学起点（phase 1996）。
+    /// stream 增量由 SwiftUI diff 只更新最后一条 Motion 消息。高度 = min(内容, 上限)，超限
+    /// 内部滚动并自动跟随到底部（新消息与流式快照更新都触发）。
     private var responseArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -111,6 +112,10 @@ public struct ChatView: View {
                             .id(message.id)
                     }
                 }
+                .frame(maxWidth: LauncherVisual.responseMaxWidth, alignment: .leading)
+                // 与 composer 文字共享左侧光学起点（回复列缩进 = composer 水平内边距）
+                .padding(.leading, LauncherVisual.responseLeadingInset)
+                // 让阅读列贴左（ScrollView 内容窄于容器时默认居中，会破坏共享左起点）
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     GeometryReader { geo in
@@ -131,27 +136,25 @@ public struct ChatView: View {
         proxy.scrollTo(last.id, anchor: .bottom)
     }
 
+    /// 无角色名单列对话（phase 1996）：所有消息从同一左侧阅读列开始；user 仅靠轻微
+    /// leading inset、次级颜色和较小字号区分，Motion 保持主要文本；仅 system 保留标签。
     private func messageRow(_ message: Message) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(roleLabel(message))
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if MessageStyle.showsRoleLabel(for: message) {
+                Text("系统")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             Text(message.text)
                 .textSelection(.enabled)
-                .font(message.role == .user ? .callout : .body)
-                .foregroundColor(message.role == .user ? .secondary : .primary)
+                .font(MessageStyle.font(for: message.role))
+                .lineSpacing(MessageStyle.lineSpacing(for: message.role))
+                .foregroundColor(MessageStyle.foregroundIsSecondary(for: message.role) ? .secondary : .primary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, MessageStyle.leadingInset(for: message.role))
         }
-        .padding(.vertical, 2)
-    }
-
-    private func roleLabel(_ message: Message) -> String {
-        let base: String
-        switch message.role {
-        case .user: base = "你"
-        case .motion: base = "Motion"
-        case .system: base = "系统"
-        }
-        return message.committed ? base : "\(base)（未确认）"
+        .padding(.vertical, MessageStyle.verticalPadding(for: message.role))
     }
 
     /// 低干扰状态行：错误一行呈现，保留重试/关闭，不把窗口撑到固定大高度。

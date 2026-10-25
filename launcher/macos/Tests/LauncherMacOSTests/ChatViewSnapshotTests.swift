@@ -78,6 +78,34 @@ final class ChatViewSnapshotTests: XCTestCase {
             "上报高度不得超过上限 \(ConversationLayout.expandedHeight)"
         )
     }
+    /// capped 契约（phase 1996 Step D）：大量消息时回复区进入 capped，上报高度钳制在
+    /// expandedHeight（496），回复区 ScrollView 仍存在（内部滚动语义）。
+    func testCappedCapsWindowHeightAtExpandedLimit() async {
+        let stream = ScriptedStreamClient(scripts: [])
+        let store = ChatStore(send: MockSendClient(), stream: stream)
+        for i in 0 ..< 40 {
+            store.updateDraft("第 \(i) 条消息，用于把回复区撑到封顶高度。")
+            await store.submit()
+        }
+        XCTAssertEqual(store.state.messages.count, 40)
+
+        let recorder = HeightRecorder()
+        let hosting = host(ChatView(store: store, onWindowHeightChange: { h in recorder.record(h) }))
+        // 40 条消息的测量链较长，settle 窗口加倍，抑制无 display link 环境下的竞态
+        for _ in 0 ..< 40 {
+            hosting.layoutSubtreeIfNeeded()
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertTrue(containsSubview(NSScrollView.self, in: hosting), "capped 态回复区必须存在（内部滚动）")
+        XCTAssertTrue(
+            recorder.heights.contains(ConversationLayout.expandedHeight),
+            "内容超过上限后应上报 capped 高度 \(ConversationLayout.expandedHeight)，实际: \(recorder.heights)"
+        )
+        XCTAssertTrue(
+            recorder.heights.allSatisfy { $0 <= ConversationLayout.expandedHeight },
+            "上报高度不得超过上限 \(ConversationLayout.expandedHeight)"
+        )
+    }
 }
 
 @MainActor

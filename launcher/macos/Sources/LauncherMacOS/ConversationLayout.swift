@@ -15,13 +15,13 @@ public enum LayoutMode: Equatable, Sendable {
 
 public enum ConversationLayout {
     /// compact 态窗口高度（composer 行 + 留白）。
-    public static let compactHeight: CGFloat = 76
+    public static var compactHeight: CGFloat { LauncherVisual.compactHeight }
     /// 回复区内容高度上限。
-    public static let maxResponseHeight: CGFloat = 420
+    public static var maxResponseHeight: CGFloat { LauncherVisual.responseMaxHeight }
     /// 窗口高度上限 = composer + 回复区上限。
-    public static let expandedHeight: CGFloat = compactHeight + maxResponseHeight // 496
-    /// 窗口宽度（与 1985 初始宽度一致）。
-    public static let width: CGFloat = 640
+    public static var expandedHeight: CGFloat { compactHeight + maxResponseHeight }
+    /// 窗口宽度。
+    public static var width: CGFloat { LauncherVisual.panelWidth }
     /// 高度变化小于该增量时不触发 resize（抑制流式增量抖动）。
     public static let minResizeDelta: CGFloat = 4
 

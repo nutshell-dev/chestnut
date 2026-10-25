@@ -1,20 +1,19 @@
 import CoreGraphics
 import SwiftUI
 
-/// Spotlight/Raycast 风格输入区视觉单一来源（phase 1990 Step C）。
-/// 只含几何与颜色常量；行为（提交/绑定）归 ChatView。
+/// Spotlight/Raycast 风格输入区视觉单一来源（phase 1990 Step C；phase 1996 起数值转发自
+/// LauncherVisual）。只含几何常量；行为（提交/绑定）归 ChatView。
+/// composer 无独立表面：1990/1991 两次实机均否决独立材质/边框（框中框）；
+/// focus 只用系统文本焦点，不画第二个框。
 public enum ComposerStyle {
     /// 输入栏固定高度（busy 状态不改变高度，防抖动）。
-    public static let height: CGFloat = 54
+    public static var height: CGFloat { LauncherVisual.composerHeight }
     public static let cornerRadius: CGFloat = 16
-    public static let horizontalPadding: CGFloat = 18
+    public static var horizontalPadding: CGFloat { LauncherVisual.composerHorizontalPadding }
     /// 右侧忙碌状态槽预留宽度（ProgressView 出现/消失不改变布局）。
-    public static let statusSlotWidth: CGFloat = 20
-    public static let fontSize: CGFloat = 17
-    public static let placeholder: String = "询问 Motion…"
+    public static var statusSlotWidth: CGFloat { LauncherVisual.statusSlotWidth }
+    public static var fontSize: CGFloat { LauncherVisual.composerFontSize }
+    public static var placeholder: String { LauncherVisual.placeholder }
 
     public static var font: Font { .system(size: fontSize, weight: .regular) }
-
-    //  Spotlight 语义：输入区无独立背景与边框（实机决策——独立材质/边框在窗口
-    //  材质上形成“框中框”印记）。圆角常量保留给后续可能的选中态/hover 使用。
 }
