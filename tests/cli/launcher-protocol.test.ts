@@ -251,4 +251,17 @@ describe('LauncherEventMapper', () => {
     expect(a).toEqual({ messageId: 'reply-untraced', role: 'motion', text: 'x' });
     expect(b).toEqual({ messageId: 'reply-untraced', role: 'motion', text: 'xy' });
   });
+
+  it('交错 trace 各自独立累积（phase 2000 实机：真实 stream 两块 A,B,A,B 交错，单缓冲会把每块冲成最后一段）', () => {
+    const mapper = new LauncherEventMapper();
+    expect(mapper.map({ ts: 1, type: 'send_content_delta', delta: '甲一', trace_id: 'A' }))
+      .toEqual({ messageId: 'reply-A', role: 'motion', text: '甲一' });
+    expect(mapper.map({ ts: 2, type: 'send_content_delta', delta: '乙一', trace_id: 'B' }))
+      .toEqual({ messageId: 'reply-B', role: 'motion', text: '乙一' });
+    // 交错返回 A：不得清空 A 的已有缓冲
+    expect(mapper.map({ ts: 3, type: 'send_content_delta', delta: '甲二', trace_id: 'A' }))
+      .toEqual({ messageId: 'reply-A', role: 'motion', text: '甲一甲二' });
+    expect(mapper.map({ ts: 4, type: 'send_content_delta', delta: '乙二', trace_id: 'B' }))
+      .toEqual({ messageId: 'reply-B', role: 'motion', text: '乙一乙二' });
+  });
 });
