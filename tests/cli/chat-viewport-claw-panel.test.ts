@@ -303,6 +303,7 @@ function makeRescanDeps(clawTopology: ClawTopology): RescanHarness {
 }
 
 const SCAN_FAILED = 'viewport_clawsdir_scan_failed';
+const SCAN_RECOVERED = 'viewport_clawsdir_scan_recovered';
 
 describe('rescanClawsDir: topology 消费（phase 1997 Step C）', () => {
   let tmpDir: string;
@@ -408,5 +409,96 @@ describe('rescanClawsDir: topology 消费（phase 1997 Step C）', () => {
 
     expect(h.clawTrackMap.size).toBe(0);
     expect(h.auditWrites.filter(w => w[0] === SCAN_FAILED)).toHaveLength(0);
+  });
+});
+
+describe('rescanClawsDir: 扫描失败审计状态去重（phase 1997 Step D）', () => {
+  function makeThrowingTopology(err: () => Error): ClawTopology {
+    return {
+      enumerateSnapshot: () => { throw err(); },
+    } as unknown as ClawTopology;
+  }
+
+  function makeOkTopology(): ClawTopology {
+    return {
+      enumerateSnapshot: () => ({ valid: [], invalid: [] }),
+    } as unknown as ClawTopology;
+  }
+
+  it('连续 3 次同一失败 → 只写 1 条 failed', async () => {
+    const h = makeRescanDeps(makeThrowingTopology(() => new Error('boom')));
+
+    await h.rescan();
+    await h.rescan();
+    await h.rescan();
+
+    const failed = h.auditWrites.filter(w => w[0] === SCAN_FAILED);
+    expect(failed).toHaveLength(1);
+    expect(String(failed[0][1])).toContain('boom');
+    expect(h.auditWrites.filter(w => w[0] === SCAN_RECOVERED)).toHaveLength(0);
+  });
+
+  it('失败 → 成功：写 1 条 recovered 并清状态；之后成功不再重复 recovered', async () => {
+    let failing = true;
+    const topology = {
+      enumerateSnapshot: () => {
+        if (failing) throw new Error('boom');
+        return { valid: [], invalid: [] };
+      },
+    } as unknown as ClawTopology;
+    const h = makeRescanDeps(topology);
+
+    await h.rescan();
+    failing = false;
+    await h.rescan();
+    await h.rescan();
+
+    expect(h.auditWrites.filter(w => w[0] === SCAN_FAILED)).toHaveLength(1);
+    expect(h.auditWrites.filter(w => w[0] === SCAN_RECOVERED)).toHaveLength(1);
+  });
+
+  it('恢复后再次失败 → 写新的 1 条 failed', async () => {
+    let mode: 'fail' | 'ok' = 'fail';
+    const topology = {
+      enumerateSnapshot: () => {
+        if (mode === 'fail') throw new Error('boom');
+        return { valid: [], invalid: [] };
+      },
+    } as unknown as ClawTopology;
+    const h = makeRescanDeps(topology);
+
+    await h.rescan();          // failed #1
+    mode = 'ok';
+    await h.rescan();          // recovered
+    mode = 'fail';
+    await h.rescan();          // failed #2
+    await h.rescan();          // 同一失败指纹：不重复
+
+    expect(h.auditWrites.filter(w => w[0] === SCAN_FAILED)).toHaveLength(2);
+    expect(h.auditWrites.filter(w => w[0] === SCAN_RECOVERED)).toHaveLength(1);
+  });
+
+  it('失败 reason 变化（指纹变化）→ 写新的 failed', async () => {
+    let msg = 'boom-1';
+    const h = makeRescanDeps(makeThrowingTopology(() => new Error(msg)));
+
+    await h.rescan();
+    msg = 'boom-2';
+    await h.rescan();
+
+    const failed = h.auditWrites.filter(w => w[0] === SCAN_FAILED);
+    expect(failed).toHaveLength(2);
+    expect(String(failed[0][1])).toContain('boom-1');
+    expect(String(failed[1][1])).toContain('boom-2');
+  });
+
+  it('成功但从未失败 → 0 条 recovered', async () => {
+    const h = makeRescanDeps(makeOkTopology());
+
+    await h.rescan();
+    await h.rescan();
+
+    expect(h.auditWrites).toHaveLength(0);
+    expect(h.updatePanelCalls).toBe(2);
   });
 });

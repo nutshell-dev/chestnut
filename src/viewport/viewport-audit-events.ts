@@ -15,6 +15,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   UNKNOWN_EVENT: 'viewport_unknown_event',
   COMMAND_ERROR: 'viewport_command_error',
   CLAWSDIR_SCAN_FAILED: 'viewport_clawsdir_scan_failed',
+  // phase 1997 Step D: 扫描失败恢复的状态变迁事件（与 FAILED 配对，一次恢复一条）
+  CLAWSDIR_SCAN_RECOVERED: 'viewport_clawsdir_scan_recovered',
   TASK_STREAM_STALE_CLEANUP: 'viewport_task_stream_stale_cleanup',
   TASK_WATCH_STOP_FAILED: 'viewport_task_watch_stop_failed',
   SCROLLBACK_CLEAR_SUPPRESSED: 'viewport_scrollback_clear_suppressed',

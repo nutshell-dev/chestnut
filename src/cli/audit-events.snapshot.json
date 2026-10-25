@@ -1037,6 +1037,7 @@
       "cli_chat_crash_uncaught",
       "viewport_attachment_persist_failed",
       "viewport_clawsdir_scan_failed",
+      "viewport_clawsdir_scan_recovered",
       "viewport_command_error",
       "viewport_daemon_ensure_failed",
       "viewport_daemon_ensure_ready",

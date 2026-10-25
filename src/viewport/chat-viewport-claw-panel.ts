@@ -87,6 +87,10 @@ interface RescanClawsDirDeps {
 }
 
 export function createRescanClawsDir(deps: RescanClawsDirDeps) {
+  // Phase 1997 Step D: 扫描失败审计按状态变迁写——同一失败指纹只写一次，
+  // 恢复写一次 recovered；不再每 tick（2s）重复刷屏。状态在 viewport 进程内；
+  // 重启后首次失败再写一次属正常“新会话”状态。
+  let lastScanFailure: string | null = null;
   return async function rescanClawsDir() {
     try {
       // Phase 1997 Step C: claw 枚举归 ClawTopology.enumerateSnapshot()
@@ -130,12 +134,21 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           }
         }
       }
+      if (lastScanFailure !== null) {
+        try {
+          deps.audit.write(VIEWPORT_AUDIT_EVENTS.CLAWSDIR_SCAN_RECOVERED);
+        } catch { /* audit self-failure tolerated */ }
+        lastScanFailure = null;
+      }
       deps.updateClawPanel(deps.clawTrackMap);
     } catch (err) {
       const msg = formatErr(err);
-      try {
-        deps.audit.write(VIEWPORT_AUDIT_EVENTS.CLAWSDIR_SCAN_FAILED, `reason=${msg}`);
-      } catch { /* audit self-failure tolerated */ }
+      if (msg !== lastScanFailure) {
+        try {
+          deps.audit.write(VIEWPORT_AUDIT_EVENTS.CLAWSDIR_SCAN_FAILED, `reason=${msg}`);
+        } catch { /* audit self-failure tolerated */ }
+        lastScanFailure = msg;
+      }
     }
   };
 }
