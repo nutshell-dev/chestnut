@@ -139,6 +139,8 @@ public struct ActivityPayload: Equatable, Sendable {
         case processing
         case responding
         case idle
+        /// turn_error 保留的可读错误行（phase 2002）：不伪装 idle，下一次 send 才清除。
+        case error
     }
 
     public let phase: Phase

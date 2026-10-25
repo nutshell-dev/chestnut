@@ -60,7 +60,11 @@ public enum ChatReducer {
             next.chat = .sending(draft: draft, requestId: requestId, messages: messages)
             // 发送即给反馈（phase 2001）：无活动时进入 waiting；
             // 已有 processing/responding（上个 turn 未结束）不回退。
-            if case .idle = state.activity { next.activity = .waiting }
+            // phase 2002：旧 error 行由下一次发送显式清除并重新 waiting。
+            switch state.activity {
+            case .idle, .error: next.activity = .waiting
+            default: break
+            }
         case let .sendAccepted(requestId):
             // ack 只确认提交成功：追加用户消息、清草稿；不产生 Motion 回复。
             // requestId 不符 = 过期 ack，忽略。
@@ -124,7 +128,8 @@ public enum ChatReducer {
                 state.chat = state.chat.appending(message)
             }
         case .activity:
-            // 活动行迁移（phase 2001）：processing/responding 单调前进不回退 waiting；
+            // 活动行迁移（phase 2001 引入，phase 2002 增 error）：processing/responding 单调前进
+            // 不回退 waiting；error 保留可读错误行，只由下一次 sendStarted 或新 activity 覆盖；
             // 未知/畸形 activity payload 只推进 sequence，不产生活动变更。
             guard let payload = ActivityPayload(payload: envelope.payload) else { return }
             switch payload.phase {
@@ -134,6 +139,8 @@ public enum ChatReducer {
                 state.activity = .responding
             case .idle:
                 state.activity = .idle
+            case .error:
+                state.activity = .error(detail: payload.detail)
             }
         case .terminal:
             state.activity = .idle // stream 终止兜底清理活动行

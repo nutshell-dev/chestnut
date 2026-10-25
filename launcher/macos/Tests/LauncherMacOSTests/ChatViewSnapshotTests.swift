@@ -196,9 +196,10 @@ final class ChatViewSnapshotTests: XCTestCase {
 
     // MARK: phase 2001 活动行结构断言
 
-    private func activityEnvelope(_ seq: Int, _ phase: String, label: String? = nil) -> LauncherEnvelope {
+    private func activityEnvelope(_ seq: Int, _ phase: String, label: String? = nil, detail: String? = nil) -> LauncherEnvelope {
         var payload: [String: JSONValue] = ["phase": .string(phase)]
         if let label { payload["label"] = .string(label) }
+        if let detail { payload["detail"] = .string(detail) }
         return LauncherEnvelope(
             protocolVersion: LauncherEnvelope.supportedProtocolVersion,
             sequence: seq, sessionId: "s1", kind: .activity, payload: .object(payload)
@@ -254,6 +255,95 @@ final class ChatViewSnapshotTests: XCTestCase {
         XCTAssertEqual(
             countSubviews(NSProgressIndicator.self, in: hosting), 1,
             "send 完成后等待 Motion 期间活动行必须可见"
+        )
+    }
+
+    // MARK: phase 2002 底部活动行布局与 error 保留
+
+    private func motionEventEnvelope(_ seq: Int, _ id: String, _ text: String) -> LauncherEnvelope {
+        LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: seq, sessionId: "s1", kind: .event,
+            payload: .object(["messageId": .string(id), "role": .string("motion"), "text": .string(text)])
+        )
+    }
+
+    /// 前序深度遍历整棵视图树（声明顺序 = 布局顺序：VStack 先声明的 section 子树整体在前）。
+    private func flattenedTree(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { flattenedTree($0) }
+    }
+
+    /// claw bar 布局核心：activityBar 在回复列表之后（composer → messages → activityBar → status），
+    /// 不插入消息之间。结构断言：活动行 spinner 子树位于回复区 ScrollView 子树之后。
+    func testActivityBarRendersBelowResponseArea() async {
+        let stream = ScriptedStreamClient(scripts: [.init(envelopes: [
+            motionEventEnvelope(1, "m1", "第一条回复"),
+            activityEnvelope(2, "processing", label: "thinking", detail: "先想"),
+        ])])
+        let store = ChatStore(send: MockSendClient(), stream: stream)
+        store.startStream()
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertEqual(store.state.messages.count, 1)
+        XCTAssertEqual(store.activity, .processing(label: "thinking", detail: "先想"))
+
+        let flat = flattenedTree(hosting)
+        guard let spinnerIndex = flat.firstIndex(where: { $0 is NSProgressIndicator }),
+              let scrollIndex = flat.firstIndex(where: { $0 is NSScrollView }) else {
+            XCTFail("活动行 spinner 与回复区 ScrollView 必须同时存在")
+            return
+        }
+        XCTAssertGreaterThan(
+            spinnerIndex, scrollIndex,
+            "活动行必须位于回复列表之后（不插入消息之间）"
+        )
+    }
+
+    /// 连续多条消息后活动行仍在列表末尾：三条 user 消息 + waiting 活动，
+    /// 活动行不重排已有消息、始终在最后。
+    func testActivityBarStaysBelowMessagesAcrossMultipleSends() async {
+        let stream = ScriptedStreamClient(scripts: [])
+        var counter = 0
+        let store = ChatStore(send: MockSendClient(), stream: stream, makeRequestId: {
+            counter += 1
+            return "req-\(counter)"
+        })
+        for text in ["第一条", "第二条", "第三条"] {
+            store.updateDraft(text)
+            await store.submit()
+        }
+        XCTAssertEqual(store.state.messages.count, 3)
+        XCTAssertEqual(store.activity, .waiting)
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        let flat = flattenedTree(hosting)
+        guard let spinnerIndex = flat.firstIndex(where: { $0 is NSProgressIndicator }),
+              let scrollIndex = flat.firstIndex(where: { $0 is NSScrollView }) else {
+            XCTFail("连续发送后活动行与回复区必须同时存在")
+            return
+        }
+        XCTAssertGreaterThan(spinnerIndex, scrollIndex, "连续发送时活动行必须始终在所有消息之后")
+    }
+
+    /// turn_error → error 活动行保留可见（不撤行）、无 spinner（终态不假装进行中）；
+    /// 错误行不被后续无关 stream 事件清除，只由下一次 send 清理（reducer 层锁定）。
+    func testErrorActivityRetainedWithoutSpinner() async {
+        let stream = ScriptedStreamClient(scripts: [.init(envelopes: [
+            motionEventEnvelope(1, "m1", "部分回复"),
+            activityEnvelope(2, "processing", label: "provider", detail: "kimi"),
+            activityEnvelope(3, "error", label: "turn", detail: "LLM 网络失败"),
+        ])])
+        let store = ChatStore(send: MockSendClient(), stream: stream)
+        store.startStream()
+
+        let hosting = host(ChatView(store: store))
+        await settle(hosting)
+        XCTAssertEqual(store.activity, .error(detail: "LLM 网络失败"), "turn_error 必须保留可读错误行")
+        XCTAssertEqual(
+            countSubviews(NSProgressIndicator.self, in: hosting), 0,
+            "error 是终态：无 spinner，但错误行保留（activityBar 文本仍存在）"
         )
     }
 }

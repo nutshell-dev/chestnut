@@ -40,15 +40,16 @@ public struct ChatView: View {
         // section 间距由各自 padding token 承担（VStack spacing 归零，节奏可解释）。
         VStack(alignment: .leading, spacing: 0) {
             composer
-            // Motion 活动行（phase 2001）：发送后立即出现，turn 事件刷新同一行，
-            // turn 终止才撤；idle 时不渲染、不占高度。
-            if let activityText = ActivityStyle.text(for: store.activity) {
-                activityBar(activityText)
-                    .padding(.top, LauncherVisual.composerToResponseGap)
-            }
             if mode != .compact {
                 responseArea
                     .padding(.top, LauncherVisual.composerToResponseGap)
+            }
+            // Motion 活动行（phase 2002 claw bar 布局）：固定在回复列表之后、status 之前，
+            // 不插入消息之间——活动出现/消失只改变窗口底部高度，不重排已有消息。
+            // 发送后立即出现，turn 事件刷新同一行，turn 终止才撤；error 保留到下一次发送。
+            if let activityText = ActivityStyle.text(for: store.activity) {
+                activityBar(activityText, isError: ActivityStyle.isError(store.activity))
+                    .padding(.top, LauncherVisual.activityTopGap)
             }
             if case let .degraded(_, _, error) = store.state {
                 statusLine(error)
@@ -80,11 +81,11 @@ public struct ChatView: View {
         .onChange(of: store.activity) { _ in reportWindowHeight() }
     }
 
-    /// 活动行高度贡献（phase 2001）：可见时 = 行高 + 顶部间距；
+    /// 活动行高度贡献：可见时 = 行高 + 顶部间距；
     /// compact/expanded 窗口相应增长，capped 窗口不超高（回复区让位，见 responseArea）。
     private var activityContribution: CGFloat {
         ActivityStyle.text(for: store.activity) != nil
-            ? ActivityStyle.height + LauncherVisual.composerToResponseGap
+            ? ActivityStyle.height + LauncherVisual.activityTopGap
             : 0
     }
 
@@ -122,15 +123,21 @@ public struct ChatView: View {
     }
 
     /// Motion 活动行：单行、与对话列共享同一内容轴（x=28）、caption 次级色；
-    ///  spinner 表活动进行中。行文本由 ActivityStyle 单源决定。
-    private func activityBar(_ text: String) -> some View {
+    /// spinner 表活动进行中；error 态无 spinner、橙色（claw ✗ 语义）。行文本由 ActivityStyle 单源决定。
+    private func activityBar(_ text: String, isError: Bool) -> some View {
         HStack(spacing: 6) {
-            ProgressView()
-                .scaleEffect(ActivityStyle.spinnerScale)
-                .frame(width: 10, height: 10)
+            if isError {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            } else {
+                ProgressView()
+                    .scaleEffect(ActivityStyle.spinnerScale)
+                    .frame(width: 10, height: 10)
+            }
             Text(text)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(isError ? .orange : .secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)

@@ -26,14 +26,16 @@ public struct Message: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Motion 活动状态（phase 2001）：独立单行活动行的事实，不是聊天消息。
-/// waiting 是本地态（send ack 前后、首个 stream 事件之前）；processing/responding/idle
-/// 来自 activity envelope。idle 时 UI 完全不渲染活动行。
+/// Motion 活动状态（phase 2001 引入，phase 2002 增 error）：独立单行活动行的事实，不是聊天消息。
+/// waiting 是本地态（send ack 前后、首个 stream 事件之前）；processing/responding/idle/error
+/// 来自 activity envelope。idle 时 UI 完全不渲染活动行；error 保留可读错误行，
+/// 直到下一次发送才清除（turn_error 不伪装 idle——网络/LLM 失败必须可见）。
 public enum ActivityState: Equatable, Sendable {
     case idle
     case waiting
     case processing(label: String?, detail: String?)
     case responding
+    case error(detail: String?)
 }
 
 /// UI 聊天状态机。draft 守恒：sending/degraded 都保留未 ack 草稿，

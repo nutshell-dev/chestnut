@@ -113,4 +113,14 @@ final class WireDecoderTests: XCTestCase {
         let unknown = try decoder.decode(line: line("activity", payload: #"{"phase":"exploding"}"#))
         XCTAssertNil(ActivityPayload(payload: unknown.payload), "未知 activity phase 不解析")
     }
+
+    /// error activity phase 解码（phase 2002：turn_error 保留可读错误行）。
+    func testDecodesErrorActivityPhase() throws {
+        let envelope = try decoder.decode(line: line("activity", sequence: 4, payload: #"{"phase":"error","label":"turn","detail":"LLM 网络失败","traceId":"t1"}"#))
+        let activity = ActivityPayload(payload: envelope.payload)
+        XCTAssertEqual(activity?.phase, .error)
+        XCTAssertEqual(activity?.label, "turn")
+        XCTAssertEqual(activity?.detail, "LLM 网络失败")
+        XCTAssertEqual(activity?.traceId, "t1")
+    }
 }

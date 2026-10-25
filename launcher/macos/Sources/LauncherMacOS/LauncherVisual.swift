@@ -44,6 +44,8 @@ public enum LauncherVisual {
     public static let composerToResponseGap: CGFloat = 4
     /// response/composer → status（等效 1996 的 sectionSpacing 4 + statusLine 魔数 4）。
     public static let responseToStatusGap: CGFloat = 8
+    /// response → activityBar（phase 2002：活动行固定在消息列表之后的独立 section）。
+    public static let activityTopGap: CGFloat = 8
 
     // MARK: 消息块垂直节奏（单源：LazyVStack spacing 归零，块间距全由 blockPadding 承担；
     /// 等效换算 1996：spacing 6 均摊上下各 3 叠原 verticalPadding 4/2 → 7/5，块间间隔不变）

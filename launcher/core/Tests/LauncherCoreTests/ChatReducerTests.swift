@@ -79,9 +79,10 @@ final class ChatReducerTests: XCTestCase {
 
     // MARK: phase 2001 活动行生命周期
 
-    private func activityEnvelope(_ seq: Int, _ phase: String, label: String? = nil) -> LauncherEnvelope {
+    private func activityEnvelope(_ seq: Int, _ phase: String, label: String? = nil, detail: String? = nil) -> LauncherEnvelope {
         var payload: [String: JSONValue] = ["phase": .string(phase)]
         if let label { payload["label"] = .string(label) }
+        if let detail { payload["detail"] = .string(detail) }
         return LauncherEnvelope(
             protocolVersion: LauncherEnvelope.supportedProtocolVersion,
             sequence: seq, sessionId: "s1", kind: .activity, payload: .object(payload)
@@ -158,5 +159,32 @@ final class ChatReducerTests: XCTestCase {
         state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "processing", label: "tool")))
         state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(2, "idle")))
         XCTAssertEqual(state.chat.messages, [], "活动行不是聊天消息")
+    }
+
+    // MARK: phase 2002 error 保留与中间 send
+
+    /// turn_error → error 保留可读错误行（不伪装 idle）；错误行不被 stream 后续无关事件静默清除。
+    func testTurnErrorActivityRetained() {
+        var state = ChatCoreState(activity: .processing(label: "provider", detail: "kimi"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "error", label: "turn", detail: "LLM 网络失败 provider kimi 不可用")))
+        XCTAssertEqual(state.activity, .error(detail: "LLM 网络失败 provider kimi 不可用"), "turn_error 必须保留可见错误行")
+    }
+
+    /// error 行只由下一次 sendStarted 清除并重新 waiting；sendAccepted 不回退。
+    func testNextSendClearsErrorToWaiting() {
+        var state = ChatCoreState(chat: .idle(draft: "重试", messages: []), activity: .error(detail: "LLM 网络失败"))
+        state = ChatReducer.reduce(state, .sendStarted(requestId: "r2"))
+        XCTAssertEqual(state.activity, .waiting, "下一次发送显式清除旧 error 并重新 waiting")
+        state = ChatReducer.reduce(state, .sendAccepted(requestId: "r2"))
+        XCTAssertEqual(state.activity, .waiting)
+    }
+
+    /// 中间 send 不清理活动：processing → responding（send）→ processing（继续工具/思考）保持非 idle。
+    func testIntermediateSendDoesNotClearActivity() {
+        var state = ChatCoreState(activity: .processing(label: "tool", detail: "run"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "responding"))) // send
+        XCTAssertTrue(state.activity != .idle, "中间 send 不得清理活动")
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(2, "processing", label: "thinking", detail: "继续")))
+        XCTAssertEqual(state.activity, .processing(label: "thinking", detail: "继续"))
     }
 }
