@@ -3,36 +3,35 @@ import SwiftUI
 
 import LauncherCore
 
-/// 消息排版单一来源（phase 1996）：统一左侧单列——所有角色 frame/text alignment 均为 leading；
-/// 正常对话不显示角色名，user 仅靠轻微 leading inset、次级颜色、较小字号区分；
-/// 仅 system 消息保留标签解释来源。禁止 trailing/气泡/分隔线。
+/// 消息排版只消费 DialogueComposition：user 是轻量上下文，Motion 是主要阅读内容；
+/// 所有角色同轴 leading。仅 system 保留标签，禁止 inset/trailing/气泡/分隔线。
 public enum MessageStyle {
     /// 所有角色统一左对齐（1993 的 user trailing 已被实机否决）。
     public static func frameAlignment(for role: Message.Role) -> Alignment { .leading }
 
     public static func textAlignment(for role: Message.Role) -> TextAlignment { .leading }
 
-    /// user 的轻微左缩进；Motion/system 为 0。
-    public static func leadingInset(for role: Message.Role) -> CGFloat {
-        role == .user ? LauncherVisual.userLeadingInset : 0
-    }
+    /// 角色行不增加偏移；共享列轴由 ChatView 统一应用 responseLeadingInset。
+    public static func leadingInset(for role: Message.Role) -> CGFloat { 0 }
 
     public static func font(for role: Message.Role) -> Font {
         switch role {
-        case .motion: return .system(size: LauncherVisual.motionBodyFontSize, weight: .regular)
-        case .user: return .system(size: LauncherVisual.userBodyFontSize, weight: .regular)
+        case .motion: return .system(size: spec(for: role).fontSize, weight: spec(for: role).weight)
+        case .user: return .system(size: spec(for: role).fontSize, weight: spec(for: role).weight)
         case .system: return .caption
         }
     }
 
     public static func lineSpacing(for role: Message.Role) -> CGFloat {
-        role == .motion ? LauncherVisual.motionLineSpacing : LauncherVisual.userLineSpacing
+        role == .motion ? DialogueComposition.current.reply.lineSpacing : DialogueComposition.current.user.lineSpacing
     }
 
-    /// 消息块垂直节奏（块间距单源，phase 1998；内容栈 spacing 已归零）。
-    /// lineSpacing 是块内行间节奏，blockPadding 是块间节奏——职责分离。
-    public static func blockPadding(for role: Message.Role) -> CGFloat {
-        role == .motion ? LauncherVisual.motionBlockPadding : LauncherVisual.userBlockPadding
+    public static func opacity(for role: Message.Role) -> Double {
+        role == .motion ? DialogueComposition.current.reply.opacity : DialogueComposition.current.user.opacity
+    }
+
+    private static func spec(for role: Message.Role) -> MessageStyleSpec {
+        role == .motion ? DialogueComposition.current.reply : DialogueComposition.current.user
     }
 
     /// user/system 为次级色、Motion 为主要色（纯角色判定）。

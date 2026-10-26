@@ -37,6 +37,30 @@ final class ConversationLayoutTests: XCTestCase {
         XCTAssertEqual(ConversationLayout.responseAreaHeight(for: .capped, responseHeight: 1600), 420)
     }
 
+    func testFooterContributionIsBoundedAndOnlyAffectsCappedResponseArea() {
+        XCTAssertEqual(
+            ConversationLayout.responseAreaHeight(for: .expanded, responseHeight: 100, footerHeight: 30),
+            100
+        )
+        XCTAssertEqual(
+            ConversationLayout.responseAreaHeight(for: .expanded, responseHeight: 420, footerHeight: 30),
+            390,
+            "近顶界时 expanded 也必须提前为 footer 让位"
+        )
+        XCTAssertEqual(
+            ConversationLayout.responseAreaHeight(for: .capped, responseHeight: 1600, footerHeight: 30),
+            390
+        )
+        XCTAssertEqual(
+            ConversationLayout.responseAreaHeight(for: .capped, responseHeight: 1600, footerHeight: 1000),
+            0
+        )
+        XCTAssertEqual(
+            ConversationLayout.responseAreaHeight(for: .capped, responseHeight: 1600, footerHeight: -1),
+            420
+        )
+    }
+
     /// 小于最小增量的高度变化不触发 resize（抑制流式增量抖动）。
     func testMinResizeDeltaSuppressesJitter() {
         XCTAssertFalse(ConversationLayout.shouldResize(from: 100, to: 103))

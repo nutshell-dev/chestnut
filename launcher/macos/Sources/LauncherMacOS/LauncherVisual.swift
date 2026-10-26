@@ -1,6 +1,49 @@
 import CoreGraphics
 import SwiftUI
 
+public struct MessageStyleSpec: Equatable {
+    public let fontSize: CGFloat
+    public let weight: Font.Weight
+    public let lineSpacing: CGFloat
+    public let opacity: Double
+
+    public init(fontSize: CGFloat, weight: Font.Weight, lineSpacing: CGFloat, opacity: Double) {
+        self.fontSize = fontSize
+        self.weight = weight
+        self.lineSpacing = lineSpacing
+        self.opacity = opacity
+    }
+}
+
+/// 对话构图的唯一视觉投影：不包含消息事实，也不读取滚动状态。
+public struct DialogueComposition: Equatable {
+    public let user: MessageStyleSpec
+    public let reply: MessageStyleSpec
+    public let firstGroupGap: CGFloat
+    public let withinTurnGap: CGFloat
+    public let betweenTurnsGap: CGFloat
+    public let footerGap: CGFloat
+
+    public static let current = DialogueComposition(
+        user: MessageStyleSpec(
+            fontSize: LauncherVisual.userBodyFontSize,
+            weight: .regular,
+            lineSpacing: LauncherVisual.userLineSpacing,
+            opacity: LauncherVisual.userOpacity
+        ),
+        reply: MessageStyleSpec(
+            fontSize: LauncherVisual.motionBodyFontSize,
+            weight: .regular,
+            lineSpacing: LauncherVisual.motionLineSpacing,
+            opacity: LauncherVisual.replyOpacity
+        ),
+        firstGroupGap: 4,
+        withinTurnGap: 4,
+        betweenTurnsGap: 16,
+        footerGap: 8
+    )
+}
+
 /// 光学比例 token 单一来源（phase 1996）：所有尺寸/字号/留白常量集中此处，
 /// view 内禁止散落 magic numbers。行为计算归 ConversationLayout，composer 细节归
 /// ComposerStyle，消息排版归 MessageStyle——三者只读本文件的值。
@@ -21,14 +64,15 @@ public enum LauncherVisual {
     public static let statusSlotWidth: CGFloat = 20
     public static let placeholder: String = "询问 Motion…"
 
-    // MARK: 消息排版（统一左侧单列；user 仅靠 inset/颜色/字号一级差异区分）
+    // MARK: 消息排版（phase 2008：同轴 typography hierarchy）
     public static let motionBodyFontSize: CGFloat = 16
     public static let userBodyFontSize: CGFloat = 14
     public static let motionLineSpacing: CGFloat = 4
-    public static let userLineSpacing: CGFloat = 2
-    /// user 左缩进。实机结论（1996 修正 2）：inset 20 叠加在共享缩进上使起点与输入框不齐，
-    /// 已归零——user 仅次级颜色 + 较小字号区分，所有消息与输入文字共享同一 x 起点。
-    public static let userLeadingInset: CGFloat = 0
+    public static let userLineSpacing: CGFloat = 1
+    public static let userOpacity: Double = 0.72
+    public static let replyOpacity: Double = 1
+    /// 所有消息直接消费 responseLeadingInset；禁止重新引入 user 专属横向偏移。
+    public static var messageLeadingInset: CGFloat { responseLeadingInset }
 
     // MARK: 外层材质与留白（composer 与回复列共享同一左侧光学起点）
     public static let panelCornerRadius: CGFloat = 12
@@ -38,17 +82,4 @@ public enum LauncherVisual {
     /// composerHorizontalPadding；回复列在 contentInset 基础上再缩进同一值）。状态行同样消费此轴。
     public static var responseLeadingInset: CGFloat { composerHorizontalPadding }
 
-    // MARK: Section 间距（phase 1998：根 VStack spacing 归零，间距由各 section 顶部 padding 承担，
-    /// 数值与 1996 实机通过版等效）
-    /// composer → response。
-    public static let composerToResponseGap: CGFloat = 4
-    /// response/composer → status（等效 1996 的 sectionSpacing 4 + statusLine 魔数 4）。
-    public static let responseToStatusGap: CGFloat = 8
-    // response → activityBar 顶距归 ActivityStyle.topGap（phase 2004 Step C：
-    // activity 行视觉 token 单源化，本类型只拥有窗口/section 几何）。
-
-    // MARK: 消息块垂直节奏（单源：内容栈 spacing 归零，块间距全由 blockPadding 承担；
-    /// 等效换算 1996：spacing 6 均摊上下各 3 叠原 verticalPadding 4/2 → 7/5，块间间隔不变）
-    public static let motionBlockPadding: CGFloat = 7
-    public static let userBlockPadding: CGFloat = 5
 }

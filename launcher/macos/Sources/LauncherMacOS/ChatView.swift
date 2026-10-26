@@ -9,6 +9,23 @@ struct ResponseHeightPreferenceKey: PreferenceKey {
     }
 }
 
+/// 纯 UI 视觉组：user 开组，后续非 user 归入该轮；孤立回复独立成组。
+/// id 取自首条消息，流式 upsert 不改变组身份，不引入新的 ChatState。
+struct DialogueGroup: Identifiable {
+    let id: String
+    var messages: [Message]
+}
+
+func makeDialogueGroups(_ messages: [Message]) -> [DialogueGroup] {
+    messages.reduce(into: []) { groups, message in
+        if message.role == .user || groups.isEmpty {
+            groups.append(DialogueGroup(id: message.id, messages: [message]))
+        } else {
+            groups[groups.count - 1].messages.append(message)
+        }
+    }
+}
+
 /// SwiftUI 视图：只绑定 ChatStore 的 published state；不创建 Process、不读文件、不解释退出码。
 /// 三态布局：compact（仅顶部 composer）→ expanded（composer 顶部固定 + 回复区增量增长）
 /// → capped（回复区达上限后内部滚动，窗口高度固定）。
@@ -30,6 +47,8 @@ public struct ChatView: View {
     }
 
     private var messages: [Message] { store.state.messages }
+    private var dialogueGroups: [DialogueGroup] { makeDialogueGroups(messages) }
+    private var composition: DialogueComposition { .current }
 
     private var mode: LayoutMode {
         ConversationLayout.layoutMode(messageCount: messages.count, responseHeight: responseContentHeight)
@@ -42,18 +61,18 @@ public struct ChatView: View {
             composer
             if mode != .compact {
                 responseArea
-                    .padding(.top, LauncherVisual.composerToResponseGap)
+                    .padding(.top, composition.firstGroupGap)
             }
             // Motion 活动行（phase 2002 claw bar 布局）：固定在回复列表之后、status 之前，
             // 不插入消息之间——活动出现/消失只改变窗口底部高度，不重排已有消息。
             // 发送后立即出现，turn 事件刷新同一行，turn 终止才撤；error 保留到下一次发送。
             if let activityText = ActivityStyle.text(for: store.activity) {
                 activityBar(text: activityText, activity: store.activity)
-                    .padding(.top, ActivityStyle.topGap)
+                    .padding(.top, composition.footerGap)
             }
             if case let .degraded(_, _, error) = store.state {
                 statusLine(error)
-                    .padding(.top, LauncherVisual.responseToStatusGap)
+                    .padding(.top, composition.footerGap)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,14 +104,14 @@ public struct ChatView: View {
     /// compact/expanded 窗口相应增长，capped 窗口不超高（回复区让位，见 responseArea）。
     private var activityContribution: CGFloat {
         ActivityStyle.text(for: store.activity) != nil
-            ? ActivityStyle.lineHeight + ActivityStyle.topGap
+            ? ActivityStyle.lineHeight + composition.footerGap
             : 0
     }
 
     /// 当前内容所需窗口高度，变化超过最小增量才上报。
     private func reportWindowHeight() {
         let base = ConversationLayout.windowHeight(for: mode, responseHeight: responseContentHeight)
-        let target = mode == .capped ? base : base + activityContribution
+        let target = min(base + activityContribution, ConversationLayout.expandedHeight)
         onWindowHeightChange?(target)
     }
 
@@ -160,11 +179,15 @@ public struct ChatView: View {
         // ScrollViewProxy.scrollTo 在流式更新事务中会被丢弃（phase 2007 Step A 事实：
         // main 实机探针贴底 2/89）。本分支只含贴底修复，视觉构图保持 main 现状。
         ScrollView {
-            // 块间节奏单源：spacing 归零，由 MessageStyle.blockPadding 承担（phase 1998）
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(messages) { message in
-                    messageRow(message)
-                        .id(message.id)
+            // 组内紧凑、组间舒展；user/reply 始终共享同一 x，流式更新只改末组内容。
+            VStack(alignment: .leading, spacing: composition.betweenTurnsGap) {
+                ForEach(dialogueGroups) { group in
+                    VStack(alignment: .leading, spacing: composition.withinTurnGap) {
+                        ForEach(group.messages) { message in
+                            messageRow(message)
+                                .id(message.id)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: LauncherVisual.responseMaxWidth, alignment: .leading)
@@ -181,8 +204,11 @@ public struct ChatView: View {
         }
         .frame(height: max(
             // capped 时窗口不超高：活动行可见期间回复区让出同等高度
-            ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight)
-                - (mode == .capped ? activityContribution : 0),
+            ConversationLayout.responseAreaHeight(
+                for: mode,
+                responseHeight: responseContentHeight,
+                footerHeight: activityContribution
+            ),
             0
         ))
         .accessibilityIdentifier("responseScrollView")
@@ -194,13 +220,13 @@ public struct ChatView: View {
         messages.count * 100_000 + (messages.last?.text.count ?? 0)
     }
 
-    /// 无角色名单列对话（phase 1996）：所有消息从同一左侧阅读列开始；user 仅靠轻微
-    /// leading inset、次级颜色和较小字号区分，Motion 保持主要文本；仅 system 保留标签。
+    /// 无角色名同轴对话（phase 2008）：user 以轻量紧凑 typography 提供上下文，
+    /// Motion 以主色和充足行距承载阅读；不增加任何角色横向偏移。
     /// 消息行是纯呈现（phase 2000）：无 textSelection、无点击手势、无选择/焦点状态——
     /// phase1999 实机证明 textSelection（无论在 row 还是容器）会引起黑灰串扰，故整体移除；
     /// 颜色仅由 MessageStyle.foreground(for:) 角色映射决定。复制能力边界见 Step C 决策。
     private func messageRow(_ message: Message) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             if MessageStyle.showsRoleLabel(for: message) {
                 Text("系统")
                     .font(.caption)
@@ -209,16 +235,15 @@ public struct ChatView: View {
             Text(message.text)
                 .font(MessageStyle.font(for: message.role))
                 .lineSpacing(MessageStyle.lineSpacing(for: message.role))
-                .foregroundStyle(MessageStyle.foreground(for: message.role))
+                .foregroundStyle(MessageStyle.foreground(for: message.role).opacity(MessageStyle.opacity(for: message.role)))
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, MessageStyle.leadingInset(for: message.role))
         }
-        .padding(.vertical, MessageStyle.blockPadding(for: message.role))
     }
 
     /// 低干扰状态行：错误一行呈现，保留重试/关闭，不把窗口撑到固定大高度；
-    /// 与对话列共享同一 content axis（x=28），间距 token 由外层 VStack 处加（responseToStatusGap）。
+    /// 与对话列共享同一 content axis（x=28），间距由 composition.footerGap 承担。
     /// phase 2003 Step E：错误文本原样显示 ChatError.detail（daemon/turn 错误已由 CLI 侧
     /// claw bar 共享 formatter 格式化），本地不再按类别拼接前缀。
     private func statusLine(_ error: ChatError) -> some View {

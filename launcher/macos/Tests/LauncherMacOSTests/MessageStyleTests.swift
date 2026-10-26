@@ -35,11 +35,39 @@ final class MessageStyleTests: XCTestCase {
         XCTAssertEqual(LauncherVisual.userBodyFontSize, 14)
         XCTAssertGreaterThan(LauncherVisual.motionBodyFontSize, LauncherVisual.userBodyFontSize)
         XCTAssertGreaterThan(MessageStyle.lineSpacing(for: .motion), MessageStyle.lineSpacing(for: .user))
-        XCTAssertGreaterThan(MessageStyle.blockPadding(for: .motion), MessageStyle.blockPadding(for: .user))
+        XCTAssertEqual(MessageStyle.lineSpacing(for: .user), 1)
+        XCTAssertEqual(MessageStyle.lineSpacing(for: .motion), 4)
+        XCTAssertEqual(MessageStyle.opacity(for: .user), 0.72)
+        XCTAssertEqual(MessageStyle.opacity(for: .motion), 1)
+        XCTAssertLessThan(MessageStyle.opacity(for: .user), MessageStyle.opacity(for: .motion))
         // user 次级颜色、Motion 主要颜色
         XCTAssertTrue(MessageStyle.foregroundIsSecondary(for: .user))
         XCTAssertFalse(MessageStyle.foregroundIsSecondary(for: .motion))
         XCTAssertTrue(MessageStyle.foregroundIsSecondary(for: .system))
+    }
+
+    func testCompositionOwnsTypographyAndRhythm() {
+        let composition = DialogueComposition.current
+        XCTAssertEqual(composition.user.fontSize, LauncherVisual.userBodyFontSize)
+        XCTAssertEqual(composition.reply.fontSize, LauncherVisual.motionBodyFontSize)
+        XCTAssertEqual(composition.user.lineSpacing, MessageStyle.lineSpacing(for: .user))
+        XCTAssertEqual(composition.reply.lineSpacing, MessageStyle.lineSpacing(for: .motion))
+        XCTAssertGreaterThan(composition.betweenTurnsGap, composition.withinTurnGap)
+        XCTAssertEqual(MessageStyle.leadingInset(for: .user), MessageStyle.leadingInset(for: .motion))
+    }
+
+    func testDialogueGroupsPreserveTurnsAndStreamingIdentity() {
+        let firstUser = Message(id: "u1", role: .user, text: "一", committed: true)
+        let firstReply = Message(id: "r1", role: .motion, text: "答", committed: false)
+        let secondUser = Message(id: "u2", role: .user, text: "二", committed: true)
+        let groups = makeDialogueGroups([firstUser, firstReply, secondUser])
+        XCTAssertEqual(groups.map(\.id), ["u1", "u2"])
+        XCTAssertEqual(groups[0].messages.map(\.id), ["u1", "r1"])
+        XCTAssertEqual(groups[1].messages.map(\.id), ["u2"])
+
+        let streamed = Message(id: "r1", role: .motion, text: "答案更长", committed: false)
+        XCTAssertEqual(makeDialogueGroups([firstUser, streamed, secondUser]).map(\.id), groups.map(\.id))
+        XCTAssertEqual(makeDialogueGroups([firstReply]).map(\.id), ["r1"], "孤立回复也必须可渲染")
     }
 
     /// 静态颜色契约（phase 2000）：foreground 是纯角色映射——Motion primary、

@@ -363,10 +363,10 @@ final class ChatViewSnapshotTests: XCTestCase {
         XCTAssertTrue(section.contains("ActivityStyle.opacity"), "不透明度必须来自 ActivityStyle token")
         XCTAssertTrue(section.contains("ActivityStyle.showsSpinner"), "spinner 语义必须来自 ActivityStyle 单源")
         XCTAssertTrue(section.contains("exclamationmark.circle"), "错误态必须以错误图标替代 spinner")
-        XCTAssertTrue(source.contains("ActivityStyle.topGap"), "顶距必须来自 ActivityStyle token")
+        XCTAssertTrue(source.contains("composition.footerGap"), "footer 顶距必须来自 DialogueComposition token")
         XCTAssertTrue(
-            source.contains("ActivityStyle.lineHeight + ActivityStyle.topGap"),
-            "窗口高度记账必须消费 lineHeight + topGap（行高 token 变化自动跟随）"
+            source.contains("ActivityStyle.lineHeight + composition.footerGap"),
+            "窗口高度记账必须消费同一 footerGap（行高 token 变化自动跟随）"
         )
     }
 
@@ -382,6 +382,20 @@ final class ChatViewSnapshotTests: XCTestCase {
         XCTAssertTrue(section.contains(".orange"), "错误态必须用 semantic orange（主题自适应）")
         XCTAssertFalse(section.contains("Color(red:"), "不得硬编码 RGB 颜色")
         XCTAssertFalse(section.contains("NSColor("), "不得硬编码 NSColor")
+    }
+
+    // MARK: phase 2008 同轴视觉组与 footer
+
+    func testDialogueCompositionStructureContract() throws {
+        let source = try chatViewSource()
+        XCTAssertTrue(source.contains("ForEach(dialogueGroups)"), "回复必须按纯 UI 视觉组渲染")
+        XCTAssertTrue(source.contains("composition.withinTurnGap"), "组内节奏必须来自 composition")
+        XCTAssertTrue(source.contains("composition.betweenTurnsGap"), "组间节奏必须来自 composition")
+        XCTAssertTrue(source.contains("composition.firstGroupGap"), "首组间距必须来自 composition")
+        XCTAssertTrue(source.contains("composition.footerGap"), "footer 间距必须来自 composition")
+        XCTAssertTrue(source.contains("MessageStyle.opacity(for:"), "typography 层级必须包含角色 opacity")
+        XCTAssertFalse(source.contains("userLeadingInset"), "禁止重新引入 user 横向 inset")
+        XCTAssertFalse(source.contains("MessageStyle.blockPadding"), "旧扁平 blockPadding 节奏已退役")
     }
 
     // MARK: phase 2007-scroll 流式贴底（独立于 2007 视觉实现打捞）

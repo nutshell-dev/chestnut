@@ -42,15 +42,20 @@ public enum ConversationLayout {
         }
     }
 
-    /// 回复区显示高度：capped 固定上限，否则紧贴内容。
-    public static func responseAreaHeight(for mode: LayoutMode, responseHeight: CGFloat) -> CGFloat {
+    /// 回复区显示高度：expanded 紧贴内容；capped 在固定上限内为 footer 让位。
+    /// footer 只参与可见高度记账，不读取或驱动 ScrollFollowAnchor。
+    public static func responseAreaHeight(
+        for mode: LayoutMode,
+        responseHeight: CGFloat,
+        footerHeight: CGFloat = 0
+    ) -> CGFloat {
         switch mode {
         case .compact:
             return 0
         case .expanded:
-            return min(max(responseHeight, 0), maxResponseHeight)
+            return min(max(responseHeight, 0), max(0, maxResponseHeight - max(footerHeight, 0)))
         case .capped:
-            return maxResponseHeight
+            return max(0, maxResponseHeight - max(footerHeight, 0))
         }
     }
 

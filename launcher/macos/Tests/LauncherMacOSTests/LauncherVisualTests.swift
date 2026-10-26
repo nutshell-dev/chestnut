@@ -27,11 +27,10 @@ final class LauncherVisualTests: XCTestCase {
         XCTAssertEqual(ComposerStyle.placeholder, LauncherVisual.placeholder)
     }
 
-    /// user inset 实机归零：所有角色与输入框共享同一左侧起点（1996 修正 2）。
-    /// inset 语义保留为 token，防止后续无实机证据重新引入缩进。
-    func testUserInsetIsZero() {
-        XCTAssertEqual(LauncherVisual.userLeadingInset, 0)
-        XCTAssertLessThanOrEqual(LauncherVisual.userLeadingInset, LauncherVisual.responseMaxWidth * 0.05)
+    /// phase 2008：不再有 user 专属 inset，所有角色共享 response 内容轴。
+    func testMessagesShareResponseLeadingEdge() {
+        XCTAssertEqual(LauncherVisual.messageLeadingInset, LauncherVisual.responseLeadingInset)
+        XCTAssertEqual(MessageStyle.leadingInset(for: .user), MessageStyle.leadingInset(for: .motion))
     }
 
     /// 阅读宽度明显窄于面板内容宽（回复不铺满，留出呼吸边界）。
@@ -63,28 +62,14 @@ final class LauncherVisualTests: XCTestCase {
         )
     }
 
-    /// section metrics（phase 1998）：间距可解释且与 1996 实机通过版等效——
-    /// composer→response 4；response→status 8（原 sectionSpacing 4 + statusLine 魔数 4）。
-    func testSectionMetricsAreExplicit() {
-        XCTAssertEqual(LauncherVisual.composerToResponseGap, 4)
-        XCTAssertEqual(LauncherVisual.responseToStatusGap, 8)
-    }
-
-    /// 底部活动行间距 token（phase 2002 引入；phase 2004 Step C 移归 ActivityStyle——
-    /// activity 行视觉 token 单源化，LauncherVisual 只拥有窗口/section 几何）。
-    func testActivityTopGapToken() {
-        XCTAssertEqual(ActivityStyle.topGap, 8)
-    }
-
-    /// 消息块节奏单源化（phase 1998）：内容栈 spacing 归零后，块间距全由 blockPadding 承担；
-    /// 等效换算锁定：motion 7 / user 5（原 spacing 6 均摊 3 + verticalPadding 4/2），
-    /// 任意相邻两块间隔保持 1996 实机通过值（motion-motion 14 / user-user 10 / 混合 12）。
-    func testBlockRhythmEquivalence() {
-        XCTAssertEqual(LauncherVisual.motionBlockPadding, 7)
-        XCTAssertEqual(LauncherVisual.userBlockPadding, 5)
-        XCTAssertEqual(2 * LauncherVisual.motionBlockPadding, 14)
-        XCTAssertEqual(2 * LauncherVisual.userBlockPadding, 10)
-        XCTAssertEqual(LauncherVisual.motionBlockPadding + LauncherVisual.userBlockPadding, 12)
+    /// phase 2008：组内/组间/footer 只由 DialogueComposition 拥有。
+    func testDialogueCompositionMetricsAreExplicit() {
+        let composition = DialogueComposition.current
+        XCTAssertEqual(composition.firstGroupGap, 4)
+        XCTAssertEqual(composition.withinTurnGap, 4)
+        XCTAssertEqual(composition.betweenTurnsGap, 16)
+        XCTAssertEqual(composition.footerGap, 8)
+        XCTAssertGreaterThan(composition.betweenTurnsGap, composition.withinTurnGap)
     }
 
     /// 颜色稳定结构契约（phase 2000）：ChatView 全文无 textSelection（隐式选择/焦点渲染
