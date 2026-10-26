@@ -13,19 +13,19 @@ final class ActivityBarTests: XCTestCase {
     }
 
     func testWaitingShowsProcessingPlaceholder() {
-        XCTAssertEqual(ActivityStyle.text(for: .waiting), "thinking…")
+        XCTAssertEqual(ActivityStyle.text(for: .waiting), "Thinking…")
     }
 
     func testRespondingText() {
-        XCTAssertEqual(ActivityStyle.text(for: .responding), "streaming…")
+        XCTAssertEqual(ActivityStyle.text(for: .responding), "Streaming…")
     }
 
     /// 摘要呈现与 viewport claw bar 同规则：thinking 圆括号、裸文本双引号、
-    /// 工具只显示短名（spinner 已表活动，不加 ⚙）；其余统一 thinking…。
+    /// 工具只显示短名（spinner 已表活动，不加 ⚙）；静态短词首字母大写（phase 2004）。
     func testProcessingLabelMapping() {
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "thinking", detail: nil)),
-            "thinking…"
+            "Thinking…"
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "tool", detail: "search")),
@@ -35,27 +35,32 @@ final class ActivityBarTests: XCTestCase {
             ActivityStyle.text(for: .processing(label: "tool_result", detail: "search")),
             "search"
         )
+        // tool 无 detail 兑底也是静态短词，同享首字母大写
+        XCTAssertEqual(
+            ActivityStyle.text(for: .processing(label: "tool", detail: nil)),
+            "Tool…"
+        )
     }
 
     func testUnknownLabelFallsBackToGenericText() {
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "telemetry_v2", detail: nil)),
-            "thinking…",
+            "Thinking…",
             "未知 label token 不直接上屏"
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: nil, detail: nil)),
-            "thinking…"
+            "Thinking…"
         )
     }
 
     // MARK: phase 2002/2003 claw bar 摘要与 error
 
     func testProviderAndTextLabelMapping() {
-        // provider/turn 等统一短状态 thinking…
+        // provider/turn 等统一短状态 Thinking…（phase 2004 首字母大写）
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "provider", detail: "kimi")),
-            "thinking…"
+            "Thinking…"
         )
         // 裸文本双引号包裹（claw bar 同规则），无 label 词
         XCTAssertEqual(
@@ -124,9 +129,26 @@ final class ActivityBarTests: XCTestCase {
         }
     }
 
-    /// 行高 token 存在且克制（单行量级，不撑爆 compact 布局）。
-    func testActivityLineHeightToken() {
-        XCTAssertEqual(ActivityStyle.height, 20)
-        XCTAssertLessThan(ActivityStyle.height, LauncherVisual.composerHeight)
+    /// 视觉 token 单源（phase 2004）：字号显式 14pt（低于正文 16pt、不依赖 caption
+    /// 动态默认）、行高 22（计入窗口高度记账，仍低于 composer）、普通文字 0.75 不透明度、
+    /// 顶距 8；数值集中在 ActivityStyle，ChatView 不得散落。
+    func testActivityVisualTokens() {
+        XCTAssertEqual(ActivityStyle.fontSize, 14)
+        XCTAssertLessThan(ActivityStyle.fontSize, LauncherVisual.motionBodyFontSize)
+        XCTAssertEqual(ActivityStyle.lineHeight, 22)
+        XCTAssertLessThan(ActivityStyle.lineHeight, LauncherVisual.composerHeight)
+        XCTAssertEqual(ActivityStyle.opacity, 0.75)
+        XCTAssertEqual(ActivityStyle.topGap, 8)
+    }
+
+    /// spinner 语义单源（phase 2004 Step C）：普通活动有 spinner；错误族全部无 spinner。
+    func testShowsSpinnerSemantics() {
+        XCTAssertTrue(ActivityStyle.showsSpinner(.waiting))
+        XCTAssertTrue(ActivityStyle.showsSpinner(.responding))
+        XCTAssertTrue(ActivityStyle.showsSpinner(.processing(label: "tool", detail: "search")))
+        XCTAssertFalse(ActivityStyle.showsSpinner(.error(detail: "x")))
+        XCTAssertFalse(ActivityStyle.showsSpinner(.interrupted(detail: nil)))
+        XCTAssertFalse(ActivityStyle.showsSpinner(.retry(detail: nil)))
+        XCTAssertFalse(ActivityStyle.showsSpinner(.blocked(detail: nil)))
     }
 }

@@ -70,10 +70,10 @@ final class LauncherVisualTests: XCTestCase {
         XCTAssertEqual(LauncherVisual.responseToStatusGap, 8)
     }
 
-    /// 底部活动行间距 token（phase 2002）：response→activityBar 8；活动行是消息列表之后的
-    /// 独立 section，不挤入消息之间。
+    /// 底部活动行间距 token（phase 2002 引入；phase 2004 Step C 移归 ActivityStyle——
+    /// activity 行视觉 token 单源化，LauncherVisual 只拥有窗口/section 几何）。
     func testActivityTopGapToken() {
-        XCTAssertEqual(LauncherVisual.activityTopGap, 8)
+        XCTAssertEqual(ActivityStyle.topGap, 8)
     }
 
     /// 消息块节奏单源化（phase 1998）：内容栈 spacing 归零后，块间距全由 blockPadding 承担；

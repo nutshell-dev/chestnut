@@ -48,8 +48,8 @@ public struct ChatView: View {
             // 不插入消息之间——活动出现/消失只改变窗口底部高度，不重排已有消息。
             // 发送后立即出现，turn 事件刷新同一行，turn 终止才撤；error 保留到下一次发送。
             if let activityText = ActivityStyle.text(for: store.activity) {
-                activityBar(activityText, isError: ActivityStyle.isError(store.activity))
-                    .padding(.top, LauncherVisual.activityTopGap)
+                activityBar(text: activityText, activity: store.activity)
+                    .padding(.top, ActivityStyle.topGap)
             }
             if case let .degraded(_, _, error) = store.state {
                 statusLine(error)
@@ -85,7 +85,7 @@ public struct ChatView: View {
     /// compact/expanded 窗口相应增长，capped 窗口不超高（回复区让位，见 responseArea）。
     private var activityContribution: CGFloat {
         ActivityStyle.text(for: store.activity) != nil
-            ? ActivityStyle.height + LauncherVisual.activityTopGap
+            ? ActivityStyle.lineHeight + ActivityStyle.topGap
             : 0
     }
 
@@ -122,28 +122,29 @@ public struct ChatView: View {
         .accessibilityIdentifier("composer")
     }
 
-    /// Motion 活动行：单行、与对话列共享同一内容轴（x=28）、caption 次级色；
-    /// spinner 表活动进行中；error 态无 spinner、橙色。行文本由 ActivityStyle 单源决定。
-    private func activityBar(_ text: String, isError: Bool) -> some View {
+    /// Motion 活动行：单行、与对话列共享同一内容轴（x=28）、14pt 次级色（× opacity）；
+    /// spinner 表活动进行中；error 态无 spinner、橙色全不透明。文本/视觉数值全部由
+    /// ActivityStyle 单源决定（本函数只消费 token，不写散落数值）。
+    private func activityBar(text: String, activity: ActivityState) -> some View {
         HStack(spacing: 6) {
-            if isError {
-                Image(systemName: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-            } else {
+            if ActivityStyle.showsSpinner(activity) {
                 ProgressView()
                     .scaleEffect(ActivityStyle.spinnerScale)
                     .frame(width: 10, height: 10)
+            } else {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: ActivityStyle.errorIconSize))
+                    .foregroundColor(.orange)
             }
             Text(text)
-                .font(.caption)
-                .foregroundColor(isError ? .orange : .secondary)
+                .font(.system(size: ActivityStyle.fontSize, weight: .regular))
+                .foregroundStyle(ActivityStyle.isError(activity) ? Color.orange : Color.secondary.opacity(ActivityStyle.opacity))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
         .padding(.leading, LauncherVisual.responseLeadingInset)
-        .frame(height: ActivityStyle.height)
+        .frame(height: ActivityStyle.lineHeight)
         .accessibilityIdentifier("activityBar")
     }
 
