@@ -20,6 +20,7 @@ final class ActivityBarTests: XCTestCase {
         XCTAssertEqual(ActivityStyle.text(for: .responding), "正在回复…")
     }
 
+    /// 摘要呈现与 viewport claw bar 完全同规则：thinking 圆括号、裸文本双引号、工具 ⚙ 短名。
     func testProcessingLabelMapping() {
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "thinking", detail: nil)),
@@ -27,11 +28,11 @@ final class ActivityBarTests: XCTestCase {
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "tool", detail: "search")),
-            "工具 · search…"
+            "⚙ search"
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "tool_result", detail: "search")),
-            "工具完成 · search…"
+            "⚙ search"
         )
     }
 
@@ -47,21 +48,22 @@ final class ActivityBarTests: XCTestCase {
         )
     }
 
-    // MARK: phase 2002 claw bar 摘要与 error
+    // MARK: phase 2002/2003 claw bar 摘要与 error
 
     func testProviderAndTextLabelMapping() {
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "provider", detail: "kimi")),
             "调用模型 · kimi…"
         )
+        // 裸文本双引号包裹（claw bar 同规则），无 label 词
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "text", detail: "起草正文")),
-            "起草 · 起草正文…"
+            "\"起草正文\""
         )
+        // thinking 圆括号包裹（claw bar 同规则），摘要为单行净化累计
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "thinking", detail: "先想 第一步")),
-            "思考 · 先想 第一步…",
-            "thinking 累计摘要（单行净化）随 detail 上屏"
+            "(先想 第一步)"
         )
     }
 

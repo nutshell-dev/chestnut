@@ -15,6 +15,8 @@ public enum ActivityStyle {
     public static let spinnerScale: CGFloat = 0.5
 
     /// 活动行显示文本；idle 返回 nil（不渲染）。
+    /// processing 摘要呈现与 viewport claw bar（buildClawLine）完全同规则，不另设第二套：
+    /// thinking 摘要圆括号包裹、裸文本摘要双引号包裹、工具 ⚙ + 短名；无摘要时退回短状态。
     public static func text(for activity: ActivityState) -> String? {
         switch activity {
         case .idle:
@@ -24,11 +26,23 @@ public enum ActivityStyle {
         case .responding:
             return "正在回复…"
         case let .processing(label, detail):
-            var parts: [String] = []
-            if let token = labelTokenText(label) { parts.append(token) }
-            if let detail, !detail.isEmpty { parts.append(detail) }
-            if parts.isEmpty { return "正在处理…" }
-            return parts.joined(separator: " · ") + "…"
+            let trimmed = detail?.isEmpty == false ? detail : nil
+            switch label {
+            case "thinking":
+                if let trimmed { return "(\(trimmed))" } // claw: (thinking buffer)
+                return "思考…"
+            case "text":
+                if let trimmed { return "\"\(trimmed)\"" } // claw: "text buffer"
+                return "正在处理…"
+            case "tool", "tool_result":
+                if let trimmed { return "⚙ \(trimmed)" } // claw: ⚙ currentTool
+                return "工具…"
+            case "provider":
+                if let trimmed { return "调用模型 · \(trimmed)…" }
+                return "调用模型…"
+            default: // turn / 未知 token：通用短状态，token 不上屏
+                return "正在处理…"
+            }
         case let .error(detail):
             // claw bar lastError 语义：错误保留可见，直到下一次发送
             if let detail, !detail.isEmpty { return "出错：\(detail)" }
@@ -40,18 +54,5 @@ public enum ActivityStyle {
     public static func isError(_ activity: ActivityState) -> Bool {
         if case .error = activity { return true }
         return false
-    }
-
-    /// wire label token → 中文短文案；未知 token 忽略（只显示通用"正在处理"）。
-    private static func labelTokenText(_ label: String?) -> String? {
-        switch label {
-        case "turn": return nil // turn 开始本身无增量信息
-        case "provider": return "调用模型"
-        case "thinking": return "思考"
-        case "text": return "起草"
-        case "tool": return "工具"
-        case "tool_result": return "工具完成"
-        default: return nil
-        }
     }
 }
