@@ -29,7 +29,7 @@ public enum MessageStyle {
         role == .motion ? LauncherVisual.motionLineSpacing : LauncherVisual.userLineSpacing
     }
 
-    /// 消息块垂直节奏（块间距单源，phase 1998；LazyVStack spacing 已归零）。
+    /// 消息块垂直节奏（块间距单源，phase 1998；内容栈 spacing 已归零）。
     /// lineSpacing 是块内行间节奏，blockPadding 是块间节奏——职责分离。
     public static func blockPadding(for role: Message.Role) -> CGFloat {
         role == .motion ? LauncherVisual.motionBlockPadding : LauncherVisual.userBlockPadding

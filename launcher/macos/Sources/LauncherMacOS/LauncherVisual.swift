@@ -47,7 +47,7 @@ public enum LauncherVisual {
     /// response → activityBar（phase 2002：活动行固定在消息列表之后的独立 section）。
     public static let activityTopGap: CGFloat = 8
 
-    // MARK: 消息块垂直节奏（单源：LazyVStack spacing 归零，块间距全由 blockPadding 承担；
+    // MARK: 消息块垂直节奏（单源：内容栈 spacing 归零，块间距全由 blockPadding 承担；
     /// 等效换算 1996：spacing 6 均摊上下各 3 叠原 verticalPadding 4/2 → 7/5，块间间隔不变）
     public static let motionBlockPadding: CGFloat = 7
     public static let userBlockPadding: CGFloat = 5

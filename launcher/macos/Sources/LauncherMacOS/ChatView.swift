@@ -150,11 +150,15 @@ public struct ChatView: View {
     /// 回复区：单一阅读列限宽 560pt 且左对齐——与 composer 共享同一左侧光学起点（phase 1996）。
     /// stream 增量由 SwiftUI diff 只更新最后一条 Motion 消息。高度 = min(内容, 上限)，超限
     /// 内部滚动并自动跟随到底部（新消息与流式快照更新都触发）。
+    /// phase 2003 实机修复：内容栈用 VStack 而非 LazyVStack——LazyVStack 按可见区懒物化行，
+    /// 与 background 测量构成闭环（ScrollView 高度钳位 → 只物化可见行 → 测回≈帧高 → 永不增长，
+    /// 实机症状：两行内容只显示一行半、不随行数扩大）；VStack 报告全部子视图自然高度，
+    /// 测量单向化。launcher 消息量小（几十条量级），懒加载无收益。
     private var responseArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 // 块间节奏单源：spacing 归零，由 MessageStyle.blockPadding 承担（phase 1998）
-                LazyVStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(messages) { message in
                         messageRow(message)
                             .id(message.id)

@@ -76,7 +76,7 @@ final class LauncherVisualTests: XCTestCase {
         XCTAssertEqual(LauncherVisual.activityTopGap, 8)
     }
 
-    /// 消息块节奏单源化（phase 1998）：LazyVStack spacing 归零后，块间距全由 blockPadding 承担；
+    /// 消息块节奏单源化（phase 1998）：内容栈 spacing 归零后，块间距全由 blockPadding 承担；
     /// 等效换算锁定：motion 7 / user 5（原 spacing 6 均摊 3 + verticalPadding 4/2），
     /// 任意相邻两块间隔保持 1996 实机通过值（motion-motion 14 / user-user 10 / 混合 12）。
     func testBlockRhythmEquivalence() {
