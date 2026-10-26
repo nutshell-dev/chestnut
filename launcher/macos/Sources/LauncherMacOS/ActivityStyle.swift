@@ -2,10 +2,12 @@ import SwiftUI
 
 import LauncherCore
 
-/// 活动行视觉与文案单一来源（phase 2001 引入，phase 2002 按 claw bar 重做）：回复列表底部
-/// 的单行实时状态。低干扰：caption 次级色 + 小 spinner；error 保留可见错误行（橙色、无 spinner）；
+/// 活动行视觉与文案单一来源（phase 2001 引入，phase 2002 按 claw bar 重做，
+/// phase 2003 去除 agent 名称）：回复列表底部的单行实时状态。
+/// 低干扰：caption 次级色 + 小 spinner；error 保留可见错误行（橙色、无 spinner）；
 /// idle 时不渲染、不占高度。
-/// wire label 是机器 token（producer 不假设展示文本），此处统一映射为中文短文案。
+/// wire label 是机器 token（producer 不假设展示文本），此处统一映射为短状态文案；
+/// 文案只含短状态与摘要，不含 agent 名称/角色句。
 public enum ActivityStyle {
     /// 活动行行高。
     public static let height: CGFloat = 20
@@ -18,18 +20,19 @@ public enum ActivityStyle {
         case .idle:
             return nil
         case .waiting:
-            return "Motion 正在处理…"
+            return "正在处理…"
         case .responding:
-            return "Motion 正在回复…"
+            return "正在回复…"
         case let .processing(label, detail):
-            var parts = ["Motion 正在处理"]
+            var parts: [String] = []
             if let token = labelTokenText(label) { parts.append(token) }
             if let detail, !detail.isEmpty { parts.append(detail) }
+            if parts.isEmpty { return "正在处理…" }
             return parts.joined(separator: " · ") + "…"
         case let .error(detail):
             // claw bar lastError 语义：错误保留可见，直到下一次发送
-            if let detail, !detail.isEmpty { return "Motion 出错：\(detail)" }
-            return "Motion 出错"
+            if let detail, !detail.isEmpty { return "出错：\(detail)" }
+            return "出错"
         }
     }
 

@@ -256,6 +256,41 @@ final class RecoveryTests: XCTestCase {
         XCTAssertNil(thrown, "用户主动 stop 不得表现为失败")
         XCTAssertEqual(process.stopCalls, 2)
     }
+
+    // MARK: phase 2003 重开 bootstrap
+
+    private func reopenEvent(_ seq: Int, _ messageId: String, _ text: String) -> LauncherEnvelope {
+        LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: seq, sessionId: "s1", kind: .event,
+            payload: .object(["messageId": .string(messageId), "role": .string("motion"), "text": .string(text)])
+        )
+    }
+
+    private func reopenActivity(_ seq: Int, _ phase: String) -> LauncherEnvelope {
+        LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: seq, sessionId: "s1", kind: .activity,
+            payload: .object(["phase": .string(phase)])
+        )
+    }
+
+    /// 重开快照 → live tail：压缩快照（最终文本 + 最新 activity）按连号应用；
+    /// 后续 live delta 同 messageId upsert 原位更新（不产生重复消息），sequence 连续。
+    func testReopenSnapshotThenLiveTailUpsertsWithoutDuplicates() {
+        var state = ChatCoreState()
+        // current-turn 快照：reply-r1 最终文本 + 最新 activity（responding）
+        state = ChatReducer.reduce(state, .streamEvent(reopenEvent(1, "reply-r1", "你好")))
+        state = ChatReducer.reduce(state, .streamEvent(reopenActivity(2, "responding")))
+        XCTAssertEqual(state.chat.messages.map { $0.text }, ["你好"])
+        XCTAssertEqual(state.activity, .responding)
+        // live：同 trace 继续 delta（producer 发累计快照）
+        state = ChatReducer.reduce(state, .streamEvent(reopenEvent(3, "reply-r1", "你好呀")))
+        XCTAssertEqual(state.chat.messages.count, 1, "重开后 live delta 不得产生重复消息")
+        XCTAssertEqual(state.chat.messages[0].text, "你好呀")
+        XCTAssertEqual(state.lastSequence, 3)
+        XCTAssertNil(state.resyncPendingFrom)
+    }
 }
 
 // MARK: - Fake process fixture

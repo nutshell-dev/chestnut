@@ -27,7 +27,8 @@ enum LauncherClientFactory {
     }
 
     static func makeStreamClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any StreamClient {
-        guard let argvPrefix = argvPrefix(environment: environment, suffix: ["stream"]) else {
+        // phase 2003：重开只恢复当前活跃 turn（压缩快照 + 同边界 tail），不重放已结束 turn
+        guard let argvPrefix = argvPrefix(environment: environment, suffix: ["stream", "--from-current-turn"]) else {
             return UnconfiguredStreamClient()
         }
         return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
