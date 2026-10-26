@@ -25,6 +25,7 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset, readCurrent
 import type { StreamEvent } from '../../foundation/stream/index.js';
 import {
   createLauncherSequencer,
+  formatClawBarError,
   launcherActivityEnvelope,
   launcherErrorEnvelope,
   makeLauncherEnvelope,
@@ -123,7 +124,7 @@ export async function streamCommand(
   }
 
   const mapper = new LauncherEventMapper();
-  const activityMapper = new LauncherActivityMapper();
+  const activityMapper = new LauncherActivityMapper(name);
   // activity 去抖（phase 2001 引入）：连续相同 phase/label/detail/traceId 不重复发射；
   // 累计摘要每次变化都会放行（phase 2002：thinking/text 流式刷新），相同摘要仍去抖；
   // traceId 计入 key：新 turn/新 send 块的状态变化不被误去抖（phase 2002）；
@@ -195,9 +196,10 @@ export async function streamCommand(
       // 单一终止路径：daemon_dead 写 error envelope（exit 1）；信号退出写 terminal（exit 0）。
       if (reason === 'daemon_dead') {
         exitCode = 1;
+        // daemon 错误 detail 用 claw bar 共享 formatter（phase 2003 Step E）：与 viewport 逐字节一致
         writeLauncherEnvelope(
           process.stdout,
-          launcherErrorEnvelope(nextSeq(), sessionId, 'daemon_stopped', `daemon for "${name}" is no longer running`),
+          launcherErrorEnvelope(nextSeq(), sessionId, 'daemon_stopped', formatClawBarError(name, { kind: 'daemon_stopped' })),
         );
       } else {
         writeLauncherEnvelope(

@@ -69,13 +69,14 @@ final class ActivityBarTests: XCTestCase {
         )
     }
 
-    /// error 保留可读错误行（claw lastError 语义）：文案可见、isError 标记驱动无 spinner/橙色。
+    /// error detail 原样显示（phase 2003 Step E）：wire detail 是 claw bar 共享 formatter
+    /// 的输出（含 [id] ✗ 前缀），UI 不追加中文前缀、不拼接角色名、不改写。
     func testErrorActivityTextAndFlag() {
         XCTAssertEqual(
-            ActivityStyle.text(for: .error(detail: "LLM 网络失败 provider kimi 不可用")),
-            "出错：LLM 网络失败 provider kimi 不可用"
+            ActivityStyle.text(for: .error(detail: "[motion] ✗ LLM 网络失败 provider kimi 不可用")),
+            "[motion] ✗ LLM 网络失败 provider kimi 不可用"
         )
-        XCTAssertEqual(ActivityStyle.text(for: .error(detail: nil)), "出错")
+        XCTAssertEqual(ActivityStyle.text(for: .error(detail: nil)), "error")
         XCTAssertTrue(ActivityStyle.isError(.error(detail: "x")))
         XCTAssertFalse(ActivityStyle.isError(.processing(label: "tool", detail: nil)))
         XCTAssertFalse(ActivityStyle.isError(.idle))

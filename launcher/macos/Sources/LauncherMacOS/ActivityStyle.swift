@@ -42,9 +42,10 @@ public enum ActivityStyle {
                 return "thinking…"
             }
         case let .error(detail):
-            // claw bar lastError 语义：错误保留可见，直到下一次发送
-            if let detail, !detail.isEmpty { return "出错：\(detail)" }
-            return "出错"
+            // phase 2003 Step E：error detail 是 claw bar 共享 formatter 的输出，
+            // 原样显示——不添加中文前缀、不拼接角色名、不改写。
+            if let detail, !detail.isEmpty { return detail }
+            return "error"
         }
     }
 

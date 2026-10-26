@@ -14,4 +14,16 @@ public enum ChatError: Error, Equatable, Sendable {
     case daemon(detail: String)
     /// launcher 本地错误：重复启动 stream、CLI 未配置等。
     case local(detail: String)
+
+    /// 错误原始 detail（phase 2003 Step E）：UI 原样显示，不按类别拼接本地前缀——
+    /// daemon/turn 错误的 detail 已由 CLI 侧 claw bar 共享 formatter 格式化。
+    public var detail: String {
+        switch self {
+        case let .transport(detail): return detail
+        case let .rejected(detail): return detail
+        case let .protocolMismatch(detail): return detail
+        case let .daemon(detail): return detail
+        case let .local(detail): return detail
+        }
+    }
 }

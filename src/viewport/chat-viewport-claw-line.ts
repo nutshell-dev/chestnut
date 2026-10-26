@@ -6,6 +6,7 @@
 import stringWidth from 'string-width';
 import {  sliceFromStart, fitLine  } from './terminal-text.js';
 import { fmtDuration } from './chat-viewport-utils.js';
+import { formatClawBarError } from '../cli-protocol/index.js';
 
 /** 单个 claw 的运行时跟踪状态 / 1:1 保 chat-viewport.ts:659-680 ClawTrack interface */
 export interface ClawTrack {
@@ -48,18 +49,20 @@ export function makeClawTrack(): ClawTrack {
   };
 }
 
-/** 渲染 claw 状态行 / 1:1 保 chat-viewport.ts:379-433 body */
+/** 渲染 claw 状态行 / 1:1 保 chat-viewport.ts:379-433 body。
+ *  phase 2003 Step E：错误/终止文本由共享 formatter（cli-protocol/claw-bar-display）
+ *  单源生成；本模块只负责 ANSI 颜色、fitLine 截断与 lastOutput 摘要拼接。 */
 export function buildClawLine(id: string, t: ClawTrack, cols: number): string {
   // spawning / error state should be visible even when not alive
   if (t.daemonStatus === 'starting') {
     return `\x1b[38;5;220m[${id}] ⊙ starting\x1b[0m`;
   }
   if (t.daemonStatus === 'error') {
-    return `\x1b[38;5;214m[${id}] ✗ daemon unreadable\x1b[0m`;
+    return `\x1b[38;5;214m${formatClawBarError(id, { kind: 'daemon_unreadable' })}\x1b[0m`;
   }
   // Fix 2：daemon 崩溃检测（放在最前，无论 active 状态）
   if (!t.isAlive) {
-    return `\x1b[38;5;240m[${id}] ✗ daemon stopped\x1b[0m`;
+    return `\x1b[38;5;240m${formatClawBarError(id, { kind: 'daemon_stopped' })}\x1b[0m`;
   }
 
   if (t.active) {
@@ -88,19 +91,24 @@ export function buildClawLine(id: string, t: ClawTrack, cols: number): string {
     leftColor = '\x1b[38;5;245m';
   } else if (t.blockedNotice) {
     // Phase 1978: trim 后仍超限 = 明确终局（优先于 retry/lastError）
-    leftText = `[${id}] ⏸ ${t.blockedNotice}`;
+    leftText = formatClawBarError(id, { kind: 'blocked', message: t.blockedNotice });
     leftColor = '\x1b[38;5;214m';
   } else if (t.retryNotice) {
     // Phase 1978: 可恢复超限——trim/retry 等待窗口，非终局红错
-    leftText = `[${id}] ⟳ ${t.retryNotice}`;
+    leftText = formatClawBarError(id, { kind: 'retry', message: t.retryNotice });
     leftColor = '\x1b[33m';
   } else if (t.lastError) {
-    const dur = t.referenceMs ? ` · inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';
-    leftText = `[${id}] ✗ ${t.lastError}${dur}`;
+    leftText = formatClawBarError(id, {
+      kind: 'error',
+      message: t.lastError,
+      inactiveMs: t.referenceMs ? Date.now() - t.referenceMs : undefined,
+    });
     leftColor = '\x1b[38;5;214m';
   } else if (t.lastInterrupted) {
-    const dur = t.referenceMs ? ` · inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';
-    leftText = `[${id}] ✗ interrupted${dur}`;
+    leftText = formatClawBarError(id, {
+      kind: 'interrupted',
+      inactiveMs: t.referenceMs ? Date.now() - t.referenceMs : undefined,
+    });
     leftColor = '\x1b[38;5;214m';
   } else {
     const dur = t.referenceMs ? `inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';

@@ -277,7 +277,8 @@ describe('stream launcher.v1 envelope', () => {
     expect(activities.map(a => a.payload)).toEqual([
       { phase: 'processing', label: 'turn' },
       { phase: 'processing', label: 'provider', detail: 'kimi', traceId: 't1' },
-      { phase: 'error', label: 'turn', detail: 'LLM 网络失败 provider kimi 不可用', traceId: 't1' },
+      // phase 2003 Step E：error detail = claw bar 共享 formatter 输出（[claw] ✗ 摘要）
+      { phase: 'error', label: 'turn', detail: '[test-claw] ✗ LLM 网络失败 provider kimi 不可用', traceId: 't1' },
       { phase: 'processing', label: 'turn', traceId: 't2' },
       { phase: 'idle', traceId: 't2' },
     ]);

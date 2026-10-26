@@ -214,11 +214,13 @@ public struct ChatView: View {
 
     /// 低干扰状态行：错误一行呈现，保留重试/关闭，不把窗口撑到固定大高度；
     /// 与对话列共享同一 content axis（x=28），间距 token 由外层 VStack 处加（responseToStatusGap）。
+    /// phase 2003 Step E：错误文本原样显示 ChatError.detail（daemon/turn 错误已由 CLI 侧
+    /// claw bar 共享 formatter 格式化），本地不再按类别拼接前缀。
     private func statusLine(_ error: ChatError) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.caption)
-            Text(errorText(error))
+            Text(error.detail)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
@@ -236,15 +238,5 @@ public struct ChatView: View {
     private var isSending: Bool {
         if case .sending = store.state { return true }
         return false
-    }
-
-    private func errorText(_ error: ChatError) -> String {
-        switch error {
-        case let .transport(detail): return "连接失败：\(detail)"
-        case let .rejected(detail): return "Chestnut 拒绝：\(detail)"
-        case let .protocolMismatch(detail): return "协议不兼容：\(detail)"
-        case let .daemon(detail): return "Motion daemon 不可用：\(detail)"
-        case let .local(detail): return "Launcher 本地错误：\(detail)"
-        }
     }
 }

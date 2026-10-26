@@ -78,6 +78,9 @@ export type {
   LauncherActivityPhase,
   LauncherActivityLabel,
 } from './launcher-envelope.js';
+// phase 2003 Step E：claw bar 错误行格式化单源（viewport/launcher 共用，纯文本无 ANSI）
+export { formatClawBarError } from './claw-bar-display.js';
+export type { ClawBarErrorState } from './claw-bar-display.js';
 export { MOTION_COMMAND_CATALOG, getMotionCommandSpec } from './motion-command-catalog.js';
 export type { MotionCommandId } from './motion-command-catalog.js';
 export { CONTRACT_COMMAND_CATALOG, getContractCommandSpec } from './contract-command-catalog.js';
