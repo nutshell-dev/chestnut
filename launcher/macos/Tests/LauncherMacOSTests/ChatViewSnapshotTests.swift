@@ -383,6 +383,19 @@ final class ChatViewSnapshotTests: XCTestCase {
         XCTAssertFalse(section.contains("Color(red:"), "不得硬编码 RGB 颜色")
         XCTAssertFalse(section.contains("NSColor("), "不得硬编码 NSColor")
     }
+
+    // MARK: phase 2007-scroll 流式贴底（独立于 2007 视觉实现打捞）
+
+    /// 贴底 owner 契约：流式贴底由 ScrollFollowAnchor 以 contentRevision 驱动；
+    /// ScrollViewProxy.scrollTo 路径已退役（流式事务中被丢弃——main 实机探针贴底 2/89，
+    /// 见 phase2007-logs/step-a-visual-scroll-facts.md）。
+    func testScrollFollowOwnerContract() throws {
+        let source = try chatViewSource()
+        XCTAssertTrue(source.contains("ScrollFollowAnchor(contentRevision:"), "贴底必须由 ScrollFollowAnchor 承担")
+        XCTAssertTrue(source.contains("messages.count * 100_000"), "contentRevision 必须由消息数与末条文本派生")
+        XCTAssertFalse(source.contains("ScrollViewReader"), "ScrollViewProxy.scrollTo 流式滚动路径已退役")
+        XCTAssertFalse(source.contains("scrollTo("), "不得存在残余 proxy scrollTo 调用")
+    }
 }
 
 @MainActor

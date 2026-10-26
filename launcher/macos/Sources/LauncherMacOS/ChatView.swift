@@ -156,42 +156,42 @@ public struct ChatView: View {
     /// 实机症状：两行内容只显示一行半、不随行数扩大）；VStack 报告全部子视图自然高度，
     /// 测量单向化。launcher 消息量小（几十条量级），懒加载无收益。
     private var responseArea: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // 块间节奏单源：spacing 归零，由 MessageStyle.blockPadding 承担（phase 1998）
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(messages) { message in
-                        messageRow(message)
-                            .id(message.id)
-                    }
+        // 贴底由 ScrollFollowAnchor 承担（AppKit post-layout 直滚 documentView）；
+        // ScrollViewProxy.scrollTo 在流式更新事务中会被丢弃（phase 2007 Step A 事实：
+        // main 实机探针贴底 2/89）。本分支只含贴底修复，视觉构图保持 main 现状。
+        ScrollView {
+            // 块间节奏单源：spacing 归零，由 MessageStyle.blockPadding 承担（phase 1998）
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(messages) { message in
+                    messageRow(message)
+                        .id(message.id)
                 }
-                .frame(maxWidth: LauncherVisual.responseMaxWidth, alignment: .leading)
-                // 与 composer 文字共享左侧光学起点（回复列缩进 = composer 水平内边距）
-                .padding(.leading, LauncherVisual.responseLeadingInset)
-                // 让阅读列贴左（ScrollView 内容窄于容器时默认居中，会破坏共享左起点）
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ResponseHeightPreferenceKey.self, value: geo.size.height)
-                    }
-                )
             }
-            .frame(height: max(
-                // capped 时窗口不超高：活动行可见期间回复区让出同等高度
-                ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight)
-                    - (mode == .capped ? activityContribution : 0),
-                0
-            ))
-            .accessibilityIdentifier("responseScrollView")
-            .onChange(of: messages.count) { _ in scrollToBottom(proxy) }
-            .onChange(of: messages.last?.text) { _ in scrollToBottom(proxy) }
+            .frame(maxWidth: LauncherVisual.responseMaxWidth, alignment: .leading)
+            // 与 composer 文字共享左侧光学起点（回复列缩进 = composer 水平内边距）
+            .padding(.leading, LauncherVisual.responseLeadingInset)
+            // 让阅读列贴左（ScrollView 内容窄于容器时默认居中，会破坏共享左起点）
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(ScrollFollowAnchor(contentRevision: contentRevision))
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ResponseHeightPreferenceKey.self, value: geo.size.height)
+                }
+            )
         }
+        .frame(height: max(
+            // capped 时窗口不超高：活动行可见期间回复区让出同等高度
+            ConversationLayout.responseAreaHeight(for: mode, responseHeight: responseContentHeight)
+                - (mode == .capped ? activityContribution : 0),
+            0
+        ))
+        .accessibilityIdentifier("responseScrollView")
     }
 
-    /// 内容超过回复区后自动跟随最新位置；不改变窗口高度与输入框位置。
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        guard let last = messages.last else { return }
-        proxy.scrollTo(last.id, anchor: .bottom)
+    /// 贴底内容版本号：只由消息数与末条文本长度派生——新消息、流式快照都覆盖；
+    /// composer 打字等无关状态变化不产生新 revision。
+    private var contentRevision: Int {
+        messages.count * 100_000 + (messages.last?.text.count ?? 0)
     }
 
     /// 无角色名单列对话（phase 1996）：所有消息从同一左侧阅读列开始；user 仅靠轻微
