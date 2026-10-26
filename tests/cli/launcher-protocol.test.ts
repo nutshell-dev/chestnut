@@ -15,6 +15,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { readCurrentTurnSnapshot } from '../../src/foundation/stream/index.js';
 import { sendCommand } from '../../src/cli/commands/claw-send.js';
 import { streamCommand } from '../../src/cli/commands/claw-stream.js';
 import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
@@ -123,6 +124,8 @@ vi.mock('../../src/foundation/stream/index.js', () => ({
     return streamMocks.reader as unknown as StreamReader;
   }),
   findRecentTurnStartOffset: vi.fn(() => 0),
+  // phase 2003：current-turn 快照默认无活跃 turn；单测内按场景覆盖返回值
+  readCurrentTurnSnapshot: vi.fn(() => ({ active: false, events: [], tailOffset: 0 })),
 }));
 
 vi.mock('../../src/foundation/claw-identity/index.js', async (importOriginal) => ({
@@ -301,6 +304,69 @@ describe('stream launcher.v1 envelope', () => {
     const envelopes = stdoutEnvelopes();
     expect(envelopes).toHaveLength(1);
     expect(envelopes[0]).toMatchObject({ kind: 'error', payload: { class: 'local' } });
+  });
+
+  // phase 2003：current-turn 重开语义
+  it('current-turn 活跃 turn：只发射压缩快照（每 trace 最终文本 + 最新 activity），reader 从 tailOffset 继续且不重复', async () => {
+    const snapshotEvents = [
+      { ts: 1, type: 'turn_start', trace_id: 't1' },
+      { ts: 2, type: 'thinking_delta', delta: '先想', trace_id: 't1' },
+      { ts: 3, type: 'thinking_delta', delta: '再验证', trace_id: 't1' },
+      { ts: 4, type: 'send_content_delta', delta: '你', trace_id: 'r1' },
+      { ts: 5, type: 'send_content_delta', delta: '好', trace_id: 'r1' },
+      { ts: 6, type: 'send_content_delta', delta: '新块', trace_id: 'r2' },
+      { ts: 7, type: 'send_content_end', trace_id: 'r2' },
+    ];
+    vi.mocked(readCurrentTurnSnapshot).mockReturnValue({ active: true, events: snapshotEvents as never, tailOffset: 4096 });
+
+    await streamCommand(commandDeps, 'test-claw', { startMode: { kind: 'current-turn' } });
+    // reader 必须从快照字节边界启动
+    expect(streamMocks.reader.start).toHaveBeenCalledWith(4096);
+
+    const before = stdoutEnvelopes();
+    // 快照：2 条消息（r1 最终「你好」、r2「新块」）+ 1 条最新 activity（responding）；无逐条历史 delta
+    expect(before.map(e => e.kind)).toEqual(['event', 'event', 'activity']);
+    expect(before[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好' });
+    expect(before[1].payload).toEqual({ messageId: 'reply-r2', role: 'motion', text: '新块' });
+    expect(before[2].payload).toMatchObject({ phase: 'responding' });
+    expect(before.map(e => e.sequence)).toEqual([1, 2, 3]);
+
+    // 重开后追加事件只出现一次，sequence 连续；
+    // live delta 属 r1（快照最后 activity 是 r2 的 responding）→ trace 变化放行一条 responding
+    streamMocks.onEvent!({ ts: 8, type: 'send_content_delta', delta: '呀', trace_id: 'r1' });
+    const after = stdoutEnvelopes();
+    expect(after).toHaveLength(5);
+    expect(after[3]).toMatchObject({ kind: 'activity', sequence: 4, payload: { phase: 'responding', traceId: 'r1' } });
+    expect(after[4]).toMatchObject({ kind: 'event', sequence: 5, payload: { messageId: 'reply-r1', text: '你好呀' } });
+    // mapper 缓冲被快照 seed：live delta 继续累计而不是重新开始
+  });
+
+  it('current-turn 已结束 turn：零历史事件，reader 直接从边界 tail', async () => {
+    vi.mocked(readCurrentTurnSnapshot).mockReturnValue({ active: false, events: [], tailOffset: 2048 });
+    await streamCommand(commandDeps, 'test-claw', { startMode: { kind: 'current-turn' } });
+    expect(streamMocks.reader.start).toHaveBeenCalledWith(2048);
+    expect(stdoutEnvelopes()).toHaveLength(0);
+
+    streamMocks.onEvent!({ ts: 1, type: 'turn_start', trace_id: 't9' });
+    const envelopes = stdoutEnvelopes();
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({ kind: 'activity', sequence: 1, payload: { phase: 'processing', label: 'turn', traceId: 't9' } });
+  });
+
+  it('current-turn 快照 activity 与首个 live 事件去抖（状态未变不重复发射）', async () => {
+    const snapshotEvents = [
+      { ts: 1, type: 'turn_start', trace_id: 't1' },
+      { ts: 2, type: 'send_content_delta', delta: '你好', trace_id: 'r1' },
+    ];
+    vi.mocked(readCurrentTurnSnapshot).mockReturnValue({ active: true, events: snapshotEvents as never, tailOffset: 1024 });
+    await streamCommand(commandDeps, 'test-claw', { startMode: { kind: 'current-turn' } });
+
+    // live 首个事件仍是同 trace 的 send delta：responding activity 与快照相同 → 去抖不重复发
+    streamMocks.onEvent!({ ts: 3, type: 'send_content_delta', delta: '！', trace_id: 'r1' });
+    const envelopes = stdoutEnvelopes();
+    const activities = envelopes.filter(e => e.kind === 'activity');
+    expect(activities).toHaveLength(1); // 只有快照那一条
+    expect(envelopes[envelopes.length - 1]).toMatchObject({ kind: 'event', payload: { text: '你好！' } });
   });
 });
 

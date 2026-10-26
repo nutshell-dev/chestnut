@@ -21,7 +21,8 @@ import { CliError } from '../errors.js';
 import { actionAuditFor } from '../action-scope.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 
-import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
+import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset, readCurrentTurnSnapshot } from '../../foundation/stream/index.js';
+import type { StreamEvent } from '../../foundation/stream/index.js';
 import {
   createLauncherSequencer,
   launcherActivityEnvelope,
@@ -37,6 +38,7 @@ import type { ClawCommandDeps } from './claw-command-deps.js';
 
 type StreamStartMode =
   | { kind: 'recent-turn' }
+  | { kind: 'current-turn' }
   | { kind: 'now' }
   | { kind: 'history' }
   | { kind: 'offset'; value: number };
@@ -54,6 +56,7 @@ export function parseStartMode(args: string[]): StreamStartMode {
     if (a === '--from-now') return { kind: 'now' };
     if (a === '--include-history') return { kind: 'history' };
     if (a === '--from-recent-turn') return { kind: 'recent-turn' };
+    if (a === '--from-current-turn') return { kind: 'current-turn' };
     if (a === '--from-offset') {
       const next = args[i + 1];
       const n = Number(next);
@@ -102,8 +105,18 @@ export async function streamCommand(
 
   const mode = options?.startMode ?? { kind: 'recent-turn' };
   let initialOffset: number | undefined;
+  // current-turn（phase 2003）：重开 launcher 只恢复启动瞬间仍活跃的 turn——
+  // 快照事件在 reader 启动前压缩发射，reader 从同一完整字节边界 tail，
+  // 边界两侧不重不漏（快照覆盖 [turn_start, tailOffset)，reader 覆盖 [tailOffset, ∞)）。
+  let snapshotEvents: readonly StreamEvent[] | null = null;
   switch (mode.kind) {
     case 'recent-turn': initialOffset = findRecentTurnStartOffset(fs, STREAM_FILE); break;
+    case 'current-turn': {
+      const snapshot = readCurrentTurnSnapshot(fs, STREAM_FILE);
+      initialOffset = snapshot.tailOffset;
+      if (snapshot.active) snapshotEvents = snapshot.events;
+      break;
+    }
     case 'now':         initialOffset = undefined; break;
     case 'history':     initialOffset = 0; break;
     case 'offset':      initialOffset = mode.value; break;
@@ -116,13 +129,15 @@ export async function streamCommand(
   // traceId 计入 key：新 turn/新 send 块的状态变化不被误去抖（phase 2002）；
   // 每个 envelope 仍各自消耗严格递增的 sequence。
   let lastActivityKey: string | null = null;
+  const activityKey = (a: { phase: string; label?: string; detail?: string; traceId?: string }): string =>
+    `${a.phase}|${a.label ?? ''}|${a.detail ?? ''}|${a.traceId ?? ''}`;
   const reader = createStreamReader(
     fs,
     STREAM_FILE,
     (event) => {
       const activity = activityMapper.map(event);
       if (activity) {
-        const key = `${activity.phase}|${activity.label ?? ''}|${activity.detail ?? ''}|${activity.traceId ?? ''}`;
+        const key = activityKey(activity);
         if (key !== lastActivityKey) {
           lastActivityKey = key;
           writeLauncherEnvelope(process.stdout, launcherActivityEnvelope(nextSeq(), sessionId, activity));
@@ -136,6 +151,27 @@ export async function streamCommand(
     audit,
     { persistent: true },
   );
+
+  // current-turn 快照发射（reader.start 之前，保证 envelope 顺序 = 快照 → live）：
+  // 快照原始事件经同一对 mapper 走一遍，只发射最终状态——每个 reply trace 一条累计文本
+  // event envelope + 一条最新 activity envelope；不逐条重播历史 delta、不伪造新 delta。
+  if (snapshotEvents) {
+    const snapMessages = new Map<string, NonNullable<ReturnType<LauncherEventMapper['map']>>>();
+    let snapActivity: ReturnType<LauncherActivityMapper['map']> = null;
+    for (const event of snapshotEvents) {
+      const message = mapper.map(event);
+      if (message) snapMessages.set(message.messageId, message);
+      const activity = activityMapper.map(event);
+      if (activity) snapActivity = activity;
+    }
+    for (const message of snapMessages.values()) {
+      writeLauncherEnvelope(process.stdout, makeLauncherEnvelope(nextSeq(), sessionId, 'event', message));
+    }
+    if (snapActivity && snapActivity.phase !== 'idle') {
+      writeLauncherEnvelope(process.stdout, launcherActivityEnvelope(nextSeq(), sessionId, snapActivity));
+      lastActivityKey = activityKey(snapActivity);
+    }
+  }
 
   try {
     reader.start(initialOffset);

@@ -17,6 +17,9 @@ export { StreamWriter } from './writer.js';
 export type { StreamReader } from './reader.js';
 export { createStreamReader, readAll } from './reader.js';
 export { findRecentTurnStartOffset } from './turn-start-offset.js';
+// phase 2003: launcher current-turn 启动快照（只恢复活跃 turn，已结束不重放）
+export { readCurrentTurnSnapshot } from './current-turn-snapshot.js';
+export type { CurrentTurnSnapshot } from './current-turn-snapshot.js';
 export { LLM_OUTPUT_EVENTS } from './types.js';
 
 // phase 749: sync NDJSON line parser for incremental stream readers
