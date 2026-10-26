@@ -8,7 +8,7 @@
  */
 
 import { newUuid } from '../foundation/node-utils/index.js';
-import type { StreamEvent } from '../foundation/stream/index.js';
+import { isContextExceededStreamError, type StreamEvent } from '../foundation/stream/index.js';
 import { formatClawBarError, type LauncherActivityPayload } from '../cli-protocol/index.js';
 
 /** 本次订阅/调用会话 ID；UUID v4，形状与 phase 1990 一致。 */
@@ -61,6 +61,11 @@ function stringField(event: StreamEvent, key: string): string | undefined {
   return typeof v === 'string' && v ? v : undefined;
 }
 
+/** 事件时间原点（epoch ms）：stream 事件必有 ts（reader 保证），缺失时不上 wire。 */
+function eventTs(event: StreamEvent): number | undefined {
+  return typeof event.ts === 'number' && Number.isFinite(event.ts) ? event.ts : undefined;
+}
+
 /** thinking/text 摘要上限（字符）：只保留尾部——最新进展比开头更有信息量（claw fitLine 语义）。 */
 const ACTIVITY_SUMMARY_LIMIT = 240;
 
@@ -76,8 +81,12 @@ function sanitizeLine(text: string): string {
  *   （裸 text_delta 只进活动摘要，不作为 Motion 聊天消息——phase 1990 消息面决策不变）；
  * - tool/provider 事件只更新短标签（工具名/provider 名），不带 input 与完整错误；
  * - send_content_delta/end → responding（send 完成不结束 turn，活动保留）；
- * - turn_end/turn_interrupted → idle；turn_error → error 保留可读错误行，detail 直接取
- *   formatClawBarError 输出（与 viewport claw bar 逐字节一致，不自造摘要、不加角色前缀）；
+ * - turn_end → idle；错误/终止族（phase 2003 Step F，detail 一律为 formatClawBarError
+ *   输出，与 viewport claw bar 逐字节一致，不自造摘要、不加角色前缀）：
+ *   turn_error（普通）→ error；turn_error（context-exceeded 前缀）→ retry 临时态；
+ *   context_trim_retry_scheduled → retry 正式态；context_trim_blocked → blocked；
+ *   turn_interrupted → interrupted（保留可见，不再静默 idle）；sinceMs 携带事件 ts
+ *   作为 duration 统一时间原点；
  * - 同一 stream event 可同时产生 activity 与消息 event（如 send_content_delta）。
  *
  * 有状态：按 trace 分桶的摘要缓冲；turn_start/turn_end/turn_error/turn_interrupted 清理对应
@@ -136,16 +145,66 @@ export class LauncherActivityMapper {
       case 'send_content_end':
         return { phase: 'responding', traceId };
       case 'turn_end':
-      case 'turn_interrupted':
         this.clearBuffer(traceId);
         return { phase: 'idle', traceId };
+      // phase 2003 Step F：错误/终止族完整同步 claw bar——detail 一律为共享 formatter
+      // 输出（consumer 原样显示），sinceMs 携带事件时间原点（viewport/launcher duration
+      // 同一起点）；retry/blocked 用显式 phase，不误当普通 processing 或普通 error。
+      case 'turn_interrupted':
+        this.clearBuffer(traceId);
+        return {
+          phase: 'interrupted',
+          detail: formatClawBarError(this.clawId, { kind: 'interrupted' }),
+          sinceMs: eventTs(event),
+          traceId,
+        };
       case 'turn_error': {
         this.clearBuffer(traceId);
         const raw = (event as { error?: unknown }).error;
-        const detail = typeof raw === 'string' && raw
-          ? formatClawBarError(this.clawId, { kind: 'error', message: raw })
-          : undefined;
-        return { phase: 'error', label: 'turn', detail, traceId };
+        const message = typeof raw === 'string' && raw ? raw : undefined;
+        // 可恢复 context 超限（wire 前缀约定，foundation/stream 单源）：先置临时 retry
+        // 提示，随后 context_trim_retry_scheduled 覆盖为带 attempt/delay 的正式提示。
+        if (isContextExceededStreamError(message)) {
+          return {
+            phase: 'retry',
+            detail: formatClawBarError(this.clawId, { kind: 'retry', message: 'context exceeded; trimming…' }),
+            sinceMs: eventTs(event),
+            traceId,
+          };
+        }
+        return {
+          phase: 'error',
+          label: 'turn',
+          detail: message
+            ? formatClawBarError(this.clawId, { kind: 'error', message })
+            : undefined,
+          sinceMs: eventTs(event),
+          traceId,
+        };
+      }
+      case 'context_trim_retry_scheduled': {
+        const attempt = (event as { attempt?: unknown }).attempt;
+        const maxAttempts = (event as { maxAttempts?: unknown }).maxAttempts;
+        const delayMs = (event as { delayMs?: unknown }).delayMs;
+        const message =
+          typeof attempt === 'number' && typeof maxAttempts === 'number' && typeof delayMs === 'number'
+            ? `context exceeded · retrying (${attempt}/${maxAttempts}, ${Math.round(delayMs / 1000)}s)`
+            : 'context exceeded; trimming…';
+        return {
+          phase: 'retry',
+          detail: formatClawBarError(this.clawId, { kind: 'retry', message }),
+          traceId,
+        };
+      }
+      case 'context_trim_blocked': {
+        const reason = (event as { reason?: unknown }).reason;
+        const message = `context blocked (${typeof reason === 'string' && reason ? reason : 'unknown'})`;
+        return {
+          phase: 'blocked',
+          detail: formatClawBarError(this.clawId, { kind: 'blocked', message }),
+          sinceMs: eventTs(event),
+          traceId,
+        };
       }
       default:
         return null;

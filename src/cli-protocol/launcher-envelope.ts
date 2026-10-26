@@ -19,26 +19,43 @@ export const LAUNCHER_PROTOCOL_VERSION = 'chestnut.launcher.v1';
 export type LauncherEnvelopeKind = 'event' | 'activity' | 'ack' | 'error' | 'terminal';
 
 /**
- * activity wire phase（phase 2001 引入，phase 2002 增 error）：waiting 是 consumer 本地态
- * （send ack 前后），不上 wire。processing=turn/llm/thinking/text/tool/provider 活跃；
- * responding=send 内容输出中（send_content_end 不结束 turn）；idle=turn_end/turn_interrupted
- * 恢复无活动；error=turn_error——保留可读错误行，直到下一次发送才清除。
+ * activity wire phase（phase 2001 引入，phase 2002 增 error，phase 2003 Step F 增
+ * interrupted/retry/blocked）：waiting 是 consumer 本地态（send ack 前后），不上 wire。
+ * processing=turn/llm/thinking/text/tool/provider 活跃；responding=send 内容输出中
+ * （send_content_end 不结束 turn）；idle=turn_end 恢复无活动。
+ * 错误/终止族（全部保留可见直到下一次 send 或新 activity 覆盖，detail 为 claw bar
+ * 共享 formatter 输出，consumer 原样显示）：error=turn_error（普通错误）；
+ * interrupted=turn_interrupted；retry=可恢复 context 超限（turn_error 带
+ * context-exceeded 前缀的临时态 / context_trim_retry_scheduled 正式态）；
+ * blocked=context_trim_blocked（终局）。retry/blocked 不得被误当普通 processing 或
+ * 普通 error 文案——phase 显式区分，符号差异（⟳/⏸/✗）已在 detail 内。
  */
-export type LauncherActivityPhase = 'processing' | 'responding' | 'idle' | 'error';
+export type LauncherActivityPhase =
+  | 'processing'
+  | 'responding'
+  | 'idle'
+  | 'error'
+  | 'interrupted'
+  | 'retry'
+  | 'blocked';
 
 /** activity label 机器 token 全集（phase 2002 收窄为封闭集合；展示文案归 consumer ActivityStyle）。 */
 export type LauncherActivityLabel = 'thinking' | 'text' | 'tool' | 'tool_result' | 'provider' | 'turn';
 
 /**
  * activity envelope payload：phase + 短 label token + 安全摘要。
- * detail 是单行净化（换行折空格）、截断后的摘要（thinking/text ≤240 字符、error ≤160 字符），
- * 不携带 thinking 全文、工具 input、密钥或完整错误 payload。
+ * detail 是单行净化（换行折空格）、截断后的摘要（thinking/text ≤240 字符；错误族 detail
+ * 为 claw bar 共享 formatter 输出，不在 producer 截断——截断归 UI），不携带 thinking 全文、
+ * 工具 input、密钥或完整错误 payload。
+ * sinceMs（phase 2003 Step F）：错误/终止族的事件时间原点（epoch ms，取事件 ts），
+ * viewport 与 launcher 的 inactive duration 共享同一起点，不各自取当前时间。
  */
 export interface LauncherActivityPayload {
   phase: LauncherActivityPhase;
   label?: LauncherActivityLabel;
   detail?: string;
   traceId?: string;
+  sinceMs?: number;
 }
 
 /** launcher WireErrorMapper 已冻结的 class 集合 + local（1990 补映射）。 */
@@ -95,5 +112,6 @@ export function launcherActivityEnvelope(
   if (activity.label !== undefined) payload.label = activity.label;
   if (activity.detail !== undefined) payload.detail = activity.detail;
   if (activity.traceId !== undefined) payload.traceId = activity.traceId;
+  if (activity.sinceMs !== undefined) payload.sinceMs = activity.sinceMs;
   return makeLauncherEnvelope(sequence, sessionId, 'activity', payload);
 }

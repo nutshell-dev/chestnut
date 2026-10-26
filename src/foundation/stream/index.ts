@@ -24,6 +24,7 @@ export { LLM_OUTPUT_EVENTS } from './types.js';
 
 // phase 749: sync NDJSON line parser for incremental stream readers
 export { parseStreamLines } from './parse-stream-lines.js';
+export { LLM_CONTEXT_EXCEEDED_STREAM_PREFIX, isContextExceededStreamError } from './types.js';
 
 export { createStreamWriter } from './writer.js';
 

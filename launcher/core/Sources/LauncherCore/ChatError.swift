@@ -26,4 +26,36 @@ public enum ChatError: Error, Equatable, Sendable {
         case let .local(detail): return detail
         }
     }
+
+    /// phase 2003 Step F：把本错误归一化为 claw bar 可显示 detail——
+    /// Swift 侧生成的错误（进程失败/协议失败/本地错误）detail 经 ClawBarErrorLine
+    /// 格式化为 `[clawId] ✗ <单行 message>`；已携带 claw bar 形状的 detail（CLI error
+    /// envelope 经 WireErrorMapper 进入，CLI 侧已格式化）不重复包装。
+    public func withClawBarDetail(clawId: String) -> ChatError {
+        let formatted = ClawBarErrorLine.format(clawId: clawId, message: detail)
+        switch self {
+        case .transport: return .transport(detail: formatted)
+        case .rejected: return .rejected(detail: formatted)
+        case .protocolMismatch: return .protocolMismatch(detail: formatted)
+        case .daemon: return .daemon(detail: formatted)
+        case .local: return .local(detail: formatted)
+        }
+    }
+}
+
+/// claw bar 普通错误行形状（phase 2003 Step F）：`[clawId] ✗ <单行 message>`。
+/// 与 TS cli-protocol/claw-bar-display `formatClawBarError` 的 error 分支逐字节一致；
+/// Swift 只复刻这一条规则（Swift 生成错误没有 CLI 格式化机会）——daemon/retry/blocked/
+/// interrupted 等状态的格式化仍归 CLI 侧共享 formatter 单源，本类型不复刻、不成词典。
+public enum ClawBarErrorLine {
+    public static func format(clawId: String, message: String) -> String {
+        "[\(clawId)] ✗ \(sanitize(message))"
+    }
+
+    /// 单行净化：换行/连续空白折为单个空格（与 TS sanitizeLine 同规则）。
+    private static func sanitize(_ text: String) -> String {
+        text.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
 }

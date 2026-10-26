@@ -141,12 +141,20 @@ public struct ActivityPayload: Equatable, Sendable {
         case idle
         /// turn_error 保留的可读错误行（phase 2002）：不伪装 idle，下一次 send 才清除。
         case error
+        /// phase 2003 Step F 错误族扩展：turn_interrupted / context trim 可恢复重试 / 终局阻断。
+        /// detail 为 claw bar 共享 formatter 输出，consumer 原样显示。
+        case interrupted
+        case retry
+        case blocked
     }
 
     public let phase: Phase
     public let label: String?
     public let detail: String?
     public let traceId: String?
+    /// 错误/终止族的事件时间原点（epoch ms，phase 2003 Step F）：
+    /// viewport/launcher 的 inactive duration 共享同一起点。
+    public let sinceMs: Double?
 
     /// 未知/缺失 phase 不解析（返回 nil，事件只推进 sequence 不产生活动变更）。
     public init?(payload: JSONValue) {
@@ -156,6 +164,7 @@ public struct ActivityPayload: Equatable, Sendable {
         self.label = payload["label"]?.stringValue
         self.detail = payload["detail"]?.stringValue
         self.traceId = payload["traceId"]?.stringValue
+        if case let .number(value) = payload["sinceMs"] { self.sinceMs = value } else { self.sinceMs = nil }
     }
 }
 

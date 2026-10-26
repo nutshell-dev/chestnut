@@ -82,6 +82,26 @@ final class ActivityBarTests: XCTestCase {
         XCTAssertFalse(ActivityStyle.isError(.idle))
     }
 
+    // MARK: phase 2003 Step F 错误族原样显示
+
+    /// retry/blocked/interrupted 与 error 同一显示路径：wire detail（claw bar 共享 formatter
+    /// 输出）原样显示，retry 不当普通 error 文案；全部错误族无 spinner、标 error 色。
+    func testErrorFamilyDisplayedVerbatim() {
+        let cases: [(ActivityState, String)] = [
+            (.interrupted(detail: "[motion] ✗ interrupted"), "[motion] ✗ interrupted"),
+            (.retry(detail: "[motion] ⟳ context exceeded · retrying (2/5, 4s)"), "[motion] ⟳ context exceeded · retrying (2/5, 4s)"),
+            (.blocked(detail: "[motion] ⏸ context blocked (retry_exhausted)"), "[motion] ⏸ context blocked (retry_exhausted)"),
+        ]
+        for (state, expected) in cases {
+            XCTAssertEqual(ActivityStyle.text(for: state), expected, "\(state) 必须原样显示 wire detail")
+            XCTAssertTrue(ActivityStyle.isError(state), "\(state) 属错误族：无 spinner、橙色")
+        }
+        // 缺 detail 的兜底短文案（符号保留，不伪造 clawId）
+        XCTAssertEqual(ActivityStyle.text(for: .interrupted(detail: nil)), "✗ interrupted")
+        XCTAssertEqual(ActivityStyle.text(for: .retry(detail: nil)), "⟳ retrying")
+        XCTAssertEqual(ActivityStyle.text(for: .blocked(detail: nil)), "⏸ blocked")
+    }
+
     // MARK: phase 2003 无 agent 名称
 
     /// 状态文案只含短状态 key 与安全摘要，不含 agent 名称或固定角色句（phase 2003 边界）。

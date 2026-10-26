@@ -79,11 +79,14 @@ public struct ChestnutSendClient: SendClient {
     private let process: any ChestnutProcess
     private let argvPrefix: [String]
     private let decoder: JsonlWireDecoder
+    /// phase 2003 Step F：Swift 侧生成错误的 detail 归一化为 claw bar 形状所用 claw 名。
+    private let clawId: String
 
-    public init(process: any ChestnutProcess, argvPrefix: [String], decoder: JsonlWireDecoder = JsonlWireDecoder()) {
+    public init(process: any ChestnutProcess, argvPrefix: [String], decoder: JsonlWireDecoder = JsonlWireDecoder(), clawId: String = "motion") {
         self.process = process
         self.argvPrefix = argvPrefix
         self.decoder = decoder
+        self.clawId = clawId
     }
 
     public func submit(requestId: RequestId, text: String) async throws -> SendAck {
@@ -92,11 +95,11 @@ public struct ChestnutSendClient: SendClient {
             // --request-id 由 chestnut ack envelope 原样回带（phase 1990 协议闭环）。
             output = try await process.run(argvPrefix + ["--request-id", requestId, text])
         } catch let error as ChatError {
-            throw error
+            throw error.withClawBarDetail(clawId: clawId)
         } catch {
-            throw ChatError.transport(detail: "send process failed: \(error.localizedDescription)")
+            throw ChatError.transport(detail: "send process failed: \(error.localizedDescription)").withClawBarDetail(clawId: clawId)
         }
-        switch Self.evaluate(output: output, requestId: requestId, decoder: decoder) {
+        switch Self.evaluate(output: output, requestId: requestId, decoder: decoder, clawId: clawId) {
         case .accepted(let ack):
             return ack
         case .rejected(let error):
@@ -104,12 +107,14 @@ public struct ChestnutSendClient: SendClient {
         case let .terminated(code, signal):
             throw ChatError.transport(
                 detail: "send terminated unexpectedly (code: \(code.map(String.init) ?? "nil"), signal: \(signal.map(String.init) ?? "nil"))"
-            )
+            ).withClawBarDetail(clawId: clawId)
         }
     }
 
     /// 结果评估顺序：结构化 error envelope > 信号终止 > 非零退出 > ack envelope。
-    static func evaluate(output: ProcessOutput, requestId: RequestId, decoder: JsonlWireDecoder) -> ProcessOutcome<SendAck> {
+    /// error envelope 的 detail 已由 CLI 侧 claw bar formatter 格式化（原样通过）；
+    /// Swift 本地生成的 rejected/protocolMismatch 在此归一化为 claw bar 形状。
+    static func evaluate(output: ProcessOutput, requestId: RequestId, decoder: JsonlWireDecoder, clawId: String = "motion") -> ProcessOutcome<SendAck> {
         var ackEnvelope: LauncherEnvelope?
         for line in output.stdoutLines {
             guard let envelope = try? decoder.decode(line: line) else { continue }
@@ -125,10 +130,10 @@ public struct ChestnutSendClient: SendClient {
         }
         if output.exitCode != 0 {
             let detail = output.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            return .rejected(.rejected(detail: detail.isEmpty ? "exit \(output.exitCode)" : detail))
+            return .rejected(.rejected(detail: detail.isEmpty ? "exit \(output.exitCode)" : detail).withClawBarDetail(clawId: clawId))
         }
         if let ack = ackEnvelope, let ackRequestId = ack.payload["requestId"]?.stringValue, ackRequestId != requestId {
-            return .rejected(.protocolMismatch(detail: "ack requestId mismatch: expected \(requestId), got \(ackRequestId)"))
+            return .rejected(.protocolMismatch(detail: "ack requestId mismatch: expected \(requestId), got \(ackRequestId)").withClawBarDetail(clawId: clawId))
         }
         // exit 0 = inbox 已接收；phase 1990 起 ack envelope 为协议要求，缺失说明对端是旧版 CLI
         return .accepted(SendAck(
@@ -144,13 +149,16 @@ public actor ChestnutStreamClient: StreamClient {
     private let process: any ChestnutProcess
     private let argvPrefix: [String]
     private let decoder: JsonlWireDecoder
+    /// phase 2003 Step F：Swift 侧生成错误的 detail 归一化为 claw bar 形状所用 claw 名。
+    private let clawId: String
     private var running = false
     private var stopRequested = false
 
-    public init(process: any ChestnutProcess, argvPrefix: [String], decoder: JsonlWireDecoder = JsonlWireDecoder()) {
+    public init(process: any ChestnutProcess, argvPrefix: [String], decoder: JsonlWireDecoder = JsonlWireDecoder(), clawId: String = "motion") {
         self.process = process
         self.argvPrefix = argvPrefix
         self.decoder = decoder
+        self.clawId = clawId
     }
 
     public nonisolated func events(fromSequence: Int?) -> AsyncThrowingStream<LauncherEnvelope, Error> {
@@ -169,7 +177,7 @@ public actor ChestnutStreamClient: StreamClient {
         continuation: AsyncThrowingStream<LauncherEnvelope, Error>.Continuation
     ) async {
         guard !running else {
-            continuation.finish(throwing: ChatError.local(detail: "stream already running"))
+            continuation.finish(throwing: ChatError.local(detail: "stream already running").withClawBarDetail(clawId: clawId))
             return
         }
         running = true
@@ -180,7 +188,7 @@ public actor ChestnutStreamClient: StreamClient {
         if let fromSequence {
             continuation.finish(throwing: ChatError.protocolMismatch(
                 detail: "resync from sequence \(fromSequence) requires chestnut.launcher.v1 support (pending CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)"
-            ))
+            ).withClawBarDetail(clawId: clawId))
             return
         }
 
@@ -188,7 +196,14 @@ public actor ChestnutStreamClient: StreamClient {
         do {
             for try await line in process.stream(argvPrefix) {
                 if stopRequested { break }
-                let envelope = try decoder.decode(line: line)
+                // decode 失败（Swift 本地生成的 protocolMismatch）归一化为 claw bar 形状；
+                // error envelope 经 WireErrorMapper 原样通过（detail 已由 CLI 格式化）。
+                let envelope: LauncherEnvelope
+                do {
+                    envelope = try decoder.decode(line: line)
+                } catch let error as ChatError {
+                    throw error.withClawBarDetail(clawId: clawId)
+                }
                 switch envelope.kind {
                 case .error:
                     throw WireErrorMapper.map(envelope)
@@ -202,12 +217,12 @@ public actor ChestnutStreamClient: StreamClient {
             if stopRequested || sawTerminal {
                 continuation.finish()
             } else {
-                continuation.finish(throwing: ChatError.transport(detail: "stream EOF before terminal event"))
+                continuation.finish(throwing: ChatError.transport(detail: "stream EOF before terminal event").withClawBarDetail(clawId: clawId))
             }
         } catch let error as ChatError {
             continuation.finish(throwing: error)
         } catch {
-            continuation.finish(throwing: ChatError.transport(detail: "stream failed: \(error.localizedDescription)"))
+            continuation.finish(throwing: ChatError.transport(detail: "stream failed: \(error.localizedDescription)").withClawBarDetail(clawId: clawId))
         }
     }
 }

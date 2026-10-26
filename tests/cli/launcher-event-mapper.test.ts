@@ -82,19 +82,20 @@ describe('LauncherActivityMapper', () => {
       .toEqual({ phase: 'responding', traceId: 'r1' });
   });
 
-  it('turn_end/turn_interrupted 映射 idle 并清理摘要缓冲；turn_error 映射 error（保留可读错误行，不伪装 idle）', () => {
+  it('turn_end 映射 idle；turn_interrupted 映射 interrupted 错误行（Step F：不再静默 idle）；turn_error 映射 error（保留可读错误行，不伪装 idle）', () => {
     const mapper = new LauncherActivityMapper('test-claw');
     mapper.map({ ts: 1, type: 'thinking_delta', delta: '旧摘要', trace_id: 't1' } as never);
     // phase 2003 Step E：error detail 直接取 claw bar 共享 formatter 输出（含 [id] 前缀与 ✗）
+    // phase 2003 Step F：错误/终止族携带 sinceMs（事件 ts，duration 统一时间原点）
     expect(mapper.map({ ts: 2, type: 'turn_error', error: 'network timeout\nprovider kimi 不可用', trace_id: 't1' } as never))
-      .toEqual({ phase: 'error', label: 'turn', detail: '[test-claw] ✗ network timeout provider kimi 不可用', traceId: 't1' });
+      .toEqual({ phase: 'error', label: 'turn', detail: '[test-claw] ✗ network timeout provider kimi 不可用', sinceMs: 2, traceId: 't1' });
     // turn 终止清理缓冲：同 trace 新 turn 的摘要不残留旧内容
     mapper.map({ ts: 3, type: 'turn_start', trace_id: 't1' } as never);
     expect(mapper.map({ ts: 4, type: 'thinking_delta', delta: '全新', trace_id: 't1' } as never)?.detail).toBe('全新');
     expect(mapper.map({ ts: 5, type: 'turn_end', trace_id: 't1' } as never))
       .toEqual({ phase: 'idle', traceId: 't1' });
     expect(mapper.map({ ts: 6, type: 'turn_interrupted', cause: 'user', trace_id: 't2' } as never))
-      .toEqual({ phase: 'idle', traceId: 't2' });
+      .toEqual({ phase: 'interrupted', detail: '[test-claw] ✗ interrupted', sinceMs: 6, traceId: 't2' });
   });
 
   it('turn_error detail 为共享 formatter 单行输出（不截断——截断归 UI 外壳）；非字符串 error 不带 detail', () => {
@@ -104,7 +105,7 @@ describe('LauncherActivityMapper', () => {
     expect(long?.detail).toBe(`[test-claw] ✗ 前缀 ${'错'.repeat(300)}`); // 单行净化，无 \n
     expect(long?.detail).not.toContain('\n');
     expect(mapper.map({ ts: 2, type: 'turn_error', error: { nested: 'secret' }, trace_id: 't1' } as never))
-      .toEqual({ phase: 'error', label: 'turn', traceId: 't1' }); // 非字符串 error 不带 detail
+      .toEqual({ phase: 'error', label: 'turn', sinceMs: 2, traceId: 't1' }); // 非字符串 error 不带 detail
   });
 
   it('无关事件（provider_info/recovery 等）不映射', () => {

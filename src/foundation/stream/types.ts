@@ -158,6 +158,18 @@ export interface StreamEventMap {
 }
 
 /**
+ * turn_error.error 的 context-exceeded wire 前缀约定（phase 1978 引入，phase 2003 Step F
+ * 提取单源）：error 字符串以该前缀开头 = 可恢复 context 超限（随后 trim + 有界重试），
+ * 消费端（viewport claw bar / launcher producer）不得把它当普通终局错误展示。
+ */
+export const LLM_CONTEXT_EXCEEDED_STREAM_PREFIX = '[LLM_CONTEXT_EXCEEDED]';
+
+/** turn_error.error 是否为可恢复 context-exceeded（wire 前缀判定，详见上方常量）。 */
+export function isContextExceededStreamError(error: string | undefined | null): boolean {
+  return typeof error === 'string' && error.startsWith(LLM_CONTEXT_EXCEEDED_STREAM_PREFIX);
+}
+
+/**
  * stream.jsonl 事件（协议基础形态，phase 1321 诚实化）。
  * reader/writer 只保证 ts + type 存在（读 JSON 行的真实边界）；
  * 全量判别联合（含上层事件 payload）归消费端汇总（viewport/stream-event-types.ts）。

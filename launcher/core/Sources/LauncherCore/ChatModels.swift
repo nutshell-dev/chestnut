@@ -26,16 +26,25 @@ public struct Message: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Motion 活动状态（phase 2001 引入，phase 2002 增 error）：独立单行活动行的事实，不是聊天消息。
-/// waiting 是本地态（send ack 前后、首个 stream 事件之前）；processing/responding/idle/error
-/// 来自 activity envelope。idle 时 UI 完全不渲染活动行；error 保留可读错误行，
-/// 直到下一次发送才清除（turn_error 不伪装 idle——网络/LLM 失败必须可见）。
+/// Motion 活动状态（phase 2001 引入，phase 2002 增 error，phase 2003 Step F 增
+/// interrupted/retry/blocked）：独立单行活动行的事实，不是聊天消息。
+/// waiting 是本地态（send ack 前后、首个 stream 事件之前）；processing/responding/idle
+/// 与错误族（error/interrupted/retry/blocked）来自 activity envelope。idle 时 UI 完全不渲染；
+/// 错误族保留可见（turn_error/中断/超限不伪装 idle），直到下一次发送或新 activity 覆盖。
+/// 错误族 detail 是 claw bar 共享 formatter 输出，UI 原样显示（符号 ✗/⟳/⏸ 已在 detail 内）。
 public enum ActivityState: Equatable, Sendable {
     case idle
     case waiting
     case processing(label: String?, detail: String?)
     case responding
+    /// turn_error（普通错误）。
     case error(detail: String?)
+    /// turn_interrupted：中断保留可见，不静默消失。
+    case interrupted(detail: String?)
+    /// 可恢复 context 超限：trim/重试等待窗口（⟳），非终局红错。
+    case retry(detail: String?)
+    /// context_trim_blocked：trim 后仍超限的明确终局（⏸）。
+    case blocked(detail: String?)
 }
 
 /// UI 聊天状态机。draft 守恒：sending/degraded 都保留未 ack 草稿，

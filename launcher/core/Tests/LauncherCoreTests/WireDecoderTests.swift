@@ -123,4 +123,18 @@ final class WireDecoderTests: XCTestCase {
         XCTAssertEqual(activity?.detail, "LLM 网络失败")
         XCTAssertEqual(activity?.traceId, "t1")
     }
+
+    /// phase 2003 Step F：错误族新 phase（interrupted/retry/blocked）与 sinceMs 解码。
+    func testDecodesErrorFamilyPhasesAndSinceMs() throws {
+        for rawPhase in ["interrupted", "retry", "blocked"] {
+            let envelope = try decoder.decode(line: line("activity", payload: #"{"phase":"\#(rawPhase)","detail":"[motion] ✗ x","sinceMs":1700000000000}"#))
+            let activity = ActivityPayload(payload: envelope.payload)
+            XCTAssertEqual(activity?.phase.rawValue, rawPhase)
+            XCTAssertEqual(activity?.detail, "[motion] ✗ x")
+            XCTAssertEqual(activity?.sinceMs, 1_700_000_000_000, "sinceMs 必须解码（duration 统一时间原点）")
+        }
+        // sinceMs 缺省为 nil（旧 producer 兼容）
+        let legacy = try decoder.decode(line: line("activity", payload: #"{"phase":"error","detail":"x"}"#))
+        XCTAssertNil(ActivityPayload(payload: legacy.payload)?.sinceMs)
+    }
 }

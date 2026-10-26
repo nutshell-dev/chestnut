@@ -23,7 +23,7 @@ enum LauncherClientFactory {
         guard let argvPrefix = argvPrefix(environment: environment, suffix: ["send"]) else {
             return UnconfiguredSendClient()
         }
-        return ChestnutSendClient(process: makeProcess(), argvPrefix: argvPrefix)
+        return ChestnutSendClient(process: makeProcess(), argvPrefix: argvPrefix, clawId: clawName(environment: environment))
     }
 
     static func makeStreamClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any StreamClient {
@@ -31,17 +31,21 @@ enum LauncherClientFactory {
         guard let argvPrefix = argvPrefix(environment: environment, suffix: ["stream", "--from-current-turn"]) else {
             return UnconfiguredStreamClient()
         }
-        return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
+        return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix, clawId: clawName(environment: environment))
     }
 
     private static func makeProcess() -> any ChestnutProcess {
         MacOSChestnutProcess(executableURL: URL(fileURLWithPath: "/usr/bin/env"))
     }
 
+    /// claw 名（phase 2003 Step F：Swift 侧生成错误的 claw bar detail 归一化也用同一名字）。
+    private static func clawName(environment: [String: String]) -> String {
+        environment["CHESTNUT_CLAW_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "motion"
+    }
+
     private static func argvPrefix(environment: [String: String], suffix: [String]) -> [String]? {
         guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return nil }
-        let claw = environment["CHESTNUT_CLAW_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "motion"
-        return ["node", cliPath, "claw", claw] + suffix
+        return ["node", cliPath, "claw", clawName(environment: environment)] + suffix
     }
 }
 

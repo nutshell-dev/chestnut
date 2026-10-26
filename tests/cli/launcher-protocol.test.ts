@@ -117,16 +117,21 @@ const streamMocks = vi.hoisted(() => {
   return { signalHandlers, reader, get onEvent() { return onEvent; }, set onEvent(cb) { onEvent = cb; } };
 });
 
-vi.mock('../../src/foundation/stream/index.js', () => ({
-  STREAM_FILE: 'stream.jsonl',
-  createStreamReader: vi.fn((_fs: unknown, _file: unknown, onEvent: (event: unknown) => void) => {
-    streamMocks.onEvent = onEvent;
-    return streamMocks.reader as unknown as StreamReader;
-  }),
-  findRecentTurnStartOffset: vi.fn(() => 0),
-  // phase 2003：current-turn 快照默认无活跃 turn；单测内按场景覆盖返回值
-  readCurrentTurnSnapshot: vi.fn(() => ({ active: false, events: [], tailOffset: 0 })),
-}));
+vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
+  // importOriginal 保留 isContextExceededStreamError 等纯函数实现，只替换 IO 相关出口
+  const actual = await importOriginal<typeof import('../../src/foundation/stream/index.js')>();
+  return {
+    ...actual,
+    STREAM_FILE: 'stream.jsonl',
+    createStreamReader: vi.fn((_fs: unknown, _file: unknown, onEvent: (event: unknown) => void) => {
+      streamMocks.onEvent = onEvent;
+      return streamMocks.reader as unknown as StreamReader;
+    }),
+    findRecentTurnStartOffset: vi.fn(() => 0),
+    // phase 2003：current-turn 快照默认无活跃 turn；单测内按场景覆盖返回值
+    readCurrentTurnSnapshot: vi.fn(() => ({ active: false, events: [], tailOffset: 0 })),
+  };
+});
 
 vi.mock('../../src/foundation/claw-identity/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/foundation/claw-identity/index.js')>()),
@@ -278,7 +283,8 @@ describe('stream launcher.v1 envelope', () => {
       { phase: 'processing', label: 'turn' },
       { phase: 'processing', label: 'provider', detail: 'kimi', traceId: 't1' },
       // phase 2003 Step E：error detail = claw bar 共享 formatter 输出（[claw] ✗ 摘要）
-      { phase: 'error', label: 'turn', detail: '[test-claw] ✗ LLM 网络失败 provider kimi 不可用', traceId: 't1' },
+      // phase 2003 Step F：错误族携带 sinceMs（事件 ts，duration 统一时间原点）
+      { phase: 'error', label: 'turn', detail: '[test-claw] ✗ LLM 网络失败 provider kimi 不可用', sinceMs: 3, traceId: 't1' },
       { phase: 'processing', label: 'turn', traceId: 't2' },
       { phase: 'idle', traceId: 't2' },
     ]);

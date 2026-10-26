@@ -4,6 +4,7 @@ import { formatErr } from "../foundation/node-utils/index.js";
 import { getActiveContractTimestamp } from '../core/contract/index.js';
 import { parseStreamLines } from '../foundation/stream/index.js';
 import { STREAM_FILE } from '../foundation/stream/index.js';
+import { isContextExceededStreamError } from '../foundation/stream/index.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -95,9 +96,13 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
     }
   };
 
+  // phase 2003 Step F：inactive duration 时间原点统一取事件 ts（launcher wire sinceMs
+  // 同一原点），不再各自取 Date.now()——两个 UI 的 duration 从同一时刻起算。
+  const eventReferenceMs = (ev: CliStreamEvent): number =>
+    typeof ev.ts === 'number' && Number.isFinite(ev.ts) ? ev.ts : Date.now();
+
   const refreshClawStatus = (clawId: string): void => {
-    if (!isMotion) return;
-    const track = clawTrackMap.get(clawId);
+    if (!isMotion) return;    const track = clawTrackMap.get(clawId);
     if (!track) return;
     const location = clawTopology.resolve(makeClawId(clawId));
     if (location.kind !== 'local') return;
@@ -141,7 +146,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
               case 'turn_error': {
                 track.active = false;
                 const errStr = typeof ev.error === 'string' ? ev.error : String(ev.error ?? 'error');
-                if (errStr.startsWith('[LLM_CONTEXT_EXCEEDED]')) {
+                if (isContextExceededStreamError(errStr)) {
                   // Phase 1978: 可恢复 context exceeded 不写入 lastError；先置临时 retry 提示，
                   // 随后 context_trim_retry_scheduled 覆盖为带 attempt/delay 的正式提示。
                   track.lastError = null;
@@ -152,20 +157,20 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                   track.retryNotice = null;
                   track.blockedNotice = null;
                 }
-                track.lastOutput = ''; track.referenceMs = Date.now();
+                track.lastOutput = ''; track.referenceMs = eventReferenceMs(ev);
                 break;
               }
               case 'turn_end':
                 track.active = false; track.lastError = null;
                 track.retryNotice = null; track.blockedNotice = null;
                 if (track.textBuffer) track.lastOutput = track.textBuffer;
-                track.referenceMs = Date.now();
+                track.referenceMs = eventReferenceMs(ev);
                 break;
               case 'turn_interrupted':
                 track.active = false; track.lastError = null;
                 track.retryNotice = null; track.blockedNotice = null;
                 track.lastInterrupted = true; track.lastOutput = '';
-                track.referenceMs = Date.now();
+                track.referenceMs = eventReferenceMs(ev);
                 break;
               case 'context_trim_retry_scheduled':
                 // Phase 1978: 结构化 retry 状态（attempt/max、delay）；retry 期间 claw 非 active。
@@ -180,7 +185,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 track.retryNotice = null;
                 track.blockedNotice = `context blocked (${ev.reason})`;
                 track.lastError = null;
-                track.referenceMs = Date.now();
+                track.referenceMs = eventReferenceMs(ev);
                 break;
               case 'thinking_delta': {
                 if (track.active === false) track.lastOutput = '';

@@ -179,6 +179,8 @@ final class ChatReducerTests: XCTestCase {
         XCTAssertEqual(state.activity, .waiting)
     }
 
+    // MARK: phase 2003 Step F 错误族完整同步
+
     /// 中间 send 不清理活动：processing → responding（send）→ processing（继续工具/思考）保持非 idle。
     func testIntermediateSendDoesNotClearActivity() {
         var state = ChatCoreState(activity: .processing(label: "tool", detail: "run"))
@@ -186,5 +188,37 @@ final class ChatReducerTests: XCTestCase {
         XCTAssertTrue(state.activity != .idle, "中间 send 不得清理活动")
         state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(2, "processing", label: "thinking", detail: "继续")))
         XCTAssertEqual(state.activity, .processing(label: "thinking", detail: "继续"))
+    }
+
+    /// interrupted/retry/blocked phase 迁移到对应 ActivityState；detail（claw bar formatter
+    /// 输出）原样携带，不被误当普通 processing。
+    func testErrorFamilyPhasesMapToDistinctStates() {
+        var state = ChatCoreState(activity: .processing(label: "thinking", detail: "想"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "interrupted", detail: "[motion] ✗ interrupted")))
+        XCTAssertEqual(state.activity, .interrupted(detail: "[motion] ✗ interrupted"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(2, "retry", detail: "[motion] ⟳ context exceeded · retrying (1/5, 2s)")))
+        XCTAssertEqual(state.activity, .retry(detail: "[motion] ⟳ context exceeded · retrying (1/5, 2s)"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(3, "blocked", detail: "[motion] ⏸ context blocked (retry_exhausted)")))
+        XCTAssertEqual(state.activity, .blocked(detail: "[motion] ⏸ context blocked (retry_exhausted)"))
+    }
+
+    /// 错误族（interrupted/retry/blocked）与 error 同样只由下一次 sendStarted 清除。
+    func testNextSendClearsErrorFamilyToWaiting() {
+        for activity in [
+            ActivityState.interrupted(detail: "[motion] ✗ interrupted"),
+            .retry(detail: "[motion] ⟳ context exceeded; trimming…"),
+            .blocked(detail: "[motion] ⏸ context blocked (no_progress)"),
+        ] {
+            var state = ChatCoreState(chat: .idle(draft: "重试", messages: []), activity: activity)
+            state = ChatReducer.reduce(state, .sendStarted(requestId: "r9"))
+            XCTAssertEqual(state.activity, .waiting, "\(activity) 必须由下一次发送显式清除并重新 waiting")
+        }
+    }
+
+    /// retry/blocked 不被后续 processing 卡住：新 activity 正常覆盖（trim 重试成功后恢复）。
+    func testProcessingOverwritesRetryState() {
+        var state = ChatCoreState(activity: .retry(detail: "[motion] ⟳ context exceeded; trimming…"))
+        state = ChatReducer.reduce(state, .streamEvent(activityEnvelope(1, "processing", label: "provider", detail: "kimi")))
+        XCTAssertEqual(state.activity, .processing(label: "provider", detail: "kimi"), "重试成功后新 activity 覆盖 retry 中间态")
     }
 }
