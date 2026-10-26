@@ -346,6 +346,43 @@ final class ChatViewSnapshotTests: XCTestCase {
             "error 是终态：无 spinner，但错误行保留（activityBar 文本仍存在）"
         )
     }
+
+    // MARK: phase 2004 活动行视觉回归
+
+    /// 源码契约：activityBar 只消费 ActivityStyle token，不写散落视觉数值——
+    /// 不得出现 caption 字体或字面字号/颜色，字号/行高/不透明度/顶距必须来自 token；
+    /// 窗口高度记账（activityHeight）必须消费同一 lineHeight + topGap（行高变化自动跟随）。
+    func testActivityBarConsumesOnlyActivityStyleTokens() throws {
+        let source = try chatViewSource()
+        guard let section = section(of: source, from: "private func activityBar", to: "accessibilityIdentifier(\"activityBar\")") else {
+            return XCTFail("未找到 activityBar 实现段")
+        }
+        XCTAssertFalse(section.contains(".font(.caption"), "activityBar 不得用 caption 动态默认字号")
+        XCTAssertTrue(section.contains("ActivityStyle.fontSize"), "字号必须来自 ActivityStyle token")
+        XCTAssertTrue(section.contains("ActivityStyle.lineHeight"), "行高必须来自 ActivityStyle token")
+        XCTAssertTrue(section.contains("ActivityStyle.opacity"), "不透明度必须来自 ActivityStyle token")
+        XCTAssertTrue(section.contains("ActivityStyle.showsSpinner"), "spinner 语义必须来自 ActivityStyle 单源")
+        XCTAssertTrue(section.contains("exclamationmark.circle"), "错误态必须以错误图标替代 spinner")
+        XCTAssertTrue(source.contains("ActivityStyle.topGap"), "顶距必须来自 ActivityStyle token")
+        XCTAssertTrue(
+            source.contains("ActivityStyle.lineHeight + ActivityStyle.topGap"),
+            "窗口高度记账必须消费 lineHeight + topGap（行高 token 变化自动跟随）"
+        )
+    }
+
+    /// 双主题正确性（源码契约）：activityBar 只用语义颜色（.secondary/.orange——
+    /// 系统随浅/深色自适应），不得出现硬编码 RGB/十六进制/NSColor 字面量。
+    /// 实机双主题可读性归 step-d 实机矩阵。
+    func testActivityBarUsesSemanticThemeAdaptiveColors() throws {
+        let source = try chatViewSource()
+        guard let section = section(of: source, from: "private func activityBar", to: "accessibilityIdentifier(\"activityBar\")") else {
+            return XCTFail("未找到 activityBar 实现段")
+        }
+        XCTAssertTrue(section.contains(".secondary"), "普通活动必须用 semantic secondary（主题自适应）")
+        XCTAssertTrue(section.contains(".orange"), "错误态必须用 semantic orange（主题自适应）")
+        XCTAssertFalse(section.contains("Color(red:"), "不得硬编码 RGB 颜色")
+        XCTAssertFalse(section.contains("NSColor("), "不得硬编码 NSColor")
+    }
 }
 
 @MainActor
