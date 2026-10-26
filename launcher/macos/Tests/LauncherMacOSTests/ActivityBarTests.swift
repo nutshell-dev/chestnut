@@ -96,10 +96,10 @@ final class ActivityBarTests: XCTestCase {
             XCTAssertEqual(ActivityStyle.text(for: state), expected, "\(state) 必须原样显示 wire detail")
             XCTAssertTrue(ActivityStyle.isError(state), "\(state) 属错误族：无 spinner、橙色")
         }
-        // 缺 detail 的兜底短文案（符号保留，不伪造 clawId）
-        XCTAssertEqual(ActivityStyle.text(for: .interrupted(detail: nil)), "✗ interrupted")
-        XCTAssertEqual(ActivityStyle.text(for: .retry(detail: nil)), "⟳ retrying")
-        XCTAssertEqual(ActivityStyle.text(for: .blocked(detail: nil)), "⏸ blocked")
+        // 缺 detail 的兜底短文案（phase 2004：Swift 不持有 claw bar 符号词汇，兜底为纯词）
+        XCTAssertEqual(ActivityStyle.text(for: .interrupted(detail: nil)), "interrupted")
+        XCTAssertEqual(ActivityStyle.text(for: .retry(detail: nil)), "retrying")
+        XCTAssertEqual(ActivityStyle.text(for: .blocked(detail: nil)), "blocked")
     }
 
     // MARK: phase 2003 无 agent 名称

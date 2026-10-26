@@ -58,8 +58,8 @@ final class RecoveryTests: XCTestCase {
                 return XCTFail("expected rejected, got \(error)")
             }
             XCTAssertTrue(detail.contains("claw not found"))
-            // phase 2003 Step F：Swift 侧生成错误 detail 归一化为 claw bar 形状（单行净化 + 前缀）
-            XCTAssertEqual(detail, "[motion] ✗ claw not found")
+            // phase 2004：Swift 本地生成错误 detail 为本地纯文本，不做 claw bar 格式化
+            XCTAssertEqual(detail, "claw not found")
         }
     }
 
@@ -108,9 +108,10 @@ final class RecoveryTests: XCTestCase {
         }
     }
 
-    /// Swift 本地生成错误（协议失败/本地错误）统一携带 claw bar detail：单行净化 + [id] ✗ 前缀。
-    func testSwiftGeneratedErrorsCarryClawBarDetail() async throws {
-        // protocolMismatch：非协议行混入 stdout（含换行的恶意行被单行净化）
+    /// Swift 本地生成错误（协议失败/本地错误）detail 为本地纯文本：
+    /// 不伪装 claw bar 形状（无前缀、无符号），格式化只存在于 TS 协议输出（phase 2004）。
+    func testSwiftGeneratedErrorsStayPlainLocalText() async throws {
+        // protocolMismatch：非协议行混入 stdout
         let process = FakeChestnutProcess()
         process.streamHandler = { _ in FakeStreamScript(lines: ["not json at all"]) }
         let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
@@ -121,22 +122,7 @@ final class RecoveryTests: XCTestCase {
             guard case let .protocolMismatch(detail) = error else {
                 return XCTFail("expected protocolMismatch, got \(error)")
             }
-            XCTAssertTrue(detail.hasPrefix("[motion] ✗ "), "Swift 生成错误必须带 claw bar 前缀，实际: \(detail)")
-            XCTAssertFalse(detail.contains("\n"), "claw bar detail 必须单行")
-        }
-        // local/transport 等其余 Swift 生成入口共用同一归一化，直接在 ChatError 层锁定：
-    }
-
-    /// ChatError.withClawBarDetail：五类归属统一携带 claw bar detail（单行净化 + [id] ✗）。
-    func testChatErrorWithClawBarDetailNormalizesAllCases() {
-        XCTAssertEqual(ChatError.transport(detail: "EOF\nbefore terminal").withClawBarDetail(clawId: "motion").detail, "[motion] ✗ EOF before terminal")
-        XCTAssertEqual(ChatError.rejected(detail: "claw not found").withClawBarDetail(clawId: "motion").detail, "[motion] ✗ claw not found")
-        XCTAssertEqual(ChatError.protocolMismatch(detail: "bad line").withClawBarDetail(clawId: "motion").detail, "[motion] ✗ bad line")
-        XCTAssertEqual(ChatError.daemon(detail: "gone").withClawBarDetail(clawId: "motion").detail, "[motion] ✗ gone")
-        XCTAssertEqual(ChatError.local(detail: "stream already running").withClawBarDetail(clawId: "motion").detail, "[motion] ✗ stream already running")
-        // case 归属不变（只改 detail）
-        guard case .transport = ChatError.transport(detail: "x").withClawBarDetail(clawId: "motion") else {
-            return XCTFail("归一化不得改变错误归属")
+            XCTAssertFalse(detail.hasPrefix("["), "Swift 本地错误不得伪装 claw bar 前缀，实际: \(detail)")
         }
     }
 
@@ -222,8 +208,8 @@ final class RecoveryTests: XCTestCase {
             guard case let .transport(detail) = error else {
                 return XCTFail("expected transport, got \(error)")
             }
-            // phase 2003 Step F：Swift 侧生成错误 detail 归一化为 claw bar 形状
-            XCTAssertEqual(detail, "[motion] ✗ stream EOF before terminal event")
+            // phase 2004：Swift 本地生成错误 detail 为本地纯文本，不做 claw bar 格式化
+            XCTAssertEqual(detail, "stream EOF before terminal event")
         }
     }
 

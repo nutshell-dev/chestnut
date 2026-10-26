@@ -42,25 +42,24 @@ public enum ActivityStyle {
                 return "thinking…"
             }
         case let .error(detail):
-            // phase 2003 Step E/F：错误族 detail 是 claw bar 共享 formatter 的输出，
-            // 原样显示——不添加中文前缀、不拼接角色名、不改写（符号 ✗/⟳/⏸ 已在 detail 内）。
+            // phase 2004：错误族 detail 是协议输出的最终显示文本（TS 共享 formatter），
+            // 原样显示——不添加前缀、不拼接角色名、不改写；Swift 不持有 claw bar 符号词汇。
             if let detail, !detail.isEmpty { return detail }
             return "error"
         case let .interrupted(detail):
             if let detail, !detail.isEmpty { return detail }
-            return "✗ interrupted"
+            return "interrupted"
         case let .retry(detail):
-            // retry 是可恢复中间态（⟳）：原样显示 wire detail，不当普通 error 文案
+            // retry 是可恢复中间态：原样显示 wire detail，不当普通 error 文案
             if let detail, !detail.isEmpty { return detail }
-            return "⟳ retrying"
+            return "retrying"
         case let .blocked(detail):
             if let detail, !detail.isEmpty { return detail }
-            return "⏸ blocked"
+            return "blocked"
         }
     }
 
-    /// error 态标记（无 spinner、橙色，claw ✗/⟳/⏸ 语义）：错误族全部保留可见，
-    /// 终态/中间态都不假装进行中。
+    /// error 态标记（无 spinner、橙色）：错误族全部保留可见，终态/中间态都不假装进行中。
     public static func isError(_ activity: ActivityState) -> Bool {
         switch activity {
         case .error, .interrupted, .retry, .blocked: return true

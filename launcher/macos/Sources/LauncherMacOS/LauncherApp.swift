@@ -23,7 +23,7 @@ enum LauncherClientFactory {
         guard let argvPrefix = argvPrefix(environment: environment, suffix: ["send"]) else {
             return UnconfiguredSendClient()
         }
-        return ChestnutSendClient(process: makeProcess(), argvPrefix: argvPrefix, clawId: clawName(environment: environment))
+        return ChestnutSendClient(process: makeProcess(), argvPrefix: argvPrefix)
     }
 
     static func makeStreamClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any StreamClient {
@@ -31,14 +31,15 @@ enum LauncherClientFactory {
         guard let argvPrefix = argvPrefix(environment: environment, suffix: ["stream", "--from-current-turn"]) else {
             return UnconfiguredStreamClient()
         }
-        return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix, clawId: clawName(environment: environment))
+        return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
     }
 
     private static func makeProcess() -> any ChestnutProcess {
         MacOSChestnutProcess(executableURL: URL(fileURLWithPath: "/usr/bin/env"))
     }
 
-    /// claw 名（phase 2003 Step F：Swift 侧生成错误的 claw bar detail 归一化也用同一名字）。
+    /// claw 名（仅用于拼 CLI argv 的 `claw <name>`；phase 2004 起 Swift 不再做
+    /// claw bar 格式化——协议输出最终显示文本，Swift 只原样呈现）。
     private static func clawName(environment: [String: String]) -> String {
         environment["CHESTNUT_CLAW_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "motion"
     }
@@ -51,6 +52,7 @@ enum LauncherClientFactory {
 
 struct UnconfiguredSendClient: SendClient {
     func submit(requestId: RequestId, text: String) async throws -> SendAck {
+        // phase 2004：Swift 本地错误保持本地纯文本（不伪装 claw bar 形状），UI 原样显示
         throw ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；launcher 不自行启动 chestnut")
     }
 }

@@ -123,7 +123,7 @@ public struct ChatView: View {
     }
 
     /// Motion 活动行：单行、与对话列共享同一内容轴（x=28）、caption 次级色；
-    /// spinner 表活动进行中；error 态无 spinner、橙色（claw ✗ 语义）。行文本由 ActivityStyle 单源决定。
+    /// spinner 表活动进行中；error 态无 spinner、橙色。行文本由 ActivityStyle 单源决定。
     private func activityBar(_ text: String, isError: Bool) -> some View {
         HStack(spacing: 6) {
             if isError {
