@@ -15,33 +15,31 @@ public enum ActivityStyle {
     public static let spinnerScale: CGFloat = 0.5
 
     /// 活动行显示文本；idle 返回 nil（不渲染）。
-    /// processing 摘要呈现与 viewport claw bar（buildClawLine）完全同规则，不另设第二套：
-    /// thinking 摘要圆括号包裹、裸文本摘要双引号包裹、工具 ⚙ + 短名；无摘要时退回短状态。
+    /// processing 摘要呈现与 viewport claw bar（buildClawLine）同规则：
+    /// thinking 摘要圆括号、裸文本摘要双引号、工具只显示短名（spinner 已表活动，不加 ⚙）；
+    /// 其余短状态统一 thinking…/streaming…（无 agent 名称）。
     public static func text(for activity: ActivityState) -> String? {
         switch activity {
         case .idle:
             return nil
         case .waiting:
-            return "正在处理…"
+            return "thinking…"
         case .responding:
-            return "正在回复…"
+            return "streaming…"
         case let .processing(label, detail):
             let trimmed = detail?.isEmpty == false ? detail : nil
             switch label {
             case "thinking":
                 if let trimmed { return "(\(trimmed))" } // claw: (thinking buffer)
-                return "思考…"
+                return "thinking…"
             case "text":
                 if let trimmed { return "\"\(trimmed)\"" } // claw: "text buffer"
-                return "正在处理…"
+                return "thinking…"
             case "tool", "tool_result":
-                if let trimmed { return "⚙ \(trimmed)" } // claw: ⚙ currentTool
-                return "工具…"
-            case "provider":
-                if let trimmed { return "调用模型 · \(trimmed)…" }
-                return "调用模型…"
-            default: // turn / 未知 token：通用短状态，token 不上屏
-                return "正在处理…"
+                if let trimmed { return trimmed } // claw: currentTool 短名（spinner 已表活动）
+                return "tool…"
+            default: // provider/turn/未知 token：统一短状态，token 不上屏
+                return "thinking…"
             }
         case let .error(detail):
             // claw bar lastError 语义：错误保留可见，直到下一次发送

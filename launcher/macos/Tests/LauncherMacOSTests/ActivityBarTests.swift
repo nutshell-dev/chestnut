@@ -13,47 +13,49 @@ final class ActivityBarTests: XCTestCase {
     }
 
     func testWaitingShowsProcessingPlaceholder() {
-        XCTAssertEqual(ActivityStyle.text(for: .waiting), "正在处理…")
+        XCTAssertEqual(ActivityStyle.text(for: .waiting), "thinking…")
     }
 
     func testRespondingText() {
-        XCTAssertEqual(ActivityStyle.text(for: .responding), "正在回复…")
+        XCTAssertEqual(ActivityStyle.text(for: .responding), "streaming…")
     }
 
-    /// 摘要呈现与 viewport claw bar 完全同规则：thinking 圆括号、裸文本双引号、工具 ⚙ 短名。
+    /// 摘要呈现与 viewport claw bar 同规则：thinking 圆括号、裸文本双引号、
+    /// 工具只显示短名（spinner 已表活动，不加 ⚙）；其余统一 thinking…。
     func testProcessingLabelMapping() {
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "thinking", detail: nil)),
-            "思考…"
+            "thinking…"
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "tool", detail: "search")),
-            "⚙ search"
+            "search"
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "tool_result", detail: "search")),
-            "⚙ search"
+            "search"
         )
     }
 
     func testUnknownLabelFallsBackToGenericText() {
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "telemetry_v2", detail: nil)),
-            "正在处理…",
+            "thinking…",
             "未知 label token 不直接上屏"
         )
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: nil, detail: nil)),
-            "正在处理…"
+            "thinking…"
         )
     }
 
     // MARK: phase 2002/2003 claw bar 摘要与 error
 
     func testProviderAndTextLabelMapping() {
+        // provider/turn 等统一短状态 thinking…
         XCTAssertEqual(
             ActivityStyle.text(for: .processing(label: "provider", detail: "kimi")),
-            "调用模型 · kimi…"
+            "thinking…"
         )
         // 裸文本双引号包裹（claw bar 同规则），无 label 词
         XCTAssertEqual(
