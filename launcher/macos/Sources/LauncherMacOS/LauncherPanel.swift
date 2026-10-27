@@ -51,6 +51,22 @@ public final class LauncherPanel: NSPanel {
         setFrame(newFrame, display: true, animate: animated)
     }
 
+    public override func cancelOperation(_ sender: Any?) {
+        orderOut(nil)
+    }
+
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard LauncherPanel.isUnmodifiedEscape(event) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        orderOut(nil)
+        return true
+    }
+
+    static func isUnmodifiedEscape(_ event: NSEvent) -> Bool {
+        event.keyCode == 53 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
+    }
+
     @objc private func handleResignKey(_ notification: Notification) {
         orderOut(nil)
     }

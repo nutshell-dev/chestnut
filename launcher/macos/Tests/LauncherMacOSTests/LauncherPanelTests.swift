@@ -55,4 +55,59 @@ final class LauncherPanelTests: XCTestCase {
         XCTAssertFalse(shouldClose, "关闭请求必须被拦截")
         XCTAssertFalse(panel.isVisible, "关闭 = 隐藏，不退出、不动 ChatStore")
     }
+
+    func testUnmodifiedEscapeHidesPanel() {
+        let panel = makePanel()
+        panel.orderFront(nil)
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: panel.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        )!
+        XCTAssertTrue(panel.performKeyEquivalent(with: event))
+        XCTAssertFalse(panel.isVisible, "Esc 只隐藏窗口，不提交、取消 turn 或清空状态")
+    }
+
+    func testModifiedEscapeIsNotConsumed() {
+        let panel = makePanel()
+        panel.orderFront(nil)
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: 0,
+            windowNumber: panel.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        )!
+        XCTAssertFalse(LauncherPanel.isUnmodifiedEscape(event))
+        XCTAssertFalse(panel.performKeyEquivalent(with: event))
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    func testCancelOperationHidesPanel() {
+        let panel = makePanel()
+        panel.orderFront(nil)
+        panel.cancelOperation(nil)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testToggleShowsHiddenPanelAndHidesVisibleKeyPanel() {
+        let panel = makePanel()
+        LauncherAppDelegate.toggle(window: panel)
+        XCTAssertTrue(panel.isVisible)
+        panel.makeKeyAndOrderFront(nil)
+        LauncherAppDelegate.toggle(window: panel)
+        XCTAssertFalse(panel.isVisible, "toggle 只改变 NSWindow 可见性，没有 ChatStore 参数")
+    }
 }

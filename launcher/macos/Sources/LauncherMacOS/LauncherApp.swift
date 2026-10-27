@@ -70,6 +70,7 @@ struct UnconfiguredStreamClient: StreamClient {
 final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var store: ChatStore?
+    private var hotKeyController: LauncherHotKeyController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = ChatStore(
@@ -95,6 +96,31 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
+
+        let hotKeyController = LauncherHotKeyController { [weak self] in
+            self?.toggleLauncher()
+        }
+        self.hotKeyController = hotKeyController
+        do {
+            try hotKeyController.start()
+        } catch {
+            // 冲突或注册失败不阻止手动启动、reopen 和 Esc/失焦隐藏。
+            NSLog("Option-Space global hotkey registration failed: \(error)")
+        }
+    }
+
+    func toggleLauncher() {
+        LauncherAppDelegate.toggle(window: window)
+    }
+
+    static func toggle(window: NSWindow?) {
+        guard let window else { return }
+        if window.isVisible && window.isKeyWindow {
+            window.orderOut(nil)
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     /// 关闭只隐藏：未 ack 草稿与订阅状态不动；重新唤出显示最近已确认事实。
@@ -105,10 +131,12 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        hotKeyController?.stop()
         guard let store else { return }
         let done = DispatchSemaphore(value: 0)
         Task {

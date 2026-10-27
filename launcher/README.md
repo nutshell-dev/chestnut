@@ -3,7 +3,7 @@
 独立实现的最小桌面客户端（不 fork 通用开源 launcher）。分层结构：
 
 - `core/`：平台无关 Swift 包——消息模型、`ChatReducer` 状态机、`WireDecoder`（`chestnut.launcher.v1` envelope 解码）、`SendClient`/`StreamClient` capability、失败恢复。不依赖 SwiftUI/AppKit/Process。
-- `macos/`：macOS 外壳——accessory `NSPanel` 浮窗（不进 Dock/Cmd-Tab、失焦隐藏）、SwiftUI `ChatView`（Spotlight 风格三态布局：compact 单行输入 → expanded 顶部 composer + 回复区 → capped 回复区内滚）、`MacOSChestnutProcess`（`Process` 子进程）。Windows/Linux 未来各自实现外壳、复用 core。
+- `macos/`：macOS 外壳——accessory `NSPanel` 浮窗（不进 Dock/Cmd-Tab、失焦隐藏）、Carbon 全局 `⌥Space` 切换显示/隐藏、`Esc` 本地隐藏、SwiftUI `ChatView`（Spotlight 风格三态布局：compact 单行输入 → expanded 顶部 composer + 回复区 → capped 回复区内滚）、`MacOSChestnutProcess`（`Process` 子进程）。Windows/Linux 未来各自实现外壳、复用 core。
 
 ## 运行
 
@@ -47,4 +47,4 @@ CLI 交互走版本化 `chestnut.launcher.v1` envelope（`protocolVersion`/`sequ
 
 ## 明确不支持（现阶段排除项）
 
-slash 命令、全局 hotkey、插件、应用搜索、剪贴板、菜单栏、Windows/Linux 外壳、签名/notarization 分发。
+slash 命令、自定义 hotkey、插件、应用搜索、剪贴板、菜单栏、Windows/Linux 外壳、签名/notarization 分发。全局 `⌥Space` 注册失败时记录错误并保留手动唤出、`Esc` 和失焦隐藏；隐藏窗口不停止 stream、不清空 draft。
