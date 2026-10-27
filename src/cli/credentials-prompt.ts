@@ -52,6 +52,8 @@ export interface StoreKeyContext {
 /** Phase 1976：setup 向导需要知道本次是否新建了凭据文件条目，以便失败/取消时清理。 */
 export interface StoreKeyHooks {
   onStored?(ref: string, info: { created: boolean; value: string }): void;
+  /** Machine adapters keep stdout reserved for their versioned protocol. */
+  silent?: boolean;
 }
 
 /**
@@ -77,7 +79,7 @@ export async function storeKeyAsCredential(
   const existed = credentials.resolve(ref) !== undefined;
   try {
     await credentials.set(ref, trimmed);
-    console.log(`✓ Stored key as credential reference \${${ref}} (user credentials file)`);
+    if (!hooks?.silent) console.log(`✓ Stored key as credential reference \${${ref}} (user credentials file)`);
     hooks?.onStored?.(ref, { created: !existed, value: trimmed });
   } catch (err) {
     if (isCredentialsError(err) && err.code === 'shadowed_by_env') {
@@ -87,7 +89,7 @@ export async function storeKeyAsCredential(
           `the key you typed cannot be stored. Unset ${ref} and retry.`,
         );
       }
-      console.log(`✓ Will read ${ref} from the process environment at runtime`);
+      if (!hooks?.silent) console.log(`✓ Will read ${ref} from the process environment at runtime`);
       hooks?.onStored?.(ref, { created: false, value: trimmed });
     } else {
       throw err;

@@ -34,7 +34,24 @@ enum LauncherClientFactory {
         return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
     }
 
-    private static func makeProcess() -> any ChestnutProcess {
+    static func makeSetupClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SetupClient {
+        guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return UnconfiguredSetupClient() }
+        return ChestnutSetupClient(process: makeProcess(), argvPrefix: ["node", cliPath, "launcher", "setup", "--json"])
+    }
+
+    static func makeStartContinuation(environment: [String: String] = ProcessInfo.processInfo.environment) -> () async throws -> Void {
+        return {
+            guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else {
+                throw ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；无法启动 chestnut")
+            }
+            let output = try await makeProcess().run(["node", cliPath, "start", "--non-interactive", "--language", "auto"])
+            guard output.exitCode == 0, output.terminationSignal == nil else {
+                throw ChatError.rejected(detail: output.stderr.isEmpty ? "chestnut start failed" : output.stderr)
+            }
+        }
+    }
+
+    private static func makeProcess() -> MacOSChestnutProcess {
         MacOSChestnutProcess(executableURL: URL(fileURLWithPath: "/usr/bin/env"))
     }
 
@@ -48,6 +65,15 @@ enum LauncherClientFactory {
         guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return nil }
         return ["node", cliPath, "claw", clawName(environment: environment)] + suffix
     }
+}
+
+struct UnconfiguredSetupClient: SetupClient {
+    private func missing() -> ChatError { .local(detail: "CHESTNUT_CLI_JS 未配置；无法查询初始化状态") }
+    func status() async throws -> SetupState { throw missing() }
+    func selectProvider(_ providerId: String) async throws -> SetupState { throw missing() }
+    func submit(_ input: SetupInput) async throws -> SetupState { throw missing() }
+    func retry() async throws -> SetupState { throw missing() }
+    func cancel() async throws -> SetupState { throw missing() }
 }
 
 struct UnconfiguredSendClient: SendClient {
@@ -69,15 +95,18 @@ struct UnconfiguredStreamClient: StreamClient {
 
 final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
-    private var store: ChatStore?
+    private var rootController: LauncherRootController?
     private var hotKeyController: LauncherHotKeyController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let store = ChatStore(
-            send: LauncherClientFactory.makeSendClient(),
-            stream: LauncherClientFactory.makeStreamClient()
+        let rootController = LauncherRootController(
+            setupClient: LauncherClientFactory.makeSetupClient(),
+            startNonInteractive: LauncherClientFactory.makeStartContinuation(),
+            makeStore: {
+                ChatStore(send: LauncherClientFactory.makeSendClient(), stream: LauncherClientFactory.makeStreamClient())
+            }
         )
-        self.store = store
+        self.rootController = rootController
 
         // 初始 compact：仅一行输入框高度；内容由 ChatView 测量后经 onWindowHeightChange 上报，
         // panel 按三态动画 resize（顶部锚定、保持 key window）。
@@ -87,7 +116,7 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             height: ConversationLayout.compactHeight
         ))
         window.title = "Chestnut Launcher"
-        let view = ChatView(store: store, onWindowHeightChange: { [weak window] height in
+        let view = LauncherRootView(controller: rootController, onWindowHeightChange: { [weak window] height in
             window?.resize(toHeight: height)
         })
         window.contentView = NSHostingView(rootView: view)
@@ -137,7 +166,7 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyController?.stop()
-        guard let store else { return }
+        guard let rootController, case let .chat(store) = rootController.state else { return }
         let done = DispatchSemaphore(value: 0)
         Task {
             await store.stopStream()

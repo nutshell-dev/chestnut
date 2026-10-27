@@ -112,7 +112,7 @@ export type FirstRunSetupOutcome =
 
 type Question = (prompt: string, defaultValue?: string) => Promise<string>;
 
-interface StoredCredential {
+export interface StoredCredential {
   ref: string;
   value: string;
 }
@@ -319,6 +319,7 @@ function makeQuestion(rl: readline.Interface): Question {
 async function discardCreatedCredentials(
   deps: FirstRunDeps,
   created: readonly StoredCredential[],
+  emit: boolean = true,
 ): Promise<void> {
   if (created.length === 0) return;
   const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
@@ -332,11 +333,36 @@ async function discardCreatedCredentials(
         }
         return current;
       });
-      if (removed) console.log(setupCredentialDiscardedLine(ref));
+      if (emit && removed) console.log(setupCredentialDiscardedLine(ref));
     } catch (err) {
-      console.log(setupCredentialCleanupFailedLine(ref, formatErr(err)));
+      if (emit) console.log(setupCredentialCleanupFailedLine(ref, formatErr(err)));
     }
   }
+}
+
+async function storeSetupApiKey(
+  deps: FirstRunDeps,
+  rawKey: string,
+  choice: SetupProviderChoice,
+  created: StoredCredential[],
+  silent: boolean = false,
+): Promise<string> {
+  if (!rawKey) throw new CliError('API Key is required');
+  if (choice.auth === 'advanced') {
+    return storeKeyAsCredential(deps, rawKey, { seed: choice.id, onShadowedEnv: 'error' }, {
+      onStored: (ref, info) => recordCreatedCredential(created, ref, info),
+      silent,
+    });
+  }
+  const presetId = choice.target.preset ?? '';
+  const envVar = PRESETS[presetId]?.envVar;
+  const storeCtx = envVar && process.env[envVar]
+    ? { seed: presetId, onShadowedEnv: 'error' as const }
+    : { envVar, seed: presetId, onShadowedEnv: 'error' as const };
+  return storeKeyAsCredential(deps, rawKey, storeCtx, {
+    onStored: (ref, info) => recordCreatedCredential(created, ref, info),
+    silent,
+  });
 }
 
 async function promptApiKey(
@@ -347,10 +373,7 @@ async function promptApiKey(
 ): Promise<string> {
   if (choice.auth === 'advanced') {
     const rawKey = await passwordQuestion(rl, `${setupApiKeyPrompt()}: `);
-    if (!rawKey) throw new CliError('API Key is required');
-    return storeKeyAsCredential(deps, rawKey, { seed: choice.id, onShadowedEnv: 'error' }, {
-      onStored: (ref, info) => recordCreatedCredential(created, ref, info),
-    });
+    return storeSetupApiKey(deps, rawKey, choice, created);
   }
 
   const presetId = choice.target.preset ?? '';
@@ -363,15 +386,9 @@ async function promptApiKey(
     console.log(`✓ Will read from ${envVar} at runtime`);
     return '${' + envVar + '}';
   }
-  if (!rawKey) throw new CliError('API Key is required');
   // env 同名已设置时，typed key 改用派生 ref 保存（不被 env 遮蔽）；派生 ref 仍被
   // 遮蔽则 loud 失败，不静默回退。env 未设置时保持 preset envVar ref。
-  const storeCtx = envReady
-    ? { seed: presetId, onShadowedEnv: 'error' as const }
-    : { envVar, seed: presetId, onShadowedEnv: 'error' as const };
-  return storeKeyAsCredential(deps, rawKey, storeCtx, {
-    onStored: (ref, info) => recordCreatedCredential(created, ref, info),
-  });
+  return storeSetupApiKey(deps, rawKey, choice, created);
 }
 
 async function promptModel(
@@ -473,11 +490,12 @@ async function selectSetupEndpoint(
   deps: FirstRunDeps,
   draft: SetupDraft,
   audit: AuditLog | undefined,
+  emit: boolean = true,
 ): Promise<{ ok: true } | { ok: false; failure: DraftProbeFailure; reported?: boolean }> {
   const candidates = draft.choice.probeCandidates ?? [];
   if (candidates.length === 0) return { ok: true };
 
-  console.log(`\nEndpoint probes (model=${draft.model}):`);
+  if (emit) console.log(`\nEndpoint probes (model=${draft.model}):`);
   const candidateProbe = makeSetupCandidateProbe(
     { label: draft.choice.label, ...(draft.apiKey !== undefined && { apiKey: draft.apiKey }), model: draft.model },
     {
@@ -490,7 +508,7 @@ async function selectSetupEndpoint(
   try {
     outcome = await probeSetupCandidates(candidates, async (candidate: SetupProbeCandidate) => {
       const result = await candidateProbe(candidate);
-      console.log(`→ ${candidate.baseUrl} ... ${result.ok ? '✓' : '✗'}`);
+      if (emit) console.log(`→ ${candidate.baseUrl} ... ${result.ok ? '✓' : '✗'}`);
       return result;
     });
   } catch (err) {
@@ -505,7 +523,7 @@ async function selectSetupEndpoint(
 
   if (!outcome.winner) {
     // Phase 1983 follow-up：全败按错误类别分组展示（与 provider add 一致）。
-    formatSetupProbeFailureLines(outcome.attempts).forEach(line => console.log(line));
+    if (emit) formatSetupProbeFailureLines(outcome.attempts).forEach(line => console.log(line));
     const firstFailure = outcome.attempts.find(attempt => !attempt.result.ok)?.result;
     const failure: DraftProbeFailure = firstFailure && !firstFailure.ok
       ? { errorType: firstFailure.errorType, message: firstFailure.message, provider: firstFailure.provider }
@@ -520,7 +538,7 @@ async function selectSetupEndpoint(
   }
 
   draft.baseUrl = outcome.winner.baseUrl;
-  console.log(`Selected: ${outcome.winner.baseUrl}`);
+  if (emit) console.log(`Selected: ${outcome.winner.baseUrl}`);
   return { ok: true };
 }
 
@@ -663,6 +681,102 @@ export async function runFirstRunSetup(
   } finally {
     rl.close();
   }
+}
+
+export interface LauncherSetupAttemptInput {
+  choice: SetupProviderChoice;
+  model: string;
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+export type LauncherSetupAttemptOutcome =
+  | { kind: 'committed' | 'concurrent' }
+  | { kind: 'repair'; failure: LLMFailureSummary; input: FirstRunConfigInput };
+
+function launcherAudit(audit: AuditLog | undefined, rawKey: string | undefined): AuditLog | undefined {
+  if (!audit || !rawKey || isCredentialReference(rawKey)) return audit;
+  const redact = (text: string) => text.split(rawKey).join('[redacted]');
+  return new Proxy(audit, {
+    get(target, property) {
+      if (property === 'write') {
+        return (type: string, ...cols: (string | number)[]) =>
+          target.write(type, ...cols.map(col => typeof col === 'string' ? redact(col) : col));
+      }
+      if (property === 'preview' || property === 'message' || property === 'summary') {
+        return (text: string) => {
+          const method = target[property] as (value: string) => string;
+          return method.call(target, redact(text));
+        };
+      }
+      const value = Reflect.get(target, property) as unknown;
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+/** Launcher adapter 与终端向导共用同一 draft/probe/identity-recheck/commit 路径。 */
+export async function runLauncherSetupAttempt(
+  deps: FirstRunDeps,
+  raw: LauncherSetupAttemptInput,
+  created: StoredCredential[],
+  audit?: AuditLog,
+): Promise<LauncherSetupAttemptOutcome> {
+  const commitState: FirstRunCommitState = {};
+  audit = launcherAudit(audit, raw.apiKey);
+  try {
+    const { choice } = raw;
+    const model = raw.model.trim();
+    if (!model) throw new CliError('Model is required');
+    let apiKey = raw.apiKey;
+    if (choice.auth !== 'local' && apiKey !== undefined && !isCredentialReference(apiKey)) {
+      apiKey = await storeSetupApiKey(deps, apiKey, choice, created, true);
+    }
+    if (choice.auth === 'api_key' && apiKey === undefined) {
+      const envVar = choice.target.preset ? PRESETS[choice.target.preset]?.envVar : undefined;
+      if (envVar && process.env[envVar]) apiKey = '${' + envVar + '}';
+    }
+    if (choice.auth !== 'local' && apiKey === undefined) throw new CliError('API Key is required');
+    const presetId = choice.target.preset ?? (choice.auth === 'advanced' ? FORMAT_MAP['2'] : undefined);
+    const providerId = choice.target.providerId;
+    if (!presetId && !providerId) throw new CliError(`Internal provider mapping missing for ${choice.label}`);
+    if (choice.auth === 'advanced' && !raw.baseUrl) throw new CliError('Base URL is required');
+    const input: FirstRunConfigInput = {
+      ...(presetId !== undefined && { presetId }),
+      ...(providerId !== undefined && { providerId }),
+      ...(apiKey !== undefined && { apiKey }),
+      model,
+      ...(raw.baseUrl !== undefined && { baseUrl: raw.baseUrl }),
+    };
+    const draft: SetupDraft = { ...input, choice, requiresConfirmation: false };
+    if (choice.probeCandidates !== undefined && draft.baseUrl === undefined) {
+      const selected = await selectSetupEndpoint(deps, draft, audit, false);
+      if (!selected.ok) {
+        return { kind: 'repair', failure: summarizeLLMFailure(selected.failure), input: draftToInput(draft) };
+      }
+    }
+    const result = await probeDraft(deps, draftToInput(draft), audit);
+    if (!result.ok) {
+      return { kind: 'repair', failure: summarizeLLMFailure(result.failure), input: draftToInput(draft) };
+    }
+    const commit = await commitFirstRun(deps, draftToInput(draft), result.verified, audit, commitState);
+    return { kind: commit === 'concurrent' ? 'concurrent' : 'committed' };
+  } catch (err) {
+    if (!commitState.rootConfigWritten) await discardCreatedCredentials(deps, created, false);
+    throw err;
+  }
+}
+
+/** 取消恢复 session 时仅清理本次新建且值未变化的凭据；session 本身不保存秘密值。 */
+export async function discardLauncherCreatedCredentials(
+  deps: FirstRunDeps,
+  refs: readonly string[],
+): Promise<void> {
+  const created = refs.flatMap((ref) => {
+    const value = resolveCredentialReference(deps, ref);
+    return value === undefined ? [] : [{ ref, value }];
+  });
+  await discardCreatedCredentials(deps, created, false);
 }
 
 /**

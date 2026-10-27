@@ -141,6 +141,18 @@ rootShape(program.command('init'), 'init')
     await initCommand({ fsFactory, rootConfig }, false, { audit });
   }));
 
+// Launcher first-run setup：JSONL stdin/stdout adapter；秘密只经 stdin，不进入 argv。
+const launcherCmd = program.command('launcher').description('Launcher machine protocols');
+launcherCmd.command('setup')
+  .description('Run one versioned first-run setup request')
+  .option('--json', 'Use chestnut.launcher.setup.v1 JSONL')
+  .action(action('disabled', async (opts: { json?: boolean }) => {
+    if (!opts.json) throw new CliError('launcher setup requires --json');
+    const { launcherSetupCommand } = await import('./commands/launcher-setup.js');
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await launcherSetupCommand({ fsFactory, rootConfig }, { audit });
+  }));
+
 // claw command group — phase 1472：subject-first 形态 / phase 1477：composer-driven help
 //
 //   chestnut claw <name> <verb> [args...]    一般形态：作用在指定 claw 上

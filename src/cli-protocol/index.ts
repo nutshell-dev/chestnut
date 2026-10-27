@@ -78,6 +78,17 @@ export type {
   LauncherActivityPhase,
   LauncherActivityLabel,
 } from './launcher-envelope.js';
+export {
+  LAUNCHER_SETUP_PROTOCOL,
+  parseLauncherSetupRequest,
+  launcherSetupResponse,
+} from './launcher-setup.js';
+export type {
+  LauncherSetupAction,
+  LauncherSetupRequest,
+  LauncherSetupResponse,
+} from './launcher-setup.js';
+
 // phase 2003 Step E：claw bar 错误行格式化单源（viewport/launcher 共用，纯文本无 ANSI）
 export { formatClawBarError } from './claw-bar-display.js';
 export type { ClawBarErrorState } from './claw-bar-display.js';

@@ -3,7 +3,7 @@ import LauncherCore
 
 /// macOS Process 实现的 ChestnutProcess。只负责进程、stdout/stderr 和退出码；
 /// 协议解释在 core。stdout 协议数据与 stderr 诊断分离；teardown 不泄漏子进程。
-public final class MacOSChestnutProcess: ChestnutProcess, @unchecked Sendable {
+public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendable {
     public let executableURL: URL
 
     private let lock = NSLock()
@@ -24,6 +24,10 @@ public final class MacOSChestnutProcess: ChestnutProcess, @unchecked Sendable {
 
     /// 一次性运行：收集 stdout 行、stderr 全文与退出状态。环境默认继承。
     public func run(_ argv: [String]) async throws -> ProcessOutput {
+        try await run(argv, stdin: nil)
+    }
+
+    public func run(_ argv: [String], stdin: String?) async throws -> ProcessOutput {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdout = Pipe()
@@ -32,6 +36,8 @@ public final class MacOSChestnutProcess: ChestnutProcess, @unchecked Sendable {
             process.arguments = argv
             process.standardOutput = stdout
             process.standardError = stderr
+            let input = Pipe()
+            if stdin != nil { process.standardInput = input }
 
             let state = IOState()
             stdout.fileHandleForReading.readabilityHandler = { handle in
@@ -75,6 +81,10 @@ public final class MacOSChestnutProcess: ChestnutProcess, @unchecked Sendable {
 
             do {
                 try process.run()
+                if let stdin {
+                    input.fileHandleForWriting.write(Data(stdin.utf8))
+                    try? input.fileHandleForWriting.close()
+                }
             } catch {
                 stdout.fileHandleForReading.readabilityHandler = nil
                 stderr.fileHandleForReading.readabilityHandler = nil
