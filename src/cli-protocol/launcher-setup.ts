@@ -1,4 +1,6 @@
 /** Versioned, secret-safe wire contract for launcher's first-run setup adapter. */
+import { LAUNCHER_CAPABILITIES, type LauncherCapabilities } from './launcher-command.js';
+
 export const LAUNCHER_SETUP_PROTOCOL = 'chestnut.launcher.setup.v1' as const;
 
 export type LauncherSetupAction = 'status' | 'select_provider' | 'submit' | 'retry' | 'cancel';
@@ -15,6 +17,7 @@ export interface LauncherSetupResponse {
   requestId: string;
   kind: 'state' | 'probe' | 'committed' | 'error';
   payload: Record<string, unknown>;
+  capabilities?: LauncherCapabilities;
 }
 
 const ACTIONS: readonly LauncherSetupAction[] = ['status', 'select_provider', 'submit', 'retry', 'cancel'];
@@ -39,5 +42,5 @@ export function launcherSetupResponse(
   kind: LauncherSetupResponse['kind'],
   payload: Record<string, unknown>,
 ): LauncherSetupResponse {
-  return { protocolVersion: LAUNCHER_SETUP_PROTOCOL, requestId, kind, payload };
+  return { protocolVersion: LAUNCHER_SETUP_PROTOCOL, requestId, kind, payload, capabilities: LAUNCHER_CAPABILITIES };
 }

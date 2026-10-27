@@ -14,6 +14,9 @@ final class SetupClientTests: XCTestCase {
             self.argv = argv
             self.stdin = stdin
             let object = try JSONSerialization.jsonObject(with: Data((stdin ?? "").utf8)) as! [String: Any]
+            if object["command"] != nil {
+                return ProcessOutput(stdoutLines: [response("", "command")], stderr: "", exitCode: 0, terminationSignal: nil)
+            }
             let requestId = object["requestId"] as! String
             let action = object["action"] as! String
             return ProcessOutput(stdoutLines: [response(requestId, action)], stderr: "", exitCode: 0, terminationSignal: nil)
@@ -36,6 +39,21 @@ final class SetupClientTests: XCTestCase {
         guard case let .repair(_, _, failure, actions) = try await client.retry() else { return XCTFail("expected repair") }
         XCTAssertEqual(failure.errorType, "auth")
         XCTAssertEqual(actions, ["retry", "edit", "cancel"])
+    }
+
+    func testLauncherStatusUsesV2SnapshotSetupState() async throws {
+        let process = FakeProcess()
+        process.response = { _, _ in
+            #"{"protocol":"chestnut.launcher.v2","sequence":1,"kind":"snapshot","payload":{"setup":{"phase":"committed"}}}"#
+        }
+        let client = ChestnutSetupClient(
+            process: process,
+            argvPrefix: ["launcher", "setup", "--json"],
+            statusArgv: ["launcher", "status", "--json"]
+        )
+        let state = try await client.status()
+        XCTAssertEqual(state, .committed)
+        XCTAssertEqual(process.argv, ["launcher", "status", "--json"])
     }
 
     func testSecretUsesStdinNeverArgvAndCommittedDecodes() async throws {

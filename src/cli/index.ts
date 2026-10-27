@@ -153,6 +153,46 @@ launcherCmd.command('setup')
     await launcherSetupCommand({ fsFactory, rootConfig }, { audit });
   }));
 
+launcherCmd.command('status')
+  .description('Return one versioned launcher status snapshot')
+  .option('--json', 'Use chestnut.launcher.v2 JSONL')
+  .action(action('observe_only', async (opts: { json?: boolean }) => {
+    if (!opts.json) throw new CliError('launcher status requires --json');
+    const { launcherStatusCommand } = await import('./commands/launcher-status.js');
+    await launcherStatusCommand({ fsFactory, rootConfig });
+  }));
+
+launcherCmd.command('start')
+  .description('Ensure the launcher runtime is ready without opening a viewport')
+  .option('--json', 'Use chestnut.launcher.v2 JSONL')
+  .action(deferredRequiredAction(async (ensureSupervision, opts: { json?: boolean }) => {
+    if (!opts.json) throw new CliError('launcher start requires --json');
+    const { launcherStartCommand } = await import('./commands/launcher-start.js');
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    await launcherStartCommand({ fsFactory, rootConfig }, { ensureSupervision, audit });
+  }));
+
+launcherCmd.command('send')
+  .description('Persist one launcher message and report delivery state')
+  .option('--json', 'Use chestnut.launcher.v2 JSONL')
+  .action(action('required', async (opts: { json?: boolean }) => {
+    if (!opts.json) throw new CliError('launcher send requires --json');
+    const { launcherSendCommand } = await import('./commands/launcher-send.js');
+    await launcherSendCommand({ fsFactory, rootConfig });
+  }));
+
+launcherCmd.command('stream')
+  .description('Stream launcher snapshots, liveness, activity and messages')
+  .option('--json', 'Use chestnut.launcher.v2 JSONL')
+  .option('--from-current-turn', 'Restore only the currently active turn')
+  .option('--after-sequence <n>', 'Resynchronize after a sequence')
+  .action(action('required', async (opts: { json?: boolean; afterSequence?: string }) => {
+    if (!opts.json) throw new CliError('launcher stream requires --json');
+    const { launcherStreamCommand } = await import('./commands/launcher-stream.js');
+    const afterSequence = opts.afterSequence === undefined ? undefined : Number(opts.afterSequence);
+    await launcherStreamCommand({ fsFactory, rootConfig }, { afterSequence });
+  }));
+
 // claw command group — phase 1472：subject-first 形态 / phase 1477：composer-driven help
 //
 //   chestnut claw <name> <verb> [args...]    一般形态：作用在指定 claw 上

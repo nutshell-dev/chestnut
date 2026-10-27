@@ -69,6 +69,10 @@ export {
   launcherErrorEnvelope,
   makeLauncherEnvelope,
   writeLauncherEnvelope,
+  LAUNCHER_PROTOCOL_VERSION_V2,
+  makeLauncherV2Envelope,
+  writeLauncherV2Envelope,
+  parseLauncherV2Envelope,
 } from './launcher-envelope.js';
 export type {
   LauncherEnvelope,
@@ -77,12 +81,40 @@ export type {
   LauncherActivityPayload,
   LauncherActivityPhase,
   LauncherActivityLabel,
+  LauncherV2Envelope,
+  LauncherV2EnvelopeKind,
+  UnknownLauncherV2Envelope,
+  LauncherSnapshotPayload,
+  LauncherDaemonPayload,
+  LauncherMessagePayload,
+  LauncherSendAckPayload,
+  LauncherErrorPayload,
+  DaemonState,
+  DeliveryState,
+  LauncherTerminalReason,
 } from './launcher-envelope.js';
 export {
   LAUNCHER_SETUP_PROTOCOL,
   parseLauncherSetupRequest,
   launcherSetupResponse,
 } from './launcher-setup.js';
+export {
+  LAUNCHER_COMMANDS,
+  LAUNCHER_CAPABILITIES,
+  parseLauncherStatusRequest,
+  parseLauncherStartRequest,
+  parseLauncherSendRequest,
+  parseLauncherStreamRequest,
+} from './launcher-command.js';
+export type {
+  LauncherCommand,
+  LauncherCapabilities,
+  LauncherCommandRequest,
+  LauncherStatusRequest,
+  LauncherStartRequest,
+  LauncherSendRequest,
+  LauncherStreamRequest,
+} from './launcher-command.js';
 export type {
   LauncherSetupAction,
   LauncherSetupRequest,

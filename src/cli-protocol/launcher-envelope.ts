@@ -115,3 +115,102 @@ export function launcherActivityEnvelope(
   if (activity.sinceMs !== undefined) payload.sinceMs = activity.sinceMs;
   return makeLauncherEnvelope(sequence, sessionId, 'activity', payload);
 }
+
+
+// Phase 2013: v2 is additive; the claw-specific v1 surface above remains unchanged.
+export const LAUNCHER_PROTOCOL_VERSION_V2 = 'chestnut.launcher.v2' as const;
+export type DaemonState = 'unknown' | 'starting' | 'running' | 'stopped' | 'error';
+export type DeliveryState = 'persisted' | 'queued' | 'processing' | 'rejected';
+export type LauncherTerminalReason = 'stopped' | 'completed' | 'protocol_error';
+
+export interface LauncherDaemonPayload {
+  state: DaemonState;
+  sinceMs?: number;
+  detail?: string;
+}
+
+export interface LauncherMessagePayload {
+  messageId: string;
+  role: string;
+  text: string;
+}
+
+export interface LauncherSendAckPayload {
+  requestId: string;
+  delivery: DeliveryState;
+  daemon: DaemonState;
+}
+
+export interface LauncherErrorPayload {
+  class: string;
+  detail: string;
+  retryable: boolean;
+  requestId?: string;
+}
+
+export interface LauncherSnapshotPayload {
+  workspace: { claw: string };
+  initialization: string;
+  daemon: LauncherDaemonPayload;
+  capabilities: unknown;
+  active: boolean;
+  messages: LauncherMessagePayload[];
+  activity?: LauncherActivityPayload;
+  afterSequence?: number;
+  resync?: 'resync_required';
+  [key: string]: unknown;
+}
+
+export type LauncherV2Envelope =
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'snapshot'; sequence: number; payload: LauncherSnapshotPayload }
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'daemon'; sequence: number; payload: LauncherDaemonPayload }
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'activity'; sequence: number; payload: LauncherActivityPayload }
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'message'; sequence: number; payload: LauncherMessagePayload }
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'send_ack'; sequence: number; payload: LauncherSendAckPayload }
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'error'; sequence: number; payload: LauncherErrorPayload }
+  | { protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2; kind: 'terminal'; sequence: number; payload: { reason: LauncherTerminalReason } };
+
+export type LauncherV2EnvelopeKind = LauncherV2Envelope['kind'];
+export type LauncherV2Payload = LauncherV2Envelope['payload'];
+
+export function makeLauncherV2Envelope<K extends LauncherV2EnvelopeKind>(
+  sequence: number,
+  kind: K,
+  payload: Extract<LauncherV2Envelope, { kind: K }>['payload'],
+): Extract<LauncherV2Envelope, { kind: K }> {
+  return { protocol: LAUNCHER_PROTOCOL_VERSION_V2, sequence, kind, payload } as Extract<LauncherV2Envelope, { kind: K }>;
+}
+
+export function writeLauncherV2Envelope(out: NodeJS.WritableStream, value: LauncherV2Envelope): void {
+  out.write(JSON.stringify(value) + '\n');
+}
+
+export interface UnknownLauncherV2Envelope {
+  protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2;
+  kind: `unknown:${string}`;
+  rawKind: string;
+  sequence: number;
+  payload: unknown;
+}
+
+/** Parse and validate the common v2 frame; future kinds remain auditable as unknown. */
+export function parseLauncherV2Envelope(line: string): LauncherV2Envelope | UnknownLauncherV2Envelope {
+  const value: unknown = JSON.parse(line);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('launcher envelope must be an object');
+  const frame = value as Record<string, unknown>;
+  if (frame.protocol !== LAUNCHER_PROTOCOL_VERSION_V2) throw new Error('unsupported launcher protocol');
+  if (!Number.isInteger(frame.sequence) || (frame.sequence as number) < 1) throw new Error('sequence must be a positive integer');
+  if (typeof frame.kind !== 'string' || !frame.kind) throw new Error('kind is required');
+  if (!('payload' in frame)) throw new Error('payload is required');
+  const known: readonly LauncherV2EnvelopeKind[] = ['snapshot', 'daemon', 'activity', 'message', 'send_ack', 'error', 'terminal'];
+  if (!known.includes(frame.kind as LauncherV2EnvelopeKind)) {
+    return {
+      protocol: LAUNCHER_PROTOCOL_VERSION_V2,
+      kind: `unknown:${frame.kind}`,
+      rawKind: frame.kind,
+      sequence: frame.sequence as number,
+      payload: frame.payload,
+    };
+  }
+  return frame as unknown as LauncherV2Envelope;
+}

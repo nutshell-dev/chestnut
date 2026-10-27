@@ -5,11 +5,21 @@ public struct SendAck: Equatable, Sendable {
     public let requestId: RequestId
     public let accepted: Bool
     public let detail: String?
+    public let delivery: LauncherDeliveryState?
+    public let daemon: LauncherDaemonState?
 
-    public init(requestId: RequestId, accepted: Bool, detail: String? = nil) {
+    public init(
+        requestId: RequestId,
+        accepted: Bool,
+        detail: String? = nil,
+        delivery: LauncherDeliveryState? = nil,
+        daemon: LauncherDaemonState? = nil
+    ) {
         self.requestId = requestId
         self.accepted = accepted
         self.detail = detail
+        self.delivery = delivery
+        self.daemon = daemon
     }
 }
 
@@ -141,6 +151,58 @@ public struct ChestnutSendClient: SendClient {
     }
 }
 
+/// v2 send adapter: secrets and message text stay on stdin; ack reports real delivery and daemon facts.
+public struct ChestnutLauncherSendClient: SendClient {
+    private let process: any SetupChestnutProcess
+    private let argv: [String]
+    private let decoder: LauncherWireDecoder
+
+    public init(process: any SetupChestnutProcess, argv: [String], decoder: LauncherWireDecoder = LauncherWireDecoder()) {
+        self.process = process
+        self.argv = argv
+        self.decoder = decoder
+    }
+
+    public func submit(requestId: RequestId, text: String) async throws -> SendAck {
+        let data = try JSONSerialization.data(withJSONObject: ["requestId": requestId, "text": text])
+        let input = String(decoding: data, as: UTF8.self) + "\n"
+        let output = try await process.run(argv, stdin: input)
+        guard output.terminationSignal == nil else {
+            throw ChatError.transport(detail: "launcher send terminated by signal")
+        }
+        var ack: LauncherWireEnvelope?
+        for line in output.stdoutLines where !line.isEmpty {
+            let envelope = try decoder.decode(line: line)
+            if envelope.kind == .error {
+                throw ChatError.rejected(detail: envelope.payload["detail"]?.stringValue ?? "launcher send failed")
+            }
+            if envelope.kind == .sendAck { ack = envelope }
+        }
+        guard output.exitCode == 0 else {
+            throw ChatError.rejected(detail: output.stderr.isEmpty ? "launcher send exit \(output.exitCode)" : output.stderr)
+        }
+        guard let ack, let ackRequestId = ack.payload["requestId"]?.stringValue else {
+            throw ChatError.protocolMismatch(detail: "launcher send_ack missing")
+        }
+        guard ackRequestId == requestId else {
+            throw ChatError.protocolMismatch(detail: "send_ack requestId mismatch")
+        }
+        guard let rawDelivery = ack.payload["delivery"]?.stringValue,
+              let delivery = LauncherDeliveryState(rawValue: rawDelivery),
+              let rawDaemon = ack.payload["daemon"]?.stringValue,
+              let daemon = LauncherDaemonState(rawValue: rawDaemon) else {
+            throw ChatError.protocolMismatch(detail: "send_ack delivery/daemon missing")
+        }
+        return SendAck(
+            requestId: requestId,
+            accepted: delivery != .rejected,
+            detail: "\(rawDelivery); daemon=\(rawDaemon)",
+            delivery: delivery,
+            daemon: daemon
+        )
+    }
+}
+
 /// stream 长驻进程适配：逐行解码、single-flight、EOF/terminal/取消语义明确。
 public actor ChestnutStreamClient: StreamClient {
     private let process: any ChestnutProcess
@@ -178,17 +240,12 @@ public actor ChestnutStreamClient: StreamClient {
         stopRequested = false
         defer { running = false }
 
-        // 缺口锁死：当前 CLI 无序号恢复入口，resync 请求 fail closed、不伪造恢复成功
-        if let fromSequence {
-            continuation.finish(throwing: ChatError.protocolMismatch(
-                detail: "resync from sequence \(fromSequence) requires chestnut.launcher.v1 support (pending CLI-PROTOCOL-LAUNCHER-EXTERNAL-WIRE)"
-            ))
-            return
-        }
+        var argv = argvPrefix
+        if let fromSequence { argv += ["--after-sequence", String(fromSequence)] }
 
         var sawTerminal = false
         do {
-            for try await line in process.stream(argvPrefix) {
+            for try await line in process.stream(argv) {
                 if stopRequested { break }
                 // decode 失败是 Swift 本地 protocolMismatch（本地纯文本）；
                 // error envelope 经 WireErrorMapper 原样通过（detail 是 CLI 最终显示文本）。

@@ -103,6 +103,8 @@ public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendab
             process.arguments = argv
             process.standardOutput = stdout
             process.standardError = stderr
+            let input = Pipe()
+            process.standardInput = input
 
             lock.lock()
             stopRequested = false
@@ -187,6 +189,7 @@ public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendab
 
             do {
                 try process.run()
+                try? input.fileHandleForWriting.close()
             } catch {
                 lock.lock()
                 if runningProcess === process { runningProcess = nil }

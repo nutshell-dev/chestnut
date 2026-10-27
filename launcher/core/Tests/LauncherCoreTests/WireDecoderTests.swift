@@ -7,22 +7,22 @@ import XCTest
 final class WireDecoderTests: XCTestCase {
     private let decoder = JsonlWireDecoder()
 
-    private func line(_ kind: String, sequence: Int = 1, version: String = "chestnut.launcher.v1", payload: String = "{}") -> String {
+    private func line(_ kind: String, sequence: Int = 1, version: String = "chestnut.launcher.v2", payload: String = "{}") -> String {
         """
-        {"protocolVersion":"\(version)","sequence":\(sequence),"sessionId":"s1","kind":"\(kind)","payload":\(payload)}
+        {"protocol":"\(version)","sequence":\(sequence),"kind":"\(kind)","payload":\(payload)}
         """
     }
 
     func testDecodesEventEnvelope() throws {
-        let envelope = try decoder.decode(line: line("event", sequence: 7, payload: #"{"messageId":"m1","text":"hi"}"#))
+        let envelope = try decoder.decode(line: line("message", sequence: 7, payload: #"{"messageId":"m1","text":"hi"}"#))
         XCTAssertEqual(envelope.sequence, 7)
-        XCTAssertEqual(envelope.sessionId, "s1")
+        XCTAssertEqual(envelope.protocolVersion, "chestnut.launcher.v2")
         XCTAssertEqual(envelope.kind, .event)
         XCTAssertEqual(envelope.payload["messageId"]?.stringValue, "m1")
     }
 
     func testDecodesAckErrorTerminalKinds() throws {
-        XCTAssertEqual(try decoder.decode(line: line("ack")).kind, .ack)
+        XCTAssertEqual(try decoder.decode(line: line("send_ack")).kind, .ack)
         XCTAssertEqual(try decoder.decode(line: line("error")).kind, .error)
         XCTAssertEqual(try decoder.decode(line: line("terminal")).kind, .terminal)
     }
@@ -33,11 +33,11 @@ final class WireDecoderTests: XCTestCase {
     }
 
     func testVersionMismatchFailsClosed() {
-        XCTAssertThrowsError(try decoder.decode(line: line("event", version: "chestnut.launcher.v2"))) { error in
+        XCTAssertThrowsError(try decoder.decode(line: line("message", version: "chestnut.launcher.v1"))) { error in
             guard case let ChatError.protocolMismatch(detail) = error else {
                 return XCTFail("expected protocolMismatch, got \(error)")
             }
-            XCTAssertTrue(detail.contains("chestnut.launcher.v2"))
+            XCTAssertTrue(detail.contains("chestnut.launcher.v1"))
         }
     }
 

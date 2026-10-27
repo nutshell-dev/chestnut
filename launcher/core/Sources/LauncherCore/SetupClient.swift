@@ -16,13 +16,27 @@ public protocol SetupChestnutProcess: ChestnutProcess {
 public struct ChestnutSetupClient: SetupClient {
     private let process: any SetupChestnutProcess
     private let argvPrefix: [String]
+    private let statusArgv: [String]?
 
-    public init(process: any SetupChestnutProcess, argvPrefix: [String]) {
+    public init(process: any SetupChestnutProcess, argvPrefix: [String], statusArgv: [String]? = nil) {
         self.process = process
         self.argvPrefix = argvPrefix
+        self.statusArgv = statusArgv
     }
 
-    public func status() async throws -> SetupState { try await request("status") }
+    public func status() async throws -> SetupState {
+        guard let statusArgv else { return try await request("status") }
+        let output = try await process.run(statusArgv, stdin: "{\"command\":\"status\"}\n")
+        guard output.terminationSignal == nil, output.exitCode == 0, output.stdoutLines.count == 1,
+              let line = output.stdoutLines.first else {
+            throw ChatError.transport(detail: "launcher status failed: \(output.stderr)")
+        }
+        let envelope = try LauncherWireDecoder().decode(line: line)
+        guard envelope.kind == .snapshot, let setup = envelope.payload["setup"] else {
+            throw ChatError.protocolMismatch(detail: "launcher status requires a snapshot with setup state")
+        }
+        return try SetupState.decode(setup)
+    }
 
     public func selectProvider(_ providerId: String) async throws -> SetupState {
         try await request("select_provider", payload: ["providerId": providerId])

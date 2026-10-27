@@ -138,7 +138,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const motionConfigDir = getMotionConfigDir();
   
-  console.log(`Initializing Motion at: ${motionDir}`);
+  if (!silent) console.log(`Initializing Motion at: ${motionDir}`);
   
   // Create directory structure
   await ensureDir(deps, motionDir);

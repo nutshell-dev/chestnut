@@ -20,15 +20,15 @@ enum LauncherApp {
 /// 未配置时返回本地失败的 client（degraded、不伪造连接成功）；不自动启动 daemon。
 enum LauncherClientFactory {
     static func makeSendClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SendClient {
-        guard let argvPrefix = argvPrefix(environment: environment, suffix: ["send"]) else {
+        guard let argv = launcherArgv(environment: environment, command: "send") else {
             return UnconfiguredSendClient()
         }
-        return ChestnutSendClient(process: makeProcess(), argvPrefix: argvPrefix)
+        return ChestnutLauncherSendClient(process: makeProcess(), argv: argv)
     }
 
     static func makeStreamClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any StreamClient {
         // phase 2003：重开只恢复当前活跃 turn（压缩快照 + 同边界 tail），不重放已结束 turn
-        guard let argvPrefix = argvPrefix(environment: environment, suffix: ["stream", "--from-current-turn"]) else {
+        guard let argvPrefix = launcherArgv(environment: environment, command: "stream", options: ["--from-current-turn"]) else {
             return UnconfiguredStreamClient()
         }
         return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
@@ -36,7 +36,11 @@ enum LauncherClientFactory {
 
     static func makeSetupClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SetupClient {
         guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return UnconfiguredSetupClient() }
-        return ChestnutSetupClient(process: makeProcess(), argvPrefix: ["node", cliPath, "launcher", "setup", "--json"])
+        return ChestnutSetupClient(
+            process: makeProcess(),
+            argvPrefix: ["node", cliPath, "launcher", "setup", "--json"],
+            statusArgv: ["node", cliPath, "launcher", "status", "--json"]
+        )
     }
 
     static func makeStartContinuation(environment: [String: String] = ProcessInfo.processInfo.environment) -> () async throws -> Void {
@@ -44,9 +48,16 @@ enum LauncherClientFactory {
             guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else {
                 throw ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；无法启动 chestnut")
             }
-            let output = try await makeProcess().run(["node", cliPath, "start", "--non-interactive", "--language", "auto"])
-            guard output.exitCode == 0, output.terminationSignal == nil else {
-                throw ChatError.rejected(detail: output.stderr.isEmpty ? "chestnut start failed" : output.stderr)
+            let output = try await makeProcess().run(
+                ["node", cliPath, "launcher", "start", "--json"],
+                stdin: "{\"command\":\"start\"}\n"
+            )
+            guard output.exitCode == 0, output.terminationSignal == nil, let line = output.stdoutLines.first else {
+                throw ChatError.rejected(detail: output.stderr.isEmpty ? "launcher start failed" : output.stderr)
+            }
+            let envelope = try LauncherWireDecoder().decode(line: line)
+            guard envelope.kind == .daemon, envelope.payload["state"]?.stringValue == "running" else {
+                throw ChatError.rejected(detail: envelope.payload["detail"]?.stringValue ?? "launcher runtime not ready")
             }
         }
     }
@@ -55,15 +66,13 @@ enum LauncherClientFactory {
         MacOSChestnutProcess(executableURL: URL(fileURLWithPath: "/usr/bin/env"))
     }
 
-    /// claw 名（仅用于拼 CLI argv 的 `claw <name>`；phase 2004 起 Swift 不再做
-    /// claw bar 格式化——协议输出最终显示文本，Swift 只原样呈现）。
-    private static func clawName(environment: [String: String]) -> String {
-        environment["CHESTNUT_CLAW_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "motion"
-    }
-
-    private static func argvPrefix(environment: [String: String], suffix: [String]) -> [String]? {
+    static func launcherArgv(
+        environment: [String: String],
+        command: String,
+        options: [String] = []
+    ) -> [String]? {
         guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return nil }
-        return ["node", cliPath, "claw", clawName(environment: environment)] + suffix
+        return ["node", cliPath, "launcher", command, "--json"] + options
     }
 }
 

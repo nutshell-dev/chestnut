@@ -23,6 +23,7 @@ public struct ChatCoreState: Equatable, Sendable {
         self.resyncPendingFrom = resyncPendingFrom
         self.activity = activity
     }
+
 }
 
 /// UI/adapter 可派发的动作。streamEvent 由 Step C 加入（依赖 WireDecoder 的 envelope）。
@@ -103,6 +104,8 @@ public enum ChatReducer {
     /// - ack/error/terminal 不追加消息（ack ≠ 回复）；
     /// - 未知 kind 保留 envelope 元数据，以未确认的 system 消息降级展示。
     private static func applyStreamEvent(_ envelope: LauncherEnvelope, to state: inout ChatCoreState) {
+        // A v2 snapshot is an explicit resync baseline, not a duplicate old sequence.
+        if envelope.kind == .snapshot, state.resyncPendingFrom != nil { state.lastSequence = nil }
         let decision: SequenceDecision
         if let last = state.lastSequence {
             decision = classifySequence(previous: last, next: envelope.sequence)
@@ -121,35 +124,21 @@ public enum ChatReducer {
         }
         switch envelope.kind {
         case .event:
-            guard let payload = MotionMessagePayload(payload: envelope.payload) else { return }
-            let message = Message(id: payload.messageId, role: payload.role, text: payload.text, committed: true)
-            if state.chat.messages.contains(where: { $0.id == message.id }) {
-                state.chat = state.chat.replacing(message)
-            } else {
-                state.chat = state.chat.appending(message)
+            applyMessagePayload(envelope.payload, to: &state)
+        case .snapshot:
+            if case let .array(messages)? = envelope.payload["messages"] {
+                for payload in messages { applyMessagePayload(payload, to: &state) }
             }
+            if let activity = envelope.payload["activity"] { applyActivityPayload(activity, to: &state) }
+        case .daemon:
+            // Liveness is a CLI fact. Stopped clears local waiting; running never synthesizes Thinking.
+            if envelope.payload["state"]?.stringValue == "stopped" { state.activity = .idle }
         case .activity:
             // 活动行迁移（phase 2001 引入，phase 2002 增 error，phase 2003 Step F 增
             // interrupted/retry/blocked）：processing/responding 单调前进不回退 waiting；
             // 错误族保留可见，只由下一次 sendStarted 或新 activity 覆盖；
             // 未知/畸形 activity payload 只推进 sequence，不产生活动变更。
-            guard let payload = ActivityPayload(payload: envelope.payload) else { return }
-            switch payload.phase {
-            case .processing:
-                state.activity = .processing(label: payload.label, detail: payload.detail)
-            case .responding:
-                state.activity = .responding
-            case .idle:
-                state.activity = .idle
-            case .error:
-                state.activity = .error(detail: payload.detail)
-            case .interrupted:
-                state.activity = .interrupted(detail: payload.detail)
-            case .retry:
-                state.activity = .retry(detail: payload.detail)
-            case .blocked:
-                state.activity = .blocked(detail: payload.detail)
-            }
+            applyActivityPayload(envelope.payload, to: &state)
         case .terminal:
             state.activity = .idle // stream 终止兜底清理活动行
         case .unknown(let raw):
@@ -163,6 +152,29 @@ public enum ChatReducer {
             state.chat = state.chat.appending(note)
         case .ack, .error:
             break
+        }
+    }
+
+    private static func applyMessagePayload(_ payload: JSONValue, to state: inout ChatCoreState) {
+        guard let payload = MotionMessagePayload(payload: payload) else { return }
+        let message = Message(id: payload.messageId, role: payload.role, text: payload.text, committed: true)
+        if state.chat.messages.contains(where: { $0.id == message.id }) {
+            state.chat = state.chat.replacing(message)
+        } else {
+            state.chat = state.chat.appending(message)
+        }
+    }
+
+    private static func applyActivityPayload(_ payload: JSONValue, to state: inout ChatCoreState) {
+        guard let payload = ActivityPayload(payload: payload) else { return }
+        switch payload.phase {
+        case .processing: state.activity = .processing(label: payload.label, detail: payload.detail)
+        case .responding: state.activity = .responding
+        case .idle: state.activity = .idle
+        case .error: state.activity = .error(detail: payload.detail)
+        case .interrupted: state.activity = .interrupted(detail: payload.detail)
+        case .retry: state.activity = .retry(detail: payload.detail)
+        case .blocked: state.activity = .blocked(detail: payload.detail)
         }
     }
 }

@@ -7,7 +7,7 @@ import XCTest
 final class RecoveryTests: XCTestCase {
     private func envelopeLine(_ kind: String, sequence: Int, payload: String = "{}") -> String {
         """
-        {"protocolVersion":"chestnut.launcher.v1","sequence":\(sequence),"sessionId":"s1","kind":"\(kind)","payload":\(payload)}
+        {"protocol":"chestnut.launcher.v2","sequence":\(sequence),"kind":"\(kind)","payload":\(payload)}
         """
     }
 
@@ -17,7 +17,7 @@ final class RecoveryTests: XCTestCase {
         let process = FakeChestnutProcess()
         process.runHandler = { _ in
             .success(ProcessOutput(
-                stdoutLines: [self.envelopeLine("ack", sequence: 1, payload: #"{"requestId":"r1"}"#)],
+                stdoutLines: [self.envelopeLine("send_ack", sequence: 1, payload: #"{"requestId":"r1"}"#)],
                 stderr: "",
                 exitCode: 0,
                 terminationSignal: nil
@@ -42,6 +42,25 @@ final class RecoveryTests: XCTestCase {
         let ack = try await client.submit(requestId: "r1", text: "hi")
         XCTAssertTrue(ack.accepted)
         XCTAssertEqual(ack.detail, "ack envelope missing (pre-1990 CLI)")
+    }
+
+    func testLauncherV2SendUsesStdinAndReportsDeliveryAndDaemon() async throws {
+        let process = FakeChestnutProcess()
+        process.runHandler = { _ in
+            .success(ProcessOutput(
+                stdoutLines: [self.envelopeLine("send_ack", sequence: 1, payload: #"{"requestId":"r1","delivery":"persisted","daemon":"stopped"}"#)],
+                stderr: "", exitCode: 0, terminationSignal: nil
+            ))
+        }
+        let client = ChestnutLauncherSendClient(process: process, argv: ["launcher", "send", "--json"])
+        let ack = try await client.submit(requestId: "r1", text: "ping")
+        XCTAssertTrue(ack.accepted)
+        XCTAssertEqual(ack.delivery, .persisted)
+        XCTAssertEqual(ack.daemon, .stopped)
+        XCTAssertEqual(process.runArgv, [["launcher", "send", "--json"]])
+        XCTAssertEqual(process.runStdin.count, 1)
+        XCTAssertTrue(process.runStdin[0]?.contains("\"text\":\"ping\"") == true)
+        XCTAssertFalse(process.runArgv.flatMap { $0 }.contains("ping"))
     }
 
     func testSendNonZeroExitWithStderrIsRejected() async throws {
@@ -130,7 +149,7 @@ final class RecoveryTests: XCTestCase {
         let process = FakeChestnutProcess()
         process.runHandler = { _ in
             .success(ProcessOutput(
-                stdoutLines: [self.envelopeLine("ack", sequence: 1, payload: #"{"requestId":"other"}"#)],
+                stdoutLines: [self.envelopeLine("send_ack", sequence: 1, payload: #"{"requestId":"other"}"#)],
                 stderr: "",
                 exitCode: 0,
                 terminationSignal: nil
@@ -183,7 +202,7 @@ final class RecoveryTests: XCTestCase {
         let process = FakeChestnutProcess()
         process.streamHandler = { _ in
             FakeStreamScript(lines: [
-                self.envelopeLine("event", sequence: 1, payload: #"{"messageId":"m1","text":"hi"}"#),
+                self.envelopeLine("message", sequence: 1, payload: #"{"messageId":"m1","text":"hi"}"#),
                 self.envelopeLine("terminal", sequence: 2),
             ])
         }
@@ -198,7 +217,7 @@ final class RecoveryTests: XCTestCase {
     func testStreamEOFBeforeTerminalIsTransportError() async throws {
         let process = FakeChestnutProcess()
         process.streamHandler = { _ in
-            FakeStreamScript(lines: [self.envelopeLine("event", sequence: 1)])
+            FakeStreamScript(lines: [self.envelopeLine("message", sequence: 1)])
         }
         let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
         do {
@@ -246,19 +265,17 @@ final class RecoveryTests: XCTestCase {
         }
     }
 
-    func testStreamResyncRequestFailsClosedWithoutSpawning() async throws {
+    func testStreamResyncRequestsSnapshotAfterSequence() async throws {
         let process = FakeChestnutProcess()
-        process.streamHandler = { _ in FakeStreamScript(lines: []) }
+        process.streamHandler = { _ in FakeStreamScript(lines: [
+            self.envelopeLine("snapshot", sequence: 1, payload: #"{"afterSequence":42,"resync":"resync_required","messages":[]}"#),
+            self.envelopeLine("terminal", sequence: 2),
+        ]) }
         let client = ChestnutStreamClient(process: process, argvPrefix: ["stream"])
-        do {
-            for try await _ in client.events(fromSequence: 42) {}
-            XCTFail("expected fail-closed protocol error")
-        } catch let error as ChatError {
-            guard case .protocolMismatch = error else {
-                return XCTFail("expected protocolMismatch, got \(error)")
-            }
-        }
-        XCTAssertEqual(process.streamArgv.count, 0, "resync 无协议入口时不得启动进程、不伪造恢复成功")
+        var kinds: [LauncherEnvelope.Kind] = []
+        for try await envelope in client.events(fromSequence: 42) { kinds.append(envelope.kind) }
+        XCTAssertEqual(kinds, [.snapshot, .terminal])
+        XCTAssertEqual(process.streamArgv, [["stream", "--after-sequence", "42"]])
     }
 
     func testStreamIsSingleFlight() async throws {
@@ -351,7 +368,7 @@ struct FakeStreamScript {
     }
 }
 
-final class FakeChestnutProcess: ChestnutProcess, @unchecked Sendable {
+final class FakeChestnutProcess: SetupChestnutProcess, @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [AsyncThrowingStream<String, Error>.Continuation] = []
 
@@ -359,6 +376,7 @@ final class FakeChestnutProcess: ChestnutProcess, @unchecked Sendable {
     var streamHandler: (([String]) -> FakeStreamScript)?
 
     private(set) var runArgv: [[String]] = []
+    private(set) var runStdin: [String?] = []
     private(set) var streamArgv: [[String]] = []
     private(set) var stopCalls = 0
 
@@ -369,6 +387,11 @@ final class FakeChestnutProcess: ChestnutProcess, @unchecked Sendable {
         }
         guard let handler else { throw ChatError.local(detail: "no run handler") }
         return try handler(argv).get()
+    }
+
+    func run(_ argv: [String], stdin: String?) async throws -> ProcessOutput {
+        lock.withLock { runStdin.append(stdin) }
+        return try await run(argv)
     }
 
     func stream(_ argv: [String]) -> AsyncThrowingStream<String, Error> {

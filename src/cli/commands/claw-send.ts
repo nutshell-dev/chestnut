@@ -44,7 +44,7 @@ export async function sendCommand(
   const sessionId = makeLauncherSessionId();
   const nextSeq = createLauncherSequencer();
   try {
-    await deliver(deps, name, message, options);
+    await deliverClawMessage(deps, name, message, options);
   } catch (err) {
     // 协议 stdout 写 error envelope（launcher 优先消费），原始错误继续抛（stderr + 非零退出）。
     writeLauncherEnvelope(
@@ -64,7 +64,7 @@ export async function sendCommand(
   );
 }
 
-async function deliver(
+export async function deliverClawMessage(
   deps: ClawCommandDeps,
   name: string,
   message: string,

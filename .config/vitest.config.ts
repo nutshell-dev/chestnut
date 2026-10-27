@@ -64,6 +64,7 @@ const VI_MOCK_FILES = [
   'tests/cli/init-envvar.test.ts',
   // phase 1994: launcher protocol envelope producer 测试（vi.mock config/process-manager/stream 等）
   'tests/cli/launcher-protocol.test.ts',
+  'tests/cli/launcher-failure-matrix.test.ts',
   'tests/cli/launcher-setup-protocol.test.ts',  // phase 2011: vi.mock probe + process-global CHESTNUT_ROOT/HOME
   'tests/cli/llm-probe-budget.test.ts',  // phase 1979 Step D: vi.mock orchestrator barrel（probe 预算断言）
   'tests/cli/motion-steps-action-error.test.ts',

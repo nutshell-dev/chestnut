@@ -22,6 +22,14 @@ import { getGlobalConfigPath } from '../../src/assembly/config/global-config-pat
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
 import { LauncherEventMapper } from '../../src/cli/launcher-envelope-producer.js';
 import type { StreamReader } from '../../src/foundation/stream/index.js';
+import {
+  LAUNCHER_CAPABILITIES,
+  LAUNCHER_PROTOCOL_VERSION_V2,
+  createLauncherSequencer,
+  makeLauncherV2Envelope,
+  parseLauncherSendRequest,
+  parseLauncherV2Envelope,
+} from '../../src/cli-protocol/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -403,5 +411,36 @@ describe('LauncherEventMapper', () => {
       .toEqual({ messageId: 'reply-A', role: 'motion', text: '甲一甲二' });
     expect(mapper.map({ ts: 4, type: 'send_content_delta', delta: '乙二', trace_id: 'B' }))
       .toEqual({ messageId: 'reply-B', role: 'motion', text: '乙一乙二' });
+  });
+});
+
+
+describe('launcher.v2 protocol', () => {
+  it('uses a versioned frame and monotonic sequence without sessionId', () => {
+    const next = createLauncherSequencer();
+    const first = makeLauncherV2Envelope(next(), 'daemon', { state: 'stopped' });
+    const second = makeLauncherV2Envelope(next(), 'terminal', { reason: 'stopped' });
+    expect(first).toEqual({ protocol: LAUNCHER_PROTOCOL_VERSION_V2, kind: 'daemon', sequence: 1, payload: { state: 'stopped' } });
+    expect(second.sequence).toBe(2);
+    expect(first).not.toHaveProperty('sessionId');
+  });
+
+  it('preserves unknown kinds and rejects version mismatches', () => {
+    const unknown = parseLauncherV2Envelope(JSON.stringify({
+      protocol: LAUNCHER_PROTOCOL_VERSION_V2, sequence: 8, kind: 'future_event', payload: { safe: true },
+    }));
+    expect(unknown).toMatchObject({ kind: 'unknown:future_event', rawKind: 'future_event', sequence: 8 });
+    expect(() => parseLauncherV2Envelope(JSON.stringify({
+      protocol: 'chestnut.launcher.v1', sequence: 1, kind: 'event', payload: {},
+    }))).toThrow(/unsupported/);
+  });
+
+  it('validates command input and advertises capabilities', () => {
+    expect(parseLauncherSendRequest('{"requestId":"r1","text":"ping"}')).toEqual({ requestId: 'r1', text: 'ping' });
+    expect(() => parseLauncherSendRequest('{"requestId":"r1","text":" "}')).toThrow(/text/);
+    expect(LAUNCHER_CAPABILITIES).toMatchObject({
+      protocol: LAUNCHER_PROTOCOL_VERSION_V2,
+      commands: ['status', 'setup', 'start', 'send', 'stream'],
+    });
   });
 });

@@ -107,10 +107,36 @@ final class ChatProtocolTests: XCTestCase {
         XCTAssertEqual(state.chat.messages.map(\.id), ["m1", "m2"])
     }
 
+    func testSnapshotStartsFreshSequenceAfterResync() {
+        var state = ChatCoreState(activity: .waiting)
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .event, sequence: 7)))
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .event, sequence: 10)))
+        let payload = JSONValue.object([
+            "resync": .string("resync_required"),
+            "messages": .array([motionPayload("m2", "restored")]),
+        ])
+        state = ChatReducer.reduce(state, .streamEvent(envelope(kind: .snapshot, sequence: 1, payload: payload)))
+        XCTAssertEqual(state.lastSequence, 1)
+        XCTAssertNil(state.resyncPendingFrom)
+        XCTAssertEqual(state.chat.messages.map(\.id), ["m2"])
+    }
+
+    func testDaemonStoppedClearsWaitingWithoutSynthesizingThinking() {
+        var state = ChatCoreState(activity: .waiting)
+        state = ChatReducer.reduce(state, .streamEvent(envelope(
+            kind: .daemon, sequence: 1, payload: .object(["state": .string("stopped")])
+        )))
+        XCTAssertEqual(state.activity, .idle)
+        state = ChatReducer.reduce(state, .streamEvent(envelope(
+            kind: .daemon, sequence: 2, payload: .object(["state": .string("running")])
+        )))
+        XCTAssertEqual(state.activity, .idle)
+    }
+
     // MARK: unknown event 降级
 
     func testUnknownKindDegradesToUncommittedSystemMessage() throws {
-        let raw = #"{"protocolVersion":"chestnut.launcher.v1","sequence":1,"sessionId":"s1","kind":"telemetry_v2","payload":{"k":"v"}}"#
+        let raw = #"{"protocol":"chestnut.launcher.v2","sequence":1,"kind":"telemetry_v2","payload":{"k":"v"}}"#
         let decoded = try decoder.decode(line: raw)
         let state = ChatReducer.reduce(ChatCoreState(), .streamEvent(decoded))
         guard let note = state.chat.messages.first else {
@@ -124,8 +150,8 @@ final class ChatProtocolTests: XCTestCase {
     // MARK: 版本与形状（decoder 侧补充）
 
     func testEnvelopeRoundTripFieldParity() throws {
-        let raw = #"{"protocolVersion":"chestnut.launcher.v1","sequence":9,"sessionId":"sess","kind":"event","payload":{"messageId":"m9","text":"x"}}"#
+        let raw = #"{"protocol":"chestnut.launcher.v2","sequence":9,"kind":"message","payload":{"messageId":"m9","text":"x"}}"#
         let envelope = try decoder.decode(line: raw)
-        XCTAssertEqual(envelope, self.envelope(kind: .event, sequence: 9, sessionId: "sess", payload: .object(["messageId": .string("m9"), "text": .string("x")])))
+        XCTAssertEqual(envelope, self.envelope(kind: .event, sequence: 9, sessionId: "v2", payload: .object(["messageId": .string("m9"), "text": .string("x")])))
     }
 }

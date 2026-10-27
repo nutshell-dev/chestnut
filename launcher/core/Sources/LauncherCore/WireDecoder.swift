@@ -44,6 +44,8 @@ extension JSONValue {
 public struct LauncherEnvelope: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case event
+        case snapshot
+        case daemon
         /// Motion 活动行状态（phase 2001，v1 additive）。
         case activity
         case ack
@@ -53,7 +55,7 @@ public struct LauncherEnvelope: Equatable, Sendable {
         case unknown(String)
     }
 
-    public static let supportedProtocolVersion = "chestnut.launcher.v1"
+    public static let supportedProtocolVersion = "chestnut.launcher.v2"
 
     public let protocolVersion: String
     public let sequence: Int
@@ -72,21 +74,24 @@ public struct LauncherEnvelope: Equatable, Sendable {
 
 extension LauncherEnvelope: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, sequence, sessionId, kind, payload
+        case protocolVersion = "protocol"
+        case sequence, sessionId, kind, payload
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let protocolVersion = try container.decode(String.self, forKey: .protocolVersion)
         let sequence = try container.decode(Int.self, forKey: .sequence)
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId) ?? "v2"
         let rawKind = try container.decode(String.self, forKey: .kind)
         let payload = try container.decodeIfPresent(JSONValue.self, forKey: .payload) ?? .null
         let kind: Kind
         switch rawKind {
-        case "event": kind = .event
+        case "message": kind = .event
+        case "snapshot": kind = .snapshot
+        case "daemon": kind = .daemon
         case "activity": kind = .activity
-        case "ack": kind = .ack
+        case "send_ack": kind = .ack
         case "error": kind = .error
         case "terminal": kind = .terminal
         default: kind = .unknown(rawKind)
