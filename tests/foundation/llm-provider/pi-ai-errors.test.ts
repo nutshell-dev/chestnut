@@ -92,7 +92,7 @@ describe('isPiAiContextOverflowText（pi-ai 官方 predicate shim）', () => {
 describe('inspectSuccessfulMessage（成功响应信号）', () => {
   function successMessage(
     stopReason: AssistantMessage['stopReason'],
-    usage: { input: number; output: number; cacheRead?: number },
+    usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number },
   ): AssistantMessage {
     return assistantMessage({
       stopReason,
@@ -100,8 +100,9 @@ describe('inspectSuccessfulMessage（成功响应信号）', () => {
         input: usage.input,
         output: usage.output,
         cacheRead: usage.cacheRead ?? 0,
-        cacheWrite: 0,
-        totalTokens: usage.input + usage.output + (usage.cacheRead ?? 0),
+        cacheWrite: usage.cacheWrite ?? 0,
+        totalTokens:
+          usage.input + usage.output + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
     });
@@ -120,6 +121,15 @@ describe('inspectSuccessfulMessage（成功响应信号）', () => {
     expect(inspect(successMessage('stop', { input: 256_000 }), 256_000)).toBeNull();
   });
 
+  it('stop + cacheWrite 将输入推过 window → silent_overflow', () => {
+    const signal = inspect(successMessage('stop', {
+      input: 200_000,
+      cacheRead: 50_000,
+      cacheWrite: 10_000,
+    }), 256_000);
+    expect(signal).toEqual({ kind: 'silent_overflow', inputTokens: 260_000, contextWindow: 256_000 });
+  });
+
   it('length + output=0 + 输入≥99% → length_stop_no_output', () => {
     const signal = inspect(successMessage('length', { input: 253_440, output: 0 }), 256_000);
     expect(signal).toEqual({ kind: 'length_stop_no_output', inputTokens: 253_440, contextWindow: 256_000 });
@@ -133,13 +143,26 @@ describe('inspectSuccessfulMessage（成功响应信号）', () => {
     expect(inspect(successMessage('length', { input: 260_000, output: 5 }), 256_000)).toBeNull();
   });
 
-  it('thinking/toolUse stop → null', () => {
-    expect(inspect(successMessage('toolUse', { input: 300_000, output: 10 }), 256_000)).toBeNull();
+  it('toolUse + 输入>window → silent_overflow', () => {
+    const signal = inspect(successMessage('toolUse', { input: 300_000, output: 10 }), 256_000);
+    expect(signal).toEqual({ kind: 'silent_overflow', inputTokens: 300_000, contextWindow: 256_000 });
   });
 
-  it('error stop + usage>window → null（success 路径不判 provider error）', () => {
-    expect(inspect(successMessage('error', { input: 300_000, output: 0 }), 256_000)).toBeNull();
+  it('toolUse + 输入≤window → null', () => {
+    expect(inspect(successMessage('toolUse', { input: 200_000, output: 10 }), 256_000)).toBeNull();
   });
+
+  it('deferred + 输入>window → silent_overflow', () => {
+    const signal = inspect(successMessage('deferred', { input: 300_000, output: 10 }), 256_000);
+    expect(signal).toEqual({ kind: 'silent_overflow', inputTokens: 300_000, contextWindow: 256_000 });
+  });
+
+  it.each(['error', 'aborted', 'pending'] as const)(
+    '%s + usage>window → null（不进入成功路径）',
+    (stopReason) => {
+      expect(inspect(successMessage(stopReason, { input: 300_000, output: 0 }), 256_000)).toBeNull();
+    },
+  );
 });
 
 describe('classifyCapturedHttpError 固定优先级', () => {

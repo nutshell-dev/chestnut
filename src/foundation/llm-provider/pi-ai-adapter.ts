@@ -146,7 +146,7 @@ export class PiAiAdapter implements ProviderAdapter {
     return adjusted > 0 ? adjusted : undefined;
   }
 
-  /** 成功响应 context 检查（call/stream 共用）：length-stop throw；silent observe。 */
+  /** 成功响应 context 检查（call/stream 共用）：所有 overflow kind 都抛 typed error。 */
   private async guardSuccessfulContext(message: PiAi.AssistantMessage): Promise<void> {
     const runtime = await loadPiAiRuntime();
     const signal = inspectSuccessfulMessage(
@@ -154,14 +154,15 @@ export class PiAiAdapter implements ProviderAdapter {
       message,
       resolveContextWindow(this.name, this.model),
     );
-    if (signal?.kind === 'length_stop_no_output') {
-      throw new LLMContextExceededError(
-        this.name,
-        0,
-        'length-stop with zero output (input at/over 99% context window)',
-      );
+    if (!signal) return;
+
+    if (signal.kind === 'silent_overflow') {
+      this.observeContextOverflow(signal, message.stopReason);
     }
-    if (signal) this.observeContextOverflow(signal);
+    const detail = signal.kind === 'length_stop_no_output'
+      ? `length-stop with zero output (input ${signal.inputTokens} at/over 99% of ${signal.contextWindow})`
+      : `successful ${message.stopReason} response over context window (input ${signal.inputTokens} > ${signal.contextWindow})`;
+    throw new LLMContextExceededError(this.name, 0, detail);
   }
 
   private async callOnce(options: LLMCallOptions, maxTokensOverride: number | undefined): Promise<LLMResponse> {
@@ -174,7 +175,7 @@ export class PiAiAdapter implements ProviderAdapter {
     if (!finalMessage) {
       throw new LLMEmptyResponseError(this.name);
     }
-    // length-stop 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
+    // context overflow 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
     await this.guardSuccessfulContext(finalMessage);
     if (finalMessage.content.length === 0) {
       throw new LLMEmptyResponseError(this.name);
@@ -182,10 +183,18 @@ export class PiAiAdapter implements ProviderAdapter {
     return assistantMessageToLLMResponse(finalMessage);
   }
 
-  /** silent overflow：只写 audit observation，不改变响应/不触发 trim。 */
-  private observeContextOverflow(signal: SuccessContextSignal): void {
+  /** silent overflow：只写 audit observation；调用方随后抛 typed error。 */
+  private observeContextOverflow(signal: SuccessContextSignal, stopReason: string): void {
     if (signal.kind !== 'silent_overflow') return;
-    this.config.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.CONTEXT_OVERFLOW_OBSERVED, `provider=${this.name}`, `model=${this.model}`, `kind=silent_overflow`, `input_tokens=${signal.inputTokens}`, `context_window=${signal.contextWindow}`, 'stop_reason=stop');
+    this.config.auditLog?.write(
+      LLM_PROVIDER_AUDIT_EVENTS.CONTEXT_OVERFLOW_OBSERVED,
+      `provider=${this.name}`,
+      `model=${this.model}`,
+      'kind=silent_overflow',
+      `input_tokens=${signal.inputTokens}`,
+      `context_window=${signal.contextWindow}`,
+      `stop_reason=${stopReason}`,
+    );
   }
 
   private async *streamOnce(

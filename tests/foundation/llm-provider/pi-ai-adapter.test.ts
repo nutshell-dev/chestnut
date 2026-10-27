@@ -369,12 +369,12 @@ describe('PiAiAdapter — Phase 1960 context overflow 检测', () => {
 });
 
 /**
- * Phase 1960 Step C：成功响应 context 观测。
- * - silent overflow 只写 audit，不 throw / 不 trim / 不改响应；
- * - length-stop（output=0 + 输入≥99%）判 context_exceeded，进 reactive trim。
+ * Phase 1960 Step C / Phase 2012：成功响应 context 检查。
+ * - silent overflow 写 audit 并 throw，length-stop 同样 throw，均进 reactive trim；
+ * - stop / toolUse 等成功完成态统一检查 usage。
  * context window：test-provider/test-model 未命中 1M 特判 → 256000。
  */
-describe('PiAiAdapter — Phase 1960 成功响应 context 观测', () => {
+describe('PiAiAdapter — Phase 2012 成功响应 context enforcement', () => {
   const CONTEXT_WINDOW = 256_000;
 
   function auditSink() {
@@ -404,16 +404,14 @@ describe('PiAiAdapter — Phase 1960 成功响应 context 观测', () => {
     return frames;
   }
 
-  it('call silent overflow：只写 audit，响应正常返回', async () => {
+  it('call silent overflow → LLMContextExceededError', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(openaiSse(
       openaiFramesWithUsage('hello', 'stop', { prompt: CONTEXT_WINDOW + 44_000, completion: 7 }),
     ))));
     const auditLog = auditSink();
     const adapter = createLLMProvider(baseConfig({ auditLog }));
-    const response = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
-
-    expect(response.content).toEqual([{ type: 'text', text: 'hello' }]);
-    expect(response.stop_reason).toBe('end_turn');
+    await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
+      .rejects.toBeInstanceOf(LLMContextExceededError);
     expect(auditLog.write).toHaveBeenCalledTimes(1);
     const [event, ...details] = auditLog.write.mock.calls[0];
     expect(event).toBe('llm_context_overflow_observed');
@@ -427,18 +425,51 @@ describe('PiAiAdapter — Phase 1960 成功响应 context 观测', () => {
     ]));
   });
 
-  it('stream silent overflow：写 audit 且正常交付 done', async () => {
+  it('stream silent overflow → LLMContextExceededError', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(openaiSse(
       openaiFramesWithUsage('hello', 'stop', { prompt: CONTEXT_WINDOW + 1, completion: 2 }),
     ))));
     const auditLog = auditSink();
     const adapter = createLLMProvider(baseConfig({ auditLog }));
-    const chunks = await collectChunks(adapter);
+    const err = await collectChunks(adapter).catch((e) => e);
 
-    expect(chunks).toContainEqual({ type: 'text_delta', delta: 'hello' });
-    expect(chunks.some((c) => c.type === 'done')).toBe(true);
+    expect(err).toBeInstanceOf(LLMContextExceededError);
     expect(auditLog.write).toHaveBeenCalledTimes(1);
     expect(auditLog.write.mock.calls[0][0]).toBe('llm_context_overflow_observed');
+  });
+
+  it('stream toolUse overflow → LLMContextExceededError，audit 保留真实 stopReason', async () => {
+    const frames = [
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_overflow', type: 'function', function: { name: 'search', arguments: '{}' } }] }, finish_reason: null }] },
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: CONTEXT_WINDOW + 1, completion_tokens: 3, total_tokens: CONTEXT_WINDOW + 4 } },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(openaiSse(frames))));
+    const auditLog = auditSink();
+    const adapter = createLLMProvider(baseConfig({ auditLog }));
+    const err = await collectChunks(adapter).catch((e) => e);
+
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect(auditLog.write).toHaveBeenCalledTimes(1);
+    const [event, ...details] = auditLog.write.mock.calls[0];
+    expect(event).toBe('llm_context_overflow_observed');
+    expect(details).toContain('stop_reason=toolUse');
+  });
+
+  it('call toolUse 不超窗 → 正常返回', async () => {
+    const frames = [
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_ok', type: 'function', function: { name: 'search', arguments: '{"q":"x"}' } }] }, finish_reason: null }] },
+      { id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 100, completion_tokens: 3, total_tokens: 103 } },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(openaiSse(frames))));
+    const auditLog = auditSink();
+    const adapter = createLLMProvider(baseConfig({ auditLog }));
+    const response = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+
+    expect(response.content).toEqual([
+      { type: 'tool_use', id: 'call_ok', name: 'search', input: { q: 'x' } },
+    ]);
+    expect(response.stop_reason).toBe('tool_use');
+    expect(auditLog.write).not.toHaveBeenCalled();
   });
 
   it('silent 边界：输入 == window 不写 audit', async () => {
