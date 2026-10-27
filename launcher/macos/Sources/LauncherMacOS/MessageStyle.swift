@@ -15,23 +15,27 @@ public enum MessageStyle {
     public static func leadingInset(for role: Message.Role) -> CGFloat { 0 }
 
     public static func font(for role: Message.Role) -> Font {
-        switch role {
-        case .motion: return .system(size: spec(for: role).fontSize, weight: spec(for: role).weight)
-        case .user: return .system(size: spec(for: role).fontSize, weight: spec(for: role).weight)
-        case .system: return .caption
-        }
+        let style = spec(for: role)
+        return .system(size: style.fontSize, weight: style.weight)
     }
 
     public static func lineSpacing(for role: Message.Role) -> CGFloat {
-        role == .motion ? DialogueComposition.current.reply.lineSpacing : DialogueComposition.current.user.lineSpacing
+        spec(for: role).lineSpacing
     }
 
     public static func opacity(for role: Message.Role) -> Double {
-        role == .motion ? DialogueComposition.current.reply.opacity : DialogueComposition.current.user.opacity
+        spec(for: role).opacity
     }
 
-    private static func spec(for role: Message.Role) -> MessageStyleSpec {
-        role == .motion ? DialogueComposition.current.reply : DialogueComposition.current.user
+    public static func spec(for role: Message.Role) -> MessageStyleSpec {
+        switch role {
+        case .user:
+            return DialogueComposition.current.user
+        case .motion:
+            return DialogueComposition.current.reply
+        case .system:
+            return MessageStyleSpec(fontSize: 13, weight: .regular, lineSpacing: 2, opacity: 1)
+        }
     }
 
     /// user/system 为次级色、Motion 为主要色（纯角色判定）。

@@ -179,7 +179,7 @@ public struct ChatView: View {
         // ScrollViewProxy.scrollTo 在流式更新事务中会被丢弃（phase 2007 Step A 事实：
         // main 实机探针贴底 2/89）。本分支只含贴底修复，视觉构图保持 main 现状。
         ScrollView {
-            // 组内紧凑、组间舒展；user/reply 始终共享同一 x，流式更新只改末组内容。
+            // 首组、组内、组间、footer 节奏均归 composition；user/reply 始终共享同一 x。
             VStack(alignment: .leading, spacing: composition.betweenTurnsGap) {
                 ForEach(dialogueGroups) { group in
                     VStack(alignment: .leading, spacing: composition.withinTurnGap) {
@@ -220,8 +220,8 @@ public struct ChatView: View {
         messages.count * 100_000 + (messages.last?.text.count ?? 0)
     }
 
-    /// 无角色名同轴对话（phase 2008）：user 以轻量紧凑 typography 提供上下文，
-    /// Motion 以主色和充足行距承载阅读；不增加任何角色横向偏移。
+    /// 无角色名同轴对话（phase 2009）：user/reply 同字号同字重，
+    /// 仅以语义色、有限 opacity 和垂直节奏区分；不增加任何角色横向偏移。
     /// 消息行是纯呈现（phase 2000）：无 textSelection、无点击手势、无选择/焦点状态——
     /// phase1999 实机证明 textSelection（无论在 row 还是容器）会引起黑灰串扰，故整体移除；
     /// 颜色仅由 MessageStyle.foreground(for:) 角色映射决定。复制能力边界见 Step C 决策。

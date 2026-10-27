@@ -37,6 +37,12 @@ final class ConversationLayoutTests: XCTestCase {
         XCTAssertEqual(ConversationLayout.responseAreaHeight(for: .capped, responseHeight: 1600), 420)
     }
 
+    func testResponseAreaHeightRejectsNegativeInputs() {
+        XCTAssertEqual(ConversationLayout.responseAreaHeight(for: .expanded, responseHeight: -1), 0)
+        XCTAssertEqual(ConversationLayout.responseAreaHeight(for: .expanded, responseHeight: -1, footerHeight: 30), 0)
+        XCTAssertEqual(ConversationLayout.responseAreaHeight(for: .capped, responseHeight: -1, footerHeight: -1), 420)
+    }
+
     func testFooterContributionIsBoundedAndOnlyAffectsCappedResponseArea() {
         XCTAssertEqual(
             ConversationLayout.responseAreaHeight(for: .expanded, responseHeight: 100, footerHeight: 30),

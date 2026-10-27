@@ -4,8 +4,8 @@ import SwiftUI
 import XCTest
 @testable import LauncherMacOS
 
-/// Phase 1996 Step B/D：单列消息契约——所有角色统一 leading（禁止 trailing）、
-/// 正常对话无角色名、user 仅靠 inset/颜色/字号一级差异区分。
+/// Phase 2009：同字号单列消息契约——所有角色统一 leading（禁止 trailing）、
+/// 正常对话无角色名，user/reply 仅靠语义色、opacity 和垂直节奏区分。
 final class MessageStyleTests: XCTestCase {
     private func message(_ role: Message.Role, committed: Bool = true) -> Message {
         Message(id: "m1", role: role, text: "你好", committed: committed)
@@ -30,15 +30,18 @@ final class MessageStyleTests: XCTestCase {
         XCTAssertTrue(MessageStyle.showsRoleLabel(for: message(.system)), "system 消息保留标签解释来源")
     }
 
-    func testTypographyHierarchy() {
-        XCTAssertEqual(LauncherVisual.motionBodyFontSize, 16)
-        XCTAssertEqual(LauncherVisual.userBodyFontSize, 14)
-        XCTAssertGreaterThan(LauncherVisual.motionBodyFontSize, LauncherVisual.userBodyFontSize)
-        XCTAssertGreaterThan(MessageStyle.lineSpacing(for: .motion), MessageStyle.lineSpacing(for: .user))
-        XCTAssertEqual(MessageStyle.lineSpacing(for: .user), 1)
-        XCTAssertEqual(MessageStyle.lineSpacing(for: .motion), 4)
-        XCTAssertEqual(MessageStyle.opacity(for: .user), 0.72)
+    func testUserAndReplyShareTypography() {
+        let user = MessageStyle.spec(for: .user)
+        let reply = MessageStyle.spec(for: .motion)
+        XCTAssertEqual(user.fontSize, 16)
+        XCTAssertEqual(reply.fontSize, 16)
+        XCTAssertEqual(user.fontSize, reply.fontSize)
+        XCTAssertEqual(user.weight, reply.weight)
+        XCTAssertEqual(user.lineSpacing, 3)
+        XCTAssertEqual(reply.lineSpacing, 3)
+        XCTAssertEqual(MessageStyle.opacity(for: .user), 0.82)
         XCTAssertEqual(MessageStyle.opacity(for: .motion), 1)
+        XCTAssertGreaterThanOrEqual(MessageStyle.opacity(for: .user), 0.8)
         XCTAssertLessThan(MessageStyle.opacity(for: .user), MessageStyle.opacity(for: .motion))
         // user 次级颜色、Motion 主要颜色
         XCTAssertTrue(MessageStyle.foregroundIsSecondary(for: .user))
@@ -50,9 +53,15 @@ final class MessageStyleTests: XCTestCase {
         let composition = DialogueComposition.current
         XCTAssertEqual(composition.user.fontSize, LauncherVisual.userBodyFontSize)
         XCTAssertEqual(composition.reply.fontSize, LauncherVisual.motionBodyFontSize)
+        XCTAssertEqual(composition.user.weight, composition.reply.weight)
         XCTAssertEqual(composition.user.lineSpacing, MessageStyle.lineSpacing(for: .user))
         XCTAssertEqual(composition.reply.lineSpacing, MessageStyle.lineSpacing(for: .motion))
+        XCTAssertEqual(composition.firstGroupGap, 12)
+        XCTAssertEqual(composition.withinTurnGap, 10)
+        XCTAssertGreaterThan(composition.withinTurnGap, 4)
+        XCTAssertEqual(composition.betweenTurnsGap, 18)
         XCTAssertGreaterThan(composition.betweenTurnsGap, composition.withinTurnGap)
+        XCTAssertEqual(composition.footerGap, 10)
         XCTAssertEqual(MessageStyle.leadingInset(for: .user), MessageStyle.leadingInset(for: .motion))
     }
 

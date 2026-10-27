@@ -37,10 +37,10 @@ public struct DialogueComposition: Equatable {
             lineSpacing: LauncherVisual.motionLineSpacing,
             opacity: LauncherVisual.replyOpacity
         ),
-        firstGroupGap: 4,
-        withinTurnGap: 4,
-        betweenTurnsGap: 16,
-        footerGap: 8
+        firstGroupGap: 12,
+        withinTurnGap: 10,
+        betweenTurnsGap: 18,
+        footerGap: 10
     )
 }
 
@@ -64,12 +64,12 @@ public enum LauncherVisual {
     public static let statusSlotWidth: CGFloat = 20
     public static let placeholder: String = "询问 Motion…"
 
-    // MARK: 消息排版（phase 2008：同轴 typography hierarchy）
+    // MARK: 消息排版（phase 2009：同字号、同字重的同轴对话）
     public static let motionBodyFontSize: CGFloat = 16
-    public static let userBodyFontSize: CGFloat = 14
-    public static let motionLineSpacing: CGFloat = 4
-    public static let userLineSpacing: CGFloat = 1
-    public static let userOpacity: Double = 0.72
+    public static let userBodyFontSize: CGFloat = 16
+    public static let motionLineSpacing: CGFloat = 3
+    public static let userLineSpacing: CGFloat = 3
+    public static let userOpacity: Double = 0.82
     public static let replyOpacity: Double = 1
     /// 所有消息直接消费 responseLeadingInset；禁止重新引入 user 专属横向偏移。
     public static var messageLeadingInset: CGFloat { responseLeadingInset }

@@ -398,6 +398,15 @@ final class ChatViewSnapshotTests: XCTestCase {
         XCTAssertFalse(source.contains("MessageStyle.blockPadding"), "旧扁平 blockPadding 节奏已退役")
     }
 
+    func testSameTypographyCompositionContract() {
+        let composition = DialogueComposition.current
+        XCTAssertEqual(composition.user.fontSize, composition.reply.fontSize)
+        XCTAssertEqual(composition.user.weight, composition.reply.weight)
+        XCTAssertGreaterThan(composition.withinTurnGap, 4, "组内节奏不得退回 2008 的 4pt")
+        XCTAssertLessThan(composition.withinTurnGap, composition.betweenTurnsGap)
+        XCTAssertEqual(MessageStyle.leadingInset(for: .user), MessageStyle.leadingInset(for: .motion))
+    }
+
     // MARK: phase 2007-scroll 流式贴底（独立于 2007 视觉实现打捞）
 
     /// 贴底 owner 契约：流式贴底由 ScrollFollowAnchor 以 contentRevision 驱动；
