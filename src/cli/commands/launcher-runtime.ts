@@ -6,7 +6,6 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { readCurrentTurnSnapshot, STREAM_FILE } from '../../foundation/stream/index.js';
-import { isWatchdogAlive } from '../../watchdog/index.js';
 import {
   LAUNCHER_CAPABILITIES,
   type DaemonState,
@@ -76,20 +75,12 @@ export function readLauncherSnapshot(deps: LauncherCommandDeps, name = MOTION_CL
       if (nextActivity) activity = nextActivity;
     }
   }
-  let watchdog = false;
-  try {
-    watchdog = isWatchdogAlive(deps.fsFactory);
-  } catch {
-    // silent: status reports watchdog=false when its liveness cannot be established.
-    watchdog = false;
-  }
   return {
     payload: {
       workspace: { claw: name },
       initialization,
       daemon: readLauncherDaemon(deps),
       capabilities: LAUNCHER_CAPABILITIES,
-      watchdog,
       active: current.active,
       messages: [...messages.values()],
       ...(activity && activity.phase !== 'idle' ? { activity } : {}),
