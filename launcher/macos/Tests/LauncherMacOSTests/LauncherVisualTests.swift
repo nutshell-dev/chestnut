@@ -14,7 +14,7 @@ final class LauncherVisualTests: XCTestCase {
         XCTAssertEqual(LauncherVisual.responseMaxWidth, 560)
         XCTAssertEqual(LauncherVisual.responseMaxHeight, 420)
         XCTAssertEqual(LauncherVisual.motionBodyFontSize, 16)
-        XCTAssertEqual(LauncherVisual.motionLineSpacing, 4)
+        XCTAssertEqual(LauncherVisual.motionLineSpacing, 3)
     }
 
     /// 单源一致性：行为层/输入层读到的值必须等于 token 源（防双源漂移）。
@@ -62,13 +62,13 @@ final class LauncherVisualTests: XCTestCase {
         )
     }
 
-    /// phase 2008：组内/组间/footer 只由 DialogueComposition 拥有。
+    /// phase 2009：首组/组内/组间/footer 只由 DialogueComposition 拥有。
     func testDialogueCompositionMetricsAreExplicit() {
         let composition = DialogueComposition.current
-        XCTAssertEqual(composition.firstGroupGap, 4)
-        XCTAssertEqual(composition.withinTurnGap, 4)
-        XCTAssertEqual(composition.betweenTurnsGap, 16)
-        XCTAssertEqual(composition.footerGap, 8)
+        XCTAssertEqual(composition.firstGroupGap, 12)
+        XCTAssertEqual(composition.withinTurnGap, 10)
+        XCTAssertEqual(composition.betweenTurnsGap, 18)
+        XCTAssertEqual(composition.footerGap, 10)
         XCTAssertGreaterThan(composition.betweenTurnsGap, composition.withinTurnGap)
     }
 
