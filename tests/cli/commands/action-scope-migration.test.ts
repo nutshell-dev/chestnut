@@ -60,7 +60,7 @@ describe('phase 1879 Step D: 命令文件侧 audit 创建点统一经 actionAudi
   it('迁移命令均消费 actionAuditFor（抽样锚点核对）', () => {
     const expected = [
       'claw-health.ts', 'motion.ts', 'claw-daemon.ts', 'motion-daemon.ts',
-      'config.ts', 'status.ts', 'start.ts', 'claw-router.ts',
+      'config.ts', 'status.ts', 'claw-router.ts',
       'claw-send.ts', 'claw-list.ts', 'claw-stream.ts', 'contract-helpers.ts', 'stop.ts',
     ];
     for (const file of expected) {
@@ -68,5 +68,9 @@ describe('phase 1879 Step D: 命令文件侧 audit 创建点统一经 actionAudi
       expect(src, file).toContain('actionAuditFor(');
       expect(src, file).toContain("from '../action-scope.js'");
     }
+    // phase 2016: start 的 audit 创建随共享启动业务迁出 commands/start.ts。
+    const startBootstrap = readSrc('src/cli/start-bootstrap.ts');
+    expect(startBootstrap).toContain('actionAuditFor(');
+    expect(startBootstrap).toContain("from './action-scope.js'");
   });
 });

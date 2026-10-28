@@ -20,7 +20,7 @@ function readSrc(rel: string): string {
 describe('phase 1879 Step B: contract action residual overassembly 收口', () => {
   const TARGETS = [
     'src/cli/commands/claw-status.ts',
-    'src/cli/commands/start.ts',
+    'src/cli/start-bootstrap.ts',
   ];
 
   it('两命令不再直构造 ContractSystem / createToolRegistry', () => {
@@ -39,15 +39,15 @@ describe('phase 1879 Step B: contract action residual overassembly 收口', () =
     expect(src).toMatch(/}\s*finally\s*{\s*action\.dispose\(\);?\s*}/);
   });
 
-  it('start 两处 onboarding create 均消费 createMotionContractActionContext 且终态 dispose', () => {
-    const src = readSrc('src/cli/commands/start.ts');
+  it('shared start onboarding create 消费 createMotionContractActionContext 且终态 dispose', () => {
+    const src = readSrc('src/cli/start-bootstrap.ts');
     expect(src).not.toContain('createContractActionContext(deps, name');
-    // phase 1901 Step B: 两处 onboarding context 均启用 policy-only 注册
+    // phase 2016: 两处旧分支归一为共享 continuation，保留 policy-only 注册
     const uses = src.match(/createMotionContractActionContext\(deps, \{\s*registerSummonVerifyPolicy: true,?\s*\}\)/g) ?? [];
-    expect(uses.length).toBe(2);
+    expect(uses.length).toBe(1);
     expect(src).not.toMatch(/createMotionContractActionContext\(deps\)/);
     const disposes = src.match(/action\.dispose\(\)/g) ?? [];
-    expect(disposes.length).toBe(2);
+    expect(disposes.length).toBe(1);
   });
 
   it('contract create --file 启用 policy-only context 且传递 task identity 与 clawDir（phase 1901 Step B）', () => {
