@@ -9,6 +9,7 @@ import {
   resolveSetupProviderTarget,
 } from '../../src/cli/setup-provider-catalog.js';
 import { PRESETS } from '../../src/foundation/llm-provider/index.js';
+import { setupProviderMenuLines } from '../../src/templates/messages/index.js';
 
 describe('SETUP_PROVIDER_CATALOG', () => {
   it('固定 12 项且顺序稳定', () => {
@@ -35,6 +36,17 @@ describe('SETUP_PROVIDER_CATALOG', () => {
       expect(PRESETS[choice.target.preset!]).toBeDefined();
       expect(choice.defaultModel ?? PRESETS[choice.target.preset!].defaultModel).toBeDefined();
     }
+  });
+
+  it('Phase 2015 用户可见服务名称固定，start CLI 复用同一 catalog', () => {
+    expect(findSetupProvider('kimi')?.description).toBe('Moonshot');
+    expect(findSetupProvider('qwen')?.description).toBe('Qwen / DashScope');
+    expect(findSetupProvider('glm')?.description).toBe('Zhipu / Z.AI');
+    const menu = setupProviderMenuLines(SETUP_PROVIDER_CATALOG).join('\n');
+    expect(menu).toContain('Moonshot');
+    expect(menu).toContain('Qwen / DashScope');
+    expect(menu).toContain('Zhipu / Z.AI');
+    expect(menu).not.toContain('Qwen / DashScope (Anthropic)');
   });
 
   it('用户名称与服务映射（GLM → zai、Qwen → qwen、Kimi → kimi）', () => {

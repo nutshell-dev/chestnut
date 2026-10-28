@@ -73,6 +73,17 @@ final class SetupViewTests: XCTestCase {
         XCTAssertTrue(SetupCopy.failure(SetupFailure(errorType: "start", message: "daemon raw detail")).contains("配置已保存"))
     }
 
+    func testPhaseCopySeparatesConfigurationVerificationSaveAndStart() {
+        XCTAssertEqual(SetupCopy.submitAction, "验证并保存配置")
+        XCTAssertTrue(SetupCopy.probingTitle.contains("连接"))
+        XCTAssertTrue(SetupCopy.readySubtitle.contains("配置已保存"))
+        XCTAssertFalse(SetupCopy.probingSubtitle.contains("provider"))
+        XCTAssertFalse(SetupCopy.probingSubtitle.contains("model"))
+        XCTAssertFalse(SetupCopy.failure(SetupFailure(errorType: "network", message: "raw")).contains("API Key"))
+        XCTAssertFalse(SetupCopy.failure(SetupFailure(errorType: "unknown", message: "raw")).contains("API Key"))
+        XCTAssertTrue(SetupCopy.credentialsSubtitle(for: provider).contains("验证通过才会保存"))
+    }
+
     func testEverySetupStateHasAnExplicitHeight() {
         let screens: [SetupScreen] = [
             .provider(catalog: [provider]),
@@ -94,7 +105,8 @@ final class SetupViewTests: XCTestCase {
         let source = try setupSource()
         XCTAssertTrue(source.components.contains("struct ProviderRow"))
         XCTAssertTrue(source.components.contains("struct SetupScaffold"))
-        XCTAssertTrue(source.components.contains("SecureField"))
+        XCTAssertTrue(source.components.contains("PasteCapableSecureField"))
+        XCTAssertTrue(source.components.contains("NSSecureTextField"))
         XCTAssertTrue(source.components.contains(".keyboardShortcut(.defaultAction)"))
         XCTAssertTrue(source.view.contains("@FocusState"))
         XCTAssertTrue(source.view.contains("submissionGate.begin()"))

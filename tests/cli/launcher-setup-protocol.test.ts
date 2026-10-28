@@ -54,7 +54,12 @@ describe('launcher setup.v1', () => {
     const response = await executeLauncherSetup(deps, request('status'));
     expect(response.kind).toBe('state');
     expect(response.payload.phase).toBe('needs_provider');
-    expect(response.payload.catalog).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'openai' })]));
+    expect(response.payload.catalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'openai' }),
+      expect.objectContaining({ id: 'kimi', description: 'Moonshot' }),
+      expect.objectContaining({ id: 'qwen', description: 'Qwen / DashScope' }),
+      expect.objectContaining({ id: 'glm', description: 'Zhipu / Z.AI' }),
+    ]));
   });
 
   it('stores keys only through credentials, commits after probe, and never serializes the secret', async () => {

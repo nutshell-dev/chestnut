@@ -216,10 +216,10 @@ struct SetupView: View {
             providerScreen(catalog)
         case let .credentials(provider, modelDefault, savedModel):
             credentialsScreen(provider, modelDefault: modelDefault, savedModel: savedModel)
-        case let .probing(provider, model):
+        case .probing:
             statusScreen(
                 title: SetupCopy.probingTitle,
-                subtitle: SetupCopy.probingSubtitle(provider: provider, model: model),
+                subtitle: SetupCopy.probingSubtitle,
                 busy: true
             )
         case let .repair(provider, savedModel, failure):

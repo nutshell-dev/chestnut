@@ -1,3 +1,4 @@
+import AppKit
 import LauncherCore
 import SwiftUI
 
@@ -69,6 +70,94 @@ struct ProviderRow: View {
     }
 }
 
+enum SetupPaste {
+    /// 只去除剪贴板首尾换行；保留空格、中间字符和供应商自有格式。
+    static func normalize(_ value: String) -> String {
+        value.trimmingCharacters(in: .newlines)
+    }
+}
+
+/// API Key 专用原生安全输入。NSText field editor 原生拥有 Command-V、
+/// 菜单 Paste 和右键 Paste；不读取或记录剪贴板，也不在粘贴时提交。
+final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
+    var onTextChange: ((String) -> Void)?
+    var onSubmit: (() -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        delegate = self
+        target = self
+        action = #selector(submit)
+        font = .systemFont(ofSize: 14)
+        focusRingType = .none
+        isBezeled = false
+        drawsBackground = false
+        backgroundColor = .clear
+    }
+
+    @objc private func submit() {
+        onSubmit?()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        let normalized = SetupPaste.normalize(stringValue)
+        if stringValue != normalized { stringValue = normalized }
+        onTextChange?(normalized)
+    }
+
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        onFocusChange?(true)
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        onFocusChange?(false)
+    }
+}
+
+struct PasteCapableSecureField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    var isFocused: Binding<Bool>
+    let onSubmit: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeNSView(context: Context) -> SetupSecureTextField {
+        let field = SetupSecureTextField(frame: .zero)
+        field.onTextChange = { value in
+            if text != value { text = value }
+        }
+        field.onSubmit = onSubmit
+        field.onFocusChange = { focused in
+            if isFocused.wrappedValue != focused { isFocused.wrappedValue = focused }
+        }
+        return field
+    }
+
+    func updateNSView(_ field: SetupSecureTextField, context: Context) {
+        field.placeholderString = placeholder
+        field.isEnabled = isEnabled
+        if field.stringValue != text { field.stringValue = text }
+        if isFocused.wrappedValue, field.window != nil, field.currentEditor() == nil {
+            DispatchQueue.main.async { [weak field] in
+                guard let field, isFocused.wrappedValue, let window = field.window else { return }
+                window.makeFirstResponder(field)
+            }
+        } else if !isFocused.wrappedValue, field.currentEditor() != nil {
+            field.window?.makeFirstResponder(nil)
+        }
+    }
+}
+
 struct SetupFieldRow: View {
     let label: String
     let placeholder: String
@@ -83,17 +172,23 @@ struct SetupFieldRow: View {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
-            Group {
-                if secure {
-                    SecureField(placeholder, text: $text)
-                } else {
-                    TextField(placeholder, text: $text)
-                }
+            if secure {
+                PasteCapableSecureField(
+                    text: $text,
+                    placeholder: placeholder,
+                    isFocused: Binding(
+                        get: { focused.wrappedValue == field },
+                        set: { focused.wrappedValue = $0 ? field : nil }
+                    ),
+                    onSubmit: onSubmit
+                )
+            } else {
+                TextField(placeholder, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14))
+                    .focused(focused, equals: field)
+                    .onSubmit(onSubmit)
             }
-            .textFieldStyle(.plain)
-            .font(.system(size: 14))
-            .focused(focused, equals: field)
-            .onSubmit(onSubmit)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)

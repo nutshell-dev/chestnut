@@ -141,9 +141,9 @@ function presetChoice(
 /** 用户确认的固定顺序（不要按对象/枚举顺序生成）。 */
 export const SETUP_PROVIDER_CATALOG: readonly SetupProviderChoice[] = [
   presetChoice('deepseek', 'DeepSeek', 'DeepSeek API', 'deepseek', 'api_key', DEEPSEEK_CANDIDATES),
-  presetChoice('kimi', 'Kimi', 'Kimi Coding', 'kimi', 'api_key', KIMI_CANDIDATES),
-  presetChoice('qwen', 'Qwen', 'Qwen / DashScope (Anthropic)', 'qwen', 'api_key', QWEN_CANDIDATES),
-  presetChoice('glm', 'GLM', 'Z.AI GLM', 'zai', 'api_key', GLM_CANDIDATES),
+  presetChoice('kimi', 'Kimi', 'Moonshot', 'kimi', 'api_key', KIMI_CANDIDATES),
+  presetChoice('qwen', 'Qwen', 'Qwen / DashScope', 'qwen', 'api_key', QWEN_CANDIDATES),
+  presetChoice('glm', 'GLM', 'Zhipu / Z.AI', 'zai', 'api_key', GLM_CANDIDATES),
   presetChoice('minimax', 'MiniMax', 'MiniMax API', 'minimax', 'api_key', MINIMAX_CANDIDATES),
   presetChoice('openai', 'OpenAI', 'OpenAI API', 'openai'),
   presetChoice('gemini', 'Gemini', 'Google Gemini API', 'gemini'),
