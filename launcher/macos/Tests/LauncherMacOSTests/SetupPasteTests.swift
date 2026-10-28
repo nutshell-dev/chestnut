@@ -155,6 +155,32 @@ final class SetupPasteTests: XCTestCase {
         XCTAssertEqual(context.field.stringValue, "r")
     }
 
+    func testLongInputScrollsAndSurvivesFocusRoundTripWithoutTruncation() {
+        guard let context = makePasteWindow() else { return }
+        defer { context.window.orderOut(nil) }
+        let longFixture = String(repeating: "LONG_FIXTURE_", count: 24)
+        setClipboard(longFixture)
+        XCTAssertTrue(performMenuPaste())
+        XCTAssertTrue(waitFor { context.store.text == longFixture })
+        XCTAssertEqual(context.field.stringValue, longFixture)
+        XCTAssertFalse(context.field.cell?.wraps ?? true)
+        XCTAssertTrue(context.field.cell?.isScrollable ?? false)
+
+        sendKey("x", keyCode: 7, to: context.window)
+        let expected = longFixture + "x"
+        XCTAssertTrue(waitFor { context.store.text == expected })
+        let other = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 20))
+        context.window.contentView?.addSubview(other)
+        XCTAssertTrue(context.window.makeFirstResponder(other))
+        XCTAssertTrue(context.window.makeFirstResponder(context.field))
+        XCTAssertEqual(context.store.text, expected)
+        XCTAssertEqual(context.field.stringValue, expected)
+        guard let refocusedEditor = context.field.currentEditor() as? NSTextView else {
+            return XCTFail("missing editor after focus round trip")
+        }
+        XCTAssertTrue(waitFor { refocusedEditor.selectedRange().location == expected.count })
+    }
+
     func testReturnSubmitsOnlyAfterRealPasteReachesBinding() {
         guard let context = makePasteWindow() else { return }
         defer { context.window.orderOut(nil) }

@@ -216,8 +216,15 @@ public struct ChatView: View {
                 ForEach(dialogueGroups) { group in
                     VStack(alignment: .leading, spacing: composition.withinTurnGap) {
                         ForEach(group.items) { item in
+                            if item.boundary == .motionNewMessage {
+                                Rectangle()
+                                    .fill(Color.primary.opacity(composition.motionBoundaryOpacity))
+                                    .frame(height: 1)
+                                    .padding(.vertical, composition.motionMessageGap)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
                             messageRow(item.message)
-                                .padding(.top, item.boundary == .motionNewMessage ? composition.motionMessageGap : 0)
                                 .id(item.id)
                         }
                     }

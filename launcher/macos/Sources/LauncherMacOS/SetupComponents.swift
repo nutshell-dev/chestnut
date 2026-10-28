@@ -80,7 +80,6 @@ struct ProviderListAffordance: View {
             Text(SetupCopy.providerCount(count))
             Spacer(minLength: 0)
             if count > SetupVisual.visibleProviderCount {
-                Image(systemName: "chevron.down")
                 Text(SetupCopy.moreProvidersHint)
             }
         }
@@ -88,6 +87,8 @@ struct ProviderListAffordance: View {
         .foregroundStyle(.secondary)
         .frame(height: SetupVisual.providerHintHeight)
         .accessibilityIdentifier("setup.provider.overflow")
+        .accessibilityElement(children: .combine)
+        .allowsHitTesting(false)
     }
 }
 
@@ -164,6 +165,9 @@ final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
         target = self
         action = #selector(submit)
         font = .systemFont(ofSize: 14)
+        cell?.wraps = false
+        cell?.isScrollable = true
+        alignment = .left
         focusRingType = .none
         isEditable = true
         isSelectable = true
@@ -191,7 +195,15 @@ final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { SetupPasteMenuTarget.noteEditing(self) }
+        if accepted {
+            SetupPasteMenuTarget.noteEditing(self)
+            // 长 key 回焦后恢复末尾插入点和水平可见性；不全选、不改 Binding。
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let editor = currentEditor() as? NSTextView else { return }
+                editor.setSelectedRange(NSRange(location: (stringValue as NSString).length, length: 0))
+                editor.scrollToEndOfDocument(nil)
+            }
+        }
         return accepted
     }
 
@@ -499,7 +511,7 @@ struct SetupScaffold<Content: View, Actions: View>: View {
             HStack {
                 if let cancel {
                     Button(secondaryTitle, action: cancel)
-                        .buttonStyle(.plain)
+                        .buttonStyle(.bordered)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()

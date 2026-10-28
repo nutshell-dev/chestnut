@@ -21,8 +21,9 @@ public struct DialogueComposition: Equatable {
     public let reply: MessageStyleSpec
     public let firstGroupGap: CGFloat
     public let withinTurnGap: CGFloat
-    /// Additional whitespace before a new Motion messageId inside the same turn.
+    /// Vertical whitespace around the hairline before a new Motion messageId.
     public let motionMessageGap: CGFloat
+    public let motionBoundaryOpacity: Double
     public let betweenTurnsGap: CGFloat
     public let footerGap: CGFloat
 
@@ -41,7 +42,8 @@ public struct DialogueComposition: Equatable {
         ),
         firstGroupGap: 12,
         withinTurnGap: 10,
-        motionMessageGap: 14,
+        motionMessageGap: 10,
+        motionBoundaryOpacity: 0.10,
         betweenTurnsGap: 18,
         footerGap: 10
     )

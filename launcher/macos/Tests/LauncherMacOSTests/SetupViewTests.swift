@@ -25,7 +25,7 @@ final class SetupViewTests: XCTestCase {
     func testProviderOverflowIsVisibleAndKeyboardReachesEveryBoundary() throws {
         let count = 12
         XCTAssertEqual(SetupCopy.providerCount(count), "共 12 个服务供应商")
-        XCTAssertEqual(SetupCopy.moreProvidersHint, "滚动查看更多")
+        XCTAssertEqual(SetupCopy.moreProvidersHint, "下方还有供应商，可滚动查看")
         XCTAssertGreaterThan(count, SetupVisual.visibleProviderCount)
         XCTAssertEqual(providerSelectionIndex(current: nil, offset: 1, count: count), 0)
         XCTAssertEqual(providerSelectionIndex(current: nil, offset: -1, count: count), count - 1)
@@ -143,6 +143,14 @@ final class SetupViewTests: XCTestCase {
         XCTAssertTrue(source.view.contains("submissionGate.begin()"))
         XCTAssertFalse(source.view.contains("Picker("))
         XCTAssertFalse(source.view.contains("Text(failure.message)"))
+    }
+
+    func testSecondaryNavigationUsesVisibleNativeButtonTarget() throws {
+        let source = try setupSource()
+        let scaffold = source.components.components(separatedBy: "struct SetupScaffold")[1]
+        XCTAssertTrue(scaffold.contains("Button(secondaryTitle, action: cancel)"))
+        XCTAssertTrue(scaffold.contains(".buttonStyle(.bordered)"))
+        XCTAssertFalse(scaffold.contains("Button(secondaryTitle, action: cancel)\n                        .buttonStyle(.plain)"))
     }
 
     func testCredentialsOrderAndInputBridgeAvoidEditingFeedbackLoop() throws {
