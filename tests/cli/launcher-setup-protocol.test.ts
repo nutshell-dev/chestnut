@@ -56,7 +56,7 @@ describe('launcher setup.v1', () => {
     expect(response.payload.phase).toBe('needs_provider');
     expect(response.payload.catalog).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'openai' }),
-      expect.objectContaining({ id: 'kimi', description: 'Moonshot' }),
+      expect.objectContaining({ id: 'kimi', description: 'Moonshot AI' }),
       expect.objectContaining({ id: 'qwen', description: 'Qwen / DashScope' }),
       expect.objectContaining({ id: 'glm', description: 'Zhipu / Z.AI' }),
     ]));
