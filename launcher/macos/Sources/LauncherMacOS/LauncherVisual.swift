@@ -83,3 +83,19 @@ public enum LauncherVisual {
     public static var responseLeadingInset: CGFloat { composerHorizontalPadding }
 
 }
+
+/// 首次初始化 onboarding 的构图 token。只服务 Setup 组件，不改变聊天三态。
+public enum SetupVisual {
+    public static let panelWidth: CGFloat = 640
+    public static let contentWidth: CGFloat = 520
+    public static let horizontalInset: CGFloat = 28
+    public static let verticalInset: CGFloat = 24
+    public static let sectionGap: CGFloat = 20
+    public static let rowHeight: CGFloat = 52
+    public static let cornerRadius: CGFloat = 10
+    public static let providerListHeight: CGFloat = 288
+    public static let providerPanelHeight: CGFloat = 512
+    public static let credentialsPanelHeight: CGFloat = 408
+    public static let statusPanelHeight: CGFloat = 248
+    public static let repairPanelHeight: CGFloat = 264
+}

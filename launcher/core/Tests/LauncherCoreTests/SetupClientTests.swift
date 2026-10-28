@@ -6,6 +6,7 @@ final class SetupClientTests: XCTestCase {
     final class FakeProcess: SetupChestnutProcess, @unchecked Sendable {
         var argv: [String] = []
         var stdin: String?
+        var actions: [String] = []
         var response: (String, String) -> String = { requestId, _ in
             #"{"protocolVersion":"chestnut.launcher.setup.v1","requestId":"\#(requestId)","kind":"committed","payload":{"phase":"committed"}}"#
         }
@@ -19,6 +20,7 @@ final class SetupClientTests: XCTestCase {
             }
             let requestId = object["requestId"] as! String
             let action = object["action"] as! String
+            actions.append(action)
             return ProcessOutput(stdoutLines: [response(requestId, action)], stderr: "", exitCode: 0, terminationSignal: nil)
         }
         func stream(_ argv: [String]) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
@@ -77,5 +79,20 @@ final class SetupClientTests: XCTestCase {
         } catch let error as ChatError {
             guard case .protocolMismatch = error else { return XCTFail("wrong error: \(error)") }
         } catch { XCTFail("wrong error") }
+    }
+}
+
+extension SetupClientTests {
+    func testRetryAndCancelUseExistingActionsWithoutSecretFields() async throws {
+        let process = FakeProcess()
+        process.response = { requestId, _ in
+            #"{"protocolVersion":"chestnut.launcher.setup.v1","requestId":"\#(requestId)","kind":"state","payload":{"phase":"needs_provider","catalog":[]}}"#
+        }
+        let client = ChestnutSetupClient(process: process, argvPrefix: ["launcher", "setup", "--json"])
+        _ = try await client.retry()
+        _ = try await client.cancel()
+        XCTAssertEqual(process.actions, ["retry", "cancel"])
+        XCTAssertFalse(process.stdin?.contains("apiKey") == true)
+        XCTAssertFalse(process.argv.joined(separator: " ").contains("secret"))
     }
 }
