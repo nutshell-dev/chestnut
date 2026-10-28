@@ -108,6 +108,7 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var hotKeyController: LauncherHotKeyController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SetupPasteMenuTarget.install()
         let rootController = LauncherRootController(
             setupClient: LauncherClientFactory.makeSetupClient(),
             startNonInteractive: LauncherClientFactory.makeStartContinuation(),

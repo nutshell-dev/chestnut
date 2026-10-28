@@ -77,12 +77,14 @@ enum SetupPaste {
     }
 }
 
-/// API Key 专用原生安全输入。NSText field editor 原生拥有 Command-V、
-/// 菜单 Paste 和右键 Paste；不读取或记录剪贴板，也不在粘贴时提交。
+/// API Key 专用原生安全输入。显式 paste 只把剪贴板文本插入当前 field editor，
+/// 不记录剪贴板，也不在粘贴时提交。
 final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
     var onTextChange: ((String) -> Void)?
     var onSubmit: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    var onWindowAttach: (() -> Void)?
+    var lastContextMenu: NSMenu?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -100,9 +102,34 @@ final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
         action = #selector(submit)
         font = .systemFont(ofSize: 14)
         focusRingType = .none
+        isEditable = true
+        isSelectable = true
         isBezeled = false
         drawsBackground = false
         backgroundColor = .clear
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowAttach?()
+    }
+
+    func scheduleFocusRetry(remaining: Int = 40) {
+        if let editor = currentEditor(), window?.firstResponder === editor { return }
+        if let window {
+            isEditable = true
+            isSelectable = true
+            window.makeFirstResponder(self)
+            if currentEditor() == nil { selectText(nil) }
+        }
+        guard remaining > 0 else { return }
+        DispatchQueue.main.async { self.scheduleFocusRetry(remaining: remaining - 1) }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { SetupPasteMenuTarget.noteEditing(self) }
+        return accepted
     }
 
     @objc private func submit() {
@@ -115,11 +142,89 @@ final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
+        SetupPasteMenuTarget.noteEditing(self)
         onFocusChange?(true)
     }
 
     func controlTextDidEndEditing(_ notification: Notification) {
+        SetupPasteMenuTarget.endEditing(self)
         onFocusChange?(false)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSText.paste) else { return false }
+        paste(textView)
+        return true
+    }
+
+    @objc func paste(_ sender: Any?) {
+        if sender == nil, currentEditor() == nil {
+            window?.makeFirstResponder(self)
+            DispatchQueue.main.async { self.paste(nil) }
+            return
+        }
+        guard let editor = (sender as? NSTextView) ?? (currentEditor() as? NSTextView),
+              let value = NSPasteboard.general.string(forType: .string) else { return }
+        editor.insertText(value, replacementRange: editor.selectedRange)
+    }
+
+    func makePasteContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Paste", action: #selector(paste), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
+    }
+}
+
+/// accessory app 的 Edit→Paste 入口。只转发给当前正在编辑的 API Key field；
+/// 其他输入和聊天 composer 继续走原生 responder chain。
+final class SetupPasteMenuTarget: NSObject {
+    private static let shared = SetupPasteMenuTarget()
+    private static var installed = false
+    private(set) static weak var activeField: SetupSecureTextField?
+
+    static func noteEditing(_ field: SetupSecureTextField) {
+        activeField = field
+    }
+
+    static func endEditing(_ field: SetupSecureTextField) {
+        if activeField === field { activeField = nil }
+    }
+
+    static func install() {
+        guard !installed else { return }
+        installed = true
+        let mainMenu = NSApp.mainMenu ?? NSMenu()
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "Edit")
+        let pasteItem = NSMenuItem(title: "Paste", action: #selector(SetupPasteMenuTarget.paste), keyEquivalent: "v")
+        pasteItem.target = shared
+        editMenu.addItem(pasteItem)
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc func paste(_ sender: Any?) {
+        if let activeField = Self.activeField {
+            activeField.paste(nil)
+            return
+        }
+        for window in NSApp.windows {
+            guard let field = findSecureField(in: window.contentView), field.currentEditor() != nil else { continue }
+            field.paste(nil)
+            return
+        }
+    }
+
+    private func findSecureField(in view: NSView?) -> SetupSecureTextField? {
+        guard let view else { return nil }
+        if let field = view as? SetupSecureTextField { return field }
+        for subview in view.subviews {
+            if let field = findSecureField(in: subview) { return field }
+        }
+        return nil
     }
 }
 
@@ -134,11 +239,45 @@ struct PasteCapableSecureField: NSViewRepresentable {
         var text: Binding<String>
         var focused: Binding<Bool>
         var onSubmit: () -> Void
+        var isEditing = false
+        private var eventMonitor: Any?
 
         init(text: Binding<String>, focused: Binding<Bool>, onSubmit: @escaping () -> Void) {
             self.text = text
             self.focused = focused
             self.onSubmit = onSubmit
+        }
+
+        func installEventMonitor(_ field: SetupSecureTextField) {
+            guard eventMonitor == nil else { return }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .rightMouseDown]) {
+                [weak field] event in
+                guard let field, field.currentEditor() != nil, event.window === field.window else { return event }
+                if event.type == .keyDown,
+                   event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                   event.charactersIgnoringModifiers?.lowercased() == "v" {
+                    field.paste(nil)
+                    return nil
+                }
+                if event.type == .rightMouseDown {
+                    let menu = field.makePasteContextMenu()
+                    field.lastContextMenu = menu
+                    DispatchQueue.main.async {
+                        NSMenu.popUpContextMenu(menu, with: event, for: field)
+                    }
+                    return nil
+                }
+                return event
+            }
+        }
+
+        func removeEventMonitor() {
+            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            eventMonitor = nil
+        }
+
+        func scheduleFocus(_ field: SetupSecureTextField) {
+            field.scheduleFocusRetry()
         }
     }
 
@@ -156,15 +295,22 @@ struct PasteCapableSecureField: NSViewRepresentable {
             coordinator?.onSubmit()
         }
         field.onFocusChange = { [weak coordinator = context.coordinator] focused in
-            guard let coordinator, coordinator.focused.wrappedValue != focused else { return }
-            coordinator.focused.wrappedValue = focused
+            guard let coordinator else { return }
+            coordinator.isEditing = focused
+            if coordinator.focused.wrappedValue != focused { coordinator.focused.wrappedValue = focused }
         }
-        // 只在控件创建（credentials screen transition）时聚焦一次；updateNSView 不抢焦点。
-        DispatchQueue.main.async { [weak field] in
-            guard let field, let window = field.window else { return }
-            window.makeFirstResponder(field)
+        field.onWindowAttach = { [weak coordinator = context.coordinator, weak field] in
+            guard let coordinator, let field else { return }
+            coordinator.scheduleFocus(field)
         }
+        context.coordinator.installEventMonitor(field)
+        // window attach 后有界重试；updateNSView 不参与 first responder 管理。
+        context.coordinator.scheduleFocus(field)
         return field
+    }
+
+    func dismantleNSView(_ field: SetupSecureTextField, context: Context) {
+        context.coordinator.removeEventMonitor()
     }
 
     func updateNSView(_ field: SetupSecureTextField, context: Context) {
@@ -173,7 +319,7 @@ struct PasteCapableSecureField: NSViewRepresentable {
         context.coordinator.onSubmit = onSubmit
         field.placeholderString = placeholder
         field.isEnabled = isEnabled
-        if field.currentEditor() == nil, field.stringValue != text {
+        if !context.coordinator.isEditing, field.stringValue != text {
             field.stringValue = text
         }
     }

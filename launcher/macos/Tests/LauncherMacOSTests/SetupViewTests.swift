@@ -129,7 +129,9 @@ final class SetupViewTests: XCTestCase {
         let update = source.components.components(separatedBy: "func updateNSView")[1]
             .components(separatedBy: "struct SetupFieldRow")[0]
         XCTAssertFalse(update.contains("makeFirstResponder"))
-        XCTAssertTrue(update.contains("field.currentEditor() == nil"))
+        XCTAssertTrue(update.contains("!context.coordinator.isEditing"))
+        XCTAssertTrue(source.components.contains("viewDidMoveToWindow"))
+        XCTAssertTrue(source.components.contains("remaining: Int = 40"))
         XCTAssertTrue(source.components.contains("final class Coordinator"))
     }
 
