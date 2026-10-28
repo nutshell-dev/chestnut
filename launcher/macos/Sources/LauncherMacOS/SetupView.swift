@@ -15,6 +15,7 @@ final class LauncherRootController: ObservableObject {
     private let setupClient: any SetupClient
     private let startNonInteractive: () async throws -> Void
     private let makeStore: () -> ChatStore
+    private var providerCatalog: [SetupProvider] = []
 
     init(setupClient: any SetupClient,
          startNonInteractive: @escaping () async throws -> Void,
@@ -27,14 +28,14 @@ final class LauncherRootController: ObservableObject {
     func load() async {
         do {
             let setup = try await setupClient.status()
-            if setup == .committed { showChat() } else { state = .initializing(setup) }
+            if setup == .committed { showChat() } else { show(setup) }
         } catch { state = .failed(Self.failure(error)) }
     }
 
     func select(provider: SetupProvider) async -> SetupState? {
         do {
             let setup = try await setupClient.selectProvider(provider.id)
-            state = .initializing(setup)
+            show(setup)
             return setup
         } catch { state = .failed(Self.failure(error)); return nil }
     }
@@ -43,18 +44,18 @@ final class LauncherRootController: ObservableObject {
         state = .initializing(.probing(provider: input.providerId, model: input.model))
         do {
             let setup = try await setupClient.submit(input)
-            guard setup == .committed else { state = .initializing(setup); return }
+            guard setup == .committed else { show(setup); return }
             await continueStart()
         } catch { state = .failed(Self.failure(error)) }
     }
 
     func retry() async {
-        do { state = .initializing(try await setupClient.retry()) }
+        do { show(try await setupClient.retry()) }
         catch { state = .failed(Self.failure(error)) }
     }
 
     func cancel() async {
-        do { state = .initializing(try await setupClient.cancel()) }
+        do { show(try await setupClient.cancel()) }
         catch { state = .failed(Self.failure(error)) }
     }
 
@@ -64,6 +65,11 @@ final class LauncherRootController: ObservableObject {
         catch {
             state = .failed(SetupFailure(errorType: "start", message: "配置已保存，启动失败"))
         }
+    }
+
+    private func show(_ setup: SetupState) {
+        if case let .needsProvider(catalog) = setup { providerCatalog = catalog }
+        state = .initializing(setup)
     }
 
     private func showChat() {
@@ -128,7 +134,7 @@ struct SetupDraft {
         let input = SetupInput(
             providerId: provider.id,
             model: model,
-            apiKey: provider.auth == "local" || apiKey.isEmpty ? nil : apiKey,
+            apiKey: provider.auth == "local" || apiKey.isEmpty ? nil : SetupPaste.normalize(apiKey),
             baseUrl: provider.auth == "advanced" && !baseURL.isEmpty ? baseURL : nil
         )
         apiKey = ""
@@ -272,18 +278,10 @@ struct SetupView: View {
             title: SetupCopy.credentialsTitle,
             subtitle: SetupCopy.credentialsSubtitle(for: provider),
             height: screen.panelHeight,
-            cancel: { cancel() }
+            secondaryTitle: SetupCopy.backAction,
+            cancel: { backToProvider() }
         ) {
             VStack(spacing: 12) {
-                SetupFieldRow(
-                    label: SetupCopy.modelLabel,
-                    placeholder: provider.defaultModel ?? SetupCopy.modelLabel,
-                    secure: false,
-                    field: .model,
-                    text: Binding(get: { draft.model }, set: { draft.model = $0 }),
-                    focused: $focusedField,
-                    onSubmit: { submit(provider) }
-                )
                 if provider.auth != "local" {
                     SetupFieldRow(
                         label: SetupCopy.apiKeyLabel,
@@ -295,6 +293,16 @@ struct SetupView: View {
                         onSubmit: { submit(provider) }
                     )
                 }
+                SetupFieldRow(
+                    label: SetupCopy.modelLabel,
+                    placeholder: provider.defaultModel ?? SetupCopy.modelLabel,
+                    secure: false,
+                    field: .model,
+                    text: Binding(get: { draft.model }, set: { draft.model = $0 }),
+                    focused: $focusedField,
+                    onSubmit: { submit(provider) },
+                    hint: SetupCopy.defaultModelHint(modelDefault ?? provider.defaultModel)
+                )
                 if provider.auth == "advanced" {
                     SetupFieldRow(
                         label: SetupCopy.baseURLLabel,
@@ -397,6 +405,13 @@ struct SetupView: View {
         perform { await controller.submit(input) }
     }
 
+    private func backToProvider() {
+        guard !submissionGate.isSubmitting else { return }
+        focusedField = nil
+        draft.apiKey = ""
+        _ = controller.stateForProviderSelection()
+    }
+
     private func cancel() {
         guard submissionGate.begin() else { return }
         perform { await controller.cancel() }
@@ -411,6 +426,13 @@ struct SetupView: View {
 }
 
 extension LauncherRootController {
+    @discardableResult
+    func stateForProviderSelection() -> Bool {
+        guard !providerCatalog.isEmpty else { return false }
+        show(.needsProvider(catalog: providerCatalog))
+        return true
+    }
+
     func stateForEditing(provider: SetupProvider, model: String?) {
         state = .initializing(.needsCredentials(provider: provider, modelDefault: provider.defaultModel, model: model))
     }

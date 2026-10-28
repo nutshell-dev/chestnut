@@ -82,6 +82,9 @@ final class SetupViewTests: XCTestCase {
         XCTAssertFalse(SetupCopy.failure(SetupFailure(errorType: "network", message: "raw")).contains("API Key"))
         XCTAssertFalse(SetupCopy.failure(SetupFailure(errorType: "unknown", message: "raw")).contains("API Key"))
         XCTAssertTrue(SetupCopy.credentialsSubtitle(for: provider).contains("验证通过才会保存"))
+        XCTAssertEqual(SetupCopy.defaultModelHint("gpt-test"), "默认模型：gpt-test，可直接使用")
+        XCTAssertEqual(SetupCopy.backAction, "返回上一步")
+        XCTAssertEqual(SetupCopy.cancelAction, "退出设置")
     }
 
     func testEverySetupStateHasAnExplicitHeight() {
@@ -112,6 +115,22 @@ final class SetupViewTests: XCTestCase {
         XCTAssertTrue(source.view.contains("submissionGate.begin()"))
         XCTAssertFalse(source.view.contains("Picker("))
         XCTAssertFalse(source.view.contains("Text(failure.message)"))
+    }
+
+    func testCredentialsOrderAndInputBridgeAvoidEditingFeedbackLoop() throws {
+        let source = try setupSource()
+        let credentials = source.view.components(separatedBy: "private func credentialsScreen")[1]
+            .components(separatedBy: "private func repairScreen")[0]
+        let apiKey = credentials.range(of: "label: SetupCopy.apiKeyLabel")!.lowerBound
+        let model = credentials.range(of: "label: SetupCopy.modelLabel")!.lowerBound
+        let baseURL = credentials.range(of: "label: SetupCopy.baseURLLabel")!.lowerBound
+        XCTAssertTrue(apiKey < model && model < baseURL)
+        XCTAssertTrue(credentials.contains("hint: SetupCopy.defaultModelHint"))
+        let update = source.components.components(separatedBy: "func updateNSView")[1]
+            .components(separatedBy: "struct SetupFieldRow")[0]
+        XCTAssertFalse(update.contains("makeFirstResponder"))
+        XCTAssertTrue(update.contains("field.currentEditor() == nil"))
+        XCTAssertTrue(source.components.contains("final class Coordinator"))
     }
 
     func testSetupSourceDoesNotLogOrInterpolateApiKey() throws {

@@ -23,12 +23,18 @@ enum SetupCopy {
     static let retryStartAction = "重试启动"
     static let recheckAction = "重新检查"
     static let editAction = "修改配置"
-    static let cancelAction = "取消"
+    static let cancelAction = "退出设置"
+    static let backAction = "返回上一步"
 
-    static let modelLabel = "模型"
+    static let modelLabel = "模型名称"
     static let apiKeyLabel = "API Key"
     static let baseURLLabel = "Base URL（自定义服务地址）"
     static let localKeyPlaceholder = "本地服务无需 API Key"
+
+    static func defaultModelHint(_ model: String?) -> String {
+        guard let model, !model.isEmpty else { return "模型名称由 CLI 预填，可直接使用。" }
+        return "默认模型：\(model)，可直接使用"
+    }
 
     static func credentialsSubtitle(for provider: SetupProvider) -> String {
         "\(provider.description)。填写配置后，验证通过才会保存。"

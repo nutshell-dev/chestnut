@@ -95,7 +95,7 @@ public enum SetupVisual {
     public static let cornerRadius: CGFloat = 10
     public static let providerListHeight: CGFloat = 288
     public static let providerPanelHeight: CGFloat = 512
-    public static let credentialsPanelHeight: CGFloat = 408
+    public static let credentialsPanelHeight: CGFloat = 432
     public static let statusPanelHeight: CGFloat = 248
     public static let repairPanelHeight: CGFloat = 264
 }

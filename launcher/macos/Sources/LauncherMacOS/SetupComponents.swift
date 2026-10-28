@@ -110,9 +110,8 @@ final class SetupSecureTextField: NSSecureTextField, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ notification: Notification) {
-        let normalized = SetupPaste.normalize(stringValue)
-        if stringValue != normalized { stringValue = normalized }
-        onTextChange?(normalized)
+        // 编辑期间 field editor 唯一拥有 stringValue/selection；不逐字符 trim 或回写。
+        onTextChange?(stringValue)
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
@@ -131,29 +130,51 @@ struct PasteCapableSecureField: NSViewRepresentable {
     let onSubmit: () -> Void
     @Environment(\.isEnabled) private var isEnabled
 
+    final class Coordinator: NSObject {
+        var text: Binding<String>
+        var focused: Binding<Bool>
+        var onSubmit: () -> Void
+
+        init(text: Binding<String>, focused: Binding<Bool>, onSubmit: @escaping () -> Void) {
+            self.text = text
+            self.focused = focused
+            self.onSubmit = onSubmit
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, focused: isFocused, onSubmit: onSubmit)
+    }
+
     func makeNSView(context: Context) -> SetupSecureTextField {
         let field = SetupSecureTextField(frame: .zero)
-        field.onTextChange = { value in
-            if text != value { text = value }
+        field.onTextChange = { [weak coordinator = context.coordinator] value in
+            guard let coordinator, coordinator.text.wrappedValue != value else { return }
+            coordinator.text.wrappedValue = value
         }
-        field.onSubmit = onSubmit
-        field.onFocusChange = { focused in
-            if isFocused.wrappedValue != focused { isFocused.wrappedValue = focused }
+        field.onSubmit = { [weak coordinator = context.coordinator] in
+            coordinator?.onSubmit()
+        }
+        field.onFocusChange = { [weak coordinator = context.coordinator] focused in
+            guard let coordinator, coordinator.focused.wrappedValue != focused else { return }
+            coordinator.focused.wrappedValue = focused
+        }
+        // 只在控件创建（credentials screen transition）时聚焦一次；updateNSView 不抢焦点。
+        DispatchQueue.main.async { [weak field] in
+            guard let field, let window = field.window else { return }
+            window.makeFirstResponder(field)
         }
         return field
     }
 
     func updateNSView(_ field: SetupSecureTextField, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.focused = isFocused
+        context.coordinator.onSubmit = onSubmit
         field.placeholderString = placeholder
         field.isEnabled = isEnabled
-        if field.stringValue != text { field.stringValue = text }
-        if isFocused.wrappedValue, field.window != nil, field.currentEditor() == nil {
-            DispatchQueue.main.async { [weak field] in
-                guard let field, isFocused.wrappedValue, let window = field.window else { return }
-                window.makeFirstResponder(field)
-            }
-        } else if !isFocused.wrappedValue, field.currentEditor() != nil {
-            field.window?.makeFirstResponder(nil)
+        if field.currentEditor() == nil, field.stringValue != text {
+            field.stringValue = text
         }
     }
 }
@@ -166,6 +187,7 @@ struct SetupFieldRow: View {
     @Binding var text: String
     var focused: FocusState<SetupField?>.Binding
     let onSubmit: () -> Void
+    var hint: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -188,6 +210,11 @@ struct SetupFieldRow: View {
                     .font(.system(size: 14))
                     .focused(focused, equals: field)
                     .onSubmit(onSubmit)
+            }
+            if let hint {
+                Text(hint)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 12)
@@ -229,6 +256,7 @@ struct SetupScaffold<Content: View, Actions: View>: View {
     let title: String
     let subtitle: String?
     let height: CGFloat
+    let secondaryTitle: String
     let cancel: (() -> Void)?
     @ViewBuilder let content: Content
     @ViewBuilder let actions: Actions
@@ -238,6 +266,7 @@ struct SetupScaffold<Content: View, Actions: View>: View {
         title: String,
         subtitle: String? = nil,
         height: CGFloat,
+        secondaryTitle: String = SetupCopy.cancelAction,
         cancel: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content,
         @ViewBuilder actions: () -> Actions
@@ -246,6 +275,7 @@ struct SetupScaffold<Content: View, Actions: View>: View {
         self.title = title
         self.subtitle = subtitle
         self.height = height
+        self.secondaryTitle = secondaryTitle
         self.cancel = cancel
         self.content = content()
         self.actions = actions()
@@ -259,7 +289,7 @@ struct SetupScaffold<Content: View, Actions: View>: View {
             Spacer(minLength: SetupVisual.sectionGap)
             HStack {
                 if let cancel {
-                    Button(SetupCopy.cancelAction, action: cancel)
+                    Button(secondaryTitle, action: cancel)
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                 }
