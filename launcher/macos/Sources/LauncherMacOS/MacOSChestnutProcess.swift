@@ -39,32 +39,11 @@ public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendab
             let input = Pipe()
             if stdin != nil { process.standardInput = input }
 
-            let state = IOState()
-            stdout.fileHandleForReading.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-                state.lock.lock()
-                state.buffer.append(chunk)
-                state.lock.unlock()
-            }
-            stderr.fileHandleForReading.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-                state.lock.lock()
-                state.errData.append(chunk)
-                state.lock.unlock()
-            }
-
             process.terminationHandler = { proc in
-                stdout.fileHandleForReading.readabilityHandler = nil
-                stderr.fileHandleForReading.readabilityHandler = nil
-                // 进程已终止：读取管道残余数据直到 EOF
-                state.lock.lock()
-                state.buffer.append(stdout.fileHandleForReading.readDataToEndOfFile())
-                state.errData.append(stderr.fileHandleForReading.readDataToEndOfFile())
-                let outData = state.buffer
-                let errData = state.errData
-                state.lock.unlock()
+                // 一次性运行只在进程退出后单点读取到 EOF。不要让 readabilityHandler
+                // 与 terminationHandler 并发消费/快照管道，避免单行 ready JSON 丢失或截断。
+                let outData = stdout.fileHandleForReading.readDataToEndOfFile()
+                let errData = stderr.fileHandleForReading.readDataToEndOfFile()
 
                 let outText = String(decoding: outData, as: UTF8.self)
                 var lines = outText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -86,8 +65,6 @@ public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendab
                     try? input.fileHandleForWriting.close()
                 }
             } catch {
-                stdout.fileHandleForReading.readabilityHandler = nil
-                stderr.fileHandleForReading.readabilityHandler = nil
                 continuation.resume(throwing: ChatError.transport(detail: "launch failed: \(error.localizedDescription)"))
             }
         }

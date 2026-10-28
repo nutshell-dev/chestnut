@@ -4,8 +4,9 @@ import LauncherCore
 /// 原始 detail 和秘密继续留在 CLI/audit，不进入 SwiftUI。
 enum SetupCopy {
     static let setupTitle = "首次初始化"
-    static let providerStep = "第 1 步，共 2 步"
-    static let credentialsStep = "第 2 步，共 2 步"
+    static let providerStep = "第 1 步，共 3 步"
+    static let credentialsStep = "第 2 步，共 3 步"
+    static let languageStep = "第 3 步，共 3 步"
     static let providerTitle = "选择服务供应商"
     static let providerSubtitle = "选择用于 Motion 的模型服务。"
     static let credentialsTitle = "配置模型与凭据"
@@ -14,6 +15,11 @@ enum SetupCopy {
     static let startingTitle = "正在启动 Motion"
     static let startFailureTitle = "Motion 尚未启动"
     static let committedTitle = "配置已保存"
+    static let languageTitle = "Select language / 选择语言"
+    static let languageSubtitle = "type any word for auto-detect (e.g. hello, 你好)"
+    static let languageLabel = "语言样本"
+    static let languagePlaceholder = "留空自动检测；或输入 hello、你好等"
+    static let languageAction = "启动 Motion"
     static let pleaseWait = "请稍候…"
     static let readySubtitle = "配置已保存，即将进入对话。"
 

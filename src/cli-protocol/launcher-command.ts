@@ -7,12 +7,14 @@ export interface LauncherCapabilities {
   protocol: typeof LAUNCHER_PROTOCOL_VERSION_V2;
   commands: readonly LauncherCommand[];
   resync: 'snapshot';
+  languageMode: 'prompt_or_auto';
 }
 
 export const LAUNCHER_CAPABILITIES: LauncherCapabilities = {
   protocol: LAUNCHER_PROTOCOL_VERSION_V2,
   commands: LAUNCHER_COMMANDS,
   resync: 'snapshot',
+  languageMode: 'prompt_or_auto',
 };
 
 interface LauncherRequestBase {
@@ -27,6 +29,8 @@ export interface LauncherStatusRequest extends LauncherRequestBase {
 export interface LauncherStartRequest extends LauncherRequestBase {
   command?: 'start';
   timeoutMs?: number;
+  /** CLI-style language sample; omitted/empty means auto. */
+  languageSample?: string;
 }
 
 export interface LauncherSendRequest extends LauncherRequestBase {
@@ -76,6 +80,9 @@ export function parseLauncherStatusRequest(line: string): LauncherStatusRequest 
 export function parseLauncherStartRequest(line: string): LauncherStartRequest {
   const request = parseObject(line);
   assertCommand(request, 'start');
+  if (request.languageSample !== undefined && typeof request.languageSample !== 'string') {
+    throw new Error('languageSample must be a string');
+  }
   if (request.timeoutMs !== undefined
     && (!Number.isInteger(request.timeoutMs) || (request.timeoutMs as number) <= 0)) {
     throw new Error('timeoutMs must be a positive integer');

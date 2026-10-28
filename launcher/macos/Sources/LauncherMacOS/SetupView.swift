@@ -13,12 +13,14 @@ final class LauncherRootController: ObservableObject {
     @Published private(set) var state: LauncherRootState = .initializing(.needsProvider(catalog: []))
 
     private let setupClient: any SetupClient
-    private let startNonInteractive: () async throws -> Void
+    private let startNonInteractive: (String?) async throws -> Void
     private let makeStore: () -> ChatStore
     private var providerCatalog: [SetupProvider] = []
+    private var languageSample: String?
+    private var requiresLanguageSample = false
 
     init(setupClient: any SetupClient,
-         startNonInteractive: @escaping () async throws -> Void,
+         startNonInteractive: @escaping (String?) async throws -> Void,
          makeStore: @escaping () -> ChatStore) {
         self.setupClient = setupClient
         self.startNonInteractive = startNonInteractive
@@ -28,7 +30,9 @@ final class LauncherRootController: ObservableObject {
     func load() async {
         do {
             let setup = try await setupClient.status()
-            if setup == .committed { showChat() } else { show(setup) }
+            if setup == .committed {
+                if requiresLanguageSample { state = .initializing(.committed) } else { showChat() }
+            } else { show(setup) }
         } catch { state = .failed(Self.failure(error)) }
     }
 
@@ -45,7 +49,9 @@ final class LauncherRootController: ObservableObject {
         do {
             let setup = try await setupClient.submit(input)
             guard setup == .committed else { show(setup); return }
-            await continueStart()
+            // Probe/commit 成功后先取得语言样本，再启动 Motion onboarding。
+            requiresLanguageSample = true
+            state = .initializing(.committed)
         } catch { state = .failed(Self.failure(error)) }
     }
 
@@ -59,9 +65,15 @@ final class LauncherRootController: ObservableObject {
         catch { state = .failed(Self.failure(error)) }
     }
 
+    func submitLanguage(_ sample: String?) async {
+        languageSample = sample
+        requiresLanguageSample = false
+        await continueStart()
+    }
+
     func continueStart() async {
         state = .starting
-        do { try await startNonInteractive(); showChat() }
+        do { try await startNonInteractive(languageSample); showChat() }
         catch {
             state = .failed(SetupFailure(errorType: "start", message: "配置已保存，启动失败"))
         }
@@ -88,7 +100,7 @@ enum SetupScreen: Equatable {
     case probing(provider: String, model: String)
     case repair(provider: SetupProvider?, model: String?, failure: SetupFailure)
     case starting
-    case committed
+    case language
 
     init(_ setup: SetupState) {
         switch setup {
@@ -101,7 +113,7 @@ enum SetupScreen: Equatable {
         case let .repair(provider, model, failure, _):
             self = .repair(provider: provider, model: model, failure: failure)
         case .committed:
-            self = .committed
+            self = .language
         }
     }
 
@@ -110,7 +122,8 @@ enum SetupScreen: Equatable {
         case .provider: return SetupVisual.providerPanelHeight
         case .credentials: return SetupVisual.credentialsPanelHeight
         case .repair: return SetupVisual.repairPanelHeight
-        case .probing, .starting, .committed: return SetupVisual.statusPanelHeight
+        case .probing, .starting: return SetupVisual.statusPanelHeight
+        case .language: return SetupVisual.credentialsPanelHeight
         }
     }
 }
@@ -186,6 +199,7 @@ struct SetupView: View {
 
     @State private var selectedProviderId = ""
     @State private var draft = SetupDraft()
+    @State private var languageSample = ""
     @State private var submissionGate = SetupSubmissionGate()
     @FocusState private var focusedField: SetupField?
 
@@ -232,8 +246,8 @@ struct SetupView: View {
             repairScreen(provider: provider, savedModel: savedModel, failure: failure)
         case .starting:
             statusScreen(title: SetupCopy.startingTitle, subtitle: nil, busy: true)
-        case .committed:
-            statusScreen(title: SetupCopy.committedTitle, subtitle: nil, busy: false)
+        case .language:
+            languageScreen()
         }
     }
 
@@ -327,6 +341,33 @@ struct SetupView: View {
         }
     }
 
+    private func languageScreen() -> some View {
+        SetupScaffold(
+            step: SetupCopy.languageStep,
+            title: SetupCopy.languageTitle,
+            subtitle: SetupCopy.languageSubtitle,
+            height: screen.panelHeight
+        ) {
+            SetupFieldRow(
+                label: SetupCopy.languageLabel,
+                placeholder: SetupCopy.languagePlaceholder,
+                secure: false,
+                field: .language,
+                text: $languageSample,
+                focused: $focusedField,
+                onSubmit: submitLanguage
+            )
+            .disabled(submissionGate.isSubmitting)
+        } actions: {
+            SetupPrimaryAction(
+                title: SetupCopy.languageAction,
+                disabled: false,
+                busy: submissionGate.isSubmitting,
+                action: submitLanguage
+            )
+        }
+    }
+
     private func repairScreen(provider: SetupProvider?, savedModel: String?, failure: SetupFailure) -> some View {
         let isStartFailure = failure.errorType == "start"
         return SetupScaffold(
@@ -385,6 +426,9 @@ struct SetupView: View {
         case let .credentials(provider, modelDefault, savedModel):
             draft.configure(provider: provider, modelDefault: modelDefault, savedModel: savedModel)
             focusedField = provider.auth == "local" ? .model : .apiKey
+        case .language:
+            languageSample = ""
+            focusedField = .language
         default:
             break
         }
@@ -403,6 +447,13 @@ struct SetupView: View {
         let input = draft.consumeInput(provider: provider)
         focusedField = nil
         perform { await controller.submit(input) }
+    }
+
+    private func submitLanguage() {
+        guard submissionGate.begin() else { return }
+        let sample = languageSample.trimmingCharacters(in: .whitespacesAndNewlines)
+        focusedField = nil
+        perform { await controller.submitLanguage(sample.isEmpty ? nil : sample) }
     }
 
     private func backToProvider() {

@@ -69,7 +69,7 @@ export const MIGRATED: MigratedSource[] = [
   {
     // phase 1909 Step B: onboarding 创建/恢复通知正文迁模板单源（机械迁移，逐字节不变）
     // phase 1909 Step C: 同文件 onboarding 子任务描述字面随迁（复用本条目扩 fragments）
-    id: 'M13', file: 'cli/commands/start.ts',
+    id: 'M13', file: 'cli/start-bootstrap.ts',
     fragments: [
       'New contract created (${contractId}): Onboarding. Please begin execution.',
       'Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.',

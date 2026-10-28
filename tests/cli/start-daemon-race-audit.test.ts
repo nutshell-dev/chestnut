@@ -1,5 +1,5 @@
 /**
- * start.ts daemonReady race audit tests — phase 816 Step B3
+ * shared start bootstrap daemonReady race audit tests — phase 816 Step B3
  *
  * 验证 daemonReady.catch 内 audit emit + await daemonReady rethrow 保留
  */
@@ -10,10 +10,10 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const startPath = path.join(__dirname, '../../src/cli/commands/start.ts');
+const startPath = path.join(__dirname, '../../src/cli/start-bootstrap.ts');
 const auditEventsPath = path.join(__dirname, '../../src/cli/audit-events.ts');
 
-describe('start.ts daemonReady race audit (phase 816 B3)', () => {
+describe('start-bootstrap.ts daemonReady race audit (phase 816 B3)', () => {
   const sourceCode = fs.readFileSync(startPath, 'utf-8');
   const auditEventsCode = fs.readFileSync(auditEventsPath, 'utf-8');
 
@@ -21,8 +21,8 @@ describe('start.ts daemonReady race audit (phase 816 B3)', () => {
     expect(auditEventsCode).toMatch(/DAEMON_SPAWN_RACE_FAILED:\s*'cli_daemon_spawn_race_failed'/);
   });
 
-  it('start.ts 导入 CLI_AUDIT_EVENTS', () => {
-    expect(sourceCode).toContain("import { CLI_AUDIT_EVENTS } from '../audit-events.js';");
+  it('start-bootstrap.ts 导入 CLI_AUDIT_EVENTS', () => {
+    expect(sourceCode).toContain("import { CLI_AUDIT_EVENTS } from './audit-events.js';");
   });
 
   it('daemonReady.catch 不再是空箭头函数', () => {

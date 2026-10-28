@@ -11,6 +11,19 @@ final class RecoveryTests: XCTestCase {
         """
     }
 
+    // MARK: start ready
+
+    func testStartReadyDecodesOnboardingFactWithoutOwningBusinessLogic() throws {
+        let line = envelopeLine(
+            "daemon",
+            sequence: 1,
+            payload: #"{"state":"running","detail":"ready","onboarding":"created"}"#
+        )
+        let envelope = try LauncherWireDecoder().decode(line: line)
+        XCTAssertEqual(envelope.kind, .daemon)
+        XCTAssertEqual(envelope.onboarding, .created)
+    }
+
     // MARK: send
 
     func testSendAcceptedWithAckEnvelope() async throws {

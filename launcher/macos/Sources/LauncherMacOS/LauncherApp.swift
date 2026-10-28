@@ -43,20 +43,25 @@ enum LauncherClientFactory {
         )
     }
 
-    static func makeStartContinuation(environment: [String: String] = ProcessInfo.processInfo.environment) -> () async throws -> Void {
-        return {
+    static func makeStartContinuation(environment: [String: String] = ProcessInfo.processInfo.environment) -> (String?) async throws -> Void {
+        return { languageSample in
             guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else {
                 throw ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；无法启动 chestnut")
             }
+            var request: [String: Any] = ["command": "start"]
+            if let languageSample { request["languageSample"] = languageSample }
+            let requestData = try JSONSerialization.data(withJSONObject: request)
             let output = try await makeProcess().run(
                 ["node", cliPath, "launcher", "start", "--json"],
-                stdin: "{\"command\":\"start\"}\n"
+                stdin: String(decoding: requestData, as: UTF8.self) + "\n"
             )
             guard output.exitCode == 0, output.terminationSignal == nil, let line = output.stdoutLines.first else {
                 throw ChatError.rejected(detail: output.stderr.isEmpty ? "launcher start failed" : output.stderr)
             }
             let envelope = try LauncherWireDecoder().decode(line: line)
-            guard envelope.kind == .daemon, envelope.payload["state"]?.stringValue == "running" else {
+            guard envelope.kind == .daemon,
+                  envelope.payload["state"]?.stringValue == "running",
+                  envelope.onboarding != nil else {
                 throw ChatError.rejected(detail: envelope.payload["detail"]?.stringValue ?? "launcher runtime not ready")
             }
         }

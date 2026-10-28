@@ -120,6 +120,7 @@ export function launcherActivityEnvelope(
 // Phase 2013: v2 is additive; the claw-specific v1 surface above remains unchanged.
 export const LAUNCHER_PROTOCOL_VERSION_V2 = 'chestnut.launcher.v2' as const;
 export type DaemonState = 'unknown' | 'starting' | 'running' | 'stopped' | 'error';
+export type LauncherOnboardingState = 'complete' | 'created' | 'resumed' | 'pending';
 export type DeliveryState = 'persisted' | 'queued' | 'processing' | 'rejected';
 export type LauncherTerminalReason = 'stopped' | 'completed' | 'protocol_error';
 
@@ -127,6 +128,8 @@ export interface LauncherDaemonPayload {
   state: DaemonState;
   sinceMs?: number;
   detail?: string;
+  /** Present on start ready: shared bootstrap has already ensured/notified onboarding. */
+  onboarding?: LauncherOnboardingState;
 }
 
 export interface LauncherMessagePayload {

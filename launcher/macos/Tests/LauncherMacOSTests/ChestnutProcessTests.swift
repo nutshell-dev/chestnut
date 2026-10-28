@@ -37,6 +37,18 @@ final class ChestnutProcessTests: XCTestCase {
         XCTAssertNil(output.terminationSignal)
     }
 
+    func testRunDoesNotLoseSingleReadyLineAtProcessExit() async throws {
+        let script = try makeScript(
+            "ready.sh",
+            "#!/bin/sh\nprintf '{\\\"protocol\\\":\\\"chestnut.launcher.v2\\\",\\\"kind\\\":\\\"daemon\\\",\\\"payload\\\":{\\\"state\\\":\\\"running\\\",\\\"onboarding\\\":\\\"created\\\"}}\\n'\n"
+        )
+        for _ in 0..<100 {
+            let output = try await MacOSChestnutProcess(executableURL: script).run([])
+            XCTAssertEqual(output.stdoutLines.count, 1)
+            XCTAssertEqual(output.stdoutLines.first?.contains("\"onboarding\":\"created\""), true)
+        }
+    }
+
     func testRunCapturesNonZeroExitAndStderr() async throws {
         let script = try makeScript("fail.sh", "#!/bin/sh\necho partial-out\necho boom >&2\nexit 3\n")
         let output = try await MacOSChestnutProcess(executableURL: script).run([])

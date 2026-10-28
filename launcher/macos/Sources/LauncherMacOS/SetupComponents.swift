@@ -6,6 +6,7 @@ enum SetupField: Hashable {
     case model
     case apiKey
     case baseURL
+    case language
 }
 
 struct SetupStepHeader: View {

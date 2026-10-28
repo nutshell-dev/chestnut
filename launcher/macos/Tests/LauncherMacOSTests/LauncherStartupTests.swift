@@ -20,7 +20,7 @@ final class LauncherStartupTests: XCTestCase {
         var starts = 0
         let controller = LauncherRootController(
             setupClient: FakeSetupClient(.committed),
-            startNonInteractive: { starts += 1 },
+            startNonInteractive: { _ in starts += 1 },
             makeStore: {
                 creations += 1
                 return ChatStore(send: UnconfiguredSendClient(), stream: UnconfiguredStreamClient())
@@ -33,20 +33,33 @@ final class LauncherStartupTests: XCTestCase {
         XCTAssertEqual(starts, 0)
     }
 
-    func testCommittedSetupStartsBeforeCreatingChat() async {
+    func testCommittedSetupWaitsForLanguageSampleBeforeCreatingChat() async {
         var creations = 0
-        var starts = 0
+        var samples: [String?] = []
         let controller = LauncherRootController(
             setupClient: FakeSetupClient(.committed),
-            startNonInteractive: { starts += 1 },
+            startNonInteractive: { sample in samples.append(sample) },
             makeStore: {
                 creations += 1
                 return ChatStore(send: UnconfiguredSendClient(), stream: UnconfiguredStreamClient())
             }
         )
         await controller.submit(SetupInput(providerId: "openai", model: "gpt-test", apiKey: "secret"))
+        guard case .initializing(.committed) = controller.state else {
+            return XCTFail("expected language step after committed setup")
+        }
+        XCTAssertEqual(samples.count, 0)
+        XCTAssertEqual(creations, 0)
+        await controller.load() // SwiftUI task 重入也不得跳过语言步骤
+        guard case .initializing(.committed) = controller.state else {
+            return XCTFail("committed reload must preserve the language step")
+        }
+        XCTAssertEqual(samples.count, 0)
+        XCTAssertEqual(creations, 0)
+        await controller.submitLanguage("你好")
         guard case .chat = controller.state else { return XCTFail("expected chat") }
-        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples[0] ?? nil, "你好")
         XCTAssertEqual(creations, 1)
     }
 
@@ -55,7 +68,7 @@ final class LauncherStartupTests: XCTestCase {
         let client = FakeSetupClient(.needsProvider(catalog: [provider]))
         let controller = LauncherRootController(
             setupClient: client,
-            startNonInteractive: {},
+            startNonInteractive: { _ in },
             makeStore: { ChatStore(send: UnconfiguredSendClient(), stream: UnconfiguredStreamClient()) }
         )
         await controller.load()
@@ -72,10 +85,11 @@ final class LauncherStartupTests: XCTestCase {
     func testStartFailureIsDistinctFromCommittedConfiguration() async {
         let controller = LauncherRootController(
             setupClient: FakeSetupClient(.committed),
-            startNonInteractive: { throw ChatError.rejected(detail: "daemon failed") },
+            startNonInteractive: { _ in throw ChatError.rejected(detail: "daemon failed") },
             makeStore: { ChatStore(send: UnconfiguredSendClient(), stream: UnconfiguredStreamClient()) }
         )
         await controller.submit(SetupInput(providerId: "openai", model: "gpt-test"))
+        await controller.continueStart()
         guard case let .failed(error) = controller.state else { return XCTFail("expected start failure") }
         XCTAssertEqual(error.errorType, "start")
         XCTAssertTrue(error.message.contains("配置已保存"))

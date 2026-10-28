@@ -9,6 +9,14 @@ public enum LauncherDaemonState: String, Equatable, Sendable {
     case error
 }
 
+/// CLI shared bootstrap 的 onboarding 事实；Swift 只解码，不创建或恢复 contract。
+public enum LauncherOnboardingState: String, Equatable, Sendable {
+    case complete
+    case created
+    case resumed
+    case pending
+}
+
 /// send_ack 的真实投递阶段；persisted 不代表 daemon 已开始处理。
 public enum LauncherDeliveryState: String, Equatable, Sendable {
     case persisted
@@ -42,6 +50,14 @@ public struct LauncherWireEnvelope: Equatable, Sendable {
         self.sequence = sequence
         self.kind = kind
         self.payload = payload
+    }
+}
+
+extension LauncherWireEnvelope {
+    /// start ready envelope 携带的 onboarding 结果；其他 daemon 事件可以为空。
+    public var onboarding: LauncherOnboardingState? {
+        guard kind == .daemon, let raw = payload["onboarding"]?.stringValue else { return nil }
+        return LauncherOnboardingState(rawValue: raw)
     }
 }
 

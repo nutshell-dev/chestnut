@@ -10,6 +10,12 @@ import type { DaemonState, LauncherSnapshotPayload } from '../../src/cli-protoco
 const mocks = vi.hoisted(() => ({
   reader: { start: vi.fn(), stop: vi.fn(async () => {}) },
   onEvent: undefined as ((event: unknown) => void) | undefined,
+  bootstrap: vi.fn(),
+}));
+
+vi.mock('../../src/cli/start-bootstrap.js', () => ({
+  ensureStartBootstrap: mocks.bootstrap,
+  getOnboardingStatus: vi.fn(() => ({ state: 'not_found' })),
 }));
 
 vi.mock('../../src/cli/commands/launcher-runtime.js', () => ({
@@ -59,6 +65,9 @@ describe('launcher v2 failure matrix', () => {
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.mocked(deliverClawMessage).mockResolvedValue(undefined);
     vi.mocked(readLauncherSnapshot).mockReturnValue(snapshot());
+    mocks.bootstrap.mockResolvedValue({
+      verified: {}, daemon: { state: 'running' }, onboarding: { state: 'created', contractId: 'onboarding' },
+    });
     mocks.reader.start.mockReset();
     mocks.reader.stop.mockClear();
   });
@@ -84,6 +93,23 @@ describe('launcher v2 failure matrix', () => {
     const notReadyDeps = { rootConfig: { getInitializationState: () => 'absent' } } as never;
     await expect(executeLauncherStart(notReadyDeps, {}, { ensureSupervision })).rejects.toThrow(/setup first/);
     expect(ensureSupervision).not.toHaveBeenCalled();
+  });
+
+  it('does not return ready when shared onboarding bootstrap fails', async () => {
+    mocks.bootstrap.mockRejectedValue(new Error('contract recovery failed'));
+    await expect(executeLauncherStart(deps, {}, { ensureSupervision: vi.fn() }))
+      .rejects.toThrow('contract recovery failed');
+    expect(readLauncherDaemon).not.toHaveBeenCalled();
+  });
+
+  it('returns ready only after bootstrap and includes its onboarding fact', async () => {
+    vi.mocked(readLauncherDaemon).mockReturnValue(daemon('running'));
+    const result = await executeLauncherStart(deps, {}, { ensureSupervision: vi.fn() });
+    expect(result).toMatchObject({
+      kind: 'daemon', payload: { state: 'running', detail: 'ready', onboarding: 'created' },
+    });
+    expect(mocks.bootstrap.mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(readLauncherDaemon).mock.invocationCallOrder[0]);
   });
 
   it('emits daemon stopped and terminal when a running daemon dies', async () => {

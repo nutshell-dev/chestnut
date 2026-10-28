@@ -191,8 +191,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // Output results
   audit?.write(CLI_AUDIT_EVENTS.MOTION_INIT);
-  console.log('\n✓ Motion initialized successfully');
   if (!silent) {
+    console.log('\n✓ Motion initialized successfully');
     console.log(`\nYou can now run: chestnut motion chat`);
   }
 }

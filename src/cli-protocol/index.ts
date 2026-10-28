@@ -90,6 +90,7 @@ export type {
   LauncherSendAckPayload,
   LauncherErrorPayload,
   DaemonState,
+  LauncherOnboardingState,
   DeliveryState,
   LauncherTerminalReason,
 } from './launcher-envelope.js';

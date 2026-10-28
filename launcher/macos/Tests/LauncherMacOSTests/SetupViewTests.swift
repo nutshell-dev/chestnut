@@ -85,6 +85,9 @@ final class SetupViewTests: XCTestCase {
         XCTAssertEqual(SetupCopy.defaultModelHint("gpt-test"), "默认模型：gpt-test，可直接使用")
         XCTAssertEqual(SetupCopy.backAction, "返回上一步")
         XCTAssertEqual(SetupCopy.cancelAction, "退出设置")
+        XCTAssertEqual(SetupCopy.languageStep, "第 3 步，共 3 步")
+        XCTAssertEqual(SetupCopy.languageTitle, "Select language / 选择语言")
+        XCTAssertTrue(SetupCopy.languageSubtitle.contains("auto-detect"))
     }
 
     func testEverySetupStateHasAnExplicitHeight() {
@@ -94,7 +97,7 @@ final class SetupViewTests: XCTestCase {
             .probing(provider: provider.id, model: "gpt-test"),
             .repair(provider: provider, model: "gpt-test", failure: SetupFailure(errorType: "auth", message: "raw")),
             .starting,
-            .committed,
+            .language,
         ]
         XCTAssertEqual(Set(screens.map(\.panelHeight)).count, 4)
         for screen in screens {
@@ -102,6 +105,12 @@ final class SetupViewTests: XCTestCase {
             XCTAssertEqual(SetupVisual.panelWidth, 640)
             XCTAssertEqual(SetupVisual.contentWidth, 520)
         }
+    }
+
+    func testCommittedSetupProjectsToLanguageInputStep() {
+        let screen = SetupScreen(.committed)
+        guard case .language = screen else { return XCTFail("expected language input after probe commit") }
+        XCTAssertEqual(screen.panelHeight, SetupVisual.credentialsPanelHeight)
     }
 
     func testOnboardingStructureUsesRowsSecureInputAndKeyboardPrimaryAction() throws {

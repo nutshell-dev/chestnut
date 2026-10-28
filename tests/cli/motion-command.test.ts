@@ -25,4 +25,11 @@ describe('motion command supervision refactor', () => {
     const mod = await import('../../src/cli/commands/motion.js');
     expect(typeof mod.chatCommand).toBe('function');
   });
+
+  it('silent init 的成功文案位于 !silent 输出边界内', () => {
+    const source = fs.readFileSync(MOTION_SOURCE, 'utf-8');
+    expect(source).toContain(
+      "if (!silent) {\n    console.log('\\n✓ Motion initialized successfully');",
+    );
+  });
 });

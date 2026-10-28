@@ -1,8 +1,6 @@
 import type { RootConfigAdmin } from '../../assembly/index.js';
-import { CLAW_SPEC_FILE, getChestnutRoot, getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
-import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { createDaemonSpawnOptions, ensureMotionLLMIdentity } from '../../daemon/index.js';
+import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import {
@@ -12,9 +10,8 @@ import {
   type LauncherStartRequest,
   type LauncherV2Envelope,
 } from '../../cli-protocol/index.js';
-import { ensureStartLLMVerified } from '../start-llm-gate.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
-import { initCommand as motionInitCommand } from './motion.js';
+import { ensureStartBootstrap, getOnboardingStatus } from '../start-bootstrap.js';
 import { readLauncherDaemon, type LauncherCommandDeps } from './launcher-runtime.js';
 
 /** Matches ProcessManager's existing 30s boot deadline; callers may shorten it explicitly. */
@@ -32,34 +29,22 @@ export async function executeLauncherStart(
   if (deps.rootConfig.getInitializationState() !== 'ready') {
     throw new Error('workspace initialization is not ready; run launcher setup first');
   }
-  const verified = await ensureStartLLMVerified(deps, { audit: runtime.audit, interactive: false });
-  await runtime.ensureSupervision();
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
-  if (!deps.fsFactory(motionDir).existsSync(CLAW_SPEC_FILE)) await motionInitCommand(deps, true);
-  const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-  const daemonDir = resolveClawDaemonDir(MOTION_CLAW_ID);
-  const ready = pm.ensureRunning(daemonDir, createDaemonSpawnOptions({
-    clawId: MOTION_CLAW_ID,
-    agentDir: motionDir,
-    chestnutRoot: getChestnutRoot(),
-    expectedLLMIdentity: verified.snapshot.identity,
-  }));
-  const timeoutMs = request.timeoutMs ?? DEFAULT_LAUNCHER_START_TIMEOUT_MS;
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    await Promise.race([
-      ready,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`Motion readiness timed out after ${timeoutMs}ms`)), timeoutMs);
-      }),
-    ]);
-    ensureMotionLLMIdentity(pm, daemonDir, verified.snapshot.identity);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  const result = await ensureStartBootstrap(deps, runtime, {
+    interactive: false,
+    languageMode: 'auto',
+    firstRun: false,
+    onboarding: getOnboardingStatus(motionDir, deps),
+    languageSample: request.languageSample?.trim() || undefined,
+    daemonReadyTimeoutMs: request.timeoutMs ?? DEFAULT_LAUNCHER_START_TIMEOUT_MS,
+  });
   const daemon = readLauncherDaemon(deps);
   if (daemon.state !== 'running') throw new Error(daemon.detail ?? `daemon state is ${daemon.state}`);
-  return makeLauncherV2Envelope(1, 'daemon', { state: 'running', detail: 'ready' });
+  return makeLauncherV2Envelope(1, 'daemon', {
+    state: 'running',
+    detail: 'ready',
+    onboarding: result.onboarding.state,
+  });
 }
 
 export async function launcherStartCommand(
@@ -68,8 +53,16 @@ export async function launcherStartCommand(
 ): Promise<void> {
   let input = '';
   for await (const chunk of process.stdin) input += String(chunk);
+  let request: LauncherStartRequest;
   try {
-    const request = parseLauncherStartRequest(input.trim() || '{}');
+    request = parseLauncherStartRequest(input.trim() || '{}');
+  } catch (err) {
+    writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(1, 'error', {
+      class: 'protocol_error', detail: formatErr(err), retryable: false,
+    }));
+    return;
+  }
+  try {
     writeLauncherV2Envelope(process.stdout, await executeLauncherStart(deps, request, runtime));
   } catch (err) {
     writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(1, 'error', {
