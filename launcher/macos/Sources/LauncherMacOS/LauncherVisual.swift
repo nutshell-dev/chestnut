@@ -21,6 +21,8 @@ public struct DialogueComposition: Equatable {
     public let reply: MessageStyleSpec
     public let firstGroupGap: CGFloat
     public let withinTurnGap: CGFloat
+    /// Additional whitespace before a new Motion messageId inside the same turn.
+    public let motionMessageGap: CGFloat
     public let betweenTurnsGap: CGFloat
     public let footerGap: CGFloat
 
@@ -39,6 +41,7 @@ public struct DialogueComposition: Equatable {
         ),
         firstGroupGap: 12,
         withinTurnGap: 10,
+        motionMessageGap: 14,
         betweenTurnsGap: 18,
         footerGap: 10
     )
@@ -93,8 +96,10 @@ public enum SetupVisual {
     public static let sectionGap: CGFloat = 20
     public static let rowHeight: CGFloat = 52
     public static let cornerRadius: CGFloat = 10
-    public static let providerListHeight: CGFloat = 288
-    public static let providerPanelHeight: CGFloat = 512
+    public static let visibleProviderCount = 6
+    public static let providerListHeight: CGFloat = 360
+    public static let providerHintHeight: CGFloat = 24
+    public static let providerPanelHeight: CGFloat = 584
     public static let credentialsPanelHeight: CGFloat = 432
     public static let statusPanelHeight: CGFloat = 248
     public static let repairPanelHeight: CGFloat = 264

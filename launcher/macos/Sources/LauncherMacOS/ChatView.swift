@@ -11,9 +11,41 @@ struct ResponseHeightPreferenceKey: PreferenceKey {
 
 /// 纯 UI 视觉组：user 开组，后续非 user 归入该轮；孤立回复独立成组。
 /// id 取自首条消息，流式 upsert 不改变组身份，不引入新的 ChatState。
+enum MessageBoundary: Equatable {
+    case userStart
+    case motionContinuation
+    case motionNewMessage
+}
+
+struct DialogueItem: Identifiable {
+    let id: String
+    let message: Message
+    let boundary: MessageBoundary
+
+    init(message: Message, boundary: MessageBoundary) {
+        self.id = message.id
+        self.message = message
+        self.boundary = boundary
+    }
+}
+
 struct DialogueGroup: Identifiable {
     let id: String
     var messages: [Message]
+
+    var items: [DialogueItem] {
+        messages.enumerated().map { index, message in
+            let isNewMotionBlock = index > 0
+                && message.role == .motion
+                && messages[index - 1].role == .motion
+            return DialogueItem(
+                message: message,
+                boundary: message.role == .user
+                    ? .userStart
+                    : isNewMotionBlock ? .motionNewMessage : .motionContinuation
+            )
+        }
+    }
 }
 
 func makeDialogueGroups(_ messages: [Message]) -> [DialogueGroup] {
@@ -183,9 +215,10 @@ public struct ChatView: View {
             VStack(alignment: .leading, spacing: composition.betweenTurnsGap) {
                 ForEach(dialogueGroups) { group in
                     VStack(alignment: .leading, spacing: composition.withinTurnGap) {
-                        ForEach(group.messages) { message in
-                            messageRow(message)
-                                .id(message.id)
+                        ForEach(group.items) { item in
+                            messageRow(item.message)
+                                .padding(.top, item.boundary == .motionNewMessage ? composition.motionMessageGap : 0)
+                                .id(item.id)
                         }
                     }
                 }

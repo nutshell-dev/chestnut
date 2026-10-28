@@ -23,7 +23,8 @@ export function makeLauncherSessionId(): string {
  * 其余事件不转发（v1 主动收窄、减少协议面）。
  *
  * payload 为累积快照（同 messageId 幂等覆盖，consumer upsert）：
- * 同一 trace 的 delta 累积进同一消息；每个 trace 独立缓冲。
+ * 同一次 send 的 delta 累积进同一消息；send_content_end 开启下一消息边界。
+ * trace 只标识 turn，不能合并同 turn 的多次 send（phase 2017 实机证据）。
  *
  * phase 2000 实机修复：真实 stream 中多个 send_content_delta 块的 trace 会交错
  * （A,B,A,B…——实机 stream.jsonl 证据见 phase2000-logs）。旧的单缓冲实现
@@ -33,15 +34,22 @@ export function makeLauncherSessionId(): string {
  */
 export class LauncherEventMapper {
   private replyBufs = new Map<string, string>();
+  private sendOrdinals = new Map<string, number>();
 
   map(event: StreamEvent): { messageId: string; role: 'motion'; text: string } | null {
+    const trace = typeof event.trace_id === 'string' && event.trace_id ? event.trace_id : 'untraced';
+    if (event.type === 'send_content_end') {
+      this.sendOrdinals.set(trace, (this.sendOrdinals.get(trace) ?? 1) + 1);
+      return null;
+    }
     if (event.type !== 'send_content_delta') return null;
     const deltaText = typeof event.delta === 'string' ? event.delta : null;
     if (deltaText === null || deltaText === '') return null;
-    const trace = typeof event.trace_id === 'string' && event.trace_id ? event.trace_id : 'untraced';
-    const buf = (this.replyBufs.get(trace) ?? '') + deltaText;
-    this.replyBufs.set(trace, buf);
-    return { messageId: `reply-${trace}`, role: 'motion', text: buf };
+    const ordinal = this.sendOrdinals.get(trace) ?? 1;
+    const messageId = ordinal === 1 ? `reply-${trace}` : `reply-${trace}-send-${ordinal}`;
+    const buf = (this.replyBufs.get(messageId) ?? '') + deltaText;
+    this.replyBufs.set(messageId, buf);
+    return { messageId, role: 'motion', text: buf };
   }
 }
 

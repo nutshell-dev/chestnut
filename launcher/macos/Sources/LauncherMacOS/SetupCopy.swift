@@ -9,6 +9,11 @@ enum SetupCopy {
     static let languageStep = "第 3 步，共 3 步"
     static let providerTitle = "选择服务供应商"
     static let providerSubtitle = "选择用于 Motion 的模型服务。"
+    static let moreProvidersHint = "滚动查看更多"
+
+    static func providerCount(_ count: Int) -> String {
+        "共 \(count) 个服务供应商"
+    }
     static let credentialsTitle = "配置模型与凭据"
     static let probingTitle = "正在连接并验证配置"
     static let repairTitle = "需要调整配置"

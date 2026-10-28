@@ -58,6 +58,8 @@ final class MessageStyleTests: XCTestCase {
         XCTAssertEqual(composition.reply.lineSpacing, MessageStyle.lineSpacing(for: .motion))
         XCTAssertEqual(composition.firstGroupGap, 12)
         XCTAssertEqual(composition.withinTurnGap, 10)
+        XCTAssertEqual(composition.motionMessageGap, 14)
+        XCTAssertGreaterThan(composition.motionMessageGap, 0)
         XCTAssertGreaterThan(composition.withinTurnGap, 4)
         XCTAssertEqual(composition.betweenTurnsGap, 18)
         XCTAssertGreaterThan(composition.betweenTurnsGap, composition.withinTurnGap)

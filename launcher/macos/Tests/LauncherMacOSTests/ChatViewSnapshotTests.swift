@@ -190,6 +190,14 @@ final class ChatViewSnapshotTests: XCTestCase {
         XCTAssertEqual(countSubviews(NSScrollView.self, in: hosting), 1, "只允许一个回复区容器")
     }
 
+    func testConsecutiveMotionRowsUseMessageIdBoundaryGap() throws {
+        let source = try chatViewSource()
+        XCTAssertTrue(source.contains("ForEach(group.items)"))
+        XCTAssertTrue(source.contains("item.boundary == .motionNewMessage"))
+        XCTAssertTrue(source.contains("composition.motionMessageGap"))
+        XCTAssertTrue(source.contains(".id(item.id)"))
+    }
+
     private func countSubviews<T: NSView>(_ type: T.Type, in view: NSView) -> Int {
         (view is T ? 1 : 0) + view.subviews.reduce(0) { $0 + countSubviews(type, in: $1) }
     }

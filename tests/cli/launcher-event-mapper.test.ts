@@ -115,6 +115,20 @@ describe('LauncherActivityMapper', () => {
     expect(mapper.map({ ts: 3, type: 'thinking_delta', delta: '', trace_id: 't1' } as never)).toBeNull();
   });
 
+  it('同一 trace 连续多次 send 分为独立消息，同次 delta 仍 upsert（phase 2017 实机）', () => {
+    const mapper = new LauncherEventMapper();
+    expect(mapper.map({ ts: 1, type: 'send_content_delta', delta: '测试 1', trace_id: 'same' }))
+      .toEqual({ messageId: 'reply-same', role: 'motion', text: '测试 1' });
+    expect(mapper.map({ ts: 2, type: 'send_content_delta', delta: ' 完成', trace_id: 'same' }))
+      .toEqual({ messageId: 'reply-same', role: 'motion', text: '测试 1 完成' });
+    expect(mapper.map({ ts: 3, type: 'send_content_end', trace_id: 'same' })).toBeNull();
+    expect(mapper.map({ ts: 4, type: 'send_content_delta', delta: '测试 2', trace_id: 'same' }))
+      .toEqual({ messageId: 'reply-same-send-2', role: 'motion', text: '测试 2' });
+    expect(mapper.map({ ts: 5, type: 'send_content_end', trace_id: 'same' })).toBeNull();
+    expect(mapper.map({ ts: 6, type: 'send_content_delta', delta: '测试 3', trace_id: 'same' }))
+      .toEqual({ messageId: 'reply-same-send-3', role: 'motion', text: '测试 3' });
+  });
+
   it('activity 与消息 event 可同源并存：send_content_delta 同时驱动两者', () => {
     const eventMapper = new LauncherEventMapper();
     const activityMapper = new LauncherActivityMapper('test-claw');

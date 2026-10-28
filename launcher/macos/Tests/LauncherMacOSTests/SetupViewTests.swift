@@ -22,6 +22,25 @@ final class SetupViewTests: XCTestCase {
         XCTAssertEqual(screen.panelHeight, SetupVisual.providerPanelHeight)
     }
 
+    func testProviderOverflowIsVisibleAndKeyboardReachesEveryBoundary() throws {
+        let count = 12
+        XCTAssertEqual(SetupCopy.providerCount(count), "共 12 个服务供应商")
+        XCTAssertEqual(SetupCopy.moreProvidersHint, "滚动查看更多")
+        XCTAssertGreaterThan(count, SetupVisual.visibleProviderCount)
+        XCTAssertEqual(providerSelectionIndex(current: nil, offset: 1, count: count), 0)
+        XCTAssertEqual(providerSelectionIndex(current: nil, offset: -1, count: count), count - 1)
+        XCTAssertEqual(providerSelectionIndex(current: 0, offset: -1, count: count), 0)
+        XCTAssertEqual(providerSelectionIndex(current: count - 1, offset: 1, count: count), count - 1)
+        XCTAssertEqual(providerSelectionIndex(current: 5, offset: SetupVisual.visibleProviderCount, count: count), count - 1)
+
+        let source = try setupSource()
+        XCTAssertTrue(source.view.contains("ScrollViewReader"))
+        XCTAssertTrue(source.view.contains("ProviderListAffordance"))
+        XCTAssertTrue(source.components.contains(".keyboardShortcut(.pageDown)"))
+        XCTAssertTrue(source.components.contains(".keyboardShortcut(.upArrow)"))
+        XCTAssertTrue(source.components.contains(".keyboardShortcut(.end)"))
+    }
+
     func testCredentialsUseSavedModelThenCliDefault() {
         var draft = SetupDraft()
         draft.configure(provider: provider, modelDefault: "cli-default", savedModel: "saved-model")

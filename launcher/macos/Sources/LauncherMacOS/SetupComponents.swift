@@ -71,6 +71,68 @@ struct ProviderRow: View {
     }
 }
 
+/// Stable first-render affordance: total count is always visible; overflow is explicit.
+struct ProviderListAffordance: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(SetupCopy.providerCount(count))
+            Spacer(minLength: 0)
+            if count > SetupVisual.visibleProviderCount {
+                Image(systemName: "chevron.down")
+                Text(SetupCopy.moreProvidersHint)
+            }
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .frame(height: SetupVisual.providerHintHeight)
+        .accessibilityIdentifier("setup.provider.overflow")
+    }
+}
+
+/// Clamp keyboard navigation to catalog bounds without changing catalog order.
+func providerSelectionIndex(current: Int?, offset: Int, count: Int) -> Int? {
+    guard count > 0 else { return nil }
+    guard let current else { return offset >= 0 ? 0 : count - 1 }
+    return min(max(current + offset, 0), count - 1)
+}
+
+/// Keyboard access for provider selection and scrolling. Buttons remain invisible;
+/// visible selection continues to be owned by ProviderRow and catalog id.
+struct ProviderKeyboardNavigation: View {
+    let catalog: [SetupProvider]
+    @Binding var selectedProviderId: String
+    let scrollTo: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: { move(by: -1) }) { EmptyView() }.keyboardShortcut(.upArrow)
+            Button(action: { move(by: 1) }) { EmptyView() }.keyboardShortcut(.downArrow)
+            Button(action: { move(by: -SetupVisual.visibleProviderCount) }) { EmptyView() }.keyboardShortcut(.pageUp)
+            Button(action: { move(by: SetupVisual.visibleProviderCount) }) { EmptyView() }.keyboardShortcut(.pageDown)
+            Button(action: { move(to: 0) }) { EmptyView() }.keyboardShortcut(.home)
+            Button(action: { move(to: catalog.count - 1) }) { EmptyView() }.keyboardShortcut(.end)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0.01)
+        .accessibilityHidden(true)
+    }
+
+    private func move(by offset: Int) {
+        let current = catalog.firstIndex { $0.id == selectedProviderId }
+        guard let next = providerSelectionIndex(current: current, offset: offset, count: catalog.count) else { return }
+        move(to: next)
+    }
+
+    private func move(to index: Int) {
+        guard catalog.indices.contains(index) else { return }
+        let id = catalog[index].id
+        selectedProviderId = id
+        scrollTo(id)
+    }
+}
+
 enum SetupPaste {
     /// 只去除剪贴板首尾换行；保留空格、中间字符和供应商自有格式。
     static func normalize(_ value: String) -> String {

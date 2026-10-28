@@ -259,18 +259,29 @@ struct SetupView: View {
             height: screen.panelHeight,
             cancel: { cancel() }
         ) {
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(catalog, id: \.id) { provider in
-                        ProviderRow(provider: provider, selected: selectedProviderId == provider.id) {
-                            selectedProviderId = provider.id
+            VStack(spacing: 8) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(catalog, id: \.id) { provider in
+                                ProviderRow(provider: provider, selected: selectedProviderId == provider.id) {
+                                    selectedProviderId = provider.id
+                                }
+                                .disabled(submissionGate.isSubmitting)
+                                .id(provider.id)
+                            }
                         }
-                        .disabled(submissionGate.isSubmitting)
+                        .padding(2)
                     }
+                    .frame(height: SetupVisual.providerListHeight)
+                    ProviderKeyboardNavigation(
+                        catalog: catalog,
+                        selectedProviderId: $selectedProviderId,
+                        scrollTo: { id in proxy.scrollTo(id, anchor: .center) }
+                    )
                 }
-                .padding(2)
+                ProviderListAffordance(count: catalog.count)
             }
-            .frame(height: SetupVisual.providerListHeight)
         } actions: {
             SetupPrimaryAction(
                 title: SetupCopy.continueAction,
