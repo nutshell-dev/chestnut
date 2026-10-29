@@ -643,7 +643,7 @@ export class Runtime {
    */
   async drainInbox(): Promise<{
     injected: Message[];
-    sources: Array<{ text: string; type: string }>;
+    sources: Array<{ text: string; type: string; body?: string; id?: string }>;
     count: number;
     infos: InboxMessage[];
     addressedHandles: InboxHandle[];
@@ -653,7 +653,7 @@ export class Runtime {
 
   protected async _drainOwnInbox(): Promise<{
     injected: Message[];
-    sources: Array<{ text: string; type: string }>;
+    sources: Array<{ text: string; type: string; body?: string; id?: string }>;
     count: number;
     infos: InboxMessage[];
     addressedHandles: InboxHandle[];
@@ -864,7 +864,7 @@ export class Runtime {
     budget: InboxFormatBudget = DEFAULT_INBOX_FORMAT_BUDGET,
   ): Promise<FormattedInboxBatch> {
     const injected: Message[] = [];
-    const sources: Array<{ text: string; type: string }> = [];
+    const sources: Array<{ text: string; type: string; body?: string; id?: string }> = [];
     const infos: InboxMessage[] = [];
     const selected: PreparedInboxEntry[] = [];
     const deferred: PreparedInboxEntry[] = [];
@@ -909,7 +909,7 @@ export class Runtime {
         oversizedAlone = true;
         selected.push(entry);
         injected.push(candidate);
-        sources.push({ text: formatted.replace(/\r?\n/g, ' '), type: message.type });
+        sources.push({ text: formatted.replace(/\r?\n/g, ' '), type: message.type, body: message.content, id: message.id });
         infos.push(message);
         usedBytes += bytes;
         this.auditWriter.write(
@@ -930,6 +930,8 @@ export class Runtime {
       sources.push({
         text: formatted.replace(/\r?\n/g, ' '),
         type: message.type,
+        body: message.content,
+        id: message.id,
       });
       infos.push(message);
       usedBytes += bytes;

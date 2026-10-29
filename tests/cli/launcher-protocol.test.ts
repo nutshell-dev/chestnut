@@ -90,6 +90,12 @@ describe('send launcher.v1 envelope', () => {
     });
     expect(typeof envelopes[0].sessionId).toBe('string');
     expect(envelopes[0].sessionId.length).toBeGreaterThan(0);
+    const pendingDir = path.join(tmpRoot, '.chestnut', 'claws', 'test-claw', 'inbox', 'pending');
+    const files = fs.readdirSync(pendingDir).filter(file => file.endsWith('.md'));
+    expect(files).toHaveLength(1);
+    const persisted = fs.readFileSync(path.join(pendingDir, files[0]), 'utf8');
+    expect(persisted).toContain('id: req-42');
+    expect(persisted).toContain('hello');
   });
 
   it('成功但无 requestId：ack payload 不含 requestId 字段', async () => {
@@ -325,8 +331,8 @@ describe('stream launcher.v1 envelope', () => {
   it('current-turn 活跃 turn：只发射压缩快照（每 trace 最终文本 + 最新 activity），reader 从 tailOffset 继续且不重复', async () => {
     const snapshotEvents = [
       { ts: 1, type: 'turn_start', trace_id: 't1', sources: [
-        { type: 'user_chat', text: '第一个问题' },
-        { type: 'user_inbox_message', text: '第二个问题' },
+        { type: 'user_chat', text: '第一个问题', body: '第一个问题', id: 'req-1' },
+        { type: 'user_inbox_message', text: '[user inbox message] 第二个问题', body: '第二个问题', id: 'req-2' },
       ] },
       { ts: 2, type: 'thinking_delta', delta: '先想', trace_id: 't1' },
       { ts: 3, type: 'thinking_delta', delta: '再验证', trace_id: 't1' },
@@ -345,10 +351,10 @@ describe('stream launcher.v1 envelope', () => {
     // 快照：连续用户消息保持 sources 顺序，随后是各 reply 最终文本；关联键来自持久事件。
     expect(before.map(e => e.kind)).toEqual(['event', 'event', 'event', 'event', 'activity']);
     expect(before[0].payload).toEqual({
-      messageId: 'user-t1-send-1', role: 'user', text: '第一个问题', turnId: 't1', sendOrdinal: 1,
+      messageId: 'req-1', role: 'user', text: '第一个问题', turnId: 't1', sendOrdinal: 1,
     });
     expect(before[1].payload).toEqual({
-      messageId: 'user-t1-send-2', role: 'user', text: '第二个问题', turnId: 't1', sendOrdinal: 2,
+      messageId: 'req-2', role: 'user', text: '第二个问题', turnId: 't1', sendOrdinal: 2,
     });
     expect(before[2].payload).toEqual({
       messageId: 'reply-r1', role: 'motion', text: '你好', turnId: 't1', sendOrdinal: 1,
@@ -420,16 +426,35 @@ describe('LauncherEventMapper', () => {
       type: 'turn_start',
       trace_id: 'turn-1',
       sources: [
-        { type: 'user_chat', text: '第一条' },
+        { type: 'user_chat', text: '第一条', body: '第一条', id: 'req-1' },
         { type: 'heartbeat', text: '系统来源' },
-        { type: 'user_inbox_message', text: '第二条' },
+        { type: 'user_inbox_message', text: '[user inbox message] 第二条', body: '第二条', id: 'req-2' },
       ],
     })).toEqual([
-      { messageId: 'user-turn-1-send-1', role: 'user', text: '第一条', turnId: 'turn-1', sendOrdinal: 1 },
-      { messageId: 'user-turn-1-send-2', role: 'user', text: '第二条', turnId: 'turn-1', sendOrdinal: 2 },
+      { messageId: 'req-1', role: 'user', text: '第一条', turnId: 'turn-1', sendOrdinal: 1 },
+      { messageId: 'req-2', role: 'user', text: '第二条', turnId: 'turn-1', sendOrdinal: 2 },
     ]);
     expect(mapper.map({ ts: 2, type: 'send_content_delta', delta: '回复', trace_id: 'r1' }))
       .toEqual({ messageId: 'reply-r1', role: 'motion', text: '回复', turnId: 'turn-1', sendOrdinal: 1 });
+  });
+
+  it('inbox 重试使用同一持久 id 和原始 body；旧 formatted-only 事件不产生重复消息', () => {
+    const mapper = new LauncherEventMapper();
+    const source = {
+      type: 'user_inbox_message',
+      text: '[user inbox message (7s ago)] 能收到吗',
+      body: '能收到吗',
+      id: 'req-retry',
+    };
+    const first = mapper.mapAll({ ts: 1, type: 'turn_start', sources: [source] });
+    const retry = mapper.mapAll({ ts: 2, type: 'turn_start', sources: [{ ...source, text: '[user inbox message (11s ago)] 能收到吗' }] });
+    expect(first).toEqual([expect.objectContaining({ messageId: 'req-retry', text: '能收到吗' })]);
+    expect(retry).toEqual(first.map(message => ({ ...message, turnId: 'turn-2' })));
+    expect(mapper.mapAll({
+      ts: 3,
+      type: 'turn_start',
+      sources: [{ type: 'user_inbox_message', text: '[user inbox message (0s ago)] 旧格式' }],
+    })).toEqual([]);
   });
 
   it('交错 trace 各自独立累积（phase 2000 实机：真实 stream 两块 A,B,A,B 交错，单缓冲会把每块冲成最后一段）', () => {

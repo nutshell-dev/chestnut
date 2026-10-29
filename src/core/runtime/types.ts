@@ -66,7 +66,7 @@ export interface PreparedInboxBatch {
  */
 export interface FormattedInboxBatch {
   readonly injected: Message[];
-  readonly sources: Array<{ text: string; type: string }>;
+  readonly sources: Array<{ text: string; type: string; body?: string; id?: string }>;
   readonly count: number;
   readonly infos: InboxMessage[];
   readonly selected: readonly PreparedInboxEntry[];

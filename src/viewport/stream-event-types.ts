@@ -42,7 +42,7 @@ export type CliStreamEventType =
  * stream-callbacks checkWrite 会注入 trace_id（1316 Step B 教训）。
  */
 type UpperPayloadMap = {
-  turn_start: { sources?: Array<{ text: string; type: string }>; trace_id?: string };
+  turn_start: { sources?: Array<{ text: string; type: string; body?: string; id?: string }>; trace_id?: string };
   llm_start: { trace_id?: string };
   tool_result: { name: string; tool_use_id: string; success: boolean; summary: string; step: number; maxSteps: number; trace_id?: string };
   turn_end: { trace_id?: string };

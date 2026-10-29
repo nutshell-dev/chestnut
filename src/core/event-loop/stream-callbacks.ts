@@ -80,7 +80,7 @@ export function createStreamCallbacks(
         maxSteps,
       });
     },
-    onTurnStart: (sources: Array<{ text: string; type: string }>) => {
+    onTurnStart: (sources: Array<{ text: string; type: string; body?: string; id?: string }>) => {
       checkWrite({
         ts: Date.now(),
         type: SUBAGENT_EVENTS.TURN_START,

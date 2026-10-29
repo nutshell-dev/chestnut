@@ -89,6 +89,8 @@ export async function deliverClawMessage(
     source: 'user',
     priority: options?.priority ?? 'normal',
     body: message,
+    // Launcher requestId 同时是持久 inbox 身份，供 send ack 与 stream snapshot 幂等关联。
+    ...(options?.requestId ? { messageId: options.requestId } : {}),
   });
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });

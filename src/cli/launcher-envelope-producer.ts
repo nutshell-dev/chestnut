@@ -63,12 +63,21 @@ export class LauncherEventMapper {
         if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
         const fact = source as Record<string, unknown>;
         if (fact.type !== 'user_chat' && fact.type !== 'user_inbox_message') continue;
-        if (typeof fact.text !== 'string') continue;
+        // text 是供 LLM 的 presentation；user_inbox_message 必须读取持久原始 body，
+        // 旧事件缺少 body/id 时跳过，不能把 inbox envelope 当聊天正文或制造重复。
+        const text = typeof fact.body === 'string'
+          ? fact.body
+          : fact.type === 'user_chat' && typeof fact.text === 'string' ? fact.text : undefined;
+        if (text === undefined) continue;
+        if (fact.type === 'user_inbox_message' && (typeof fact.id !== 'string' || !fact.id)) continue;
         sendOrdinal += 1;
+        const messageId = typeof fact.id === 'string' && fact.id
+          ? fact.id
+          : `user-${turnId}-send-${sendOrdinal}`;
         messages.push({
-          messageId: `user-${turnId}-send-${sendOrdinal}`,
+          messageId,
           role: 'user',
-          text: fact.text,
+          text,
           turnId,
           sendOrdinal,
         });

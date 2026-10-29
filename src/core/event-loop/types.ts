@@ -21,7 +21,7 @@ export interface EventLoopTraceSource {
  * event-loop.ts 的 turn_start_callback 阶段（此前由 L3 StreamCallbacks 跨层持有）。
  */
 export interface TurnStartCallback {
-  onTurnStart?: (sources: Array<{ text: string; type: string }>) => void;
+  onTurnStart?: (sources: Array<{ text: string; type: string; body?: string; id?: string }>) => void;
 }
 
 /**

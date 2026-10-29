@@ -130,6 +130,10 @@ describe('inbox-budget: formatPreparedInbox 预算选择 (Phase 1967 Step B)', (
     expect(formatted.deferred.map(e => e.message.id)).toEqual(['c']);
     expect(formatted.count).toBe(2);
     expect(formatted.injected).toHaveLength(2);
+    expect(formatted.sources).toEqual([
+      { text: 'body-a', type: 'user_chat', body: 'body-a', id: 'a' },
+      { text: 'body-b', type: 'user_chat', body: 'body-b', id: 'b' },
+    ]);
     expect(formatted.oversizedAlone).toBe(false);
     const injects = audit.entries.filter(e => e[0] === RUNTIME_AUDIT_EVENTS.INBOX_INJECT);
     expect(injects).toHaveLength(2);
