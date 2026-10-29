@@ -1,7 +1,7 @@
 /**
  * launcher-event-mapper tests（phase 2001 Step B 引入，phase 2002 Step C 按 claw bar 重做）
  *
- * LauncherActivityMapper 单元语义：按 trace 累计 thinking/裸 text 摘要（单行净化+尾部截断），
+ * LauncherActivityMapper 单元语义：按 trace 累计 thinking/裸 text 摘要（单行净化+开头截断），
  * tool/provider 短标签，send_content_end 不清除，turn_error → error 保留可读错误行。
  * 边界：摘要 ≤240 字符、错误 ≤160 字符、tool 不带 input、error 不带密钥/完整 payload。
  */
@@ -39,13 +39,19 @@ describe('LauncherActivityMapper', () => {
     expect(eventMapper.map(event)).toBeNull(); // 裸 text_delta 仍不是 Motion 聊天消息（phase 1990 决策）
   });
 
-  it('摘要尾部截断（≤240 字符）；kind 切换重新开始累计', () => {
+  it('摘要固定开头 240 字符；窗口满后连续 delta 不滚动 detail；kind 切换重新累计', () => {
     const mapper = new LauncherActivityMapper('test-claw');
-    const long = '长'.repeat(300);
-    const a = mapper.map({ ts: 1, type: 'thinking_delta', delta: long, trace_id: 't1' } as never);
-    expect(a?.detail).toHaveLength(240);
+    const first = mapper.map({
+      ts: 1, type: 'thinking_delta', delta: `开头${'甲'.repeat(240)}`, trace_id: 't1',
+    } as never);
+    expect(first?.detail).toBe(`开头${'甲'.repeat(238)}`);
+
+    const second = mapper.map({ ts: 2, type: 'thinking_delta', delta: '最新尾部', trace_id: 't1' } as never);
+    expect(second?.detail).toBe(first?.detail);
+    expect(second?.detail).not.toContain('最新尾部');
+
     // thinking → text 切换：摘要从新 kind 重新累计（不拼接旧 kind）
-    const b = mapper.map({ ts: 2, type: 'text_delta', delta: '新正文', trace_id: 't1' } as never);
+    const b = mapper.map({ ts: 3, type: 'text_delta', delta: '新正文', trace_id: 't1' } as never);
     expect(b).toEqual({ phase: 'processing', label: 'text', detail: '新正文', traceId: 't1' });
   });
 

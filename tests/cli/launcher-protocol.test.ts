@@ -283,6 +283,23 @@ describe('stream launcher.v1 envelope', () => {
     }
   });
 
+  it('thinking 长摘要在 wire 上保留开头；超过 240 字符后的新尾部不滚动状态行', async () => {
+    await streamCommand(commandDeps, 'test-claw');
+    const emit = streamMocks.onEvent!;
+    emit({ ts: 1, type: 'turn_start', sources: [], trace_id: 't1' });
+    emit({ ts: 2, type: 'thinking_delta', delta: `开${'甲'.repeat(200)}`, trace_id: 't1' });
+    emit({ ts: 3, type: 'thinking_delta', delta: '乙'.repeat(100), trace_id: 't1' });
+    emit({ ts: 4, type: 'thinking_delta', delta: '不应出现的最新尾部', trace_id: 't1' });
+
+    const activities = stdoutEnvelopes().filter(e => e.kind === 'activity');
+    expect(activities.map(a => a.payload)).toEqual([
+      { phase: 'processing', label: 'turn', traceId: 't1' },
+      { phase: 'processing', label: 'thinking', detail: `开${'甲'.repeat(200)}`, traceId: 't1' },
+      { phase: 'processing', label: 'thinking', detail: `开${'甲'.repeat(200)}${'乙'.repeat(39)}`, traceId: 't1' },
+    ]);
+    expect(activities.at(-1).payload.detail).toHaveLength(240);
+  });
+
   it('turn_error 产生 error activity（保留可读错误行，不伪装 idle）；下一 turn 正常恢复', async () => {
     await streamCommand(commandDeps, 'test-claw');
     const emit = streamMocks.onEvent!;

@@ -136,3 +136,27 @@ describe('Phase 1978 claw manager context trim lifecycle', () => {
     expect(track.blockedNotice).toBeNull();
   });
 });
+
+describe('Phase 2022 viewport activity prefix baseline', () => {
+  function activeTrack(textBuffer: string) {
+    const track = makeClawTrack();
+    track.active = true;
+    track.isAlive = true;
+    track.daemonStatus = 'running';
+    track.bufferType = 'thinking';
+    track.textBuffer = textBuffer;
+    return track;
+  }
+
+  it('claw bar 从累计文本开头显示，fitLine 不滚动到最新尾部', () => {
+    const line = buildClawLine('m', activeTrack(`${'A'.repeat(100)}LATEST-TAIL`), 40);
+    const plain = line.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toBe(`[m] ⊙ (${'A'.repeat(32)}…`);
+    expect(plain).not.toContain('LATEST-TAIL');
+  });
+
+  it('claw bar 保留开头并净化换行', () => {
+    const line = buildClawLine('m', activeTrack('  先想\n第一步'), 100);
+    expect(line.replace(/\x1b\[[0-9;]*m/g, '')).toBe('[m] ⊙ (先想 第一步)');
+  });
+});

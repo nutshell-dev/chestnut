@@ -125,7 +125,7 @@ function eventTs(event: StreamEvent): number | undefined {
   return typeof event.ts === 'number' && Number.isFinite(event.ts) ? event.ts : undefined;
 }
 
-/** thinking/text 摘要上限（字符）：只保留尾部——最新进展比开头更有信息量（claw fitLine 语义）。 */
+/** thinking/text 摘要上限（字符）：与 claw fitLine 一样固定开头窗口，避免流式更新滚动整行。 */
 const ACTIVITY_SUMMARY_LIMIT = 240;
 
 /** 单行净化：换行/连续空白折为单个空格（claw bar 语义：textBuffer.replace(/\n/g,' ')）。 */
@@ -136,7 +136,7 @@ function sanitizeLine(text: string): string {
 /**
  * 内部 StreamEvent → activity wire payload（phase 2001 引入，phase 2002 按 claw bar 重做摘要，
  * phase 2003 Step E 错误行复用共享 formatter）：
- * - thinking_delta / 裸 text_delta：按 trace 累计缓冲，单行净化 + 尾部截断，随 delta 流式刷新
+ * - thinking_delta / 裸 text_delta：按 trace 累计缓冲，单行净化 + 开头截断，随 delta 流式刷新
  *   （裸 text_delta 只进活动摘要，不作为 Motion 聊天消息——phase 1990 消息面决策不变）；
  * - tool/provider 事件只更新短标签（工具名/provider 名），不带 input 与完整错误；
  * - send_content_delta/end → responding（send 完成不结束 turn，活动保留）；
@@ -162,7 +162,8 @@ export class LauncherActivityMapper {
     const prior = this.buffers.get(key);
     const text = prior?.kind === kind ? prior.text + delta : delta;
     this.buffers.set(key, { kind, text });
-    return sanitizeLine(text).slice(-ACTIVITY_SUMMARY_LIMIT);
+    // 窗口填满后 detail 保持稳定；后续 delta 仍累计在私有缓冲中，不把可见摘要滚到尾部。
+    return sanitizeLine(text).slice(0, ACTIVITY_SUMMARY_LIMIT);
   }
 
   private clearBuffer(trace: string | undefined): void {
