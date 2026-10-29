@@ -144,8 +144,7 @@ export async function streamCommand(
           writeLauncherEnvelope(process.stdout, launcherActivityEnvelope(nextSeq(), sessionId, activity));
         }
       }
-      const payload = mapper.map(event);
-      if (payload) {
+      for (const payload of mapper.mapAll(event)) {
         writeLauncherEnvelope(process.stdout, makeLauncherEnvelope(nextSeq(), sessionId, 'event', payload));
       }
     },
@@ -160,8 +159,7 @@ export async function streamCommand(
     const snapMessages = new Map<string, NonNullable<ReturnType<LauncherEventMapper['map']>>>();
     let snapActivity: ReturnType<LauncherActivityMapper['map']> = null;
     for (const event of snapshotEvents) {
-      const message = mapper.map(event);
-      if (message) snapMessages.set(message.messageId, message);
+      for (const message of mapper.mapAll(event)) snapMessages.set(message.messageId, message);
       const activity = activityMapper.map(event);
       if (activity) snapActivity = activity;
     }

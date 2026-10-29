@@ -136,6 +136,9 @@ export interface LauncherMessagePayload {
   messageId: string;
   role: string;
   text: string;
+  /** Persistent turn/send facts supplied by the stream owner; consumers never infer them. */
+  turnId?: string;
+  sendOrdinal?: number;
 }
 
 export interface LauncherSendAckPayload {

@@ -9,7 +9,11 @@
 
 import { newUuid } from '../foundation/node-utils/index.js';
 import { isContextExceededStreamError, type StreamEvent } from '../foundation/stream/index.js';
-import { formatClawBarError, type LauncherActivityPayload } from '../cli-protocol/index.js';
+import {
+  formatClawBarError,
+  type LauncherActivityPayload,
+  type LauncherMessagePayload,
+} from '../cli-protocol/index.js';
 
 /** 本次订阅/调用会话 ID；UUID v4，形状与 phase 1990 一致。 */
 export function makeLauncherSessionId(): string {
@@ -18,8 +22,8 @@ export function makeLauncherSessionId(): string {
 
 /**
  * 内部 StreamEvent → 对外消息 payload 的稳定映射（不泄漏内部 union）。
- * 只映射 send_content_delta（Motion 经 send 工具发给用户的消息流）——
- * LLM 裸正文 text_delta 属内部思考/组织过程，不对外（phase 1990 实机决策）。
+ * 映射 turn_start.sources 中的用户消息，以及 send_content_delta（Motion 经 send
+ * 工具发给用户的消息流）；LLM 裸正文 text_delta 属内部思考/组织过程，不对外。
  * 其余事件不转发（v1 主动收窄、减少协议面）。
  *
  * payload 为累积快照（同 messageId 幂等覆盖，consumer upsert）：
@@ -35,21 +39,59 @@ export function makeLauncherSessionId(): string {
 export class LauncherEventMapper {
   private replyBufs = new Map<string, string>();
   private sendOrdinals = new Map<string, number>();
+  private currentTurnId: string | undefined;
 
-  map(event: StreamEvent): { messageId: string; role: 'motion'; text: string } | null {
+  /** 单消息兼容入口；生产订阅使用 mapAll，以免丢弃 turn_start 中的连续用户消息。 */
+  map(event: StreamEvent): LauncherMessagePayload | null {
+    return this.mapAll(event)[0] ?? null;
+  }
+
+  /**
+   * turn_start.sources 是用户正文的持久事实 owner；source 数组顺序即 send 顺序。
+   * 快照和 live tail 共用同一映射，稳定 id/turnId/sendOrdinal 由事件事实派生，
+   * consumer 不按文本或时间猜关联。
+   */
+  mapAll(event: StreamEvent): LauncherMessagePayload[] {
     const trace = typeof event.trace_id === 'string' && event.trace_id ? event.trace_id : 'untraced';
+    if (event.type === 'turn_start') {
+      const turnId = traceOf(event) ?? `turn-${event.ts}`;
+      this.currentTurnId = turnId;
+      if (!Array.isArray(event.sources)) return [];
+      let sendOrdinal = 0;
+      const messages: LauncherMessagePayload[] = [];
+      for (const source of event.sources) {
+        if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+        const fact = source as Record<string, unknown>;
+        if (fact.type !== 'user_chat' && fact.type !== 'user_inbox_message') continue;
+        if (typeof fact.text !== 'string') continue;
+        sendOrdinal += 1;
+        messages.push({
+          messageId: `user-${turnId}-send-${sendOrdinal}`,
+          role: 'user',
+          text: fact.text,
+          turnId,
+          sendOrdinal,
+        });
+      }
+      return messages;
+    }
     if (event.type === 'send_content_end') {
       this.sendOrdinals.set(trace, (this.sendOrdinals.get(trace) ?? 1) + 1);
-      return null;
+      return [];
     }
-    if (event.type !== 'send_content_delta') return null;
+    if (event.type !== 'send_content_delta') return [];
     const deltaText = typeof event.delta === 'string' ? event.delta : null;
-    if (deltaText === null || deltaText === '') return null;
-    const ordinal = this.sendOrdinals.get(trace) ?? 1;
-    const messageId = ordinal === 1 ? `reply-${trace}` : `reply-${trace}-send-${ordinal}`;
+    if (deltaText === null || deltaText === '') return [];
+    const sendOrdinal = this.sendOrdinals.get(trace) ?? 1;
+    const messageId = sendOrdinal === 1 ? `reply-${trace}` : `reply-${trace}-send-${sendOrdinal}`;
     const buf = (this.replyBufs.get(messageId) ?? '') + deltaText;
     this.replyBufs.set(messageId, buf);
-    return { messageId, role: 'motion', text: buf };
+    return [{
+      messageId,
+      role: 'motion',
+      text: buf,
+      ...(this.currentTurnId ? { turnId: this.currentTurnId, sendOrdinal } : {}),
+    }];
   }
 }
 

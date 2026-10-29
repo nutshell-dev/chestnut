@@ -82,6 +82,30 @@ describe('readCurrentTurnSnapshot', () => {
     expect(snap.tailOffset).toBe(complete);
   });
 
+  it('活跃 turn 保留连续用户消息 sources 及其原始顺序；已结束历史不进入快照', () => {
+    writeLines([
+      ev('turn_start', { trace_id: 'old', sources: [{ type: 'user_chat', text: '旧消息' }] }),
+      ev('turn_end', { trace_id: 'old' }),
+      ev('turn_start', {
+        trace_id: 'active-turn',
+        sources: [
+          { type: 'user_chat', text: '第一条' },
+          { type: 'user_inbox_message', text: '第二条' },
+        ],
+      }),
+      ev('send_content_delta', { delta: '回复', trace_id: 'r1' }),
+    ]);
+    const snap = readCurrentTurnSnapshot(fs, 'stream.jsonl');
+    expect(snap.active).toBe(true);
+    expect(snap.events).toHaveLength(2);
+    expect(snap.events[0]).toMatchObject({
+      type: 'turn_start',
+      trace_id: 'active-turn',
+      sources: [{ type: 'user_chat', text: '第一条' }, { type: 'user_inbox_message', text: '第二条' }],
+    });
+    expect(JSON.stringify(snap.events)).not.toContain('旧消息');
+  });
+
   it('多 trace 交错事件原样保留（压缩分桶归调用方 mapper）', () => {
     writeLines([
       ev('turn_start', { trace_id: 't1' }),

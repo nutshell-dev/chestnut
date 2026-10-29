@@ -216,9 +216,9 @@ describe('stream launcher.v1 envelope', () => {
     expect(envelopes[2]).toMatchObject({ kind: 'activity', payload: { phase: 'responding', traceId: 'r1' } });
     const events = envelopes.filter(e => e.kind === 'event');
     expect(events).toHaveLength(3); // text_delta 不产生消息事件
-    expect(events[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你' });
-    expect(events[1].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好' });
-    expect(events[2].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好呀' });
+    expect(events[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你', turnId: 'turn-1', sendOrdinal: 1 });
+    expect(events[1].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好', turnId: 'turn-1', sendOrdinal: 1 });
+    expect(events[2].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好呀', turnId: 'turn-1', sendOrdinal: 1 });
   });
 
   it('send_content_delta 映射为 reply- 前缀消息；trace 切换开新消息；同 trace responding 去抖、跨 trace 放行', async () => {
@@ -324,7 +324,10 @@ describe('stream launcher.v1 envelope', () => {
   // phase 2003：current-turn 重开语义
   it('current-turn 活跃 turn：只发射压缩快照（每 trace 最终文本 + 最新 activity），reader 从 tailOffset 继续且不重复', async () => {
     const snapshotEvents = [
-      { ts: 1, type: 'turn_start', trace_id: 't1' },
+      { ts: 1, type: 'turn_start', trace_id: 't1', sources: [
+        { type: 'user_chat', text: '第一个问题' },
+        { type: 'user_inbox_message', text: '第二个问题' },
+      ] },
       { ts: 2, type: 'thinking_delta', delta: '先想', trace_id: 't1' },
       { ts: 3, type: 'thinking_delta', delta: '再验证', trace_id: 't1' },
       { ts: 4, type: 'send_content_delta', delta: '你', trace_id: 'r1' },
@@ -339,20 +342,30 @@ describe('stream launcher.v1 envelope', () => {
     expect(streamMocks.reader.start).toHaveBeenCalledWith(4096);
 
     const before = stdoutEnvelopes();
-    // 快照：2 条消息（r1 最终「你好」、r2「新块」）+ 1 条最新 activity（responding）；无逐条历史 delta
-    expect(before.map(e => e.kind)).toEqual(['event', 'event', 'activity']);
-    expect(before[0].payload).toEqual({ messageId: 'reply-r1', role: 'motion', text: '你好' });
-    expect(before[1].payload).toEqual({ messageId: 'reply-r2', role: 'motion', text: '新块' });
-    expect(before[2].payload).toMatchObject({ phase: 'responding' });
-    expect(before.map(e => e.sequence)).toEqual([1, 2, 3]);
+    // 快照：连续用户消息保持 sources 顺序，随后是各 reply 最终文本；关联键来自持久事件。
+    expect(before.map(e => e.kind)).toEqual(['event', 'event', 'event', 'event', 'activity']);
+    expect(before[0].payload).toEqual({
+      messageId: 'user-t1-send-1', role: 'user', text: '第一个问题', turnId: 't1', sendOrdinal: 1,
+    });
+    expect(before[1].payload).toEqual({
+      messageId: 'user-t1-send-2', role: 'user', text: '第二个问题', turnId: 't1', sendOrdinal: 2,
+    });
+    expect(before[2].payload).toEqual({
+      messageId: 'reply-r1', role: 'motion', text: '你好', turnId: 't1', sendOrdinal: 1,
+    });
+    expect(before[3].payload).toEqual({
+      messageId: 'reply-r2', role: 'motion', text: '新块', turnId: 't1', sendOrdinal: 1,
+    });
+    expect(before[4].payload).toMatchObject({ phase: 'responding' });
+    expect(before.map(e => e.sequence)).toEqual([1, 2, 3, 4, 5]);
 
     // 重开后追加事件只出现一次，sequence 连续；
     // live delta 属 r1（快照最后 activity 是 r2 的 responding）→ trace 变化放行一条 responding
     streamMocks.onEvent!({ ts: 8, type: 'send_content_delta', delta: '呀', trace_id: 'r1' });
     const after = stdoutEnvelopes();
-    expect(after).toHaveLength(5);
-    expect(after[3]).toMatchObject({ kind: 'activity', sequence: 4, payload: { phase: 'responding', traceId: 'r1' } });
-    expect(after[4]).toMatchObject({ kind: 'event', sequence: 5, payload: { messageId: 'reply-r1', text: '你好呀' } });
+    expect(after).toHaveLength(7);
+    expect(after[5]).toMatchObject({ kind: 'activity', sequence: 6, payload: { phase: 'responding', traceId: 'r1' } });
+    expect(after[6]).toMatchObject({ kind: 'event', sequence: 7, payload: { messageId: 'reply-r1', text: '你好呀' } });
     // mapper 缓冲被快照 seed：live delta 继续累计而不是重新开始
   });
 
@@ -398,6 +411,25 @@ describe('LauncherEventMapper', () => {
     const b = mapper.map({ ts: 5, type: 'send_content_delta', delta: 'y' });
     expect(a).toEqual({ messageId: 'reply-untraced', role: 'motion', text: 'x' });
     expect(b).toEqual({ messageId: 'reply-untraced', role: 'motion', text: 'xy' });
+  });
+
+  it('mapAll 保留连续用户消息及 turn/send 关联，非用户 sources 不进入聊天快照', () => {
+    const mapper = new LauncherEventMapper();
+    expect(mapper.mapAll({
+      ts: 1,
+      type: 'turn_start',
+      trace_id: 'turn-1',
+      sources: [
+        { type: 'user_chat', text: '第一条' },
+        { type: 'heartbeat', text: '系统来源' },
+        { type: 'user_inbox_message', text: '第二条' },
+      ],
+    })).toEqual([
+      { messageId: 'user-turn-1-send-1', role: 'user', text: '第一条', turnId: 'turn-1', sendOrdinal: 1 },
+      { messageId: 'user-turn-1-send-2', role: 'user', text: '第二条', turnId: 'turn-1', sendOrdinal: 2 },
+    ]);
+    expect(mapper.map({ ts: 2, type: 'send_content_delta', delta: '回复', trace_id: 'r1' }))
+      .toEqual({ messageId: 'reply-r1', role: 'motion', text: '回复', turnId: 'turn-1', sendOrdinal: 1 });
   });
 
   it('交错 trace 各自独立累积（phase 2000 实机：真实 stream 两块 A,B,A,B 交错，单缓冲会把每块冲成最后一段）', () => {

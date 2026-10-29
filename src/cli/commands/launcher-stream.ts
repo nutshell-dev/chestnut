@@ -26,6 +26,13 @@ export async function runLauncherStream(
 
   let daemon = readLauncherDaemon(deps);
   writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'daemon', daemon));
+  // A daemon already confirmed stopped is terminal, including after an EOF reconnect.
+  // Do not leave the consumer waiting on a reader that can never make progress.
+  if (daemon.state === 'stopped') {
+    writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'terminal', { reason: 'stopped' }));
+    process.exitCode = 0;
+    return;
+  }
   const fs = deps.fsFactory(snapshot.clawDir);
   const audit = actionAuditFor(snapshot.clawDir, deps);
   let lastActivityKey = snapshot.payload.activity
@@ -40,8 +47,9 @@ export async function runLauncherStream(
         writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'activity', activity));
       }
     }
-    const message = snapshot.mapper.map(event);
-    if (message) writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'message', message));
+    for (const message of snapshot.mapper.mapAll(event)) {
+      writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'message', message));
+    }
   }, audit, { persistent: true });
 
   let shutdownPromise: Promise<void> | undefined;

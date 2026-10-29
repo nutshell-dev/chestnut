@@ -131,5 +131,7 @@ describe('launcher v2 failure matrix', () => {
       payload: { afterSequence: 3, resync: 'resync_required' },
     });
     expect(envelopes()[1]).toMatchObject({ kind: 'daemon', sequence: 2 });
+    expect(envelopes()[2]).toMatchObject({ kind: 'terminal', sequence: 3, payload: { reason: 'stopped' } });
+    expect(mocks.reader.start).not.toHaveBeenCalled();
   });
 });

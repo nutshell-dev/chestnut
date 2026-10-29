@@ -11,18 +11,23 @@ public final class ChatStore: ObservableObject {
     private let send: any SendClient
     private let stream: any StreamClient
     private let makeRequestId: () -> RequestId
+    private let reconnectBackoff: (Int) -> TimeInterval
     private var streamTask: Task<Void, Never>?
     private var stopping = false
 
     public init(
         send: any SendClient,
         stream: any StreamClient,
-        makeRequestId: @escaping () -> RequestId = { UUID().uuidString }
+        makeRequestId: @escaping () -> RequestId = { UUID().uuidString },
+        reconnectBackoff: @escaping (Int) -> TimeInterval = { attempt in
+            min(2, 0.1 * pow(2.0, Double(attempt)))
+        }
     ) {
         self.snapshot = ChatCoreState()
         self.send = send
         self.stream = stream
         self.makeRequestId = makeRequestId
+        self.reconnectBackoff = reconnectBackoff
     }
 
     public var state: ChatState { snapshot.chat }
@@ -60,15 +65,19 @@ public final class ChatStore: ObservableObject {
         guard streamTask == nil else { return }
         stopping = false
         streamTask = Task { [weak self] in
-            await self?.consumeStream(fromSequence: self?.snapshot.lastSequence)
+            guard let self else { return }
+            await self.consumeStream(fromSequence: self.snapshot.lastSequence)
+            self.streamTask = nil
         }
     }
 
     /// 用户主动退出：只停止子进程，不伪造业务失败、不自动重发。
     public func stopStream() async {
         stopping = true
-        streamTask?.cancel()
+        let task = streamTask
+        task?.cancel()
         await stream.stop()
+        await task?.value
         streamTask = nil
         dispatch(.streamStoppedByUser)
     }
@@ -82,27 +91,48 @@ public final class ChatStore: ObservableObject {
     }
 
     private func consumeStream(fromSequence: Int?) async {
-        let events = stream.events(fromSequence: fromSequence)
-        do {
-            for try await envelope in events {
-                if Task.isCancelled { return }
-                dispatch(.streamEvent(envelope))
-                if let requiredFrom = snapshot.resyncPendingFrom {
-                    // 跳号：停止当前订阅、从缺口恢复；已确认消息与未确认草稿不动。
-                    await stream.stop()
+        var fromSequence = fromSequence
+        var retryAttempt = 0
+
+        subscription: while !Task.isCancelled && !stopping {
+            let events = stream.events(fromSequence: fromSequence)
+            do {
+                for try await envelope in events {
                     if Task.isCancelled || stopping { return }
-                    await consumeStream(fromSequence: requiredFrom)
+                    dispatch(.streamEvent(envelope))
+                    retryAttempt = 0
+                    if let requiredFrom = snapshot.resyncPendingFrom {
+                        // 跳号：停止当前订阅、从缺口恢复；已确认消息与未确认草稿不动。
+                        await stream.stop()
+                        if Task.isCancelled || stopping { return }
+                        fromSequence = requiredFrom
+                        continue subscription
+                    }
+                    if envelope.kind == .terminal { return }
+                }
+                return
+            } catch let error as ChatError {
+                if Task.isCancelled || stopping { return }
+                guard case .transport = error else {
+                    dispatch(.streamFailed(error))
+                    return
+                }
+            } catch {
+                if Task.isCancelled || stopping { return }
+                // 未知 adapter 错误沿用 transport 分类，只有这一类会尝试恢复。
+            }
+
+            let delay = reconnectBackoff(retryAttempt)
+            retryAttempt += 1
+            if delay > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                } catch {
                     return
                 }
             }
-        } catch let error as ChatError {
-            if !Task.isCancelled && !stopping {
-                dispatch(.streamFailed(error))
-            }
-        } catch {
-            if !Task.isCancelled && !stopping {
-                dispatch(.streamFailed(.transport(detail: error.localizedDescription)))
-            }
+            if Task.isCancelled || stopping { return }
+            fromSequence = snapshot.resyncPendingFrom ?? snapshot.lastSequence
         }
     }
 }

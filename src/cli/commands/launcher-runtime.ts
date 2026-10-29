@@ -69,8 +69,7 @@ export function readLauncherSnapshot(deps: LauncherCommandDeps, name = MOTION_CL
   let activity: LauncherActivityPayload | undefined;
   if (current.active) {
     for (const event of current.events) {
-      const message = mapper.map(event);
-      if (message) messages.set(message.messageId, message);
+      for (const message of mapper.mapAll(event)) messages.set(message.messageId, message);
       const nextActivity = activityMapper.map(event);
       if (nextActivity) activity = nextActivity;
     }

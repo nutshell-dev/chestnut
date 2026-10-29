@@ -61,8 +61,7 @@ public protocol SendClient: Sendable {
     func submit(requestId: RequestId, text: String) async throws -> SendAck
 }
 
-/// 订阅 capability（长驻进程语义）。fromSequence 请求缺口恢复；
-/// 当前 CLI 无序号恢复入口，实现方 fail closed，不伪造恢复成功。
+/// 订阅 capability（长驻进程语义）。fromSequence 请求 CLI 提供新快照与明确 resync 边界。
 public protocol StreamClient: Sendable {
     func events(fromSequence: Int?) -> AsyncThrowingStream<LauncherEnvelope, Error>
     func stop() async
@@ -76,8 +75,13 @@ public enum WireErrorMapper {
         switch classRaw {
         case "daemon_stopped", "daemon_unavailable": return .daemon(detail: detail)
         case "rejected": return .rejected(detail: detail)
-        case "protocol_mismatch": return .protocolMismatch(detail: detail)
+        case "protocol_mismatch", "protocol_error": return .protocolMismatch(detail: detail)
         case "local": return .local(detail: detail)
+        case "stream_failed":
+            if case let .bool(retryable)? = envelope.payload["retryable"], !retryable {
+                return .local(detail: detail)
+            }
+            return .transport(detail: detail)
         default: return .transport(detail: "error envelope class '\(classRaw)': \(detail)")
         }
     }

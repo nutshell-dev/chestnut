@@ -365,6 +365,45 @@ final class RecoveryTests: XCTestCase {
         XCTAssertEqual(state.lastSequence, 3)
         XCTAssertNil(state.resyncPendingFrom)
     }
+
+    /// Phase 2021：重连进程从 sequence 1 生成 resync snapshot；不能因上一进程
+    /// lastSequence 更大而丢弃用户/回复快照。消息 id 幂等，live tail 继续连号。
+    func testReconnectResyncSnapshotRestoresUserAndMotionOrderWithoutDuplicates() {
+        let messages = JSONValue.array([
+            .object(["messageId": .string("user-t1-send-1"), "role": .string("user"), "text": .string("一")]),
+            .object(["messageId": .string("reply-r1"), "role": .string("motion"), "text": .string("答一")]),
+            .object(["messageId": .string("user-t1-send-2"), "role": .string("user"), "text": .string("二")]),
+            .object(["messageId": .string("reply-r2"), "role": .string("motion"), "text": .string("答二")]),
+        ])
+        let snapshot = LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 1, sessionId: "new-process", kind: .snapshot,
+            payload: .object(["resync": .string("resync_required"), "messages": messages])
+        )
+        var state = ChatCoreState(lastSequence: 8)
+        state = ChatReducer.reduce(state, .streamEvent(snapshot))
+        state = ChatReducer.reduce(state, .streamEvent(snapshot)) // 重连/重放仍幂等
+        state = ChatReducer.reduce(state, .streamEvent(reopenEvent(2, "reply-r2", "答二更新")))
+
+        XCTAssertEqual(state.chat.messages.map(\.id), ["user-t1-send-1", "reply-r1", "user-t1-send-2", "reply-r2"])
+        XCTAssertEqual(state.chat.messages.map(\.role), [.user, .motion, .user, .motion])
+        XCTAssertEqual(state.chat.messages.map(\.text), ["一", "答一", "二", "答二更新"])
+        XCTAssertEqual(state.lastSequence, 2)
+        XCTAssertNil(state.resyncPendingFrom)
+    }
+
+    func testNonRetryableProtocolErrorEnvelopeStaysProtocolMismatch() {
+        let envelope = LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 1, sessionId: "s1", kind: .error,
+            payload: .object([
+                "class": .string("protocol_error"),
+                "detail": .string("bad request"),
+                "retryable": .bool(false),
+            ])
+        )
+        XCTAssertEqual(WireErrorMapper.map(envelope), .protocolMismatch(detail: "bad request"))
+    }
 }
 
 // MARK: - Fake process fixture

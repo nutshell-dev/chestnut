@@ -104,8 +104,12 @@ public enum ChatReducer {
     /// - ack/error/terminal 不追加消息（ack ≠ 回复）；
     /// - 未知 kind 保留 envelope 元数据，以未确认的 system 消息降级展示。
     private static func applyStreamEvent(_ envelope: LauncherEnvelope, to state: inout ChatCoreState) {
-        // A v2 snapshot is an explicit resync baseline, not a duplicate old sequence.
-        if envelope.kind == .snapshot, state.resyncPendingFrom != nil { state.lastSequence = nil }
+        // A reconnect snapshot explicitly starts a fresh per-process sequence baseline.
+        // Without this reset, sequence 1 would look older than the previous process tail.
+        if envelope.kind == .snapshot,
+           envelope.payload["resync"]?.stringValue == "resync_required" {
+            state.lastSequence = nil
+        }
         let decision: SequenceDecision
         if let last = state.lastSequence {
             decision = classifySequence(previous: last, next: envelope.sequence)

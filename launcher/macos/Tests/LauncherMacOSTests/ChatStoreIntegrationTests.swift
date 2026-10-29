@@ -127,7 +127,7 @@ final class ChatStoreIntegrationTests: XCTestCase {
         let stream = ScriptedStreamClient(scripts: [
             .init(
                 envelopes: [makeEnvelope(.event, 1, payload: motionPayload("m1", "a"))],
-                error: ChatError.transport(detail: "stream EOF before terminal event")
+                error: ChatError.protocolMismatch(detail: "unsupported stream envelope")
             ),
         ])
         let store = makeStore(stream: stream)
@@ -145,9 +145,10 @@ final class ChatStoreIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(draft, "断线前输入", "stream 断线不清未确认草稿")
         XCTAssertEqual(messages.map(\.id), ["m1"], "resync/断线不丢已确认消息")
-        guard case .transport = error else {
-            return XCTFail("expected transport, got \(error)")
+        guard case .protocolMismatch = error else {
+            return XCTFail("expected protocolMismatch, got \(error)")
         }
+        XCTAssertEqual(stream.subscriptions, [nil], "不可重试错误不得自动重订阅")
     }
 
     func testUserQuitStopsStreamWithoutFailure() async {
