@@ -157,11 +157,11 @@ final class SetupViewTests: XCTestCase {
         let source = try setupSource()
         let credentials = source.view.components(separatedBy: "private func credentialsScreen")[1]
             .components(separatedBy: "private func repairScreen")[0]
-        let apiKey = credentials.range(of: "label: SetupCopy.apiKeyLabel")!.lowerBound
-        let model = credentials.range(of: "label: SetupCopy.modelLabel")!.lowerBound
-        let baseURL = credentials.range(of: "label: SetupCopy.baseURLLabel")!.lowerBound
+        let apiKey = credentials.range(of: "label: apiKeyCopy.label")!.lowerBound
+        let model = credentials.range(of: "label: modelCopy.label")!.lowerBound
+        let baseURL = credentials.range(of: "label: baseURLCopy.label")!.lowerBound
         XCTAssertTrue(apiKey < model && model < baseURL)
-        XCTAssertTrue(credentials.contains("hint: SetupCopy.defaultModelHint"))
+        XCTAssertTrue(credentials.contains("hint: copy.defaultModelHint"))
         let update = source.components.components(separatedBy: "func updateNSView")[1]
             .components(separatedBy: "struct SetupFieldRow")[0]
         XCTAssertFalse(update.contains("makeFirstResponder"))

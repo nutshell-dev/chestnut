@@ -362,7 +362,7 @@ final class ChatViewSnapshotTests: XCTestCase {
     /// 窗口高度记账（activityHeight）必须消费同一 lineHeight + topGap（行高变化自动跟随）。
     func testActivityBarConsumesOnlyActivityStyleTokens() throws {
         let source = try chatViewSource()
-        guard let section = section(of: source, from: "private func activityBar", to: "accessibilityIdentifier(\"activityBar\")") else {
+        guard let section = section(of: source, from: "private func activityBar", to: "private var responseArea") else {
             return XCTFail("未找到 activityBar 实现段")
         }
         XCTAssertFalse(section.contains(".font(.caption"), "activityBar 不得用 caption 动态默认字号")
@@ -383,7 +383,7 @@ final class ChatViewSnapshotTests: XCTestCase {
     /// 实机双主题可读性归 step-d 实机矩阵。
     func testActivityBarUsesSemanticThemeAdaptiveColors() throws {
         let source = try chatViewSource()
-        guard let section = section(of: source, from: "private func activityBar", to: "accessibilityIdentifier(\"activityBar\")") else {
+        guard let section = section(of: source, from: "private func activityBar", to: "private var responseArea") else {
             return XCTFail("未找到 activityBar 实现段")
         }
         XCTAssertTrue(section.contains(".secondary"), "普通活动必须用 semantic secondary（主题自适应）")

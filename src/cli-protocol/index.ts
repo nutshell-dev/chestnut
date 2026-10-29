@@ -96,6 +96,11 @@ export type {
 } from './launcher-envelope.js';
 export {
   LAUNCHER_SETUP_PROTOCOL,
+  LAUNCHER_UI_SEMANTICS_PROTOCOL,
+  createLauncherUiSemantics,
+  isUiActionEnabled,
+  renderTerminalAction,
+  renderTerminalActivity,
   parseLauncherSetupRequest,
   launcherSetupResponse,
 } from './launcher-setup.js';
@@ -120,6 +125,13 @@ export type {
   LauncherSetupAction,
   LauncherSetupRequest,
   LauncherSetupResponse,
+  LauncherUiSemantics,
+  LauncherUiSemanticsContext,
+  UiScreenSemantics,
+  UiFieldSemantics,
+  UiActionSemantics,
+  UiStateSemantics,
+  UiErrorSemantics,
 } from './launcher-setup.js';
 
 // phase 2003 Step E：claw bar 错误行格式化单源（viewport/launcher 共用，纯文本无 ANSI）

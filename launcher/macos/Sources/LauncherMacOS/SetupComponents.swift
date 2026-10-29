@@ -2,6 +2,72 @@ import AppKit
 import LauncherCore
 import SwiftUI
 
+/// Platform-neutral accessibility facts projected from CLI semantics. Deliberately has no
+/// `value` member: secure drafts can never enter an accessibility projection.
+struct NativeAccessibilityProjection: Equatable {
+    enum Role: String, Equatable {
+        case button
+        case textField
+        case secureTextField
+        case staticText
+        case scrollArea
+        case group
+    }
+
+    let identifier: String
+    let label: String
+    let hint: String?
+    let role: Role
+    let enabled: Bool
+    let focused: Bool
+
+    init(identifier: String, label: String, hint: String? = nil, role: Role,
+         enabled: Bool = true, focused: Bool = false) {
+        self.identifier = identifier
+        self.label = label
+        self.hint = hint
+        self.role = role
+        self.enabled = enabled
+        self.focused = focused
+    }
+
+    /// AppKit owns native role/focus mapping. This never reads or writes NSView.stringValue,
+    /// accessibilityValue, drafts, or first responder state.
+    @MainActor
+    func apply(to view: NSView) {
+        view.setAccessibilityIdentifier(identifier)
+        view.setAccessibilityLabel(label)
+        view.setAccessibilityHelp(hint)
+        switch role {
+        case .button: view.setAccessibilityRole(.button)
+        case .textField, .secureTextField: view.setAccessibilityRole(.textField)
+        case .staticText: view.setAccessibilityRole(.staticText)
+        case .scrollArea: view.setAccessibilityRole(.scrollArea)
+        case .group: view.setAccessibilityRole(.group)
+        }
+        view.setAccessibilityEnabled(enabled)
+        view.setAccessibilityFocused(focused)
+    }
+}
+
+extension View {
+    /// SwiftUI carries the portable facts; AppKit-specific role/focus projection stays in
+    /// NativeAccessibilityProjection.apply(to:) and native controls.
+    @ViewBuilder
+    func nativeAccessibility(_ projection: NativeAccessibilityProjection) -> some View {
+        if let hint = projection.hint {
+            self
+                .accessibilityIdentifier(projection.identifier)
+                .accessibilityLabel(projection.label)
+                .accessibilityHint(hint)
+        } else {
+            self
+                .accessibilityIdentifier(projection.identifier)
+                .accessibilityLabel(projection.label)
+        }
+    }
+}
+
 enum SetupField: Hashable {
     case model
     case apiKey
@@ -13,6 +79,7 @@ struct SetupStepHeader: View {
     let step: String?
     let title: String
     let subtitle: String?
+    var identifier: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -31,6 +98,12 @@ struct SetupStepHeader: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeAccessibility(NativeAccessibilityProjection(
+            identifier: identifier ?? "setup.header",
+            label: title,
+            hint: subtitle ?? step,
+            role: .staticText
+        ))
     }
 }
 
@@ -38,6 +111,7 @@ struct ProviderRow: View {
     let provider: SetupProvider
     let selected: Bool
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -67,26 +141,44 @@ struct ProviderRow: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
-        .accessibilityIdentifier("setup.provider.\(provider.id)")
+        .nativeAccessibility(NativeAccessibilityProjection(
+            identifier: "setup.provider.\(provider.id)",
+            label: provider.label,
+            hint: provider.description,
+            role: .button,
+            enabled: isEnabled
+        ))
     }
 }
 
 /// Stable first-render affordance: total count is always visible; overflow is explicit.
 struct ProviderListAffordance: View {
     let count: Int
+    var semantics: LauncherUiSemantics? = nil
+
+    private var copy: SetupPresentationCopy { SetupPresentationCopy(semantics: semantics) }
+    private var countText: String { copy.providerCount(count) }
+    private var overflowHint: String? {
+        count > SetupVisual.visibleProviderCount ? copy.screen("setup.provider").hint : nil
+    }
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(SetupCopy.providerCount(count))
+            Text(countText)
             Spacer(minLength: 0)
-            if count > SetupVisual.visibleProviderCount {
-                Text(SetupCopy.moreProvidersHint)
+            if let overflowHint {
+                Text(overflowHint)
             }
         }
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
         .frame(height: SetupVisual.providerHintHeight)
-        .accessibilityIdentifier("setup.provider.overflow")
+        .nativeAccessibility(NativeAccessibilityProjection(
+            identifier: "setup.provider.overflow",
+            label: countText,
+            hint: overflowHint,
+            role: .staticText
+        ))
         .accessibilityElement(children: .combine)
         .allowsHitTesting(false)
     }
@@ -308,6 +400,7 @@ struct PasteCapableSecureField: NSViewRepresentable {
     let placeholder: String
     var isFocused: Binding<Bool>
     let onSubmit: () -> Void
+    var accessibility: NativeAccessibilityProjection? = nil
     @Environment(\.isEnabled) private var isEnabled
 
     final class Coordinator: NSObject {
@@ -394,6 +487,7 @@ struct PasteCapableSecureField: NSViewRepresentable {
         context.coordinator.onSubmit = onSubmit
         field.placeholderString = placeholder
         field.isEnabled = isEnabled
+        accessibility?.apply(to: field)
         if !context.coordinator.isEditing, field.stringValue != text {
             field.stringValue = text
         }
@@ -409,6 +503,29 @@ struct SetupFieldRow: View {
     var focused: FocusState<SetupField?>.Binding
     let onSubmit: () -> Void
     var hint: String? = nil
+    var identifier: String? = nil
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var accessibilityIdentifier: String {
+        if let identifier { return identifier }
+        switch field {
+        case .model: return "credentials.model"
+        case .apiKey: return "credentials.apiKey"
+        case .baseURL: return "credentials.baseUrl"
+        case .language: return "setup.language"
+        }
+    }
+
+    private var accessibility: NativeAccessibilityProjection {
+        NativeAccessibilityProjection(
+            identifier: accessibilityIdentifier,
+            label: label,
+            hint: hint,
+            role: secure ? .secureTextField : .textField,
+            enabled: isEnabled,
+            focused: focused.wrappedValue == field
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -423,7 +540,8 @@ struct SetupFieldRow: View {
                         get: { focused.wrappedValue == field },
                         set: { focused.wrappedValue = $0 ? field : nil }
                     ),
-                    onSubmit: onSubmit
+                    onSubmit: onSubmit,
+                    accessibility: accessibility
                 )
             } else {
                 TextField(placeholder, text: $text)
@@ -431,6 +549,7 @@ struct SetupFieldRow: View {
                     .font(.system(size: 14))
                     .focused(focused, equals: field)
                     .onSubmit(onSubmit)
+                    .nativeAccessibility(accessibility)
             }
             if let hint {
                 Text(hint)
@@ -453,6 +572,9 @@ struct SetupPrimaryAction: View {
     let disabled: Bool
     let busy: Bool
     let action: () -> Void
+    var identifier: String = "setup.action"
+    var hint: String? = nil
+    var disabledReason: String? = nil
 
     var body: some View {
         Button(action: action) {
@@ -469,6 +591,13 @@ struct SetupPrimaryAction: View {
         .controlSize(.large)
         .keyboardShortcut(.defaultAction)
         .disabled(disabled || busy)
+        .nativeAccessibility(NativeAccessibilityProjection(
+            identifier: identifier,
+            label: title,
+            hint: hint ?? disabledReason,
+            role: .button,
+            enabled: !disabled && !busy
+        ))
     }
 }
 
@@ -479,6 +608,9 @@ struct SetupScaffold<Content: View, Actions: View>: View {
     let height: CGFloat
     let secondaryTitle: String
     let cancel: (() -> Void)?
+    let identifier: String
+    let secondaryIdentifier: String
+    let secondaryHint: String?
     @ViewBuilder let content: Content
     @ViewBuilder let actions: Actions
 
@@ -489,6 +621,9 @@ struct SetupScaffold<Content: View, Actions: View>: View {
         height: CGFloat,
         secondaryTitle: String = SetupCopy.cancelAction,
         cancel: (() -> Void)? = nil,
+        identifier: String = "setup.screen",
+        secondaryIdentifier: String = "credentials.cancel",
+        secondaryHint: String? = nil,
         @ViewBuilder content: () -> Content,
         @ViewBuilder actions: () -> Actions
     ) {
@@ -498,13 +633,16 @@ struct SetupScaffold<Content: View, Actions: View>: View {
         self.height = height
         self.secondaryTitle = secondaryTitle
         self.cancel = cancel
+        self.identifier = identifier
+        self.secondaryIdentifier = secondaryIdentifier
+        self.secondaryHint = secondaryHint
         self.content = content()
         self.actions = actions()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SetupStepHeader(step: step, title: title, subtitle: subtitle)
+            SetupStepHeader(step: step, title: title, subtitle: subtitle, identifier: identifier)
             Spacer().frame(height: SetupVisual.sectionGap)
             content
             Spacer(minLength: SetupVisual.sectionGap)
@@ -513,6 +651,12 @@ struct SetupScaffold<Content: View, Actions: View>: View {
                     Button(secondaryTitle, action: cancel)
                         .buttonStyle(.bordered)
                         .foregroundStyle(.secondary)
+                        .nativeAccessibility(NativeAccessibilityProjection(
+                            identifier: secondaryIdentifier,
+                            label: secondaryTitle,
+                            hint: secondaryHint,
+                            role: .button
+                        ))
                 }
                 Spacer()
                 actions

@@ -36,44 +36,46 @@ public enum ActivityStyle {
     /// processing 摘要呈现与 viewport claw bar（buildClawLine）同规则：
     /// thinking 摘要圆括号、裸文本摘要双引号、工具只显示短名（spinner 已表活动，不加 ⚙）；
     /// 静态短状态统一 Thinking…/Streaming…（phase 2004 首字母大写，无 agent 名称）。
-    public static func text(for activity: ActivityState) -> String? {
+    public static func text(for activity: ActivityState,
+                            semantics: LauncherUiSemantics? = nil) -> String? {
+        func state(_ id: String) -> String { SetupCopy.state(id, semantics: semantics).label }
         switch activity {
         case .idle:
             return nil
         case .waiting:
-            return "Thinking…"
+            return state("activity.waiting")
         case .responding:
-            return "Streaming…"
+            return state("activity.responding")
         case let .processing(label, detail):
             let trimmed = detail?.isEmpty == false ? detail : nil
             switch label {
             case "thinking":
                 if let trimmed { return "(\(trimmed))" } // claw: (thinking buffer)
-                return "Thinking…"
+                return state("activity.thinking")
             case "text":
                 if let trimmed { return "\"\(trimmed)\"" } // claw: "text buffer"
-                return "Thinking…"
+                return state("activity.thinking")
             case "tool", "tool_result":
                 if let trimmed { return trimmed } // claw: currentTool 短名（spinner 已表活动）
-                return "Tool…"
+                return state("activity.tool")
             default: // provider/turn/未知 token：统一短状态，token 不上屏
-                return "Thinking…"
+                return state("activity.thinking")
             }
         case let .error(detail):
             // 错误族 detail 是协议输出的最终显示文本（TS 共享 formatter），
             // 原样显示——不添加前缀、不拼接角色名、不改写；Swift 不持有 claw bar 符号词汇。
             if let detail, !detail.isEmpty { return detail }
-            return "error"
+            return state("activity.error")
         case let .interrupted(detail):
             if let detail, !detail.isEmpty { return detail }
-            return "interrupted"
+            return state("activity.interrupted")
         case let .retry(detail):
             // retry 是可恢复中间态：原样显示 wire detail，不当普通 error 文案
             if let detail, !detail.isEmpty { return detail }
-            return "retrying"
+            return state("activity.retry")
         case let .blocked(detail):
             if let detail, !detail.isEmpty { return detail }
-            return "blocked"
+            return state("activity.blocked")
         }
     }
 

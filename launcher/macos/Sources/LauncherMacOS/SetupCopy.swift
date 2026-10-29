@@ -68,3 +68,124 @@ enum SetupCopy {
         }
     }
 }
+
+
+extension SetupCopy {
+    static func screen(_ id: String, semantics: LauncherUiSemantics?) -> UiScreen {
+        if let screen = semantics?.screens[id] { return screen }
+        switch id {
+        case "setup.provider":
+            return UiScreen(id: id, title: providerTitle, step: providerStep, subtitle: providerSubtitle,
+                            status: "共 N 个服务供应商", hint: moreProvidersHint)
+        case "setup.credentials":
+            return UiScreen(id: id, title: credentialsTitle, step: credentialsStep)
+        case "setup.probing":
+            return UiScreen(id: id, title: probingTitle, subtitle: probingSubtitle)
+        case "setup.repair":
+            return UiScreen(id: id, title: repairTitle)
+        case "setup.starting":
+            return UiScreen(id: id, title: startingTitle)
+        case "setup.start_failure":
+            return UiScreen(id: id, title: startFailureTitle)
+        case "setup.language":
+            return UiScreen(id: id, title: languageTitle, step: languageStep, subtitle: languageSubtitle)
+        case "chat":
+            return UiScreen(id: id, title: "Motion 对话")
+        default:
+            return UiScreen(id: id, title: id)
+        }
+    }
+
+    static func field(_ id: String, semantics: LauncherUiSemantics?) -> UiField {
+        if let field = semantics?.fields[id] { return field }
+        switch id {
+        case "credentials.apiKey":
+            return UiField(id: id, label: apiKeyLabel, placeholder: apiKeyLabel, secure: true, required: true)
+        case "credentials.model":
+            return UiField(id: id, label: modelLabel, placeholder: modelLabel, required: true)
+        case "credentials.baseUrl":
+            return UiField(id: id, label: baseURLLabel, placeholder: baseURLLabel)
+        case "setup.language":
+            return UiField(id: id, label: languageLabel, placeholder: languagePlaceholder)
+        case "chat.composer":
+            return UiField(id: id, label: ComposerStyle.placeholder, placeholder: ComposerStyle.placeholder)
+        default:
+            return UiField(id: id, label: id)
+        }
+    }
+
+    static func action(_ id: String, semantics: LauncherUiSemantics?) -> UiAction {
+        if let action = semantics?.actions[id] { return action }
+        let label: String
+        switch id {
+        case "provider.submit": label = continueAction
+        case "credentials.submit": label = submitAction
+        case "credentials.back": label = backAction
+        case "credentials.cancel", "repair.cancel": label = cancelAction
+        case "repair.retry": label = retryAction
+        case "repair.edit": label = editAction
+        case "start.retry": label = retryStartAction
+        case "status.recheck": label = recheckAction
+        case "language.submit": label = languageAction
+        case "chat.send", "chat.retry": label = id == "chat.send" ? "发送" : retryAction
+        case "chat.close": label = "关闭"
+        case "chat.interrupt": label = "中断"
+        default: label = id
+        }
+        return UiAction(id: id, label: label)
+    }
+
+    static func state(_ id: String, semantics: LauncherUiSemantics?) -> UiState {
+        if let state = semantics?.states[id] { return state }
+        let label: String
+        switch id {
+        case "setup.waiting": label = pleaseWait
+        case "setup.ready": label = readySubtitle
+        case "chat.system": label = "系统"
+        case "activity.waiting", "activity.thinking": label = "Thinking…"
+        case "activity.responding": label = "Streaming…"
+        case "activity.tool": label = "Tool…"
+        case "activity.error": label = "error"
+        case "activity.interrupted": label = "interrupted"
+        case "activity.retry": label = "retrying"
+        case "activity.blocked": label = "blocked"
+        default: label = id
+        }
+        return UiState(id: id, label: label)
+    }
+
+    static func error(_ id: String, failure: SetupFailure, semantics: LauncherUiSemantics?) -> UiError {
+        if let error = semantics?.errors[id] { return error }
+        return UiError(id: id, label: self.failure(failure))
+    }
+}
+
+/// View-facing copy projection. Every lookup prefers CLI semantics and uses the legacy
+/// constants above only when an older SetupClient returned no semantics.
+struct SetupPresentationCopy {
+    let semantics: LauncherUiSemantics?
+
+    func screen(_ id: String) -> UiScreen { SetupCopy.screen(id, semantics: semantics) }
+    func field(_ id: String) -> UiField { SetupCopy.field(id, semantics: semantics) }
+    func action(_ id: String) -> UiAction { SetupCopy.action(id, semantics: semantics) }
+    func state(_ id: String) -> UiState { SetupCopy.state(id, semantics: semantics) }
+
+    func providerCount(_ count: Int) -> String {
+        let status = screen("setup.provider").status ?? SetupCopy.providerCount(count)
+        return status.replacingOccurrences(of: "N", with: "\(count)")
+    }
+
+    func credentialsSubtitle(for provider: SetupProvider) -> String {
+        screen("setup.credentials").subtitle ?? SetupCopy.credentialsSubtitle(for: provider)
+    }
+
+    func defaultModelHint(_ model: String?) -> String {
+        field("credentials.model").hint ?? SetupCopy.defaultModelHint(model)
+    }
+
+    func failure(_ failure: SetupFailure) -> UiError {
+        let knownTypes = ["auth", "network", "start", "transport"]
+        let type = knownTypes.contains(failure.errorType) ? failure.errorType : "unknown"
+        return SetupCopy.error("setup.\(type)", failure: failure, semantics: semantics)
+    }
+}

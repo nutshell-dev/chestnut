@@ -8,6 +8,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
+import { createLauncherUiSemantics, isUiActionEnabled } from '../cli-protocol/index.js';
 
 import { createDirContext } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
@@ -122,6 +123,7 @@ function tokenizeSlashArgs(s: string): string[] {
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
+  const uiSemantics = createLauncherUiSemantics();
   // Phase 1997 Step B: identity/路径由 typed location 推导；label 只作显示名
   const { agentDir, chestnutRoot, isMotion } = resolveViewportRoots(options.location);
   const baseDir = getChestnutRoot();
@@ -439,7 +441,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 输入提交处理
   editor.onSubmit = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) {
+    if (!isUiActionEnabled(uiSemantics.actions['chat.send'], { 'composer.nonempty': trimmed.length > 0 })) {
       editor.setText('');
       tui.requestRender();
       return;

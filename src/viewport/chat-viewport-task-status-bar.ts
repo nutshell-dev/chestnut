@@ -18,6 +18,7 @@ import { formatRecoveryErrorClass } from './recovery-display.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
 import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../core/async-task-system/index.js';
+import { createLauncherUiSemantics, renderTerminalActivity } from '../cli-protocol/index.js';
 
 /** chat-viewport task line shortId 显示截断 cap（viewport UI 业务、与 UUID_SHORT_LEN=8 独立可变）*/
 const VIEWPORT_TASK_ID_DISPLAY_CHARS = 6;
@@ -59,12 +60,14 @@ export function buildTaskLine(t: TaskTrack, cols: number): string {
   const prefix = t.taskKind === 'spawn_subagent' ? 'spawn-' : 'shadow-';
   const label = `${prefix}${shortId}`;
   const icon = t.toolSuccess === true ? '✓' : t.toolSuccess === false ? '✗' : '⚙';
+  const semantics = createLauncherUiSemantics();
+  const detail = t.textBuffer.trimStart().replace(/\n/g, ' ');
   if (t.currentTool) {
     if (t.textBuffer) {
-      const isThinking = t.bufferType === 'thinking';
-      const open = isThinking ? '(' : '"';
-      const close = isThinking ? ')' : '"';
-      const line = `[${label}] ${icon} ${t.currentTool} · ${open}${t.textBuffer.trimStart().replace(/\n/g, ' ')}${close}`;
+      const activity = renderTerminalActivity(semantics, {
+        phase: 'processing', label: t.bufferType ?? 'thinking', detail,
+      });
+      const line = `[${label}] ${icon} ${t.currentTool} · ${activity}`;
       return `\x1b[38;5;147m${fitLine(line, cols)}\x1b[0m`;
     }
     return `\x1b[38;5;147m[${label}] ${icon} ${t.currentTool}\x1b[0m`;

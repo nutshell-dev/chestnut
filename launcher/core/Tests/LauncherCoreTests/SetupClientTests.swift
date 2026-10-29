@@ -7,11 +7,13 @@ final class SetupClientTests: XCTestCase {
         var argv: [String] = []
         var stdin: String?
         var actions: [String] = []
+        var runCount = 0
         var response: (String, String) -> String = { requestId, _ in
             #"{"protocolVersion":"chestnut.launcher.setup.v1","requestId":"\#(requestId)","kind":"committed","payload":{"phase":"committed"}}"#
         }
         func run(_ argv: [String]) async throws -> ProcessOutput { try await run(argv, stdin: nil) }
         func run(_ argv: [String], stdin: String?) async throws -> ProcessOutput {
+            runCount += 1
             self.argv = argv
             self.stdin = stdin
             let object = try JSONSerialization.jsonObject(with: Data((stdin ?? "").utf8)) as! [String: Any]
@@ -43,6 +45,18 @@ final class SetupClientTests: XCTestCase {
         XCTAssertEqual(actions, ["retry", "edit", "cancel"])
     }
 
+    func testPresentationDecodesUiFromSameV1Response() async throws {
+        let process = FakeProcess()
+        process.response = { requestId, _ in
+            #"{"protocolVersion":"chestnut.launcher.setup.v1","requestId":"\#(requestId)","kind":"state","payload":{"phase":"committed","ui":{"protocol":"chestnut.ui.v1","locale":"zh-CN","screens":{},"fields":{},"actions":{},"states":{},"errors":{}}}}"#
+        }
+        let client = ChestnutSetupClient(process: process, argvPrefix: ["launcher", "setup", "--json"])
+        let presentation = try await client.presentation()
+        XCTAssertEqual(presentation.state, .committed)
+        XCTAssertEqual(presentation.ui?.locale, "zh-CN")
+        XCTAssertEqual(process.runCount, 1)
+    }
+
     func testLauncherStatusUsesV2SnapshotSetupState() async throws {
         let process = FakeProcess()
         process.response = { _, _ in
@@ -53,9 +67,11 @@ final class SetupClientTests: XCTestCase {
             argvPrefix: ["launcher", "setup", "--json"],
             statusArgv: ["launcher", "status", "--json"]
         )
-        let state = try await client.status()
-        XCTAssertEqual(state, .committed)
+        let presentation = try await client.presentation()
+        XCTAssertEqual(presentation.state, .committed)
+        XCTAssertNil(presentation.ui)
         XCTAssertEqual(process.argv, ["launcher", "status", "--json"])
+        XCTAssertEqual(process.runCount, 1)
     }
 
     func testSecretUsesStdinNeverArgvAndCommittedDecodes() async throws {

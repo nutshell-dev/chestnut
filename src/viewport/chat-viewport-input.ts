@@ -5,6 +5,7 @@ import type { TurnTracker } from './chat-viewport-types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { createLauncherUiSemantics, isUiActionEnabled } from '../cli-protocol/index.js';
 
 export type ShutdownReason = 'daemon_dead' | 'user_quit' | 'stream_end';
 
@@ -53,7 +54,9 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
     // Only the exact single-byte ESC sequence represents the user's interrupt
     // intent; matching any string containing ESC causes false interrupts.
     if (data === '\x1b') {
-      if (!deps.turnTracker.isActive()) {
+      const semantics = createLauncherUiSemantics();
+      const turnActive = deps.turnTracker.isActive();
+      if (!isUiActionEnabled(semantics.actions['chat.interrupt'], { 'turn.active': turnActive })) {
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
         return { consume: true };
