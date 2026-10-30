@@ -326,7 +326,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
    * 1. 去重输入 ids；记录入口安排（probeOnly 判定用）；
    * 2. 活跃且非「重启恢复未开始」的准入 → waiting/factsAccepted=false，不接收任何事实；
    * 3. 复制状态，后续只改副本；计算全部新事实差集；
-   * 4. 新配置修订 → 重新评估 on_change（at 的 deadline 不变），不清预算与失败证据；
+   * 4. 新配置修订 → 只重估身份变化/pending 的 provider facts；on_change 在实际释放
+   *    全部阻断后转 ready，at deadline 不变；不清预算与失败证据；
    * 5. 全部新干预 ids 一次记账，任一新 id 授予一次提前资格；
    * 6. 新启动 token 一律记为本 boot 已处理，仅 on_change 入口授予一次启动资格；
    * 7. 在配置评估后的安排上只做一次准入判断；
@@ -367,7 +368,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       startupId?: string;
     } = { interventionIds: [] };
 
-    // 4. 新配置修订：重新评估 permanent 阻断；at 的时间窗不因配置缩短。
+    // 4. 新配置修订：只重估身份变化或待迁移事实；at 的时间窗不因配置缩短。
     const configRevision = input.facts.configurationRevision;
     if (configRevision !== undefined && !next.acceptedConfigRevisions.includes(configRevision)) {
       next.acceptedConfigRevisions = appendBounded(
@@ -375,10 +376,22 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         [configRevision],
         LLM_RECOVERY_ACCEPTED_IDS_MAX,
       );
-      next.providers = next.providers
-        .filter(p => p.errorClass !== 'permanent')
-        .map(releaseRateLimitBlocked);
-      if (next.schedule.kind === 'on_change') {
+      const currentIds = new Set(this.orchestrator.getProviderIdentities());
+      let released = false;
+      next.providers = next.providers.flatMap(fact => {
+        const changed = fact.identityMigrationPending === true || !currentIds.has(fact.providerId);
+        if (!changed) return [fact];
+        if (fact.errorClass === 'permanent') {
+          released = true;
+          return [];
+        }
+        if (fact.rateLimitBlocked === true) released = true;
+        return [clearIdentityMigrationPending(releaseRateLimitBlocked(fact))];
+      });
+      const stillBlocked = next.providers.some(
+        fact => fact.errorClass === 'permanent' || fact.rateLimitBlocked === true,
+      );
+      if (released && next.schedule.kind === 'on_change' && !stillBlocked) {
         next.schedule = { kind: 'ready', revision: next.revision };
       }
       acceptedFacts.configurationRevision = configRevision;

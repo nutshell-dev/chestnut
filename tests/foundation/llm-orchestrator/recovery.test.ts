@@ -406,7 +406,8 @@ describe('recovery triggers for configuration and startup', () => {
     await failOnce();
     expect((await session.inspect()).kind).toBe('on_change');
 
-    // 新 revision → 重新评估并放行
+    // 新身份 + 新 revision → 重新评估并放行
+    f.reload(providerConfig('primary-fixed'));
     const reloaded = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r1' } });
     expect(reloaded.kind).toBe('admitted');
     if (reloaded.kind !== 'admitted') return;
@@ -417,7 +418,8 @@ describe('recovery triggers for configuration and startup', () => {
     const replay = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r1' } });
     expect(replay.kind).toBe('waiting');
 
-    // 另一个 revision（配置再次变化）：放行
+    // 另一个身份 + revision（配置再次变化）：放行
+    f.reload(providerConfig('primary-fixed-again'));
     const again = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r2' } });
     expect(again.kind).toBe('admitted');
   });
@@ -543,7 +545,8 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     const acceptedBefore = acceptedEvents(f).length;
     const admittedBefore = f.emitted.filter(e => e.type === 'recovery_attempt_admitted').length;
 
-    // Z5：旧用户 id 已接受（回队仍在 pending）+ 配置修订同时到达 → 配置不被遮蔽。
+    // Z5：旧用户 id 已接受（回队仍在 pending）+ 新身份配置修订同时到达 → 配置不被遮蔽。
+    f.reload(providerConfig('primary-fixed'));
     const second = await session.begin({
       requestKey: 'fp',
       facts: facts({ interventionIds: ['m-old'], configurationRevision: 'r-fixed' }),
@@ -821,6 +824,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     const session = f.makeSession();
     await failOnce(f, session);
 
+    f.reload(providerConfig('primary-fixed'));
     const admission = await session.begin({
       requestKey: 'fp',
       facts: facts({ configurationRevision: 'r-fixed' }),
@@ -1060,5 +1064,140 @@ describe('Phase 2027 legacy provider identity migration', () => {
     const afterRestart = f.readState();
     expect(afterRestart.providers[0].identityMigrationPending).toBe(true);
     expect(afterRestart.providers[0].providerId).toBe(f.orchestrator.getProviderIdentities()[0]);
+  });
+});
+
+
+describe('Phase 2027 selective persistent recovery re-evaluation', () => {
+  type Fixture = Awaited<ReturnType<typeof makeFixture>>;
+
+  function fact(providerId: string, patch: Partial<LLMRecoveryProviderFact> = {}): LLMRecoveryProviderFact {
+    return {
+      providerId,
+      errorClass: 'permanent',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 3,
+      detail: 'failure fact',
+      ...patch,
+    };
+  }
+
+  function seedProviders(
+    f: Fixture,
+    providers: LLMRecoveryProviderFact[],
+    schedule: 'ready' | 'on_change' = 'on_change',
+  ) {
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    state.providers = providers;
+    state.schedule = { kind: schedule, revision: state.revision };
+    saveRecoveryState(f.fs, state);
+  }
+
+  it('A 变化、B 未变化 permanent：只重估 A，B 与 on_change 保持', async () => {
+    const f = await makeFixture();
+    const currentId = f.orchestrator.getProviderIdentities()[0]!;
+    seedProviders(f, [fact('old-a'), fact(currentId)]);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(result.kind).toBe('waiting');
+    const saved = f.readState();
+    expect(saved.providers).toHaveLength(1);
+    expect(saved.providers[0].providerId).toBe(currentId);
+    expect(saved.providers[0].consecutiveFailures).toBe(3);
+    expect(saved.schedule.kind).toBe('on_change');
+  });
+
+  it('A 变化、B 未变化 rateLimitBlocked：只解除 A，B blocked 保持', async () => {
+    const f = await makeFixture();
+    const currentId = f.orchestrator.getProviderIdentities()[0]!;
+    seedProviders(f, [
+      fact('old-a', { errorClass: 'rate_limit', rateLimitFailures: 10, rateLimitBlocked: true }),
+      fact(currentId, { errorClass: 'rate_limit', rateLimitFailures: 10, rateLimitBlocked: true }),
+    ]);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(result.kind).toBe('waiting');
+    const saved = f.readState();
+    const changed = saved.providers.find((p: LLMRecoveryProviderFact) => p.providerId === 'old-a');
+    const unchanged = saved.providers.find((p: LLMRecoveryProviderFact) => p.providerId === currentId);
+    expect(changed.rateLimitBlocked).toBeUndefined();
+    expect(changed.rateLimitFailures).toBe(0);
+    expect(unchanged.rateLimitBlocked).toBe(true);
+    expect(unchanged.rateLimitFailures).toBe(10);
+    expect(saved.schedule.kind).toBe('on_change');
+  });
+
+  it('全部相关阻断均变化并释放后 on_change 才转 ready', async () => {
+    const f = await makeFixture();
+    seedProviders(f, [fact('old-a'), fact('old-b')]);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(result.kind).toBe('admitted');
+    expect(f.readState().providers).toEqual([]);
+    expect(f.readState().schedule.kind).toBe('ready');
+  });
+
+  it('只有 temperature 变化时 providerId 不变，永久故障事实保持', async () => {
+    const f = await makeFixture();
+    const beforeId = f.orchestrator.getProviderIdentities()[0]!;
+    f.reload({ ...providerConfig('primary'), temperature: 1 });
+    expect(f.orchestrator.getProviderIdentities()[0]).toBe(beforeId);
+    seedProviders(f, [fact(beforeId)]);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(result.kind).toBe('waiting');
+    expect(f.readState().providers[0].errorClass).toBe('permanent');
+    expect(f.readState().schedule.kind).toBe('on_change');
+  });
+
+  it('migration pending 即使命中当前 ID 也保守重估一次，后续事实不再带 pending', async () => {
+    const f = await makeFixture();
+    const currentId = f.orchestrator.getProviderIdentities()[0]!;
+    seedProviders(f, [fact(currentId, {
+      errorClass: 'rate_limit',
+      rateLimitFailures: 10,
+      rateLimitBlocked: true,
+      identityMigrationPending: true,
+    })]);
+    const session = f.makeSession();
+
+    const first = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(first.kind).toBe('admitted');
+    if (first.kind !== 'admitted') return;
+    const migrated = f.readState().providers[0];
+    expect(migrated.rateLimitBlocked).toBeUndefined();
+    expect(migrated.identityMigrationPending).toBeUndefined();
+    await session.finish(first.attemptId, 'completed');
+
+    const second = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r2' }) });
+    expect(second.kind).toBe('admitted');
+    expect(f.readState().providers[0]).toEqual(migrated);
+  });
+
+  it('at 未到期时身份变化也不缩短 deadline', async () => {
+    const f = await makeFixture();
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    state.providers = [fact('old-a', { errorClass: 'rate_limit', rateLimitBlocked: true })];
+    state.schedule = { kind: 'at', revision: state.revision, resumeAt: new Date(T0 + 900_000).toISOString() };
+    saveRecoveryState(f.fs, state);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(result.kind).toBe('waiting');
+    if (result.kind === 'waiting') {
+      expect(result.schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + 900_000).toISOString() });
+    }
   });
 });
