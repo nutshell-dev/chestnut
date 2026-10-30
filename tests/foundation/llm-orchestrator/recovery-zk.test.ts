@@ -46,6 +46,7 @@ interface FixtureOpts {
   primaryError?: () => Error;
   fallbackResponse?: () => LLMResponse;
   breaker?: boolean;
+  maxAttempts?: number;
 }
 
 interface Fixture {
@@ -86,7 +87,7 @@ async function makeFixture(opts: FixtureOpts = {}): Promise<Fixture> {
   const orchestrator = createLLMOrchestrator({
     primary: providerConfig('primary'),
     ...(opts.fallbackResponse ? { fallbacks: [providerConfig('fallback')] } : {}),
-    maxAttempts: 3,
+    maxAttempts: opts.maxAttempts ?? 3,
     retryDelayMs: 0,
     events,
     createProviderAdapter: (config) => (config.name === 'fallback' ? fallbackAdapter : failAdapter),
@@ -219,7 +220,8 @@ describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
 
 describe('Z3 服务端 Retry-After 不被客户端 cap 截短', () => {
   it('Retry-After 3600 秒：安排不早于其要求', async () => {
-    const f = await makeFixture({ primaryError: () => new LLMRateLimitError('p', 3600) });
+    // 本用例只验跨调用恢复安排；单次真实失败即可，避免轮内等待一小时。
+    const f = await makeFixture({ primaryError: () => new LLMRateLimitError('p', 3600), maxAttempts: 1 });
     const s = f.session();
     await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);

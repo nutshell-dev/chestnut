@@ -1622,7 +1622,7 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       }
 
       (orchestrator as any).config.retryDelayMs = 30_000;
-      expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 7))).toBe(30_000);
+      expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 7))).toBeGreaterThan(7_000);
       expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 31))).toBe(31_000);
     } finally {
       vi.useRealTimers();

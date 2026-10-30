@@ -7,7 +7,7 @@
  */
 
 
-import { LLMError, LLMTimeoutError, type LLMResponse } from '../llm-provider/index.js';
+import { LLMError, LLMRateLimitError, LLMTimeoutError, type LLMResponse } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
   classifyLLMError,
@@ -1521,6 +1521,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         probeCtrl.signal.aborted ||
         signal.aborted ||
         e.name === 'AbortError' ||
+        e instanceof LLMRateLimitError ||
         errorClass === 'transient' ||
         errorClass === 'rate_limit' ||
         errorClass === 'quota'
@@ -1587,7 +1588,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const closePrimary = async () => {
       if (primaryClosed) return;
       primaryClosed = true;
-      try { await primaryIter.return?.(); } catch { /* 已关闭/重复清理不改变原结果 */ }
+      try { await primaryIter.return?.(); } catch { /* silent: 已关闭/重复清理不改变原结果 */ }
     };
 
     try {

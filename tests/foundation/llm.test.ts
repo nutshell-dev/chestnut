@@ -305,8 +305,8 @@ function createAnthropicSseResponse(text: string): Response {
       // 应收到 fallback 的内容
       expect(chunks.some(c => c.type === 'text_delta' && c.delta === 'Fallback')).toBe(true);
 
-      // 不应收到 provider_failed（因为 hasYielded 时走 reset 路径，不走 provider_failed）
-      expect(chunks.some(c => c.type === 'provider_failed')).toBe(false);
+      // reset 使旧内容失效，provider_failed 独立保留真实候选失败事实。
+      expect(chunks.some(c => c.type === 'provider_failed' && c.provider === 'primary')).toBe(true);
     });
 
     it('should failover when primary stream yields 0 chunks', async () => {
