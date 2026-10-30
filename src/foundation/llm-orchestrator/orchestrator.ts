@@ -1087,7 +1087,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       let success = false;
       let hasYielded = false;
       let receivedDone = false;
-      let hasContent = false;  // text_delta / tool_use_start → actual output, not just metadata
+      let hasContent = false;  // owner predicate: text / thinking / tool-use content
       let lastError: Error | null = null;
       let contextExceeded = false;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1143,9 +1143,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
               this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback: providers[pi].isFallback };
             }
             hasYielded = true;
-            if (chunk.type === 'text_delta' || chunk.type === 'tool_use_start') {
-              hasContent = true;
-            }
+            if (isContentChunk(chunk)) hasContent = true;
             if (chunk.type === 'done') {
               receivedDone = true;
               if (chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)) {

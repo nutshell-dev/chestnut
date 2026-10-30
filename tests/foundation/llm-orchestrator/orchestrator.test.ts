@@ -426,6 +426,53 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     expect(emitted.some((e) => e.type === 'fallback_switched')).toBe(true);
   });
 
+  it('completes thinking-only streams and preserves their signature', async () => {
+    const primary = createMockStreamProvider('primary', async function* () {
+      yield { type: 'thinking_delta', delta: 'reasoning' };
+      yield { type: 'thinking_signature', signature: 'signed' };
+      yield { type: 'done', stopReason: 'end_turn' };
+    });
+    const service = new LLMOrchestratorImpl({
+      primary: MOCK_PRIMARY_CONFIG,
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: () => {} },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1_000 },
+      createProviderAdapter: () => primary as any,
+    });
+    const breaker = (service as any).breakers[0] as CircuitBreaker;
+    const onSuccessSpy = vi.spyOn(breaker, 'onSuccess');
+    const chunks: LLMStreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
+
+    expect(chunks).toEqual([
+      { type: 'thinking_delta', delta: 'reasoning' },
+      { type: 'thinking_signature', signature: 'signed' },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
+    expect(onSuccessSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps legal tool-use streams as valid content', async () => {
+    const primary = createMockStreamProvider('primary', async function* () {
+      yield { type: 'tool_use_start', toolUse: { id: 'tool-1', name: 'read' } };
+      yield { type: 'tool_use_delta', toolUse: { id: 'tool-1', name: 'read', partialInput: '{}' } };
+      yield { type: 'done', stopReason: 'tool_use' };
+    });
+    const service = new LLMOrchestratorImpl({
+      primary: MOCK_PRIMARY_CONFIG,
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: () => {} },
+      createProviderAdapter: () => primary as any,
+    });
+    const chunks: LLMStreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
+
+    expect(chunks.map(c => c.type)).toEqual(['tool_use_start', 'tool_use_delta', 'done']);
+    expect(chunks.some(c => c.type === 'reset' || c.type === 'provider_failed')).toBe(false);
+  });
+
   it('failovers when stream yields only done without content', async () => {
     const { sink, emitted } = createMockSink();
 
