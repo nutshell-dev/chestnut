@@ -9,7 +9,7 @@ import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit
 import {
   LLMAllProvidersFailedError,
 } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMContextExceededError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -114,6 +114,53 @@ describe('hedge state machine cluster (phase 991)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  describe('typed context throw-through', () => {
+    it('A-error typed context aborts B and preserves the original error', async () => {
+      const providerError = new LLMContextExceededError('primary', 413, 'too large');
+      const primary = createMockProvider('primary', { streamError: providerError });
+      const fallback = createMockProvider('fb1', { callDelayMs: 50 });
+      const service = createOrchestrator(primary, [fallback]);
+      forceBreakerOpen(service, 0, 'transient');
+      const emitted = attachEventSpy(service);
+      const breaker = (service as any).breakers[0] as CircuitBreaker;
+      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+
+      let caught: unknown;
+      try {
+        for await (const _chunk of service.stream({ messages: [] })) { /* drain */ }
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(providerError);
+      expect(onFailureSpy).not.toHaveBeenCalled();
+      expect(emitted.some(e => e.type === 'hedge_fallback_committed')).toBe(false);
+      expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'selected')).toBe(false);
+      expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'exhausted')).toBe(false);
+    });
+
+    it('B-error then A typed context throws context instead of an aggregate', async () => {
+      const providerError = new LLMContextExceededError('primary', 413, 'too large');
+      const primary = createMockProvider('primary', {
+        streamDelayMs: 20,
+        streamError: providerError,
+      });
+      const fallback = createMockProvider('fb1', {
+        callError: new LLMNetworkError('fb1', new Error('offline')),
+      });
+      const service = createOrchestrator(primary, [fallback]);
+      forceBreakerOpen(service, 0, 'transient');
+
+      let caught: unknown;
+      try {
+        for await (const _chunk of service.stream({ messages: [] })) { /* drain */ }
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(providerError);
+      expect(caught).not.toBeInstanceOf(LLMAllProvidersFailedError);
+    });
   });
 
   describe('B.2 drain post-abort guard', () => {

@@ -131,9 +131,75 @@ describe('Phase 1969: no preflight admission', () => {
       caught = err;
     }
     expect(isContextExceededError(caught)).toBe(true);
+    expect(caught).toBe(providerError);
     expect(calls()).toBe(1);
-    expect(emitted.some(e => e.type === 'context_exceeded_throwthrough')).toBe(true);
+    expect(emitted.filter(e => e.type === 'context_exceeded_throwthrough')).toHaveLength(1);
     expect(emitted.map(e => e.type)).not.toContain('context_budget_warning');
     await owner.close();
+  });
+
+  it('多 provider primary typed context 原样上抛且不调用 fallback', async () => {
+    const providerError = new LLMContextExceededError('primary', 413, 'request too large');
+    let fallbackCalls = 0;
+    const primary: ProviderAdapter = {
+      name: 'primary', model: SMALL_WINDOW_MODEL,
+      async call() { throw providerError; },
+    };
+    const fallback: ProviderAdapter = {
+      name: 'fallback', model: SMALL_WINDOW_MODEL,
+      async call() { fallbackCalls++; return OK_RESPONSE; },
+    };
+    const emitted: LLMEvent[] = [];
+    const owner = createLLMOrchestrator({
+      primary: { ...providerConfig(), name: 'primary' },
+      fallbacks: [{ ...providerConfig(), name: 'fallback' }],
+      maxAttempts: 1, retryDelayMs: 0,
+      events: { emit: event => { emitted.push(event); } },
+      createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
+    });
+
+    let caught: unknown;
+    try { await owner.call({ messages: [] }); } catch (error) { caught = error; }
+    expect(caught).toBe(providerError);
+    expect(fallbackCalls).toBe(0);
+    expect(emitted.filter(e => e.type === 'context_exceeded_throwthrough')).toHaveLength(1);
+    await owner.close();
+  });
+
+  it('sticky 与后续 fallback catch 均不吞 typed context', async () => {
+    const stickyError = new LLMContextExceededError('fallback', 413, 'sticky too large');
+    const fallbackError = new LLMContextExceededError('fallback', 413, 'fallback too large');
+    for (const mode of ['sticky', 'fallback'] as const) {
+      const contextError = mode === 'sticky' ? stickyError : fallbackError;
+      let primaryCalls = 0;
+      const primary: ProviderAdapter = {
+        name: 'primary', model: SMALL_WINDOW_MODEL,
+        async call() {
+          primaryCalls++;
+          if (mode === 'fallback') throw new Error('ordinary primary failure');
+          return OK_RESPONSE;
+        },
+      };
+      const fallback: ProviderAdapter = {
+        name: 'fallback', model: SMALL_WINDOW_MODEL,
+        async call() { throw contextError; },
+      };
+      const owner = createLLMOrchestrator({
+        primary: { ...providerConfig(), name: 'primary' },
+        fallbacks: [{ ...providerConfig(), name: 'fallback' }],
+        maxAttempts: 1, retryDelayMs: 0,
+        events: { emit: () => {} },
+        createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
+      });
+      if (mode === 'sticky') {
+        (owner as any).lastSuccessProvider = { name: 'fallback', model: fallback.model, isFallback: true };
+      }
+
+      let caught: unknown;
+      try { await owner.call({ messages: [] }); } catch (error) { caught = error; }
+      expect(caught).toBe(contextError);
+      expect(primaryCalls).toBe(mode === 'sticky' ? 0 : 1);
+      await owner.close();
+    }
   });
 });

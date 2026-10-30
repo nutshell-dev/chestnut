@@ -917,6 +917,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             } catch (err) {
               // User abort is not a provider failure — propagate immediately
               if (options.signal?.aborted || isAbortError(err)) throw err;
+              if (classifyLLMError(err) === 'context_exceeded') throw err;
               // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
               this.noteCandidateFailure(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), err as Error);
             }
@@ -934,6 +935,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
+          if (classifyLLMError(err) === 'context_exceeded') throw err;
           // silent: collect primary failure for aggregate LLMAllProvidersFailedError
           primaryFailed = true;
           this.noteCandidateFailure(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), err as Error);
@@ -970,6 +972,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
+          if (classifyLLMError(err) === 'context_exceeded') throw err;
           // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
           this.noteCandidateFailure(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), err as Error);
         }
@@ -1774,6 +1777,17 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
     // A-error 胜（A 早失败）→ 等 B
     if (winner.winner === 'A-error') {
+      if (classifyLLMError(winner.error) === 'context_exceeded') {
+        trackBCtrl.abort();
+        await trackBPromise;
+        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+          errorClass: 'context_exceeded',
+          error: winner.error.message,
+        });
+        try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
+        cleanupSignals();
+        throw winner.error;
+      }
       const bResult = await trackBPromise;
       if (options.signal?.aborted) {
         throw makeExternalAbortError(options.signal.reason);
@@ -1888,6 +1902,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
     if (options.signal?.aborted) {
       throw makeExternalAbortError(options.signal.reason);
+    }
+    if (classifyLLMError(aResult.error) === 'context_exceeded') {
+      this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+        errorClass: 'context_exceeded',
+        error: aResult.error.message,
+      });
+      try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
+      cleanupSignals();
+      throw aResult.error;
     }
     this.breakers[0]?.onFailure(classifyLLMError(aResult.error));
     try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
