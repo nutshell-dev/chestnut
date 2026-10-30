@@ -1583,246 +1583,337 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       streamIdleTimeoutMs: undefined,
     };
     const primaryIter = this.primary.stream!(primaryProviderOpts);
+    let primaryClosed = false;
+    const closePrimary = async () => {
+      if (primaryClosed) return;
+      primaryClosed = true;
+      try { await primaryIter.return?.(); } catch { /* 已关闭/重复清理不改变原结果 */ }
+    };
 
-    type AResult =
-      | { winner: 'A'; chunk: ProviderStreamChunk }
-      | { winner: 'A-error'; error: Error };
+    try {
+      type AResult =
+        | { winner: 'A'; chunk: ProviderStreamChunk }
+        | { winner: 'A-error'; error: Error };
 
-    const trackAPromise: Promise<AResult> = (async () => {
-      try {
-        // Manual next() to avoid for-await...return triggering iterator.return()
-        // which would terminate the generator and prevent post-race drain.
-        while (true) {
-          const { done, value: chunk } = await primaryIter.next();
-          if (done) break;
-          if (isContentChunk(chunk)) return { winner: 'A', chunk };
-          // skip metadata chunks (done/reset/thinking_signature/etc.)
-        }
-        return { winner: 'A-error', error: new LLMStreamAbortedError(this.primary.name, 'stream ended without content chunk') };
-      } catch (e) {
-        return { winner: 'A-error', error: e as Error };
-      }
-    })();
-
-    // Track B: fallback chain sequential call()
-    type BResult =
-      | { winner: 'B'; provider: LLMProvider; providerIndex: number; response: LLMResponse }
-      | { winner: 'B-error'; failures: LLMProviderFailure[] };
-
-    const trackBPromise: Promise<BResult> = (async () => {
-      const failures: LLMProviderFailure[] = [];
-      for (let i = 0; i < this.fallbacks.length; i++) {
-        if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
-        const fb = this.fallbacks[i];
-        if (this.breakers[i + 1]?.isOpen()) {
-          this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(fb.name));
-          continue;
-        }
-        const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);
-        const fbOpts: LLMCallOptions = {
-          ...options,
-          signal: fbMerged.signal,
-          hardTimeoutMs: undefined,
-          streamIdleTimeoutMs: undefined,
-        };
+      const trackAPromise: Promise<AResult> = (async () => {
         try {
-          const response = await fb.call(fbOpts);
-          fbMerged.cleanup();
-          this.breakers[i + 1]?.onSuccess();
-          return { winner: 'B', provider: fb, providerIndex: i, response };
-        } catch (err) {
-          fbMerged.cleanup();
-          // User abort takes priority over any provider-internal signal
-          if (options.signal?.aborted) {
-            throw makeExternalAbortError(options.signal.reason);
+          // Manual next() to avoid for-await...return triggering iterator.return()
+          // which would terminate the generator and prevent post-race drain.
+          while (true) {
+            const { done, value: chunk } = await primaryIter.next();
+            if (done) break;
+            if (isContentChunk(chunk)) return { winner: 'A', chunk };
+            // skip metadata chunks (done/reset/thinking_signature/etc.)
           }
+          return { winner: 'A-error', error: new LLMStreamAbortedError(this.primary.name, 'stream ended without content chunk') };
+        } catch (e) {
+          return { winner: 'A-error', error: e as Error };
+        }
+      })();
+
+      // Track B: fallback chain sequential call()
+      type BResult =
+        | { winner: 'B'; provider: LLMProvider; providerIndex: number; response: LLMResponse }
+        | { winner: 'B-error'; failures: LLMProviderFailure[] };
+
+      const trackBPromise: Promise<BResult> = (async () => {
+        const failures: LLMProviderFailure[] = [];
+        for (let i = 0; i < this.fallbacks.length; i++) {
           if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
-          const e = err as Error;
-          const errClass = classifyLLMError(e);
-          this.breakers[i + 1]?.onFailure(errClass);
-          this.events.emit({
-            type: 'provider_attempt_failed',
-            provider: fb.name,
-            attempt: 0,
-            maxAttempts: 1,  // hedge track B 每 provider 单次 call，不走 retry 预算
-            error: e.message,
-            errorClass: errClass,
-            userActionHint: getUserActionHint(e),
-            ...(getRetryAfterSec(e) !== undefined ? { retryAfterSec: getRetryAfterSec(e) } : {}),
-          });
-          this.noteCandidateFailure(inv, failures, fb.name, this.identityAt(i + 1, fb.name), e, errClass);
+          const fb = this.fallbacks[i];
+          if (this.breakers[i + 1]?.isOpen()) {
+            this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(fb.name));
+            continue;
+          }
+          const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);
+          const fbOpts: LLMCallOptions = {
+            ...options,
+            signal: fbMerged.signal,
+            hardTimeoutMs: undefined,
+            streamIdleTimeoutMs: undefined,
+          };
+          try {
+            const response = await fb.call(fbOpts);
+            fbMerged.cleanup();
+            this.breakers[i + 1]?.onSuccess();
+            return { winner: 'B', provider: fb, providerIndex: i, response };
+          } catch (err) {
+            fbMerged.cleanup();
+            // User abort takes priority over any provider-internal signal
+            if (options.signal?.aborted) {
+              throw makeExternalAbortError(options.signal.reason);
+            }
+            if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
+            const e = err as Error;
+            const errClass = classifyLLMError(e);
+            this.breakers[i + 1]?.onFailure(errClass);
+            this.events.emit({
+              type: 'provider_attempt_failed',
+              provider: fb.name,
+              attempt: 0,
+              maxAttempts: 1,  // hedge track B 每 provider 单次 call，不走 retry 预算
+              error: e.message,
+              errorClass: errClass,
+              userActionHint: getUserActionHint(e),
+              ...(getRetryAfterSec(e) !== undefined ? { retryAfterSec: getRetryAfterSec(e) } : {}),
+            });
+            this.noteCandidateFailure(inv, failures, fb.name, this.identityAt(i + 1, fb.name), e, errClass);
+          }
         }
-      }
-      return { winner: 'B-error', failures };
-    })();
+        return { winner: 'B-error', failures };
+      })();
 
-    // Race
-    const winner = await Promise.race([trackAPromise, trackBPromise]);
+      // Race
+      const winner = await Promise.race([trackAPromise, trackBPromise]);
 
-    // A 胜（first content chunk）
-    if (winner.winner === 'A') {
-      trackBCtrl.abort();
-      yield winner.chunk;
-      let receivedDone = false;
-      let drainError: Error | undefined;
-      try {
-        // phase 991 B.2: drain loop user-abort early-exit guard
-        for await (const chunk of primaryIter) {
+      // A 胜（first content chunk）
+      if (winner.winner === 'A') {
+        trackBCtrl.abort();
+        yield winner.chunk;
+        let receivedDone = false;
+        let drainError: Error | undefined;
+        try {
+          // phase 991 B.2: drain loop user-abort early-exit guard
+          for await (const chunk of primaryIter) {
+            if (options.signal?.aborted) {
+              throw makeExternalAbortError(options.signal.reason);
+            }
+            if (chunk.type === 'done') receivedDone = true;
+            yield chunk;
+          }
+        } catch (err) {
+          // User abort is not a provider failure — don't trip breaker or emit stream_reset
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
           }
-          if (chunk.type === 'done') receivedDone = true;
-          yield chunk;
+          this.breakers[0]?.onFailure(classifyLLMError(err));
+          // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: classifyLLMError(err),
+            error: (err as Error).message,
+          });
+          this.events.emit({
+            type: 'hedge_primary_post_first_chunk_failure',
+            provider: this.primary.name,
+            error: err as Error,
+          });
+          // phase 991 B.6: emit stream_reset + yield reset chunk mirror non-hedge line 442-450
+          // caller 收 reset signal 知 discard partial state、与 non-hedge path 对称 invariant
+          this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
+          yield {
+            type: 'reset',
+            provider: this.primary.name,
+            ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+          };
+          drainError = err as Error;
+        } finally {
+          // phase 1374 sub-2: explicit cleanup instead of relying on GC / for-await auto-close
+          await closePrimary();
+          cleanupSignals();
         }
-      } catch (err) {
-        // User abort is not a provider failure — don't trip breaker or emit stream_reset
-        if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason);
+        if (!receivedDone && !drainError) {
+          // Clean EOF without done → truncated stream, treat as provider failure
+          this.breakers[0]?.onFailure('transient');
+          this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: 'transient',
+            error: 'hedge primary stream ended without done chunk',
+          });
+          yield { type: 'reset', provider: this.primary.name };
+          yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
+          throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
         }
-        this.breakers[0]?.onFailure(classifyLLMError(err));
-        // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: classifyLLMError(err),
-          error: (err as Error).message,
-        });
-        this.events.emit({
-          type: 'hedge_primary_post_first_chunk_failure',
-          provider: this.primary.name,
-          error: err as Error,
-        });
-        // phase 991 B.6: emit stream_reset + yield reset chunk mirror non-hedge line 442-450
-        // caller 收 reset signal 知 discard partial state、与 non-hedge path 对称 invariant
-        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
-        yield {
-          type: 'reset',
-          provider: this.primary.name,
-          ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
-        };
-        drainError = err as Error;
-      } finally {
-        // phase 1374 sub-2: explicit cleanup instead of relying on GC / for-await auto-close
-        try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
-        cleanupSignals();
-      }
-      if (!receivedDone && !drainError) {
-        // Clean EOF without done → truncated stream, treat as provider failure
-        this.breakers[0]?.onFailure('transient');
-        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: 'transient',
-          error: 'hedge primary stream ended without done chunk',
-        });
-        yield { type: 'reset', provider: this.primary.name };
-        yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
-        throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
-      }
-      if (drainError) throw drainError;
-      if (receivedDone) {
-        this.breakers[0]?.onSuccess();
-        this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
-        this.updateLastSuccess(this.primary, false);
-        // Phase 1968 Step B：selection 先于成功返回（hedge A 轨恢复成功）。
-        this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
-      }
-      return;
-    }
-
-    // B 胜（fallback call success）
-    if (winner.winner === 'B') {
-      primaryCtrl.abort();
-      const aResult = await trackAPromise;
-
-      if (aResult.winner === 'A') {
-        // 3 态 race outcome: A 实际 produced content chunk 但 B race 先 settled (rare race window)
-        // NEW event explicit observability、不合成假 'primary stream cancelled' Error
-        // Phase 1968 Step B：A 已产出内容但未成为最终选择——记 discarded，不伪造成功/失败。
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'discarded', {
-          reason: 'race_lost_after_first_chunk',
-        });
-        this.events.emit({
-          type: 'hedge_primary_succeeded_after_race_lost',
-          primaryProvider: this.primary.name,
-          winnerProvider: winner.provider.name,
-        });
-        this.events.emit({
-          type: 'hedge_fallback_committed',
-          winnerProvider: winner.provider.name,
-          primaryProvider: this.primary.name,
-          primaryError: 'A succeeded but race lost (commit fallback for low latency)',
-          primaryErrorClass: 'unknown', // A succeeded、no real error; 'unknown' enum value 不误导 (LLMErrorClass 无 'none')
-          cacheCreationInputTokens: winner.response.usage?.cache_creation_input_tokens ?? undefined,
-          cacheReadInputTokens: winner.response.usage?.cache_read_input_tokens ?? undefined,
-        });
-      } else {
-        // A-error (含 AbortError from primaryCtrl.abort propagated to iterator)
-        if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason);
+        if (drainError) throw drainError;
+        if (receivedDone) {
+          this.breakers[0]?.onSuccess();
+          this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
+          this.updateLastSuccess(this.primary, false);
+          // Phase 1968 Step B：selection 先于成功返回（hedge A 轨恢复成功）。
+          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
         }
-        const primaryErr = aResult.error;
-        const primaryErrClass = classifyLLMError(primaryErr);
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: primaryErrClass,
-          error: primaryErr.message,
-        });
-        this.events.emit({
-          type: 'hedge_fallback_committed',
-          winnerProvider: winner.provider.name,
-          primaryProvider: this.primary.name,
-          primaryError: primaryErr.message,
-          primaryErrorClass: primaryErrClass,
-          cacheCreationInputTokens: winner.response.usage?.cache_creation_input_tokens ?? undefined,
-          cacheReadInputTokens: winner.response.usage?.cache_read_input_tokens ?? undefined,
-        });
+        return;
       }
 
-      this.updateLastSuccess(winner.provider, true);
-      // Phase 1968 Step B：B 轨成功被 commit——selection 先于 yield* 响应。
-      this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name));
-      // NEW: drain primary generator (mirror L821 double-fail template)
-      try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
-      this.events.emit({ type: 'race_loser_cleaned', provider: this.primary.name, reason: 'hedge_trackB_won' });
-      cleanupSignals();
-      yield* wrapResponseAsStream(winner.response);
-      return;
-    }
-
-    // A-error 胜（A 早失败）→ 等 B
-    if (winner.winner === 'A-error') {
-      if (classifyLLMError(winner.error) === 'context_exceeded') {
-        trackBCtrl.abort();
-        await trackBPromise;
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: 'context_exceeded',
-          error: winner.error.message,
-        });
-        try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
-        cleanupSignals();
-        throw winner.error;
-      }
-      const bResult = await trackBPromise;
-      if (options.signal?.aborted) {
-        throw makeExternalAbortError(options.signal.reason);
-      }
-      if (bResult.winner === 'B') {
+      // B 胜（fallback call success）
+      if (winner.winner === 'B') {
         primaryCtrl.abort();
-        // Phase 1968 Step B：A 早失败终态 + B 成功 selection 均先于响应返回。
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+        const aResult = await trackAPromise;
+
+        if (aResult.winner === 'A') {
+          // 3 态 race outcome: A 实际 produced content chunk 但 B race 先 settled (rare race window)
+          // NEW event explicit observability、不合成假 'primary stream cancelled' Error
+          // Phase 1968 Step B：A 已产出内容但未成为最终选择——记 discarded，不伪造成功/失败。
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'discarded', {
+            reason: 'race_lost_after_first_chunk',
+          });
+          this.events.emit({
+            type: 'hedge_primary_succeeded_after_race_lost',
+            primaryProvider: this.primary.name,
+            winnerProvider: winner.provider.name,
+          });
+          this.events.emit({
+            type: 'hedge_fallback_committed',
+            winnerProvider: winner.provider.name,
+            primaryProvider: this.primary.name,
+            primaryError: 'A succeeded but race lost (commit fallback for low latency)',
+            primaryErrorClass: 'unknown', // A succeeded、no real error; 'unknown' enum value 不误导 (LLMErrorClass 无 'none')
+            cacheCreationInputTokens: winner.response.usage?.cache_creation_input_tokens ?? undefined,
+            cacheReadInputTokens: winner.response.usage?.cache_read_input_tokens ?? undefined,
+          });
+        } else {
+          // A-error (含 AbortError from primaryCtrl.abort propagated to iterator)
+          if (options.signal?.aborted) {
+            throw makeExternalAbortError(options.signal.reason);
+          }
+          const primaryErr = aResult.error;
+          const primaryErrClass = classifyLLMError(primaryErr);
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: primaryErrClass,
+            error: primaryErr.message,
+          });
+          this.events.emit({
+            type: 'hedge_fallback_committed',
+            winnerProvider: winner.provider.name,
+            primaryProvider: this.primary.name,
+            primaryError: primaryErr.message,
+            primaryErrorClass: primaryErrClass,
+            cacheCreationInputTokens: winner.response.usage?.cache_creation_input_tokens ?? undefined,
+            cacheReadInputTokens: winner.response.usage?.cache_read_input_tokens ?? undefined,
+          });
+        }
+
+        this.updateLastSuccess(winner.provider, true);
+        // Phase 1968 Step B：B 轨成功被 commit——selection 先于 yield* 响应。
+        this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name));
+        // NEW: drain primary generator (mirror L821 double-fail template)
+        await closePrimary();
+        this.events.emit({ type: 'race_loser_cleaned', provider: this.primary.name, reason: 'hedge_trackB_won' });
+        cleanupSignals();
+        yield* wrapResponseAsStream(winner.response);
+        return;
+      }
+
+      // A-error 胜（A 早失败）→ 等 B
+      if (winner.winner === 'A-error') {
+        if (classifyLLMError(winner.error) === 'context_exceeded') {
+          trackBCtrl.abort();
+          await trackBPromise;
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: 'context_exceeded',
+            error: winner.error.message,
+          });
+          await closePrimary();
+          cleanupSignals();
+          throw winner.error;
+        }
+        const bResult = await trackBPromise;
+        if (options.signal?.aborted) {
+          throw makeExternalAbortError(options.signal.reason);
+        }
+        if (bResult.winner === 'B') {
+          primaryCtrl.abort();
+          // Phase 1968 Step B：A 早失败终态 + B 成功 selection 均先于响应返回。
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: classifyLLMError(winner.error),
+            error: winner.error.message,
+          });
+          this.events.emit({
+            type: 'hedge_fallback_committed',
+            winnerProvider: bResult.provider.name,
+            primaryProvider: this.primary.name,
+            primaryError: winner.error.message,
+            primaryErrorClass: classifyLLMError(winner.error),
+            cacheCreationInputTokens: bResult.response.usage?.cache_creation_input_tokens ?? undefined,
+            cacheReadInputTokens: bResult.response.usage?.cache_read_input_tokens ?? undefined,
+          });
+          this.updateLastSuccess(bResult.provider, true);
+          this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
+          cleanupSignals();
+          yield* wrapResponseAsStream(bResult.response);
+          return;
+        }
+        // 双失败
+        // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
+        if (options.signal?.aborted) {
+          throw makeExternalAbortError(options.signal.reason);
+        }
+        this.breakers[0]?.onFailure(classifyLLMError(winner.error));
+        await closePrimary();
+        cleanupSignals();
+        // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
+        const aFailureIdx = this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
           errorClass: classifyLLMError(winner.error),
           error: winner.error.message,
         });
-        this.events.emit({
-          type: 'hedge_fallback_committed',
-          winnerProvider: bResult.provider.name,
-          primaryProvider: this.primary.name,
-          primaryError: winner.error.message,
-          primaryErrorClass: classifyLLMError(winner.error),
-          cacheCreationInputTokens: bResult.response.usage?.cache_creation_input_tokens ?? undefined,
-          cacheReadInputTokens: bResult.response.usage?.cache_read_input_tokens ?? undefined,
-        });
-        this.updateLastSuccess(bResult.provider, true);
-        this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
-        cleanupSignals();
-        yield* wrapResponseAsStream(bResult.response);
+        this.recordExhausted(inv);
+        throw new LLMAllProvidersFailedError([
+          { provider: this.primary.name, error: winner.error, providerId: this.identityAt(0, this.primary.name), attemptIndex: aFailureIdx },
+          ...bResult.failures,
+        ]);
+      }
+
+      // B-error 胜（B 全失败）→ 等 A
+      const aResult = await trackAPromise;
+      if (aResult.winner === 'A') {
+        trackBCtrl.abort();
+        yield aResult.chunk;
+        let receivedDone = false;
+        let drainError: Error | undefined;
+        try {
+          // phase 991 B.2: drain loop user-abort early-exit guard
+          for await (const chunk of primaryIter) {
+            if (options.signal?.aborted) {
+              throw makeExternalAbortError(options.signal.reason);
+            }
+            if (chunk.type === 'done') receivedDone = true;
+            yield chunk;
+          }
+        } catch (err) {
+          // User abort is not a provider failure — don't trip breaker or emit stream_reset
+          if (options.signal?.aborted) {
+            throw makeExternalAbortError(options.signal.reason);
+          }
+          this.breakers[0]?.onFailure(classifyLLMError(err));
+          // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: classifyLLMError(err),
+            error: (err as Error).message,
+          });
+          this.events.emit({
+            type: 'hedge_primary_post_first_chunk_failure',
+            provider: this.primary.name,
+            error: err as Error,
+          });
+          this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
+          yield {
+            type: 'reset',
+            provider: this.primary.name,
+            ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+          };
+          drainError = err as Error;
+        } finally {
+          cleanupSignals();
+        }
+        if (!receivedDone && !drainError) {
+          // Clean EOF without done → truncated stream, treat as provider failure
+          this.breakers[0]?.onFailure('transient');
+          this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
+          this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+            errorClass: 'transient',
+            error: 'hedge primary stream ended without done chunk',
+          });
+          yield { type: 'reset', provider: this.primary.name };
+          yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
+          throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
+        }
+        if (drainError) throw drainError;
+        if (receivedDone) {
+          this.breakers[0]?.onSuccess();
+          this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
+          this.updateLastSuccess(this.primary, false);
+          // Phase 1968 Step B：selection 先于成功返回（B 全败后 A 恢复成功）。
+          this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
+        }
         return;
       }
       // 双失败
@@ -1830,112 +1921,32 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (options.signal?.aborted) {
         throw makeExternalAbortError(options.signal.reason);
       }
-      this.breakers[0]?.onFailure(classifyLLMError(winner.error));
-      try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
+      if (classifyLLMError(aResult.error) === 'context_exceeded') {
+        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+          errorClass: 'context_exceeded',
+          error: aResult.error.message,
+        });
+        await closePrimary();
+        cleanupSignals();
+        throw aResult.error;
+      }
+      this.breakers[0]?.onFailure(classifyLLMError(aResult.error));
+      await closePrimary();
       cleanupSignals();
       // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
       const aFailureIdx = this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-        errorClass: classifyLLMError(winner.error),
-        error: winner.error.message,
+        errorClass: classifyLLMError(aResult.error),
+        error: aResult.error.message,
       });
       this.recordExhausted(inv);
       throw new LLMAllProvidersFailedError([
-        { provider: this.primary.name, error: winner.error, providerId: this.identityAt(0, this.primary.name), attemptIndex: aFailureIdx },
-        ...bResult.failures,
+        { provider: this.primary.name, error: aResult.error, providerId: this.identityAt(0, this.primary.name), attemptIndex: aFailureIdx },
+        ...winner.failures,
       ]);
-    }
-
-    // B-error 胜（B 全失败）→ 等 A
-    const aResult = await trackAPromise;
-    if (aResult.winner === 'A') {
-      trackBCtrl.abort();
-      yield aResult.chunk;
-      let receivedDone = false;
-      let drainError: Error | undefined;
-      try {
-        // phase 991 B.2: drain loop user-abort early-exit guard
-        for await (const chunk of primaryIter) {
-          if (options.signal?.aborted) {
-            throw makeExternalAbortError(options.signal.reason);
-          }
-          if (chunk.type === 'done') receivedDone = true;
-          yield chunk;
-        }
-      } catch (err) {
-        // User abort is not a provider failure — don't trip breaker or emit stream_reset
-        if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason);
-        }
-        this.breakers[0]?.onFailure(classifyLLMError(err));
-        // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: classifyLLMError(err),
-          error: (err as Error).message,
-        });
-        this.events.emit({
-          type: 'hedge_primary_post_first_chunk_failure',
-          provider: this.primary.name,
-          error: err as Error,
-        });
-        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
-        yield {
-          type: 'reset',
-          provider: this.primary.name,
-          ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
-        };
-        drainError = err as Error;
-      } finally {
-        cleanupSignals();
-      }
-      if (!receivedDone && !drainError) {
-        // Clean EOF without done → truncated stream, treat as provider failure
-        this.breakers[0]?.onFailure('transient');
-        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
-        this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-          errorClass: 'transient',
-          error: 'hedge primary stream ended without done chunk',
-        });
-        yield { type: 'reset', provider: this.primary.name };
-        yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
-        throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
-      }
-      if (drainError) throw drainError;
-      if (receivedDone) {
-        this.breakers[0]?.onSuccess();
-        this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
-        this.updateLastSuccess(this.primary, false);
-        // Phase 1968 Step B：selection 先于成功返回（B 全败后 A 恢复成功）。
-        this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
-      }
-      return;
-    }
-    // 双失败
-    // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
-    if (options.signal?.aborted) {
-      throw makeExternalAbortError(options.signal.reason);
-    }
-    if (classifyLLMError(aResult.error) === 'context_exceeded') {
-      this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-        errorClass: 'context_exceeded',
-        error: aResult.error.message,
-      });
-      try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
+    } finally {
+      await closePrimary();
       cleanupSignals();
-      throw aResult.error;
     }
-    this.breakers[0]?.onFailure(classifyLLMError(aResult.error));
-    try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
-    cleanupSignals();
-    // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
-    const aFailureIdx = this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
-      errorClass: classifyLLMError(aResult.error),
-      error: aResult.error.message,
-    });
-    this.recordExhausted(inv);
-    throw new LLMAllProvidersFailedError([
-      { provider: this.primary.name, error: aResult.error, providerId: this.identityAt(0, this.primary.name), attemptIndex: aFailureIdx },
-      ...winner.failures,
-    ]);
   }
 
   /**

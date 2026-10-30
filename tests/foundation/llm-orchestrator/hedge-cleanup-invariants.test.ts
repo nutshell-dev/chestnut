@@ -540,5 +540,37 @@ describe('hedge-bwins-cleanup', () => {
       expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'hello')).toBe(true);
       expect(returnSpy).toHaveBeenCalledTimes(1);
     });
+
+    it.each(['A-first', 'B-error-then-A'] as const)('consumer early return cleans iterator and signals: %s', async (mode) => {
+      const primaryRaw = createMockProvider('primary', {
+        streamChunks: [
+          { type: 'text_delta', delta: 'hello' },
+          { type: 'text_delta', delta: 'must-not-be-yielded' },
+          { type: 'done', stopReason: 'end_turn' },
+        ],
+        streamDelayMs: mode === 'B-error-then-A' ? 20 : undefined,
+      });
+      const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
+      const fb1 = createMockProvider('fb1', mode === 'A-first'
+        ? { callDelayMs: 500 }
+        : { callError: new LLMNetworkError('fb1', new Error('offline')) });
+      const service = createOrchestrator(primary, [fb1]);
+      forceBreakerOpen(service, 0, 'transient');
+      const userCtrl = new AbortController();
+      const addSpy = vi.spyOn(userCtrl.signal, 'addEventListener');
+      const removeSpy = vi.spyOn(userCtrl.signal, 'removeEventListener');
+      const stream = service.stream({ messages: [], signal: userCtrl.signal });
+
+      const first = await stream.next();
+      expect(first).toEqual({ done: false, value: { type: 'text_delta', delta: 'hello' } });
+      await stream.return?.();
+
+      expect(returnSpy).toHaveBeenCalledTimes(1);
+      expect(await stream.next()).toEqual({ done: true, value: undefined });
+      const abortAdds = addSpy.mock.calls.filter(call => call[0] === 'abort').length;
+      const abortRemoves = removeSpy.mock.calls.filter(call => call[0] === 'abort').length;
+      expect(abortAdds).toBeGreaterThanOrEqual(2);
+      expect(abortRemoves).toBe(abortAdds);
+    });
   });
 });
