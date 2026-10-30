@@ -147,7 +147,7 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal
   /**
    * Phase 1934 Step C：共享恢复判据的唯一查询面（副作用自由、不触发 breaker
    * 状态转移）。普通调用成功不解除已发布 shared blocked——只有探针验证成功
-   * 或配置变化（reloadConfig）清除共享故障记录。
+   * 或 reloadConfig 移除已变化/删除身份的共享故障记录（未变化身份保留）。
    */
   getSharedRecoveryDecision(): SharedRecoveryDecision;
 

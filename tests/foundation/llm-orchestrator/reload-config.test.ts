@@ -200,3 +200,111 @@ describe('phase 320 Step A: reloadConfig', () => {
     expect(misses.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+
+describe('Phase 2027 selective runtime reload', () => {
+  const policy = { failureThreshold: 3, resetTimeoutMs: 1_000 };
+  const primary = { name: 'primary', apiKey: 'kp', model: 'mp', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
+  const fallbackA = { name: 'fallback-a', apiKey: 'ka', model: 'ma', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
+  const fallbackB = { name: 'fallback-b', apiKey: 'kb', model: 'mb', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
+  const baseConfig = (sink: LLMEventSink) => ({
+    primary,
+    fallbacks: [fallbackA, fallbackB],
+    maxAttempts: 1,
+    retryDelayMs: 0,
+    events: sink,
+    circuitBreaker: policy,
+  });
+
+  it('只改 fallback B 时保留 primary/A 的 breaker 与 sharedFailure', () => {
+    const { sink } = createSink();
+    const orch = new LLMOrchestratorImpl(baseConfig(sink));
+    const ids = [...(orch as any).providerIds] as string[];
+    const breakers = [...(orch as any).breakers];
+    const records = ids.map((providerId, i) => [providerId, { errorClass: 'transient', epoch: i + 1 }]);
+    (orch as any).sharedFailures = new Map(records);
+
+    orch.reloadConfig({
+      ...baseConfig(sink),
+      fallbacks: [fallbackA, { ...fallbackB, model: 'mb-new' }],
+    });
+
+    expect((orch as any).breakers[0]).toBe(breakers[0]);
+    expect((orch as any).breakers[1]).toBe(breakers[1]);
+    expect((orch as any).breakers[2]).not.toBe(breakers[2]);
+    expect((orch as any).sharedFailures.get(ids[0])).toBe(records[0][1]);
+    expect((orch as any).sharedFailures.get(ids[1])).toBe(records[1][1]);
+    expect((orch as any).sharedFailures.has(ids[2])).toBe(false);
+  });
+
+  it('只改 temperature 时保留故障身份与 breaker，但创建新 adapter', () => {
+    const { sink } = createSink();
+    const orch = new LLMOrchestratorImpl(baseConfig(sink));
+    const id = (orch as any).providerIds[0];
+    const breaker = (orch as any).breakers[0];
+    const adapter = (orch as any).primary;
+    const record = { errorClass: 'transient', epoch: 1 };
+    (orch as any).sharedFailures = new Map([[id, record]]);
+
+    orch.reloadConfig({ ...baseConfig(sink), primary: { ...primary, temperature: 1 } });
+
+    expect((orch as any).providerIds[0]).toBe(id);
+    expect((orch as any).breakers[0]).toBe(breaker);
+    expect((orch as any).sharedFailures.get(id)).toBe(record);
+    expect((orch as any).primary).not.toBe(adapter);
+  });
+
+  it('breaker 策略变化重建全部 breaker，sharedFailures 仍按身份保留', () => {
+    const { sink } = createSink();
+    const orch = new LLMOrchestratorImpl(baseConfig(sink));
+    const ids = [...(orch as any).providerIds] as string[];
+    const breakers = [...(orch as any).breakers];
+    const record = { errorClass: 'transient', epoch: 1 };
+    (orch as any).sharedFailures = new Map([[ids[0], record]]);
+
+    orch.reloadConfig({
+      ...baseConfig(sink),
+      circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 2_000 },
+    });
+
+    expect((orch as any).breakers[0]).not.toBe(breakers[0]);
+    expect((orch as any).breakers[1]).not.toBe(breakers[1]);
+    expect((orch as any).breakers[2]).not.toBe(breakers[2]);
+    expect((orch as any).breakers[0].threshold).toBe(5);
+    expect((orch as any).breakers[0].resetTimeoutMs).toBe(2_000);
+    expect((orch as any).sharedFailures.get(ids[0])).toBe(record);
+  });
+
+  it('reload 后旧流正常完成但不写回 last-success', async () => {
+    const { sink } = createSink();
+    let releaseDone!: () => void;
+    const doneGate = new Promise<void>(resolve => { releaseDone = resolve; });
+    const adapter = {
+      name: 'primary',
+      model: 'mp',
+      async call() { return { content: [], stop_reason: 'end_turn' } as LLMResponse; },
+      async *stream() {
+        yield { type: 'text_delta' as const, delta: 'old-stream' };
+        await doneGate;
+        yield { type: 'done' as const };
+      },
+    };
+    const config = {
+      ...baseConfig(sink),
+      fallbacks: [],
+      createProviderAdapter: () => adapter,
+    };
+    const orch = new LLMOrchestratorImpl(config);
+    const stream = orch.stream({});
+    expect((await stream.next()).value).toMatchObject({ type: 'text_delta' });
+    const pending = stream.next();
+    const generation = (orch as any).configGeneration;
+
+    orch.reloadConfig(config);
+    expect((orch as any).configGeneration).toBe(generation + 1);
+    releaseDone();
+    expect((await pending).value).toMatchObject({ type: 'done' });
+    expect((await stream.next()).done).toBe(true);
+    expect((orch as any).lastSuccessProvider).toBeNull();
+  });
+});

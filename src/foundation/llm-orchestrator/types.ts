@@ -186,7 +186,7 @@ export interface LLMRuntimeCapability {
   close(): Promise<void>;
   /**
    * phase 320: 原地替换内部 primary/fallbacks/breakers，对象引用不变。
-   * 调用方持有的引用自动指向新 provider；events sink 引用不换；lastSuccessProvider 不重置。
+   * 调用方持有的引用自动指向新 provider；events sink 引用不换；每次成功 reload 清空 lastSuccessProvider。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void;
 }
@@ -253,7 +253,7 @@ export interface LLMOrchestrator {
   /**
    * phase 320: 原地替换内部 primary/fallbacks/breakers，对象引用不变。
    * 调用方（execContext.llm / runtime.llm）持有的引用自动指向新 provider。
-   * events sink 引用不换（装配期注入）；lastSuccessProvider 不重置（下次 call 自然更新）。
+   * events sink 引用不换（装配期注入）；每次成功 reload 清空 lastSuccessProvider。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void;
 }

@@ -155,3 +155,45 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     expect(orchestrator.getProviderInfo()).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
   });
 });
+
+
+describe('Phase 2027 last-success provider identity', () => {
+  it('同名不同配置 fallback 的 sticky 按实际成功 providerId 选择', async () => {
+    let primaryCalls = 0;
+    let firstFallbackCalls = 0;
+    let secondFallbackCalls = 0;
+    const primary: ProviderAdapter = {
+      name: 'primary',
+      model: 'primary-model',
+      async call() { primaryCalls++; throw new Error('primary failed'); },
+    };
+    const first: ProviderAdapter = {
+      name: 'same-name',
+      model: 'model-a',
+      async call() { firstFallbackCalls++; throw new Error('first failed'); },
+    };
+    const second: ProviderAdapter = {
+      name: 'same-name',
+      model: 'model-b',
+      async call() {
+        secondFallbackCalls++;
+        return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as any;
+      },
+    };
+    const orchestrator = buildOrchestrator(primary, [first, second]);
+
+    await orchestrator.call({});
+    expect((orchestrator as any).lastSuccessProvider.providerId)
+      .toBe((orchestrator as any).providerIds[2]);
+    expect(orchestrator.getProviderInfo()).toEqual({
+      name: 'same-name',
+      model: 'model-b',
+      isFallback: true,
+    });
+
+    await orchestrator.call({});
+    expect(primaryCalls).toBe(1);
+    expect(firstFallbackCalls).toBe(1);
+    expect(secondFallbackCalls).toBe(2);
+  });
+});
