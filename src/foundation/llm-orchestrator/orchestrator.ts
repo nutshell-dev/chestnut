@@ -198,6 +198,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     );
   }
 
+  /** 轮内实际等待：普通退避与 typed Retry-After 的较大下界，不再套用普通 cap。 */
+  private computeAttemptDelayMs(attempt: number, error: Error): number {
+    const backoffMs = this.computeBackoffMs(attempt);
+    const retryAfterSec = getRetryAfterSec(error);
+    return retryAfterSec === undefined
+      ? backoffMs
+      : Math.max(backoffMs, retryAfterSec * 1000);
+  }
+
   /**
    * phase 900: 用对象引用身份区分 audit sink 实例，避免不同实例共享同一 cache key。
    * 同一 orchestrator 生命周期内，同一 auditLog 对象引用始终映射到同一 id。
@@ -374,7 +383,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         }
 
         if (attempt < maxAttempts - 1) {
-          const backoffMs = this.computeBackoffMs(attempt);
+          const backoffMs = this.computeAttemptDelayMs(attempt, lastError);
           this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts, backoffMs });
           await delay(backoffMs, options.signal);
         }
@@ -1303,7 +1312,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
           // Don't wait after the last attempt
           if (attempt < limits.maxAttempts - 1) {
-            const backoffMs = this.computeBackoffMs(attempt);
+            const backoffMs = this.computeAttemptDelayMs(attempt, err);
             this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: limits.maxAttempts, backoffMs });
             await delay(backoffMs, options.signal);
           }

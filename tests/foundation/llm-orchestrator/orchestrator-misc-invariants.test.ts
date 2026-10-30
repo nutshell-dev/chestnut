@@ -1576,4 +1576,56 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       'retry_scheduled:0/3:none',
     ]);
   });
+
+  it('call/stream 实际 retry 等待不早于 typed Retry-After', async () => {
+    vi.useFakeTimers();
+    try {
+      const { sink, emitted } = createMockSink();
+      let callCount = 0;
+      let streamCount = 0;
+      const provider: ProviderAdapter = {
+        name: 'primary',
+        model: 'mock-model',
+        async call() {
+          callCount++;
+          if (callCount === 1) throw new LLMRateLimitError('primary', 7);
+          return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse;
+        },
+        async *stream() {
+          streamCount++;
+          if (streamCount === 1) throw new LLMRateLimitError('primary', 7);
+          yield { type: 'text_delta', delta: 'ok' };
+          yield { type: 'done' };
+        },
+      };
+      const orchestrator = makeOrchestrator(provider, sink, 2);
+      (orchestrator as any).config.retryDelayMs = 0;
+
+      const callPromise = orchestrator.call({});
+      await vi.advanceTimersByTimeAsync(6_999);
+      expect(callCount).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(callPromise).resolves.toMatchObject({ stop_reason: 'end_turn' });
+      expect(callCount).toBe(2);
+
+      const streamPromise = (async () => {
+        for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
+      })();
+      await vi.advanceTimersByTimeAsync(6_999);
+      expect(streamCount).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(streamPromise).resolves.toBeUndefined();
+      expect(streamCount).toBe(2);
+      expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(2);
+      for (const event of emitted) {
+        if (event.type === 'retry_scheduled') expect(event.backoffMs).toBe(7_000);
+      }
+
+      (orchestrator as any).config.retryDelayMs = 30_000;
+      expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 7))).toBe(30_000);
+      expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 31))).toBe(31_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
