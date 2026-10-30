@@ -19,7 +19,8 @@ let package = Package(
         ),
         .testTarget(
             name: "LauncherMacOSTests",
-            dependencies: ["LauncherMacOS"]
+            dependencies: ["LauncherMacOS"],
+            path: "Tests"
         ),
     ]
 )

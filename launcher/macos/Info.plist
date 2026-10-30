@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  供未来 .app bundle 化使用；当前裸可执行构建不读取本文件，
-  accessory 行为由 LauncherWindowPolicy.activation（setActivationPolicy）承担。
--->
+<!-- accessory 行为同时由 LSUIElement 与 LauncherWindowPolicy.activation 声明。 -->
 <plist version="1.0">
 <dict>
+	<key>CFBundleExecutable</key>
+	<string>chestnut-launcher</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.nutshell.chestnut.launcher</string>
 	<key>CFBundleName</key>
+	<string>Chestnut Launcher</string>
+	<key>CFBundleDisplayName</key>
 	<string>Chestnut Launcher</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>

@@ -75,6 +75,18 @@ final class ChestnutProcessTests: XCTestCase {
         }
     }
 
+    func testRunAppliesControlledRootEnvironmentWithoutChangingExecutable() async throws {
+        let root = fixtureDir.appendingPathComponent("isolated root")
+        let script = try makeScript("environment.sh", "#!/bin/sh\nprintf '%s\\n' \"$CHESTNUT_ROOT\"\n")
+        let process = MacOSChestnutProcess(
+            executableURL: script,
+            environment: ["CHESTNUT_ROOT": root.path]
+        )
+        let output = try await process.run([])
+        XCTAssertEqual(process.executableURL, script)
+        XCTAssertEqual(output.stdoutLines, [root.path])
+    }
+
     // MARK: stream（长驻）
 
     func testStreamYieldsLinesAndFinishesOnExitZero() async throws {

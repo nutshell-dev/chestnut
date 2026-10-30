@@ -5,13 +5,20 @@ import LauncherCore
 /// 协议解释在 core。stdout 协议数据与 stderr 诊断分离；teardown 不泄漏子进程。
 public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendable {
     public let executableURL: URL
+    private let environment: [String: String]
 
     private let lock = NSLock()
     private var runningProcess: Process?
     private var stopRequested = false
 
-    public init(executableURL: URL) {
+    public init(executableURL: URL, environment: [String: String] = [:]) {
         self.executableURL = executableURL
+        self.environment = environment
+    }
+
+    private func applyEnvironment(to process: Process) {
+        guard !environment.isEmpty else { return }
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, override in override }
     }
 
     /// @Sendable 回调共享的可变状态盒子（内部锁保护）。
@@ -34,6 +41,7 @@ public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendab
             let stderr = Pipe()
             process.executableURL = executableURL
             process.arguments = argv
+            applyEnvironment(to: process)
             process.standardOutput = stdout
             process.standardError = stderr
             let input = Pipe()
@@ -78,6 +86,7 @@ public final class MacOSChestnutProcess: SetupChestnutProcess, @unchecked Sendab
             let stderr = Pipe()
             process.executableURL = executableURL
             process.arguments = argv
+            applyEnvironment(to: process)
             process.standardOutput = stdout
             process.standardError = stderr
             let input = Pipe()

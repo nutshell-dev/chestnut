@@ -16,43 +16,62 @@ enum LauncherApp {
     }
 }
 
-/// CLI 装配：CHESTNUT_CLI_JS 指向 chestnut dist/cli.js；CHESTNUT_CLAW_NAME 默认 motion。
-/// 未配置时返回本地失败的 client（degraded、不伪造连接成功）；不自动启动 daemon。
+/// CLI 装配：生产默认使用随包 Node/CLI 和用户数据目录；显式环境变量仅作开发覆盖。
+/// 定位失败返回本地失败的 client（degraded、不伪造连接成功）；不自动启动 daemon。
 enum LauncherClientFactory {
     static func makeSendClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SendClient {
-        guard let argv = launcherArgv(environment: environment, command: "send") else {
-            return UnconfiguredSendClient()
+        do {
+            let resources = try runtimeResources(environment: environment)
+            return ChestnutLauncherSendClient(
+                process: makeProcess(resources: resources),
+                argv: launcherArgv(resources: resources, command: "send")
+            )
+        } catch {
+            return UnconfiguredSendClient(detail: runtimeErrorDetail(error))
         }
-        return ChestnutLauncherSendClient(process: makeProcess(), argv: argv)
     }
 
     static func makeStreamClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any StreamClient {
-        // phase 2003：重开只恢复当前活跃 turn（压缩快照 + 同边界 tail），不重放已结束 turn
-        guard let argvPrefix = launcherArgv(environment: environment, command: "stream", options: ["--from-current-turn"]) else {
-            return UnconfiguredStreamClient()
+        do {
+            let resources = try runtimeResources(environment: environment)
+            // phase 2003：重开只恢复当前活跃 turn（压缩快照 + 同边界 tail），不重放已结束 turn
+            let argvPrefix = launcherArgv(
+                resources: resources,
+                command: "stream",
+                options: ["--from-current-turn"]
+            )
+            return ChestnutStreamClient(process: makeProcess(resources: resources), argvPrefix: argvPrefix)
+        } catch {
+            return UnconfiguredStreamClient(detail: runtimeErrorDetail(error))
         }
-        return ChestnutStreamClient(process: makeProcess(), argvPrefix: argvPrefix)
     }
 
     static func makeSetupClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SetupClient {
-        guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return UnconfiguredSetupClient() }
-        return ChestnutSetupClient(
-            process: makeProcess(),
-            argvPrefix: ["node", cliPath, "launcher", "setup", "--json"],
-            statusArgv: ["node", cliPath, "launcher", "status", "--json"]
-        )
+        do {
+            let resources = try runtimeResources(environment: environment)
+            return ChestnutSetupClient(
+                process: makeProcess(resources: resources),
+                argvPrefix: launcherArgv(resources: resources, command: "setup"),
+                statusArgv: launcherArgv(resources: resources, command: "status")
+            )
+        } catch {
+            return UnconfiguredSetupClient(detail: runtimeErrorDetail(error))
+        }
     }
 
     static func makeStartContinuation(environment: [String: String] = ProcessInfo.processInfo.environment) -> (String?) async throws -> Void {
         return { languageSample in
-            guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else {
-                throw ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；无法启动 chestnut")
+            let resources: LauncherRuntimeResources
+            do {
+                resources = try runtimeResources(environment: environment)
+            } catch {
+                throw ChatError.local(detail: runtimeErrorDetail(error))
             }
             var request: [String: Any] = ["command": "start"]
             if let languageSample { request["languageSample"] = languageSample }
             let requestData = try JSONSerialization.data(withJSONObject: request)
-            let output = try await makeProcess().run(
-                ["node", cliPath, "launcher", "start", "--json"],
+            let output = try await makeProcess(resources: resources).run(
+                launcherArgv(resources: resources, command: "start"),
                 stdin: String(decoding: requestData, as: UTF8.self) + "\n"
             )
             guard output.exitCode == 0, output.terminationSignal == nil, let line = output.stdoutLines.first else {
@@ -67,22 +86,35 @@ enum LauncherClientFactory {
         }
     }
 
-    private static func makeProcess() -> MacOSChestnutProcess {
-        MacOSChestnutProcess(executableURL: URL(fileURLWithPath: "/usr/bin/env"))
+    static func runtimeResources(
+        environment: [String: String],
+        bundle: Bundle = .main,
+        fileSystem: any LauncherRuntimeFileSystem = LauncherFileSystem()
+    ) throws -> LauncherRuntimeResources {
+        try LauncherRuntimeResources.resolve(environment: environment, bundle: bundle, fileSystem: fileSystem)
+    }
+
+    private static func makeProcess(resources: LauncherRuntimeResources) -> MacOSChestnutProcess {
+        MacOSChestnutProcess(executableURL: resources.nodeURL, environment: resources.processEnvironment)
     }
 
     static func launcherArgv(
-        environment: [String: String],
+        resources: LauncherRuntimeResources,
         command: String,
         options: [String] = []
-    ) -> [String]? {
-        guard let cliPath = environment["CHESTNUT_CLI_JS"], !cliPath.isEmpty else { return nil }
-        return ["node", cliPath, "launcher", command, "--json"] + options
+    ) -> [String] {
+        [resources.cliURL.path, "launcher", command, "--json"] + options
+    }
+
+    private static func runtimeErrorDetail(_ error: Error) -> String {
+        if let error = error as? LauncherRuntimeResourceError { return error.detail }
+        return "Chestnut 运行资源定位失败：\(error.localizedDescription)。请检查应用完整性。"
     }
 }
 
 struct UnconfiguredSetupClient: SetupClient {
-    private func missing() -> ChatError { .local(detail: "CHESTNUT_CLI_JS 未配置；无法查询初始化状态") }
+    var detail = "Chestnut 运行资源未配置；无法查询初始化状态"
+    private func missing() -> ChatError { .local(detail: detail) }
     func status() async throws -> SetupState { throw missing() }
     func selectProvider(_ providerId: String) async throws -> SetupState { throw missing() }
     func submit(_ input: SetupInput) async throws -> SetupState { throw missing() }
@@ -91,16 +123,18 @@ struct UnconfiguredSetupClient: SetupClient {
 }
 
 struct UnconfiguredSendClient: SendClient {
+    var detail = "Chestnut 运行资源未配置；launcher 不自行启动 chestnut"
     func submit(requestId: RequestId, text: String) async throws -> SendAck {
         // phase 2004：Swift 本地错误保持本地纯文本（不伪装 claw bar 形状），UI 原样显示
-        throw ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；launcher 不自行启动 chestnut")
+        throw ChatError.local(detail: detail)
     }
 }
 
 struct UnconfiguredStreamClient: StreamClient {
+    var detail = "Chestnut 运行资源未配置；launcher 不自行启动 chestnut"
     func events(fromSequence: Int?) -> AsyncThrowingStream<LauncherEnvelope, Error> {
         AsyncThrowingStream { continuation in
-            continuation.finish(throwing: ChatError.local(detail: "CHESTNUT_CLI_JS 未配置；launcher 不自行启动 chestnut"))
+            continuation.finish(throwing: ChatError.local(detail: detail))
         }
     }
 
