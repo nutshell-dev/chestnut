@@ -192,7 +192,13 @@ describe('Phase 1969: no preflight admission', () => {
         createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
       });
       if (mode === 'sticky') {
-        (owner as any).lastSuccessProvider = { name: 'fallback', model: fallback.model, isFallback: true };
+        (owner as any).lastSuccessProvider = {
+          name: 'fallback',
+          model: fallback.model,
+          isFallback: true,
+          providerId: owner.getProviderIdentities()[1],
+          generation: 0,
+        };
       }
 
       let caught: unknown;

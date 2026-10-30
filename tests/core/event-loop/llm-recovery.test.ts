@@ -672,10 +672,10 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
       .toBe(acceptedAfterFirst);
   });
 
-  it('Phase 1946：仅投影外字段（temperature）变化——注入 identity 时产生新修订并解除 permanent 阻断', async () => {
+  it('Phase 2027：仅 temperature 变化产生新修订，但同身份 permanent 阻断保持', async () => {
     // 与初始 llmConfig 同一 provider 元组（name/apiKey/model/timeoutMs 不变），
-    // 仅 temperature 漂移：旧 computeConfigRevision 不变（→ 不 apply、不恢复），
-    // identity 投影变化（→ apply + 新 revision + recovery 重新评估）。
+    // 仅 temperature 漂移：identity 投影变化会 apply + 产生新 revision，
+    // 但 provider 故障身份不变，不得解除 permanent 阻断。
     let currentTemperature = 0;
     const h = await makeRuntimeHarness({
       configIdentityOf: (config) => {
@@ -695,17 +695,20 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     expect(h.providerCalls.length).toBe(1);
     expect((await h.session.inspect()).kind).toBe('on_change');
 
-    // 用户只改 temperature（identity 可见、旧 revision 投影外）→ reload 落盘。
+    // 用户只改 temperature → reload 落盘并接受新修订，但不发起第二次请求。
     currentTemperature = 0.5;
     h.writeReload();
     const running = h.eventLoop.run();
-    await waitFor(() => h.providerCalls.length === 2, 5_000, 10);
+    await waitFor(() => h.emitted.some(
+      event => event.type === 'recovery_facts_accepted'
+        && event.configurationRevision === 'id-primary-0.5',
+    ), 5_000, 10);
     h.eventLoop.abort();
     await running;
 
-    // 配置被真实 apply 一次，第二次真实请求发生（permanent 阻断被新修订重置）。
     expect(h.reloadCalls()).toBe(1);
-    expect(h.providerCalls.length).toBe(2);
+    expect(h.providerCalls.length).toBe(1);
+    expect((await h.session.inspect()).kind).toBe('on_change');
     const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
     const batch = accepted.at(-1);
     if (batch?.type === 'recovery_facts_accepted') {
@@ -715,6 +718,6 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
       throw new Error('expected recovery_facts_accepted event');
     }
     const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
-    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
+    expect(admittedEvents.at(-1)).not.toMatchObject({ trigger: 'configuration' });
   });
 });

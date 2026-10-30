@@ -256,6 +256,8 @@ vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
     close: vi.fn(),
     healthCheck: vi.fn(),
     getProviderInfo: vi.fn(),
+    getProviderIdentities: vi.fn(function () { return []; }),
+    getLegacyProviderIdentities: vi.fn(function () { return []; }),
     snapshot: vi.fn(function () { return { providers: [] }; }),
     probe: vi.fn(),
     scheduleProbe: vi.fn(),

@@ -244,6 +244,8 @@ vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
       close: vi.fn(function () { return (failNextLlmClose ? Promise.reject(new Error('llm close boom')) : Promise.resolve()); }),
       healthCheck: vi.fn(),
       getProviderInfo: vi.fn(),
+      getProviderIdentities: vi.fn(function () { return []; }),
+      getLegacyProviderIdentities: vi.fn(function () { return []; }),
       // Phase 1933 Step B/E/F: mock 保真——owner 面（snapshot/probe/
       // scheduleProbe/subscribeReady）装配期被同步调用。
       snapshot: vi.fn(function () { return { providers: [] }; }),
