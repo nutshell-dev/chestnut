@@ -7,8 +7,9 @@ final class LauncherStartupTests: XCTestCase {
     final class FakeSetupClient: SetupClient, @unchecked Sendable {
         var next: SetupState
         var cancelCalls = 0
+        var statusCalls = 0
         init(_ next: SetupState) { self.next = next }
-        func status() async throws -> SetupState { next }
+        func status() async throws -> SetupState { statusCalls += 1; return next }
         func selectProvider(_ providerId: String) async throws -> SetupState { next }
         func submit(_ input: SetupInput) async throws -> SetupState { next }
         func retry() async throws -> SetupState { next }
@@ -80,6 +81,29 @@ final class LauncherStartupTests: XCTestCase {
         }
         XCTAssertEqual(catalog, [provider])
         XCTAssertEqual(client.cancelCalls, 0)
+    }
+
+    func testReopeningDoesNotReloadCommittedLanguageStep() async {
+        let client = FakeSetupClient(.needsProvider(catalog: []))
+        let controller = LauncherRootController(
+            setupClient: client,
+            startNonInteractive: { _ in },
+            makeStore: { ChatStore(send: UnconfiguredSendClient(), stream: UnconfiguredStreamClient()) }
+        )
+        await controller.loadIfNeeded()
+        XCTAssertEqual(client.statusCalls, 1)
+
+        client.next = .committed
+        await controller.submit(SetupInput(providerId: "openai", model: "gpt-test"))
+        guard case .initializing(.committed) = controller.state else {
+            return XCTFail("expected language step")
+        }
+
+        await controller.loadIfNeeded()
+        XCTAssertEqual(client.statusCalls, 1, "重开不得重新查询 status 或覆盖当前 setup 状态")
+        guard case .initializing(.committed) = controller.state else {
+            return XCTFail("reopen must preserve the language step")
+        }
     }
 
     func testStartFailureIsDistinctFromCommittedConfiguration() async {

@@ -25,6 +25,7 @@ final class LauncherRootController: ObservableObject {
     private var providerCatalog: [SetupProvider] = []
     private var languageSample: String?
     private var requiresLanguageSample = false
+    private var hasLoaded = false
 
     init(setupClient: any SetupClient,
          startNonInteractive: @escaping (String?) async throws -> Void,
@@ -32,6 +33,13 @@ final class LauncherRootController: ObservableObject {
         self.setupClient = setupClient
         self.startNonInteractive = startNonInteractive
         self.makeStore = makeStore
+    }
+
+    /// SwiftUI .task 会随 panel 隐藏/重显重启；只有首次启动自动查询，重开保留当前 setup 界面。
+    func loadIfNeeded() async {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        await load()
     }
 
     func load() async {
@@ -208,7 +216,7 @@ struct LauncherRootView: View {
                 )
             }
         }
-        .task { await controller.load() }
+        .task { await controller.loadIfNeeded() }
     }
 }
 
