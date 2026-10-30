@@ -8,7 +8,13 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/recovery.js';
-import { LLM_RECOVERY_STATE_FILE } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
+import {
+  createInitialRecoveryState,
+  LLM_RECOVERY_STATE_FILE,
+  saveRecoveryState,
+  type LLMRecoveryProviderFact,
+} from '../../../src/foundation/llm-orchestrator/recovery-state.js';
+import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -98,6 +104,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     dir, fs, sink, emitted, orchestrator, makeSession, readState,
     advance: (ms: number) => { nowMs += ms; },
     now: () => nowMs,
+    reload: (primary: ProviderConfig) => orchestrator.reloadConfig({ ...config, primary }),
     statePath: path.join(dir, 'status', LLM_RECOVERY_STATE_FILE),
   };
 }
@@ -951,5 +958,107 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
     expect(saved.providers).toHaveLength(1);
     expect(saved.schedule.kind).toBe('at');
     expect((await session.inspect()).kind).toBe('at');
+  });
+});
+
+
+describe('Phase 2027 legacy provider identity migration', () => {
+  type Fixture = Awaited<ReturnType<typeof makeFixture>>;
+
+  function seedLegacyFact(
+    f: Fixture,
+    currentConfig: ProviderConfig,
+    fact: LLMRecoveryProviderFact,
+    acceptedConfigRevisions: string[] = [],
+  ) {
+    f.reload(currentConfig);
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    state.providers = [fact];
+    state.schedule = { kind: 'on_change', revision: state.revision };
+    state.acceptedConfigRevisions = acceptedConfigRevisions;
+    saveRecoveryState(f.fs, state);
+    return state;
+  }
+
+  it('同修订重键保留 blocked/failures，清除 pending 时不伪造事实接受事件', async () => {
+    const f = await makeFixture();
+    const currentConfig = { ...providerConfig('primary'), authProfile: 'oauth' as const };
+    const legacyId = legacyProviderIdentity(currentConfig);
+    seedLegacyFact(f, currentConfig, {
+      providerId: legacyId,
+      errorClass: 'rate_limit',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 10,
+      detail: 'blocked',
+      rateLimitFailures: 10,
+      rateLimitBlocked: true,
+      rateLimitBlockedAt: new Date(T0).toISOString(),
+    }, ['r1']);
+    const before = f.readState();
+    before.failures = [{
+      at: new Date(T0).toISOString(),
+      providerId: legacyId,
+      errorClass: 'rate_limit',
+      message: 'original evidence',
+    }];
+    fsNative.writeFileSync(f.statePath, JSON.stringify(before));
+
+    const migrated = f.makeSession();
+    const pending = f.readState();
+    expect(pending.providers[0]).toMatchObject({
+      providerId: f.orchestrator.getProviderIdentities()[0],
+      rateLimitBlocked: true,
+      rateLimitFailures: 10,
+      identityMigrationPending: true,
+    });
+    expect(pending.failures).toEqual(before.failures);
+    expect(pending.revision).toBe(before.revision + 1);
+
+    const acceptedBefore = acceptedEvents(f).length;
+    const replay = await migrated.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
+    expect(replay.kind).toBe('waiting');
+    const cleared = f.readState();
+    expect(cleared.providers[0].identityMigrationPending).toBeUndefined();
+    expect(cleared.providers[0].rateLimitBlocked).toBe(true);
+    expect(cleared.providers[0].consecutiveFailures).toBe(10);
+    expect(cleared.failures).toEqual(before.failures);
+    expect(acceptedEvents(f)).toHaveLength(acceptedBefore);
+  });
+
+  it('重键后崩溃仍保留 pending；未命中当前旧身份的事实不被猜测重键', async () => {
+    const f = await makeFixture();
+    const currentConfig = { ...providerConfig('primary'), catalogProvider: 'metadata-a' };
+    const legacyId = legacyProviderIdentity(currentConfig);
+    seedLegacyFact(f, currentConfig, {
+      providerId: legacyId,
+      errorClass: 'permanent',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 2,
+      detail: 'old config',
+    });
+    const seeded = f.readState();
+    seeded.providers.push({
+      providerId: 'unrelated-legacy-id',
+      errorClass: 'permanent',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 1,
+      detail: 'unrelated',
+    });
+    fsNative.writeFileSync(f.statePath, JSON.stringify(seeded));
+
+    f.makeSession();
+    const afterMigration = f.readState();
+    expect(afterMigration.providers[0].identityMigrationPending).toBe(true);
+    expect(afterMigration.providers[1].providerId).toBe('unrelated-legacy-id');
+    expect(afterMigration.providers[1].identityMigrationPending).toBeUndefined();
+
+    f.makeSession(); // 首次 begin 前再次重启
+    const afterRestart = f.readState();
+    expect(afterRestart.providers[0].identityMigrationPending).toBe(true);
+    expect(afterRestart.providers[0].providerId).toBe(f.orchestrator.getProviderIdentities()[0]);
   });
 });

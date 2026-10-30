@@ -12,7 +12,7 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 
 /**
  * Phase 1374 sub-3: SDK client cache (instance-lifetime)
@@ -202,5 +202,70 @@ describe('sdk-client-cache-key', () => {
       expect(misses.length).toBe(2);
       expect(hits.length).toBe(0);
     });
+  });
+});
+
+
+function createExtendedSink() {
+  const emitted: LLMEvent[] = [];
+  const sink: LLMEventSink = { emit(event: LLMEvent) { emitted.push(event); } };
+  return { sink, emitted };
+}
+
+function createExtendedProvider(config: ProviderConfig): ProviderAdapter {
+  return {
+    name: config.name,
+    model: config.model,
+    async call() { return { content: [], stop_reason: 'end_turn' } as LLMResponse; },
+  };
+}
+
+describe('Phase 2027 extended provider identity cache', () => {
+  const base = {
+    name: 'primary',
+    apiKey: 'key',
+    model: 'model-a',
+    apiFormat: 'anthropic' as const,
+    temperature: 0,
+    timeoutMs: 1_000,
+  };
+
+  it.each([
+    ['authProfile', { authProfile: 'oauth' as const }],
+    ['piAiProvider', { piAiProvider: 'catalog-a' }],
+    ['catalogProvider', { catalogProvider: 'metadata-a' }],
+    ['catalogModel', { catalogModel: 'metadata-model-a' }],
+  ])('%s 变化不复用保存旧完整配置的 adapter', (_field, patch) => {
+    const { sink, emitted } = createExtendedSink();
+    const created: unknown[] = [];
+    const orchestrator = new LLMOrchestratorImpl({
+      primary: base,
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+      createProviderAdapter: (config) => {
+        created.push(config);
+        return createExtendedProvider(config);
+      },
+    });
+    const before = (orchestrator as any).primary;
+    const beforeId = (orchestrator as any).providerIds[0];
+
+    orchestrator.reloadConfig({
+      primary: { ...base, ...patch },
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+      createProviderAdapter: (config) => {
+        created.push(config);
+        return createExtendedProvider(config);
+      },
+    });
+
+    expect((orchestrator as any).primary).not.toBe(before);
+    expect((orchestrator as any).providerIds[0]).not.toBe(beforeId);
+    expect(created).toHaveLength(2);
+    expect(created[1]).toMatchObject(patch);
+    expect(emitted.filter(event => event.type === 'sdk_client_cache_miss')).toHaveLength(2);
   });
 });

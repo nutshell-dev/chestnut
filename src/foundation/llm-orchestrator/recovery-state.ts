@@ -57,6 +57,11 @@ export interface LLMRecoveryProviderFact {
    * 使身份↔名称关系可见（改名产生新身份时可解释健康状态迁移）。可选：旧文件缺失。
    */
   providerLabel?: string;
+  /**
+   * Phase 2027：旧算法身份已重键到当前身份，但尚未确认配置修订是否不变。
+   * 可选以保持旧文件兼容；新修订必须对标记事实做一次保守重估。
+   */
+  identityMigrationPending?: boolean;
 }
 
 /** 转义自既有已批准参数的恢复预算与曲线（数值不变）。 */
@@ -207,6 +212,7 @@ function isProviderFact(v: unknown): v is LLMRecoveryProviderFact {
   if (p.rateLimitBlockedAt !== undefined && typeof p.rateLimitBlockedAt !== 'string') return false;
   // Phase 1968 Step B：label 可选，出现时严格校验。
   if (p.providerLabel !== undefined && typeof p.providerLabel !== 'string') return false;
+  if (p.identityMigrationPending !== undefined && typeof p.identityMigrationPending !== 'boolean') return false;
   return true;
 }
 

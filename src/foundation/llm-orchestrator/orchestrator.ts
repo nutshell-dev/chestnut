@@ -44,8 +44,8 @@ import {
   wrapResponseAsStream,
   mergeSignals,
 } from './utils.js';
-import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 import { formatErr } from '../node-utils/index.js';  // Phase 1933 Step B: probe 结果错误摘要
+import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
 import { newShortUuid } from '../node-utils/index.js';  // Phase 1968 Step B: invocation 关联键
 import {
   DEFAULT_LLM_TIMEOUT_MS,
@@ -120,6 +120,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 恢复安排按身份记账（换 key/endpoint/model 即视为不同候选），不暴露明文凭据。
    */
   private providerIds: string[] = [];
+  /** 与 providerIds 同序的旧算法身份，仅供既有恢复事实兼容重键。 */
+  private legacyProviderIds: string[] = [];
 
   private lastSuccessProvider: {
     name: string;
@@ -222,36 +224,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   }
 
   private getSdkClient(config: ProviderConfig): LLMProvider {
-    // phase 450 (review): cache key 含全部 endpoint-determining 字段
-    // - baseUrl: 同 apiFormat+model 不同 endpoint 不应共享 client
-    // - apiKey hash (SHA-256 前 8 位): 防末 8 位明文 collision + 不放完整 key
-    // phase 899: 额外加入 name 与影响 adapter 行为/身份的配置指纹，避免同名 endpoint
-    // 不同配置共享同一 adapter（审计/breaker 串线）。
-    // phase 900: fingerprint 补全 maxTokens/thinking* 等字段；auditLog 用对象引用身份。
-    const apiKeyHash = config.apiKey
-      ? sha256ShortHex(config.apiKey, 8)
-      : 'noapikey';
-    const configFingerprint = sha256ShortHex(JSON.stringify({
-      temperature: config.temperature,
-      timeoutMs: config.timeoutMs,
-      maxTokens: config.maxTokens,
-      thinking: config.thinking,
-      thinkingBudgetTokens: config.thinkingBudgetTokens,
-      thinkingMode: config.thinkingMode,
-      thinkingEffort: config.thinkingEffort,
-      reasoningEffort: config.reasoningEffort,
-      dropThinkingBlocks: config.dropThinkingBlocks,
-      extraHeaders: config.extraHeaders,
-      auditLogId: this.getAuditLogId(config.auditLog),
-    }), 8);
-    const key = [
-      config.name ?? config.apiFormat ?? 'unknown',
-      config.apiFormat ?? 'unknown',
-      config.model ?? 'unknown',
-      config.baseUrl ?? 'default',
-      apiKeyHash,
-      configFingerprint,
-    ].join(':');
+    // Phase 2027：完整 provider 身份与 adapter 行为指纹由同一纯函数计算；
+    // auditLog 仍以对象引用身份区分，API key 只在身份函数内放短哈希。
+    const key = providerCacheKey(config, this.getAuditLogId(config.auditLog));
     if (!this.sdkClientCache.has(key)) {
       const provider = this.createProviderAdapter
         ? (this.createProviderAdapter(config) as LLMProvider)
@@ -407,16 +382,18 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   /** Phase 1826: 重算 provider 身份（构造与 reloadConfig 同步调用，保持与 providers 同序）。 */
   private recomputeProviderIdentities(config: LLMOrchestratorConfig): void {
     const all = [config.primary, ...(config.fallbacks ?? [])];
-    this.providerIds = all.map((c) => {
-      const apiKeyHash = c.apiKey ? sha256ShortHex(c.apiKey, 8) : 'noapikey';
-      return sha256ShortHex([
-        c.name ?? 'unknown',
-        c.apiFormat ?? 'unknown',
-        c.model ?? 'unknown',
-        c.baseUrl ?? 'default',
-        apiKeyHash,
-      ].join(':'), 12);
-    });
+    this.providerIds = all.map(providerIdentity);
+    this.legacyProviderIds = all.map(legacyProviderIdentity);
+  }
+
+  /** 当前完整身份，与 [primary, ...fallbacks] 同序；调用方不能修改内部数组。 */
+  getProviderIdentities(): readonly string[] {
+    return [...this.providerIds];
+  }
+
+  /** 旧算法身份，仅供 recovery 对既有事实做同修订兼容重键。 */
+  getLegacyProviderIdentities(): readonly string[] {
+    return [...this.legacyProviderIds];
   }
 
   /** 把 provider 名映射回身份指纹；未知 provider 用带前缀的稳定字面（不猜身份）。 */

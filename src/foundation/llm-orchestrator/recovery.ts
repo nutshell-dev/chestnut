@@ -156,6 +156,10 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal
    * scoped 视图转发本方法，session.llm 消费者与直持实例消费者得到同一 owner 结论）。
    */
   getFailureDisposition(error: unknown): LLMFailureDisposition;
+
+  /** 当前完整/旧算法身份，与 [primary, ...fallbacks] 同序的只读副本。 */
+  getProviderIdentities(): readonly string[];
+  getLegacyProviderIdentities(): readonly string[];
 }
 
 /**
@@ -231,12 +235,14 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   private readonly fs: FileSystem;
   private readonly events: LLMEventSink;
   private readonly now: () => number;
+  private readonly orchestrator: LLMOrchestratorOwner;
 
   constructor(deps: RecoverySessionDeps) {
     this.scopeId = deps.scopeId;
     this.fs = deps.fs;
     this.events = deps.events;
     this.now = deps.now ?? Date.now;
+    this.orchestrator = deps.orchestrator;
 
     const load = loadRecoveryState(deps.fs, deps.scopeId);
     if (load.kind === 'unusable') {
@@ -248,6 +254,35 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     this.state = load.kind === 'ok'
       ? load.state
       : createInitialRecoveryState(deps.scopeId, initialBudget(), this.now());
+
+    // Phase 2027 Step C：旧算法事实先重键到当前完整身份并持久 pending。
+    // 若随后崩溃，首次 begin 仍能区分「同修订保留」与「升级同时改配置的保守重估」。
+    const legacyToCurrent = new Map<string, string>();
+    const currentIds = this.orchestrator.getProviderIdentities();
+    const legacyIds = this.orchestrator.getLegacyProviderIdentities();
+    for (let i = 0; i < currentIds.length; i++) {
+      const currentId = currentIds[i];
+      const legacyId = legacyIds[i];
+      if (currentId !== undefined && legacyId !== undefined && legacyId !== currentId) {
+        legacyToCurrent.set(legacyId, currentId);
+      }
+    }
+    let migrated = false;
+    const migratedProviders = this.state.providers.map(fact => {
+      const currentId = legacyToCurrent.get(fact.providerId);
+      if (currentId === undefined) return fact;
+      migrated = true;
+      return { ...fact, providerId: currentId, identityMigrationPending: true };
+    });
+    if (migrated) {
+      const next = {
+        ...this.state,
+        providers: migratedProviders,
+        revision: this.state.revision + 1,
+      };
+      next.schedule = { ...next.schedule, revision: next.revision };
+      this.commitNext(next);
+    }
 
     const residual = this.state.activeAdmission;
     if (residual) {
@@ -316,7 +351,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     const next: LLMRecoveryStateV1 = {
       ...this.state,
       budget: { ...this.state.budget },
-      providers: [...this.state.providers],
+      providers: this.state.providers.map(fact => ({ ...fact })),
       acceptedInterventions: [...this.state.acceptedInterventions],
       acceptedConfigRevisions: [...this.state.acceptedConfigRevisions],
       failures: [...this.state.failures],
@@ -348,6 +383,11 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       }
       acceptedFacts.configurationRevision = configRevision;
       stateChanged = true;
+    } else {
+      // 同修订/无修订可证明配置未变：清迁移标记但保留全部故障事实。
+      const before = next.providers;
+      next.providers = next.providers.map(clearIdentityMigrationPending);
+      if (next.providers.some((fact, i) => fact !== before[i])) stateChanged = true;
     }
 
     // 5. 全部新干预 ids 一次记账；多 id 归一化为一次资格，旧 id 不授予新资格。
@@ -878,6 +918,13 @@ function clearRateLimitFact(fact: LLMRecoveryProviderFact): LLMRecoveryProviderF
     rateLimitBlockedAt: _blockedAt,
     ...rest
   } = fact;
+  return rest;
+}
+
+/** 同修订确认后清除旧身份迁移标记，不改其他故障事实。 */
+function clearIdentityMigrationPending(fact: LLMRecoveryProviderFact): LLMRecoveryProviderFact {
+  if (fact.identityMigrationPending === undefined) return fact;
+  const { identityMigrationPending: _pending, ...rest } = fact;
   return rest;
 }
 
