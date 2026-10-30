@@ -7,7 +7,7 @@
  */
 
 
-import { LLMError, LLMRateLimitError, LLMTimeoutError, type LLMResponse } from '../llm-provider/index.js';
+import { LLMError, LLMTimeoutError, type LLMResponse } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
   classifyLLMError,
@@ -1515,13 +1515,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       return { ok: true };
     } catch (err) {
       const e = err as Error;
-      // network/timeout 类（含 abort）→ transient
+      const errorClass = classifyLLMError(e);
+      // abort/typed 真实故障可 failover；auth/model/unknown 保持配置错误出口。
       if (
         probeCtrl.signal.aborted ||
         signal.aborted ||
         e.name === 'AbortError' ||
-        e instanceof LLMTimeoutError ||
-        e instanceof LLMRateLimitError
+        errorClass === 'transient' ||
+        errorClass === 'rate_limit' ||
+        errorClass === 'quota'
       ) {
         return { ok: false, reason: 'network_timeout', error: e };
       }

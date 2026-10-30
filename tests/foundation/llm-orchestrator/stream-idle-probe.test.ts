@@ -8,6 +8,7 @@ import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/or
 import type { LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { createLLMProvider, type ProviderAdapter, type ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 
 /**
  * Mock stream 延长延迟 / mock probe 延长延迟: 让 stream 进入 idle window 后触 abort.
@@ -100,7 +101,10 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     expect(emitted.some((e) => e.type === 'idle_failover_triggered')).toBe(false);
   });
 
-  it('probe network/timeout → failover next provider', async () => {
+  it.each([
+    { label: 'network', error: new LLMNetworkError('primary', new Error('ECONNRESET')) },
+    { label: 'rate-limit', error: new LLMRateLimitError('primary', 1) },
+  ])('probe typed $label failure → failover next provider', async ({ error: probeError }) => {
     const { sink, emitted } = createMockSink();
 
     const primary = createMockProvider(
@@ -116,20 +120,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
         });
         yield { type: 'done' };
       },
-      async (opts?: { signal?: AbortSignal }) => {
-        // 模拟 probe 被 abort（network/timeout 类错误）
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => {
-            reject(new Error('probe timeout'));
-          }, MOCK_STREAM_HOLD_MS);
-          opts?.signal?.addEventListener('abort', () => {
-            clearTimeout(timer);
-            const err = new Error('AbortError');
-            err.name = 'AbortError';
-            reject(err);
-          });
-        });
-      },
+      async () => { throw probeError; },
     );
 
     const fallback = createMockProvider('fallback');
@@ -183,9 +174,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
         yield { type: 'done' };
       },
       async () => {
-        const err = new Error('Invalid API key');
-        err.name = 'AuthenticationError';
-        throw err;
+        throw new LLMAuthError('primary', 401, 'Invalid API key');
       },
     );
 
