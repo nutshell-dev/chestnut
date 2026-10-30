@@ -6,11 +6,18 @@ public enum LauncherWindowPolicy {
     public static let activation: NSApplication.ActivationPolicy = .accessory
 }
 
+protocol LauncherPanelDelegate: AnyObject {
+    @MainActor func launcherPanelDidResign(_ panel: LauncherPanel, screen: NSScreen?)
+}
+
 /// Raycast/Spotlight 风格浮窗：floating level、跨 Space 与全屏辅助层、
 /// 透明背景 + 阴影、失焦 orderOut 隐藏。失焦只隐藏，ChatStore draft/stream 状态不动。
 public final class LauncherPanel: NSPanel {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { true }
+
+    private var isHidingExplicitly = false
+    private var isHidingAfterResign = false
 
     public init(contentRect: NSRect) {
         super.init(
@@ -52,6 +59,13 @@ public final class LauncherPanel: NSPanel {
     }
 
     public override func cancelOperation(_ sender: Any?) {
+        hideWithoutShortcutHint()
+    }
+
+    /// Esc、显式关闭和热键隐藏只隐藏 launcher，不触发初始化失焦提示。
+    func hideWithoutShortcutHint() {
+        isHidingExplicitly = true
+        defer { isHidingExplicitly = false }
         orderOut(nil)
     }
 
@@ -59,7 +73,7 @@ public final class LauncherPanel: NSPanel {
         guard LauncherPanel.isUnmodifiedEscape(event) else {
             return super.performKeyEquivalent(with: event)
         }
-        orderOut(nil)
+        hideWithoutShortcutHint()
         return true
     }
 
@@ -67,8 +81,13 @@ public final class LauncherPanel: NSPanel {
         event.keyCode == 53 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
     }
 
-    @objc private func handleResignKey(_ notification: Notification) {
+    @objc @MainActor private func handleResignKey(_ notification: Notification) {
+        guard !isHidingExplicitly, !isHidingAfterResign else { return }
+        let previousScreen = screen
+        isHidingAfterResign = true
         orderOut(nil)
+        isHidingAfterResign = false
+        (delegate as? LauncherPanelDelegate)?.launcherPanelDidResign(self, screen: previousScreen)
     }
 
     deinit {

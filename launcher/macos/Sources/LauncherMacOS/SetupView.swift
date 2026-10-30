@@ -12,6 +12,12 @@ enum LauncherRootState {
 final class LauncherRootController: ObservableObject {
     @Published private(set) var state: LauncherRootState = .initializing(.needsProvider(catalog: []))
     private(set) var uiSemantics: LauncherUiSemantics?
+    var onSetupCompleted: (() -> Void)?
+
+    var isSetupIncomplete: Bool {
+        if case .chat = state { return false }
+        return true
+    }
 
     private let setupClient: any SetupClient
     private let startNonInteractive: (String?) async throws -> Void
@@ -97,6 +103,7 @@ final class LauncherRootController: ObservableObject {
     private func showChat() {
         if case .chat = state { return }
         state = .chat(makeStore())
+        onSetupCompleted?()
     }
 
     private static func failure(_ error: Error) -> SetupFailure {

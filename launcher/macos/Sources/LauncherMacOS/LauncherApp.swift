@@ -141,13 +141,16 @@ struct UnconfiguredStreamClient: StreamClient {
     func stop() async {}
 }
 
-final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, LauncherPanelDelegate {
     private var window: NSWindow?
     private var rootController: LauncherRootController?
     private var hotKeyController: LauncherHotKeyController?
+    private var shortcutBubbleController: ShortcutBubbleController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         SetupPasteMenuTarget.install()
+        let shortcutBubbleController = ShortcutBubbleController()
+        self.shortcutBubbleController = shortcutBubbleController
         let rootController = LauncherRootController(
             setupClient: LauncherClientFactory.makeSetupClient(),
             startNonInteractive: LauncherClientFactory.makeStartContinuation(),
@@ -155,6 +158,9 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 ChatStore(send: LauncherClientFactory.makeSendClient(), stream: LauncherClientFactory.makeStreamClient())
             }
         )
+        rootController.onSetupCompleted = { [weak self] in
+            self?.shortcutBubbleController?.hide()
+        }
         self.rootController = rootController
 
         // 初始 compact：仅一行输入框高度；内容由 ChatView 测量后经 onWindowHeightChange 上报，
@@ -176,7 +182,7 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         self.window = window
 
         let hotKeyController = LauncherHotKeyController { [weak self] in
-            self?.toggleLauncher()
+            Task { @MainActor in self?.toggleLauncher() }
         }
         self.hotKeyController = hotKeyController
         do {
@@ -187,14 +193,21 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
-    func toggleLauncher() {
+    @MainActor func toggleLauncher() {
+        shortcutBubbleController?.hide()
         LauncherAppDelegate.toggle(window: window)
+    }
+
+    @MainActor func launcherPanelDidResign(_ panel: LauncherPanel, screen: NSScreen?) {
+        guard rootController?.isSetupIncomplete == true,
+              let screen = screen ?? NSScreen.main else { return }
+        shortcutBubbleController?.panelDidResign(isSetupIncomplete: true, screen: screen)
     }
 
     static func toggle(window: NSWindow?) {
         guard let window else { return }
         if window.isVisible && window.isKeyWindow {
-            window.orderOut(nil)
+            if let panel = window as? LauncherPanel { panel.hideWithoutShortcutHint() } else { window.orderOut(nil) }
         } else {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -203,17 +216,19 @@ final class LauncherAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     /// 关闭只隐藏：未 ack 草稿与订阅状态不动；重新唤出显示最近已确认事实。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
+        if let panel = sender as? LauncherPanel { panel.hideWithoutShortcutHint() } else { sender.orderOut(nil) }
         return false
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        shortcutBubbleController?.hide()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        shortcutBubbleController?.hide()
         hotKeyController?.stop()
         guard let rootController, case let .chat(store) = rootController.state else { return }
         let done = DispatchSemaphore(value: 0)
