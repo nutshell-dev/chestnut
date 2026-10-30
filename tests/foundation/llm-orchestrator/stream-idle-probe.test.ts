@@ -145,13 +145,16 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     (service as any).fallbacks = [fallback];
 
     const chunks: LLMStreamChunk[] = [];
-    try {
-      for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
-        chunks.push(chunk);
-      }
-    } catch {
-      // all providers may fail
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
+      chunks.push(chunk);
     }
+
+    expect(chunks.map(c => c.type)).toEqual([
+      'text_delta', 'reset', 'provider_failed', 'text_delta', 'done',
+    ]);
+    expect(chunks.filter(c => c.type === 'text_delta').map(c => c.delta)).toEqual([
+      'first', 'Chunk from fallback',
+    ]);
 
     // probe attempted 事件应被 emit
     expect(emitted.some((e) => e.type === 'stream_idle_probe_attempted')).toBe(true);
@@ -194,11 +197,13 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     });
     (service as any).primary = primary;
 
+    const chunks: LLMStreamChunk[] = [];
     await expect(async () => {
-      for await (const _ of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
-        // drain
+      for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
+        chunks.push(chunk);
       }
     }).rejects.toThrow('Invalid API key');
+    expect(chunks.map(c => c.type)).toEqual(['text_delta', 'reset']);
 
     // probe attempted 事件应被 emit
     expect(emitted.some((e) => e.type === 'stream_idle_probe_attempted')).toBe(true);

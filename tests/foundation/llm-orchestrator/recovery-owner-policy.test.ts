@@ -29,6 +29,8 @@ import type {
   LLMEvent,
   LLMEventSink,
   LLMResponse,
+  RecoveryCallScope,
+  RecoveryFailureInput,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import {
   LLMAuthError,
@@ -264,6 +266,50 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       primary: providerConfig('primary', { apiKey: 'key-primary-rotated' }),
     });
     expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
+    await owner.close();
+  });
+
+  it('单 provider 全 mid-stream 失败仍保留 scoped 恢复证据与共享安排', async () => {
+    const providerError = new LLMNetworkError('primary', new Error('mid-stream'));
+    const primary: ProviderAdapter = {
+      name: 'primary',
+      model: 'model-primary',
+      async call() { return OK_RESPONSE; },
+      async *stream() {
+        yield { type: 'text_delta', delta: 'partial' };
+        throw providerError;
+      },
+    };
+    const { owner, emitted } = createOwner(primary);
+    const scopedFailures: RecoveryFailureInput[][] = [];
+    const scope: RecoveryCallScope = {
+      noteAttemptStarted() {},
+      noteSuccess() {},
+      noteFailure(failures) { scopedFailures.push([...failures]); },
+      attemptContext() { return { probeOnly: false, allowBreakerProbe: false }; },
+    };
+
+    await expect(async () => {
+      for await (const _chunk of owner.streamWithinRecovery(OPTIONS, scope)) { /* drain */ }
+    }).rejects.toThrow();
+
+    expect(scopedFailures).toHaveLength(1);
+    expect(scopedFailures[0]).toHaveLength(1);
+    expect(scopedFailures[0][0]).toMatchObject({
+      providerLabel: 'primary',
+      errorClass: 'transient',
+      message: providerError.message,
+    });
+    const invocation = emitted.find(e => e.type === 'call_invocation_started');
+    const attempt = emitted.find(e => e.type === 'call_attempt_result' && e.outcome === 'failure');
+    expect(scopedFailures[0][0].invocationId).toBe(
+      invocation?.type === 'call_invocation_started' ? invocation.invocationId : undefined,
+    );
+    expect(scopedFailures[0][0].attemptIndex).toBe(
+      attempt?.type === 'call_attempt_result' ? attempt.attemptIndex : undefined,
+    );
+    expect(scopedFailures[0][0].invocationId).toBeDefined();
+    expect(owner.getSharedRecoveryDecision().kind).toBe('at');
     await owner.close();
   });
 

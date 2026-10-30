@@ -1088,7 +1088,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       let hasYielded = false;
       let receivedDone = false;
       let hasContent = false;  // text_delta / tool_use_start → actual output, not just metadata
-      let midStreamReset = false;
       let lastError: Error | null = null;
       let contextExceeded = false;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1170,7 +1169,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
           if (contextExceeded) {
             contextExceededCount++;
-            midStreamReset = true;
             // Phase 1968 Step B：context-exceeded 候选不进聚合 failures（既有语义），
             // 但 attempt path 必须有终态——记录 failure（errorClass=context_exceeded）。
             this.recordAttemptResult(inv, adapter.name, this.identityAt(breakerIndex, adapter.name), 'failure', {
@@ -1235,8 +1233,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
               if (options.signal?.aborted) {
                 throw makeExternalAbortError(options.signal.reason);
               }
+              if (hasYielded) {
+                this.events.emit({ type: 'stream_reset', provider: adapter.name, error: 'idle_timeout_probe_failed' });
+                yield { type: 'reset', provider: adapter.name, timeoutMs: options.streamIdleTimeoutMs };
+              }
               // probe auth/model 错 = 用户配置问题 / throw 给 caller decide
               throw probe.error;
+            }
+            if (hasYielded) {
+              this.events.emit({ type: 'stream_reset', provider: adapter.name, error: 'idle_timeout_probe_failed' });
+              yield { type: 'reset', provider: adapter.name, timeoutMs: options.streamIdleTimeoutMs };
             }
             // probe network/timeout → failover next provider（既有 idle_failover 路径）
             this.events.emit({
@@ -1267,12 +1273,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
               provider: adapter.name,
               ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
             };
-            midStreamReset = true;
-            // Phase 1968 Step B：mid-stream reset 不进聚合 failures（既有语义），attempt 终态照录。
-            this.recordAttemptResult(inv, adapter.name, this.identityAt(breakerIndex, adapter.name), 'failure', {
-              errorClass: classifyLLMError(err),
-              error: err.message,
-            });
             lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
           }
@@ -1342,7 +1342,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), err, 'unknown');
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
-        midStreamReset = true;
       }
 
       if (success && hasYielded && !receivedDone) {
@@ -1367,7 +1366,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), err);
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
-        midStreamReset = true;
       }
 
       if (success && !hasYielded) {
@@ -1392,7 +1390,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
-      } else if (!midStreamReset) {
+      } else if (!success && !contextExceeded) {
         // Circuit breaker: record failure（breaker_opened emit 由 onTransition 回调独占）
         breaker?.onFailure(classifyLLMError(lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured')));
         // Phase 1268 Step C: 删除 provider 结束后硬编码 attempt: 0 的第二个

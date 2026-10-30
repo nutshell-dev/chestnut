@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
-import { getUserActionHint } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { getUserActionHint, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import {
   LLMAuthError,
   LLMModelNotFoundError,
@@ -1369,6 +1369,38 @@ describe('streaming-fallback-switched-emit', () => {
       const switches = emitted.filter(e => e.type === 'fallback_switched');
       expect(switches).toHaveLength(1);
       expect(switches[0]).toMatchObject({ from: 'primary', to: 'fallback' });
+    });
+
+    it('single-provider mid-stream failure preserves the typed error and trips the breaker', async () => {
+      const providerError = new LLMNetworkError('primary', new Error('mid-stream'));
+      const primary: ProviderAdapter = {
+        name: 'primary',
+        model: 'primary-model',
+        async call() { return { content: [], stop_reason: 'end_turn' } as any; },
+        async *stream() {
+          yield { type: 'text_delta', delta: 'partial' };
+          throw providerError;
+        },
+      };
+      const { orchestrator } = buildOrchestrator(primary, []);
+      (orchestrator as any).breakers = [new CircuitBreaker(1, 1000, () => {})];
+      const chunks: any[] = [];
+      let caught: unknown;
+      try {
+        for await (const chunk of orchestrator.stream({})) chunks.push(chunk);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(chunks.map(c => c.type)).toEqual(['text_delta', 'reset', 'provider_failed']);
+      expect(caught).toBeInstanceOf(LLMAllProvidersFailedError);
+      const aggregate = caught as LLMAllProvidersFailedError;
+      expect(aggregate.failures).toHaveLength(1);
+      expect(aggregate.failures[0].error).toBe(providerError);
+      expect(aggregate.failures[0].error.message).toContain('mid-stream');
+      const breaker = (orchestrator as any).breakers[0] as CircuitBreaker;
+      expect(breaker.getConsecutiveFailures()).toBe(1);
+      expect(breaker.isOpen()).toBe(true);
     });
   });
 });
