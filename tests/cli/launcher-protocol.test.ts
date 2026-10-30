@@ -29,6 +29,7 @@ import {
   makeLauncherV2Envelope,
   parseLauncherSendRequest,
   parseLauncherV2Envelope,
+  type LauncherSnapshotPayload,
 } from '../../src/cli-protocol/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
@@ -507,6 +508,28 @@ describe('launcher.v2 protocol', () => {
     expect(() => parseLauncherV2Envelope(JSON.stringify({
       protocol: 'chestnut.launcher.v1', sequence: 1, kind: 'event', payload: {},
     }))).toThrow(/unsupported/);
+  });
+
+  it('keeps an inactive reconnect snapshot explicit without synthesizing activity', () => {
+    const payload: LauncherSnapshotPayload = {
+      workspace: { claw: 'motion' },
+      initialization: 'ready',
+      daemon: { state: 'running' },
+      capabilities: {},
+      active: false,
+      messages: [],
+      afterSequence: 8,
+      resync: 'resync_required',
+    };
+    const envelope = makeLauncherV2Envelope(1, 'snapshot', payload);
+    const decoded = parseLauncherV2Envelope(JSON.stringify(envelope));
+
+    expect(decoded).toMatchObject({
+      kind: 'snapshot',
+      sequence: 1,
+      payload: { active: false, daemon: { state: 'running' }, afterSequence: 8, resync: 'resync_required' },
+    });
+    expect(decoded.payload).not.toHaveProperty('activity');
   });
 
   it('validates command input and advertises capabilities', () => {

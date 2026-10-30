@@ -121,6 +121,78 @@ final class ChatProtocolTests: XCTestCase {
         XCTAssertEqual(state.chat.messages.map(\.id), ["m2"])
     }
 
+    // MARK: Phase 2024 inactive snapshot activity
+
+    func testInactiveSnapshotWithoutActivityClearsTransientActivity() {
+        let transient: [ActivityState] = [
+            .waiting,
+            .processing(label: "turn", detail: "stale"),
+            .responding,
+        ]
+        for activity in transient {
+            let state = ChatReducer.reduce(
+                ChatCoreState(activity: activity),
+                .streamEvent(envelope(
+                    kind: .snapshot,
+                    sequence: 1,
+                    payload: .object(["active": .bool(false), "messages": .array([])])
+                ))
+            )
+            XCTAssertEqual(state.activity, .idle)
+        }
+    }
+
+    func testSnapshotWithoutActivityRequiresStrictFalse() {
+        let payloads: [JSONValue] = [
+            .object(["messages": .array([])]),
+            .object(["active": .bool(true)]),
+            .object(["active": .string("false")]),
+            .object(["active": .number(0)]),
+        ]
+        for payload in payloads {
+            let state = ChatReducer.reduce(
+                ChatCoreState(activity: .processing(label: "turn", detail: nil)),
+                .streamEvent(envelope(kind: .snapshot, sequence: 1, payload: payload))
+            )
+            XCTAssertEqual(state.activity, .processing(label: "turn", detail: nil))
+        }
+    }
+
+    func testInactiveSnapshotPreservesExplicitErrorActivity() {
+        let errors: [ActivityState] = [
+            .error(detail: "error"),
+            .interrupted(detail: "interrupted"),
+            .retry(detail: "retry"),
+            .blocked(detail: "blocked"),
+        ]
+        for activity in errors {
+            let state = ChatReducer.reduce(
+                ChatCoreState(activity: activity),
+                .streamEvent(envelope(
+                    kind: .snapshot,
+                    sequence: 1,
+                    payload: .object(["active": .bool(false)])
+                ))
+            )
+            XCTAssertEqual(state.activity, activity)
+        }
+    }
+
+    func testSnapshotActivityTakesPrecedenceOverInactiveFlag() {
+        let state = ChatReducer.reduce(
+            ChatCoreState(activity: .responding),
+            .streamEvent(envelope(
+                kind: .snapshot,
+                sequence: 1,
+                payload: .object([
+                    "active": .bool(false),
+                    "activity": .object(["phase": .string("processing"), "label": .string("turn")]),
+                ])
+            ))
+        )
+        XCTAssertEqual(state.activity, .processing(label: "turn", detail: nil))
+    }
+
     func testDaemonStoppedClearsWaitingWithoutSynthesizingThinking() {
         var state = ChatCoreState(activity: .waiting)
         state = ChatReducer.reduce(state, .streamEvent(envelope(

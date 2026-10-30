@@ -392,6 +392,59 @@ final class RecoveryTests: XCTestCase {
         XCTAssertNil(state.resyncPendingFrom)
     }
 
+    /// Phase 2024：重连时已结束 turn 的权威快照清理旧活动，但不清消息、草稿或错误历史；
+    /// per-process sequence 仍按既有 resync 规则重建，daemon running 不合成 terminal/activity。
+    func testReconnectInactiveSnapshotClearsActivityAndPreservesChatState() {
+        let restored = JSONValue.object([
+            "messageId": .string("reply-r1"),
+            "role": .string("motion"),
+            "text": .string("已完成"),
+        ])
+        let snapshot = LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 1, sessionId: "new-process", kind: .snapshot,
+            payload: .object([
+                "resync": .string("resync_required"),
+                "active": .bool(false),
+                "messages": .array([restored]),
+            ])
+        )
+        var state = ChatCoreState(
+            chat: .idle(draft: "未发送草稿", messages: []),
+            lastSequence: 8,
+            resyncPendingFrom: 9,
+            activity: .processing(label: "turn", detail: "stale")
+        )
+        state = ChatReducer.reduce(state, .streamEvent(snapshot))
+
+        XCTAssertEqual(state.activity, .idle)
+        XCTAssertEqual(state.chat.messages.map(\.id), ["reply-r1"])
+        XCTAssertEqual(state.chat.messages.map(\.text), ["已完成"])
+        XCTAssertEqual(state.chat.draft, "未发送草稿")
+        XCTAssertEqual(state.lastSequence, 1)
+        XCTAssertNil(state.resyncPendingFrom)
+
+        state = ChatReducer.reduce(state, .streamEvent(LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 2, sessionId: "new-process", kind: .daemon,
+            payload: .object(["state": .string("running")])
+        )))
+        XCTAssertEqual(state.activity, .idle)
+        XCTAssertEqual(state.chat.draft, "未发送草稿")
+        XCTAssertEqual(state.chat.messages.map(\.id), ["reply-r1"])
+        XCTAssertEqual(state.lastSequence, 2)
+
+        state = ChatReducer.reduce(state, .streamEvent(LauncherEnvelope(
+            protocolVersion: LauncherEnvelope.supportedProtocolVersion,
+            sequence: 3, sessionId: "new-process", kind: .terminal,
+            payload: .object(["reason": .string("stopped")])
+        )))
+        XCTAssertEqual(state.activity, .idle)
+        XCTAssertEqual(state.chat.messages.map(\.id), ["reply-r1"])
+        XCTAssertEqual(state.chat.draft, "未发送草稿")
+        XCTAssertEqual(state.lastSequence, 3)
+    }
+
     func testNonRetryableProtocolErrorEnvelopeStaysProtocolMismatch() {
         let envelope = LauncherEnvelope(
             protocolVersion: LauncherEnvelope.supportedProtocolVersion,

@@ -133,7 +133,16 @@ public enum ChatReducer {
             if case let .array(messages)? = envelope.payload["messages"] {
                 for payload in messages { applyMessagePayload(payload, to: &state) }
             }
-            if let activity = envelope.payload["activity"] { applyActivityPayload(activity, to: &state) }
+            if let activity = envelope.payload["activity"] {
+                applyActivityPayload(activity, to: &state)
+            } else if envelope.payload["active"] == .bool(false) {
+                // Phase 2024: an authoritative inactive snapshot clears only transient
+                // turn activity; explicit error states remain visible until new activity/send.
+                switch state.activity {
+                case .waiting, .processing, .responding: state.activity = .idle
+                case .idle, .error, .interrupted, .retry, .blocked: break
+                }
+            }
         case .daemon:
             // Liveness is a CLI fact. Stopped clears local waiting; running never synthesizes Thinking.
             if envelope.payload["state"]?.stringValue == "stopped" { state.activity = .idle }
