@@ -16,6 +16,10 @@ import { CLI_AUDIT_EVENTS } from '../../../src/cli/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { LivenessResult } from '../../../src/foundation/process-manager/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
+import {
+  makeLauncherEnvelope,
+  type LauncherMessagePayload,
+} from '../../../src/cli-protocol/launcher-envelope.js';
 
 const fsFactory = (dir: string) => ({ baseDir: dir }) as unknown as ReturnType<FakeClawCommandDeps['fsFactory']>;
 
@@ -93,6 +97,30 @@ vi.mock('../../../src/foundation/process-exec/index.js', () => ({
   isAlive: (...args: unknown[]) => shutdownMocks.procExec.isAlive(...args as [number]),
   isPidArgvMatching: (...args: unknown[]) => shutdownMocks.procExec.isPidArgvMatching(...args as [number, string]),
 }));
+
+describe('Phase 2029 Step F: launcher structured payload', () => {
+  type Assert<T extends true> = T;
+  type Payload = Parameters<typeof makeLauncherEnvelope>[3];
+  type _PrimitiveRejected = Assert<string extends Payload ? false : true>;
+
+  it('accepts a concrete message interface without changing the JSONL wire shape', () => {
+    const payload: LauncherMessagePayload = {
+      messageId: 'msg-1',
+      role: 'assistant',
+      text: 'hello',
+      turnId: 'turn-1',
+      sendOrdinal: 2,
+    };
+    const envelope = makeLauncherEnvelope(7, 'session-1', 'event', payload);
+    expect(JSON.parse(JSON.stringify(envelope))).toEqual({
+      protocolVersion: 'chestnut.launcher.v1',
+      sequence: 7,
+      sessionId: 'session-1',
+      kind: 'event',
+      payload,
+    });
+  });
+});
 
 describe('parseStartMode', () => {
   it('default (no args) → recent-turn', () => {

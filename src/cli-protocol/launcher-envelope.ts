@@ -71,7 +71,7 @@ export interface LauncherEnvelope {
   sequence: number;
   sessionId: string;
   kind: LauncherEnvelopeKind;
-  payload: Record<string, unknown>;
+  payload: object;
 }
 
 /** 会话内连号 sequence 生成器（1 起；launcher 以首个 envelope 建基线）。 */
@@ -84,7 +84,7 @@ export function makeLauncherEnvelope(
   sequence: number,
   sessionId: string,
   kind: LauncherEnvelopeKind,
-  payload: Record<string, unknown>,
+  payload: object,
 ): LauncherEnvelope {
   return { protocolVersion: LAUNCHER_PROTOCOL_VERSION, sequence, sessionId, kind, payload };
 }
