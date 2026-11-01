@@ -64,7 +64,7 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
 function makeFact(overrides: Partial<LLMWaitFact> = {}): LLMWaitFact {
   const now = Date.now();
   return {
-    scope: 'claw-process',
+    orchestratorInstance: 'claw-process',
     nextProbeAt: now + 60_000,
     recordedAt: now,
     expiresAt: now + 3_600_000,
@@ -132,10 +132,13 @@ function runningTaskSeed(task: SubAgentTask, extraFiles: Record<string, string> 
 }
 
 /** 旧记录兼容形态：无 resumeIntent 字段（Phase 1933 持久化的事实）。 */
+function waitFileContent(fact: LLMWaitFact, extra: Record<string, unknown> = {}): string {
+  const { orchestratorInstance, ...rest } = fact;
+  return JSON.stringify({ schema_version: 1, orchestrator_instance: orchestratorInstance, ...rest, ...extra });
+}
+
 function waitFileSeed(task: SubAgentTask, fact: LLMWaitFact): Record<string, string> {
-  return {
-    [waitPath(task.id)]: JSON.stringify({ schema_version: 1, ...fact }),
-  };
+  return { [waitPath(task.id)]: waitFileContent(fact) };
 }
 
 function hasEvent(
@@ -677,9 +680,7 @@ describe('损坏事实与意图 schema：原文保留（不清未知记录）', 
   it('意图字段严格 schema：非法 resumeIntent → 整份记录 corrupt（不动不删不猜）', async () => {
     const task = makeValidTask();
     const fact = makeFact();
-    const badIntent = JSON.stringify({
-      schema_version: 1,
-      ...fact,
+    const badIntent = waitFileContent(fact, {
       resumeIntent: { target: 'done', decidedAt: fact.recordedAt },
     });
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, {
@@ -701,7 +702,7 @@ describe('损坏事实与意图 schema：原文保留（不清未知记录）', 
     // 显式构造 Phase 1933 旧形态（无 resumeIntent 键）
     const legacy = {
       schema_version: 1,
-      scope: fact.scope,
+      scope: fact.orchestratorInstance,
       nextProbeAt: fact.nextProbeAt,
       recordedAt: fact.recordedAt,
       expiresAt: fact.expiresAt,
@@ -813,9 +814,7 @@ describe('pending 消费确认 resume 意图清理完成再执行业务', () => 
     await fs.ensureDir(`tasks/queues/results/${task.id}`);
     // 崩溃窗口形态：move 已成功（任务在 pending）但清事实失败 → 意图残留
     await fs.writeAtomic(pendingPath(task.id), JSON.stringify(task));
-    await fs.writeAtomic(waitPath(task.id), JSON.stringify({
-      schema_version: 1,
-      ...fact,
+    await fs.writeAtomic(waitPath(task.id), waitFileContent(fact, {
       resumeIntent: { target: 'pending', decidedAt: now },
     }));
 

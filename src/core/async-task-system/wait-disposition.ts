@@ -6,7 +6,7 @@
  * （system resumeWaitingTasks / deadline 定时器）共用的等待处置协议——同一
  * 磁盘事实在三入口下得到一致结果。
  *
- * 判定为 ATS 内部类型，不包含供应商概念（scope 为 opaque 标识，ready 结论
+ * 判定为 ATS 内部类型，不包含供应商概念（orchestratorInstance 为 opaque 实例关联，ready 结论
  * 由装配注入的 LLMWaitGate 给出，ATS 只消费）。
  *
  * 协议（deadline 优先于 ready）：
@@ -101,7 +101,7 @@ export async function applyWaitDisposition(
   const now = opts.now ?? Date.now();
   const fullTaskId = task.id as FullTaskId;
   const shortTaskId = taskShortId(task);
-  const ready = gate ? gate.canResume(fact.scope) : false;
+  const ready = gate ? gate.canResume(fact.orchestratorInstance) : false;
   const disposition = decideWait(now, fact.expiresAt, ready);
 
   if (disposition === 'keep') {
@@ -109,7 +109,7 @@ export async function applyWaitDisposition(
     emitLLMWaitContinued(deps.auditWriter, {
       fullTaskId,
       shortTaskId,
-      scope: fact.scope,
+      orchestratorInstance: fact.orchestratorInstance,
       nextProbeAt: fact.nextProbeAt,
       reason,
     });
@@ -175,7 +175,7 @@ async function resumeWait(
       error: formatErr(err),
     });
   }
-  emitLLMWaitResumed(auditWriter, { fullTaskId, shortTaskId, scope: fact.scope });
+  emitLLMWaitResumed(auditWriter, { fullTaskId, shortTaskId, orchestratorInstance: fact.orchestratorInstance });
   return { kind: 'resumed' };
 }
 
@@ -195,7 +195,7 @@ async function expireWait(
   const shortTaskId = taskShortId(task);
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
 
-  emitLLMWaitExpired(auditWriter, { fullTaskId, shortTaskId, scope: fact.scope, expiresAt: fact.expiresAt });
+  emitLLMWaitExpired(auditWriter, { fullTaskId, shortTaskId, orchestratorInstance: fact.orchestratorInstance, expiresAt: fact.expiresAt });
 
   const markerPath = `${resultDir}/result.txt.notified`;
   let alreadyNotified = false;
@@ -214,7 +214,7 @@ async function expireWait(
     try {
       await sendFallback(fs, auditWriter, task, {
         schema_version: 1,
-        content: `LLM wait deadline expired (scope=${fact.scope}, expiresAt=${fact.expiresAt}). Task failed without resumption.`,
+        content: `LLM wait deadline expired (orchestrator_instance=${fact.orchestratorInstance}, expiresAt=${fact.expiresAt}). Task failed without resumption.`,
         isError: true,
       }, { writeInboxAsync: deps.writeInboxAsync });
     } catch (err) {

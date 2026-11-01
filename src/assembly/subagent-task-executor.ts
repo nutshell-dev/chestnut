@@ -78,10 +78,10 @@ function resolveTaskToolProfile(task: SubAgentTask, auditWriter: AuditLog): stri
 }
 
 /**
- * Phase 1933 Step E：等待事实 scope——进程内 orchestrator 实例的 opaque 标识
- * （ATS 不解析；故障状态本就不跨进程，scope 仅作证据关联）。
+ * Phase 2030 Step D：等待事实 orchestratorInstance——进程内 orchestrator 实例的
+ * opaque 关联标识（不是恢复管理范围；ATS 不解析，仅作证据关联）。
  */
-const LLM_WAIT_SCOPE = 'claw-process' as const;
+const LLM_WAIT_ORCHESTRATOR_INSTANCE = 'claw-process' as const;
 
 export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): TaskExecutor {
   return {
@@ -170,7 +170,7 @@ export function createSubagentTaskExecutor(deps: SubagentTaskExecutorDeps): Task
             sourceIsError: true,
             errorCategory: classifyTaskError(error),
             waiting: {
-              scope: LLM_WAIT_SCOPE,
+              orchestratorInstance: LLM_WAIT_ORCHESTRATOR_INSTANCE,
               nextProbeAt,
               recordedAt: nowMs,
               expiresAt: nowMs + task.timeoutMs,

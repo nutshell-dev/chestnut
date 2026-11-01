@@ -16,7 +16,7 @@ import { executeSubAgentTask } from '../../../src/core/async-task-system/subagen
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import { LLM_WAIT_FILE, type LLMWaitFact } from '../../../src/core/async-task-system/llm-wait-state.js';
+import { LLM_WAIT_FILE, loadLLMWait, type LLMWaitFact } from '../../../src/core/async-task-system/llm-wait-state.js';
 import type { SubAgentTask, TaskExecutionOutcome } from '../../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -63,7 +63,7 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
 function makeFact(overrides: Partial<LLMWaitFact> = {}): LLMWaitFact {
   const now = Date.now();
   return {
-    scope: 'claw-process',
+    orchestratorInstance: 'claw-process',
     nextProbeAt: now + 60_000,
     recordedAt: now,
     expiresAt: now + 3_600_000,
@@ -124,12 +124,17 @@ function runningTaskSeed(task: SubAgentTask, extraFiles: Record<string, string> 
 }
 
 function waitFileSeed(task: SubAgentTask, fact: LLMWaitFact): Record<string, string> {
+  const { orchestratorInstance, ...rest } = fact;
   return {
-    [`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`]: JSON.stringify({ schema_version: 1, ...fact }),
+    [`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`]: JSON.stringify({
+      schema_version: 1,
+      orchestrator_instance: orchestratorInstance,
+      ...rest,
+    }),
   };
 }
 
-function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog, gate?: { canResume(scope: string): boolean }): RecoverTasksDeps {
+function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog, gate?: { canResume(orchestratorInstance: string): boolean }): RecoverTasksDeps {
   return {
     fs,
     auditWriter,
@@ -178,18 +183,21 @@ describe('Step E-1: executor waiting outcome → 事实落盘、任务留 runnin
     const persisted = JSON.parse(fileMap.get(waitPath)!) as Record<string, unknown>;
     expect(persisted).toMatchObject({
       schema_version: 1,
-      scope: fact.scope,
+      orchestrator_instance: fact.orchestratorInstance,
       nextProbeAt: fact.nextProbeAt,
       recordedAt: fact.recordedAt,
       expiresAt: fact.expiresAt,
       reason: fact.reason,
     });
+    expect(persisted.scope).toBeUndefined();
     // 留 running：不终态、不投递、不写 post-process input
     expect(moveTaskToDone).not.toHaveBeenCalled();
     expect(moveTaskToFailed).not.toHaveBeenCalled();
     expect(deliver).not.toHaveBeenCalled();
     expect(fileMap.has(`tasks/queues/results/${task.id}/post-process-input.json`)).toBe(false);
-    expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_PERSISTED)).toBe(true);
+    const persistedEvents = events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_PERSISTED);
+    expect(persistedEvents.length).toBe(1);
+    expect(persistedEvents[0]).toContain(`orchestrator_instance=${fact.orchestratorInstance}`);
   });
 });
 
@@ -381,7 +389,7 @@ describe('Step E-6: executor 分类——共享故障携带 waiting（owner 决�
     const outcome = await makeExecutorRun(allFailed(), { kind: 'at', nextProbeAt: now + 90_000 });
     expect(outcome.sourceIsError).toBe(true);
     expect(outcome.waiting).toBeDefined();
-    expect(outcome.waiting!.scope).toBe('claw-process');
+    expect(outcome.waiting!.orchestratorInstance).toBe('claw-process');
     expect(outcome.waiting!.nextProbeAt).toBe(now + 90_000);
     expect(outcome.waiting!.expiresAt - outcome.waiting!.recordedAt).toBe(SUBAGENT_SHORT_TIMEOUT_MS);
   });
@@ -419,14 +427,80 @@ describe('Step E-6: executor 分类——共享故障携带 waiting（owner 决�
   });
 });
 
-// ─── 7. 损坏事实 ────────────────────────────────────────────────────────────
+// ─── 7. Phase 2030：orchestratorInstance 与 legacy scope 兼容 ───────────────
+describe('orchestratorInstance 持久标识与 legacy scope 只读兼容', () => {
+  function seedRawWait(identity: Record<string, unknown>) {
+    const task = makeValidTask();
+    const fact = makeFact();
+    const raw = JSON.stringify({
+      schema_version: 1,
+      ...identity,
+      nextProbeAt: fact.nextProbeAt,
+      recordedAt: fact.recordedAt,
+      expiresAt: fact.expiresAt,
+      reason: fact.reason,
+    });
+    const resultDir = `tasks/queues/results/${task.id}`;
+    const waitPath = `${resultDir}/${LLM_WAIT_FILE}`;
+    const { fs, fileMap } = makeMapFs({ [waitPath]: raw });
+    return { fs, fileMap, resultDir, waitPath, raw, fact };
+  }
+
+  it('仅旧 scope：映射为 orchestratorInstance，读取不改写原文件', async () => {
+    const { fs, fileMap, resultDir, waitPath, raw, fact } = seedRawWait({ scope: 'claw-process' });
+
+    const loaded = await loadLLMWait(fs, resultDir);
+
+    expect(loaded).toEqual({ kind: 'ok', fact });
+    expect(fileMap.get(waitPath)).toBe(raw);
+    expect(fs.writeAtomic).not.toHaveBeenCalled();
+  });
+
+  it('新旧字段同值：接受并统一为 orchestratorInstance', async () => {
+    const { fs, resultDir, fact } = seedRawWait({
+      orchestrator_instance: 'claw-process',
+      scope: 'claw-process',
+    });
+
+    const loaded = await loadLLMWait(fs, resultDir);
+
+    expect(loaded).toEqual({ kind: 'ok', fact });
+  });
+
+  it('新旧字段冲突：fail-closed，原文件保留且不选择权威', async () => {
+    const { fs, fileMap, resultDir, waitPath, raw } = seedRawWait({
+      orchestrator_instance: 'instance-a',
+      scope: 'instance-b',
+    });
+
+    const loaded = await loadLLMWait(fs, resultDir);
+
+    expect(loaded).toEqual({ kind: 'corrupt', detail: 'orchestrator_instance_conflict' });
+    expect(fileMap.get(waitPath)).toBe(raw);
+    expect(fs.writeAtomic).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['新旧字段均缺失', {}, 'orchestrator_instance_empty'],
+    ['新字段为空', { orchestrator_instance: '' }, 'orchestrator_instance_empty'],
+    ['旧字段为空', { scope: '' }, 'scope_empty'],
+  ])('%s：按字段错误 fail-closed', async (_label, identity, detail) => {
+    const { fs, resultDir } = seedRawWait(identity);
+
+    const loaded = await loadLLMWait(fs, resultDir);
+
+    expect(loaded).toEqual({ kind: 'corrupt', detail });
+  });
+});
+
+// ─── 8. 损坏事实 ────────────────────────────────────────────────────────────
 describe('Step E-7: 损坏等待事实 → audit 留证 + 原文保留 + fall through（不猜）', () => {
   it.each([
     ['坏 JSON', '{not valid json'],
-    ['缺字段', JSON.stringify({ schema_version: 1, scope: 'claw-process' })],
-    ['时间戳倒挂', JSON.stringify({ schema_version: 1, scope: 's', nextProbeAt: 50, recordedAt: 100, expiresAt: 200, reason: 'r' })],
+    ['缺字段', JSON.stringify({ schema_version: 1, orchestrator_instance: 'claw-process' })],
+    ['时间戳倒挂', JSON.stringify({ schema_version: 1, orchestrator_instance: 's', nextProbeAt: 50, recordedAt: 100, expiresAt: 200, reason: 'r' })],
     // Phase 1934 Step D：意图字段严格 schema——非法意图 → 整份记录 corrupt
-    ['意图非法', JSON.stringify({ schema_version: 1, scope: 's', nextProbeAt: 100, recordedAt: 100, expiresAt: 200, reason: 'r', resumeIntent: { target: 'done', decidedAt: 100 } })],
+    ['意图非法', JSON.stringify({ schema_version: 1, orchestrator_instance: 's', nextProbeAt: 100, recordedAt: 100, expiresAt: 200, reason: 'r', resumeIntent: { target: 'done', decidedAt: 100 } })],
   ])('%s → RECOVERY_FAILED(llm_wait_corrupt) + 原文保留 + 走既有恢复分支', async (_label, content) => {
     const task = makeValidTask();
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, {

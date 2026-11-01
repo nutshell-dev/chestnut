@@ -78,7 +78,7 @@ function makeValidTask(id: string, overrides: Partial<SubAgentTask> = {}): SubAg
 /** executor（Assembly 侧）提案的等待事实：每次按 nowMs + timeoutMs 生成（完整新预算）。 */
 function makeProposal(nowMs: number): LLMWaitFact {
   return {
-    scope: 'claw-process',
+    orchestratorInstance: 'claw-process',
     nextProbeAt: nowMs + PROBE_OFFSET_MS,
     recordedAt: nowMs,
     expiresAt: nowMs + TASK_TIMEOUT_MS,

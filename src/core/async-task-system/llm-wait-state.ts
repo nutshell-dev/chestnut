@@ -12,7 +12,8 @@
  * （不误转成功）。
  *
  * 边界：ATS 只持久化任务生命周期事实；LLM 故障判定与探针归
- * foundation/llm-orchestrator——scope 为 opaque 标识，ATS 不解析、不自行探测。
+ * foundation/llm-orchestrator——orchestratorInstance 为 opaque 实例关联标识，
+ * 不是恢复管理范围；ATS 不解析、不自行探测。
  *
  * 进程内唤醒（resumeWaitingTasks）与 deadline 到期检查已由 Phase 1933 Step F /
  * Phase 1934 Step D 落地，启动恢复、ready 唤醒、deadline 定时器三入口共用
@@ -50,8 +51,8 @@ export interface LLMWaitResumeIntent {
 
 /** 持久等待事实（tasks/queues/results/<id>/llm-wait.json）。 */
 export interface LLMWaitFact {
-  /** 进程内 orchestrator scope（opaque，ATS 不解析）。 */
-  scope: string;
+  /** 进程内 orchestrator 实例的 opaque 关联；不是恢复管理范围，ATS 不解析。 */
+  orchestratorInstance: string;
   /** ms epoch；来自 orchestrator snapshot 的最早可探测时刻下界。 */
   nextProbeAt: number;
   recordedAt: number;
@@ -69,7 +70,7 @@ export interface LLMWaitFact {
  * ATS 只消费结论；缺席（未注入）时恢复路径保持 waiting，不静默转终态。
  */
 export interface LLMWaitGate {
-  canResume(scope: string): boolean;
+  canResume(orchestratorInstance: string): boolean;
 }
 
 /** 等待事实文件名（归本模块 own）。 */
@@ -90,7 +91,7 @@ export async function persistLLMWait(
 ): Promise<void> {
   await fs.writeAtomic(`${taskResultDir}/${LLM_WAIT_FILE}`, JSON.stringify({
     schema_version: LLM_WAIT_SCHEMA_VERSION,
-    scope: fact.scope,
+    orchestrator_instance: fact.orchestratorInstance,
     nextProbeAt: fact.nextProbeAt,
     recordedAt: fact.recordedAt,
     expiresAt: fact.expiresAt,
@@ -114,7 +115,21 @@ function validateLLMWaitFact(parsed: unknown): string | null {
   if (rec.schema_version !== LLM_WAIT_SCHEMA_VERSION) {
     return `unsupported_schema_version:${String(rec.schema_version)}`;
   }
-  if (typeof rec.scope !== 'string' || rec.scope.length === 0) return 'scope_empty';
+  if (rec.orchestrator_instance !== undefined
+    && (typeof rec.orchestrator_instance !== 'string' || rec.orchestrator_instance.length === 0)) {
+    return 'orchestrator_instance_empty';
+  }
+  // Phase 2030 Step D：旧 scope 只读映射；双字段须一致，不猜权威。
+  if (rec.scope !== undefined && (typeof rec.scope !== 'string' || rec.scope.length === 0)) {
+    return 'scope_empty';
+  }
+  if (rec.orchestrator_instance === undefined && rec.scope === undefined) {
+    return 'orchestrator_instance_empty';
+  }
+  if (rec.orchestrator_instance !== undefined && rec.scope !== undefined
+    && rec.orchestrator_instance !== rec.scope) {
+    return 'orchestrator_instance_conflict';
+  }
   if (!isFiniteNumber(rec.recordedAt)) return 'recordedAt_not_finite_number';
   if (!isFiniteNumber(rec.nextProbeAt)) return 'nextProbeAt_not_finite_number';
   if (!isFiniteNumber(rec.expiresAt)) return 'expiresAt_not_finite_number';
@@ -164,7 +179,7 @@ export async function loadLLMWait(
   return {
     kind: 'ok',
     fact: {
-      scope: rec.scope as string,
+      orchestratorInstance: (rec.orchestrator_instance ?? rec.scope) as string,
       nextProbeAt: rec.nextProbeAt as number,
       recordedAt: rec.recordedAt as number,
       expiresAt: rec.expiresAt as number,

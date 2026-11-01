@@ -573,13 +573,13 @@ export function emitLegacyResultClassificationUnknown(
 /** executor 判定共享 LLM 故障 → 等待事实已落盘、任务留 running（不投递不终态）。 */
 export function emitLLMWaitPersisted(
   audit: AuditLog,
-  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; scope: string; nextProbeAt: number },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; orchestratorInstance: string; nextProbeAt: number },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.TASK_LLM_WAIT_PERSISTED,
     `fullTaskId=${opts.fullTaskId}`,
     `shortTaskId=${opts.shortTaskId}`,
-    `scope=${opts.scope}`,
+    `orchestrator_instance=${opts.orchestratorInstance}`,
     `nextProbeAt=${opts.nextProbeAt}`,
   );
 }
@@ -587,26 +587,26 @@ export function emitLLMWaitPersisted(
 /** 恢复路径 gate 就绪 → 等待事实已清除、任务回 pending 重调度。 */
 export function emitLLMWaitResumed(
   audit: AuditLog,
-  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; scope: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; orchestratorInstance: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED,
     `fullTaskId=${opts.fullTaskId}`,
     `shortTaskId=${opts.shortTaskId}`,
-    `scope=${opts.scope}`,
+    `orchestrator_instance=${opts.orchestratorInstance}`,
   );
 }
 
 /** 恢复路径 gate 未就绪/缺席 → 任务保持 waiting（留 running，不进其他分支）。 */
 export function emitLLMWaitContinued(
   audit: AuditLog,
-  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; scope: string; nextProbeAt: number; reason: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; orchestratorInstance: string; nextProbeAt: number; reason: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.TASK_LLM_WAIT_CONTINUED,
     `fullTaskId=${opts.fullTaskId}`,
     `shortTaskId=${opts.shortTaskId}`,
-    `scope=${opts.scope}`,
+    `orchestrator_instance=${opts.orchestratorInstance}`,
     `nextProbeAt=${opts.nextProbeAt}`,
     `reason=${opts.reason}`,
   );
@@ -615,13 +615,13 @@ export function emitLLMWaitContinued(
 /** 等待 deadline 到期 → 等待事实清除、任务转 failed（deadline 不是成功）。 */
 export function emitLLMWaitExpired(
   audit: AuditLog,
-  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; scope: string; expiresAt: number },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; orchestratorInstance: string; expiresAt: number },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.TASK_LLM_WAIT_EXPIRED,
     `fullTaskId=${opts.fullTaskId}`,
     `shortTaskId=${opts.shortTaskId}`,
-    `scope=${opts.scope}`,
+    `orchestrator_instance=${opts.orchestratorInstance}`,
     `expiresAt=${opts.expiresAt}`,
   );
 }

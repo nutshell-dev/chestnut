@@ -285,7 +285,7 @@ export async function executeSubAgentTask(
       emitLLMWaitPersisted(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
-        scope: waiting.scope,
+        orchestratorInstance: waiting.orchestratorInstance,
         nextProbeAt: waiting.nextProbeAt,
       });
       // Phase 1933 Step F：事实已落盘后通知装配层安排进程内探针（通知语义——

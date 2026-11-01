@@ -59,7 +59,7 @@ function makeValidTask(id: string, overrides: Partial<SubAgentTask> = {}): SubAg
 function makeFact(overrides: Partial<LLMWaitFact> = {}): LLMWaitFact {
   const now = Date.now();
   return {
-    scope: 'claw-process',
+    orchestratorInstance: 'claw-process',
     nextProbeAt: now + 60_000,
     recordedAt: now,
     expiresAt: now + 3_600_000,
@@ -120,15 +120,20 @@ function runningTaskSeed(task: SubAgentTask, extraFiles: Record<string, string> 
 }
 
 function waitFileSeed(task: SubAgentTask, fact: LLMWaitFact): Record<string, string> {
+  const { orchestratorInstance, ...rest } = fact;
   return {
-    [`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`]: JSON.stringify({ schema_version: 1, ...fact }),
+    [`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`]: JSON.stringify({
+      schema_version: 1,
+      orchestrator_instance: orchestratorInstance,
+      ...rest,
+    }),
   };
 }
 
 function makeSystem(
   fs: FileSystem,
   audit: AuditLog,
-  gate?: { canResume(scope: string): boolean },
+  gate?: { canResume(orchestratorInstance: string): boolean },
 ): AsyncTaskSystem {
   return new AsyncTaskSystem('/tmp/claw', fs, {
     shortIdIndex: new InMemoryShortIdIndex(),
@@ -176,10 +181,12 @@ describe('Step F-2: gate 未就绪 → 任务留 running、事实保留', () => 
     const fact = makeFact();
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
     const { audit } = makeMockAudit();
-    const system = makeSystem(fs, audit, { canResume: () => false });
+    const canResume = vi.fn().mockReturnValue(false);
+    const system = makeSystem(fs, audit, { canResume });
 
     const resumed = await system.resumeWaitingTasks();
     expect(resumed).toBe(0);
+    expect(canResume).toHaveBeenCalledWith(fact.orchestratorInstance);
     expect(fs.move).not.toHaveBeenCalled();
     expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
     expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(true);
