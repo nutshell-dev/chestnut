@@ -18,8 +18,8 @@ import {
   createInitialRecoveryState,
   loadRecoveryState,
   saveRecoveryState,
-} from '../../src/foundation/llm-orchestrator/index.js';
-import type { LLMRecoveryBudget } from '../../src/foundation/llm-orchestrator/index.js';
+  type LLMRecoveryBudget,
+} from '../../src/foundation/llm-orchestrator/recovery-state.js';
 
 const STATUS_SUBDIR = 'status';
 

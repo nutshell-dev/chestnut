@@ -40,19 +40,7 @@ export type {
   RecoverySessionDeps,
   SharedRecoveryDecision,
 } from './recovery.js';
-export {
-  LLM_RECOVERY_STATE_FILE,
-  createInitialRecoveryState,
-  loadRecoveryState,
-  saveRecoveryState,
-} from './recovery-state.js';
-export type {
-  LLMRecoveryAcceptedFactBatch,
-  LLMRecoverySchedule,
-  LLMRecoveryStateV1,
-  LLMRecoveryBudget,
-  LLMRecoveryProviderFact,
-} from './recovery-state.js';
+export type { LLMRecoverySchedule } from './recovery-state.js';
 
 export {
   DEFAULT_LLM_IDLE_TIMEOUT_MS,
