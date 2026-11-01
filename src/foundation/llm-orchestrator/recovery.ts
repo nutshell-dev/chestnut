@@ -92,7 +92,11 @@ export interface RecoveryCallScope {
    * - allowBreakerProbe：显式干预/启动放行，候选不被本地 breaker 立即拒绝。
    * 不修改全局配置、不置可变标志——同进程其他 caller 不受影响。
    */
-  attemptContext(): { probeOnly: boolean; allowBreakerProbe: boolean };
+  attemptContext(): {
+    probeOnly: boolean;
+    allowBreakerProbe: boolean;
+    blockedProviderIds: readonly string[];
+  };
 }
 
 /**
@@ -281,7 +285,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         revision: this.state.revision + 1,
       };
       next.schedule = { ...next.schedule, revision: next.revision };
-      this.commitNext(next);
+      this.commitNext(next, 'migration');
     }
 
     const residual = this.state.activeAdmission;
@@ -305,7 +309,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         };
       }
       this.state.schedule = { ...this.state.schedule, revision: this.state.revision };
-      this.commit(this.state);
+      this.commit(this.state, 'constructor');
     }
 
     this.llm = this.createScopedView(deps.orchestrator);
@@ -459,7 +463,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       if (hasNewFacts) {
         next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, active.attemptId);
       }
-      this.commitNext(next);
+      this.commitNext(next, 'begin');
       if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, active.attemptId);
       this.emit({
         type: 'recovery_attempt_admitted',
@@ -493,7 +497,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       if (hasNewFacts) {
         next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, undefined);
       }
-      this.commitNext(next);
+      this.commitNext(next, 'begin');
       if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, undefined);
       return { kind: 'waiting', schedule: { ...next.schedule }, factsAccepted: true };
     }
@@ -529,7 +533,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, attemptId);
     }
     // 去重、安排、接受证据与准入一次原子保存；失败抛错，内存与来源不前移。
-    this.commitNext(next);
+    this.commitNext(next, 'begin');
     if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, attemptId);
     this.emit({
       type: 'recovery_attempt_admitted',
@@ -559,17 +563,20 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       });
       return;
     }
-    this.state.activeAdmission = null;
-    let dirty = true;
-    if (outcome === 'completed' && this.state.schedule.kind !== 'ready') {
-      this.state.schedule = { kind: 'ready', revision: this.state.revision + 1 };
-      this.state.revision += 1;
+    const next: LLMRecoveryStateV1 = {
+      ...this.state,
+      activeAdmission: null,
+      schedule: { ...this.state.schedule },
+    };
+    if (outcome === 'completed' && next.schedule.kind !== 'ready') {
+      next.revision += 1;
+      next.schedule = { kind: 'ready', revision: next.revision };
     }
-    if (dirty) this.commit(this.state);
+    this.commitNext(next, 'finish');
     this.emit({
       type: 'recovery_attempt_finished',
       scope: this.scopeId,
-      revision: this.state.revision,
+      revision: next.revision,
       attemptId,
       outcome,
       accepted: true,
@@ -580,20 +587,33 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   // RecoveryCallScope（scoped 调用反馈）
   // -------------------------------------------------------------------------
 
-  attemptContext(): { probeOnly: boolean; allowBreakerProbe: boolean } {
+  attemptContext(): {
+    probeOnly: boolean;
+    allowBreakerProbe: boolean;
+    blockedProviderIds: readonly string[];
+  } {
     const active = this.state.activeAdmission;
     return {
       probeOnly: active?.probeOnly ?? false,
       allowBreakerProbe: active?.allowBreakerProbe ?? false,
+      blockedProviderIds: this.state.providers
+        .filter(provider => provider.rateLimitBlocked === true)
+        .map(provider => provider.providerId),
     };
   }
 
   noteAttemptStarted(): void {
     const active = this.state.activeAdmission;
     if (!active || active.started) return;
-    active.started = true;
-    active.startedAt = new Date(this.now()).toISOString();
-    this.commit(this.state);
+    const next: LLMRecoveryStateV1 = {
+      ...this.state,
+      activeAdmission: {
+        ...active,
+        started: true,
+        startedAt: new Date(this.now()).toISOString(),
+      },
+    };
+    this.commitNext(next, 'noteAttemptStarted');
   }
 
   noteSuccess(): void {
@@ -623,7 +643,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     };
     next.schedule = { kind: 'ready', revision: next.revision };
     try {
-      this.commitNext(next);
+      this.commitNext(next, 'noteSuccess');
     } catch (error) {
       this.emit({
         type: 'recovery_state_write_failed',
@@ -735,7 +755,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       ? { kind: 'on_change', revision: next.revision }
       : { kind: 'at', revision: next.revision, resumeAt: new Date(nextAtMs).toISOString() };
     try {
-      this.commitNext(next);
+      this.commitNext(next, 'noteFailure');
     } catch (error) {
       // durable commit 失败：内存安排未生效（不继续真发）、磁盘保持旧状态；
       // 持久化失败单独暴露，不掩盖原始 LLM 错误。
@@ -825,16 +845,32 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
    * 持久化指定状态（显式入参，不隐式读取可变 this.state —— Phase 1958 Step C）。
    * 调用方负责保证传入状态即意图提交的唯一事实。
    */
-  private commit(state: LLMRecoveryStateV1): void {
+  private commit(state: LLMRecoveryStateV1, context: string): void {
     state.updatedAt = new Date(this.now()).toISOString();
-    saveRecoveryState(this.fs, state);
+    const result = saveRecoveryState(this.fs, state);
+    this.reportDurability(result, context);
   }
 
   /** 先保存后替换内存：写失败抛错时调用方不得继续真发，内存仍为旧状态。 */
-  private commitNext(next: LLMRecoveryStateV1): void {
+  private commitNext(next: LLMRecoveryStateV1, context: string): void {
     next.updatedAt = new Date(this.now()).toISOString();
-    saveRecoveryState(this.fs, next);
+    const result = saveRecoveryState(this.fs, next);
     this.state = next;
+    this.reportDurability(result, context);
+  }
+
+  private reportDurability(
+    result: ReturnType<typeof saveRecoveryState>,
+    context: string,
+  ): void {
+    if (result.kind === 'durable') return;
+    this.emit({
+      type: 'recovery_state_write_degraded',
+      scope: this.scopeId,
+      context,
+      durability: result.kind,
+      reason: formatErr(result.error),
+    });
   }
 
   /** 事实接受证据（磁盘记录权威；事件出口尽力而为，重复事实不伪造新事件）。 */

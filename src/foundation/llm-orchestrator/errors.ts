@@ -44,6 +44,8 @@ export interface LLMProviderFailure {
    * 手工构造（测试/第三方）或 1968 前的代码路径。
    */
   attemptIndex?: number;
+  /** 本地资格跳过，未发生真实请求；保留审计事实但不消耗恢复预算。 */
+  localSkip?: boolean;
 }
 
 export class LLMAllProvidersFailedError extends Error {

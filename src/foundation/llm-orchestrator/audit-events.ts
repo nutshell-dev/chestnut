@@ -50,6 +50,7 @@ export const LLM_AUDIT_EVENTS = {
   RECOVERY_ATTEMPT_ADMITTED: 'llm_recovery_attempt_admitted',
   RECOVERY_ATTEMPT_FINISHED: 'llm_recovery_attempt_finished',
   RECOVERY_STATE_WRITE_FAILED: 'llm_recovery_state_write_failed',
+  RECOVERY_STATE_WRITE_DEGRADED: 'llm_recovery_state_write_degraded',
 } as const;
 
 
@@ -91,4 +92,5 @@ export const LLM_ORCHESTRATOR_FILE_ROUTING: Readonly<Record<string, 'audit'>> = 
   llm_recovery_attempt_admitted: 'audit',
   llm_recovery_attempt_finished: 'audit',
   llm_recovery_state_write_failed: 'audit',
+  llm_recovery_state_write_degraded: 'audit',
 } as const;

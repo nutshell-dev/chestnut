@@ -37,6 +37,7 @@
       "llm_recovery_facts_accepted",
       "llm_recovery_ready",
       "llm_recovery_scheduled",
+      "llm_recovery_state_write_degraded",
       "llm_recovery_state_write_failed",
       "llm_retry_scheduled",
       "llm_sdk_client_cache_hit",

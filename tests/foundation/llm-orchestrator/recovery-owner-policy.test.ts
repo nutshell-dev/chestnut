@@ -286,7 +286,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       noteAttemptStarted() {},
       noteSuccess() {},
       noteFailure(failures) { scopedFailures.push([...failures]); },
-      attemptContext() { return { probeOnly: false, allowBreakerProbe: false }; },
+      attemptContext() { return { probeOnly: false, allowBreakerProbe: false, blockedProviderIds: [] }; },
     };
 
     await expect(async () => {
@@ -583,6 +583,112 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await flush();
     expect(f.calls()).toBe(3);  // 业务 1 + 探针 2
     expect(p.calls()).toBe(1);  // primary 记录保持 permanent，探针目标不错位
+    await owner.close();
+  });
+});
+
+
+describe('Phase 2029 Step E: scoped rate-limit blocked candidate exclusion', () => {
+  function makeScope(blockedProviderIds: readonly string[], scopedFailures: RecoveryFailureInput[][]) {
+    const scope: RecoveryCallScope = {
+      noteAttemptStarted() {},
+      noteSuccess() {},
+      noteFailure(failures) { scopedFailures.push([...failures]); },
+      attemptContext() {
+        return { probeOnly: false, allowBreakerProbe: false, blockedProviderIds };
+      },
+    };
+    return scope;
+  }
+
+  it('全 blocked call/stream 只记 localSkip，不进共享失败；裸调用与独立 probe 资格不变', async () => {
+    const p = createControllableAdapter('primary', 'ok');
+    const f = createControllableAdapter('fallback', 'ok');
+    const { owner, emitted } = createOwner(p.adapter, [f.adapter]);
+    const ids = owner.getProviderIdentities();
+
+    for (const kind of ['call', 'stream'] as const) {
+      const scopedFailures: RecoveryFailureInput[][] = [];
+      const scope = makeScope(ids, scopedFailures);
+      if (kind === 'call') {
+        await expect(owner.callWithinRecovery(OPTIONS, scope)).rejects.toThrow();
+      } else {
+        await expect((async () => {
+          for await (const _chunk of owner.streamWithinRecovery(OPTIONS, scope)) { /* drain */ }
+        })()).rejects.toThrow();
+      }
+      expect(scopedFailures).toHaveLength(1);
+      expect(scopedFailures[0]).toHaveLength(2);
+      expect(scopedFailures[0].every(failure => failure.localSkip === true)).toBe(true);
+      expect(scopedFailures[0].every(failure => failure.probeAllowedAtMs === undefined)).toBe(true);
+    }
+    expect(p.calls()).toBe(0);
+    expect(f.calls()).toBe(0);
+    expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
+    expect(emitted.filter(
+      event => event.type === 'call_attempt_result' && event.outcome === 'skipped'
+        && event.reason === 'rate_limit_blocked',
+    )).toHaveLength(4);
+
+    await owner.call(OPTIONS);  // 未 scoped：没有持久 owner 上下文，不套用 blocked 集合
+    expect(p.calls()).toBe(1);
+    const probe = await owner.probe();  // 独立显式健康验证不被 scoped 规则拦截
+    expect(probe.ok).toBe(true);
+    expect(p.calls()).toBe(2);
+    await owner.close();
+  });
+
+  it('sticky 指向 blocked fallback 时先排除 sticky，再执行合法 primary', async () => {
+    const p = createControllableAdapter('primary', 'fail');
+    const f = createControllableAdapter('fallback', 'ok');
+    const { owner, emitted } = createOwner(p.adapter, [f.adapter]);
+    await owner.call(OPTIONS);  // fallback 成功，形成 sticky；primary breaker open
+    expect(f.calls()).toBe(1);
+    p.setBehavior('ok');
+    await vi.advanceTimersByTimeAsync(RESET_MS);  // primary breaker 到点，成为合法候选
+
+    const scopedFailures: RecoveryFailureInput[][] = [];
+    const scope = makeScope([owner.getProviderIdentities()[1]], scopedFailures);
+    await owner.callWithinRecovery(OPTIONS, scope);
+    expect(p.calls()).toBe(2);
+    expect(f.calls()).toBe(1);
+    expect(emitted.some(
+      event => event.type === 'call_attempt_result' && event.provider === 'fallback'
+        && event.outcome === 'skipped' && event.reason === 'rate_limit_blocked',
+    )).toBe(true);
+    await owner.close();
+  });
+
+  it('hedge track B 在 breaker 检查前跳过 blocked fallback', async () => {
+    let primaryStreams = 0;
+    const primary: ProviderAdapter = {
+      name: 'primary',
+      model: 'model-primary',
+      call: async () => { throw new LLMNetworkError('primary', new Error('offline')); },
+      stream: async function* () {
+        primaryStreams++;
+        throw new LLMNetworkError('primary', new Error('stream failed'));
+      },
+    };
+    const f = createControllableAdapter('fallback', 'ok');
+    const { owner, emitted } = createOwner(primary, [f.adapter]);
+    await expect(owner.call(OPTIONS)).resolves.toBeTruthy();  // 开 primary breaker + sticky fallback
+    expect(f.calls()).toBe(1);
+
+    const scopedFailures: RecoveryFailureInput[][] = [];
+    const scope = makeScope([owner.getProviderIdentities()[1]], scopedFailures);
+    await expect((async () => {
+      for await (const _chunk of owner.streamWithinRecovery(OPTIONS, scope)) { /* drain */ }
+    })()).rejects.toThrow();
+    expect(primaryStreams).toBe(1);
+    expect(f.calls()).toBe(1);
+    expect(emitted.some(
+      event => event.type === 'call_attempt_result' && event.provider === 'fallback'
+        && event.outcome === 'skipped' && event.reason === 'rate_limit_blocked',
+    )).toBe(true);
+    expect(scopedFailures[0].some(
+      failure => failure.providerLabel === 'fallback' && failure.localSkip === true,
+    )).toBe(true);
     await owner.close();
   });
 });

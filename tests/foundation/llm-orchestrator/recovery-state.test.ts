@@ -15,6 +15,7 @@ import {
   validateRecoveryState,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import type { LLMRecoveryBudget } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
+import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/types.js';
 
 const SCOPE = 'foreground';
 
@@ -95,6 +96,23 @@ describe('recovery state schema', () => {
     const loaded = loadRecoveryState(fs, SCOPE);
     expect(loaded.kind).toBe('unusable');
     if (loaded.kind === 'unusable') expect(loaded.reason).toBe('scope_mismatch');
+  });
+
+  it.each([
+    { kind: 'durable' },
+    { kind: 'committed_platform_limited', error: Object.assign(new Error('unsupported'), { code: 'ENOTSUP' }) },
+    { kind: 'committed_durability_unknown', error: Object.assign(new Error('fsync failed'), { code: 'EIO' }) },
+  ] satisfies AtomicWriteResult[])('save returns the atomic durability result: $kind', async (result) => {
+    const { fs } = await makeTrackedDir();
+    const wrapped = new Proxy(fs, {
+      get(target, prop) {
+        if (prop === 'writeAtomicSync') return () => result;
+        const value = Reflect.get(target, prop);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as FileSystem;
+    const state = createInitialRecoveryState(SCOPE, budget(), T0);
+    expect(saveRecoveryState(wrapped, state)).toBe(result);
   });
 
   it('save failure surfaces as error without leaving partial file', async () => {

@@ -661,6 +661,15 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(lines[0]).toContain('recovery state write failed');
     // 已知事件不落 UNKNOWN audit
     expect(auditWrites.filter(w => String(w[0]).includes('unknown'))).toHaveLength(0);
+
+    handle({
+      type: 'recovery_state_write_degraded', scope: 'foreground', context: 'finish',
+      durability: 'committed_durability_unknown', reason: 'fsync failed',
+    });
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('recovery state durability degraded');
+    expect(lines[1]).toContain('committed_durability_unknown');
+    expect(auditWrites.filter(w => String(w[0]).includes('unknown'))).toHaveLength(0);
   });
 
   it('Phase 1978: context turn_error 不红；retry/blocked 结构化行；普通错误仍红', async () => {

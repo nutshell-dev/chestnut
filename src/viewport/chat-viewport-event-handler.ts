@@ -330,6 +330,16 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
+      case 'recovery_state_write_degraded': {
+        // rename 已提交但目录耐久性未知/受平台限制：保留已提交事实并显式提示降级。
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[38;5;214m',
+          text: `⚠ \x1b[2mllm recovery state durability degraded (${event.context}: ${event.durability})`,
+        });
+        break;
+      }
+
       case 'breaker_opened': {
         // phase 1276: breaker 调度是系统内部事件，不呈现给用户；audit 保留。
         break;

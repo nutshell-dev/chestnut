@@ -280,6 +280,32 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(stream.events).toHaveLength(5);
   });
 
+  it('fans out committed durability degradation to audit and stream (phase 2029)', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    sink.emit({
+      type: 'recovery_state_write_degraded',
+      scope: 'foreground',
+      context: 'noteAttemptStarted',
+      durability: 'committed_durability_unknown',
+      reason: 'EIO: fsync failed',
+    });
+    expect(audit.writes).toEqual([[
+      'llm_recovery_state_write_degraded',
+      'scope=foreground',
+      'context=noteAttemptStarted',
+      'durability=committed_durability_unknown',
+      'reason=EIO: fsync failed',
+    ]]);
+    expect(stream.events).toHaveLength(1);
+    expect(stream.events[0]).toMatchObject({
+      type: 'recovery_state_write_degraded',
+      durability: 'committed_durability_unknown',
+      reason: 'EIO: fsync failed',
+    });
+  });
+
   it('recovery_scheduled with empty resumeAt renders resumeAt=none (on_change schedule)', () => {
     const audit = makeAudit();
     const stream = makeStream();

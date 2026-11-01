@@ -357,10 +357,13 @@ export function loadRecoveryState(fs: FileSystem, scopeId: string): RecoveryStat
  * 原子写。失败时抛 typed storage error——调用方不得在持久化失败后继续真发
  * 或发布成功安排；原状态文件保持不变。
  */
-export function saveRecoveryState(fs: FileSystem, state: LLMRecoveryStateV1): void {
+export function saveRecoveryState(
+  fs: FileSystem,
+  state: LLMRecoveryStateV1,
+): ReturnType<FileSystem['writeAtomicSync']> {
   try {
     fs.ensureDirSync(STATUS_SUBDIR);
-    fs.writeAtomicSync(recoveryStateRelPath(), JSON.stringify(state));
+    return fs.writeAtomicSync(recoveryStateRelPath(), JSON.stringify(state));
   } catch (e) {
     throw new Error(`Failed to persist LLM recovery state: ${String(e)}`, { cause: e });
   }

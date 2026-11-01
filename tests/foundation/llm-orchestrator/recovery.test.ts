@@ -20,6 +20,7 @@ import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/f
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
+import type { AtomicWriteResult } from '../../../src/foundation/fs/types.js';
 
 const SCOPE = 'foreground';
 const T0 = Date.parse('2026-09-10T00:00:00.000Z');
@@ -40,12 +41,19 @@ function makeSink(): { sink: LLMEventSink; emitted: LLMEvent[] } {
   return { sink: { emit: (e) => { emitted.push(e); } }, emitted };
 }
 
-function makeAdapter(name: string, call: () => Promise<LLMResponse>): ProviderAdapter {
+function makeAdapter(
+  name: string,
+  call: () => Promise<LLMResponse>,
+  onStream?: () => void,
+): ProviderAdapter {
   return {
     name,
     model: `model-${name}`,
     call: () => call(),
-    stream: async function* () { throw new Error('stream not enabled in this test'); },
+    stream: async function* () {
+      onStream?.();
+      throw new Error('stream not enabled in this test');
+    },
   };
 }
 
@@ -63,6 +71,8 @@ afterEach(async () => {
 
 interface FixtureOpts {
   call?: () => Promise<LLMResponse>;
+  onStream?: () => void;
+  fallbacks?: Array<{ name: string; call?: () => Promise<LLMResponse> }>;
   maxAttempts?: number;
   circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
   /** 包装注入文件系统（可在保存路径注入失败）。 */
@@ -78,13 +88,20 @@ async function makeFixture(opts: FixtureOpts = {}) {
   const fs = opts.wrapFs ? opts.wrapFs(baseFs) : baseFs;
   const { sink: baseSink, emitted } = makeSink();
   const sink = opts.wrapSink ? opts.wrapSink(baseSink) : baseSink;
-  const adapter = makeAdapter('primary', opts.call ?? (async () => OK_RESPONSE));
+  const adapter = makeAdapter('primary', opts.call ?? (async () => OK_RESPONSE), opts.onStream);
+  const fallbackAdapters = (opts.fallbacks ?? []).map(fallback =>
+    makeAdapter(fallback.name, fallback.call ?? (async () => OK_RESPONSE)));
+  const adapters = new Map([
+    ['primary', adapter],
+    ...fallbackAdapters.map(fallback => [fallback.name, fallback] as const),
+  ]);
   const config: LLMOrchestratorConfig = {
     primary: providerConfig('primary'),
+    fallbacks: fallbackAdapters.map(fallback => providerConfig(fallback.name)),
     maxAttempts: opts.maxAttempts ?? 1,
     retryDelayMs: 1,
     events: sink,
-    createProviderAdapter: () => adapter,
+    createProviderAdapter: (provider) => adapters.get(provider.name) ?? adapter,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
   };
   const orchestrator = createLLMOrchestrator(config);
@@ -495,6 +512,21 @@ describe('recovery scoped view isolation', () => {
 // ---------------------------------------------------------------------------
 // Phase 1827: 恢复事实合并与单次准入（组合矩阵 §4.4）
 // ---------------------------------------------------------------------------
+
+function wrapWriteDurability(fs: FileSystem, state: { result: AtomicWriteResult }): FileSystem {
+  return new Proxy(fs, {
+    get(target, prop, receiver) {
+      if (prop === 'writeAtomicSync') {
+        return (...args: unknown[]) => {
+          (target as unknown as { writeAtomicSync(...a: unknown[]): unknown }).writeAtomicSync(...args);
+          return state.result;
+        };
+      }
+      const value = Reflect.get(target, prop, receiver) as unknown;
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
 
 function wrapWriteFailure(fs: FileSystem, state: { failing: boolean }): FileSystem {
   return new Proxy(fs, {
@@ -962,6 +994,243 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
     expect(saved.providers).toHaveLength(1);
     expect(saved.schedule.kind).toBe('at');
     expect((await session.inspect()).kind).toBe('at');
+  });
+});
+
+
+describe('Phase 2029 Step C: finish/started candidate commit barrier', () => {
+  it('finish 写失败保持内存与磁盘旧 admission/schedule/revision，恢复后才发布 accepted finish', async () => {
+    const writeState = { failing: false };
+    const f = await makeFixture({ wrapFs: (fs) => wrapWriteFailure(fs, writeState) });
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    const diskBefore = f.readState();
+    const memoryBefore = await session.inspect();
+
+    writeState.failing = true;
+    await expect(session.finish(admission.attemptId, 'completed')).rejects.toThrow('injected write failure');
+    expect(f.readState()).toEqual(diskBefore);
+    expect(await session.inspect()).toEqual(memoryBefore);
+    expect(f.emitted.filter(e => e.type === 'recovery_attempt_finished' && e.accepted)).toHaveLength(0);
+
+    // 旧 admission 仍在内存：begin 不得借内存空句柄覆盖磁盘旧 attempt。
+    const blocked = await session.begin({ requestKey: 'fp-next', facts: facts({}) });
+    expect(blocked.kind).toBe('waiting');
+    expect(f.readState()).toEqual(diskBefore);
+
+    writeState.failing = false;
+    await session.finish(admission.attemptId, 'completed');
+    const accepted = f.emitted.find(e => e.type === 'recovery_attempt_finished' && e.accepted);
+    expect(accepted).toMatchObject({ revision: f.readState().revision });
+    expect(f.readState().activeAdmission).toBeNull();
+  });
+
+  it('started 写失败不发生真实请求；同准入重试先持久 started 再调用 provider', async () => {
+    const writeState = { failing: false };
+    let providerCalls = 0;
+    const f = await makeFixture({
+      call: async () => { providerCalls++; return OK_RESPONSE; },
+      wrapFs: (fs) => wrapWriteFailure(fs, writeState),
+    });
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    const diskBefore = f.readState();
+
+    writeState.failing = true;
+    await expect(session.llm.call(CALL)).rejects.toThrow('injected write failure');
+    expect(providerCalls).toBe(0);
+    expect(f.readState()).toEqual(diskBefore);
+    expect(f.readState().activeAdmission.started).toBe(false);
+
+    writeState.failing = false;
+    await session.llm.call(CALL);
+    expect(providerCalls).toBe(1);
+    expect(f.readState().activeAdmission.started).toBe(true);
+  });
+});
+
+
+describe('Phase 2029 Step D: committed durability degradation evidence', () => {
+  it('durable writes do not emit degraded events', async () => {
+    const write = { result: { kind: 'durable' } as AtomicWriteResult };
+    const f = await makeFixture({ wrapFs: (fs) => wrapWriteDurability(fs, write) });
+    const session = f.makeSession();
+    await session.begin({ requestKey: 'fp', facts: facts({}) });
+    await session.llm.call(CALL);
+    expect(f.emitted.filter(e => e.type === 'recovery_state_write_degraded')).toHaveLength(0);
+  });
+
+  it.each([
+    { context: 'begin', kind: 'committed_platform_limited' },
+    { context: 'finish', kind: 'committed_durability_unknown' },
+    { context: 'noteAttemptStarted', kind: 'committed_platform_limited' },
+    { context: 'noteFailure', kind: 'committed_durability_unknown' },
+    { context: 'noteSuccess', kind: 'committed_platform_limited' },
+  ] as const)('committed $kind result commits state and reports $context', async ({ context, kind }) => {
+    const write = { result: { kind: 'durable' } as AtomicWriteResult };
+    const f = await makeFixture({
+      call: async () => {
+        if (context === 'noteFailure') throw new LLMNetworkError('boom');
+        return OK_RESPONSE;
+      },
+      wrapFs: (fs) => wrapWriteDurability(fs, write),
+    });
+    if (context === 'noteSuccess') {
+      const seeded = createInitialRecoveryState(SCOPE, {
+        retryCount: 0,
+        retryDelayMs: 30_000,
+        quotaDelayMs: 120_000,
+      }, T0);
+      seeded.providers.push({
+        providerId: f.orchestrator.getProviderIdentities()[0],
+        errorClass: 'rate_limit',
+        at: new Date(T0).toISOString(),
+        consecutiveFailures: 1,
+        detail: 'limited',
+        rateLimitFailures: 1,
+      });
+      saveRecoveryState(f.fs, seeded);
+    }
+    const session = f.makeSession();
+    let admission: Awaited<ReturnType<typeof session.begin>> | undefined;
+    if (context !== 'begin') {
+      admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+      if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    }
+
+    const error = Object.assign(new Error(`injected ${context}`), { code: 'EIO' });
+    write.result = { kind, error };
+    if (context === 'begin') {
+      await session.begin({ requestKey: 'fp', facts: facts({}) });
+    } else if (context === 'finish') {
+      if (admission?.kind !== 'admitted') throw new Error('expected admitted');
+      await session.finish(admission.attemptId, 'completed');
+    } else if (context === 'noteFailure') {
+      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    } else {
+      await session.llm.call(CALL);
+    }
+
+    const degraded = f.emitted.find(
+      e => e.type === 'recovery_state_write_degraded' && e.context === context,
+    );
+    expect(degraded).toMatchObject({
+      scope: SCOPE,
+      context,
+      durability: kind,
+      reason: expect.stringContaining(`injected ${context}`),
+    });
+    expect(f.emitted.filter(e => e.type === 'recovery_state_write_failed')).toHaveLength(0);
+    const saved = f.readState();
+    expect((await session.inspect()).revision).toBe(saved.revision);
+    if (context === 'noteAttemptStarted') expect(saved.activeAdmission.started).toBe(true);
+    if (context === 'finish') expect(saved.activeAdmission).toBeNull();
+    if (context === 'noteFailure') expect(saved.schedule.kind).toBe('at');
+    if (context === 'noteSuccess') expect(saved.providers[0].rateLimitFailures).toBeUndefined();
+  });
+});
+
+
+describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', () => {
+  type Fixture = Awaited<ReturnType<typeof makeFixture>>;
+
+  function seedBlocked(
+    f: Fixture,
+    orchestrator: Fixture['orchestrator'],
+    blockedCount: number,
+  ) {
+    const ids = orchestrator.getProviderIdentities();
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    state.revision = 2;
+    state.schedule = { kind: 'at', revision: 2, resumeAt: new Date(T0 - 1).toISOString() };
+    state.providers = ids.map((providerId, index) => ({
+      providerId,
+      errorClass: index < blockedCount ? 'rate_limit' : 'transient',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: index < blockedCount ? 10 : 1,
+      detail: index < blockedCount ? 'blocked' : 'retryable',
+      ...(index < blockedCount
+        ? { rateLimitFailures: 10, rateLimitBlocked: true, rateLimitBlockedAt: new Date(T0).toISOString() }
+        : {}),
+    }));
+    saveRecoveryState(f.fs, state);
+  }
+
+  it('blocked primary 不真实请求，合法 fallback 可执行并保留 skipped 证据', async () => {
+    let primaryCalls = 0;
+    let fallbackCalls = 0;
+    const f = await makeFixture({
+      call: async () => { primaryCalls++; return OK_RESPONSE; },
+      fallbacks: [{ name: 'fallback', call: async () => { fallbackCalls++; return OK_RESPONSE; } }],
+    });
+    seedBlocked(f, f.orchestrator, 1);
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+
+    await session.llm.call(CALL);
+    expect(primaryCalls).toBe(0);
+    expect(fallbackCalls).toBe(1);
+    expect(f.emitted.some(
+      e => e.type === 'call_attempt_result' && e.provider === 'primary'
+        && e.outcome === 'skipped' && e.reason === 'rate_limit_blocked',
+    )).toBe(true);
+  });
+
+  it('全部 blocked 的 call 不真发、不增预算并保持 on_change；干预释放后可恢复', async () => {
+    let primaryCalls = 0;
+    let fallbackCalls = 0;
+    const f = await makeFixture({
+      call: async () => { primaryCalls++; return OK_RESPONSE; },
+      fallbacks: [{ name: 'fallback', call: async () => { fallbackCalls++; return OK_RESPONSE; } }],
+    });
+    seedBlocked(f, f.orchestrator, 2);
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(primaryCalls).toBe(0);
+    expect(fallbackCalls).toBe(0);
+    const saved = f.readState();
+    expect(saved.schedule.kind).toBe('on_change');
+    expect(saved.budget.retryCount).toBe(0);
+    expect(saved.failures).toHaveLength(0);
+    expect(saved.providers.map((p: LLMRecoveryProviderFact) => p.consecutiveFailures)).toEqual([10, 10]);
+    expect(f.emitted.filter(
+      e => e.type === 'call_attempt_result' && e.outcome === 'skipped' && e.reason === 'rate_limit_blocked',
+    )).toHaveLength(2);
+
+    await session.finish(admission.attemptId, 'failed');
+    const retry = await session.begin({
+      requestKey: 'fp-next',
+      facts: facts({ interventionIds: ['user-release'] }),
+    });
+    if (retry.kind !== 'admitted') throw new Error('expected admitted');
+    await session.llm.call(CALL);
+    expect(primaryCalls).toBe(1);
+  });
+
+  it('全部 blocked 的 stream 不进入真实 stream 并保持 on_change', async () => {
+    let streamCalls = 0;
+    const f = await makeFixture({ onStream: () => { streamCalls++; } });
+    seedBlocked(f, f.orchestrator, 1);
+    const session = f.makeSession();
+    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+
+    await expect((async () => {
+      for await (const _chunk of session.llm.stream(CALL)) { /* drain */ }
+    })()).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(streamCalls).toBe(0);
+    expect(f.readState().schedule.kind).toBe('on_change');
+    expect(f.readState().budget.retryCount).toBe(0);
   });
 });
 

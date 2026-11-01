@@ -277,6 +277,13 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
         `context=${event.context}`,
         `reason=${event.reason}`);
       break;
+    case 'recovery_state_write_degraded':
+      w(LLM_AUDIT_EVENTS.RECOVERY_STATE_WRITE_DEGRADED,
+        `scope=${event.scope}`,
+        `context=${event.context}`,
+        `durability=${event.durability}`,
+        `reason=${event.reason}`);
+      break;
     // Phase 1968 Step B：provider 调用路径审计（invocation/attempt/selection）。
     case 'call_invocation_started':
       w(LLM_AUDIT_EVENTS.CALL_INVOCATION_STARTED,

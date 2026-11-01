@@ -101,7 +101,8 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_READY; scope: string; revision: number; reason: string }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_ADMITTED; scope: string; revision: number; attemptId: string; trigger: string; interventionCount: number }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_FINISHED; scope: string; revision: number; attemptId: string; outcome: string; accepted: boolean }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_FAILED; scope: string; reason: string; context: string };
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_FAILED; scope: string; reason: string; context: string }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_DEGRADED; scope: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string };
 
 /**
  * LLM event sink protocol — defined here (L2b), implemented by assembly layer (L6)
