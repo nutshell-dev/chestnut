@@ -1,8 +1,8 @@
 /**
  * Phase 1158 Step B: Runtime.processTurn transaction total-result tests.
  *
- * 验证 begin/save/react/commit/rollback 全路径失败均收敛为 TurnResult，
- * 不使 processTurn reject；rollback 失败时保留 original + recovery 双因果。
+ * 验证 begin/save/react/commit/rollback 失败收敛为 TurnResult；typed invocation
+ * 等待在专用事务清理后原样 reject；rollback 失败保留 original + recovery 双因果。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -22,9 +22,13 @@ import {
 } from '../../../src/core/agent-executor/index.js';
 import { ToolResultDeliveryError } from '../../../src/core/step-executor/index.js';
 import { makeToolUseId } from '../../../src/foundation/llm-provider/index.js';
+import { LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { RuntimeTurnCallbacks } from '../../../src/core/runtime/turn-callbacks.js';
 
 class TransactionTestRuntime extends Runtime {
   public reactError: Error | null = null;
+  public reactFacts: LLMRecoveryFacts | undefined;
 
   constructor(options: RuntimeOptions) {
     super(options);
@@ -34,7 +38,14 @@ class TransactionTestRuntime extends Runtime {
     // no-op: tests inject deps directly
   }
 
-  protected override async _runReact(_messages: Message[], _systemPrompt: string, _tools: ToolDefinition[]): Promise<void> {
+  protected override async _runReact(
+    _messages: Message[],
+    _systemPrompt: string,
+    _tools: ToolDefinition[],
+    _callbacks?: RuntimeTurnCallbacks,
+    recoveryFacts?: LLMRecoveryFacts,
+  ): Promise<void> {
+    this.reactFacts = recoveryFacts;
     if (this.reactError) throw this.reactError;
   }
 }
@@ -162,6 +173,60 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect(result.error).toBe(reactError);
     expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
     expect((deps.sessionManager as any).commitTurn).not.toHaveBeenCalled();
+  });
+
+  it('typed recovery waiting rejects unchanged after dedicated transaction cleanup', async () => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: null });
+    const { runtime, deps } = makeRuntime({ turnRecovery });
+    const waitError = new LLMRecoveryWaitRequiredError({ kind: 'on_change', revision: 7 }, false);
+    runtime.reactError = waitError;
+    const onTurnError = vi.fn();
+
+    await expect(runtime.processTurn(
+      [{ role: 'user', content: 'hi' }], 'sp', [], { onTurnError },
+    )).rejects.toBe(waitError);
+
+    expect(turnRecovery.discardCurrentStep).toHaveBeenCalledWith('llm_recovery_wait');
+    expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+    expect((deps.sessionManager as any).commitTurn).not.toHaveBeenCalled();
+    expect((deps.llm as any).getFailureDisposition).not.toHaveBeenCalled();
+    expect(onTurnError).not.toHaveBeenCalled();
+  });
+
+  it('keeps the typed wait as cause when dedicated transaction cleanup fails', async () => {
+    const turnRecovery = makeTurnRecovery({ preservedCheckpoint: null });
+    const cleanupError = new Error('wait cleanup failed');
+    turnRecovery.discardCurrentStep.mockRejectedValue(cleanupError);
+    const { runtime } = makeRuntime({ turnRecovery });
+    const waitError = new LLMRecoveryWaitRequiredError({ kind: 'at', revision: 8, resumeAt: '2026-11-01T00:00:00Z' }, true);
+    runtime.reactError = waitError;
+
+    const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
+
+    expect(result.status).toBe('failed');
+    expect(result.stepSettlement).toBe('recovery_required');
+    expect(result.error).toBeInstanceOf(AggregateError);
+    const settlementError = result.error as AggregateError;
+    const original = settlementError.errors[0] as AggregateError;
+    expect(original).toBeInstanceOf(AggregateError);
+    expect(original.errors).toEqual([waitError, cleanupError]);
+    expect(original.cause).toBe(waitError);
+  });
+
+  it('passes recoveryFacts through processTurn to the React chain', async () => {
+    const { runtime } = makeRuntime();
+    const recoveryFacts: LLMRecoveryFacts = {
+      interventionIds: ['message-1'],
+      configurationRevision: 'config-2',
+      startupId: 'boot-3',
+    };
+
+    const result = await runtime.processTurn(
+      [{ role: 'user', content: 'hi' }], 'sp', [], undefined, undefined, recoveryFacts,
+    );
+
+    expect(result.status).toBe('success');
+    expect(runtime.reactFacts).toBe(recoveryFacts);
   });
 
   it('rollbackTurn reject -> AggregateError([original, rollbackError])', async () => {

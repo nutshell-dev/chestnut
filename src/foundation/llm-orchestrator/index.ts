@@ -11,6 +11,7 @@ export type {
   LLMEventSink,
   LLMEvent,
   LLMCallOptions,
+  LLMRecoveryFacts,
   LLMOrchestrator,
   LLMRuntimeCapability,
   LLMFailureDisposition,
@@ -30,7 +31,6 @@ export { createLLMOrchestrator } from './orchestrator.js';
 // Phase 1826/1827: 恢复安排单一 owner 的公共协议 + session 工厂。
 export { createRecoverySession } from './recovery.js';
 export type {
-  LLMRecoveryFacts,
   LLMRecoveryAdmission,
   LLMRecoveryController,
   LLMRecoverySession,
@@ -64,7 +64,7 @@ export {
 // errors.ts 内 symbol 会漏）。如 future caller 需更多 symbol、按需逐个 append。
 // SDK 顶层 re-export (src/index.ts) + sister L2 (foundation/config/schemas.ts) 按 by-design
 // 保留 deep import、depcruise rule 显式 pathNot allowlist 这两 entry。
-export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
+export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, LLMRecoveryWaitRequiredError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
 export type { LLMProviderFailure } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 

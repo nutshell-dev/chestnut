@@ -10,6 +10,7 @@
  */
 
 import { formatErr } from '../node-utils/index.js';
+import type { LLMRecoverySchedule } from './recovery-state.js';
 import {
   LLMError,
   LLMAuthError,
@@ -24,6 +25,18 @@ import {
 } from '../llm-provider/index.js';
 
 type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED' | 'LLM_CIRCUIT_BREAKER_OPEN';
+
+/** invocation 尚未获准执行；上层只回队来源并等待 owner schedule。 */
+export class LLMRecoveryWaitRequiredError extends Error {
+  readonly name = 'LLMRecoveryWaitRequiredError';
+
+  constructor(
+    readonly schedule: LLMRecoverySchedule,
+    readonly factsAccepted: boolean,
+  ) {
+    super('LLM recovery admission is waiting');
+  }
+}
 
 /**
  * 单候选失败条目（LLMAllProvidersFailedError.failures 元素）。

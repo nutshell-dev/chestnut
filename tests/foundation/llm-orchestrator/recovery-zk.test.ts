@@ -109,13 +109,14 @@ const OPTIONS = { messages: [{ role: 'user' as const, content: 'test' }] };
 
 async function failedCall(
   s: LLMRecoverySession,
+  orchestrator: LLMOrchestratorOwner,
   stream = false,
 ): Promise<void> {
   try {
     if (stream) {
-      for await (const _ of s.llm.stream(OPTIONS)) { void _; }
+      for await (const _ of orchestrator.streamWithinRecovery(OPTIONS, s)) { void _; }
     } else {
-      await s.llm.call(OPTIONS);
+      await orchestrator.callWithinRecovery(OPTIONS, s);
     }
   } catch { /* expected: provider failure */ }
 }
@@ -128,7 +129,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
     const s = f.session();
     await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
 
-    await failedCall(s, true);
+    await failedCall(s, f.sharedOrchestrator, true);
 
     expect(f.calls()).toBe(1);
   });
@@ -138,7 +139,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
     const s = f.session();
     await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
 
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
 
     expect(f.calls()).toBe(1);
   });
@@ -147,7 +148,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
     const s = f.session();
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, true);
+    await failedCall(s, f.sharedOrchestrator, true);
     await s.finish(a.attemptId, 'failed');
 
     f.advance(120_000);
@@ -155,7 +156,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
     expect(b.kind).toBe('admitted');
 
     const before = f.calls();
-    await failedCall(s, true);
+    await failedCall(s, f.sharedOrchestrator, true);
     expect(f.calls() - before).toBe(1);
   });
 
@@ -164,7 +165,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
     const s = f.session();
     await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
 
-    await s.llm.call(OPTIONS);
+    await f.sharedOrchestrator.callWithinRecovery(OPTIONS, s);
 
     expect(f.calls()).toBe(2);   // primary 1 次（短路）+ fallback 1 次
     expect((await s.inspect()).kind).toBe('ready');
@@ -177,14 +178,14 @@ describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
     const s = f.session();
 
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s);           // 网络失败 → breaker open（threshold=1）
+    await failedCall(s, f.sharedOrchestrator);           // 网络失败 → breaker open（threshold=1）
     await s.finish(a.attemptId, 'failed');
 
     const before = f.calls();
     const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(b.kind).toBe('admitted');
 
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
     expect(f.calls()).toBeGreaterThan(before);
   });
 
@@ -192,13 +193,13 @@ describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
     const f = await makeFixture({ breaker: true });
     const s = f.session();
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
     await s.finish(a.attemptId, 'failed');
 
     const first = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(first.kind).toBe('admitted');
     if (first.kind !== 'admitted') return;
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
     await s.finish(first.attemptId, 'failed');
 
     const replay = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
@@ -209,7 +210,7 @@ describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
     const f = await makeFixture({ breaker: true });
     const s = f.session();
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
     await s.finish(a.attemptId, 'failed');
 
     const before = f.calls();
@@ -224,7 +225,7 @@ describe('Z3 服务端 Retry-After 不被客户端 cap 截短', () => {
     const f = await makeFixture({ primaryError: () => new LLMRateLimitError('p', 3600), maxAttempts: 1 });
     const s = f.session();
     await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
 
     const plan = await s.inspect();
     expect(plan.kind).toBe('at');
@@ -238,7 +239,7 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
     const s = f.session();
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
     await s.finish(a.attemptId, 'failed');
 
     const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
@@ -255,7 +256,7 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR, breaker: true });
     const s = f.session();
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s);
+    await failedCall(s, f.sharedOrchestrator);
     await s.finish(a.attemptId, 'failed');
 
     const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
@@ -269,7 +270,7 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
     expect(restored.attemptContext().allowBreakerProbe).toBe(true);
 
     const before = f.calls();
-    await failedCall(restored);                 // 真实发一次（不被旧 breaker 拒绝）
+    await failedCall(restored, f.sharedOrchestrator);                 // 真实发一次（不被旧 breaker 拒绝）
     expect(f.calls()).toBe(before + 1);
     await restored.finish(c.kind === 'admitted' ? c.attemptId : '', 'failed');
 
@@ -283,7 +284,7 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
     const s = f.session();
     const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     if (a.kind !== 'admitted') throw new Error('expected admitted');
-    await failedCall(s);   // started 已置位
+    await failedCall(s, f.sharedOrchestrator);   // started 已置位
 
     const restored = f.session();
     const c = await restored.begin({ requestKey: 'x', facts: { interventionIds: [] } });

@@ -8,7 +8,8 @@
 import * as path from 'path';
 import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 
-import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition, LLMOrchestratorConfig, LLMRecoveryFacts } from '../../foundation/llm-orchestrator/index.js';
+import { LLMRecoveryWaitRequiredError } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
@@ -1289,7 +1290,7 @@ export class Runtime {
    * Run the LLM ReAct loop over the given messages and save the session.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
-  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: RuntimeTurnCallbacks): Promise<void> {
+  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: RuntimeTurnCallbacks, recoveryFacts?: LLMRecoveryFacts): Promise<void> {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset
     // 防 P0.14 跨 turn sticky bug（done 工具误调后下 turn silent empty）
     this.execContext.stopRequested = false;
@@ -1361,6 +1362,7 @@ export class Runtime {
           execContext: this.execContext,
         }),
         ...(recovery ? { recovery } : {}),
+        recoveryFacts,
         stepCallbacks: {
           onLLMResult: (info) => {
           // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
@@ -1566,8 +1568,8 @@ export class Runtime {
    * Execute a single ReAct turn for the given messages.
    * Orchestration-free: callers decide drain/trim/ack/nack/retry policy.
    *
-   * Phase 1158 Step B: transaction 全路径（begin/save/react/commit/rollback）
-   * 失败均 resolve 为 TurnResult，不再因 transaction error reject。
+   * Phase 1158 Step B: transaction 失败均 resolve 为 TurnResult；Phase 2032 的
+   * typed invocation 等待是例外，专用清理后保留原错误 reject 给 EventLoop。
    *
    * Phase 1218 Step A: public entry guarded by _withDialogOperation.
    */
@@ -1577,11 +1579,12 @@ export class Runtime {
     toolsForLLM: ToolDefinition[],
     callbacks?: RuntimeTurnCallbacks,
     reuseTraceId?: TraceId,
+    recoveryFacts?: LLMRecoveryFacts,
   ): Promise<TurnResult> {
     if (!this.initialized) {
       await this.initialize();
     }
-    return this._withDialogOperation(() => this._processTurnImpl(messages, systemPrompt, toolsForLLM, callbacks, reuseTraceId));
+    return this._withDialogOperation(() => this._processTurnImpl(messages, systemPrompt, toolsForLLM, callbacks, reuseTraceId, recoveryFacts));
   }
 
   /**
@@ -1594,6 +1597,7 @@ export class Runtime {
     toolsForLLM: ToolDefinition[],
     callbacks?: RuntimeTurnCallbacks,
     reuseTraceId?: TraceId,
+    recoveryFacts?: LLMRecoveryFacts,
   ): Promise<TurnResult> {
     const { cleanup } = this._setupTurnContext(reuseTraceId);
     let outcome: TurnResult['status'] = 'failed';
@@ -1616,7 +1620,7 @@ export class Runtime {
         // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
         this.llm.resetLastSuccessProvider?.();
 
-        await this._runReact(messages, systemPrompt, toolsForLLM, callbacks);
+        await this._runReact(messages, systemPrompt, toolsForLLM, callbacks, recoveryFacts);
 
         callbacks?.onTurnEnd?.();
         // phase 569: 加 trace_id forensic field
@@ -1626,6 +1630,25 @@ export class Runtime {
         outcome = 'success';
         return { status: 'success' };
       } catch (error) {
+        // invocation 等待不是 turn 失败：专用结算仅释放 open transaction，保留已完成 step，
+        // 随后原样抛出，由 EventLoop 回队并等待；不得进入普通失败分类。
+        if (error instanceof LLMRecoveryWaitRequiredError) {
+          const turnRecovery = this.sessionManager.turnRecovery;
+          try {
+            if (turnRecovery?.hasActiveTurn()) {
+              await turnRecovery.discardCurrentStep('llm_recovery_wait');
+            } else {
+              await this.sessionManager.rollbackTurn('llm_recovery_wait');
+            }
+          } catch (cleanupError) {
+            return this._settleFailedTurn(new AggregateError(
+              [error, cleanupError],
+              'LLM recovery wait transaction cleanup failed',
+              { cause: error },
+            ));
+          }
+          throw error;
+        }
         handleTurnInterrupt(error, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
         // phase 1857 Step B (SE-D1): 中断判据改 StepAbortError.reason.kind 数据判据
         if (isStepAbortError(error)) {

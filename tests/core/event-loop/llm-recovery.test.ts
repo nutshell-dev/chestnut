@@ -25,12 +25,13 @@ import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/inbox-message-types.js';
 import { LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
-import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import { createLLMOrchestrator, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMEvent,
   LLMEventSink,
   LLMOrchestratorOwner,
+  LLMRecoveryFacts,
   LLMRecoverySession,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -194,12 +195,13 @@ async function makeHarness(): Promise<Harness> {
     proactiveTrimIfNeeded: async (m: unknown[]) => m,
     // 组合要点：turn 内的真实 LLM 调用走 owner 的 scoped 视图 —— 假 provider
     // 的请求计数即真实请求计数，失败/成功经 owner 策略回流到 EventLoop 的调度。
-    processTurn: async (messages: Array<{ role: string; content: string }>) => {
+    processTurn: async (messages: Array<{ role: string; content: string }>, _system: unknown, _tools: unknown, _callbacks: unknown, _trace: unknown, recoveryFacts?: LLMRecoveryFacts) => {
       turns.push(messages.map(m => ({ role: m.role, content: m.content })));
       try {
-        await session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
+        await session.llm.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
         return { status: 'success' as const };
       } catch (error) {
+        if (error instanceof LLMRecoveryWaitRequiredError) throw error;
         return { status: 'failed' as const, error, failureDisposition: session.llm.getFailureDisposition(error) };
       }
     },
@@ -217,7 +219,6 @@ async function makeHarness(): Promise<Harness> {
     clawId: 'claw-1',
     audit: { write: () => {} } as never,
     inbox: { pendingDir, fallbackTimeoutMs: 30 },
-    recovery: session,
   });
   await eventLoop.initialize();
 
@@ -272,6 +273,7 @@ interface RuntimeHarness {
   writePending: (msg: { id: string; type: string; from: string; content: string }) => void;
   writeReload: () => void;
   listPending: () => string[];
+  deletePending: (file: string) => void;
   setProviderError: (error: Error | undefined) => void;
 }
 
@@ -404,12 +406,13 @@ async function makeRuntimeHarness(opts?: {
   runtimeAny.getToolsForLLM = () => [];
   runtimeAny.proactiveTrimIfNeeded = async (m: unknown[]) => m;
   runtimeAny.reactiveTrim = async () => { throw new Error('reactiveTrim not expected'); };
-  runtimeAny.processTurn = async (messages: Array<{ role: string; content: string }>) => {
+  runtimeAny.processTurn = async (messages: Array<{ role: string; content: string }>, _system: unknown, _tools: unknown, _callbacks: unknown, _trace: unknown, recoveryFacts?: LLMRecoveryFacts) => {
     turns.push(messages.map(m => ({ role: m.role, content: m.content })));
     try {
-      await session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
+      await session.llm.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
       return { status: 'success' as const };
     } catch (error) {
+      if (error instanceof LLMRecoveryWaitRequiredError) throw error;
       return { status: 'failed' as const, error, failureDisposition: session.llm.getFailureDisposition(error) };
     }
   };
@@ -433,7 +436,6 @@ async function makeRuntimeHarness(opts?: {
     clawId: 'claw-1',
     audit: { write: () => {} } as never,
     inbox: { pendingDir, fallbackTimeoutMs: 30 },
-    recovery: session,
   });
   await eventLoop.initialize();
 
@@ -452,6 +454,7 @@ async function makeRuntimeHarness(opts?: {
       content: 'reload',
     }),
     listPending: () => fsNative.readdirSync(pendingDir).filter(n => n.endsWith('.md')),
+    deletePending: (file) => { fsNative.rmSync(path.join(pendingDir, file)); },
     setProviderError: (error) => { providerError = error; },
   };
 }
@@ -478,8 +481,14 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
 
     // 同一批消息失败回队后不重复放行：未到点的短窗口内不再真发。
     const rerun = h.eventLoop.run();
-    await new Promise<void>(resolve => setImmediate(resolve));
+    // 第三次进入 processTurn 后由 owner 抛 typed waiting：消息回队、provider 0 新请求。
+    await waitFor(() => h.turns.length === 3, 5_000, 10);
     expect(h.providerCalls.length).toBe(2);
+    await waitFor(
+      () => ['m-old.md', 'm-new.md'].every(file => h.listPending().includes(file)),
+      5_000,
+      10,
+    );
     h.eventLoop.abort();
     await rerun;
   });
@@ -644,6 +653,32 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
     expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
     h.eventLoop.abort();
+  });
+
+  it('控制消息单独成批：暂存配置修订并随下一次真实 invocation 提交', async () => {
+    const h = await makeRuntimeHarness();
+    h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
+    h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
+    await h.eventLoop.run();
+    expect((await h.session.inspect()).kind).toBe('on_change');
+    expect(h.providerCalls.length).toBe(1);
+
+    // 本批只有 reload：应用并 ack 控制消息，但没有 LLM invocation 可接收 facts。
+    h.deletePending('old-user.md');
+    h.writeReload();
+    await h.eventLoop.run();
+    expect(h.reloadCalls()).toBe(1);
+    expect(h.providerCalls.length).toBe(1);
+    expect(h.listPending()).toHaveLength(0);
+
+    // 后续非用户消息不自带提前资格；暂存的配置修订必须仍能触达 owner。
+    h.writePending({ id: 'task-result', type: 'task_result', from: 'system', content: 'done' });
+    await h.eventLoop.run();
+    expect(h.providerCalls.length).toBe(2);
+    expect(h.emitted.some(
+      event => event.type === 'recovery_facts_accepted' && event.configurationRevision !== undefined,
+    )).toBe(true);
+    expect(h.listPending()).toHaveLength(0);
   });
 
   it('重复配置修订：不重复应用配置，也不重复接受记账', async () => {

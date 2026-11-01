@@ -6,7 +6,7 @@ import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { ContextTrimOutcome } from '../context_manager/index.js';
 import type { TurnResult, RuntimeTurnCallbacks } from '../runtime/index.js';
-import type { LLMFailureDisposition } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMFailureDisposition, LLMRecoveryFacts, LLMRecoverySchedule } from '../../foundation/llm-orchestrator/index.js';
 // Phase 1847: 原始批次交接 / 可失败格式化边界类型（自 Runtime barrel 导入，type-only，
 // 不新增对 Runtime 类的运行依赖）。
 import type { PreparedInboxBatch, FormattedInboxBatch } from '../runtime/index.js';
@@ -77,6 +77,8 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
     callbacks?: RuntimeTurnCallbacks,
+    reuseTraceId?: TraceId,
+    recoveryFacts?: LLMRecoveryFacts,
   ): Promise<TurnResult>;
   reactiveTrim(): Promise<ContextTrimOutcome>;
   /**
@@ -91,7 +93,7 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
 // Phase 1950 Step B：provider retry/cooldown 调度类型（phase 1268 的
 // RecoverableLLMErrorClass / LLMRetryWaitingState）已随 phase 1826 owner 迁移退役，
 // 本层不再声明 provider 退避/分类词汇——恢复安排唯一归 LLMOrchestrator
-// （LLMRecoveryController 的 ready/at/on_change typed facts），EventLoop 只消费。
+// （LLM owner 的 ready/at/on_change typed facts），EventLoop 只消费。
 
 export interface LoopErrorContext {
   audit: AuditLog;
@@ -156,6 +158,8 @@ export interface EventLoopExecutionRecoveryDeps {
   }>;
   /** AsyncTaskSystem 在途 probe（async task 在途不得判 stall）。 */
   isAsyncTaskInFlight?: () => Promise<boolean>;
+  /** 只读 LLM owner 安排；EventLoop 不持有 turn admission controller。 */
+  inspectLlmRecoverySchedule?: () => Promise<LLMRecoverySchedule | undefined>;
   /** 停滞判定超时（默认 EXECUTION_INACTIVITY_TIMEOUT_MS）。 */
   timeoutMs?: number;
 }
@@ -170,9 +174,4 @@ export interface EventLoopOptions {
   streamWriter?: StreamWriter;
   onBatchComplete?: () => Promise<void>;
   executionRecovery?: EventLoopExecutionRecoveryDeps;
-  /**
-   * Phase 1826: LLM 恢复安排 owner 的窄 capability（装配期注入）。
-   * EventLoop 只消费 ready/at/on_change 与一次尝试准入；不注入时不做准入。
-   */
-  recovery?: import('../../foundation/llm-orchestrator/index.js').LLMRecoveryController;
 }

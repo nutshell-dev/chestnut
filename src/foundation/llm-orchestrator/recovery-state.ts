@@ -73,6 +73,8 @@ export interface LLMRecoveryBudget {
 
 /** 活跃 admission：begin 成功创建；started 在首个真实 provider 请求前原子置位。 */
 export interface LLMRecoveryAdmissionRecord {
+  /** 缺省表示 2032 前的 turn 级记录；新记录必须显式标记 invocation。 */
+  admissionKind?: 'invocation';
   attemptId: string;
   started: boolean;
   startedAt?: string;
@@ -219,6 +221,7 @@ function isProviderFact(v: unknown): v is LLMRecoveryProviderFact {
 function isAdmission(v: unknown): v is LLMRecoveryAdmissionRecord {
   if (typeof v !== 'object' || v === null) return false;
   const a = v as Record<string, unknown>;
+  if (a.admissionKind !== undefined && a.admissionKind !== 'invocation') return false;
   if (typeof a.attemptId !== 'string' || a.attemptId.length === 0) return false;
   if (typeof a.started !== 'boolean') return false;
   if (typeof a.requestKey !== 'string') return false;

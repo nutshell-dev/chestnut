@@ -15,7 +15,7 @@
 
 import type { ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRecoveryFacts } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
@@ -68,6 +68,8 @@ export interface ReactOptions {
   streamCallbacks?: TurnEventCommitDeps;
   /** Phase 1933 Step C: 严格恢复交付（可选注入；透传至 executeStep，失败阻断 step）。 */
   recovery?: RecoveryDelivery;
+  /** Phase 2032: 每次 invocation 原样传递给 recovery owner 的 opaque 事实。 */
+  recoveryFacts?: LLMRecoveryFacts;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、loop.ts facade 不再透传。
 }
@@ -129,6 +131,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     eventSink: options.eventSink,
     streamCallbacks: options.streamCallbacks,
     recovery: options.recovery,
+    recoveryFacts: options.recoveryFacts,
     onAfterStep: async (_meta, newStepCount) => {
       stepCount = newStepCount;  // AgentExecutor 已执行步进
       if (onStepComplete) await onStepComplete(stepCount);

@@ -3,8 +3,8 @@
  *
  * 边界事实（Phase 1950 Step A 审计基线 285b3591a）：
  * - provider retry/fallback/breaker/idle 的策略事实唯一归 LLMOrchestrator；
- * - EventLoop 只持有 LLMRecoveryController 窄 capability，调用 begin/inspect/finish，
- *   消费 ready/at/on_change schedule，做 ack/nack 与用户干预转发；
+ * - EventLoop 不持有 turn 级 admission controller；每次 LLM invocation 在 owner 内 begin/finish，
+ *   EventLoop 只消费 typed 等待与 ready/at/on_change schedule，做 ack/nack 与 facts 转发；
  * - 跨边界输入是 typed LLMRecoveryFacts（干预 ids / 配置修订 / 启动 token），
  *   不是 Record<string, string> 策略通道；
  * - EventLoop 不声明 provider 退避/分类词汇（phase 1268 的 LLMRetryWaitingState /
@@ -17,7 +17,6 @@ import type {
   LLMRecoveryController,
   LLMRecoverySession,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { EventLoopOptions } from '../../../src/core/event-loop/index.js';
 
 const EVENT_LOOP_DIR = new URL('../../../src/core/event-loop/', import.meta.url);
 
@@ -52,7 +51,7 @@ const PROVIDER_POLICY_TOKENS = [
 /** EventLoop 允许从 llm-orchestrator barrel 引入的全部符号。 */
 const ALLOWED_ORCHESTRATOR_IMPORTS = new Set([
   'isContextExceededError',
-  'LLMRecoveryController',
+  'LLMRecoveryWaitRequiredError',
   'LLMRecoveryFacts',
   'LLMRecoverySchedule',
   'LLMFailureDisposition',
@@ -79,16 +78,13 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     }
   });
 
-  it('EventLoop 对 recovery capability 的调用仅限 begin/inspect/finish', () => {
+  it('EventLoop 不含 turn 级 begin/finish 或 activeAttemptId', () => {
     const eventLoop = stripComments(readFileSync(
       new URL('event-loop.ts', EVENT_LOOP_DIR), 'utf8'));
-    const calls = new Set(
-      [...eventLoop.matchAll(/\brecovery\??\.\s*([A-Za-z]+)\s*\(/g)].map((m) => m[1]),
-    );
-    expect(calls.size).toBeGreaterThan(0);
-    for (const method of calls) {
-      expect(['begin', 'inspect', 'finish']).toContain(method);
-    }
+    expect(eventLoop).not.toMatch(/\brecovery\??\.\s*(?:begin|finish)\s*\(/);
+    expect(eventLoop).not.toContain('activeAttemptId');
+    expect(eventLoop).not.toContain('_admitTurn');
+    expect(eventLoop).toContain('LLMRecoveryWaitRequiredError');
   });
 
   it('EventLoop 从 llm-orchestrator 的 import 收窄为 typed facts 消费面', () => {
@@ -107,16 +103,11 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     }
   });
 
-  it('EventLoopOptions.recovery 声明为窄 LLMRecoveryController（非 Session/Impl）', () => {
-    const types = readFileSync(new URL('types.ts', EVENT_LOOP_DIR), 'utf8');
-    expect(types).toContain(
-      "recovery?: import('../../foundation/llm-orchestrator/index.js').LLMRecoveryController;",
-    );
-    expect(types).not.toContain('LLMRecoverySession');
-    expect(types).not.toContain('LLMRecoverySessionImpl');
-    expectTypeOf<EventLoopOptions['recovery']>().toEqualTypeOf<
-      LLMRecoveryController | undefined
-    >();
+  it('EventLoopOptions 不再暴露 recovery controller；执行恢复仅有只读 schedule 回调', () => {
+    const types = stripComments(readFileSync(new URL('types.ts', EVENT_LOOP_DIR), 'utf8'));
+    expect(types).not.toContain('LLMRecoveryController');
+    expect(types).not.toContain('recovery?: import');
+    expect(types).toContain('inspectLlmRecoverySchedule?: () => Promise<LLMRecoverySchedule | undefined>');
   });
 
   it('LLMRecoveryController 跨边界协议保持 typed facts 与只读 schedule 事实', () => {

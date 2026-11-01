@@ -11,7 +11,7 @@
 
 import type { ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRecoveryFacts } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -60,6 +60,7 @@ interface AgentInput {
   currentContractId?: string;
   /** Phase 1933 Step C: 严格恢复交付（可选注入；透传至 executeStep 的 StepInput，失败阻断 step）。 */
   recovery?: RecoveryDelivery;
+  recoveryFacts?: LLMRecoveryFacts;
   // phase 690: 撤 dialogStore + contextManagerConfig 透传 — proactive trim
   // 已上提到 L5 Runtime 反应式 retry 路径、agent-executor 不再透传。
 }
@@ -180,6 +181,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       idleTimeoutMs: input.idleTimeoutMs,
       callbacks,
       recovery: input.recovery,
+      recoveryFacts: input.recoveryFacts,
       // phase 1857 Step I (SE-D9): StepExecutor 单一事件出口——caller adapter 组合
       // 展示（callbacks）+ 持久化（audit 行）+ contract_id/trace_id 身份绑定。
       eventSink: createStepExecutorEventSink({

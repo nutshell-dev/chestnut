@@ -26,6 +26,7 @@ import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { createLLMOrchestrator, createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMEventSink,
+  LLMRecoveryFacts,
   LLMRecoverySession,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -134,13 +135,10 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
     now: () => sharedNow,
   });
 
-  // 真实失败产生 owner 等待安排
-  const admission = await session.begin({ requestKey: 'fp-1844', facts: { interventionIds: [] } });
-  if (admission.kind !== 'admitted') throw new Error('fixture: expected initial admission');
+  // 真实 scoped invocation 失败产生 owner 等待安排，finish 由 owner 视图自动完成。
   await expect(
     session.llm.call({ messages: [{ role: 'user', content: 'work' }] }),
   ).rejects.toThrow();
-  await session.finish(admission.attemptId, 'failed');
 
   return {
     rootDir,
@@ -237,14 +235,10 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
     getSystemPrompt: async () => 'sys',
     getToolsForLLM: () => [],
     proactiveTrimIfNeeded: async (m: unknown[]) => m,
-    processTurn: async () => {
+    processTurn: async (_messages: unknown, _system: unknown, _tools: unknown, _callbacks: unknown, _trace: unknown, recoveryFacts?: LLMRecoveryFacts) => {
       processed += 1;
-      try {
-        await f.session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
-        return { status: 'success' as const };
-      } catch (error) {
-        return { status: 'failed' as const, error, failureDisposition: f.session.llm.getFailureDisposition(error) };
-      }
+      await f.session.llm.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
+      return { status: 'success' as const };
     },
     ackHandles: async (handles: InboxHandle[]) => {
       for (const h of handles) await reader.ack(h);
@@ -267,8 +261,8 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
     clawId: CLAW_ID,
     audit: audit as never,
     inbox: { pendingDir: f.pendingDir, fallbackTimeoutMs: 20 },
-    recovery: f.session,
     executionRecovery: {
+      inspectLlmRecoverySchedule: () => f.session.inspect(),
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: f.activityAt,
@@ -439,7 +433,8 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
     expect(messagesByType(f.pendingDir, 'execution_recovery'))
       .toEqual(['execution_recovery-preserved']);
     expect(f.providerCalls()).toBe(1);
-    expect(r.processed).toBe(0);
+    // invocation 准入已移到 processTurn 内：可进入 turn，但 provider 请求仍为 0。
+    expect(r.processed).toBe(1);
     // 正常准入等待流程未被打断：到达 recovery_wait 后由测试 abort 收束
     expect(r.auditEntries.some(e => e.some(col => String(col) === 'type=recovery_wait'))).toBe(true);
   });

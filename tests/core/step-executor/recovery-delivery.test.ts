@@ -287,3 +287,19 @@ describe('Phase 1933 Step C: RecoveryDelivery 严格恢复交付', () => {
     ]);
   });
 });
+
+
+describe('Phase 2032 recoveryFacts forwarding', () => {
+  it('attaches the same opaque facts object to LLMCallOptions', async () => {
+    const llm = makeToolUseLLM([]);
+    const recoveryFacts = {
+      interventionIds: ['message-1'],
+      configurationRevision: 'config-2',
+      startupId: 'boot-3',
+    } as const;
+
+    await executeStep(makeStepInput({ llm, recoveryFacts }));
+
+    expect(llm.stream).toHaveBeenCalledWith(expect.objectContaining({ recoveryFacts }));
+  });
+});

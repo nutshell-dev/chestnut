@@ -300,3 +300,24 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
   });
 
 });
+
+
+describe('Phase 2032 admissionKind compatibility', () => {
+  it('accepts invocation records and rejects unknown admission kinds fail-closed', () => {
+    const state = createInitialRecoveryState(SCOPE, budget(), T0);
+    state.activeAdmission = {
+      admissionKind: 'invocation',
+      attemptId: 'att-invocation',
+      started: false,
+      requestKey: 'request-key',
+      triggerKind: 'automatic',
+    };
+    expect(validateRecoveryState(state, SCOPE).ok).toBe(true);
+
+    const invalid = validateRecoveryState({
+      ...state,
+      activeAdmission: { ...state.activeAdmission, admissionKind: 'legacy_turn' },
+    }, SCOPE);
+    expect(invalid).toMatchObject({ ok: false, reason: 'field_type_mismatch', detail: 'activeAdmission' });
+  });
+});

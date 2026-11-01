@@ -3,7 +3,7 @@
  * @layer L2b LLM 语义基础设施
  *
  * Phase 1826：LLM 调用可用性、失败后自动唤醒、用户干预准入与恢复历史的唯一
- * 决策者。EventLoop 只执行业主给出的 ready/at/on_change 安排与一次尝试准入。
+ * 决策者。EventLoop 只执行业主给出的 ready/at/on_change 安排；准入限定在单次 invocation。
  *
  * - 决定先持久化后发布；写失败不继续真发。
  * - 显式干预只携 opaque id；owner 幂等接收，可提前尝试但不清失败历史。
@@ -18,11 +18,13 @@
  * revision 只来自已提交状态（内存不得越过磁盘事实）。
  */
 
-import { formatErr, newUuid } from '../node-utils/index.js';
+import { formatErr, newUuid, sha256ShortHex } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
+import { isAbortError } from '../llm-provider/index.js';
 import type {
   LLMCallOptions,
+  LLMRecoveryFacts,
   LLMEventSink,
   LLMFailureDisposition,
   LLMInstanceSnapshot,
@@ -32,6 +34,7 @@ import type {
   LLMStreamChunk,
 } from './types.js';
 import type { LLMErrorClass } from './errors.js';
+import { LLMRecoveryWaitRequiredError } from './errors.js';
 import {
   LLM_RECOVERY_COOLDOWN_MS,
   LLM_RECOVERY_MAX_RETRIES,
@@ -166,30 +169,14 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal
   getLegacyProviderIdentities(): readonly string[];
 }
 
-/**
- * Phase 1827: 一轮内观察到的全部恢复事实（只描述「观察到什么」；是否放行由 owner 唯一决定）。
- * 事实之间无优先级——同轮共存的事实一次提交、全部幂等接受，不因某个事实先到达而遮蔽其余。
- * - interventionIds：当前 pending 的用户来源消息 id 列表（不透明）。owner 判
- *   「存在任一未接受 id」才提前放行并全部记账——同批多 id 归一化为一次干预，
- *   失败回队的同一消息（id 不变）不再放行，第二条真新消息（新 id）仍有效。
- * - configurationRevision：本轮实际成功应用的最新配置身份（不透明），不是变更历史队列。
- *   新修订触发重新评估；同修订重复通知不改变历史。
- * - startupId：本次进程启动标识；同一 boot 每轮可重送，owner 幂等记账，
- *   仅在 on_change 入口放行一次资格。
- * 空集合 = 自动检查；是否到期由 owner 的时钟判定，timer 不授予资格。
- */
-export interface LLMRecoveryFacts {
-  readonly interventionIds: readonly string[];
-  readonly configurationRevision?: string;
-  readonly startupId?: string;
-}
+export type { LLMRecoveryFacts } from './types.js';
 
 export type LLMRecoveryAdmission =
   | { kind: 'admitted'; attemptId: string; factsAccepted: true }
   | { kind: 'waiting'; schedule: LLMRecoverySchedule; factsAccepted: boolean };
 
 /**
- * EventLoop 消费的窄 capability。
+ * owner 内部与白盒测试使用的 admission capability；EventLoop 不再按 turn 调用。
  *
  * Phase 1950 Step B（恢复边界治理）：schedule / admission / factsAccepted 全部是
  * LLMOrchestrator owner 产生并持久化的只读事实；调用方（EventLoop）只做准入、等待、
@@ -290,26 +277,35 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
 
     const residual = this.state.activeAdmission;
     if (residual) {
+      const next: LLMRecoveryStateV1 = {
+        ...this.state,
+        failures: [...this.state.failures],
+        revision: this.state.revision + 1,
+      };
       if (residual.started) {
-        // 已开始 → 结果未知：清除句柄并留证据（不虚构成功或失败）。
-        this.state = { ...this.state, activeAdmission: null, revision: this.state.revision + 1 };
-        this.pushFailure(this.state, {
+        // legacy turn 与新 invocation 的已开始记录都无法确定最终结果；不伪造成功。
+        next.activeAdmission = null;
+        this.pushFailure(next, {
           at: new Date(this.now()).toISOString(),
           providerId: 'unknown',
           errorClass: 'unknown',
           message: `attempt ${residual.attemptId} result unknown after restart`,
         });
+      } else if (residual.admissionKind === undefined) {
+        // 2032 前缺省 kind 的记录覆盖整个 turn，不能按单次 invocation 恢复。
+        next.activeAdmission = null;
+        this.pushFailure(next, {
+          at: new Date(this.now()).toISOString(),
+          providerId: 'unknown',
+          errorClass: 'unknown',
+          message: `legacy_turn_admission_retired attempt=${residual.attemptId} requestKey=${residual.requestKey}`,
+        });
       } else {
-        // 未开始 → 保留已授予、尚未执行的准入：下次 begin 重新驱动同一 attempt
-        // （不把未发请求算失败，也不让已记账的干预 id 吞掉这次机会）。
-        this.state = {
-          ...this.state,
-          activeAdmission: { ...residual, resumedFromRestart: true },
-          revision: this.state.revision + 1,
-        };
+        // 新 invocation 尚未发起真实请求，可重新驱动同一 attempt。
+        next.activeAdmission = { ...residual, resumedFromRestart: true };
       }
-      this.state.schedule = { ...this.state.schedule, revision: this.state.revision };
-      this.commit(this.state, 'constructor');
+      next.schedule = { ...next.schedule, revision: next.revision };
+      this.commitNext(next, 'constructor');
     }
 
     this.llm = this.createScopedView(deps.orchestrator);
@@ -442,6 +438,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       // 不做第二次准入判断；保留原预算/资格，只合入确有的新资格。
       next.activeAdmission = {
         ...active,
+        requestKey: input.requestKey,
         resumedFromRestart: undefined,
         interventionIds: mergeIds(active.interventionIds ?? [], acceptedFacts.interventionIds),
         ...(acceptedFacts.configurationRevision !== undefined
@@ -514,6 +511,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       startup: hasStartupQualification,
     });
     next.activeAdmission = {
+      admissionKind: 'invocation',
       attemptId,
       started: false,
       requestKey: input.requestKey,
@@ -786,9 +784,76 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
 
   private createScopedView(orchestrator: LLMOrchestratorOwner): LLMOrchestrator & LLMRuntimeCapability {
     const session = this;
+    const beginInvocation = async (options: LLMCallOptions) => session.begin({
+      requestKey: requestKeyForCall(options),
+      facts: options.recoveryFacts ?? { interventionIds: [] },
+    });
     return {
-      call: (options: LLMCallOptions) => orchestrator.callWithinRecovery(options, session),
-      stream: (options: LLMCallOptions) => orchestrator.streamWithinRecovery(options, session),
+      call: async (options: LLMCallOptions) => {
+        const admission = await beginInvocation(options);
+        if (admission.kind === 'waiting') {
+          throw new LLMRecoveryWaitRequiredError(admission.schedule, admission.factsAccepted);
+        }
+        let outcome: 'completed' | 'interrupted' | 'failed' = 'completed';
+        let hasInvocationError = false;
+        let invocationError: unknown;
+        try {
+          try {
+            return await orchestrator.callWithinRecovery(options, session);
+          } catch (error) {
+            hasInvocationError = true;
+            invocationError = error;
+            outcome = isAbortError(error) ? 'interrupted' : 'failed';
+            throw error;
+          }
+        } finally {
+          try {
+            await session.finish(admission.attemptId, outcome);
+          } catch (finishError) {
+            if (hasInvocationError) {
+              throw new AggregateError(
+                [invocationError, finishError],
+                'LLM invocation and recovery finish both failed',
+                { cause: invocationError },
+              );
+            }
+            throw finishError;
+          }
+        }
+      },
+      stream: (options: LLMCallOptions) => (async function* () {
+        const admission = await beginInvocation(options);
+        if (admission.kind === 'waiting') {
+          throw new LLMRecoveryWaitRequiredError(admission.schedule, admission.factsAccepted);
+        }
+        let outcome: 'completed' | 'interrupted' | 'failed' = 'interrupted';
+        let hasInvocationError = false;
+        let invocationError: unknown;
+        try {
+          try {
+            yield* orchestrator.streamWithinRecovery(options, session);
+            outcome = 'completed';
+          } catch (error) {
+            hasInvocationError = true;
+            invocationError = error;
+            outcome = isAbortError(error) ? 'interrupted' : 'failed';
+            throw error;
+          }
+        } finally {
+          try {
+            await session.finish(admission.attemptId, outcome);
+          } catch (finishError) {
+            if (hasInvocationError) {
+              throw new AggregateError(
+                [invocationError, finishError],
+                'LLM invocation and recovery finish both failed',
+                { cause: invocationError },
+              );
+            }
+            throw finishError;
+          }
+        }
+      })(),
       healthCheck: () => orchestrator.healthCheck(),
       getProviderInfo: () => orchestrator.getProviderInfo(),
       resetLastSuccessProvider: () => orchestrator.resetLastSuccessProvider(),
@@ -839,16 +904,6 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         state.failures.length - LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
       );
     }
-  }
-
-  /**
-   * 持久化指定状态（显式入参，不隐式读取可变 this.state —— Phase 1958 Step C）。
-   * 调用方负责保证传入状态即意图提交的唯一事实。
-   */
-  private commit(state: LLMRecoveryStateV1, context: string): void {
-    state.updatedAt = new Date(this.now()).toISOString();
-    const result = saveRecoveryState(this.fs, state);
-    this.reportDurability(result, context);
   }
 
   /** 先保存后替换内存：写失败抛错时调用方不得继续真发，内存仍为旧状态。 */
@@ -986,6 +1041,30 @@ function releaseRateLimitBlocked(fact: LLMRecoveryProviderFact): LLMRecoveryProv
     ...rest
   } = fact;
   return { ...rest, rateLimitFailures: 0 };
+}
+
+/** 只由实际 LLM 请求语义派生身份；恢复事实、超时与 AbortSignal 不参与。 */
+function requestKeyForCall(options: LLMCallOptions): string {
+  const canonical = canonicalizeForRequestKey({
+    messages: options.messages,
+    system: options.system,
+    tools: options.tools,
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+    model: options.model,
+  });
+  return sha256ShortHex(JSON.stringify(canonical), 24);
+}
+
+function canonicalizeForRequestKey(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeForRequestKey);
+  if (typeof value !== 'object' || value === null) return value;
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) {
+    const item = (value as Record<string, unknown>)[key];
+    if (item !== undefined) result[key] = canonicalizeForRequestKey(item);
+  }
+  return result;
 }
 
 export function createRecoverySession(deps: RecoverySessionDeps): LLMRecoverySession {

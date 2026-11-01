@@ -35,9 +35,9 @@ import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox, type InboxWaitResult } from './inbox-watcher.js';
 import {
   isContextExceededError,
+  LLMRecoveryWaitRequiredError,
 } from '../../foundation/llm-orchestrator/index.js';
 import type {
-  LLMRecoveryController,
   LLMRecoveryFacts,
   LLMRecoverySchedule,
 } from '../../foundation/llm-orchestrator/index.js';
@@ -83,19 +83,12 @@ export class EventLoop {
   private stopped = false;
 
   /**
-   * Phase 1826: LLM 恢复安排的唯一 owner（装配期注入）。
-   * EventLoop 只消费 ready/at/on_change 与一次尝试准入；不持 count/curve、
-   * 不按 quota/transient 重算 deadline。未注入时不做准入（测试/无恢复场景）。
-   */
-  private recovery?: LLMRecoveryController;
-  /**
    * Phase 1827: 本次进程启动标识（每轮随事实重送；owner 幂等记账，只有它判是否已接受）。
    * 同 boot 不重建 token——重建会让 owner 误判为新启动。
    */
   private readonly startupId = `boot-${newUuid()}`;
-  /** 当前 owner 准入句柄（turn 结束后结算）。 */
-  private activeAttemptId?: string;
-
+  /** 控制消息单独成批时暂存已应用修订，随下一次真实 invocation 提交 owner。 */
+  private configurationRevision?: string;
   // Phase 1826: context trim 后的有界重试（EventLoop 自有的上下文语义，纯内存预算）
   private contextTrimRetryCount = 0;
   private contextTrimRetryDelayMs = CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS;
@@ -127,7 +120,6 @@ export class EventLoop {
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
     this.onBatchComplete = options.onBatchComplete;
-    this.recovery = options.recovery;
     if (options.executionRecovery) {
       this.executionRecoveryDeps = options.executionRecovery;
       // Phase 1841: 实例本地记录（agentFs）；phase 1890 Step D 起旧 root 共享基线
@@ -141,11 +133,8 @@ export class EventLoop {
         deliverResume: (request) => this._deliverExecutionResume(request),
         // Phase 1843: 新登记前的 owner pending 查询适配（只读 peek，精确三要素）。
         findPendingResume: (contractId) => this._findPendingExecutionResume(contractId),
-        // Phase 1844: 新登记前只读 inspect 本模块 recovery owner 的公开安排
-        // （未来 at 抑制新登记）；未注入 owner 时显式返回 undefined。async 展开
-        // 返回 Promise 并传播 rejection；this.recovery 在上方已赋值。只读
-        // inspect，不调用 begin/finish 试探资格。
-        inspectLlmRecoverySchedule: async () => this.recovery?.inspect(),
+        // 只读 owner schedule 用于停滞提醒抑制；不涉及 invocation admission。
+        inspectLlmRecoverySchedule: async () => options.executionRecovery?.inspectLlmRecoverySchedule?.(),
       });
     }
   }
@@ -207,18 +196,14 @@ export class EventLoop {
   }
 
   /**
-   * 执行一轮事件循环：blocked gate → owner 准入 → drain/chain → 结算。
+   * 执行一轮事件循环：blocked gate → drain/chain；invocation 等待时回队并执行 owner 安排。
    *
    * Phase 1154 Step E: 只有 fingerprint 变化或从未 blocked 时才进入 drain+chain；
    * trim 类 no_progress/policy_conflict 会持久化 blocked state，后续 tick 在 drain 前 fail-closed。
-   * Phase 1826: LLM 后续尝试由 owner 唯一决定——begin 准入、waiting 时执行 owner
-   * 安排（deadline/用户干预/配置变化/启动），turn 结束 finish 结算。
    */
   async run(): Promise<void> {
     this.stopped = false;
     this.waitAbortController = new AbortController();
-    let outcome: 'completed' | 'interrupted' | 'failed' = 'failed';
-
     // Phase 1396 Step E: idle tick 起点做停滞观察（resume/retry/task 在途时自愈逻辑内部跳过）。
     await this._observeExecutionRecovery();
 
@@ -248,57 +233,28 @@ export class EventLoop {
         return;
       }
 
-      // Phase 1826: 向 owner 申请准入；waiting 时执行 owner 安排（deadline/干预/配置/控制）。
-      const decision = await this._admitTurn(gate.fingerprint);
-      if (decision !== 'proceed') return;
-      const chainOutcome = await this._runOpenChain(gate.fingerprint);
-      outcome = chainOutcome === 'idle' ? 'completed' : chainOutcome;
+      await this._runOpenChain(gate.fingerprint);
     } catch (err) {
-      outcome = 'failed';
       // EventLoop-level unexpected error
       await this._dispatchError(err);
     } finally {
-      const attemptId = this.activeAttemptId;
-      this.activeAttemptId = undefined;
-      if (attemptId && this.recovery) {
-        const settled = this.stopped ? 'interrupted' : outcome;
-        try {
-          await this.recovery.finish(attemptId, settled);
-        } catch (error) {
-          this.audit.write(
-            EVENTLOOP_AUDIT_EVENTS.FATAL,
-            `context=recoveryFinish`,
-            `attempt_id=${attemptId}`,
-            `reason=${formatErr(error)}`,
-          );
-        }
-      }
       this.waitAbortController = undefined;
     }
   }
 
   /**
-   * Phase 1826/1827: owner 准入循环。
-   * - 先看是否有可工作消息（空箱不进入）。
-   * - 每轮先应用控制入口（配置生效），再读干预事实；两个读取任一失败都记录原异常、
-   *   做一次可中断等待后重读——不用空集合替代失败的读取继续准入。
-   * - 本轮全部事实（用户 ids + 实际返回的配置修订 + 稳定启动 token）一次提交；
-   *   不以 if/else 选一个事实，事实之间无优先级。
-   * - waiting 且 factsAccepted=false（活跃准入挡住）→ 来源保持未消费，等已有工作结束或
-   *   兜底超时后重读；waiting 且接受 → 执行 owner 安排，唤醒后重新请求准入。
-   * - admitted → 一次 drain/processTurn/finish（新旧消息同批）。
+   * 每批 drain 前收集 opaque facts；读取失败时等待重读，不以空集合继续。
+   * admission 已收窄到 owner 的每次 LLM invocation，本方法不创建 turn 级句柄。
    */
-  private async _admitTurn(
-    entryFingerprint: string,
-  ): Promise<'proceed' | 'stopped' | 'waiting'> {
-    const recovery = this.recovery;
-    if (!recovery) return 'proceed';
-
+  private async _collectRecoveryFacts(): Promise<LLMRecoveryFacts | undefined> {
     while (!this.stopped) {
       let configRevision: string | undefined;
       try {
         const controls = await this.runtime.consumePendingControls();
-        configRevision = controls?.configRevision;
+        if (controls?.configRevision !== undefined) {
+          this.configurationRevision = controls.configRevision;
+        }
+        configRevision = this.configurationRevision;
         if (controls && controls.consumed > 0) {
           this.audit.write(
             EVENTLOOP_AUDIT_EVENTS.ITERATION,
@@ -312,7 +268,7 @@ export class EventLoop {
           `context=consumePendingControls`,
           `reason=${formatErr(error)}`,
         );
-        if (!(await this._waitForFactsRetry())) return 'stopped';
+        if (!(await this._waitForFactsRetry())) return undefined;
         continue;
       }
 
@@ -326,33 +282,17 @@ export class EventLoop {
           `context=peekPendingInterventionFacts`,
           `reason=${formatErr(error)}`,
         );
-        if (!(await this._waitForFactsRetry())) return 'stopped';
+        if (!(await this._waitForFactsRetry())) return undefined;
         continue;
       }
 
-      const facts: LLMRecoveryFacts = {
+      return {
         interventionIds: userIds,
         ...(configRevision !== undefined ? { configurationRevision: configRevision } : {}),
         startupId: this.startupId,
       };
-      const admission = await recovery.begin({ requestKey: entryFingerprint, facts });
-
-      if (admission.kind === 'admitted') {
-        this.activeAttemptId = admission.attemptId;
-        return 'proceed';
-      }
-
-      if (!admission.factsAccepted) {
-        // 活跃准入挡住整批：不发 drain、不并发启动 turn，等待已有工作结束或兜底超时后重读。
-        if (!(await this._waitForFactsRetry())) return 'stopped';
-        continue;
-      }
-
-      const outcome = await this._waitOnSchedule(admission.schedule);
-      if (outcome === 'stopped') return 'stopped';
-      // recheck：唤醒后重新请求准入（owner 是唯一决策者）。
     }
-    return 'stopped';
+    return undefined;
   }
 
   /** 事实读取失败/本批被拒后的可中断等待：不空转、不消费来源。 */
@@ -475,7 +415,7 @@ export class EventLoop {
         EVENTLOOP_AUDIT_EVENTS.ITERATION,
         `type=llm_failure_deferred`,
         `owner=llm-orchestrator`,
-        // Phase 1953: fingerprint = recovery.begin 的 requestKey，关联 LLM 失败与
+        // fingerprint 仅用于 EventLoop 失败处置关联；invocation requestKey 由 owner 派生。
         // recovery-state 磁盘 activeAdmission.requestKey（turn 外无 trace_id 可用）。
         `fingerprint=${failedRequestFingerprint}`,
       );
@@ -673,6 +613,7 @@ export class EventLoop {
   private async _processDrainedBatch(args: {
     prepared: PreparedInboxBatch;
     turnFingerprint: string;
+    recoveryFacts: LLMRecoveryFacts;
     wrappedCallbacks?: EventLoopStreamCallbacks;
   }): Promise<'continue' | 'break' | 'failed'> {
     type PostDrainStage =
@@ -746,7 +687,7 @@ export class EventLoop {
       stage = 'process_turn';
       this.turnInFlight = true;
       const result = await this.runtime
-        .processTurn(messages, systemPrompt, tools, args.wrappedCallbacks)
+        .processTurn(messages, systemPrompt, tools, args.wrappedCallbacks, undefined, args.recoveryFacts)
         .finally(() => { this.turnInFlight = false; });
       stage = 'turn_result';
 
@@ -769,6 +710,19 @@ export class EventLoop {
       await this._handleFailedTurn(result, addressedHandles, args.turnFingerprint);
       return 'failed';
     } catch (error) {
+      if (error instanceof LLMRecoveryWaitRequiredError) {
+        if (!dispositionSelected) {
+          dispositionSelected = true;
+          // typed 等待不是业务失败；先把当前 disposition 来源回队，再执行 owner 安排。
+          await this.runtime.nackHandles(dispositionHandles, 'llm_recovery_wait', 'llm_recovery_wait');
+        }
+        if (!error.factsAccepted) {
+          // 另一 invocation 持活跃句柄：ready 也不能立即重试，等待其结束或新事实。
+          return (await this._waitForFactsRetry()) ? 'continue' : 'break';
+        }
+        const outcome = await this._waitOnSchedule(error.schedule);
+        return outcome === 'stopped' ? 'break' : 'continue';
+      }
       if (!dispositionSelected) {
         dispositionSelected = true;
         // Phase 1967 Step B: defer 前出错回队全批；defer 成功后只回队 selected
@@ -847,6 +801,8 @@ export class EventLoop {
         turnFingerprint = gate.fingerprint;
       }
 
+      const recoveryFacts = await this._collectRecoveryFacts();
+      if (!recoveryFacts) break;
       // Phase 1847: 原始批次交接 —— 先取未格式化消息/句柄（句柄自此归 EventLoop），
       // 格式化在 _processDrainedBatch 的 disposition guard 内执行。
       const prepared = await this.runtime.prepareInbox();
@@ -863,6 +819,7 @@ export class EventLoop {
       const action = await this._processDrainedBatch({
         prepared: effective,
         turnFingerprint,
+        recoveryFacts,
         wrappedCallbacks,
       });
       if (action === 'failed') {
@@ -922,8 +879,8 @@ export class EventLoop {
         lastActivityAt: probe.lastActivityAt ?? 0,
         lastToolCallAt: probe.lastToolCallAt ?? 0,
         turnInFlight: this.turnInFlight,
-        // Phase 1826: owner 准入在途 = 恢复/重试在途（EventLoop 不再自持等待状态）。
-        retryInFlight: this.activeAttemptId !== undefined,
+        // turn 在途只由 EventLoop 自身观察，不从 L2b admission 反推 agent 工作。
+        retryInFlight: this.turnInFlight,
         asyncTaskInFlight: (await this.executionRecoveryDeps.isAsyncTaskInFlight?.()) ?? false,
       });
     } catch (err) {

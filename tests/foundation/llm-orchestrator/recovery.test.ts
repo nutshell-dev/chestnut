@@ -15,7 +15,7 @@ import {
   type LLMRecoveryProviderFact,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
-import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMAllProvidersFailedError, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
@@ -148,7 +148,7 @@ describe('recovery session admission', () => {
     const admission = await session.begin({ requestKey: 'fp-1', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
 
     const fsNative = await import('fs');
     const saved = JSON.parse(fsNative.readFileSync(f.statePath, 'utf-8'));
@@ -161,7 +161,7 @@ describe('recovery session admission', () => {
     const first = f.makeSession();
     const admission = await first.begin({ requestKey: 'fp-1', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await first.llm.call(CALL);   // notes started
+    await f.orchestrator.callWithinRecovery(CALL, first);   // notes started
 
     const restarted = f.makeSession();   // 模拟进程重启
     const fsNative = await import('fs');
@@ -178,7 +178,7 @@ describe('recovery failure policy', () => {
     const session = f.makeSession();
     await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
 
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
 
     const schedule = await session.inspect();
     expect(schedule.kind).toBe('at');
@@ -198,7 +198,7 @@ describe('recovery failure policy', () => {
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
 
     const early = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
@@ -218,7 +218,7 @@ describe('recovery failure policy', () => {
     for (let i = 0; i < 4; i++) {
       const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
       if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${i}`);
-      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
       await session.finish(admission.attemptId, 'failed');
       const schedule = await session.inspect();
       if (schedule.kind !== 'at') throw new Error('expected at');
@@ -234,7 +234,7 @@ describe('recovery failure policy', () => {
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
     const schedule = await session.inspect();
@@ -255,7 +255,7 @@ describe('recovery failure policy', () => {
     for (let i = 0; i < 10; i++) {
       const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
       if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${i}`);
-      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
       await session.finish(admission.attemptId, 'failed');
 
       const schedule = await session.inspect();
@@ -287,7 +287,7 @@ describe('recovery failure policy', () => {
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
     const schedule = await session.inspect();
@@ -313,7 +313,7 @@ describe('recovery failure policy', () => {
     for (let i = 0; i < 10; i++) {
       const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
       if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${i}`);
-      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
       await session.finish(admission.attemptId, 'failed');
       const schedule = await session.inspect();
       if (schedule.kind === 'at') f.advance(1_000_000);
@@ -325,7 +325,7 @@ describe('recovery failure policy', () => {
       facts: { interventionIds: ['user-msg-1'] },
     });
     if (retry.kind !== 'admitted') throw new Error('expected admitted by intervention');
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     await session.finish(retry.attemptId, 'completed');
 
     const saved = f.readState();
@@ -345,14 +345,14 @@ describe('recovery failure policy', () => {
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
     f.advance(1_000_000);
     shouldFail = false;
     const second = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (second.kind !== 'admitted') throw new Error('expected admitted');
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     await session.finish(second.attemptId, 'completed');
 
     const fsNative = await import('fs');
@@ -368,7 +368,7 @@ describe('recovery interventions', () => {
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
     // 干预 m1：提前放行
@@ -392,12 +392,12 @@ describe('recovery interventions', () => {
 
     const first = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
 
     const second = await session.begin({ requestKey: 'fp', facts: { interventionIds: ['m1'] } });
     if (second.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(second.attemptId, 'failed');
 
     const fsNative = await import('fs');
@@ -416,7 +416,7 @@ describe('recovery triggers for configuration and startup', () => {
     const failOnce = async () => {
       const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
       if (admission.kind !== 'admitted') throw new Error('expected admitted');
-      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
       await session.finish(admission.attemptId, 'failed');
     };
 
@@ -428,7 +428,7 @@ describe('recovery triggers for configuration and startup', () => {
     const reloaded = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r1' } });
     expect(reloaded.kind).toBe('admitted');
     if (reloaded.kind !== 'admitted') return;
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(reloaded.attemptId, 'failed');
 
     // 同 revision 重复通知：不放行
@@ -446,7 +446,7 @@ describe('recovery triggers for configuration and startup', () => {
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
     const startup = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], startupId: 'boot-1' } });
@@ -474,7 +474,7 @@ describe('recovery breaker coordination', () => {
 
     const first = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
     const afterFirst = f.readState();
     expect(afterFirst.budget.retryCount).toBe(1);   // 真实失败消耗 1 次
@@ -484,7 +484,7 @@ describe('recovery breaker coordination', () => {
     f.advance(1_000_000);
     const second = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (second.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(second.attemptId, 'failed');
 
     const afterSecond = f.readState();
@@ -505,7 +505,7 @@ describe('recovery scoped view isolation', () => {
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     expect(admission.kind).toBe('admitted');
     if (admission.kind !== 'admitted') return;
-    await expect(session.llm.call(CALL)).resolves.toBeTruthy();
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).resolves.toBeTruthy();
   });
 });
 
@@ -561,7 +561,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
   ): Promise<string> {
     const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
     return admission.attemptId;
   }
@@ -571,7 +571,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: facts({ interventionIds: ['m-old'] }) });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
     expect((await session.inspect()).kind).toBe('on_change');
     const acceptedBefore = acceptedEvents(f).length;
@@ -629,7 +629,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: facts({ interventionIds: ['m-old'] }) });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
     const before = await session.inspect();
     expect(before.kind).toBe('at');
@@ -673,7 +673,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: facts({ interventionIds: ['m1'] }) });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
     const acceptedBefore = acceptedEvents(f).length;
 
@@ -692,7 +692,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
       facts: facts({ interventionIds: ['m1'], configurationRevision: 'r1', startupId: 'boot-1' }),
     });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
     const acceptedBefore = acceptedEvents(f).length;
     const admittedBefore = f.emitted.filter(e => e.type === 'recovery_attempt_admitted').length;
@@ -716,7 +716,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     expect(first.kind).toBe('admitted');
     expect(f.readState().lastStartupProbeId).toBe('boot-1');   // ready 入口也记为本 boot 已处理
     if (first.kind !== 'admitted') return;
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
     expect((await session.inspect()).kind).toBe('on_change');
 
@@ -773,7 +773,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
 
     const restored = f.makeSession();   // 重启：未开始的准入被恢复
     const merged = await restored.begin({
-      requestKey: 'fp',
+      requestKey: 'fp-current-input',
       facts: facts({ interventionIds: ['new-user', 'm2'], configurationRevision: 'r2' }),
     });
     expect(merged.kind).toBe('admitted');
@@ -781,6 +781,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     expect(merged.attemptId).toBe(granted.attemptId);           // 不建第二个 attempt
 
     const saved = f.readState();
+    expect(saved.activeAdmission.requestKey).toBe('fp-current-input');
     expect(saved.activeAdmission.resumedFromRestart).toBeUndefined();
     expect(saved.activeAdmission.interventionIds).toEqual(['new-user', 'm2']);
     expect(saved.activeAdmission.configurationRevision).toBe('r2');
@@ -892,7 +893,7 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
     // 制造非 clean 状态：一次真实 transient 失败（schedule=at、含失败证据）
     const a1 = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (a1.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(a1.attemptId, 'failed');
     const readyEventsBefore = f.emitted.filter(e => e.type === 'recovery_ready').length;
 
@@ -905,7 +906,7 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
     const diskBefore = f.readState();
 
     armWriteFailure = true;
-    await session.llm.call(CALL);   // 调用成功，但 noteSuccess 的 durable commit 失败
+    await f.orchestrator.callWithinRecovery(CALL, session);   // 调用成功，但 noteSuccess 的 durable commit 失败
     armWriteFailure = false;
 
     // 事件证据：write_failed 发出、recovery_ready 未发布
@@ -927,7 +928,7 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
 
     // 写入恢复：同准入内再次成功调用 → 候选状态 durable commit 后替换内存
     writeState.failing = false;
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     const readyEvents = f.emitted.filter(e => e.type === 'recovery_ready');
     expect(readyEvents.length).toBe(readyEventsBefore + 1);
     const saved = f.readState();
@@ -959,7 +960,7 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
     const diskBefore = f.readState();
 
     armWriteFailure = true;
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     armWriteFailure = false;
 
     // write_failed 证据（含原始错误原因）、recovery_scheduled 未发布
@@ -983,7 +984,7 @@ describe('recovery durable commit barrier (Phase 1958 Step C)', () => {
     await session.finish(admission.attemptId, 'failed');
     const a2 = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (a2.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
 
     const scheduled = f.emitted.filter(e => e.type === 'recovery_scheduled');
     expect(scheduled).toHaveLength(1);
@@ -1039,13 +1040,13 @@ describe('Phase 2029 Step C: finish/started candidate commit barrier', () => {
     const diskBefore = f.readState();
 
     writeState.failing = true;
-    await expect(session.llm.call(CALL)).rejects.toThrow('injected write failure');
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toThrow('injected write failure');
     expect(providerCalls).toBe(0);
     expect(f.readState()).toEqual(diskBefore);
     expect(f.readState().activeAdmission.started).toBe(false);
 
     writeState.failing = false;
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     expect(providerCalls).toBe(1);
     expect(f.readState().activeAdmission.started).toBe(true);
   });
@@ -1058,7 +1059,7 @@ describe('Phase 2029 Step D: committed durability degradation evidence', () => {
     const f = await makeFixture({ wrapFs: (fs) => wrapWriteDurability(fs, write) });
     const session = f.makeSession();
     await session.begin({ requestKey: 'fp', facts: facts({}) });
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     expect(f.emitted.filter(e => e.type === 'recovery_state_write_degraded')).toHaveLength(0);
   });
 
@@ -1108,9 +1109,9 @@ describe('Phase 2029 Step D: committed durability degradation evidence', () => {
       if (admission?.kind !== 'admitted') throw new Error('expected admitted');
       await session.finish(admission.attemptId, 'completed');
     } else if (context === 'noteFailure') {
-      await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     } else {
-      await session.llm.call(CALL);
+      await f.orchestrator.callWithinRecovery(CALL, session);
     }
 
     const degraded = f.emitted.find(
@@ -1174,7 +1175,7 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
     const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     expect(primaryCalls).toBe(0);
     expect(fallbackCalls).toBe(1);
     expect(f.emitted.some(
@@ -1195,7 +1196,7 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
     const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     expect(primaryCalls).toBe(0);
     expect(fallbackCalls).toBe(0);
     const saved = f.readState();
@@ -1213,7 +1214,7 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
       facts: facts({ interventionIds: ['user-release'] }),
     });
     if (retry.kind !== 'admitted') throw new Error('expected admitted');
-    await session.llm.call(CALL);
+    await f.orchestrator.callWithinRecovery(CALL, session);
     expect(primaryCalls).toBe(1);
   });
 
@@ -1226,7 +1227,7 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
     await expect((async () => {
-      for await (const _chunk of session.llm.stream(CALL)) { /* drain */ }
+      for await (const _chunk of f.orchestrator.streamWithinRecovery(CALL, session)) { /* drain */ }
     })()).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     expect(streamCalls).toBe(0);
     expect(f.readState().schedule.kind).toBe('on_change');
@@ -1468,5 +1469,185 @@ describe('Phase 2027 selective persistent recovery re-evaluation', () => {
     if (result.kind === 'waiting') {
       expect(result.schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + 900_000).toISOString() });
     }
+  });
+});
+
+
+describe('Phase 2032: legacy retirement and scoped invocation admission', () => {
+  it('retires legacy_turn started=false without resuming it and preserves other state', async () => {
+    const f = await makeFixture();
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 2,
+      retryDelayMs: 60_000,
+      quotaDelayMs: 240_000,
+    }, T0);
+    state.schedule = { kind: 'at', revision: 1, resumeAt: new Date(T0 + 120_000).toISOString() };
+    state.activeAdmission = {
+      attemptId: 'att-legacy-turn',
+      started: false,
+      requestKey: 'turn-fingerprint',
+      triggerKind: 'intervention',
+      interventionIds: ['old-user'],
+    };
+    state.acceptedInterventions.push('old-user');
+    state.providers.push({
+      providerId: 'provider-old',
+      errorClass: 'transient',
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 1,
+      detail: 'old failure',
+    });
+    state.failures.push({
+      at: new Date(T0).toISOString(),
+      providerId: 'provider-old',
+      errorClass: 'transient',
+      message: 'original evidence',
+    });
+    saveRecoveryState(f.fs, state);
+
+    f.makeSession();
+    const migrated = f.readState();
+    expect(migrated.activeAdmission).toBeNull();
+    expect(migrated.schedule).toMatchObject({ kind: 'at', resumeAt: state.schedule.resumeAt });
+    expect(migrated.budget).toEqual(state.budget);
+    expect(migrated.providers).toEqual(state.providers);
+    expect(migrated.acceptedInterventions).toEqual(['old-user']);
+    expect(migrated.failures[0].message).toBe('original evidence');
+    expect(migrated.failures.at(-1).message).toContain('legacy_turn_admission_retired');
+    expect(migrated.failures.at(-1).message).toContain('att-legacy-turn');
+    expect(migrated.failures.at(-1).message).toContain('turn-fingerprint');
+
+    // 再次启动不重复退役；旧 turn 不产生 resumedFromRestart 或新 attempt。
+    f.makeSession();
+    expect(f.readState().failures.filter(
+      (failure: { message: string }) => failure.message.includes('legacy_turn_admission_retired'),
+    )).toHaveLength(1);
+    expect(f.emitted.filter(event => event.type === 'recovery_attempt_admitted')).toHaveLength(0);
+  });
+
+  it('keeps legacy_turn started=true as unknown result rather than inventing success', async () => {
+    const f = await makeFixture();
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    state.activeAdmission = {
+      attemptId: 'att-legacy-started',
+      started: true,
+      requestKey: 'turn-fingerprint',
+      triggerKind: 'automatic',
+    };
+    saveRecoveryState(f.fs, state);
+
+    f.makeSession();
+    const migrated = f.readState();
+    expect(migrated.activeAdmission).toBeNull();
+    expect(migrated.failures.at(-1).message).toContain('att-legacy-started result unknown after restart');
+    expect(migrated.failures.at(-1).message).not.toContain('legacy_turn_admission_retired');
+    expect(f.emitted.filter(event => event.type === 'recovery_attempt_admitted')).toHaveLength(0);
+  });
+
+  it('gives each scoped call its own invocation and derives requestKey only from LLM input', async () => {
+    let f!: Awaited<ReturnType<typeof makeFixture>>;
+    const active: Array<{
+      attemptId: string;
+      requestKey: string;
+      admissionKind?: string;
+    }> = [];
+    f = await makeFixture({
+      call: async () => {
+        active.push(f.readState().activeAdmission);
+        return OK_RESPONSE;
+      },
+    });
+    const session = f.makeSession();
+
+    await session.llm.call({
+      messages: [{ role: 'user', content: 'same' }],
+      system: 'sys',
+      recoveryFacts: { interventionIds: ['fact-a'] },
+    });
+    // 两次调用之间等价于工具执行窗口：没有 turn 级 activeAdmission 残留。
+    expect(f.readState().activeAdmission).toBeNull();
+    await session.llm.call({
+      system: 'sys',
+      messages: [{ content: 'same', role: 'user' }],
+      recoveryFacts: { interventionIds: ['fact-b'] },
+    });
+    expect(f.readState().activeAdmission).toBeNull();
+    await session.llm.call({ messages: [{ role: 'user', content: 'different' }], system: 'sys' });
+
+    expect(active).toHaveLength(3);
+    expect(new Set(active.map(record => record.attemptId)).size).toBe(3);
+    expect(active.every(record => record.admissionKind === 'invocation')).toBe(true);
+    // 对象键顺序与 recoveryFacts 不影响请求身份；消息正文变化会影响。
+    expect(active[0].requestKey).toBe(active[1].requestKey);
+    expect(active[2].requestKey).not.toBe(active[0].requestKey);
+    expect(f.emitted.filter(event => event.type === 'recovery_attempt_finished')).toHaveLength(3);
+  });
+
+  it('throws typed waiting for call/stream with zero provider requests and no started admission', async () => {
+    let providerCalls = 0;
+    const f = await makeFixture({
+      call: async () => {
+        providerCalls += 1;
+        throw new Error('insufficient quota');
+      },
+    });
+    const session = f.makeSession();
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(providerCalls).toBe(1);
+    const before = f.readState();
+    expect(before.activeAdmission).toBeNull();
+
+    let waitError: unknown;
+    try {
+      await session.llm.call(CALL);
+    } catch (error) {
+      waitError = error;
+    }
+    expect(waitError).toBeInstanceOf(LLMRecoveryWaitRequiredError);
+    expect(waitError).toMatchObject({ factsAccepted: true, schedule: { kind: 'at' } });
+    await expect(session.llm.stream(CALL).next()).rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
+
+    expect(providerCalls).toBe(1);
+    expect(f.readState().activeAdmission).toBeNull();
+    expect(f.readState().budget).toEqual(before.budget);
+    expect(f.readState().failures).toEqual(before.failures);
+  });
+
+  it('preserves both the invocation error and a finish write error', async () => {
+    let writes = 0;
+    const f = await makeFixture({
+      call: async () => { throw new Error('provider exploded'); },
+      wrapFs: (fs) => new Proxy(fs, {
+        get(target, prop) {
+          if (prop === 'writeAtomicSync') {
+            return (...args: unknown[]) => {
+              writes += 1;
+              if (writes === 4) throw new Error('finish write failed');
+              return (target.writeAtomicSync as (...inner: unknown[]) => unknown)(...args);
+            };
+          }
+          const value = Reflect.get(target, prop);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }) as FileSystem,
+    });
+    const session = f.makeSession();
+
+    let failure: unknown;
+    try {
+      await session.llm.call(CALL);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(AggregateError);
+    const aggregate = failure as AggregateError;
+    expect(aggregate.errors[0]).toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(aggregate.errors[1]).toBeInstanceOf(Error);
+    expect((aggregate.errors[1] as Error).message).toContain('finish write failed');
+    expect(aggregate.cause).toBe(aggregate.errors[0]);
   });
 });

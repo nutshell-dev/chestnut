@@ -47,6 +47,7 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
     system: systemPrompt,
     tools,
     maxTokens,
+    recoveryFacts: input.recoveryFacts,
     signal: ctx.signal, streamIdleTimeoutMs: input.idleTimeoutMs,
   };
   const { response, llmInfo } = await runLLMCall(llm, callOptions, llmStartTime, input);

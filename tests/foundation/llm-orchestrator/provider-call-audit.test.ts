@@ -466,7 +466,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const admission = await session.begin({ requestKey: 'rk-1', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
-    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
     // 恢复状态磁盘证据：providerLabel + invocationId + attemptIndex + configRevision

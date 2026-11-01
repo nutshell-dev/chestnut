@@ -248,6 +248,7 @@ export async function createRuntimeAssembly(
     // in-process>0（已被本事实覆盖）。磁盘 running 含崩溃残留（归 task-recovery），
     // 不作在途判据。核证用例：tests/core/async-task-system/queue-wait-facts.test.ts。
     isAsyncTaskInFlight: async () => taskSystem.getInProcessRunningCount() > 0,
+    inspectLlmRecoverySchedule: () => recoverySession.inspect(),
   };
 
   // --- phase 1873 Step C: EventLoop 构造/初始化归装配 ---
@@ -263,7 +264,6 @@ export async function createRuntimeAssembly(
     inbox: { pendingDir: path.join(clawDir, INBOX_PENDING_DIR) },
     streamWriter,
     executionRecovery,
-    recovery: recoverySession,
   });
   // 初始化须在「驱动前」完成；装配序整体先于 daemon 驱动（风险项照应）。
   await eventLoop.initialize();

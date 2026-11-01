@@ -19,6 +19,13 @@ import type { LLMResponse } from '../llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
 
+/** 单次调用随附的 opaque 恢复事实；不得携带消息正文或 agent 业务结构。 */
+export interface LLMRecoveryFacts {
+  readonly interventionIds: readonly string[];
+  readonly configurationRevision?: string;
+  readonly startupId?: string;
+}
+
 /**
  * LLM call options — extends L1 base with L2b orchestration fields.
  */
@@ -29,6 +36,8 @@ export interface LLMCallOptions extends L1LLMCallOptions {
   streamIdleTimeoutMs?: number;
   /** ⚓4 ε probe timeout after stream idle, default 5000ms */
   streamIdleProbeTimeoutMs?: number;
+  /** EventLoop 观察到的恢复事实，由 recovery owner 在 invocation 内消费。 */
+  recoveryFacts?: LLMRecoveryFacts;
 }
 
 /**

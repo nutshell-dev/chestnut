@@ -171,6 +171,8 @@ export interface StepInput {
   eventSink?: StepExecutorEventSink;
   /** Phase 1933 Step C：严格恢复交付（可选注入；注入后响应/工具事实在副作用前 await 提交，失败阻断 step）。 */
   recovery?: RecoveryDelivery;
+  /** Phase 2032：原样附到 LLMCallOptions，由 invocation owner 消费。 */
+  recoveryFacts?: import('../../foundation/llm-orchestrator/index.js').LLMRecoveryFacts;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、StepExecutor 不再持 trim 业务。
 }
