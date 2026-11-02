@@ -10,7 +10,7 @@ import type { FileSystem } from '../fs/index.js';
 import type { OutboxMessage } from '../messaging/types.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import { encodeOutbox } from './codec-outbox.js';
-import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize } from './audit-emit.js';
+import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize, emitOutboxWriteDurabilityDegraded } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import type { ClawId } from '../claw-identity/index.js';
 import type { MessagingWriterLimits } from './config-schema.js';
@@ -107,8 +107,19 @@ export class OutboxWriter {
 
       // Ensure directory exists
       await this.fs.ensureDir(this.outboxDir);
-      // Write file
-      await this.fs.writeAtomic(filePath, content);
+      // Write file. A non-durable result means rename already committed: retain
+      // outbox_sent and never roll back, but make the durability degradation audible.
+      const result = await this.fs.writeAtomic(filePath, content);
+      if (result.kind !== 'durable') {
+        emitOutboxWriteDurabilityDegraded(this.audit, {
+          file: filename,
+          to: options.to,
+          id: message.id,
+          type: options.type,
+          durability: result.kind,
+          error: formatErr(result.error),
+        });
+      }
       emitOutboxSent(this.audit, {
         from: this.clawId,
         to: options.to,
