@@ -781,7 +781,9 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         try {
           await this.markFailed(issue.filePath);
         } catch (moveErr) {
-          if (isFileNotFound(moveErr)) continue;  // race: vanished after pending view
+          const vanished = isFileNotFound(moveErr) ||
+            (moveErr instanceof InboxMoveFailed && isFileNotFound(moveErr.cause));
+          if (vanished) continue;  // race: vanished after pending view
           throw moveErr;
         }
       } else {
