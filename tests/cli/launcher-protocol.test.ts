@@ -104,9 +104,9 @@ describe('send launcher.v1 envelope', () => {
     expect(stdoutLines()[0].payload).not.toHaveProperty('requestId');
   });
 
-  it('非法 requestId：stdout 唯一 error envelope，无 ack、无 inbox 落盘', async () => {
+  it.each(['req\nid: forged', ''])('非法 requestId %j：stdout 唯一 error envelope，无 ack、无 inbox 落盘', async (requestId) => {
     await expect(sendCommand(commandDeps, 'test-claw', 'hello', {
-      requestId: 'req\nid: forged',
+      requestId,
     })).rejects.toThrow(/unsafe id/);
 
     const envelopes = stdoutLines();

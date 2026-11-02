@@ -21,6 +21,7 @@ import {
 } from './audit-emit.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { assertMessageShape } from './invariants.js';
+import { assertSafeWireToken } from './codec-validation.js';
 import { sanitizeMessageIdentifier } from './sanitize.js';
 import type { MessagingWriterLimits } from './config-schema.js';
 import { INBOX_DONE_DIR, INBOX_INFLIGHT_DIR } from './dirs.js';
@@ -92,6 +93,8 @@ export class InboxWriter {
       assertMessageShape(msg, this.audit, 'inbox', 'write');
 
       if (opts.dedupeByMessageId === true) {
+        assertSafeWireToken(msg.id, 'id');
+        assertSafeWireToken(msg.type, 'type');
         const existing = await this.findExistingByIdentity(msg.id, {
           includeDoneWithinMs: opts.includeDoneWithinMs,
         });
@@ -204,6 +207,8 @@ export class InboxWriter {
       // 稳定 id 在 pending/inflight（以及显式 done 窗口）中已有时不重复落盘。
       const stableId = opts.messageId;
       if (stableId !== undefined) {
+        assertSafeWireToken(stableId, 'id');
+        assertSafeWireToken(opts.type, 'type');
         const existing = this.findExistingByIdentitySync(stableId, {
           includeDoneWithinMs: opts.includeDoneWithinMs,
         });

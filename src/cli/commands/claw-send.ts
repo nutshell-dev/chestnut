@@ -59,7 +59,7 @@ export async function sendCommand(
     makeLauncherEnvelope(nextSeq(), sessionId, 'ack', {
       accepted: true,
       claw: name,
-      ...(options?.requestId ? { requestId: options.requestId } : {}),
+      ...(options?.requestId !== undefined ? { requestId: options.requestId } : {}),
     }),
   );
 }
@@ -90,7 +90,7 @@ export async function deliverClawMessage(
     priority: options?.priority ?? 'normal',
     body: message,
     // Launcher requestId 同时是持久 inbox 身份，供 send ack 与 stream snapshot 幂等关联。
-    ...(options?.requestId ? { messageId: options.requestId } : {}),
+    ...(options?.requestId !== undefined ? { messageId: options.requestId } : {}),
   });
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });

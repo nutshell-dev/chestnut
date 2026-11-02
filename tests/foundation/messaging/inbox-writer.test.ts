@@ -408,6 +408,31 @@ describe('InboxWriter', () => {
     expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
   });
 
+  it('writeSync validates type before returning a stable-id dedup hit', () => {
+    const opts = { type: 'ping', source: 'motion', body: 'test', messageId: 'stable-replay' };
+    writer.writeSync(opts);
+
+    expect(() => writer.writeSync({ ...opts, type: 'bad\n---' })).toThrow(/unsafe type/);
+    expect(auditCalls.some(c => c.startsWith('inbox_deduped:'))).toBe(false);
+    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+  });
+
+  it('async opt-in validates type before returning a dedup hit', async () => {
+    const msg: InboxMessage = {
+      id: 'async-replay', type: 'message', from: 'sender', to: 'claw',
+      content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
+    };
+    await writer.write(msg);
+
+    await expect(writer.write(
+      { ...msg, type: 'bad\n---' },
+      undefined,
+      { dedupeByMessageId: true },
+    )).rejects.toThrow(/unsafe type/);
+    expect(auditCalls.some(c => c.startsWith('inbox_deduped:'))).toBe(false);
+    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+  });
+
   // ─── .readMeta() ─────────────────────────────────────────────────────────
 
   it('readMeta returns ok with meta for valid file', async () => {
