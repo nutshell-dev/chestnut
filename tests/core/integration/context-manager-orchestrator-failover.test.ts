@@ -1,92 +1,19 @@
-import { describe, it, expect, vi } from 'vitest';
-import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
-import type { LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 
-function createMockProvider(name: string): ProviderAdapter {
-  return {
-    name,
-    model: 'test-model',
-    call: vi.fn(),
-    stream: vi.fn(),
-  };
-}
+/**
+ * L2 只消费 typed context 协议，不识别 L4 的错误名称。
+ * L4 ContextTrimExhaustedError 自身仍归 ContextManager 所有，本测试不构造或驱动它。
+ */
+describe('orchestrator upper-layer context error boundary', () => {
+  it('does not contain the L4 ContextTrim error name or its dedicated failover', () => {
+    const source = readFileSync(
+      new URL('../../../src/foundation/llm-orchestrator/orchestrator.ts', import.meta.url),
+      'utf8',
+    );
 
-function createProviderConfig(name: string, apiKey: string): ProviderConfig {
-  return {
-    name,
-    apiKey,
-    model: 'test-model',
-    apiFormat: 'anthropic',
-    maxTokens: 1000,
-    temperature: 0.7,
-    timeoutMs: 30000,
-  };
-}
-
-describe('orchestrator failover on ContextTrimExhaustedError', () => {
-  it('switches to fallback when primary throws ContextTrimExhaustedError', async () => {
-    const events: Array<Record<string, unknown>> = [];
-    const eventSink: LLMEventSink = {
-      emit: (e: Record<string, unknown>) => { events.push(e); },
-    };
-
-    const primary = createMockProvider('primary');
-    const fallback = createMockProvider('fallback');
-
-    primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted', { budget: 0 }));
-    fallback.call.mockResolvedValue({
-      content: [{ type: 'text', text: 'fallback response' }],
-      stop_reason: 'end_turn',
-      model: 'fallback-model',
-      usage: { input_tokens: 1, output_tokens: 1 },
-    });
-
-    const orchestrator = new LLMOrchestratorImpl({
-      primary: createProviderConfig('primary', 'key-p'),
-      fallbacks: [createProviderConfig('fallback', 'key-f')],
-      events: eventSink,
-      maxAttempts: 1,
-      retryDelayMs: 0,
-      createProviderAdapter: (config) => config.name === 'fallback' ? fallback : primary,
-    });
-
-    // Verify fallback provider is distinct from primary
-    expect((orchestrator as unknown as { fallbacks: Array<{ name: string }> }).fallbacks[0].name).toBe('fallback');
-
-    const result = await orchestrator.call({
-      messages: [{ role: 'user', content: 'hi' }],
-      system: 'sys',
-    });
-
-    expect(result.content[0]).toEqual({ type: 'text', text: 'fallback response' });
-    expect(primary.call).toHaveBeenCalledOnce();
-    expect(fallback.call).toHaveBeenCalledOnce();
-    expect(events.some(e => e.type === 'context_exceeded_failover')).toBe(true);
-  });
-
-  it('throws LLMAllProvidersFailedError when all providers exhausted', async () => {
-    const eventSink: LLMEventSink = {
-      emit: () => {},
-    };
-
-    const primary = createMockProvider('primary');
-
-    primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted', { budget: 0 }));
-
-    const orchestrator = new LLMOrchestratorImpl({
-      primary: createProviderConfig('primary', 'key-p'),
-      events: eventSink,
-      maxAttempts: 1,
-      retryDelayMs: 0,
-      createProviderAdapter: () => primary,
-    });
-
-    await expect(orchestrator.call({
-      messages: [{ role: 'user', content: 'hi' }],
-      system: 'sys',
-    })).rejects.toThrow(/All LLM providers failed/);
-    expect(primary.call).toHaveBeenCalledOnce();
+    expect(source).not.toContain('ContextTrimExhaustedError');
+    expect(source).not.toContain('CONTEXT_TRIM_EXHAUSTED_ERROR_NAME');
+    expect(source).not.toContain("stopReason: 'context_trim_exhausted'");
   });
 });

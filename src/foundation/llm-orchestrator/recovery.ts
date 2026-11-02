@@ -34,7 +34,7 @@ import type {
   LLMStreamChunk,
 } from './types.js';
 import type { LLMErrorClass } from './errors.js';
-import { LLMRecoveryWaitRequiredError } from './errors.js';
+import { LLMOrchestratorClosedError, LLMRecoveryWaitRequiredError } from './errors.js';
 import {
   LLM_RECOVERY_COOLDOWN_MS,
   LLM_RECOVERY_MAX_RETRIES,
@@ -134,6 +134,8 @@ export type SharedRecoveryDecision =
  * 公共 call/stream 消费者仍只要求既有最小接口。
  */
 export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal {
+  /** scoped view 在创建 admission 前查询 owner 的不可逆终态。 */
+  isClosed(): boolean;
   callWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): Promise<LLMResponse>;
   streamWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): AsyncIterableIterator<LLMStreamChunk>;
 
@@ -830,12 +832,16 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
 
   private createScopedView(orchestrator: LLMOrchestratorOwner): LLMOrchestrator & LLMRuntimeCapability {
     const session = this;
+    const assertOwnerOpen = () => {
+      if (orchestrator.isClosed()) throw new LLMOrchestratorClosedError();
+    };
     const beginInvocation = async (options: LLMCallOptions) => session.begin({
       requestKey: requestKeyForCall(options),
       facts: options.recoveryFacts ?? { interventionIds: [] },
     });
     return {
       call: async (options: LLMCallOptions) => {
+        assertOwnerOpen();
         const admission = await beginInvocation(options);
         if (admission.kind === 'waiting') {
           throw new LLMRecoveryWaitRequiredError(admission.schedule, admission.factsAccepted);
@@ -868,6 +874,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         }
       },
       stream: (options: LLMCallOptions) => (async function* () {
+        assertOwnerOpen();
         const admission = await beginInvocation(options);
         if (admission.kind === 'waiting') {
           throw new LLMRecoveryWaitRequiredError(admission.schedule, admission.factsAccepted);

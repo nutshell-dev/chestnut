@@ -15,7 +15,7 @@ import {
   type LLMRecoveryProviderFact,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
-import { LLMAllProvidersFailedError, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMAllProvidersFailedError, LLMOrchestratorClosedError, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
@@ -533,6 +533,22 @@ describe('recovery breaker coordination', () => {
 });
 
 describe('recovery scoped view isolation', () => {
+  it('owner close rejects scoped call/stream before creating admission', async () => {
+    const f = await makeFixture();
+    const session = f.makeSession();
+    await f.orchestrator.close();
+    const before = fsNative.existsSync(f.statePath) ? fsNative.readFileSync(f.statePath, 'utf8') : null;
+    const eventCount = f.emitted.length;
+
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+    await expect(session.llm.stream(CALL).next()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+
+    const after = fsNative.existsSync(f.statePath) ? fsNative.readFileSync(f.statePath, 'utf8') : null;
+    expect(after).toBe(before);
+    expect(f.emitted.slice(eventCount).some(event =>
+      event.type === 'recovery_attempt_admitted' || event.type === 'recovery_attempt_finished')).toBe(false);
+  });
+
   it('view close does not close the shared orchestrator', async () => {
     const f = await makeFixture();
     const session = f.makeSession();

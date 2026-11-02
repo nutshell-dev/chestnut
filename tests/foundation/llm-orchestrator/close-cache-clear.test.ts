@@ -1,11 +1,12 @@
 /**
  * phase 517 B7 regression：LLMOrchestratorImpl.close() 应清 sdkClientCache、
- * 调 provider 上的 optional close、close 后再 call 会 lazy 重建。
+ * 调 provider 上的 optional close；close 后操作性入口统一拒绝。
  * phase 532: 加测试覆盖之前 phase 517 没建。
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
+import { LLMOrchestratorClosedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -81,6 +82,55 @@ describe('LLMOrchestratorImpl.close', () => {
     await orch.close();
     await orch.close();
     await orch.close();
+  });
+
+  it('close 后真实请求与配置动作拒绝，且不产生 admission 或 provider 调用', async () => {
+    const { sink, emitted } = createSink();
+    const adapter = {
+      name: 'p1',
+      model: 'm1',
+      call: vi.fn(),
+      stream: vi.fn(),
+    };
+    const orch = new LLMOrchestratorImpl({
+      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+      createProviderAdapter: () => adapter,
+    });
+    const scope = {
+      noteAttemptStarted: vi.fn(),
+      noteSuccess: vi.fn(),
+      noteFailure: vi.fn(),
+      attemptContext: vi.fn(() => ({ probeOnly: false, allowBreakerProbe: false })),
+    };
+    const options = { messages: [{ role: 'user' as const, content: 'hi' }] };
+    const nextConfig = {
+      primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' as const },
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    };
+
+    await orch.close();
+
+    await expect(orch.call(options)).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+    await expect(orch.callWithinRecovery(options, scope)).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+    await expect(orch.stream(options).next()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+    await expect(orch.streamWithinRecovery(options, scope).next()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+    await expect(orch.healthCheck()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
+    expect(() => orch.probe()).toThrow(LLMOrchestratorClosedError);
+    expect(() => orch.reloadConfig(nextConfig)).toThrow(LLMOrchestratorClosedError);
+    expect(() => orch.resetLastSuccessProvider()).not.toThrow();
+    expect(orch.getFailureDisposition(new Error('plain'))).toBe('unknown');
+    expect(orch.isClosed()).toBe(true);
+    expect(adapter.call).not.toHaveBeenCalled();
+    expect(adapter.stream).not.toHaveBeenCalled();
+    expect(scope.noteAttemptStarted).not.toHaveBeenCalled();
+    expect(scope.attemptContext).not.toHaveBeenCalled();
+    expect(emitted.some(event => event.type === 'call_invocation_started')).toBe(false);
+    await expect(orch.close()).resolves.toBeUndefined();
   });
 
   it('Phase 900: 单个 provider close 抛错时 emit 事件且其余仍关闭、cache 被清空', async () => {

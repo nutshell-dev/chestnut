@@ -27,6 +27,15 @@ import {
 
 type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED' | 'LLM_CIRCUIT_BREAKER_OPEN';
 
+/** owner close 是不可逆终态；生命周期拒绝不属于 provider 故障分类。 */
+export class LLMOrchestratorClosedError extends Error {
+  readonly name = 'LLMOrchestratorClosedError';
+
+  constructor() {
+    super('LLM orchestrator is closed');
+  }
+}
+
 /** invocation 尚未获准执行；上层只回队来源并等待 owner schedule。 */
 export class LLMRecoveryWaitRequiredError extends Error {
   readonly name = 'LLMRecoveryWaitRequiredError';

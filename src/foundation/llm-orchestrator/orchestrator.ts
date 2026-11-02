@@ -15,9 +15,6 @@ import {
   getRetryAfterSec,
   type LLMErrorClass,
   type LLMProviderFailure } from './errors.js';
-// Phase 186: ContextTrimExhaustedError from L4 ContextManager — we avoid direct L2→L4 import
-// per architecture layer rules, and duck-type via error.name instead of instanceof.
-const CONTEXT_TRIM_EXHAUSTED_ERROR_NAME = 'ContextTrimExhaustedError';
 
 import type {
   LLMOrchestratorConfig,
@@ -32,7 +29,7 @@ import type {
   LLMStreamChunk } from './types.js';
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput, SharedRecoveryDecision } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
-import { LLMCircuitBreakerOpenError } from './errors.js';
+import { LLMCircuitBreakerOpenError, LLMOrchestratorClosedError } from './errors.js';
 import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig, type PiAiCredentialStore } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
@@ -334,11 +331,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         if (lastError.name === 'AbortError' && hardSignal?.aborted) throw lastError;
         if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
 
-        if (lastError?.name === CONTEXT_TRIM_EXHAUSTED_ERROR_NAME) {
-          this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: 'context_trim_exhausted' });
-          break;
-        }
-
         if (classifyLLMError(lastError) === 'context_exceeded') {
           this.events.emit({ type: 'context_exceeded_throwthrough', provider: adapter.name });
           throw lastError;
@@ -592,6 +584,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * - 不重试、不级联 fallback；结果经返回值表达（不抛业务错）。
    */
   probe(): Promise<LLMProbeResult> {
+    this.assertOpen();
     if (this.inflightProbe) return this.inflightProbe;
     this.inflightProbe = this._runProbe().finally(() => {
       this.inflightProbe = null;
@@ -847,6 +840,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     options: LLMCallOptions,
     scope: RecoveryCallScope | undefined,
   ): Promise<LLMResponse> {
+    this.assertOpen();
     scope?.noteAttemptStarted();
     // owner 的准入决定本次调用的局部预算与资格（不修改全局配置、不置可变标志）。
     const limits = this.resolveCallLimits(scope);
@@ -892,6 +886,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       )
       : this.config.primary;
     return config?.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
+  }
+
+  private assertOpen(): void {
+    if (this.closed) throw new LLMOrchestratorClosedError();
+  }
+
+  isClosed(): boolean {
+    return this.closed;
   }
 
   private async _callCore(options: LLMCallOptions, limits: CallLimits, inv: CallPathAudit): Promise<LLMResponse> {
@@ -1017,6 +1019,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     options: LLMCallOptions,
     scope: RecoveryCallScope | undefined,
   ): AsyncIterableIterator<LLMStreamChunk> {
+    this.assertOpen();
     scope?.noteAttemptStarted();
     const limits = this.resolveCallLimits(scope);
     const inv = this.beginCallPath('stream', limits.attemptId);
@@ -1553,6 +1556,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * Health check - quick validation that provider is reachable
    */
   async healthCheck(): Promise<boolean> {
+    this.assertOpen();
     const adapters = [this.primary, ...this.fallbacks];
     const timeoutMs = 10_000; // healthCheck 默 10s（与既有 caller 0 timeout 行为等价）
     for (const adapter of adapters) {
@@ -1966,7 +1970,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   /**
    * Close/cleanup - clear SDK client cache.
    * phase 517 B7: 实现 API 契约「close() 释放资源」。Anthropic SDK 等用 fetch keepalive
-   * agent、不显式清理依赖 GC 回收时机不可控。close 后再 call 会 lazy 重建 cache。
+   * agent、不显式清理依赖 GC 回收时机不可控。close 后操作性入口统一拒绝，不重建 cache。
    * phase 899: per-provider try/catch + finally clear；任一 provider close 抛错不影响其余
    * provider 关闭与 cache 清空，最终聚合并抛出错误信息。
    * phase 900: 统一关闭 cache + pendingClose 中延迟回收的 provider；close 失败 emit
@@ -1975,6 +1979,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 再走既有 provider/cache 关闭语义（原行为不变）。
    */
   async close(): Promise<void> {
+    if (this.closed) return;
     // Phase 1933 Step F / 1934 Step C：幂等取消进程内探针调度——timer 清除 +
     // generation 作废 + 在途探针 abort（进行中的探针见 closed 不记账不投递）；
     // 先取消再走既有 provider/cache 关闭。
@@ -2009,6 +2014,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * currentStreamingProvider 不动（如有活跃 stream，配置替换不影响当前流）。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void {
+    this.assertOpen();
     // Phase 899: record old keys, evict after reload
     const oldKeys = new Set(this.sdkClientCache.keys());
     const oldProviderIds = this.providerIds;
