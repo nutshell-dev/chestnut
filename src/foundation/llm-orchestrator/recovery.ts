@@ -47,6 +47,7 @@ import {
 import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
+  LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION,
   createInitialRecoveryState,
   loadRecoveryState,
   saveRecoveryState,
@@ -216,6 +217,21 @@ function appendBounded(existing: string[], additions: readonly string[], max: nu
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
+/** 最近窗口是索引；完整 acceptedFactBatches 防止窗口外旧事实重放。 */
+function hasAcceptedFact(
+  state: LLMRecoveryStateV1,
+  kind: 'intervention' | 'configuration',
+  id: string,
+): boolean {
+  if (kind === 'intervention' && state.acceptedInterventions.includes(id)) return true;
+  if (kind === 'configuration' && state.acceptedConfigRevisions.includes(id)) return true;
+  return (state.acceptedFactBatches ?? []).some(batch =>
+    kind === 'intervention'
+      ? batch.interventionIds.includes(id)
+      : batch.configurationRevision === id,
+  );
+}
+
 export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallScope {
   readonly llm: LLMOrchestrator & LLMRuntimeCapability;
 
@@ -368,7 +384,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
 
     // 4. 新配置修订：只重估身份变化或待迁移事实；at 的时间窗不因配置缩短。
     const configRevision = input.facts.configurationRevision;
-    if (configRevision !== undefined && !next.acceptedConfigRevisions.includes(configRevision)) {
+    if (configRevision !== undefined && !hasAcceptedFact(next, 'configuration', configRevision)) {
       next.acceptedConfigRevisions = appendBounded(
         next.acceptedConfigRevisions,
         [configRevision],
@@ -402,7 +418,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     }
 
     // 5. 全部新干预 ids 一次记账；多 id 归一化为一次资格，旧 id 不授予新资格。
-    const freshIds = dedupedIds.filter(id => !next.acceptedInterventions.includes(id));
+    const freshIds = dedupedIds.filter(id => !hasAcceptedFact(next, 'intervention', id));
     if (freshIds.length > 0) {
       next.acceptedInterventions = appendBounded(
         next.acceptedInterventions,
@@ -909,9 +925,20 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   }): void {
     state.failures.push(evidence);
     if (state.failures.length > LLM_RECOVERY_FAILURE_EVIDENCE_MAX) {
-      state.failures = state.failures.slice(
-        state.failures.length - LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
-      );
+      const droppedCount = state.failures.length - LLM_RECOVERY_FAILURE_EVIDENCE_MAX;
+      const dropped = state.failures.slice(0, droppedCount);
+      state.failures = state.failures.slice(droppedCount);
+      const previous = state.failureEvidenceLoss;
+      const firstDroppedAt = previous?.firstDroppedAt ?? dropped[0]?.at;
+      const lastDroppedAt = dropped.at(-1)?.at ?? previous?.lastDroppedAt;
+      state.failureEvidenceLoss = {
+        droppedCount: (previous?.droppedCount ?? 0) + dropped.length,
+        ...(firstDroppedAt !== undefined ? { firstDroppedAt } : {}),
+        ...(lastDroppedAt !== undefined ? { lastDroppedAt } : {}),
+        reason: 'bounded_retention',
+        policyVersion: LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION,
+        recoverability: 'not_preserved_in_recovery_state',
+      };
     }
   }
 

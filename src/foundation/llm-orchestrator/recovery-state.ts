@@ -22,6 +22,9 @@ export const LLM_RECOVERY_STATE_FILE = 'llm-recovery-state.json' as const;
 /** 保留的原始失败证据条数上限（有界，防状态文件无界增长）。 */
 export const LLM_RECOVERY_FAILURE_EVIDENCE_MAX = 10;
 
+/** 失败证据有界保留丢失记录的协议版本。 */
+export const LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION = 1 as const;
+
 /** 保留的已接受干预/配置修订标识条数上限。 */
 export const LLM_RECOVERY_ACCEPTED_IDS_MAX = 64;
 
@@ -106,6 +109,16 @@ export interface LLMRecoveryAdmissionRecord {
   resumedFromRestart?: boolean;
 }
 
+/** 有界保留截断掉的失败证据记录；只描述丢失事实，不承诺外部可恢复。 */
+export interface LLMRecoveryFailureEvidenceLoss {
+  droppedCount: number;
+  firstDroppedAt?: string;
+  lastDroppedAt?: string;
+  reason: 'bounded_retention';
+  policyVersion: typeof LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION;
+  recoverability: 'not_preserved_in_recovery_state';
+}
+
 /** 原始失败证据（保留错误本身，不用显示摘要替代）。 */
 export interface LLMRecoveryFailureEvidence {
   at: string;
@@ -149,6 +162,8 @@ export interface LLMRecoveryStateV1 {
   lastStartupProbeId?: string;
   activeAdmission: LLMRecoveryAdmissionRecord | null;
   failures: LLMRecoveryFailureEvidence[];
+  /** Phase 2035：超出有界保留的证据丢失记录；旧文件缺省表示尚无记录。 */
+  failureEvidenceLoss?: LLMRecoveryFailureEvidenceLoss;
   importedSources: string[];
   /** Phase 1827: 事实接受历史（可选——旧文件无此字段；缺失表示尚无 1827 批次记录）。 */
   acceptedFactBatches?: LLMRecoveryAcceptedFactBatch[];
@@ -189,7 +204,7 @@ function isSchedule(v: unknown): v is LLMRecoverySchedule {
   const s = v as Record<string, unknown>;
   if (typeof s.revision !== 'number') return false;
   if (s.kind === 'ready' || s.kind === 'on_change') return true;
-  if (s.kind === 'at') return typeof s.resumeAt === 'string' && !Number.isNaN(Date.parse(s.resumeAt));
+  if (s.kind === 'at') return typeof s.resumeAt === 'string';
   return false;
 }
 
@@ -266,8 +281,108 @@ function isFailureEvidence(v: unknown): v is LLMRecoveryFailureEvidence {
   return true;
 }
 
+function isFailureEvidenceLoss(v: unknown): v is LLMRecoveryFailureEvidenceLoss {
+  if (typeof v !== 'object' || v === null) return false;
+  const loss = v as Record<string, unknown>;
+  if (typeof loss.droppedCount !== 'number'
+    || loss.reason !== 'bounded_retention'
+    || loss.policyVersion !== LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION
+    || loss.recoverability !== 'not_preserved_in_recovery_state') return false;
+  if (loss.firstDroppedAt !== undefined && typeof loss.firstDroppedAt !== 'string') return false;
+  if (loss.lastDroppedAt !== undefined && typeof loss.lastDroppedAt !== 'string') return false;
+  return true;
+}
+
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(x => typeof x === 'string');
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function isNonNegativeInteger(v: unknown): v is number {
+  return isFiniteNumber(v) && Number.isInteger(v) && v >= 0;
+}
+
+function isPositiveFiniteNumber(v: unknown): v is number {
+  return isFiniteNumber(v) && v > 0;
+}
+
+function isRevision(v: unknown): v is number {
+  return isNonNegativeInteger(v) && v >= 1;
+}
+
+function isIsoDateString(v: unknown): v is string {
+  return typeof v === 'string' && !Number.isNaN(Date.parse(v));
+}
+
+/** 结构校验后的语义校验；返回具体字段，非法状态继续 fail-closed。 */
+function recoveryStateSemanticMismatch(s: Record<string, unknown>): string | undefined {
+  if (!isRevision(s.revision)) return 'revision';
+
+  const schedule = s.schedule as LLMRecoverySchedule;
+  if (!isRevision(schedule.revision) || schedule.revision !== s.revision) return 'schedule.revision';
+  if (schedule.kind === 'at' && !isIsoDateString(schedule.resumeAt)) return 'schedule.resumeAt';
+
+  const budget = s.budget as LLMRecoveryBudget;
+  if (!isNonNegativeInteger(budget.retryCount)) return 'budget.retryCount';
+  if (!isPositiveFiniteNumber(budget.retryDelayMs)) return 'budget.retryDelayMs';
+  if (!isPositiveFiniteNumber(budget.quotaDelayMs)) return 'budget.quotaDelayMs';
+
+  const providers = s.providers as LLMRecoveryProviderFact[];
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+    if (!isIsoDateString(provider.at)) return `providers[${i}].at`;
+    if (!isNonNegativeInteger(provider.consecutiveFailures)) return `providers[${i}].consecutiveFailures`;
+    if (provider.rateLimitFailures !== undefined && !isNonNegativeInteger(provider.rateLimitFailures)) {
+      return `providers[${i}].rateLimitFailures`;
+    }
+    if (provider.rateLimitBlockedAt !== undefined && !isIsoDateString(provider.rateLimitBlockedAt)) {
+      return `providers[${i}].rateLimitBlockedAt`;
+    }
+  }
+
+  const admission = s.activeAdmission as LLMRecoveryAdmissionRecord | null;
+  if (admission?.startedAt !== undefined && !isIsoDateString(admission.startedAt)) {
+    return 'activeAdmission.startedAt';
+  }
+
+  const failures = s.failures as LLMRecoveryFailureEvidence[];
+  for (let i = 0; i < failures.length; i++) {
+    const failure = failures[i];
+    if (!isIsoDateString(failure.at)) return `failures[${i}].at`;
+    if (failure.attemptIndex !== undefined && !isNonNegativeInteger(failure.attemptIndex)) {
+      return `failures[${i}].attemptIndex`;
+    }
+    if (failure.configRevision !== undefined && !isNonNegativeInteger(failure.configRevision)) {
+      return `failures[${i}].configRevision`;
+    }
+  }
+
+  const batches = (s.acceptedFactBatches ?? []) as LLMRecoveryAcceptedFactBatch[];
+  for (let i = 0; i < batches.length; i++) {
+    if (!isRevision(batches[i].revision) || batches[i].revision > (s.revision as number)) {
+      return `acceptedFactBatches[${i}].revision`;
+    }
+  }
+
+  const loss = s.failureEvidenceLoss as LLMRecoveryFailureEvidenceLoss | undefined;
+  if (loss) {
+    if (!isNonNegativeInteger(loss.droppedCount)) return 'failureEvidenceLoss.droppedCount';
+    if (loss.droppedCount > 0 && (loss.firstDroppedAt === undefined || loss.lastDroppedAt === undefined)) {
+      return 'failureEvidenceLoss.firstDroppedAt/lastDroppedAt';
+    }
+    if (loss.firstDroppedAt !== undefined && !isIsoDateString(loss.firstDroppedAt)) {
+      return 'failureEvidenceLoss.firstDroppedAt';
+    }
+    if (loss.lastDroppedAt !== undefined && !isIsoDateString(loss.lastDroppedAt)) {
+      return 'failureEvidenceLoss.lastDroppedAt';
+    }
+  }
+
+  if (!isIsoDateString(s.updatedAt)) return 'updatedAt';
+  return undefined;
 }
 
 export function validateRecoveryState(
@@ -310,6 +425,9 @@ export function validateRecoveryState(
   if (!Array.isArray(s.failures) || !s.failures.every(isFailureEvidence)) {
     return { ok: false, reason: 'field_type_mismatch', detail: 'failures' };
   }
+  if (s.failureEvidenceLoss !== undefined && !isFailureEvidenceLoss(s.failureEvidenceLoss)) {
+    return { ok: false, reason: 'field_type_mismatch', detail: 'failureEvidenceLoss' };
+  }
   if (!isStringArray(s.importedSources)) {
     return { ok: false, reason: 'field_type_mismatch', detail: 'importedSources' };
   }
@@ -320,6 +438,10 @@ export function validateRecoveryState(
   }
   if (typeof s.updatedAt !== 'string') {
     return { ok: false, reason: 'field_type_mismatch', detail: 'updatedAt' };
+  }
+  const semanticMismatch = recoveryStateSemanticMismatch(s);
+  if (semanticMismatch !== undefined) {
+    return { ok: false, reason: 'field_type_mismatch', detail: semanticMismatch };
   }
   return { ok: true, state: s as unknown as LLMRecoveryStateV1 };
 }

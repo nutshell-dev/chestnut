@@ -1716,3 +1716,149 @@ describe('Phase 2032: legacy retirement and scoped invocation admission', () => 
     expect(aggregate.cause).toBe(aggregate.errors[0]);
   });
 });
+
+
+describe('Phase 2035 Step C: complete accepted-fact dedupe', () => {
+  it('65 个干预后窗口外/中间/最新重放均幂等，新干预仍获提前资格', async () => {
+    let providerCalls = 0;
+    const f = await makeFixture({
+      call: async () => {
+        providerCalls += 1;
+        throw new Error('insufficient quota');
+      },
+    });
+    const session = f.makeSession();
+    const first = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (first.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await session.finish(first.attemptId, 'failed');
+
+    for (let i = 0; i < 65; i++) {
+      const admission = await session.begin({
+        requestKey: `fp-${i}`,
+        facts: facts({ interventionIds: [`m${i}`] }),
+      });
+      expect(admission.kind).toBe('admitted');
+      if (admission.kind !== 'admitted') return;
+      await session.finish(admission.attemptId, 'interrupted');
+    }
+    expect(f.readState().acceptedInterventions).toHaveLength(64);
+    expect(f.readState().acceptedInterventions).not.toContain('m0');
+    expect(f.readState().acceptedFactBatches).toHaveLength(65);
+
+    const acceptedBefore = acceptedEvents(f).length;
+    for (const id of ['m0', 'm32', 'm64']) {
+      const replay = await session.begin({ requestKey: 'fp-replay', facts: facts({ interventionIds: [id] }) });
+      expect(replay.kind).toBe('waiting');
+    }
+    expect(f.readState().acceptedFactBatches).toHaveLength(65);
+    expect(acceptedEvents(f)).toHaveLength(acceptedBefore);
+    expect(providerCalls).toBe(1);
+
+    const fresh = await session.begin({
+      requestKey: 'fp-fresh',
+      facts: facts({ interventionIds: ['m65'] }),
+    });
+    expect(fresh.kind).toBe('admitted');
+    expect(f.readState().acceptedFactBatches).toHaveLength(66);
+  });
+
+  it('65 个配置修订后重放最旧修订不重估未变化 provider 或缩短 at', async () => {
+    let providerCalls = 0;
+    const f = await makeFixture({
+      call: async () => {
+        providerCalls += 1;
+        throw new LLMAuthError('bad key');
+      },
+    });
+    const session = f.makeSession();
+    const first = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    if (first.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await session.finish(first.attemptId, 'failed');
+
+    for (let i = 0; i < 65; i++) {
+      const result = await session.begin({
+        requestKey: `fp-r${i}`,
+        facts: facts({ configurationRevision: `r${i}` }),
+      });
+      expect(result.kind).toBe('waiting');
+    }
+    const before = f.readState();
+    expect(before.acceptedConfigRevisions).toHaveLength(64);
+    expect(before.acceptedConfigRevisions).not.toContain('r0');
+    expect(before.acceptedFactBatches).toHaveLength(65);
+
+    const replay = await session.begin({
+      requestKey: 'fp-replay',
+      facts: facts({ configurationRevision: 'r0' }),
+    });
+    expect(replay.kind).toBe('waiting');
+    const after = f.readState();
+    expect(after.providers).toEqual(before.providers);
+    expect(after.schedule).toEqual(before.schedule);
+    expect(after.acceptedFactBatches).toEqual(before.acceptedFactBatches);
+    expect(after.revision).toBe(before.revision);
+    expect(providerCalls).toBe(1);
+
+    const fresh = await session.begin({
+      requestKey: 'fp-r65',
+      facts: facts({ configurationRevision: 'r65' }),
+    });
+    expect(fresh.kind).toBe('waiting');
+    expect(f.readState().acceptedFactBatches).toHaveLength(66);
+  });
+
+  it('缺 acceptedFactBatches 的旧文件只沿用窗口行为，不伪造窗口外历史', async () => {
+    const f = await makeFixture();
+    const legacy = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    legacy.schedule = { kind: 'at', revision: 1, resumeAt: new Date(T0 + 300_000).toISOString() };
+    legacy.acceptedInterventions = Array.from({ length: 64 }, (_, i) => `m${i + 1}`);
+    saveRecoveryState(f.fs, legacy);
+    expect(f.readState().acceptedFactBatches).toBeUndefined();
+
+    const session = f.makeSession();
+    const result = await session.begin({
+      requestKey: 'fp-legacy',
+      facts: facts({ interventionIds: ['m0'] }),
+    });
+    expect(result.kind).toBe('admitted');
+    expect(f.readState().acceptedFactBatches).toHaveLength(1);
+    expect(f.readState().acceptedFactBatches[0].interventionIds).toEqual(['m0']);
+  });
+});
+
+describe('Phase 2035 Step D: explicit failure evidence loss', () => {
+  it('第 11 条起累计 droppedCount 与被丢时间范围，并保留最近 10 条', async () => {
+    const f = await makeFixture();
+    const session = f.makeSession();
+    for (let i = 0; i < 12; i++) {
+      if (i > 0) f.advance(1_000);
+      session.noteFailure([{
+        providerId: 'provider-primary',
+        errorClass: 'transient',
+        message: `failure-${i}`,
+      }]);
+    }
+
+    const saved = f.readState();
+    expect(saved.failures).toHaveLength(10);
+    expect(saved.failures.map((failure: { message: string }) => failure.message)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `failure-${i + 2}`),
+    );
+    expect(saved.failureEvidenceLoss).toEqual({
+      droppedCount: 2,
+      firstDroppedAt: new Date(T0).toISOString(),
+      lastDroppedAt: new Date(T0 + 1_000).toISOString(),
+      reason: 'bounded_retention',
+      policyVersion: 1,
+      recoverability: 'not_preserved_in_recovery_state',
+    });
+    expect(saved.revision).toBe(13);
+    expect(saved.schedule.revision).toBe(saved.revision);
+  });
+});

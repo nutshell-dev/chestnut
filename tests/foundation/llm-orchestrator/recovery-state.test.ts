@@ -14,7 +14,10 @@ import {
   saveRecoveryState,
   validateRecoveryState,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
-import type { LLMRecoveryBudget } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
+import type {
+  LLMRecoveryBudget,
+  LLMRecoveryStateV1,
+} from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/types.js';
 
 const SCOPE = 'foreground';
@@ -319,5 +322,263 @@ describe('Phase 2032 admissionKind compatibility', () => {
       activeAdmission: { ...state.activeAdmission, admissionKind: 'legacy_turn' },
     }, SCOPE);
     expect(invalid).toMatchObject({ ok: false, reason: 'field_type_mismatch', detail: 'activeAdmission' });
+  });
+});
+
+
+function semanticState(): LLMRecoveryStateV1 {
+  const state = createInitialRecoveryState(SCOPE, budget(), T0);
+  state.revision = 3;
+  state.schedule = { kind: 'at', revision: 3, resumeAt: new Date(T0 + 30_000).toISOString() };
+  state.providers = [{
+    providerId: 'provider-1',
+    errorClass: 'rate_limit',
+    at: new Date(T0).toISOString(),
+    consecutiveFailures: 2,
+    detail: 'limited',
+    rateLimitFailures: 2,
+    rateLimitBlockedAt: new Date(T0).toISOString(),
+  }];
+  state.activeAdmission = {
+    admissionKind: 'invocation',
+    attemptId: 'att-1',
+    started: true,
+    startedAt: new Date(T0).toISOString(),
+    requestKey: 'request-1',
+    triggerKind: 'automatic',
+  };
+  state.failures = [{
+    at: new Date(T0).toISOString(),
+    providerId: 'provider-1',
+    errorClass: 'rate_limit',
+    message: 'limited',
+    attemptIndex: 0,
+    configRevision: 0,
+  }];
+  state.acceptedFactBatches = [{
+    scope: SCOPE,
+    revision: 2,
+    interventionIds: ['m1'],
+  }];
+  state.failureEvidenceLoss = {
+    droppedCount: 1,
+    firstDroppedAt: new Date(T0).toISOString(),
+    lastDroppedAt: new Date(T0).toISOString(),
+    reason: 'bounded_retention',
+    policyVersion: 1,
+    recoverability: 'not_preserved_in_recovery_state',
+  };
+  return state;
+}
+
+describe('Phase 2035 Step D/E: loss record and semantic validation', () => {
+  it('failureEvidenceLoss 随合法状态 round-trip，旧文件缺省仍兼容', async () => {
+    const { fs } = await makeTrackedDir();
+    const state = semanticState();
+    saveRecoveryState(fs, state);
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind !== 'ok') return;
+    expect(loaded.state.failureEvidenceLoss).toEqual(state.failureEvidenceLoss);
+
+    const legacy = createInitialRecoveryState(SCOPE, budget(), T0);
+    expect(legacy.failureEvidenceLoss).toBeUndefined();
+    expect(validateRecoveryState(legacy, SCOPE).ok).toBe(true);
+  });
+
+  it('合法正值、整数、日期与历史 revision 均通过', () => {
+    expect(validateRecoveryState(semanticState(), SCOPE)).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    {
+      name: 'top revision NaN',
+      detail: 'revision',
+      change: (state: LLMRecoveryStateV1) => ({ ...state, revision: NaN }),
+    },
+    {
+      name: 'schedule/top revision 不一致',
+      detail: 'schedule.revision',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        schedule: { ...state.schedule, revision: state.revision + 1 },
+      }),
+    },
+    {
+      name: '非法 resumeAt',
+      detail: 'schedule.resumeAt',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        schedule: { ...state.schedule, kind: 'at' as const, resumeAt: 'not-a-date' },
+      }),
+    },
+    {
+      name: 'retryCount 负数',
+      detail: 'budget.retryCount',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        budget: { ...state.budget, retryCount: -1 },
+      }),
+    },
+    {
+      name: 'retryDelayMs 为零',
+      detail: 'budget.retryDelayMs',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        budget: { ...state.budget, retryDelayMs: 0 },
+      }),
+    },
+    {
+      name: 'quotaDelayMs Infinity',
+      detail: 'budget.quotaDelayMs',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        budget: { ...state.budget, quotaDelayMs: Infinity },
+      }),
+    },
+    {
+      name: 'provider at 非法日期',
+      detail: 'providers[0].at',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        providers: [{ ...state.providers[0]!, at: 'invalid' }],
+      }),
+    },
+    {
+      name: 'consecutiveFailures 小数',
+      detail: 'providers[0].consecutiveFailures',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        providers: [{ ...state.providers[0]!, consecutiveFailures: 1.5 }],
+      }),
+    },
+    {
+      name: 'rateLimitFailures 负数',
+      detail: 'providers[0].rateLimitFailures',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        providers: [{ ...state.providers[0]!, rateLimitFailures: -1 }],
+      }),
+    },
+    {
+      name: 'rateLimitBlockedAt 非法日期',
+      detail: 'providers[0].rateLimitBlockedAt',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        providers: [{ ...state.providers[0]!, rateLimitBlockedAt: 'invalid' }],
+      }),
+    },
+    {
+      name: 'startedAt 非法日期',
+      detail: 'activeAdmission.startedAt',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        activeAdmission: { ...state.activeAdmission!, startedAt: 'invalid' },
+      }),
+    },
+    {
+      name: 'failure at 非法日期',
+      detail: 'failures[0].at',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failures: [{ ...state.failures[0]!, at: 'invalid' }],
+      }),
+    },
+    {
+      name: 'attemptIndex 负数',
+      detail: 'failures[0].attemptIndex',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failures: [{ ...state.failures[0]!, attemptIndex: -1 }],
+      }),
+    },
+    {
+      name: 'configRevision 小数',
+      detail: 'failures[0].configRevision',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failures: [{ ...state.failures[0]!, configRevision: 0.5 }],
+      }),
+    },
+    {
+      name: 'batch revision 超过顶层 revision',
+      detail: 'acceptedFactBatches[0].revision',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        acceptedFactBatches: [{ ...state.acceptedFactBatches![0]!, revision: state.revision + 1 }],
+      }),
+    },
+    {
+      name: 'batch revision 为零',
+      detail: 'acceptedFactBatches[0].revision',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        acceptedFactBatches: [{ ...state.acceptedFactBatches![0]!, revision: 0 }],
+      }),
+    },
+    {
+      name: 'droppedCount 非有限数',
+      detail: 'failureEvidenceLoss.droppedCount',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failureEvidenceLoss: { ...state.failureEvidenceLoss!, droppedCount: Infinity },
+      }),
+    },
+    {
+      name: 'droppedCount 大于零但缺少时间范围',
+      detail: 'failureEvidenceLoss.firstDroppedAt/lastDroppedAt',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failureEvidenceLoss: {
+          ...state.failureEvidenceLoss!,
+          firstDroppedAt: undefined,
+          lastDroppedAt: undefined,
+        },
+      }),
+    },
+    {
+      name: 'firstDroppedAt 非法日期',
+      detail: 'failureEvidenceLoss.firstDroppedAt',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failureEvidenceLoss: { ...state.failureEvidenceLoss!, firstDroppedAt: 'invalid' },
+      }),
+    },
+    {
+      name: 'lastDroppedAt 非法日期',
+      detail: 'failureEvidenceLoss.lastDroppedAt',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failureEvidenceLoss: { ...state.failureEvidenceLoss!, lastDroppedAt: 'invalid' },
+      }),
+    },
+    {
+      name: 'loss record 协议值非法',
+      detail: 'failureEvidenceLoss',
+      change: (state: LLMRecoveryStateV1) => ({
+        ...state,
+        failureEvidenceLoss: { ...state.failureEvidenceLoss!, policyVersion: 2 },
+      }),
+    },
+    {
+      name: 'updatedAt 非法日期',
+      detail: 'updatedAt',
+      change: (state: LLMRecoveryStateV1) => ({ ...state, updatedAt: 'invalid' }),
+    },
+  ])('拒绝 $name 并返回具体字段', ({ change, detail }) => {
+    const invalid = validateRecoveryState(change(semanticState()), SCOPE);
+    expect(invalid).toMatchObject({ ok: false, reason: 'field_type_mismatch', detail });
+  });
+
+  it('非法日期经 load 拒绝且原文件保持不变', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const filePath = path.join(dir, 'status', LLM_RECOVERY_STATE_FILE);
+    fsNative.mkdirSync(path.dirname(filePath), { recursive: true });
+    const raw = JSON.stringify({ ...createInitialRecoveryState(SCOPE, budget(), T0), updatedAt: 'invalid' });
+    fsNative.writeFileSync(filePath, raw);
+
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded).toMatchObject({ kind: 'unusable', reason: 'field_type_mismatch', detail: 'updatedAt' });
+    expect(fsNative.readFileSync(filePath, 'utf8')).toBe(raw);
   });
 });
