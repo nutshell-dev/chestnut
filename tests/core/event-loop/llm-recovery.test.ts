@@ -619,10 +619,10 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
 
-    // 第一次：permanent 失败 → 安排 on_change；旧用户 id 已被接受记账。
+    // 第一次：permanent 失败 → 安排 at；旧用户 id 已被接受记账。
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
-    expect((await h.session.inspect()).kind).toBe('on_change');
+    expect((await h.session.inspect()).kind).toBe('at');
     expect(h.listPending()).toContain('old-user.md');
 
     // 用户修好配置：reload 控制消息落盘；真实 consumePendingControls 应用并返回新修订。
@@ -636,7 +636,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.eventLoop.abort();
     await running;
 
-    // Z5：旧用户 id 不遮蔽配置事实 → 一次恢复准入 → 第二次真实请求。
+    // 配置事实被接受但不缩短 at；cooldown 到期后自动发起第二次真实请求。
     expect(h.providerCalls.length).toBe(2);
     expect(h.reloadCalls()).toBe(1);
 
@@ -647,11 +647,11 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     expect(batch).toMatchObject({ scope: 'foreground' });
     if (batch?.type === 'recovery_facts_accepted') {
       expect(typeof batch.configurationRevision).toBe('string');
-      expect(batch.attemptId).toBeTruthy();
+      expect(batch.attemptId).toBeUndefined();  // 配置先在 waiting invocation 接受，不提前准入
     }
-    // 准入主原因就是配置事实（不是旧用户、不是启动 token）——旧消息确实没有遮蔽配置。
+    // 到期恢复的主原因是 automatic；配置接受证据仍与 invocation 关联。
     const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
-    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
+    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'automatic' });
     h.eventLoop.abort();
   });
 
@@ -660,7 +660,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
     await h.eventLoop.run();
-    expect((await h.session.inspect()).kind).toBe('on_change');
+    expect((await h.session.inspect()).kind).toBe('at');
     expect(h.providerCalls.length).toBe(1);
 
     // 本批只有 reload：应用并 ack 控制消息，但没有 LLM invocation 可接收 facts。
@@ -725,10 +725,10 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
 
-    // 第一次：permanent 失败 → 安排 on_change。
+    // 第一次：permanent 失败 → 安排 at。
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
-    expect((await h.session.inspect()).kind).toBe('on_change');
+    expect((await h.session.inspect()).kind).toBe('at');
 
     // 用户只改 temperature → reload 落盘并接受新修订，但不发起第二次请求。
     currentTemperature = 0.5;
@@ -743,7 +743,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
 
     expect(h.reloadCalls()).toBe(1);
     expect(h.providerCalls.length).toBe(1);
-    expect((await h.session.inspect()).kind).toBe('on_change');
+    expect((await h.session.inspect()).kind).toBe('at');
     const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
     const batch = accepted.at(-1);
     if (batch?.type === 'recovery_facts_accepted') {

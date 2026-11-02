@@ -77,7 +77,6 @@ const DEFAULT_STREAM_IDLE_PROBE_TIMEOUT_MS = 5_000;
 interface CallLimits {
   maxAttempts: number;
   allowBreakerProbe: boolean;
-  blockedProviderIds: ReadonlySet<string>;
 }
 
 /**
@@ -96,7 +95,7 @@ interface CallPathAudit {
  * Phase 1934 Step C：单个候选的共享故障记录（orchestrator 内部实现细节）。
  * floorMs 为 owner 时间下界：rate_limit 用 typed Retry-After（秒×1000）；quota 用
  * 既有退避常量初值；transient/unknown 用 breaker resetTimeoutMs（无 breaker 配置时
- * 用独立 cooldown 下界，防空转探测环）；permanent 无时间下界（等待配置变化）。
+ * 用独立 cooldown 下界，防空转探测环）；permanent 同样使用独立 cooldown 下界。
  * epoch 为故障代次：每次新失败 +1，probe 在途期间到达的新故障使旧 probe 结果失效。
  */
 interface SharedFailureRecord {
@@ -578,7 +577,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    *
    * - 实例内单一调度：并发/重入调用返回同一 promise（inflightProbe，finally 清空）。
    * - 每次指定一个候选（禁止 fallback 掩盖目标失败）：优先验证已到点的故障候选，
-   *   其次任一非永久故障候选，无故障记录时默认 primary（健康检查语义）。
+   *   其次任一故障候选，无故障记录时默认 primary（健康检查语义）。
    * - 真实探测：直接走 _tryCallProvider（不经过 _callCore 的 breaker 拦截判定），
    *   成功/失败自然按既有语义记账 breaker；失败另记共享故障（推进下界）。
    * - 探针请求无工具/用户上下文；预算取目标配置合法 maxTokens（缺省省略，取消
@@ -606,13 +605,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     // 已到点的故障候选优先（按既有 fallback 顺序依次验证）
     for (let i = 0; i < adapters.length; i++) {
       const record = this.sharedFailures.get(entry(i).identity);
-      if (!record || record.errorClass === 'permanent') continue;
+      if (!record) continue;
       if (this.sharedFailureFloorMs(i, record) <= now) return entry(i);
     }
-    // 无到点候选：任一非永久故障候选（手动 probe 语义）
+    // 无到点候选：任一故障候选（手动 probe 语义，包括 permanent）
     for (let i = 0; i < adapters.length; i++) {
       const record = this.sharedFailures.get(entry(i).identity);
-      if (record && record.errorClass !== 'permanent') return entry(i);
+      if (record) return entry(i);
     }
     // 无故障记录：默认探测 primary
     return entry(0);
@@ -679,8 +678,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * Phase 1933 Step F / 1934 Step C：安排在 atMs（ms epoch）发起一次独立探针；
    * 重复调用替换既有安排（取最新）。
    * - owner 下界钳制：decision 为 at 时生效时刻取 max(atMs, nextProbeAt)，caller
-   *   传过去时间不能绕过 typed Retry-After / breaker 弹回下界；on_change（全候选
-   *   等待配置变化）不定时轮询，既有安排一并取消。
+   *   传过去时间不能绕过 typed Retry-After / breaker 弹回下界；on_change（无可用
+   *   时间下界）不定时轮询，既有安排一并取消。
    * - 到点后由 owner 判据驱动：未到下界重排；到点依次验证候选（每探针一个候选），
    *   探针结果体现在共享故障记录上——任何允许候选验证成功（decision 转 ready）
    *   后投递就绪信号（listener 异常不扩散）；仍阻断则按 owner 下界自动安排下一次。
@@ -691,7 +690,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     if (this.closed) return;
     const decision = this.getSharedRecoveryDecision();
     if (decision.kind === 'on_change') {
-      // permanent 等待配置变化：不定时轮询
+      // 无可用时间下界：不定时轮询
       this.scheduleGeneration += 1;
       if (this.scheduleTimer !== undefined) {
         clearTimeout(this.scheduleTimer);
@@ -735,8 +734,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   /**
    * Phase 1934 Step C：共享恢复判据的唯一解释点（F-11/F-02）。
    * 任一候选无共享故障记录 → ready（按既有 fallback 顺序即可服务）；全部候选被
-   * 阻断时，非永久候选的最早下界为 nextProbeAt（min 语义——调度器依次验证候选，
-   * 任一允许候选成功后即 ready）；全永久 → on_change（等待配置变化，不定时轮询）。
+   * 阻断时，全部 provider 故障（含 permanent）的最早下界为 nextProbeAt（min 语义——
+   * 调度器依次验证候选，任一允许候选成功后即 ready）。
    * 只读判定：不触发 breaker 状态转移（probeAllowedAtMs 纯查询），不发事件、不写盘。
    */
   getSharedRecoveryDecision(): SharedRecoveryDecision {
@@ -747,7 +746,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       const identity = this.providerIds[i];
       const record = identity !== undefined ? this.sharedFailures.get(identity) : undefined;
       if (!record) return { kind: 'ready' };
-      if (record.errorClass === 'permanent') continue;
       hasTimedBlock = true;
       const floorMs = this.sharedFailureFloorMs(i, record);
       minAtMs = minAtMs === undefined ? floorMs : Math.min(minAtMs, floorMs);
@@ -781,7 +779,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (identity === undefined) continue;
       const retryAfterSec = getRetryAfterSec(f.error);
       const floorMs = errorClass === 'permanent'
-        ? undefined
+        ? nowMs + LLM_RECOVERY_COOLDOWN_MS
         : errorClass === 'rate_limit' && retryAfterSec !== undefined
           ? nowMs + retryAfterSec * 1000
           : errorClass === 'quota'
@@ -867,14 +865,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       return {
         maxAttempts: this.config.maxAttempts,
         allowBreakerProbe: false,
-        blockedProviderIds: new Set<string>(),
       };
     }
     const attempt = scope.attemptContext();
     return {
       maxAttempts: attempt.probeOnly ? 1 : this.config.maxAttempts,
       allowBreakerProbe: attempt.allowBreakerProbe,
-      blockedProviderIds: new Set(attempt.blockedProviderIds),
     };
   }
 
@@ -901,8 +897,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const isBreakerBlocking = (index: number): boolean =>
       isBreakerOpen(index) && !allowBreakerProbe;
 
-    const isRateLimitBlocked = (index: number, providerName: string): boolean =>
-      limits.blockedProviderIds.has(this.identityAt(index, providerName));
     const failures: LLMProviderFailure[] = [];
 
     {
@@ -914,9 +908,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         stickyIdx = this.fallbacks.findIndex((_, i) => this.providerIds[i + 1] === hint.providerId);
         stickyFb = stickyIdx >= 0 ? this.fallbacks[stickyIdx] : undefined;
         if (stickyFb && stickyIdx >= 0) {
-          if (isRateLimitBlocked(stickyIdx + 1, stickyFb.name)) {
-            this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'rate_limit_blocked', new LLMRateLimitError(stickyFb.name));
-          } else if (isBreakerBlocking(stickyIdx + 1)) {
+          if (isBreakerBlocking(stickyIdx + 1)) {
             // Phase 1968 Step B：sticky 候选被熔断拦截此前无任何记录——跳过也是 attempt path。
             this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'circuit_breaker_open');
           } else {
@@ -937,9 +929,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
       // Try primary
       let primaryFailed = false;
-      if (isRateLimitBlocked(0, this.primary.name)) {
-        this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), 'rate_limit_blocked', new LLMRateLimitError(this.primary.name));
-      } else if (!isBreakerBlocking(0)) {
+      if (!isBreakerBlocking(0)) {
         try {
           const response = await this._tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
@@ -964,10 +954,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         if (i === stickyIdx) {
           // Phase 1968 Step B：sticky 已在最前实际尝试过——重复位置只记跳过事实，不进聚合失败。
           this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), 'already_attempted');
-          continue;
-        }
-        if (isRateLimitBlocked(i + 1, this.fallbacks[i].name)) {
-          this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), 'rate_limit_blocked', new LLMRateLimitError(this.fallbacks[i].name));
           continue;
         }
         if (isBreakerBlocking(i + 1)) {
@@ -1044,12 +1030,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
     const estimatedInputTokens = estimatePromptTokens(options);
     // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
-    const primaryRateLimitBlocked = limits.blockedProviderIds.has(this.identityAt(0, this.primary.name));
-    const primaryBreakerOpen = primaryRateLimitBlocked ? false : (this.breakers[0]?.isOpen() ?? false);
-    const openCause = primaryRateLimitBlocked ? null : (this.breakers[0]?.getOpenCause() ?? null);
+    const primaryBreakerOpen = this.breakers[0]?.isOpen() ?? false;
+    const openCause = this.breakers[0]?.getOpenCause() ?? null;
     // 显式干预/启动放行的 probe 不走 hedge（直接在该候选上做一次真实尝试）。
     if (primaryBreakerOpen && !limits.allowBreakerProbe && openCause === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
-      yield* this._streamHedge(options, limits, inv);
+      yield* this._streamHedge(options, inv);
       return;
     }
 
@@ -1083,14 +1068,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
       const { adapter, breakerIndex, isFallback } = providers[pi];
-
-      if (limits.blockedProviderIds.has(this.identityAt(breakerIndex, adapter.name))) {
-        skippedCount++;
-        this.noteCandidateSkipped(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), 'rate_limit_blocked', new LLMRateLimitError(adapter.name));
-        yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Rate limit blocked' };
-        lastFailedProviderName = adapter.name;
-        continue;
-      }
 
       if (!adapter.stream) {
         this.noteCandidateFailure(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), new Error('Provider does not support streaming'));
@@ -1586,7 +1563,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * Track B: fallback chain sequential call() — first success wins.
    * Winner-takes-all via Promise.race; loser aborted to avoid resource waste.
    */
-  private async* _streamHedge(options: LLMCallOptions, limits: CallLimits, inv: CallPathAudit): AsyncIterableIterator<LLMStreamChunk> {
+  private async* _streamHedge(options: LLMCallOptions, inv: CallPathAudit): AsyncIterableIterator<LLMStreamChunk> {
     const fallbackNames = this.fallbacks.map(f => f.name);
     this.events.emit({
       type: 'hedge_started',
@@ -1648,10 +1625,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         for (let i = 0; i < this.fallbacks.length; i++) {
           if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
           const fb = this.fallbacks[i];
-          if (limits.blockedProviderIds.has(this.identityAt(i + 1, fb.name))) {
-            this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'rate_limit_blocked', new LLMRateLimitError(fb.name));
-            continue;
-          }
           if (this.breakers[i + 1]?.isOpen()) {
             this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(fb.name));
             continue;

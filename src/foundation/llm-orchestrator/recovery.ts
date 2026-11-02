@@ -41,7 +41,6 @@ import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
   LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
-  LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_MAX_DELAY_MS,
 } from './defaults.js';
@@ -98,7 +97,6 @@ export interface RecoveryCallScope {
   attemptContext(): {
     probeOnly: boolean;
     allowBreakerProbe: boolean;
-    blockedProviderIds: readonly string[];
   };
 }
 
@@ -121,7 +119,7 @@ export interface LLMRecoverySignal {
  * - ready：存在无共享故障记录的合法候选（任一候选可用即可按既有 fallback 顺序服务）；
  * - at：全部候选被阻断，nextProbeAt 为 owner 下界（含 typed Retry-After / breaker
  *   弹回 / 退避常量）的最早可验证时刻；
- * - on_change：全部候选等待配置变化（permanent），不定时轮询。
+ * - on_change：仅保留给无可用时间下界的非 provider 等待；provider 故障均以 at 持续。
  */
 export type SharedRecoveryDecision =
   | { kind: 'ready' }
@@ -429,6 +427,24 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       if (entrySchedule.kind === 'on_change') hasStartupQualification = true;
     }
 
+    // Phase 2034 Step C：旧 provider on_change 在下一次 begin 按既有事实自动转为 at。
+    // 配置重估/用户/启动事实先处理；迁移只沿用既有 stateChanged/revision 提交路径。
+    if (next.schedule.kind === 'on_change') {
+      let resumeAtMs: number | undefined;
+      for (const fact of next.providers) {
+        const delayMs = recoveryDelayForFact(fact, next.budget);
+        if (delayMs !== undefined) resumeAtMs = minDefined(resumeAtMs, nowMs + delayMs);
+      }
+      if (resumeAtMs !== undefined) {
+        next.schedule = {
+          kind: 'at',
+          revision: next.revision,
+          resumeAt: new Date(resumeAtMs).toISOString(),
+        };
+        stateChanged = true;
+      }
+    }
+
     const hasNewFacts = acceptedFacts.interventionIds.length > 0
       || acceptedFacts.configurationRevision !== undefined
       || acceptedFacts.startupId !== undefined;
@@ -479,7 +495,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     if (schedule.kind === 'ready') {
       admitted = true;
     } else if (schedule.kind === 'at') {
-      admitted = nowMs >= Date.parse(schedule.resumeAt) || hasUserQualification;
+      // startup 资格只可能来自本次入口的旧 on_change；迁移为 at 后仍需保留本次准入。
+      admitted = nowMs >= Date.parse(schedule.resumeAt) || hasUserQualification || hasStartupQualification;
     } else {
       admitted = hasUserQualification || hasStartupQualification;
     }
@@ -588,15 +605,11 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   attemptContext(): {
     probeOnly: boolean;
     allowBreakerProbe: boolean;
-    blockedProviderIds: readonly string[];
   } {
     const active = this.state.activeAdmission;
     return {
       probeOnly: active?.probeOnly ?? false,
       allowBreakerProbe: active?.allowBreakerProbe ?? false,
-      blockedProviderIds: this.state.providers
-        .filter(provider => provider.rateLimitBlocked === true)
-        .map(provider => provider.providerId),
     };
   }
 
@@ -714,27 +727,23 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
           const delay = Math.max(LLM_RECOVERY_COOLDOWN_MS, failure.retryAfterSec * 1000);
           nextAtMs = minDefined(nextAtMs, nowMs + delay);
         } else {
-          // Phase 1955 Step B：无服务端时间的 rate-limit 按 provider 独立计数，
-          // 30/60/120/300/600s 有界增长；达到上限 → blocked（on_change，不自动重试）。
+          // Phase 1955 Step B / 2034 Step C：无服务端时间的 rate-limit 按 provider
+          // 独立计数，30/60/120/300/600s 有界增长；达到上限后持续使用末档，不写 blocked。
           const fact = next.providers.find(p => p.providerId === failure.providerId);
           if (fact) {
             fact.rateLimitFailures = (fact.rateLimitFailures ?? 0) + 1;
-            if (fact.rateLimitFailures >= LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS) {
-              fact.rateLimitBlocked = true;
-              fact.rateLimitBlockedAt = nowIso;
-            } else {
-              const index = Math.min(
-                fact.rateLimitFailures - 1,
-                LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1,
-              );
-              nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index]);
-            }
+            const index = Math.min(
+              fact.rateLimitFailures - 1,
+              LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1,
+            );
+            nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index]);
           } else {
             nextAtMs = minDefined(nextAtMs, nowMs + next.budget.retryDelayMs);
           }
         }
       } else if (failure.errorClass === 'permanent') {
-        // 无自动恢复路径；只有干预/配置变化可再试。
+        // 保持当前轮内 permanent_skip_retry；跨 invocation 以 cooldown 持续自动恢复。
+        nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_COOLDOWN_MS);
       } else if (failure.errorClass === 'transient' || failure.errorClass === 'unknown') {
         if (next.budget.retryCount < LLM_RECOVERY_MAX_RETRIES) {
           next.budget.retryCount += 1;
@@ -1011,6 +1020,26 @@ function summarizeAdmission(
 
 function minDefined(current: number | undefined, candidate: number): number {
   return current === undefined ? candidate : Math.min(current, candidate);
+}
+
+/** 旧 on_change 的自动迁移预算；无法识别的非 provider 事实不伪造时间下界。 */
+function recoveryDelayForFact(
+  fact: LLMRecoveryProviderFact,
+  budget: LLMRecoveryBudget,
+): number | undefined {
+  if (fact.errorClass === 'permanent') return LLM_RECOVERY_COOLDOWN_MS;
+  if (fact.errorClass === 'rate_limit') {
+    const index = fact.rateLimitBlocked === true
+      ? LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1
+      : Math.max(0, Math.min(
+        (fact.rateLimitFailures ?? 0) - 1,
+        LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1,
+      ));
+    return LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
+  }
+  if (fact.errorClass === 'quota') return budget.quotaDelayMs;
+  if (fact.errorClass === 'transient' || fact.errorClass === 'unknown') return budget.retryDelayMs;
+  return undefined;
 }
 
 /** 成功调用：清空 provider 的 rate-limit 连续失败事实（保留其他故障字段）。 */

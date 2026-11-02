@@ -310,11 +310,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     await owner.close();
   });
 
-  it('permanent 全故障：on_change 不定时轮询；配置变化后 gate 就绪、恢复可移动', async () => {
+  it('Phase 2034 C：permanent 全故障按 cooldown 持续 probe，gate 就绪后恢复移动', async () => {
     const stack = makeAssembledStack('auth', 'auth');
-    const { owner, orchestratorConfig, p, f, fs, fileMap, system, executor } = stack;
-    // Phase 1934 Step D：唤醒入口统一做 deadline 判定——本用例推进 600s 证明不轮询，
-    // timeoutMs 须大于推进时长，否则推进后事实已到期（deadline 优先于 ready）
+    const { owner, p, f, fs, fileMap, system, executor } = stack;
     const task = makeValidTask({ timeoutMs: 3_600_000 });
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
@@ -333,23 +331,22 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
     const waitPath = `tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`;
     expect(fileMap.has(waitPath)).toBe(true);
-    expect(owner.getSharedRecoveryDecision().kind).toBe('on_change');
+    expect(owner.getSharedRecoveryDecision().kind).toBe('at');
 
-    // 不定时轮询：任意时长无探针、gate 不就绪
-    await vi.advanceTimersByTimeAsync(600_000);
+    // cooldown 下界前无探针、gate 不就绪。
+    await vi.advanceTimersByTimeAsync(299_999);
     expect(p.calls()).toBe(1);
     expect(f.calls()).toBe(1);
     expect(await system.resumeWaitingTasks()).toBe(0);
     expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
 
-    // 配置变化（换 key = 新候选身份）→ 重新评估 ready → 恢复路径移动
-    owner.reloadConfig({
-      ...orchestratorConfig,
-      primary: providerConfig('primary', { apiKey: 'key-primary-rotated' }),
-      fallbacks: [providerConfig('fallback', { apiKey: 'key-fallback-rotated' })],
-    });
+    // 到点真实 probe 成功 → ready 发布 → ATS 恢复移动。
+    p.setBehavior('ok');
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    await flush();
+    expect(p.calls()).toBe(2);
     expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
-    expect(await system.resumeWaitingTasks()).toBe(1);
     expect(fileMap.has(`tasks/queues/pending/${task.id}.json`)).toBe(true);
     expect(fileMap.has(waitPath)).toBe(false);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });

@@ -49,7 +49,10 @@ export interface LLMRecoveryProviderFact {
    * 可选：旧文件无此字段，按 0 解释；与 transient retryCount 语义独立。
    */
   rateLimitFailures?: number;
-  /** 达到上限后的 blocked 事实（等用户干预或配置变化，不自动重试）。 */
+  /**
+   * Phase 2034 起仅作 legacy 证据：旧文件用于 begin 迁移到末档 at；新失败不再写入，
+   * scoped 候选也不再按此字段排除。schema 与原字段保留，历史事实不删除。
+   */
   rateLimitBlocked?: boolean;
   rateLimitBlockedAt?: string;
   /**

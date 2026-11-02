@@ -378,14 +378,16 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
       .some(e => e.some(col => String(col) === 'reason=llm_retry_scheduled'))).toBe(true);
   });
 
-  it('on_change 新 boot：提醒照常产生工作并真实 begin 准入一次，provider 探测一次', async () => {
+  it('Phase 2034 C：permanent at 到期后提醒产生工作并真实准入、provider 探测一次', async () => {
     const f = await makeFixture('auth');
-    expect((await f.session.inspect()).kind).toBe('on_change');
+    const schedule = await f.session.inspect();
+    if (schedule.kind !== 'at') throw new Error('expected permanent at schedule');
+    sharedNow = Date.parse(schedule.resumeAt);
     f.succeed();
 
     const r = await runLoop(f);
 
-    // on_change 不被泛化抑制：提醒产生工作 → startup token 获一次准入 → 真实探测
+    // permanent 不再永久停止：cooldown 到期 → 提醒产生工作 → 自动准入 → 真实探测
     expect(r.processed).toBe(1);
     expect(f.providerCalls()).toBe(2);
     expect(messagesByType(f.doneDir, 'execution_recovery')).toHaveLength(1);

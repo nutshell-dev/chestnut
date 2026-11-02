@@ -229,55 +229,54 @@ describe('recovery failure policy', () => {
     expect(f.emitted.filter(e => e.type === 'recovery_scheduled').length).toBe(4);
   });
 
-  it('permanent failures wait for change (intervention or config)', async () => {
+  it('Phase 2034 C: permanent failures continuously schedule cooldown attempts', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
     const session = f.makeSession();
-    const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
-    if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
-    await session.finish(admission.attemptId, 'failed');
 
-    const schedule = await session.inspect();
-    expect(schedule.kind).toBe('on_change');
+    for (let round = 0; round < 2; round++) {
+      const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
+      if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${round}`);
+      await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+      await session.finish(admission.attemptId, 'failed');
 
-    // 自动 tick 不能放行
-    const auto = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
-    expect(auto.kind).toBe('waiting');
+      const schedule = await session.inspect();
+      expect(schedule.kind).toBe('at');
+      if (schedule.kind === 'at') {
+        expect(Date.parse(schedule.resumeAt) - f.now()).toBe(300_000);
+      }
+      const early = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
+      expect(early.kind).toBe('waiting');
+      f.advance(300_000);
+    }
   });
 
-  it('Phase 1955 B: 无 Retry-After 的 rate_limit 按有界曲线退避，10 次后 blocked', async () => {
+  it('Phase 2034 C: 无 Retry-After 的 rate_limit 第 10/11 次仍按末档 at', async () => {
     const f = await makeFixture({
       call: async () => { throw new LLMRateLimitError('primary'); },
     });
     const session = f.makeSession();
     const delays: number[] = [];
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 11; i++) {
       const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
       if (admission.kind !== 'admitted') throw new Error(`expected admitted at round ${i}`);
       await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
       await session.finish(admission.attemptId, 'failed');
 
       const schedule = await session.inspect();
-      if (i < 9) {
-        if (schedule.kind !== 'at') throw new Error(`expected at at round ${i}`);
-        delays.push(Date.parse(schedule.resumeAt) - f.now());
-        f.advance(1_000_000);
-      } else {
-        // 第 10 次达到上限 → blocked：不再安排自动重试（等干预/配置变化）。
-        expect(schedule.kind).toBe('on_change');
-      }
+      if (schedule.kind !== 'at') throw new Error(`expected at at round ${i}`);
+      delays.push(Date.parse(schedule.resumeAt) - f.now());
+      f.advance(1_000_000);
     }
 
-    expect(delays).toEqual([30_000, 60_000, 120_000, 300_000, 600_000, 600_000, 600_000, 600_000, 600_000]);
+    expect(delays).toEqual([
+      30_000, 60_000, 120_000, 300_000, 600_000, 600_000,
+      600_000, 600_000, 600_000, 600_000, 600_000,
+    ]);
     const saved = f.readState();
-    expect(saved.providers[0].rateLimitFailures).toBe(10);
-    expect(saved.providers[0].rateLimitBlocked).toBe(true);
-    expect(typeof saved.providers[0].rateLimitBlockedAt).toBe('string');
-
-    // blocked 后自动 tick 不放行（不伪造新一次尝试）。
-    const auto = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
-    expect(auto.kind).toBe('waiting');
+    expect(saved.providers[0].rateLimitFailures).toBe(11);
+    expect(saved.providers[0].rateLimitBlocked).toBeUndefined();
+    expect(saved.providers[0].rateLimitBlockedAt).toBeUndefined();
   });
 
   it('Phase 1955 B: 服务端 Retry-After 仍是权威时刻，不被客户端退避截短', async () => {
@@ -411,7 +410,7 @@ describe('recovery interventions', () => {
 describe('recovery triggers for configuration and startup', () => {
   it('a new config revision re-evaluates an on_change hold; the same revision does not', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
-    const session = f.makeSession();
+    let session = f.makeSession();
 
     const failOnce = async () => {
       const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
@@ -421,9 +420,13 @@ describe('recovery triggers for configuration and startup', () => {
     };
 
     await failOnce();
-    expect((await session.inspect()).kind).toBe('on_change');
+    expect((await session.inspect()).kind).toBe('at');
+    const legacy = f.readState();
+    legacy.schedule = { kind: 'on_change', revision: legacy.revision };
+    saveRecoveryState(f.fs, legacy);
+    session = f.makeSession();
 
-    // 新身份 + 新 revision → 重新评估并放行
+    // 旧 on_change：新身份 + 新 revision → 重新评估并放行
     f.reload(providerConfig('primary-fixed'));
     const reloaded = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r1' } });
     expect(reloaded.kind).toBe('admitted');
@@ -431,23 +434,28 @@ describe('recovery triggers for configuration and startup', () => {
     await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(reloaded.attemptId, 'failed');
 
-    // 同 revision 重复通知：不放行
+    // 同 revision 重复通知且 at 未到期：不放行
     const replay = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r1' } });
     expect(replay.kind).toBe('waiting');
 
-    // 另一个身份 + revision（配置再次变化）：放行
+    // 另一个身份 + revision 不缩短 at；到期后自动放行。
+    f.advance(300_000);
     f.reload(providerConfig('primary-fixed-again'));
     const again = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], configurationRevision: 'r2' } });
     expect(again.kind).toBe('admitted');
   });
 
-  it('startup admits once on an on_change hold and is idempotent per startup id', async () => {
+  it('startup admits once on a legacy on_change hold and later startups do not shorten at', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
-    const session = f.makeSession();
+    let session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
     await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
+    const legacy = f.readState();
+    legacy.schedule = { kind: 'on_change', revision: legacy.revision };
+    saveRecoveryState(f.fs, legacy);
+    session = f.makeSession();
 
     const startup = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], startupId: 'boot-1' } });
     expect(startup.kind).toBe('admitted');
@@ -459,7 +467,10 @@ describe('recovery triggers for configuration and startup', () => {
     expect(replay.kind).toBe('waiting');
 
     const nextBoot = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], startupId: 'boot-2' } });
-    expect(nextBoot.kind).toBe('admitted');
+    expect(nextBoot.kind).toBe('waiting');
+    f.advance(300_000);
+    const due = await session.begin({ requestKey: 'fp', facts: { interventionIds: [], startupId: 'boot-2' } });
+    expect(due.kind).toBe('admitted');
   });
 });
 
@@ -568,12 +579,16 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
 
   it('on_change / 旧用户 + 新配置：配置被接受转 ready、旧用户去重、只多一次准入', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
-    const session = f.makeSession();
+    let session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: facts({ interventionIds: ['m-old'] }) });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
     await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
-    expect((await session.inspect()).kind).toBe('on_change');
+    expect((await session.inspect()).kind).toBe('at');
+    const legacy = f.readState();
+    legacy.schedule = { kind: 'on_change', revision: legacy.revision };
+    saveRecoveryState(f.fs, legacy);
+    session = f.makeSession();
     const acceptedBefore = acceptedEvents(f).length;
     const admittedBefore = f.emitted.filter(e => e.type === 'recovery_attempt_admitted').length;
 
@@ -596,7 +611,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
       .toBe(admittedBefore + 1);
   });
 
-  it('on_change / 新用户 + 新配置 + 新启动：三者全部接受，只产生一个 admission', async () => {
+  it('at / 新用户 + 新配置 + 新启动：三者全部接受，只产生一个 admission', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
     const session = f.makeSession();
     await failOnce(f, session);
@@ -684,7 +699,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     expect(f.readState().acceptedInterventions).toEqual(['m1']);
   });
 
-  it('on_change / 全部重复事实：幂等 waiting，不产生准入与接受事件', async () => {
+  it('at / 全部重复事实：幂等 waiting，不产生准入与接受事件', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
     const session = f.makeSession();
     const first = await session.begin({
@@ -704,7 +719,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     expect(replay.kind).toBe('waiting');
     if (replay.kind !== 'waiting') return;
     expect(replay.factsAccepted).toBe(true);
-    expect(replay.schedule.kind).toBe('on_change');
+    expect(replay.schedule.kind).toBe('at');
     expect(acceptedEvents(f).length).toBe(acceptedBefore);
     expect(f.emitted.filter(e => e.type === 'recovery_attempt_admitted').length).toBe(admittedBefore);
   });
@@ -718,13 +733,16 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
     if (first.kind !== 'admitted') return;
     await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(first.attemptId, 'failed');
-    expect((await session.inspect()).kind).toBe('on_change');
+    expect((await session.inspect()).kind).toBe('at');
 
     const replay = await session.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-1' }) });
     expect(replay.kind).toBe('waiting');                        // 同一 token 不再授予启动资格
 
     const nextBoot = await session.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) });
-    expect(nextBoot.kind).toBe('admitted');
+    expect(nextBoot.kind).toBe('waiting');
+    f.advance(300_000);
+    const due = await session.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) });
+    expect(due.kind).toBe('admitted');
   });
 
   it('活跃准入 / 任意事实：全部不接受（waiting/false），finish 后重送可接受', async () => {
@@ -854,8 +872,12 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
 
   it('配置先置 ready 不恢复正常预算：probeOnly 取入口安排', async () => {
     const f = await makeFixture({ call: async () => { throw new LLMAuthError('bad key'); } });
-    const session = f.makeSession();
+    let session = f.makeSession();
     await failOnce(f, session);
+    const legacy = f.readState();
+    legacy.schedule = { kind: 'on_change', revision: legacy.revision };
+    saveRecoveryState(f.fs, legacy);
+    session = f.makeSession();
 
     f.reload(providerConfig('primary-fixed'));
     const admission = await session.begin({
@@ -1134,7 +1156,7 @@ describe('Phase 2029 Step D: committed durability degradation evidence', () => {
 });
 
 
-describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', () => {
+describe('Phase 2034 Step C: legacy on_change migration and blocked candidate recovery', () => {
   type Fixture = Awaited<ReturnType<typeof makeFixture>>;
 
   function seedBlocked(
@@ -1163,7 +1185,7 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
     saveRecoveryState(f.fs, state);
   }
 
-  it('blocked primary 不真实请求，合法 fallback 可执行并保留 skipped 证据', async () => {
+  it('legacy blocked primary 可真实 call，不再产生 rate_limit_blocked localSkip', async () => {
     let primaryCalls = 0;
     let fallbackCalls = 0;
     const f = await makeFixture({
@@ -1171,24 +1193,27 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
       fallbacks: [{ name: 'fallback', call: async () => { fallbackCalls++; return OK_RESPONSE; } }],
     });
     seedBlocked(f, f.orchestrator, 1);
+    const before = f.readState();
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    expect(f.readState().providers).toEqual(before.providers);
 
     await f.orchestrator.callWithinRecovery(CALL, session);
-    expect(primaryCalls).toBe(0);
-    expect(fallbackCalls).toBe(1);
+    expect(primaryCalls).toBe(1);
+    expect(fallbackCalls).toBe(0);
     expect(f.emitted.some(
-      e => e.type === 'call_attempt_result' && e.provider === 'primary'
-        && e.outcome === 'skipped' && e.reason === 'rate_limit_blocked',
-    )).toBe(true);
+      e => e.type === 'call_attempt_result' && e.outcome === 'skipped' && e.reason === 'rate_limit_blocked',
+    )).toBe(false);
   });
 
-  it('全部 blocked 的 call 不真发、不增预算并保持 on_change；干预释放后可恢复', async () => {
+  it('全部 legacy blocked 候选可真实执行 call/stream', async () => {
     let primaryCalls = 0;
     let fallbackCalls = 0;
+    let streamCalls = 0;
     const f = await makeFixture({
-      call: async () => { primaryCalls++; return OK_RESPONSE; },
+      call: async () => { primaryCalls++; throw new LLMRateLimitError('primary'); },
+      onStream: () => { streamCalls++; },
       fallbacks: [{ name: 'fallback', call: async () => { fallbackCalls++; return OK_RESPONSE; } }],
     });
     seedBlocked(f, f.orchestrator, 2);
@@ -1196,42 +1221,82 @@ describe('Phase 2029 Step E: persisted rate-limit blocked candidate exclusion', 
     const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
-    await expect(f.orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
-    expect(primaryCalls).toBe(0);
-    expect(fallbackCalls).toBe(0);
-    const saved = f.readState();
-    expect(saved.schedule.kind).toBe('on_change');
-    expect(saved.budget.retryCount).toBe(0);
-    expect(saved.failures).toHaveLength(0);
-    expect(saved.providers.map((p: LLMRecoveryProviderFact) => p.consecutiveFailures)).toEqual([10, 10]);
-    expect(f.emitted.filter(
-      e => e.type === 'call_attempt_result' && e.outcome === 'skipped' && e.reason === 'rate_limit_blocked',
-    )).toHaveLength(2);
-
-    await session.finish(admission.attemptId, 'failed');
-    const retry = await session.begin({
-      requestKey: 'fp-next',
-      facts: facts({ interventionIds: ['user-release'] }),
-    });
-    if (retry.kind !== 'admitted') throw new Error('expected admitted');
     await f.orchestrator.callWithinRecovery(CALL, session);
     expect(primaryCalls).toBe(1);
-  });
+    expect(fallbackCalls).toBe(1);
+    await session.finish(admission.attemptId, 'completed');
 
-  it('全部 blocked 的 stream 不进入真实 stream 并保持 on_change', async () => {
-    let streamCalls = 0;
-    const f = await makeFixture({ onStream: () => { streamCalls++; } });
     seedBlocked(f, f.orchestrator, 1);
-    const session = f.makeSession();
-    const admission = await session.begin({ requestKey: 'fp', facts: facts({}) });
-    if (admission.kind !== 'admitted') throw new Error('expected admitted');
-
+    const streamAdmission = await session.begin({ requestKey: 'fp-stream', facts: facts({}) });
+    if (streamAdmission.kind !== 'admitted') throw new Error('expected stream admitted');
     await expect((async () => {
       for await (const _chunk of f.orchestrator.streamWithinRecovery(CALL, session)) { /* drain */ }
     })()).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
-    expect(streamCalls).toBe(0);
-    expect(f.readState().schedule.kind).toBe('on_change');
-    expect(f.readState().budget.retryCount).toBe(0);
+    expect(streamCalls).toBe(1);
+  });
+
+  it.each([
+    { errorClass: 'permanent', delayMs: 300_000, rateLimitFailures: undefined, rateLimitBlocked: undefined },
+    { errorClass: 'rate_limit', delayMs: 600_000, rateLimitFailures: 10, rateLimitBlocked: true },
+    { errorClass: 'rate_limit', delayMs: 120_000, rateLimitFailures: 3, rateLimitBlocked: undefined },
+    { errorClass: 'transient', delayMs: 60_000, rateLimitFailures: undefined, rateLimitBlocked: undefined },
+    { errorClass: 'unknown', delayMs: 60_000, rateLimitFailures: undefined, rateLimitBlocked: undefined },
+    { errorClass: 'quota', delayMs: 240_000, rateLimitFailures: undefined, rateLimitBlocked: undefined },
+  ])('旧 on_change 的 $errorClass facts 自动迁移为 at，revision 只增加一次', async (fact) => {
+    const f = await makeFixture();
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 1,
+      retryDelayMs: 60_000,
+      quotaDelayMs: 240_000,
+    }, T0);
+    state.schedule = { kind: 'on_change', revision: state.revision };
+    state.providers = [{
+      providerId: f.orchestrator.getProviderIdentities()[0],
+      errorClass: fact.errorClass,
+      at: new Date(T0).toISOString(),
+      consecutiveFailures: 3,
+      detail: 'legacy hold',
+      rateLimitFailures: fact.rateLimitFailures,
+      rateLimitBlocked: fact.rateLimitBlocked,
+      rateLimitBlockedAt: fact.rateLimitBlocked === true ? new Date(T0).toISOString() : undefined,
+    }];
+    state.failures = [{
+      at: new Date(T0).toISOString(),
+      providerId: state.providers[0].providerId,
+      errorClass: fact.errorClass,
+      message: 'original evidence',
+    }];
+    saveRecoveryState(f.fs, state);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    expect(result.kind).toBe('waiting');
+    if (result.kind !== 'waiting') return;
+    expect(result.schedule).toMatchObject({
+      kind: 'at',
+      revision: state.revision + 1,
+      resumeAt: new Date(T0 + fact.delayMs).toISOString(),
+    });
+    const saved = f.readState();
+    expect(saved.revision).toBe(state.revision + 1);
+    expect(saved.providers).toEqual(state.providers);
+    expect(saved.failures).toEqual(state.failures);
+  });
+
+  it('无 provider facts 的非 provider on_change 保持原样且不增加 revision', async () => {
+    const f = await makeFixture();
+    const state = createInitialRecoveryState(SCOPE, {
+      retryCount: 0,
+      retryDelayMs: 30_000,
+      quotaDelayMs: 120_000,
+    }, T0);
+    state.schedule = { kind: 'on_change', revision: state.revision };
+    saveRecoveryState(f.fs, state);
+    const session = f.makeSession();
+
+    const result = await session.begin({ requestKey: 'fp', facts: facts({}) });
+    expect(result.kind).toBe('waiting');
+    expect(f.readState()).toEqual(state);
   });
 });
 
@@ -1379,7 +1444,7 @@ describe('Phase 2027 selective persistent recovery re-evaluation', () => {
     expect(saved.providers).toHaveLength(1);
     expect(saved.providers[0].providerId).toBe(currentId);
     expect(saved.providers[0].consecutiveFailures).toBe(3);
-    expect(saved.schedule.kind).toBe('on_change');
+    expect(saved.schedule.kind).toBe('at');
   });
 
   it('A 变化、B 未变化 rateLimitBlocked：只解除 A，B blocked 保持', async () => {
@@ -1400,7 +1465,7 @@ describe('Phase 2027 selective persistent recovery re-evaluation', () => {
     expect(changed.rateLimitFailures).toBe(0);
     expect(unchanged.rateLimitBlocked).toBe(true);
     expect(unchanged.rateLimitFailures).toBe(10);
-    expect(saved.schedule.kind).toBe('on_change');
+    expect(saved.schedule.kind).toBe('at');
   });
 
   it('全部相关阻断均变化并释放后 on_change 才转 ready', async () => {
@@ -1425,7 +1490,7 @@ describe('Phase 2027 selective persistent recovery re-evaluation', () => {
     const result = await session.begin({ requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }) });
     expect(result.kind).toBe('waiting');
     expect(f.readState().providers[0].errorClass).toBe('permanent');
-    expect(f.readState().schedule.kind).toBe('on_change');
+    expect(f.readState().schedule.kind).toBe('at');
   });
 
   it('migration pending 即使命中当前 ID 也保守重估一次，后续事实不再带 pending', async () => {
