@@ -31,7 +31,7 @@ import type {
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
-import { LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 
 const CLAW_ID = 'worker';
 const CONTRACT_ID = 'contract-1844';
@@ -107,7 +107,7 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
 
   let providerCalls = 0;
   let providerError: Error | undefined =
-    failure === 'auth' ? new LLMAuthError('primary') : new Error('insufficient quota');
+    failure === 'auth' ? new LLMAuthError('primary') : new LLMQuotaError('primary', 'insufficient quota');
   const adapter: ProviderAdapter = {
     name: 'primary',
     model: 'model-primary',

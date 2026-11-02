@@ -4,6 +4,7 @@ import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMRateLimitError,
+  LLMQuotaError,
   LLMTimeoutError,
   LLMNetworkError,
 } from '../../../src/foundation/llm-provider/errors.js';
@@ -11,18 +12,17 @@ import { LLMInvalidRequestError } from '../../../src/foundation/llm-provider/req
 import { classifyLLMError, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 
 describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
-  // phase 1776: quota 类从 permanent 拆出——配额时间窗语义（EventLoop 退避），非配置类永久
-  it('quota keyword in plain Error → quota', () => {
-    expect(classifyLLMError(new Error('quota exceeded'))).toBe('quota');
+  // Phase 2037: quota 类只消费 L1 typed evidence，不从普通 Error 文本猜测。
+  it('LLMQuotaError → quota', () => {
+    expect(classifyLLMError(new LLMQuotaError('kimi', 'quota exceeded'))).toBe('quota');
   });
 
-  it('insufficient credit keyword → quota', () => {
-    expect(classifyLLMError(new Error('insufficient credit'))).toBe('quota');
-  });
-
-  it('billing keyword → quota', () => {
-    expect(classifyLLMError(new Error('billing issue'))).toBe('quota');
-  });
+  it.each(['quota exceeded', 'insufficient credit', 'billing issue'])(
+    'plain Error keyword %s → unknown',
+    (message) => {
+      expect(classifyLLMError(new Error(message))).toBe('unknown');
+    },
+  );
 
   it('LLMAuthError without quota keyword → permanent', () => {
     expect(classifyLLMError(new LLMAuthError('anthropic', 401))).toBe('permanent');
@@ -80,26 +80,24 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
     expect(classifyLLMError(new Error('unexpected'))).toBe('unknown');
   });
 
-  // phase 1776: 'usage limit' 覆盖 Kimi k3 5h 窗文案；LLMAuthError 403 + quota
-  // message 时 quota 优先于 instanceof permanent（时间窗语义 ≠ 配置类永久）。
-  it('usage limit keyword (Kimi 5h window) → quota', () => {
-    expect(classifyLLMError(new Error("You've reached your 5-hour usage limit."))).toBe('quota');
+  it('usage limit keyword in plain Error → unknown', () => {
+    expect(classifyLLMError(new Error("You've reached your 5-hour usage limit."))).toBe('unknown');
   });
 
-  it('LLMAuthError 403 with quota message → quota (quota 优先于 instanceof)', () => {
-    expect(classifyLLMError(new LLMAuthError('anthropic', 403, "You've reached your 5-hour usage limit."))).toBe('quota');
+  it('LLMAuthError 403 with quota message → permanent（不再文本改判）', () => {
+    expect(classifyLLMError(new LLMAuthError('anthropic', 403, "You've reached your 5-hour usage limit."))).toBe('permanent');
   });
 
   it('LLMAllProvidersFailedError [quota] → quota', () => {
     const err = new LLMAllProvidersFailedError([
-      { provider: 'kimi', error: new Error('quota exceeded') },
+      { provider: 'kimi', error: new LLMQuotaError('kimi', 'quota exceeded') },
     ]);
     expect(classifyLLMError(err)).toBe('quota');
   });
 
   it('LLMAllProvidersFailedError [quota, transient] → transient（transient 优先可重试）', () => {
     const err = new LLMAllProvidersFailedError([
-      { provider: 'kimi', error: new Error('quota exceeded') },
+      { provider: 'kimi', error: new LLMQuotaError('kimi', 'quota exceeded') },
       { provider: 'openai', error: new LLMNetworkError('openai', new Error('ECONNRESET')) },
     ]);
     expect(classifyLLMError(err)).toBe('transient');
@@ -107,7 +105,7 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
 
   it('LLMAllProvidersFailedError [quota, rate_limit] → rate_limit（Retry-After 驱动优先）', () => {
     const err = new LLMAllProvidersFailedError([
-      { provider: 'kimi', error: new Error('quota exceeded') },
+      { provider: 'kimi', error: new LLMQuotaError('kimi', 'quota exceeded') },
       { provider: 'openai', error: new LLMRateLimitError('openai') },
     ]);
     expect(classifyLLMError(err)).toBe('rate_limit');
@@ -116,7 +114,7 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
   it('LLMAllProvidersFailedError [permanent, quota] → quota（quota 优先于 permanent）', () => {
     const err = new LLMAllProvidersFailedError([
       { provider: 'openai', error: new LLMInvalidRequestError('openai', 'provider_json_parse_rejected') },
-      { provider: 'kimi', error: new Error('quota exceeded') },
+      { provider: 'kimi', error: new LLMQuotaError('kimi', 'quota exceeded') },
     ]);
     expect(classifyLLMError(err)).toBe('quota');
   });

@@ -17,7 +17,7 @@ import type {
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
-import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -121,7 +121,7 @@ async function failedCall(
   } catch { /* expected: provider failure */ }
 }
 
-const QUOTA_ERROR = () => new LLMAuthError('p', 403, 'weekly usage limit quota reached');
+const QUOTA_ERROR = () => new LLMQuotaError('p', 'weekly usage limit quota reached');
 
 describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
   it('quota 首次 stream 调用：单候选只 1 次真实请求（不跑满轮内预算）', async () => {

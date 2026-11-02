@@ -24,7 +24,7 @@ import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/inbox-message-types.js';
-import { LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 import { createLLMOrchestrator, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
@@ -247,7 +247,7 @@ async function makeHarness(): Promise<Harness> {
   };
 }
 
-const QUOTA_ERROR = () => new Error('insufficient quota');
+const QUOTA_ERROR = () => new LLMQuotaError('p', 'insufficient quota');
 
 // ---------------------------------------------------------------------------
 // Phase 1827: Z5 组合回归——真实 EventLoop + 真实 Messaging + 真实 owner

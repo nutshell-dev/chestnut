@@ -4,7 +4,7 @@
  */
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
-import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError } from './errors.js';
+import { LLMError, LLMRateLimitError, LLMQuotaError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError } from './errors.js';
 import { LLMInvalidRequestError } from './request-unicode.js';
 
 const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid json request body/i;
@@ -13,6 +13,7 @@ const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid 
  * Parse HTTP error response and throw the appropriate LLMError subclass.
  *
  * Handles fetch Response with 4xx/5xx status:
+ * - 402 → LLMQuotaError with the original provider message
  * - 429 → LLMRateLimitError with parsed retry-after header
  * - 5xx → LLMError "server error" tier
  * - else → LLMError generic
@@ -54,6 +55,10 @@ export async function throwHttpErrorResponse(
   }
   if (status === 404) {
     throw new LLMModelNotFoundError(provider, model, resolvedErrorText);
+  }
+
+  if (status === 402) {
+    throw new LLMQuotaError(provider, resolvedErrorText);
   }
 
   if (status === 429) {

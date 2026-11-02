@@ -16,6 +16,7 @@ import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMRateLimitError,
+  LLMQuotaError,
   LLMContextExceededError,
   LLMOutputBudgetExceededError,
   LLMTimeoutError,
@@ -23,6 +24,7 @@ import {
   LLMError,
   LLMEmptyResponseError,
 } from '../../../src/foundation/llm-provider/index.js';
+import { LLMQuotaError as RootLLMQuotaError } from '../../../src/index.js';
 import { ExternalAbortError } from '../../../src/foundation/llm-provider/abort-helper.js';
 import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
 
@@ -164,6 +166,20 @@ describe('PiAiAdapter — openai-completions 协议', () => {
     const adapter = createLLMProvider(baseConfig());
     await expect(adapter.call({ messages: [{ role: 'user', content: 'hi' }] }))
       .rejects.toBeInstanceOf(LLMModelNotFoundError);
+  });
+
+  it('402 → LLMQuotaError，保留 provider 原文并经根 SDK 导出', async () => {
+    const providerMessage = 'payment required: quota exhausted';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ error: { message: providerMessage } }, 402),
+    ));
+    const adapter = createLLMProvider(baseConfig());
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(LLMQuotaError);
+    expect(err).not.toBeInstanceOf(LLMRateLimitError);
+    expect((err as Error).message).toContain(providerMessage);
+    expect(RootLLMQuotaError).toBe(LLMQuotaError);
   });
 
   it('429 + retry-after → LLMRateLimitError 带 typed retryAfter 秒数', async () => {
@@ -863,6 +879,23 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
 });
 
 describe('PiAiAdapter — Google 族退化（设计稿 G1 登记）', () => {
+  it('Google 五小时 usage limit → LLMQuotaError（非 rate limit）', async () => {
+    const providerMessage = 'reached your 5-hour usage limit';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ error: { code: 429, message: providerMessage, status: 'RESOURCE_EXHAUSTED' } }, 429),
+    ));
+    const adapter = createLLMProvider(baseConfig({
+      apiFormat: 'gemini',
+      model: 'gemini-2.5-pro',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    }));
+    const err = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(LLMQuotaError);
+    expect(err).not.toBeInstanceOf(LLMRateLimitError);
+    expect((err as Error).message).toContain(providerMessage);
+  });
+
   it('不注入 fetch 且 429 文本判定为 LLMRateLimitError（无 retryAfter）', async () => {
     // google-generative-ai 走 genai SDK 形态；mock 其 REST 端点返回 429 JSON
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(

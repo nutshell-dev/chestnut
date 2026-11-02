@@ -22,6 +22,7 @@ import {
   LLMNetworkError,
   LLMOutputBudgetExceededError,
   LLMRateLimitError,
+  LLMQuotaError,
 } from '../../../src/foundation/llm-provider/errors.js';
 import { LLMInvalidRequestError } from '../../../src/foundation/llm-provider/request-unicode.js';
 
@@ -87,6 +88,7 @@ describe('isPiAiContextOverflowText（pi-ai 官方 predicate shim）', () => {
   it('handles Cerebras bodyless overflow form', () => {
     expect(overflowText('cerebras', '400 status code (no body)')).toBe(true);
   });
+
 });
 
 describe('inspectSuccessfulMessage（成功响应信号）', () => {
@@ -273,6 +275,19 @@ describe('classifyCapturedHttpError 固定优先级', () => {
     expect(err).toBeInstanceOf(LLMContextExceededError);
   });
 
+  it('HTTP 402 → LLMQuotaError，保留 provider 原文', async () => {
+    const providerMessage = 'payment required: quota exhausted';
+    const err = await classifyCapturedHttpError('openai', 'gpt-4o', {
+      status: 402,
+      body: providerMessage,
+    });
+
+    expect(err).toBeInstanceOf(LLMQuotaError);
+    expect(err).not.toBeInstanceOf(LLMRateLimitError);
+    expect((err as Error).message).toContain(providerMessage);
+    expect((err as LLMQuotaError).context).toMatchObject({ provider: 'openai' });
+  });
+
   it('429 不进入 capture 兜底（rate limit 优先）', async () => {
     const capture: HttpErrorCapture = {
       status: 429,
@@ -366,6 +381,15 @@ describe('classifyTextualError 注入共享 predicate', () => {
     expect(err).not.toBeInstanceOf(LLMContextExceededError);
   });
 
+  it('Google 五小时 usage limit → LLMQuotaError，保留原文', () => {
+    const providerMessage = 'reached your 5-hour usage limit';
+    const err = classifyTextualError('google', 'gemini-2.5-pro', providerMessage, overflowText);
+
+    expect(err).toBeInstanceOf(LLMQuotaError);
+    expect(err).not.toBeInstanceOf(LLMRateLimitError);
+    expect(err.message).toContain(providerMessage);
+  });
+
   it('保留既有 rate/auth/invalid-json/network 分类', () => {
     expect(classifyTextualError('p', 'm', '429 rate limit reached', overflowText))
       .toBeInstanceOf(LLMRateLimitError);
@@ -375,5 +399,12 @@ describe('classifyTextualError 注入共享 predicate', () => {
       .toBeInstanceOf(LLMInvalidRequestError);
     expect(classifyTextualError('p', 'm', 'fetch failed: socket hang up', overflowText))
       .toBeInstanceOf(LLMNetworkError);
+  });
+
+  it('非 quota 普通文案保持通用 LLMError', () => {
+    const err = classifyTextualError('p', 'm', 'invalid_request: missing field model', overflowText);
+    expect(err).toBeInstanceOf(LLMError);
+    expect(err).not.toBeInstanceOf(LLMQuotaError);
+    expect(err).not.toBeInstanceOf(LLMRateLimitError);
   });
 });

@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LLMAuthError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMNetworkError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -530,7 +530,7 @@ describe('phase 1776 Step B/D: breaker 跳过 permanent/quota', () => {
 
   it('quota（usage limit 时间窗）失败不调用 breaker.onFailure、不 open', async () => {
     const primary = createMockProvider('primary', {
-      callError: new Error("You've reached your 5-hour usage limit."),
+      callError: new LLMQuotaError('kimi', "You've reached your 5-hour usage limit."),
     });
     const service = createOrchestrator(primary, []);
     const breaker = (service as any).breakers[0] as CircuitBreaker;
@@ -546,7 +546,7 @@ describe('phase 1776 Step B/D: breaker 跳过 permanent/quota', () => {
   it('quota 失败后再次 call 仍真发（breaker 未 open，无半开探针语义）', async () => {
     let calls = 0;
     const primary = createMockProvider('primary', {
-      callError: new Error('quota exceeded'),
+      callError: new LLMQuotaError('kimi', 'quota exceeded'),
     });
     const originalCall = primary.call.bind(primary);
     primary.call = async (opts) => {

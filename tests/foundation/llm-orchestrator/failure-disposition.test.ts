@@ -23,6 +23,7 @@ import {
   LLMNetworkError,
   LLMOutputBudgetExceededError,
   LLMRateLimitError,
+  LLMQuotaError,
 } from '../../../src/foundation/llm-provider/errors.js';
 
 const OK_RESPONSE: LLMResponse = {
@@ -75,7 +76,7 @@ describe('phase 1944 Step B: LLMOrchestrator.getFailureDisposition', () => {
 
     expect(orchestrator.getFailureDisposition(new LLMNetworkError('p', new Error('ECONNRESET')))).toBe('provider_recovery_scheduled');
     expect(orchestrator.getFailureDisposition(new LLMRateLimitError('p'))).toBe('provider_recovery_scheduled');
-    expect(orchestrator.getFailureDisposition(new Error('quota exceeded'))).toBe('provider_recovery_scheduled');
+    expect(orchestrator.getFailureDisposition(new LLMQuotaError('p', 'quota exceeded'))).toBe('provider_recovery_scheduled');
     expect(orchestrator.getFailureDisposition(new LLMAuthError('p', 401))).toBe('provider_recovery_scheduled');
     expect(orchestrator.getFailureDisposition(new LLMError('base llm error'))).toBe('provider_recovery_scheduled');
   });

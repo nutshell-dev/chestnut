@@ -16,6 +16,7 @@ import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMRateLimitError,
+  LLMQuotaError,
   LLMNetworkError,
   LLMTimeoutError,
   LLMContextExceededError,
@@ -133,15 +134,8 @@ export function classifyLLMError(err: unknown): LLMErrorClass {
     if (classes.some(c => c === 'abort')) return 'abort';
     return 'unknown';
   }
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    // phase 1776: quota（用量/配额时间窗）先于 permanent 判定——5h 窗内重试必败、
-    // 窗结束自动恢复：语义 = EventLoop 时间退避，非配置类永久错误。
-    // 'usage limit' 覆盖 Kimi k3 5h 窗文案（"reached your 5-hour usage limit"）。
-    if (msg.includes('quota') || msg.includes('usage limit') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
-      return 'quota';
-    }
-  }
+  // Phase 2037: L1 独占 provider 文本分类；L2 只消费 typed quota 证据。
+  if (err instanceof LLMQuotaError) return 'quota';
   if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError || err instanceof LLMInvalidRequestError) return 'permanent';
   if (err instanceof LLMRateLimitError) return 'rate_limit';
   if (err instanceof LLMNetworkError || err instanceof LLMTimeoutError) return 'transient';
@@ -179,13 +173,8 @@ export type UserActionHint =
   | null;
 
 export function getUserActionHint(err: unknown): UserActionHint {
-  if (err instanceof LLMAuthError) {
-    const msg = err.message.toLowerCase();
-    if (msg.includes('quota') || msg.includes('credit') || msg.includes('insufficient')) {
-      return 'check_quota';
-    }
-    return 'rotate_api_key';
-  }
+  if (err instanceof LLMQuotaError) return 'check_quota';
+  if (err instanceof LLMAuthError) return 'rotate_api_key';
   if (err instanceof LLMModelNotFoundError) return 'switch_primary';
   if (err instanceof LLMRateLimitError) return 'wait_retry_after';
   if (err instanceof LLMTimeoutError) return 'check_endpoint';

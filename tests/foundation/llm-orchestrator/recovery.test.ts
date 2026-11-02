@@ -16,7 +16,7 @@ import {
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMAllProvidersFailedError, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
@@ -174,7 +174,7 @@ describe('recovery session admission', () => {
 
 describe('recovery failure policy', () => {
   it('quota failure schedules at the quota curve and doubles it', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
     await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
 
@@ -194,7 +194,7 @@ describe('recovery failure policy', () => {
   });
 
   it('waiting until the deadline, then admitting again', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
@@ -363,7 +363,7 @@ describe('recovery failure policy', () => {
 
 describe('recovery interventions', () => {
   it('a new user message id admits early; the same id does not; a second new id does', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
     const admission = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
@@ -386,7 +386,7 @@ describe('recovery interventions', () => {
   });
 
   it('intervention keeps the failure history (curve not reset)', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
 
     const first = await session.begin({ requestKey: 'fp', facts: { interventionIds: [] } });
@@ -640,7 +640,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
   });
 
   it('at 未到期 / 旧用户 + 新配置：配置被接受但 deadline 不变，不产生准入', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: facts({ interventionIds: ['m-old'] }) });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
@@ -667,7 +667,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
   });
 
   it('at 未到期 / 新用户 + 新配置：一次提前准入，失败历史保留', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
     await failOnce(f, session);
     const quotaBefore = f.readState().budget.quotaDelayMs;
@@ -684,7 +684,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
   });
 
   it('at 到期 / 重复事实：一次自动准入，不伪造新的接受事件', async () => {
-    const f = await makeFixture({ call: async () => { throw new Error('insufficient quota'); } });
+    const f = await makeFixture({ call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); } });
     const session = f.makeSession();
     const first = await session.begin({ requestKey: 'fp', facts: facts({ interventionIds: ['m1'] }) });
     if (first.kind !== 'admitted') throw new Error('expected admitted');
@@ -813,7 +813,7 @@ describe('recovery facts combination (phase 1827 §4.4)', () => {
   it('原子保存失败：抛错、内存与来源不前移；写入恢复后重送仍能接受', async () => {
     const writeState = { failing: false };
     const f = await makeFixture({
-      call: async () => { throw new Error('insufficient quota'); },
+      call: async () => { throw new LLMQuotaError('p', 'insufficient quota'); },
       wrapFs: (fs) => wrapWriteFailure(fs, writeState),
     });
     const session = f.makeSession();
@@ -1657,7 +1657,7 @@ describe('Phase 2032: legacy retirement and scoped invocation admission', () => 
     const f = await makeFixture({
       call: async () => {
         providerCalls += 1;
-        throw new Error('insufficient quota');
+        throw new LLMQuotaError('p', 'insufficient quota');
       },
     });
     const session = f.makeSession();
@@ -1724,7 +1724,7 @@ describe('Phase 2035 Step C: complete accepted-fact dedupe', () => {
     const f = await makeFixture({
       call: async () => {
         providerCalls += 1;
-        throw new Error('insufficient quota');
+        throw new LLMQuotaError('p', 'insufficient quota');
       },
     });
     const session = f.makeSession();

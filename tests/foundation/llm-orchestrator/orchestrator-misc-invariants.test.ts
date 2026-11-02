@@ -17,12 +17,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
-import { getUserActionHint, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { classifyLLMError, getUserActionHint, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMNetworkError,
   LLMRateLimitError,
+  LLMQuotaError,
   LLMTimeoutError,
 } from '../../../src/foundation/llm-provider/errors.js';
 import { createLLMEventSink } from '../../../src/assembly/llm-event-sink.js';
@@ -1405,6 +1406,20 @@ describe('streaming-fallback-switched-emit', () => {
   });
 });
 
+describe('typed quota ownership', () => {
+  it('只有 LLMQuotaError 返回 quota/check_quota', () => {
+    const err = new LLMQuotaError('google', 'reached your 5-hour usage limit');
+    expect(classifyLLMError(err)).toBe('quota');
+    expect(getUserActionHint(err)).toBe('check_quota');
+  });
+
+  it('plain Error quota 文本不再伪造 typed 证据', () => {
+    const err = new Error('quota exhausted');
+    expect(classifyLLMError(err)).toBe('unknown');
+    expect(getUserActionHint(err)).toBeNull();
+  });
+});
+
 describe('user-action-hint-coverage', () => {
   // phase 1425: 反向 coverage 守 getUserActionHint 对所有 LLMError 子类返回非 null
   // （除 base LLMError + 非 LLMError 错走显式 null 设计）
@@ -1418,8 +1433,8 @@ describe('user-action-hint-coverage', () => {
       expect(getUserActionHint(new LLMNetworkError('openai', new Error('ECONNRESET')))).toBe('check_network');
     });
 
-    it('LLMAuthError with quota keyword → check_quota', () => {
-      expect(getUserActionHint(new LLMAuthError('anthropic', 401, 'insufficient credits'))).toBe('check_quota');
+    it('LLMAuthError with quota keyword → rotate_api_key（不再文本改判）', () => {
+      expect(getUserActionHint(new LLMAuthError('anthropic', 401, 'insufficient credits'))).toBe('rotate_api_key');
     });
 
     it('LLMAuthError default → rotate_api_key', () => {

@@ -23,7 +23,7 @@ export {
   LLMAllProvidersFailedError,
   classifyLLMError, getUserActionHint,
 } from './foundation/llm-orchestrator/index.js';
-export { LLMError, LLMAuthError, LLMEmptyResponseError, LLMModelNotFoundError, LLMNetworkError, LLMRateLimitError, LLMTimeoutError } from './foundation/llm-provider/index.js';
+export { LLMError, LLMAuthError, LLMEmptyResponseError, LLMModelNotFoundError, LLMNetworkError, LLMRateLimitError, LLMQuotaError, LLMTimeoutError } from './foundation/llm-provider/index.js';
 export type { LLMErrorClass, UserActionHint } from './foundation/llm-orchestrator/index.js';
 export { FileNotFoundError } from './foundation/fs/index.js';
 export {

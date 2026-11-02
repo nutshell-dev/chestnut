@@ -14,6 +14,7 @@ import { formatErr } from '../node-utils/index.js';
 type LLMErrorCode =
   | 'LLM_CALL_FAILED'
   | 'LLM_RATE_LIMITED'
+  | 'LLM_QUOTA_EXCEEDED'
   | 'LLM_TIMEOUT'
   | 'LLM_AUTH_FAILED'
   | 'LLM_NETWORK_FAILED'
@@ -56,6 +57,14 @@ export class LLMRateLimitError extends LLMError {
       { provider, retryAfter }
     );
     this.retryAfter = retryAfter;
+  }
+}
+
+export class LLMQuotaError extends LLMError {
+  readonly code: LLMErrorCode = 'LLM_QUOTA_EXCEEDED';
+
+  constructor(provider: string, providerMessage: string) {
+    super(`Provider quota exhausted: ${providerMessage}`, { provider });
   }
 }
 

@@ -10,8 +10,9 @@
  *
  * Google 族（google-generative-ai / google-vertex）= 已登记退化族（设计稿 §7 G1）：
  * HTTP status 与 retry-after 均不可得 → 退回 classifyTextualError 文本判定；
- * LLMRateLimitError 不带 retryAfter、getRetryAfterSec 返回 undefined、退避走
- * 通用策略。此退化与 phase 1268 纪律的冲突已在设计稿显式登记，不得静默放宽。
+ * quota/usage-limit 文案归 LLMQuotaError；LLMRateLimitError 不带 retryAfter、
+ * getRetryAfterSec 返回 undefined、退避走通用策略。此退化与 phase 1268 纪律的
+ * 冲突已在设计稿显式登记，不得静默放宽。
  */
 
 import type * as PiAi from '@earendil-works/pi-ai';
@@ -20,6 +21,7 @@ import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMRateLimitError,
+  LLMQuotaError,
   LLMNetworkError,
   LLMContextExceededError,
   LLMOutputBudgetExceededError,
@@ -166,7 +168,8 @@ export async function classifyCapturedHttpError(
 // refresh 失败（invalid_grant / token 轮换失败）一律归 auth 类，不得吞成 unknown。
 const TEXT_AUTH_RE = /401|403|unauthorized|unauthenticated|permission[_ ]denied|invalid (api )?key|api key not valid|not configured|invalid_grant|refresh token|(token|oauth).{0,20}(refresh|expired|revoked|rejected)/i;
 const TEXT_NOT_FOUND_RE = /404|not[_ ]found|does not exist/i;
-const TEXT_RATE_LIMIT_RE = /429|rate.?limit|resource_exhausted|too many requests|quota/i;
+const TEXT_QUOTA_RE = /quota|usage limit|insufficient|credit|billing/i;
+const TEXT_RATE_LIMIT_RE = /429|rate.?limit|resource_exhausted|too many requests/i;
 const TEXT_NETWORK_RE = /econnrefused|enotfound|etimedout|econnreset|fetch failed|network|socket hang up|dns/i;
 const TEXT_INVALID_JSON_RE = /failed to parse the request body as json|invalid json request body/i;
 
@@ -181,6 +184,9 @@ export function classifyTextualError(
   message: string,
   isOverflowText: (provider: string, text: string) => boolean,
 ): Error {
+  if (TEXT_QUOTA_RE.test(message)) {
+    return new LLMQuotaError(provider, message);
+  }
   if (TEXT_RATE_LIMIT_RE.test(message)) {
     return new LLMRateLimitError(provider, undefined);
   }

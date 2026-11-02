@@ -23,7 +23,7 @@ describe('LLMAuthError owner boundary', () => {
   it('keeps classification/hints and SDK owner aggregation', () => {
     expect(orchestratorErrors.classifyLLMError(new LLMAuthError('p', 401))).toBe('permanent');
     expect(orchestratorErrors.getUserActionHint(new LLMAuthError('p', 401))).toBe('rotate_api_key');
-    expect(orchestratorErrors.getUserActionHint(new LLMAuthError('p', 401, 'insufficient credits'))).toBe('check_quota');
+    expect(orchestratorErrors.getUserActionHint(new LLMAuthError('p', 401, 'insufficient credits'))).toBe('rotate_api_key');
     expect(sdkSource).toMatch(/export\s*\{[^}]*LLMAuthError[^}]*\}\s*from\s*['"]\.\/foundation\/llm-provider\/index\.js['"]/s);
   });
 });
