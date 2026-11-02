@@ -8,7 +8,6 @@ const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.
 const sdkBarrel = read('../../../src/index.ts');
 const callers = [
   '../../../src/foundation/llm-orchestrator/orchestrator.ts',
-  '../../../tests/core/integration/context-manager-orchestrator-failover.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-cleanup-invariants.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-primary-success-race-lost.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-state-machine-cluster.test.ts',

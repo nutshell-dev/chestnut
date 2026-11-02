@@ -31,7 +31,7 @@ function validState(): LLMInstanceStateV1 {
     providers: [{
       providerId: 'provider-a',
       breaker: { state: 'open', consecutiveFailures: 2, openedAtMs: 10, lastFailureClass: 'transient' },
-      sharedFailure: { errorClass: 'transient', floorMs: 20, epoch: 1 },
+      sharedFailure: { errorClass: 'transient', floorMs: 20 },
     }],
     lastSuccess: { providerId: 'provider-a' },
   };
@@ -97,7 +97,7 @@ describe('LLM instance state V1', () => {
       { ...validState(), providers: [validState().providers[0], validState().providers[0]] },
       { ...validState(), providers: [{ ...validState().providers[0], breaker: { state: 'open', consecutiveFailures: 1, lastFailureClass: 'transient' } }] },
       { ...validState(), lastSuccess: { providerId: 'missing' } },
-      { ...validState(), providers: [{ ...validState().providers[0], sharedFailure: { errorClass: 'transient', epoch: Number.NaN } }] },
+      { ...validState(), providers: [{ ...validState().providers[0], sharedFailure: { errorClass: 'transient', floorMs: Number.NaN } }] },
     ];
     for (const state of invalid) {
       const raw = JSON.stringify(state);

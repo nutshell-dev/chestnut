@@ -75,8 +75,9 @@ describe('LLM instance health persistence', () => {
     const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
     expect(disk.providers[0]).toMatchObject({
       breaker: { state: 'open', consecutiveFailures: 1, lastFailureClass: 'transient' },
-      sharedFailure: { errorClass: 'transient', epoch: 1 },
+      sharedFailure: { errorClass: 'transient' },
     });
+    expect(disk.providers[0].sharedFailure).not.toHaveProperty('epoch');
 
     const healthy = adapter('primary');
     const restarted = f.makeOwner([healthy]);

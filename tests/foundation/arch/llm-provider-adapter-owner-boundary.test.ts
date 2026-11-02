@@ -15,7 +15,6 @@ const callers = [
   '../../../tests/foundation/llm-orchestrator/orchestrator-misc-invariants.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-primary-success-race-lost.test.ts',
   '../../../tests/foundation/llm-orchestrator/getProviderInfo-current-streaming.test.ts',
-  '../../../tests/core/integration/context-manager-orchestrator-failover.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
 
 describe('ProviderAdapter owner boundary', () => {

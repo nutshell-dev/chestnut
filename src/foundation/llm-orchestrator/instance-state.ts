@@ -19,7 +19,6 @@ export interface LLMInstanceBreakerState {
 export interface LLMInstanceSharedFailure {
   errorClass: LLMErrorClass;
   floorMs?: number;
-  epoch: number;
 }
 
 export interface LLMInstanceProviderState {
@@ -75,7 +74,7 @@ function validateBreaker(value: unknown): value is LLMInstanceBreakerState {
 }
 
 function validateSharedFailure(value: unknown): value is LLMInstanceSharedFailure {
-  if (!isRecord(value) || !isErrorClass(value.errorClass) || !isNonNegativeInteger(value.epoch)) return false;
+  if (!isRecord(value) || !isErrorClass(value.errorClass)) return false;
   return value.floorMs === undefined || isNonNegativeNumber(value.floorMs);
 }
 

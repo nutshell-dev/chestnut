@@ -303,7 +303,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       : [];
     for (const providerId of this.providerIds) {
       const sharedFailure = persistedById.get(providerId)?.sharedFailure;
-      if (sharedFailure) this.sharedFailures.set(providerId, { ...sharedFailure });
+      // epoch 仅用于本进程内拒绝旧 probe 覆盖新故障；重启后从 0 重新建立运行代次。
+      if (sharedFailure) this.sharedFailures.set(providerId, { ...sharedFailure, epoch: 0 });
     }
     if (persisted.lastSuccess) {
       const index = this.providerIds.indexOf(persisted.lastSuccess.providerId);
@@ -359,7 +360,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         return {
           providerId,
           breaker: this.persistedBreaker(candidate.breakers[index]?.snapshot()),
-          ...(sharedFailure ? { sharedFailure: { ...sharedFailure } } : {}),
+          ...(sharedFailure ? {
+            sharedFailure: {
+              errorClass: sharedFailure.errorClass,
+              ...(sharedFailure.floorMs !== undefined ? { floorMs: sharedFailure.floorMs } : {}),
+            },
+          } : {}),
         };
       }),
       lastSuccess: candidate.lastSuccessProvider
