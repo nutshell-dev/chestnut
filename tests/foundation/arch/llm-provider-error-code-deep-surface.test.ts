@@ -13,6 +13,7 @@ describe('LLMProvider LLMErrorCode deep surface', () => {
       /(?:^|\n)(?:export\s+)?type\s+LLMErrorCode\s*=[\s\S]*?'LLM_INVALID_REQUEST';/,
     );
     // phase 1722 F: LLMCircuitBreakerOpenError 归 LLMOrchestrator，L1 code 属性自 11 降为 10
-    expect(providerErrors.match(/readonly\s+code:\s*LLMErrorCode\s*=/g)).toHaveLength(10);
+    // phase 2037: 新增 LLMQuotaError 后恢复为 11
+    expect(providerErrors.match(/readonly\s+code:\s*LLMErrorCode\s*=/g)).toHaveLength(11);
   });
 });
