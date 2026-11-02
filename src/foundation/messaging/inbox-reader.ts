@@ -627,7 +627,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         try {
           content = await this.fs.read(filePath);
         } catch (readErr) {
-          if (isFileNotFound(readErr)) throw readErr;
+          if (isFileNotFound(readErr)) continue;  // race: consumed between list and read
           throw new InboxReadError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
         }
         const message = decodeInbox(content);
@@ -777,6 +777,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         try {
           await this.markFailed(issue.filePath);
         } catch (moveErr) {
+          if (isFileNotFound(moveErr)) continue;  // race: vanished after pending view
           throw moveErr;
         }
       } else {
