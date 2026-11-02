@@ -22,6 +22,7 @@ describe('phase 320 Step A: reloadConfig', () => {
   it('reload 后 primary 指向新 provider config', async () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -46,6 +47,7 @@ describe('phase 320 Step A: reloadConfig', () => {
   it('reload 不换 orchestrator 对象引用（持有引用的调用方自动看到新 provider）', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -68,6 +70,7 @@ describe('phase 320 Step A: reloadConfig', () => {
   it('fallbacks 数量变更：1 → 0', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       fallbacks: [
         { name: 'fb1', apiKey: 'kfb', model: 'mfb', apiFormat: 'openai' },
@@ -92,6 +95,7 @@ describe('phase 320 Step A: reloadConfig', () => {
   it('circuitBreaker 重建：reload 后 breakers 数 = 1 + fallbacks 数', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -119,6 +123,7 @@ describe('phase 320 Step A: reloadConfig', () => {
   it('events sink 引用保持（reload 不换 events）', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -143,7 +148,8 @@ describe('phase 320 Step A: reloadConfig', () => {
         primary: { preset: 'anthropic', api_key: 'kA', model: 'mA' },
       },
     });
-    const orch = new LLMOrchestratorImpl({ ...resolveLLMConfig(cfgA), events: sink });
+    const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' }, ...resolveLLMConfig(cfgA), events: sink });
     expect((orch as any).breakers).toHaveLength(1);
     const firstBreaker = (orch as any).breakers[0];
     expect(firstBreaker.threshold).toBe(3);
@@ -167,6 +173,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     const cfgB = { name: 'pB', apiKey: 'kB', model: 'mB', apiFormat: 'openai' as const };
 
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: cfgA,
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -208,6 +215,7 @@ describe('Phase 2027 selective runtime reload', () => {
   const fallbackA = { name: 'fallback-a', apiKey: 'ka', model: 'ma', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
   const fallbackB = { name: 'fallback-b', apiKey: 'kb', model: 'mb', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
   const baseConfig = (sink: LLMEventSink) => ({
+    lifecycle: { mode: 'ephemeral' as const },
     primary,
     fallbacks: [fallbackA, fallbackB],
     maxAttempts: 1,

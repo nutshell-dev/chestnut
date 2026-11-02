@@ -287,6 +287,17 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
         `durability=${event.durability}`,
         `reason=${event.reason}`);
       break;
+    case 'instance_state_write_failed':
+      w(LLM_AUDIT_EVENTS.INSTANCE_STATE_WRITE_FAILED,
+        `context=${event.context}`,
+        `reason=${event.reason}`);
+      break;
+    case 'instance_state_write_degraded':
+      w(LLM_AUDIT_EVENTS.INSTANCE_STATE_WRITE_DEGRADED,
+        `context=${event.context}`,
+        `durability=${event.durability}`,
+        `reason=${event.reason}`);
+      break;
     // Phase 1968 Step B：provider 调用路径审计（invocation/attempt/selection）。
     case 'call_invocation_started':
       w(LLM_AUDIT_EVENTS.CALL_INVOCATION_STARTED,

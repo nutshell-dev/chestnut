@@ -121,6 +121,7 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
 
   const sink: LLMEventSink = { emit: () => { /* events not under test */ } };
   const orchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
     maxAttempts: 1,
     retryDelayMs: 1,

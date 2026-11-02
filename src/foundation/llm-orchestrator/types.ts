@@ -18,6 +18,7 @@ import type {
 import type { LLMResponse } from '../llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
+import type { FileSystem } from '../fs/index.js';
 
 /** 单次调用随附的 opaque 恢复事实；不得携带消息正文或 agent 业务结构。 */
 export interface LLMRecoveryFacts {
@@ -43,6 +44,11 @@ export interface LLMCallOptions extends L1LLMCallOptions {
 /**
  * LLM service configuration with failover
  */
+/** 长期实例显式持久化；一次性 probe 显式 ephemeral，禁止生产静默缺省。 */
+export type LLMInstanceLifecycle =
+  | { mode: 'ephemeral' }
+  | { mode: 'durable'; fs: FileSystem; stateDir?: string };
+
 export interface LLMOrchestratorConfig {
   primary: ProviderConfig;
   fallbacks?: ProviderConfig[];
@@ -57,6 +63,8 @@ export interface LLMOrchestratorConfig {
    * backend 生命周期内不漂移）。OAuth-capable catalog provider 缺席 → 装配期 loud。
    */
   credentialStore?: PiAiCredentialStore;
+  /** factory 与直接构造均要求显式选择；reload 不替换实例生命周期。 */
+  lifecycle?: LLMInstanceLifecycle;
 }
 
 /**
@@ -111,7 +119,9 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_ADMITTED; scope: string; revision: number; attemptId: string; trigger: string; interventionCount: number }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_FINISHED; scope: string; revision: number; attemptId: string; outcome: string; accepted: boolean }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_FAILED; scope: string; reason: string; context: string }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_DEGRADED; scope: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string };
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_DEGRADED; scope: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string }
+  | { type: typeof STREAM_EVENT_NAMES.INSTANCE_STATE_WRITE_FAILED; context: string; reason: string }
+  | { type: typeof STREAM_EVENT_NAMES.INSTANCE_STATE_WRITE_DEGRADED; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string };
 
 /**
  * LLM event sink protocol — defined here (L2b), implemented by assembly layer (L6)

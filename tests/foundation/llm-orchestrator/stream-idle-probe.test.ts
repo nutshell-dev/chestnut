@@ -78,6 +78,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0,
@@ -126,6 +127,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     const fallback = createMockProvider('fallback');
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
@@ -179,6 +181,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -233,6 +236,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0,
@@ -278,6 +282,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
@@ -341,6 +346,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0,
@@ -451,6 +457,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       dripSseResponse(openaiSse(dripFrames()), [20, 1600, 1600, 5], init.signal ?? undefined, true)));
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -487,6 +494,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
 
     const fallback = createMockProvider('fallback');
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,

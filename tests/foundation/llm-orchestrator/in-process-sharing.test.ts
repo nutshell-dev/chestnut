@@ -88,6 +88,7 @@ function createControllableAdapter(name: string, initial: Behavior) {
 function createOwner(adapter: ProviderAdapter) {
   const { sink, emitted } = createMockSink();
   const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(adapter.name),
     maxAttempts: 1,
     retryDelayMs: 0,

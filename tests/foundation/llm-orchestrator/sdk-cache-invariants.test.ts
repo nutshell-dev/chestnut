@@ -47,6 +47,7 @@ describe('sdk-client-cache', () => {
     it('cache miss on first creation + cache hit on same config', () => {
       const { sink, emitted } = createMockSink();
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         fallbacks: [
           { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
@@ -73,6 +74,7 @@ describe('sdk-client-cache', () => {
     it('cache miss for different configs', () => {
       const { sink, emitted } = createMockSink();
       new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         fallbacks: [
           { name: 'p2', apiKey: 'key-def', model: 'm2', apiFormat: 'openai' },
@@ -96,6 +98,7 @@ describe('sdk-client-cache', () => {
       const { sink: sink2 } = createMockSink();
 
       const orch1 = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -103,6 +106,7 @@ describe('sdk-client-cache', () => {
       });
 
       const orch2 = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -138,6 +142,7 @@ describe('sdk-client-cache-key', () => {
     it('不同 baseUrl 不共享 client（同 apiFormat+model+apiKey）', () => {
       const { sink, emitted } = createMockSink();
       new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1' },
         fallbacks: [
           { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'openai', baseUrl: 'https://my-proxy.example/v1' },
@@ -157,6 +162,7 @@ describe('sdk-client-cache-key', () => {
       const { sink, emitted } = createMockSink();
       // 两个末 8 位相同的 apiKey、前缀不同 → 改前 key 同（slice(-8)）、改后 hash 不同
       new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'aaaaaaaa-coll-1234', model: 'm1', apiFormat: 'openai' },
         fallbacks: [
           { name: 'p2', apiKey: 'bbbbbbbb-coll-1234', model: 'm1', apiFormat: 'openai' },
@@ -173,6 +179,7 @@ describe('sdk-client-cache-key', () => {
       const { sink, emitted } = createMockSink();
       const cfg = { name: 'p', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const, baseUrl: 'https://x.com' };
       new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: cfg,
         fallbacks: [cfg, cfg, cfg],
         maxAttempts: 1,
@@ -188,6 +195,7 @@ describe('sdk-client-cache-key', () => {
     it('Phase 899: 不同 name 不共享 client（同 apiFormat+model+baseUrl+apiKey）', () => {
       const { sink, emitted } = createMockSink();
       new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
         fallbacks: [
           { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
@@ -239,6 +247,7 @@ describe('Phase 2027 extended provider identity cache', () => {
     const { sink, emitted } = createExtendedSink();
     const created: unknown[] = [];
     const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: base,
       maxAttempts: 1,
       retryDelayMs: 0,

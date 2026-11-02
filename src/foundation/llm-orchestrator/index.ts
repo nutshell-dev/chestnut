@@ -8,6 +8,7 @@
 
 export type {
   LLMOrchestratorConfig,
+  LLMInstanceLifecycle,
   LLMEventSink,
   LLMEvent,
   LLMCallOptions,

@@ -233,6 +233,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
               case 'recovery_scheduled': case 'recovery_ready': case 'recovery_attempt_admitted':
               case 'recovery_attempt_finished': case 'recovery_state_write_failed':
               case 'recovery_state_write_degraded':
+              case 'instance_state_write_failed': case 'instance_state_write_degraded':
               case 'recovery_facts_accepted':
               case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
               case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':

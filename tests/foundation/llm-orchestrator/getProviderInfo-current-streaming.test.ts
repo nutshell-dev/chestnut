@@ -28,6 +28,7 @@ function createMockSink() {
 function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
   const { sink } = createMockSink();
   const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
     primary: { name: primary.name, apiKey: 'k', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'k', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,

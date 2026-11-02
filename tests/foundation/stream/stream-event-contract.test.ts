@@ -83,9 +83,9 @@ void _providerAttemptFailed;
 void _taskStarted;
 
 describe('StreamEvent contract', () => {
-  it('STREAM_EVENT_NAMES 成员数 == 53（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1968 +4 调用路径审计；phase 1969 -1 预算预警；phase 1978 +2 context trim）', () => {
+  it('STREAM_EVENT_NAMES 成员数 == 55（协议层基线，phase 1321 收窄 50→40；phase 1826 +5 恢复安排；phase 1827 +1 事实接受；phase 1968 +4 调用路径审计；phase 1969 -1 预算预警；phase 1978 +2 context trim）', () => {
     const keys = Object.keys(STREAM_EVENT_NAMES);
-    expect(keys.length).toBe(53);
+    expect(keys.length).toBe(55);
   });
 
   it('协议层不含上层业务事件（分层拆件：agent 6 / task 3 / daemon 1 归各模块 const）', () => {
@@ -104,7 +104,7 @@ describe('StreamEvent contract', () => {
     expect(STREAM_EVENT_NAMES).not.toHaveProperty('USER_REPLY_END');
   });
 
-  it('LLMEvent 38 个 type 字面量均存在于 STREAM_EVENT_NAMES（27 + phase 1826 恢复安排 5 + phase 1827 事实接受 1 + phase 1968 调用路径审计 4）', () => {
+  it('LLMEvent 40 个 type 字面量均存在于 STREAM_EVENT_NAMES（27 + phase 1826 恢复安排 5 + phase 1827 事实接受 1 + phase 1968 调用路径审计 4）', () => {
     // 运行时双重检查：确保 LLMEvent 的所有 type 值都被 STREAM_EVENT_NAMES 覆盖。
     const names = new Set<string>(Object.values(STREAM_EVENT_NAMES));
     const llmEventTypes: LLMEventType[] = [
@@ -149,6 +149,9 @@ describe('StreamEvent contract', () => {
       'recovery_state_write_degraded',
       // phase 1827: 事实接受证据
       'recovery_facts_accepted',
+      // phase 2042: 长期实例健康持久化
+      'instance_state_write_failed',
+      'instance_state_write_degraded',
     ];
     for (const t of llmEventTypes) {
       expect(names.has(t)).toBe(true);

@@ -242,6 +242,7 @@ describe('Step E-2: 恢复 gate 未就绪/缺席 → 保持 waiting', () => {
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
     const { audit, events } = makeMockAudit();
     const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: {
         name: 'primary',
         apiKey: 'key-primary',

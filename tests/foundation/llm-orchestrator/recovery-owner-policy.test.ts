@@ -133,6 +133,7 @@ function createOwner(
     [primary, ...fallbacks].map(a => [a.name, a]),
   );
   const config = {
+    lifecycle: { mode: 'ephemeral' as const },
     primary: providerConfig(primary.name, configExtra),
     fallbacks: fallbacks.map(f => providerConfig(f.name)),
     maxAttempts: 1,
@@ -435,6 +436,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const { sink } = createMockSink();
     const adapters = new Map<string, ProviderAdapter>([['primary', p.adapter], ['fallback', f.adapter]]);
     const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: providerConfig('primary'),
       fallbacks: [providerConfig('fallback')],
       maxAttempts: 1,
@@ -531,6 +533,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const { sink } = createMockSink();
     const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
     const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
       fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
       maxAttempts: 1,
@@ -554,6 +557,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     const { sink } = createMockSink();
     const byModel = new Map<string, ProviderAdapter>([['model-a', p.adapter], ['model-b', f.adapter]]);
     const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
       fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
       maxAttempts: 1,

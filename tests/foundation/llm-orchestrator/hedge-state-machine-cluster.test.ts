@@ -81,6 +81,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
   };
   const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
@@ -342,15 +343,14 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fb1]);
       forceBreakerOpen(service, 0, 'transient');
 
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
       }).rejects.toThrow(LLMAllProvidersFailedError);
 
-      expect(onFailureSpy).toHaveBeenCalledTimes(1);
-      expect(onFailureSpy).toHaveBeenCalledWith('transient');
+      expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
+      expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
     });
 
     it('B-error + A-error 双失败 → breakers[0].onFailure called with primary error class', async () => {
@@ -364,15 +364,14 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fb1]);
       forceBreakerOpen(service, 0, 'transient');
 
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
       }).rejects.toThrow(LLMAllProvidersFailedError);
 
-      expect(onFailureSpy).toHaveBeenCalledTimes(1);
-      expect(onFailureSpy).toHaveBeenCalledWith('transient');
+      expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
+      expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
     });
   });
 

@@ -340,6 +340,24 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
+      case 'instance_state_write_failed': {
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[38;5;203m',
+          text: `✗ \x1b[2mllm instance state write failed (${event.context})`,
+        });
+        break;
+      }
+
+      case 'instance_state_write_degraded': {
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[38;5;214m',
+          text: `⚠ \x1b[2mllm instance state durability degraded (${event.context}: ${event.durability})`,
+        });
+        break;
+      }
+
       case 'breaker_opened': {
         // phase 1276: breaker 调度是系统内部事件，不呈现给用户；audit 保留。
         break;

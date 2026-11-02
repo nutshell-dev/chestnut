@@ -306,6 +306,28 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     });
   });
 
+  it('fans out instance-state write failure and durability degradation (phase 2042)', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+    sink.emit({ type: 'instance_state_write_failed', context: 'provider_success', reason: 'ENOSPC' });
+    sink.emit({
+      type: 'instance_state_write_degraded',
+      context: 'provider_failure',
+      durability: 'committed_platform_limited',
+      reason: 'ENOTSUP',
+    });
+
+    expect(audit.writes).toEqual([
+      ['llm_instance_state_write_failed', 'context=provider_success', 'reason=ENOSPC'],
+      ['llm_instance_state_write_degraded', 'context=provider_failure', 'durability=committed_platform_limited', 'reason=ENOTSUP'],
+    ]);
+    expect(stream.events).toEqual([
+      expect.objectContaining({ type: 'instance_state_write_failed', context: 'provider_success', reason: 'ENOSPC' }),
+      expect.objectContaining({ type: 'instance_state_write_degraded', durability: 'committed_platform_limited' }),
+    ]);
+  });
+
   it('recovery_scheduled with empty resumeAt renders resumeAt=none (on_change schedule)', () => {
     const audit = makeAudit();
     const stream = makeStream();

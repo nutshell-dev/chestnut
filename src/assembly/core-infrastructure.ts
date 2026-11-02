@@ -257,6 +257,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         fallbacks: llmConfig.fallbacks?.map((fb) => ({ ...fb, auditLog })),
         events: llmEvents,
         credentialStore,
+        lifecycle: { mode: 'durable', fs: systemFs, stateDir: STATUS_SUBDIR },
       });
       // Phase 1826: 前台恢复 session。原 orchestrator 仍供子代理/其他业务使用；
       // session.llm 是同一 owner 的范围视图（前台 Runtime 用），调度面给 EventLoop。

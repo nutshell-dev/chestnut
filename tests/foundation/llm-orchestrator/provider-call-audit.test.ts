@@ -156,6 +156,7 @@ function makeHarness(dir: string, opts: HarnessOpts): Harness {
     ...(opts.baseUrl?.[name] ? { baseUrl: opts.baseUrl[name] } : {}),
   });
   const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(opts.primaryName),
     fallbacks: (opts.fallbackNames ?? []).map(providerConfig),
     maxAttempts: 1,
@@ -464,6 +465,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
     const adapter = failProvider('kimi-year', new LLMNetworkError('kimi-year', new Error('ECONNREFUSED')));
     const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 1,
@@ -519,6 +521,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
     const adapter = streamOkProvider('kimi-year');
     const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 1,

@@ -92,6 +92,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
   };
   const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
@@ -143,6 +144,7 @@ describe('Phase 1268 Step E: circuit breaker default enabled', () => {
 
     const { sink, emitted } = createMockSink();
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       ...llmConfig,
       events: sink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
@@ -232,8 +234,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     forceBreakerOpen(service, 0, 'transient');
     const events = attachEventSpy(service);
 
-    const breaker = (service as any).breakers[0] as CircuitBreaker;
-    const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+    const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
 
     const chunks: LLMStreamChunk[] = [];
     let caught: Error | undefined;
@@ -249,7 +250,8 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     expect(chunks.find(c => c.type === 'provider_failed')).toBeDefined();
     expect(events.some(e => e.type === 'stream_reset')).toBe(true);
     expect(caught).toBeDefined();
-    expect(onFailureSpy).toHaveBeenCalledWith('transient');
+    expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
+    expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
   });
 
   it('hedge B-all-failed A-wins drain error emits reset and records breaker failure', async () => {
@@ -266,8 +268,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     forceBreakerOpen(service, 0, 'transient');
     const events = attachEventSpy(service);
 
-    const breaker = (service as any).breakers[0] as CircuitBreaker;
-    const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+    const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
 
     const chunks: LLMStreamChunk[] = [];
     let caught: Error | undefined;
@@ -283,7 +284,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     expect(events.some(e => e.type === 'hedge_primary_post_first_chunk_failure')).toBe(true);
     expect(events.some(e => e.type === 'stream_reset')).toBe(true);
     expect(caught).toBeDefined();
-    expect(onFailureSpy).toHaveBeenCalled();
+    expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
   });
 });
 
@@ -348,6 +349,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       maxAttempts: 2,
       retryDelayMs: 0,
@@ -401,6 +403,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       fallbacks: [MOCK_FALLBACK_CONFIG],
       maxAttempts: 1,
@@ -410,8 +413,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
 
-    const breaker = (service as any).breakers[0];
-    const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+    const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
@@ -422,7 +424,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     expect(chunks.filter((c) => c.type === 'reset').length).toBe(1);
     expect(chunks.some((c) => c.type === 'done')).toBe(true);
     expect(chunks.some((c) => c.type === 'provider_failed' && (c as any).provider === 'primary')).toBe(true);
-    expect(onFailureSpy).toHaveBeenCalled();
+    expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
     expect(emitted.some((e) => e.type === 'fallback_switched')).toBe(true);
   });
 
@@ -433,6 +435,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       yield { type: 'done', stopReason: 'end_turn' };
     });
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -440,8 +443,6 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1_000 },
       createProviderAdapter: () => primary as any,
     });
-    const breaker = (service as any).breakers[0] as CircuitBreaker;
-    const onSuccessSpy = vi.spyOn(breaker, 'onSuccess');
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks.push(chunk);
 
@@ -450,7 +451,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       { type: 'thinking_signature', signature: 'signed' },
       { type: 'done', stopReason: 'end_turn' },
     ]);
-    expect(onSuccessSpy).toHaveBeenCalledTimes(1);
+    expect((service as any).lastSuccessProvider).toMatchObject({ name: 'primary', generation: 0 });
   });
 
   it('keeps legal tool-use streams as valid content', async () => {
@@ -460,6 +461,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       yield { type: 'done', stopReason: 'tool_use' };
     });
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -492,6 +494,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     );
 
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       fallbacks: [MOCK_FALLBACK_CONFIG],
       maxAttempts: 1,

@@ -197,6 +197,8 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
       case 'recovery_attempt_finished':
       case 'recovery_state_write_failed':
       case 'recovery_state_write_degraded':
+      case 'instance_state_write_failed':
+      case 'instance_state_write_degraded':
       case 'recovery_facts_accepted':
         // task 流不消费 provider 级/内部结算事件（owner 写主 stream）；不落入 UNKNOWN audit。
         return;

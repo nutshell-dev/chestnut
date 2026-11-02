@@ -75,6 +75,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
   };
   const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,

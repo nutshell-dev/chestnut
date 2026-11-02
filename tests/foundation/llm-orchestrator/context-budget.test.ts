@@ -69,6 +69,7 @@ function createOwner(opts: { callError?: Error; streamError?: Error } = {}) {
     },
   };
   const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
     maxAttempts: 1,
     retryDelayMs: 0,
@@ -151,6 +152,7 @@ describe('Phase 1969: no preflight admission', () => {
     };
     const emitted: LLMEvent[] = [];
     const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: { ...providerConfig(), name: 'primary' },
       fallbacks: [{ ...providerConfig(), name: 'fallback' }],
       maxAttempts: 1, retryDelayMs: 0,
@@ -185,6 +187,7 @@ describe('Phase 1969: no preflight admission', () => {
         async call() { throw contextError; },
       };
       const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
         primary: { ...providerConfig(), name: 'primary' },
         fallbacks: [{ ...providerConfig(), name: 'fallback' }],
         maxAttempts: 1, retryDelayMs: 0,

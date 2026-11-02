@@ -22,6 +22,7 @@ describe('LLMOrchestratorImpl.close', () => {
   it('清空 sdkClientCache', async () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -40,6 +41,7 @@ describe('LLMOrchestratorImpl.close', () => {
   it('调 provider 的 optional close（若存在）', async () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -57,6 +59,7 @@ describe('LLMOrchestratorImpl.close', () => {
   it('无 close 方法的 provider 兼容（optional chain）', async () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -73,6 +76,7 @@ describe('LLMOrchestratorImpl.close', () => {
   it('幂等：多次 close 不报错', async () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -93,6 +97,7 @@ describe('LLMOrchestratorImpl.close', () => {
       stream: vi.fn(),
     };
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -136,6 +141,7 @@ describe('LLMOrchestratorImpl.close', () => {
   it('Phase 900: 单个 provider close 抛错时 emit 事件且其余仍关闭、cache 被清空', async () => {
     const { sink, emitted } = createSink();
     const orch = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
       retryDelayMs: 0,

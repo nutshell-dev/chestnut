@@ -75,6 +75,7 @@ function createAnthropicSseResponse(text: string): Response {
       fetchMock().mockResolvedValue(createAnthropicSseResponse('Primary response'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         maxAttempts: 3,
         retryDelayMs: 100,
@@ -96,6 +97,7 @@ function createAnthropicSseResponse(text: string): Response {
         .mockResolvedValueOnce(createAnthropicSseResponse('Fallback response'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -115,6 +117,7 @@ function createAnthropicSseResponse(text: string): Response {
       fetchMock().mockRejectedValue(new Error('Both failed'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -135,6 +138,7 @@ function createAnthropicSseResponse(text: string): Response {
         .mockResolvedValueOnce(createAnthropicSseResponse('Success'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 3,
@@ -159,6 +163,7 @@ function createAnthropicSseResponse(text: string): Response {
         .mockResolvedValueOnce(createAnthropicSseResponse('Primary OK'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -192,6 +197,7 @@ function createAnthropicSseResponse(text: string): Response {
         .mockResolvedValueOnce(createAnthropicSseResponse('Success')); // 4th attempt (success)
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         maxAttempts: 5,  // Max 5 attempts total
         // Base delay: 50ms
@@ -213,6 +219,7 @@ function createAnthropicSseResponse(text: string): Response {
       fetchMock().mockResolvedValue(createAnthropicSseResponse('OK'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -231,6 +238,7 @@ function createAnthropicSseResponse(text: string): Response {
       fetchMock().mockResolvedValue(createAnthropicSseResponse('OK'));
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         maxAttempts: 1,
         retryDelayMs: 100,
@@ -277,6 +285,7 @@ function createAnthropicSseResponse(text: string): Response {
       };
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -336,6 +345,7 @@ function createAnthropicSseResponse(text: string): Response {
 
       const emittedEvents: any[] = [];
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -373,6 +383,7 @@ function createAnthropicSseResponse(text: string): Response {
       };
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [],
         maxAttempts: 1,
@@ -410,6 +421,7 @@ describe('createLLMOrchestrator factory', () => {
 
   it('returns LLMOrchestratorImpl instance', () => {
     const orchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: mockConfig,
       maxAttempts: 1,
       retryDelayMs: 10,
@@ -430,6 +442,7 @@ describe('createLLMOrchestrator factory', () => {
       }),
     };
     const orchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
       primary: {
         name: 'config-test',
         apiKey: 'test-key',

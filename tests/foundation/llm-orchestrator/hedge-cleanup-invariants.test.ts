@@ -81,6 +81,7 @@ describe('hedge-post-first-chunk-failure', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
@@ -136,8 +137,7 @@ describe('hedge-post-first-chunk-failure', () => {
       forceBreakerOpen(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -159,9 +159,9 @@ describe('hedge-post-first-chunk-failure', () => {
       expect(caught).toBeDefined();
       expect(caught!.message).toContain('ECONNRESET');
 
-      // breaker.onFailure called with the error class
-      expect(onFailureSpy).toHaveBeenCalledTimes(1);
-      expect(onFailureSpy).toHaveBeenCalledWith('transient');
+      // 候选提交后，当前 breaker 恰好增加一次失败并保留错误分类。
+      expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
+      expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
 
       // audit event emitted
       const auditEvent = events.find(e => e.type === 'hedge_primary_post_first_chunk_failure');
@@ -234,6 +234,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
@@ -409,6 +410,7 @@ describe('hedge-bwins-cleanup', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,

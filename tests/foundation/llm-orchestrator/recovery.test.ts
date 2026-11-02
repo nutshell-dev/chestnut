@@ -96,6 +96,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     ...fallbackAdapters.map(fallback => [fallback.name, fallback] as const),
   ]);
   const config: LLMOrchestratorConfig = {
+    lifecycle: { mode: 'ephemeral' },
     primary: providerConfig('primary'),
     fallbacks: fallbackAdapters.map(fallback => providerConfig(fallback.name)),
     maxAttempts: opts.maxAttempts ?? 1,

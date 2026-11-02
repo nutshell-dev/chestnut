@@ -56,11 +56,14 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
-  const llm = new LLMOrchestratorImpl(input.llmConfig ?? {
+  const llm = new LLMOrchestratorImpl({
+    lifecycle: { mode: 'ephemeral' },
+    ...(input.llmConfig ?? {
     primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' },
     maxAttempts: 1,
     retryDelayMs: 100,
     events: { emit: () => {} },
+    }),
   });
   const toolRegistry = new ToolRegistryImpl();
   // phase 1872 Step G: 工厂内完成首载（async 工厂）

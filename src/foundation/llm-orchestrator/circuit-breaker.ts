@@ -13,6 +13,13 @@
  */
 import type { LLMErrorClass } from './errors.js';
 
+export interface CircuitBreakerSnapshot {
+  state: 'closed' | 'open' | 'half-open';
+  consecutiveFailures: number;
+  openedAtMs?: number;
+  lastFailureClass: LLMErrorClass | null;
+}
+
 export class CircuitBreaker {
   private state: 'closed' | 'open' | 'half-open' = 'closed';
   private failures = 0;
@@ -26,6 +33,36 @@ export class CircuitBreaker {
     onTransition?: (transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened', failures?: number) => void,
   ) {
     this.onTransition = onTransition;
+  }
+
+  snapshot(): CircuitBreakerSnapshot {
+    return {
+      state: this.state,
+      consecutiveFailures: this.failures,
+      ...(this.openedAt !== undefined ? { openedAtMs: this.openedAt } : {}),
+      lastFailureClass: this.lastFailureClass,
+    };
+  }
+
+  static fromSnapshot(
+    threshold: number,
+    resetTimeoutMs: number,
+    snapshot: CircuitBreakerSnapshot,
+    onTransition?: (transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened', failures?: number) => void,
+  ): CircuitBreaker {
+    const breaker = new CircuitBreaker(threshold, resetTimeoutMs, onTransition);
+    breaker.state = snapshot.state;
+    breaker.failures = snapshot.consecutiveFailures;
+    breaker.openedAt = snapshot.openedAtMs;
+    breaker.lastFailureClass = snapshot.lastFailureClass;
+    return breaker;
+  }
+
+  /** 候选副本：持久化提交前只修改副本，transition 由调用方缓冲。 */
+  fork(
+    onTransition?: (transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened', failures?: number) => void,
+  ): CircuitBreaker {
+    return CircuitBreaker.fromSnapshot(this.threshold, this.resetTimeoutMs, this.snapshot(), onTransition);
   }
 
   /**

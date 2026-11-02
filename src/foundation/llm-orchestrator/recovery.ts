@@ -141,9 +141,8 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal
 
   /**
    * Phase 1933 Step B：实例内能力——进程隔离边界。
-   * 故障状态（breaker 计数/开态）与探针调度仅存在于本 orchestrator 实例内存中，
-   * 同一 claw 进程的全部调用方共享同一实例即共享该状态；不跨进程。
-   * 禁止以文件/socket/全局目录作为跨进程状态通道。
+   * 同一 claw 进程的全部调用方共享同一 owner；durable 健康事实可跨重启恢复，
+   * timer/listener/inflight 等运行句柄仅内存。禁止把实例文件用作跨进程多 writer 通道。
    */
 
   /** 实例级故障快照：进程内共享状态的只读视图（无副作用，不弹回 breaker）。 */

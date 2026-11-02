@@ -125,6 +125,7 @@ async function makeHarness(): Promise<Harness> {
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
   const sharedOrchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
     maxAttempts: 1,
     retryDelayMs: 1,
@@ -317,6 +318,7 @@ async function makeRuntimeHarness(opts?: {
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
   const orchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
     maxAttempts: 1,
     retryDelayMs: 1,

@@ -186,6 +186,7 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
       : [[primaryName, p.adapter], [fallbackName, f.adapter]],
   );
   const orchestratorConfig = {
+    lifecycle: { mode: 'ephemeral' as const },
     primary: primaryConfig,
     fallbacks: [fallbackConfig],
     maxAttempts: 1,

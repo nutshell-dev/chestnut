@@ -161,6 +161,7 @@ export async function probeLLMConnection(
     maxAttempts: 1,
     retryDelayMs: 0,
     events: { emit: () => {} },
+    lifecycle: { mode: 'ephemeral' },
     ...(options?.credentials && { credentialStore: options.credentials }),
   });
   try {
@@ -205,6 +206,7 @@ export async function checkLLMConnectionFor(
     maxAttempts: 1,
     retryDelayMs: 0,
     events: { emit: () => {} },
+    lifecycle: { mode: 'ephemeral' },
     ...(options?.credentials && { credentialStore: options.credentials }),
   });
   try {

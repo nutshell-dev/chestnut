@@ -170,6 +170,7 @@ describe('timeout-distinction', () => {
       });
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -212,6 +213,7 @@ describe('timeout-distinction', () => {
       });
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -250,6 +252,7 @@ describe('timeout-distinction', () => {
       });
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -302,6 +305,7 @@ describe('all-providers-context-exceeded-emit', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'test', model: primary.model, maxTokens: 1024, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, maxTokens: 1024, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
@@ -478,6 +482,7 @@ describe('merge-signals-cleanup', () => {
     it('100 次成功 call 后 listener 不累积', async () => {
       const primary = createMockProvider('primary');
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -511,6 +516,7 @@ describe('merge-signals-cleanup', () => {
       });
 
       const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -618,6 +624,7 @@ describe('race-loser-cleanup', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
@@ -831,6 +838,7 @@ describe('hedge-cache-token-emit', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const service = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
@@ -1008,6 +1016,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const { sink, emitted } = createMockSink();
       const primary = createFailingProvider('primary', 999);
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
         retryDelayMs: 10,
@@ -1048,6 +1057,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const { sink, emitted } = createMockSink();
       const primary = createFailingProvider('primary', 1);
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
         retryDelayMs: 10,
@@ -1075,6 +1085,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const { sink, emitted } = createMockSink();
       const primary = createFailingProvider('primary', 1);
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 2,
         retryDelayMs: 10,
@@ -1134,6 +1145,7 @@ describe('call-retry-symmetry', () => {
       const primary = createFailingProvider('primary', 999);
       const fallback = createFailingProvider('fallback', 999);
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
@@ -1167,6 +1179,7 @@ describe('call-retry-symmetry', () => {
       const primary = createFailingProvider('primary', 999);
       const fallback = createFailingProvider('fallback', 2);
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
@@ -1207,6 +1220,7 @@ describe('call-retry-symmetry', () => {
         },
       };
       const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
@@ -1287,6 +1301,7 @@ describe('streaming-fallback-switched-emit', () => {
       return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
     };
     const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: primary.name, apiKey: 'k', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'k', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
@@ -1473,6 +1488,7 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
 
   function makeOrchestrator(provider: ProviderAdapter, sink: LLMEventSink, maxAttempts = 3) {
     const orchestrator = new LLMOrchestratorImpl({
+      lifecycle: { mode: 'ephemeral' },
       primary: { name: provider.name, apiKey: 'test', model: provider.model, apiFormat: 'anthropic' as const },
       maxAttempts,
       retryDelayMs: 1,

@@ -61,6 +61,7 @@ afterEach(async () => {
 function makeOrchestrator() {
   const events: LLMEventSink = { emit: () => {} };
   const orchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig('primary'),
     maxAttempts: 1,
     retryDelayMs: 1,

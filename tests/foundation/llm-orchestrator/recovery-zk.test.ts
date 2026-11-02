@@ -85,6 +85,7 @@ async function makeFixture(opts: FixtureOpts = {}): Promise<Fixture> {
   };
 
   const orchestrator = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
     primary: providerConfig('primary'),
     ...(opts.fallbackResponse ? { fallbacks: [providerConfig('fallback')] } : {}),
     maxAttempts: opts.maxAttempts ?? 3,
