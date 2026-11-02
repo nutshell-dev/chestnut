@@ -164,14 +164,13 @@ export class OutboxReader {
           const pid = parseInt(newMatch[1], 10);
           const startTimeHex = newMatch[2];
           originalName = newMatch[3];
-          const startTime = startTimeHex === '0'
-            ? undefined
-            : makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
-          if (!startTime) {
-            // Cannot verify PID ownership — fall back to mtime lease
-            shouldReclaim = Date.now() - mtime >= OUTBOX_MTIME_LEASE_MS;
-          } else if (!isAlive(pid, startTime)) {
-            shouldReclaim = true;
+          if (startTimeHex === '0') {
+            // No start-time anchor: dead PIDs are reclaimed immediately; live PIDs
+            // still retain the mtime lease as protection against PID reuse.
+            shouldReclaim = !isAlive(pid) || Date.now() - mtime >= OUTBOX_MTIME_LEASE_MS;
+          } else {
+            const startTime = makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
+            if (!isAlive(pid, startTime)) shouldReclaim = true;
           }
         } else {
           // Old token format (pre-Phase 928): PID + shortUuid, no startTime.
@@ -603,6 +602,19 @@ export class OutboxReader {
         reason,
       });
       return { status: 'io_error', error: reason };
+    }
+
+    // Anchor the fallback lease at claim time, not at the original pending write.
+    // The atomic move already established ownership, so utimes failure is audit-only.
+    try {
+      const now = new Date();
+      await this.fs.utimes(relClaimedPath, now, now);
+    } catch (err) {
+      emitOutboxClaimFailed(this.audit, {
+        file: fileName,
+        op: 'claim_utimes',
+        reason: formatErr(err),
+      });
     }
 
     // Read (phase 1748: skip when opts.readContent === false)

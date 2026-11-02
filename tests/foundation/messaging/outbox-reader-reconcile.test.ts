@@ -531,3 +531,31 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
     )).toBe(true);
   });
 });
+
+
+describe('OutboxReader startTime-less claim lease (Phase 2049 Step D)', () => {
+  it('reclaims a dead PID immediately even when the mtime lease is fresh', async () => {
+    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(isAlive).mockReturnValue(false);
+
+    const pid = 424242;
+    const recentMtime = new Date();
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+        dir.includes('/processing') ? [{ name: `cli_${pid}_0_abc123_msg.md` }] : [],
+      )),
+      stat: vi.fn().mockResolvedValue({ mtime: recentMtime, ctime: recentMtime, size: 0, isDirectory: false, isFile: true }),
+      read: vi.fn().mockImplementation((p: string) => {
+        if (p.includes('.staging')) return Promise.resolve('msg content');
+        return Promise.reject(enoent(p));
+      }),
+    });
+    const { audit } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(isAlive).toHaveBeenCalledWith(pid);
+    expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'msg content');
+  });
+});

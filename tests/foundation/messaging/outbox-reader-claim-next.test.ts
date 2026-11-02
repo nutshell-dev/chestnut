@@ -96,6 +96,25 @@ describe('OutboxReader.claimNext + markDone', () => {
     expect(processingFiles[0]).toMatch(/^cli_.*_1717480000000_normal_aaa\.md$/);
   });
 
+  it('anchors the claimed file mtime at claim time', async () => {
+    const filename = '1717480000000_normal_aaa.md';
+    const pendingPath = path.join(pendingDir, filename);
+    await fsAsync.writeFile(pendingPath, encodeOutbox(makeMsg('hello', '2026-06-04T10:00:00Z')));
+    const old = new Date('2000-01-01T00:00:00Z');
+    await fsAsync.utimes(pendingPath, old, old);
+
+    const before = Date.now();
+    const claimed = await reader.claimNext(clawDir);
+    const after = Date.now();
+
+    expect(claimed.status).toBe('claimed');
+    if (claimed.status !== 'claimed') throw new Error('unreachable');
+    const stat = await fsAsync.stat(path.join(clawDir, claimed.claimPath));
+    expect(stat.mtimeMs).toBeGreaterThan(old.getTime());
+    expect(stat.mtimeMs).toBeGreaterThanOrEqual(before - 1000);
+    expect(stat.mtimeMs).toBeLessThanOrEqual(after + 1000);
+  });
+
   it('rejects path traversal in markDone', async () => {
     await expect(reader.markDone(clawDir, '../../../etc', 'test.md')).rejects.toThrow(/traversal/i);
   });
@@ -180,6 +199,7 @@ function makeMockOutboxFs(overrides?: {
   list?: () => Promise<{ name: string; path: string }[]>;
   move?: () => Promise<void>;
   read?: () => Promise<string>;
+  utimes?: () => Promise<void>;
 }): FileSystem {
   return {
     list: overrides?.list ?? vi.fn().mockResolvedValue([{ name: '1717480000000_normal_aaa.md', path: '/outbox/pending/1717480000000_normal_aaa.md' }]),
@@ -194,7 +214,7 @@ function makeMockOutboxFs(overrides?: {
     exists: vi.fn().mockResolvedValue(true),
     isDirectory: vi.fn().mockResolvedValue(true),
     stat: vi.fn(),
-    utimes: vi.fn(),
+    utimes: overrides?.utimes ?? vi.fn().mockResolvedValue(undefined),
   } as unknown as FileSystem;
 }
 
@@ -237,6 +257,20 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
     expect(calls[1][0]).toMatch(/outbox\/processing/);
     expect(calls[1][1]).toMatch(/outbox\/pending/);
     expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=read'))).toBe(true);
+  });
+
+  it('keeps a successful claim when lease utimes fails and audits the degradation', async () => {
+    const fs = makeMockOutboxFs({
+      utimes: vi.fn().mockRejectedValue(new Error('EPERM utimes')),
+    });
+    const reader = new OutboxReader(fs, audit);
+
+    const result = await reader.claimNext('/claw');
+
+    expect(result.status).toBe('claimed');
+    expect(auditEvents.some(e =>
+      e[0] === 'outbox_claim_failed' && String(e).includes('op=claim_utimes')
+    )).toBe(true);
   });
 
   it('returns io_error when list fails', async () => {
