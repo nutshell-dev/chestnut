@@ -12,6 +12,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/claw-notify.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { CLAWS_DIR } from '../../../src/foundation/claw-identity/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -169,7 +170,7 @@ describe('notifyClaw API', () => {
       type: 'containment_test',
       source: 'system',
       body: 'should not write',
-    }, audit)).toThrow(/is not within targetClawRoot/);
+    }, audit)).toThrow(/targetInboxDir must be/);
   });
 
   it('accepts targetInboxDir inside targetClawRoot (containment)', () => {
@@ -186,6 +187,38 @@ describe('notifyClaw API', () => {
     expect(files.length).toBe(1);
   });
 
+  it.each([
+    ['nested inbox', path.join('nested', 'inbox', 'pending')],
+    ['parent segment', 'inbox/pending/../pending'],
+    ['suffix lookalike', 'inbox/pending-extra'],
+  ])('rejects non-exact targetInboxDir: %s', (_label, suffix) => {
+    const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    const targetInboxDir = `${targetClawRoot}/${suffix}`;
+
+    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, undefined, {
+      type: 'containment_test',
+      source: 'system',
+      body: 'should not write',
+    }, audit)).toThrow(/targetInboxDir must be/);
+  });
+
+  it('createClawNotifier.notifyAsync uses the same exact containment guard', async () => {
+    const { targetClawRoot, targetInboxDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    const nestedInbox = path.join(targetClawRoot, 'nested', 'inbox', 'pending');
+    const notifier = createClawNotifier({
+      fs: nodeFs,
+      audit,
+      resolveTarget: () => ({ clawRoot: targetClawRoot, inboxDir: nestedInbox }),
+    });
+
+    await expect(notifier.notifyAsync('motion', {
+      type: 'containment_test',
+      source: 'system',
+      body: 'should not write',
+    })).rejects.toThrow(/targetInboxDir must be/);
+    expect(fsSync.existsSync(targetInboxDir)).toBe(false);
+  });
+
   it('rejects targetInboxDir not ending in inbox/pending (phase 937)', () => {
     const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
     const targetInboxDir = path.join(targetClawRoot, 'inbox');
@@ -194,6 +227,6 @@ describe('notifyClaw API', () => {
       type: 'suffix_test',
       source: 'system',
       body: 'should not write',
-    }, audit)).toThrow(/targetInboxDir must be <root>\/inbox\/pending/);
+    }, audit)).toThrow(/targetInboxDir must be/);
   });
 });

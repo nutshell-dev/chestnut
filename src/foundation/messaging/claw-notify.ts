@@ -11,14 +11,12 @@
  * phase 942 throwing 语义、phase 943 TOCTOU guard、phase 944 id 前置校验）。
  */
 
-import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import { InboxWriter, makeInboxPath } from './inbox-writer.js';
 import { MESSAGING_WRITER_LIMITS_DEFAULT } from './config-schema.js';
-import { notifyClaw } from './notify.js';
-import { INBOX_PENDING_DIR } from './dirs.js';
+import { assertInboxTarget, notifyClaw } from './notify.js';
 import type { Priority } from './types.js';
 
 /**
@@ -72,28 +70,6 @@ export function clawNotifyPriority(interrupt: boolean): Priority {
   return interrupt ? 'high' : 'normal';
 }
 
-/** phase 936/937 mirror：inbox 必须落在 target root 之下且为 `<root>/inbox/pending`。 */
-function assertInboxWithinTarget(fs: FileSystem, targetClawRoot: string, targetInboxDir: string): void {
-  const resolvedInbox = fs.resolve(targetInboxDir);
-  const resolvedRoot = fs.resolve(targetClawRoot);
-  const rootPrefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
-  const normalizedInbox = path.normalize(resolvedInbox);
-  if (normalizedInbox !== resolvedRoot && !normalizedInbox.startsWith(rootPrefix)) {
-    throw new Error(
-      `notifyClaw: targetInboxDir "${targetInboxDir}" is not within targetClawRoot "${targetClawRoot}"`,
-    );
-  }
-  const expectedSuffix = path.normalize(INBOX_PENDING_DIR);
-  if (
-    !normalizedInbox.endsWith(expectedSuffix) &&
-    normalizedInbox !== resolvedRoot + path.sep + expectedSuffix
-  ) {
-    throw new Error(
-      `notifyClaw: targetInboxDir must be <root>/inbox/pending, got "${targetInboxDir}"`,
-    );
-  }
-}
-
 export function createClawNotifier(deps: ClawNotifierDeps): ClawNotifier {
   const { fs, audit, resolveTarget } = deps;
 
@@ -110,7 +86,7 @@ export function createClawNotifier(deps: ClawNotifierDeps): ClawNotifier {
     if (!fs.existsSync(target.clawRoot)) {
       throw new Error(`Target claw root does not exist: ${target.clawRoot}`);
     }
-    assertInboxWithinTarget(fs, target.clawRoot, target.inboxDir);
+    assertInboxTarget(fs, target.clawRoot, target.inboxDir);
 
     // phase 942/943: writeSync 的落盘失败必须上抛（工具侧统一边界转 ToolResult）；
     // 保持同步写语义（原 routeNotifyClawAsync 同形）。

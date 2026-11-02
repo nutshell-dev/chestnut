@@ -21,6 +21,18 @@ import {
 } from './audit-emit.js';
 import { INBOX_PENDING_DIR } from './dirs.js';
 
+export function assertInboxTarget(fs: FileSystem, targetClawRoot: string, targetInboxDir: string): void {
+  const resolvedRoot = fs.resolve(targetClawRoot);
+  const expected = path.normalize(path.join(resolvedRoot, INBOX_PENDING_DIR));
+  const normalizedInbox = path.normalize(fs.resolve(targetInboxDir));
+  const hasParentSegment = targetInboxDir.split(/[\\/]/).includes('..');
+  if (hasParentSegment || normalizedInbox !== expected) {
+    throw new Error(
+      `notifyClaw: targetInboxDir must be ${expected}, got "${targetInboxDir}"`,
+    );
+  }
+}
+
 /**
  * Notify a target claw by writing a message to its inbox.
  *
@@ -38,27 +50,7 @@ export function notifyClaw(
   message: InboxMessageOptionsBase,
   audit: MessagingAuditSink,
 ): void {
-  // phase 936: containment check — targetInboxDir must be inside targetClawRoot
-  const resolvedInbox = fs.resolve(targetInboxDir);
-  const resolvedRoot = fs.resolve(targetClawRoot);
-  const rootPrefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
-  const normalizedInbox = path.normalize(resolvedInbox);
-  if (normalizedInbox !== resolvedRoot && !normalizedInbox.startsWith(rootPrefix)) {
-    throw new Error(
-      `notifyClaw: targetInboxDir "${targetInboxDir}" is not within targetClawRoot "${targetClawRoot}"`,
-    );
-  }
-
-  // phase 937: targetInboxDir must be <root>/inbox/pending specifically
-  const expectedSuffix = path.normalize(INBOX_PENDING_DIR);
-  if (
-    !normalizedInbox.endsWith(expectedSuffix) &&
-    normalizedInbox !== resolvedRoot + path.sep + expectedSuffix
-  ) {
-    throw new Error(
-      `notifyClaw: targetInboxDir must be <root>/inbox/pending, got "${targetInboxDir}"`,
-    );
-  }
+  assertInboxTarget(fs, targetClawRoot, targetInboxDir);
 
   // phase 1170: unknown target fail-closed — never create an orphan claw root
   if (!fs.existsSync(targetClawRoot)) {
