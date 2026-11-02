@@ -41,6 +41,7 @@ describe('claw-send — confinement baseDir vs root (P0.2 phase 611)', () => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpRoot = path.join(os.tmpdir(), `phase611-claws-${randomUUID()}`);
     fs.mkdirSync(path.join(tmpRoot, 'claws', 'test-claw'), { recursive: true });
+    fs.mkdirSync(path.join(tmpRoot, '.chestnut', 'claws', 'test-claw'), { recursive: true });
     fs.writeFileSync(path.join(tmpRoot, 'claws', 'test-claw', 'config.yaml'), 'name: test-claw\n');
     process.env.CHESTNUT_ROOT = tmpRoot;
   });

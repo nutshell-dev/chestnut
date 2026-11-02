@@ -15,6 +15,7 @@ import {
   createInboxReader,
   createOutboxWriter,
   makeInboxPath,
+  type InboxMessage,
   notifyClaw,
   notifyInbox,
   writeInboxAsync,
@@ -146,19 +147,21 @@ describe('Messaging accepts only the audit write capability', () => {
     const writer = InboxWriter.__internal_create(fs, makeInboxPath(pending), sink, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     await writer.write({
-      id: '', type: 'text', from: 'a', to: 'b', content: 'bad-id-body',
-      timestamp: new Date().toISOString(), priority: 'normal',
+      id: 'valid-id', type: 'text', from: 'a', to: 'b', content: 'bad-priority-body',
+      timestamp: new Date().toISOString(), priority: 'urgent' as InboxMessage['priority'],
     });
 
     const files = await disk.readdir(pending);
     expect(files).toHaveLength(1);
     const content = await disk.readFile(path.join(pending, files[0]), 'utf8');
-    expect(content).toContain('bad-id-body');
+    expect(content).toContain('bad-priority-body');
     expect(rows).toContainEqual([
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
       'kind=inbox',
       'direction=write',
-      'sub_check=id_empty',
+      'sub_check=priority_not_in_union',
+      'id=valid-id',
+      'actual=urgent',
     ]);
     expect(rows.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN)).toHaveLength(1);
   });

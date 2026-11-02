@@ -244,8 +244,8 @@ describe('messaging write invariant (phase 273 Step A)', () => {
 
     it('invalid → file still written (no throw) + audit emit', async () => {
       const msg = {
-        id: '', type: 'message', from: 'sender', to: 'claw',
-        content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
+        id: 'test-1', type: 'message', from: 'sender', to: 'claw',
+        content: 'Hello', priority: 'urgent', timestamp: new Date().toISOString(),
       } as InboxMessage;
       await writer.write(msg);
       const invariantCalls = calls.filter(c => c.startsWith(MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED));
