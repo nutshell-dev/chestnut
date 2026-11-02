@@ -86,7 +86,7 @@ describe('recovery state schema', () => {
 
   it('imports the known schema_version=2 legacy file and preserves its raw text', async () => {
     const { dir, fs } = await makeTrackedDir();
-    const legacyPath = path.join(dir, 'event-loop', 'llm-retry-state.json');
+    const legacyPath = path.join(dir, 'status', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     const legacyRaw = JSON.stringify({
       schema_version: 2,
@@ -105,7 +105,7 @@ describe('recovery state schema', () => {
       revision: 1,
       schedule: { kind: 'ready', revision: 1 },
       budget: { retryCount: 2, retryDelayMs: 45_000, quotaDelayMs: 180_000 },
-      importedSources: ['event-loop/llm-retry-state.json#schema_version=2'],
+      importedSources: ['status/llm-retry-state.json#schema_version=2'],
     });
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(legacyRaw);
     expect(fsNative.existsSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE))).toBe(false);
@@ -115,7 +115,7 @@ describe('recovery state schema', () => {
     const { dir, fs } = await makeTrackedDir();
     const state = createInitialRecoveryState(SCOPE, budget(), T0);
     saveRecoveryState(fs, state);
-    const legacyPath = path.join(dir, 'event-loop', 'llm-retry-state.json');
+    const legacyPath = path.join(dir, 'status', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     fsNative.writeFileSync(legacyPath, '{not valid legacy json');
 
@@ -133,7 +133,7 @@ describe('recovery state schema', () => {
     ['an unsupported schema', { schema_version: 3 }],
   ])('rejects legacy v2 with %s fail-closed and preserves the source', async (_name, change) => {
     const { dir, fs } = await makeTrackedDir();
-    const legacyPath = path.join(dir, 'event-loop', 'llm-retry-state.json');
+    const legacyPath = path.join(dir, 'status', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     const legacyRaw = JSON.stringify({
       schema_version: 2,

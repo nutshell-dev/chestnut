@@ -465,8 +465,8 @@ export function recoveryStateRelPath(stateDir = 'status'): string {
   return path.join(stateDir, LLM_RECOVERY_STATE_FILE);
 }
 
-const LEGACY_RETRY_STATE_REL_PATH = path.join('event-loop', 'llm-retry-state.json');
-const LEGACY_RETRY_STATE_SOURCE = 'event-loop/llm-retry-state.json#schema_version=2';
+const LEGACY_RETRY_STATE_REL_PATH = path.join('status', 'llm-retry-state.json');
+const LEGACY_RETRY_STATE_SOURCE = 'status/llm-retry-state.json#schema_version=2';
 const LEGACY_RETRY_STATE_KEYS = new Set([
   'schema_version',
   'llmRetryCount',

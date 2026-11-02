@@ -131,7 +131,7 @@ const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 describe('recovery session admission', () => {
   it('persists a known legacy v2 import without modifying the original file', async () => {
     const f = await makeFixture();
-    const legacyPath = path.join(f.dir, 'event-loop', 'llm-retry-state.json');
+    const legacyPath = path.join(f.dir, 'status', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     const legacyRaw = JSON.stringify({
       schema_version: 2,
@@ -147,7 +147,7 @@ describe('recovery session admission', () => {
       revision: 1,
       schedule: { kind: 'ready', revision: 1 },
       budget: { retryCount: 3, retryDelayMs: 45_000, quotaDelayMs: 120_000 },
-      importedSources: ['event-loop/llm-retry-state.json#schema_version=2'],
+      importedSources: ['status/llm-retry-state.json#schema_version=2'],
     });
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(legacyRaw);
   });

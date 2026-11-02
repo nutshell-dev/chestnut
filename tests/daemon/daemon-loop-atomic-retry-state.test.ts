@@ -89,7 +89,7 @@ describe('LLM recovery state atomic persistence (phase 1826)', () => {
   });
 
   it('imports known legacy llm-retry-state.json and keeps it untouched as evidence', () => {
-    const legacyPath = path.join(agentDir, 'event-loop', 'llm-retry-state.json');
+    const legacyPath = path.join(agentDir, STATUS_SUBDIR, 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     const legacyRaw = JSON.stringify({
       schema_version: 2,
@@ -104,7 +104,7 @@ describe('LLM recovery state atomic persistence (phase 1826)', () => {
     expect(loaded).toMatchObject({ kind: 'ok', imported: true });
     if (loaded.kind !== 'ok') return;
     expect(loaded.state.importedSources).toEqual([
-      'event-loop/llm-retry-state.json#schema_version=2',
+      'status/llm-retry-state.json#schema_version=2',
     ]);
     saveRecoveryState(fs, loaded.state);
 
