@@ -28,6 +28,7 @@ import {
 } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
 import type { OutboxMessage } from './types.js';
+import { OutboxMoveFailed } from './errors.js';
 import {
   OUTBOX_PENDING_DIR,
   OUTBOX_PROCESSING_DIR,
@@ -491,6 +492,18 @@ export class OutboxReader {
     return 'conflict';
   }
 
+  /** Roll a claimed file back through staging so an existing pending file is never replaced. */
+  private async _restoreClaimToPending(
+    clawDir: string,
+    claimPath: string,
+    fileName: string,
+  ): Promise<'restored' | 'deduped' | 'conflict'> {
+    const stageName = `.tmp_${newShortUuid()}_${fileName}.staging`;
+    const stagePath = path.join(clawDir, OUTBOX_PENDING_DIR, stageName);
+    await this.fs.move(claimPath, stagePath);
+    return this._resolveStagedFile(clawDir, stageName, fileName, 'claim_rollback');
+  }
+
   /**
    * List `.md` filenames in `<clawDir>/outbox/pending`.
    *
@@ -555,12 +568,13 @@ export class OutboxReader {
    * Returns a discriminated result so callers can distinguish:
    *   - `empty`: nothing to claim (including race-lost cases)
    *   - `io_error`: filesystem error while listing/moving/reading; for read failures
-   *     this status additionally guarantees the claim was settled (rolled back to pending)
-   *   - `recovery_required`: read failed AND rollback to pending failed — the claimed
-   *     file remains in processing and disposition is incomplete. Carries the original
+   *     this status additionally guarantees the claim was settled through the pending
+   *     staging protocol (restored, deduped, or quarantined on conflict)
+   *   - `recovery_required`: read failed AND rollback failed — disposition is incomplete
+   *     and the file may remain in processing or staging. Carries the original
    *     read error, the rollback error, claimPath and original filename; callers must
    *     surface it explicitly and must not degrade it to empty/io_error. Any rollback
-   *     error — including ambiguous ones where the file location is not provably pending
+   *     error — including ambiguous ones where the file location is not provably settled
    *     (e.g. transient EIO/timeout or vanished source) — maps here conservatively.
    *
    * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed()/markSkipped().
@@ -629,9 +643,9 @@ export class OutboxReader {
           op: 'read',
           reason,
         });
-        // Rollback: move back to pending so message is not stuck in processing
+        // Roll back through the same no-overwrite staging protocol as startup recovery.
         try {
-          await this.fs.move(relClaimedPath, relPendingPath);
+          await this._restoreClaimToPending(clawDir, relClaimedPath, fileName);
         } catch (rollbackErr) {
           // Rollback failed (or outcome undecidable): the file stays in processing
           // and disposition is incomplete. Return recovery_required carrying both
@@ -655,20 +669,18 @@ export class OutboxReader {
       }
     }
 
-    // Build claimPath relative to clawDir (for markDone/markFailed to use)
+    // Build claimPath relative to clawDir (for markDone/markSkipped to use)
     const claimPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
 
     return { status: 'claimed', claimPath, filename: fileName, content };
   }
 
-  /**
-   * Mark a claimed outbox message as done — move processing/ → done/.
-   *
-   * @param clawDir absolute path to a claw root
-   * @param claimPath relative path within clawDir (returned by claimNext)
-   * @param originalFilename original pending filename (for audit trail)
-   */
-  async markDone(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
+  private async archiveClaim(
+    clawDir: string,
+    claimPath: string,
+    originalFilename: string,
+    kind: 'done' | 'skipped',
+  ): Promise<void> {
     const normalizedClaimPath = path.normalize(claimPath);
     const processingPrefix = path.join(OUTBOX_PROCESSING_DIR) + path.sep;
     if (
@@ -689,11 +701,33 @@ export class OutboxReader {
     const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
     await this.fs.ensureDir(doneDir);
     const donePath = path.join(doneDir, `${Date.now()}_${safeOriginal}`);
-    await this.fs.move(processingFullPath, donePath);
-    emitOutboxDelivered(this.audit, {
-      file: originalFilename,
-      deliveredAt: Date.now(),
-    });
+    try {
+      await this.fs.move(processingFullPath, donePath);
+    } catch (err) {
+      emitOutboxClaimFailed(this.audit, {
+        file: originalFilename,
+        op: kind,
+        reason: formatErr(err),
+      });
+      throw new OutboxMoveFailed(processingFullPath, kind, err);
+    }
+
+    if (kind === 'done') {
+      emitOutboxDelivered(this.audit, { file: originalFilename, deliveredAt: Date.now() });
+    } else {
+      emitOutboxSkipped(this.audit, { file: originalFilename, skippedAt: Date.now() });
+    }
+  }
+
+  /**
+   * Mark a claimed outbox message as done — move processing/ → done/.
+   *
+   * @param clawDir absolute path to a claw root
+   * @param claimPath relative path within clawDir (returned by claimNext)
+   * @param originalFilename original pending filename (for audit trail)
+   */
+  async markDone(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
+    await this.archiveClaim(clawDir, claimPath, originalFilename, 'done');
   }
 
   /**
@@ -708,31 +742,7 @@ export class OutboxReader {
    * @param originalFilename original pending filename (for audit trail)
    */
   async markSkipped(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
-    const normalizedClaimPath = path.normalize(claimPath);
-    const processingPrefix = path.join(OUTBOX_PROCESSING_DIR) + path.sep;
-    if (
-      normalizedClaimPath === '..' ||
-      normalizedClaimPath.startsWith('..' + path.sep) ||
-      normalizedClaimPath.startsWith('../') ||
-      !normalizedClaimPath.startsWith(processingPrefix)
-    ) {
-      throw new Error(`Path traversal detected in claimPath: "${claimPath}"`);
-    }
-
-    const safeOriginal = path.basename(originalFilename);
-    if (!safeOriginal.endsWith('.md') || safeOriginal.includes('..')) {
-      throw new Error(`Invalid originalFilename: "${originalFilename}"`);
-    }
-
-    const processingFullPath = path.join(clawDir, normalizedClaimPath);
-    const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
-    await this.fs.ensureDir(doneDir);
-    const donePath = path.join(doneDir, `${Date.now()}_${safeOriginal}`);
-    await this.fs.move(processingFullPath, donePath);
-    emitOutboxSkipped(this.audit, {
-      file: originalFilename,
-      skippedAt: Date.now(),
-    });
+    await this.archiveClaim(clawDir, claimPath, originalFilename, 'skipped');
   }
 
   /**

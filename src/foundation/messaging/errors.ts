@@ -20,6 +20,21 @@ export class InboxMoveFailed extends Error {
   }
 }
 
+type OutboxMoveOp = 'done' | 'skipped';
+
+/** Internal settlement error; deliberately not exported through the messaging barrel. */
+export class OutboxMoveFailed extends Error {
+  readonly code = 'OUTBOX_MOVE_FAILED' as const;
+  constructor(
+    public readonly filePath: string,
+    public readonly op: OutboxMoveOp,
+    public readonly cause: unknown,
+  ) {
+    super(`Failed to move outbox file ${filePath} to done/`);
+    this.name = 'OutboxMoveFailed';
+  }
+}
+
 export class WireFieldError extends Error {
   readonly code = 'WIRE_FIELD_ERROR' as const;
   constructor(public readonly reason: string) {
