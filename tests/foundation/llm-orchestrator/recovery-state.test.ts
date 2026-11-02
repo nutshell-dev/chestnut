@@ -84,6 +84,72 @@ describe('recovery state schema', () => {
     expect(loadRecoveryState(fs, SCOPE).kind).toBe('missing');
   });
 
+  it('imports the known schema_version=2 legacy file and preserves its raw text', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const legacyPath = path.join(dir, 'event-loop', 'llm-retry-state.json');
+    fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    const legacyRaw = JSON.stringify({
+      schema_version: 2,
+      llmRetryCount: 2,
+      llmRetryDelayMs: 45_000,
+      llmQuotaDelayMs: 180_000,
+      llmRetryPending: false,
+      waiting: null,
+    });
+    fsNative.writeFileSync(legacyPath, legacyRaw);
+
+    const loaded = loadRecoveryState(fs, SCOPE, 'status', budget(), T0);
+    expect(loaded).toMatchObject({ kind: 'ok', imported: true });
+    if (loaded.kind !== 'ok') return;
+    expect(loaded.state).toMatchObject({
+      revision: 1,
+      schedule: { kind: 'ready', revision: 1 },
+      budget: { retryCount: 2, retryDelayMs: 45_000, quotaDelayMs: 180_000 },
+      importedSources: ['event-loop/llm-retry-state.json#schema_version=2'],
+    });
+    expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(legacyRaw);
+    expect(fsNative.existsSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE))).toBe(false);
+  });
+
+  it('prefers an existing new recovery file over the legacy file', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const state = createInitialRecoveryState(SCOPE, budget(), T0);
+    saveRecoveryState(fs, state);
+    const legacyPath = path.join(dir, 'event-loop', 'llm-retry-state.json');
+    fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fsNative.writeFileSync(legacyPath, '{not valid legacy json');
+
+    const loaded = loadRecoveryState(fs, SCOPE, 'status', budget(), T0);
+    expect(loaded).toEqual({ kind: 'ok', state });
+  });
+
+  it.each([
+    ['pending=true', { llmRetryPending: true }],
+    ['waiting is non-null', { waiting: { resumeAt: '2026-09-10T00:01:00.000Z' } }],
+    ['an unknown field', { futureField: true }],
+    ['a negative retry count', { llmRetryCount: -1 }],
+    ['a fractional retry count', { llmRetryCount: 1.5 }],
+    ['a zero retry delay', { llmRetryDelayMs: 0 }],
+    ['an unsupported schema', { schema_version: 3 }],
+  ])('rejects legacy v2 with %s fail-closed and preserves the source', async (_name, change) => {
+    const { dir, fs } = await makeTrackedDir();
+    const legacyPath = path.join(dir, 'event-loop', 'llm-retry-state.json');
+    fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    const legacyRaw = JSON.stringify({
+      schema_version: 2,
+      llmRetryCount: 1,
+      llmRetryDelayMs: 30_000,
+      llmRetryPending: false,
+      waiting: null,
+      ...change,
+    });
+    fsNative.writeFileSync(legacyPath, legacyRaw);
+
+    expect(loadRecoveryState(fs, SCOPE, 'status', budget(), T0).kind).toBe('unusable');
+    expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(legacyRaw);
+    expect(fsNative.existsSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE))).toBe(false);
+  });
+
   it('corrupt JSON is unusable with parse_failed and file preserved', async () => {
     const { dir, fs } = await makeTrackedDir();
     fsNative.mkdirSync(path.join(dir, 'status'), { recursive: true });
@@ -250,6 +316,7 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
       message: 'boom',
       providerLabel: 'kimi-year',
       invocationId: 'inv-1',
+      attemptId: 'att-1',
       attemptIndex: 0,
       configRevision: 0,
     });
@@ -262,6 +329,7 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
     expect(loaded.state.failures[0]).toMatchObject({
       providerLabel: 'kimi-year',
       invocationId: 'inv-1',
+      attemptId: 'att-1',
       attemptIndex: 0,
       configRevision: 0,
     });
@@ -289,6 +357,26 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
     if (loaded.kind !== 'ok') return;
     expect(loaded.state.providers[0].providerLabel).toBeUndefined();  // 不伪造
     expect(loaded.state.failures[0].invocationId).toBeUndefined();
+    expect(loaded.state.failures[0].attemptId).toBeUndefined();
+  });
+
+  it('rejects a non-string attemptId in failure evidence', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    fsNative.mkdirSync(path.join(dir, 'status'), { recursive: true });
+    fsNative.writeFileSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE), JSON.stringify({
+      ...base,
+      failures: [{
+        at: new Date(T0).toISOString(),
+        providerId: 'fp-x',
+        errorClass: 'transient',
+        message: 'm',
+        attemptId: 1,
+      }],
+    }));
+    expect(loadRecoveryState(fs, SCOPE)).toMatchObject({
+      kind: 'unusable', reason: 'field_type_mismatch', detail: 'failures',
+    });
   });
 
   it('1968 关联字段类型非法时拒绝加载（field_type_mismatch）', async () => {

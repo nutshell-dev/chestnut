@@ -328,6 +328,76 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     ]));
   });
 
+  it('writes attemptId correlation columns for call-path events and preserves stream payloads', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'call_invocation_started',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
+      kind: 'call',
+      configRevision: 0,
+      candidates: [{ name: 'p', providerId: 'fp' }],
+    });
+    sink.emit({
+      type: 'call_attempt_result',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
+      attemptIndex: 0,
+      provider: 'p',
+      providerId: 'fp',
+      outcome: 'success',
+    });
+    sink.emit({
+      type: 'call_selection',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
+      outcome: 'selected',
+      provider: 'p',
+      providerId: 'fp',
+      attemptIndex: 0,
+    });
+    sink.emit({
+      type: 'call_selection',
+      invocationId: 'inv-unscoped',
+      outcome: 'exhausted',
+    });
+
+    expect(audit.writes.map(write => write[0])).toEqual([
+      'llm_call_invocation_started',
+      'llm_call_attempt_result',
+      'llm_call_selection',
+      'llm_call_selection',
+    ]);
+    expect(audit.writes.slice(0, 3).map(write => write[2])).toEqual([
+      'attempt=att-1', 'attempt=att-1', 'attempt=att-1',
+    ]);
+    expect(audit.writes[3]).toContain('attempt=none');
+    expect(stream.events.slice(0, 3)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ attemptId: 'att-1' }),
+    ]));
+  });
+
+  it('fans out provider_close_failed to audit and stream with the original error', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({ type: 'provider_close_failed', error: 'Error: bad close' });
+
+    expect(audit.writes).toEqual([[
+      'llm_provider_close_failed',
+      'error=Error: bad close',
+    ]]);
+    expect(stream.events).toHaveLength(1);
+    expect(stream.events[0]).toMatchObject({
+      type: 'provider_close_failed',
+      error: 'Error: bad close',
+    });
+  });
+
   it('normalizes Error payload to readable string in stream', () => {
     const audit = makeAudit();
     const stream = makeStream();

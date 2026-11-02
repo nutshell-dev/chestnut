@@ -14,6 +14,10 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
+import {
+  LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from './defaults.js';
 
 /** 恢复状态持久化文件名（scope 注入的 FileSystem 下的 status/ 子目录）。 */
 export const LLM_RECOVERY_STATE_FILE = 'llm-recovery-state.json' as const;
@@ -131,6 +135,7 @@ export interface LLMRecoveryFailureEvidence {
    */
   providerLabel?: string;
   invocationId?: string;
+  attemptId?: string;
   attemptIndex?: number;
   configRevision?: number;
 }
@@ -275,6 +280,7 @@ function isFailureEvidence(v: unknown): v is LLMRecoveryFailureEvidence {
   // Phase 1968 Step B：调用路径关联字段可选，出现时严格校验类型。
   if (f.providerLabel !== undefined && typeof f.providerLabel !== 'string') return false;
   if (f.invocationId !== undefined && typeof f.invocationId !== 'string') return false;
+  if (f.attemptId !== undefined && typeof f.attemptId !== 'string') return false;
   if (f.attemptIndex !== undefined && typeof f.attemptIndex !== 'number') return false;
   if (f.configRevision !== undefined && typeof f.configRevision !== 'number') return false;
   return true;
@@ -451,7 +457,7 @@ export function validateRecoveryState(
 
 export type RecoveryStateLoad =
   | { kind: 'missing' }
-  | { kind: 'ok'; state: LLMRecoveryStateV1 }
+  | { kind: 'ok'; state: LLMRecoveryStateV1; imported?: true }
   | { kind: 'unusable'; reason: 'parse_failed' | 'schema_invalid' | 'field_type_mismatch' | 'scope_mismatch' | 'read_failed'; detail: string };
 
 /** 相对 scope FileSystem base 的状态文件路径；缺省 status 仅作旧文件兼容。 */
@@ -459,13 +465,95 @@ export function recoveryStateRelPath(stateDir = 'status'): string {
   return path.join(stateDir, LLM_RECOVERY_STATE_FILE);
 }
 
-export function loadRecoveryState(fs: FileSystem, scopeId: string, stateDir = 'status'): RecoveryStateLoad {
+const LEGACY_RETRY_STATE_REL_PATH = path.join('event-loop', 'llm-retry-state.json');
+const LEGACY_RETRY_STATE_SOURCE = 'event-loop/llm-retry-state.json#schema_version=2';
+const LEGACY_RETRY_STATE_KEYS = new Set([
+  'schema_version',
+  'llmRetryCount',
+  'llmRetryDelayMs',
+  'llmQuotaDelayMs',
+  'llmRetryPending',
+  'waiting',
+]);
+
+function loadLegacyRetryStateV2(
+  fs: FileSystem,
+  scopeId: string,
+  initialBudget: LLMRecoveryBudget,
+  nowMs: number,
+): RecoveryStateLoad {
+  let raw: string;
+  try {
+    raw = fs.readSync(LEGACY_RETRY_STATE_REL_PATH);
+  } catch (e) {
+    if (isFileNotFound(e)) return { kind: 'missing' };
+    return { kind: 'unusable', reason: 'read_failed', detail: formatErr(e) };
+  }
+
+  let saved: unknown;
+  try {
+    saved = JSON.parse(raw);
+  } catch (e) {
+    return { kind: 'unusable', reason: 'parse_failed', detail: formatErr(e) };
+  }
+  if (typeof saved !== 'object' || saved === null || Array.isArray(saved)) {
+    return { kind: 'unusable', reason: 'schema_invalid', detail: 'legacy retry state must be an object' };
+  }
+  const legacy = saved as Record<string, unknown>;
+  if (legacy.schema_version !== 2) {
+    return {
+      kind: 'unusable',
+      reason: 'schema_invalid',
+      detail: `legacy schema_version=${String(legacy.schema_version)}`,
+    };
+  }
+  const unknownKey = Object.keys(legacy).find(key => !LEGACY_RETRY_STATE_KEYS.has(key));
+  if (unknownKey !== undefined) {
+    return { kind: 'unusable', reason: 'schema_invalid', detail: `legacy unknown field=${unknownKey}` };
+  }
+  if (!isNonNegativeInteger(legacy.llmRetryCount)) {
+    return { kind: 'unusable', reason: 'field_type_mismatch', detail: 'legacy llmRetryCount' };
+  }
+  if (!isPositiveFiniteNumber(legacy.llmRetryDelayMs)) {
+    return { kind: 'unusable', reason: 'field_type_mismatch', detail: 'legacy llmRetryDelayMs' };
+  }
+  if (legacy.llmQuotaDelayMs !== undefined && !isPositiveFiniteNumber(legacy.llmQuotaDelayMs)) {
+    return { kind: 'unusable', reason: 'field_type_mismatch', detail: 'legacy llmQuotaDelayMs' };
+  }
+  if (legacy.llmRetryPending !== false || legacy.waiting !== null) {
+    return {
+      kind: 'unusable',
+      reason: 'schema_invalid',
+      detail: 'legacy pending/waiting cannot be mapped losslessly',
+    };
+  }
+
+  const state = createInitialRecoveryState(scopeId, {
+    retryCount: legacy.llmRetryCount,
+    retryDelayMs: legacy.llmRetryDelayMs,
+    quotaDelayMs: legacy.llmQuotaDelayMs ?? initialBudget.quotaDelayMs,
+  }, nowMs);
+  state.importedSources = [LEGACY_RETRY_STATE_SOURCE];
+  return { kind: 'ok', state, imported: true };
+}
+
+export function loadRecoveryState(
+  fs: FileSystem,
+  scopeId: string,
+  stateDir = 'status',
+  initialBudget: LLMRecoveryBudget = {
+    retryCount: 0,
+    retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+    quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  },
+  nowMs = Date.now(),
+): RecoveryStateLoad {
   let raw: string;
   try {
     raw = fs.readSync(recoveryStateRelPath(stateDir));
   } catch (e) {
-    // 失败原因以 typed RecoveryStateLoad 交给调用方（结构化暴露，不静默）
-    if (isFileNotFound(e)) return { kind: 'missing' };
+    // 新文件缺失才尝试已知旧格式；新文件存在时无论合法与否均为唯一权威。
+    if (isFileNotFound(e)) return loadLegacyRetryStateV2(fs, scopeId, initialBudget, nowMs);
     return { kind: 'unusable', reason: 'read_failed', detail: formatErr(e) };
   }
   let saved: unknown;

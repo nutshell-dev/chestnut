@@ -77,6 +77,7 @@ export interface RecoveryFailureInput {
    */
   providerLabel?: string;
   invocationId?: string;
+  attemptId?: string;
   attemptIndex?: number;
   configRevision?: number;
 }
@@ -98,6 +99,7 @@ export interface RecoveryCallScope {
   attemptContext(): {
     probeOnly: boolean;
     allowBreakerProbe: boolean;
+    attemptId?: string;
   };
 }
 
@@ -253,7 +255,13 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     this.now = deps.now ?? Date.now;
     this.orchestrator = deps.orchestrator;
 
-    const load = loadRecoveryState(deps.fs, deps.scopeId, deps.stateDir);
+    const load = loadRecoveryState(
+      deps.fs,
+      deps.scopeId,
+      deps.stateDir,
+      initialBudget(),
+      this.now(),
+    );
     if (load.kind === 'unusable') {
       // 拒绝启动并保留原文：不猜默认值继续发请求。
       throw new Error(
@@ -263,6 +271,10 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     this.state = load.kind === 'ok'
       ? load.state
       : createInitialRecoveryState(deps.scopeId, initialBudget(), this.now());
+    if (load.kind === 'ok' && load.imported === true) {
+      // 旧文件只读；迁移提交只写新文件，revision 从 1 开始，不沿用 llmRetryCount。
+      this.commitNext(this.state, 'migration');
+    }
 
     // Phase 2027 Step C：旧算法事实先重键到当前完整身份并持久 pending。
     // 若随后崩溃，首次 begin 仍能区分「同修订保留」与「升级同时改配置的保守重估」。
@@ -308,6 +320,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
           providerId: 'unknown',
           errorClass: 'unknown',
           message: `attempt ${residual.attemptId} result unknown after restart`,
+          attemptId: residual.attemptId,
         });
       } else if (residual.admissionKind === undefined) {
         // 2032 前缺省 kind 的记录覆盖整个 turn，不能按单次 invocation 恢复。
@@ -317,6 +330,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
           providerId: 'unknown',
           errorClass: 'unknown',
           message: `legacy_turn_admission_retired attempt=${residual.attemptId} requestKey=${residual.requestKey}`,
+          attemptId: residual.attemptId,
         });
       } else {
         // 新 invocation 尚未发起真实请求，可重新驱动同一 attempt。
@@ -625,11 +639,13 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   attemptContext(): {
     probeOnly: boolean;
     allowBreakerProbe: boolean;
+    attemptId?: string;
   } {
     const active = this.state.activeAdmission;
     return {
       probeOnly: active?.probeOnly ?? false,
       allowBreakerProbe: active?.allowBreakerProbe ?? false,
+      ...(active?.attemptId !== undefined ? { attemptId: active.attemptId } : {}),
     };
   }
 
@@ -732,6 +748,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         // Phase 1968 Step B：调用路径关联随证据持久化（可选字段，缺省不伪造）。
         ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
         ...(failure.invocationId !== undefined ? { invocationId: failure.invocationId } : {}),
+        ...(failure.attemptId !== undefined ? { attemptId: failure.attemptId } : {}),
         ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
         ...(failure.configRevision !== undefined ? { configRevision: failure.configRevision } : {}),
       });
@@ -924,6 +941,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     message: string;
     providerLabel?: string;
     invocationId?: string;
+    attemptId?: string;
     attemptIndex?: number;
     configRevision?: number;
   }): void {

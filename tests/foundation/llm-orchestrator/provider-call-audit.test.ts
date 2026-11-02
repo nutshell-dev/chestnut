@@ -47,6 +47,18 @@ function okProvider(name: string): ProviderAdapter {
   };
 }
 
+function streamOkProvider(name: string): ProviderAdapter {
+  return {
+    name,
+    model: 'model-x',
+    call: async () => OK_RESPONSE,
+    stream: async function* () {
+      yield { type: 'text_delta' as const, delta: 'ok' };
+      yield { type: 'done' as const, stopReason: 'end_turn' };
+    },
+  };
+}
+
 function failProvider(name: string, error: Error): ProviderAdapter {
   return {
     name,
@@ -193,6 +205,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const startedCols = colMap(started!);
     expect(startedCols.kind).toBe('call');
     expect(startedCols.config_rev).toBe('0');
+    expect(startedCols.attempt).toBe('none');
     // 候选清单同时携带 label 与不可逆身份指纹
     expect(startedCols.candidates).toContain('kimi-year:');
     expect(startedCols.candidates).toContain('kimi-year2:');
@@ -202,9 +215,10 @@ describe('provider 调用路径审计（磁盘重建）', () => {
         attempt_index: '0', provider: 'kimi-year', outcome: 'success',
       }),
     ]);
+    expect(attemptRows(rows, inv)[0].attempt).toBe('none');
     expect(selectionRows(rows, inv)).toEqual([
       expect.objectContaining({
-        outcome: 'selected', provider: 'kimi-year', attempt_index: '0',
+        outcome: 'selected', provider: 'kimi-year', attempt_index: '0', attempt: 'none',
       }),
     ]);
     // selection 的 provider_id 与 started 候选清单中的身份一致
@@ -469,7 +483,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     await expect(orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     await session.finish(admission.attemptId, 'failed');
 
-    // 恢复状态磁盘证据：providerLabel + invocationId + attemptIndex + configRevision
+    // 恢复状态磁盘证据：providerLabel + invocationId/attemptId + attemptIndex + configRevision
     const state = JSON.parse(
       await fsNative.readFile(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE), 'utf-8'),
     );
@@ -477,12 +491,56 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const ev = state.failures[0];
     expect(ev.providerLabel).toBe('kimi-year');
     expect(typeof ev.invocationId).toBe('string');
+    expect(ev.attemptId).toBe(admission.attemptId);
     expect(ev.attemptIndex).toBe(0);
     expect(ev.configRevision).toBe(0);
     // provider fact 同步携带 label（身份↔名称关系可见）
     expect(state.providers[0].providerLabel).toBe('kimi-year');
     // invocationId 与审计事件的 invocation 关联键同源
-    const started = emitted.find(e => e.type === 'call_invocation_started') as { invocationId: string };
+    const started = emitted.find(e => e.type === 'call_invocation_started') as {
+      invocationId: string;
+      attemptId?: string;
+    };
     expect(ev.invocationId).toBe(started.invocationId);
+    expect(started.attemptId).toBe(admission.attemptId);
+    const correlated = emitted.filter(e =>
+      e.type === 'call_invocation_started'
+      || e.type === 'call_attempt_result'
+      || e.type === 'call_selection');
+    expect(correlated).toHaveLength(3);
+    expect(correlated.every(e => e.attemptId === admission.attemptId)).toBe(true);
+    expect(correlated.find(e => e.type === 'call_attempt_result')).toMatchObject({ attemptIndex: 0 });
+  });
+
+  it('scoped stream carries the same attemptId through started, result and selection', async () => {
+    const dir = await makeDir();
+    const nfs = new NodeFileSystem({ baseDir: dir });
+    const emitted: LLMEvent[] = [];
+    const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
+    const adapter = streamOkProvider('kimi-year');
+    const orchestrator = new LLMOrchestratorImpl({
+      primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
+      maxAttempts: 1,
+      retryDelayMs: 1,
+      events: sink,
+      createProviderAdapter: () => adapter,
+    });
+    const session = createRecoverySession({
+      scopeId: 'foreground', fs: nfs, events: sink, orchestrator, now: () => Date.now(),
+    });
+    const admission = await session.begin({ requestKey: 'rk-stream', facts: { interventionIds: [] } });
+    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+
+    for await (const _chunk of orchestrator.streamWithinRecovery(CALL, session)) { /* drain */ }
+    await session.finish(admission.attemptId, 'completed');
+
+    const correlated = emitted.filter(e =>
+      e.type === 'call_invocation_started'
+      || e.type === 'call_attempt_result'
+      || e.type === 'call_selection');
+    expect(correlated).toHaveLength(3);
+    expect(correlated.every(e => e.attemptId === admission.attemptId)).toBe(true);
+    expect(new Set(correlated.map(e => e.invocationId)).size).toBe(1);
+    expect(correlated.find(e => e.type === 'call_attempt_result')).toMatchObject({ attemptIndex: 0 });
   });
 });

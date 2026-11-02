@@ -232,6 +232,9 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       w(LLM_AUDIT_EVENTS.SDK_CLIENT_CACHE_MISS,
         `preset=${event.preset}`, `model=${event.model}`);
       break;
+    case 'provider_close_failed':
+      w(LLM_AUDIT_EVENTS.PROVIDER_CLOSE_FAILED, `error=${event.error}`);
+      break;
     case 'recovery_facts_accepted':
       // phase 1827: 完整新事实接受证据（多事实不互相遮蔽）；磁盘接受记录仍是证据权威。
       w(LLM_AUDIT_EVENTS.RECOVERY_FACTS_ACCEPTED,
@@ -287,19 +290,22 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     // Phase 1968 Step B：provider 调用路径审计（invocation/attempt/selection）。
     case 'call_invocation_started':
       w(LLM_AUDIT_EVENTS.CALL_INVOCATION_STARTED,
-        `invocation=${event.invocationId}`, `kind=${event.kind}`, `config_rev=${event.configRevision}`,
+        `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,
+        `kind=${event.kind}`, `config_rev=${event.configRevision}`,
         `candidates=${event.candidates.map(c => `${c.name}:${c.providerId}`).join(',')}`);
       break;
     case 'call_attempt_result':
       w(LLM_AUDIT_EVENTS.CALL_ATTEMPT_RESULT,
-        `invocation=${event.invocationId}`, `attempt_index=${event.attemptIndex}`,
+        `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,
+        `attempt_index=${event.attemptIndex}`,
         `provider=${event.provider}`, `provider_id=${event.providerId}`, `outcome=${event.outcome}`,
         `error_class=${event.errorClass ?? 'none'}`, `reason=${event.reason ?? 'none'}`,
         `error=${event.error ?? 'none'}`);
       break;
     case 'call_selection':
       w(LLM_AUDIT_EVENTS.CALL_SELECTION,
-        `invocation=${event.invocationId}`, `outcome=${event.outcome}`,
+        `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,
+        `outcome=${event.outcome}`,
         `provider=${event.provider ?? 'none'}`, `provider_id=${event.providerId ?? 'none'}`,
         `attempt_index=${event.attemptIndex ?? 'none'}`);
       break;

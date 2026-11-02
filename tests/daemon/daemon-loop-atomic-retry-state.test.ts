@@ -88,9 +88,8 @@ describe('LLM recovery state atomic persistence (phase 1826)', () => {
     expect(files).toEqual([LLM_RECOVERY_STATE_FILE]);
   });
 
-  it('legacy llm-retry-state.json stays untouched as migration evidence', () => {
-    // 旧 EventLoop 文件名仍在：迁移只读取，不删除、不覆写。
-    const legacyPath = path.join(agentDir, STATUS_SUBDIR, 'llm-retry-state.json');
+  it('imports known legacy llm-retry-state.json and keeps it untouched as evidence', () => {
+    const legacyPath = path.join(agentDir, 'event-loop', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     const legacyRaw = JSON.stringify({
       schema_version: 2,
@@ -101,8 +100,13 @@ describe('LLM recovery state atomic persistence (phase 1826)', () => {
     });
     fsNative.writeFileSync(legacyPath, legacyRaw);
 
-    const state = createInitialRecoveryState('foreground', budget(), Date.now());
-    saveRecoveryState(fs, state);
+    const loaded = loadRecoveryState(fs, 'foreground', STATUS_SUBDIR, budget(), Date.now());
+    expect(loaded).toMatchObject({ kind: 'ok', imported: true });
+    if (loaded.kind !== 'ok') return;
+    expect(loaded.state.importedSources).toEqual([
+      'event-loop/llm-retry-state.json#schema_version=2',
+    ]);
+    saveRecoveryState(fs, loaded.state);
 
     expect(fsNative.readFileSync(legacyPath, 'utf-8')).toBe(legacyRaw);
     expect(

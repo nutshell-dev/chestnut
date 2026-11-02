@@ -30,6 +30,7 @@
       "llm_idle_failover_triggered",
       "llm_permanent_skip_retry",
       "llm_provider_attempt_failed",
+      "llm_provider_close_failed",
       "llm_provider_exhausted",
       "llm_race_loser_cleaned",
       "llm_recovery_attempt_admitted",

@@ -129,6 +129,29 @@ async function makeFixture(opts: FixtureOpts = {}) {
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 
 describe('recovery session admission', () => {
+  it('persists a known legacy v2 import without modifying the original file', async () => {
+    const f = await makeFixture();
+    const legacyPath = path.join(f.dir, 'event-loop', 'llm-retry-state.json');
+    fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    const legacyRaw = JSON.stringify({
+      schema_version: 2,
+      llmRetryCount: 3,
+      llmRetryDelayMs: 45_000,
+      llmRetryPending: false,
+      waiting: null,
+    });
+    fsNative.writeFileSync(legacyPath, legacyRaw);
+
+    f.makeSession();
+    expect(f.readState()).toMatchObject({
+      revision: 1,
+      schedule: { kind: 'ready', revision: 1 },
+      budget: { retryCount: 3, retryDelayMs: 45_000, quotaDelayMs: 120_000 },
+      importedSources: ['event-loop/llm-retry-state.json#schema_version=2'],
+    });
+    expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(legacyRaw);
+  });
+
   it('admits directly when ready and returns to ready after completion', async () => {
     const f = await makeFixture();
     const session = f.makeSession();
@@ -168,6 +191,8 @@ describe('recovery session admission', () => {
     const saved = JSON.parse(fsNative.readFileSync(f.statePath, 'utf-8'));
     expect(saved.activeAdmission).toBeNull();
     expect(saved.failures.some((x: { message: string }) => x.message.includes('result unknown'))).toBe(true);
+    expect(saved.failures.find((x: { message: string }) => x.message.includes('result unknown')).attemptId)
+      .toBe(admission.attemptId);
     expect(await restarted.inspect()).toBeTruthy();
   });
 });

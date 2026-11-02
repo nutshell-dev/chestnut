@@ -77,6 +77,7 @@ const DEFAULT_STREAM_IDLE_PROBE_TIMEOUT_MS = 5_000;
 interface CallLimits {
   maxAttempts: number;
   allowBreakerProbe: boolean;
+  attemptId?: string;
 }
 
 /**
@@ -86,6 +87,7 @@ interface CallLimits {
  */
 interface CallPathAudit {
   invocationId: string;
+  attemptId?: string;
   nextAttemptIndex: number;
   /** 调用入口捕获的配置代次；旧代次完成不得写回 last-success。 */
   generation: number;
@@ -441,16 +443,18 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   // ---------------------------------------------------------------------------
 
   /** 一次 call/stream 调用的审计关联上下文（attemptIndex 单调递增）。 */
-  private beginCallPath(kind: 'call' | 'stream'): CallPathAudit {
+  private beginCallPath(kind: 'call' | 'stream', attemptId?: string): CallPathAudit {
     const adapters = [this.primary, ...this.fallbacks];
     const inv: CallPathAudit = {
       invocationId: newShortUuid(12),
+      ...(attemptId !== undefined ? { attemptId } : {}),
       nextAttemptIndex: 0,
       generation: this.configGeneration,
     };
     this.events.emit({
       type: 'call_invocation_started',
       invocationId: inv.invocationId,
+      ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
       kind,
       configRevision: inv.generation,
       candidates: adapters.map((a, i) => ({
@@ -473,6 +477,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.events.emit({
       type: 'call_attempt_result',
       invocationId: inv.invocationId,
+      ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
       attemptIndex,
       provider,
       providerId,
@@ -532,6 +537,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.events.emit({
       type: 'call_selection',
       invocationId: inv.invocationId,
+      ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
       outcome: 'selected',
       provider,
       providerId,
@@ -544,6 +550,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.events.emit({
       type: 'call_selection',
       invocationId: inv.invocationId,
+      ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
       outcome: 'exhausted',
     });
   }
@@ -798,6 +805,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   private toRecoveryFailures(
     failures: ReadonlyArray<LLMProviderFailure>,
     invocationId?: string,
+    attemptId?: string,
   ): RecoveryFailureInput[] {
     return failures.map((f) => {
       const retryAfterSec = getRetryAfterSec(f.error);
@@ -811,6 +819,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         providerLabel: f.provider,
         configRevision: this.configGeneration,
         ...(invocationId !== undefined ? { invocationId } : {}),
+        ...(attemptId !== undefined ? { attemptId } : {}),
         ...(f.attemptIndex !== undefined ? { attemptIndex: f.attemptIndex } : {}),
         errorClass: classifyLLMError(f.error),
         message: f.error.message,
@@ -841,7 +850,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     scope?.noteAttemptStarted();
     // owner 的准入决定本次调用的局部预算与资格（不修改全局配置、不置可变标志）。
     const limits = this.resolveCallLimits(scope);
-    const inv = this.beginCallPath('call');
+    const inv = this.beginCallPath('call', limits.attemptId);
     try {
       const response = await this._callCore(options, limits, inv);
       scope?.noteSuccess();
@@ -851,7 +860,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         // Phase 1934 Step C：共享故障记账与 scope 会话反馈独立——无 scope 的裸调用
         // 同样推进 owner 共享判据（ATS/EventLoop 消费同一结论）。
         this.noteSharedFailures(error.failures);
-        scope?.noteFailure(this.toRecoveryFailures(error.failures, inv.invocationId));
+        scope?.noteFailure(this.toRecoveryFailures(error.failures, inv.invocationId, inv.attemptId));
       }
       throw error;
     } finally {
@@ -871,6 +880,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return {
       maxAttempts: attempt.probeOnly ? 1 : this.config.maxAttempts,
       allowBreakerProbe: attempt.allowBreakerProbe,
+      ...(attempt.attemptId !== undefined ? { attemptId: attempt.attemptId } : {}),
     };
   }
 
@@ -1009,13 +1019,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   ): AsyncIterableIterator<LLMStreamChunk> {
     scope?.noteAttemptStarted();
     const limits = this.resolveCallLimits(scope);
-    const inv = this.beginCallPath('stream');
+    const inv = this.beginCallPath('stream', limits.attemptId);
     try {
       yield* this._streamCore(options, limits, inv);
     } catch (error) {
       if (error instanceof LLMAllProvidersFailedError) {
         this.noteSharedFailures(error.failures);
-        scope?.noteFailure(this.toRecoveryFailures(error.failures, inv.invocationId));
+        scope?.noteFailure(this.toRecoveryFailures(error.failures, inv.invocationId, inv.attemptId));
       }
       throw error;
     }
