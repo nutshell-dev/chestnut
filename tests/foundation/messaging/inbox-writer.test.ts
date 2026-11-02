@@ -308,6 +308,18 @@ describe('InboxWriter', () => {
     expect(failed).toContain('type=ping');
   });
 
+  it('rejects unsafe stable ids with INBOX_WRITE_FAILED and no wire file', () => {
+    expect(() => writer.writeSync({
+      type: 'ping',
+      source: 'motion',
+      body: 'test',
+      messageId: 'bad\n---',
+    })).toThrow(/unsafe id/);
+
+    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+    expect(fsSync.existsSync(path.join(testDir, INBOX_PENDING_DIR))).toBe(false);
+  });
+
   // ─── .readMeta() ─────────────────────────────────────────────────────────
 
   it('readMeta returns ok with meta for valid file', async () => {

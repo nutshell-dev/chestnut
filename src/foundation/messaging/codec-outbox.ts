@@ -1,6 +1,6 @@
 import type { OutboxMessage, Priority } from '../messaging/types.js';
 import { parseFrontmatter, yamlQuote } from './codec-inbox.js';
-import { validatePriority } from './codec-validation.js';
+import { assertSafeWireToken, validatePriority } from './codec-validation.js';
 import { assertSafeKey } from './sanitize.js';
 import { OutboxDecodeError } from './errors.js';
 
@@ -10,13 +10,15 @@ import { OutboxDecodeError } from './errors.js';
  * Pure function: no I/O, no side effects.
  */
 export function encodeOutbox(msg: OutboxMessage): string {
+  assertSafeWireToken(msg.id, 'id');
+  assertSafeWireToken(msg.type, 'type');
   const lines = [
     '---',
     `id: ${msg.id}`,
     `type: ${msg.type}`,
     `from: ${yamlQuote(msg.from)}`,
     `to: ${yamlQuote(msg.to)}`,
-    `priority: ${msg.priority}`,
+    `priority: ${validatePriority(msg.priority)}`,
     `timestamp: ${msg.timestamp}`,
   ];
 

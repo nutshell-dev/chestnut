@@ -5,8 +5,22 @@
 
 import type { InboxMessage } from '../messaging/types.js';
 import type { Priority } from '../messaging/types.js';
+import { WireFieldError } from './errors.js';
 
 export const VALID_PRIORITIES: Priority[] = ['critical', 'high', 'normal', 'low'];
+
+const SAFE_WIRE_TOKEN = /^[A-Za-z0-9._:-]+$/;
+
+export function assertSafeWireToken(value: unknown, field: string): asserts value is string {
+  if (
+    typeof value !== 'string' ||
+    !SAFE_WIRE_TOKEN.test(value) ||
+    value.includes('---') ||
+    value.includes('..')
+  ) {
+    throw new WireFieldError(`unsafe ${field}: must be a single-line [A-Za-z0-9._:-]+ token without --- or ..`);
+  }
+}
 
 export function validatePriority(value: unknown): Priority {
   if (typeof value === 'string' && VALID_PRIORITIES.includes(value as Priority)) {

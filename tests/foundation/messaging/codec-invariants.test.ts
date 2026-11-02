@@ -286,6 +286,25 @@ describe('codec-inbox boundary safety (phase 910)', () => {
   });
 });
 
+describe('wire token encode safety', () => {
+  const unsafeTokens = ['', ' leading', 'trailing ', 'bad\nid', 'bad\rid', 'bad\0id', 'bad---id', 'bad..id', 'bad/id'];
+
+  it.each(unsafeTokens)('rejects unsafe inbox id and type %j', (value) => {
+    expect(() => encodeInbox(baseMsg({ id: value }))).toThrow(/unsafe id/);
+    expect(() => encodeInbox(baseMsg({ type: value }))).toThrow(/unsafe type/);
+  });
+
+  it('accepts historical single-line token shapes', () => {
+    for (const [id, type] of [
+      ['motion-123e4567-e89b-42d3-a456-426614174000', 'contract_events'],
+      ['call_abc123', 'task_result'],
+      ['user-1:sub.id', 'X'],
+    ]) {
+      expect(() => encodeInbox(baseMsg({ id, type }))).not.toThrow();
+    }
+  });
+});
+
 describe('codec-inbox strict decode invariant (phase 931)', () => {
   const base: InboxMessage = {
     id: 'm-1',
@@ -523,6 +542,28 @@ describe('codec-outbox', () => {
 
 
 describe('codec-outbox boundary safety (phase 910)', () => {
+  const baseOutbox: OutboxMessage = {
+    id: 'test-id',
+    type: 'question',
+    from: 'claw-a',
+    to: 'motion',
+    content: 'hello',
+    timestamp: '2026-01-01T00:00:00.000Z',
+    priority: 'normal',
+  };
+
+  it('rejects unsafe id and type tokens', () => {
+    for (const value of ['bad\nid', 'bad\rid', 'bad\0id', 'bad---id', 'bad..id', ' bad', 'bad ', '']) {
+      expect(() => encodeOutbox({ ...baseOutbox, id: value })).toThrow(/unsafe id/);
+      expect(() => encodeOutbox({ ...baseOutbox, type: value as OutboxMessage['type'] })).toThrow(/unsafe type/);
+    }
+  });
+
+  it('normalizes invalid priority through validatePriority', () => {
+    const encoded = encodeOutbox({ ...baseOutbox, priority: 'urgent' as OutboxMessage['priority'] });
+    expect(encoded).toContain('priority: normal');
+  });
+
   it('throws on unsafe metadata key', () => {
     const msg = {
       id: 'test-id',

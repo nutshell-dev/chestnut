@@ -18,6 +18,8 @@ import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
+const SAFE_WIRE_TOKEN = /^[A-Za-z0-9._:-]+$/;
+
 interface NotifyClawDeps {
   /**
    * phase 705 / phase 1864 Step C（CT-D2）: caller-provided delivery capability。
@@ -87,7 +89,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
       const to = args.to as string;
       const body = args.body as string;
-      const type = (args.type as string) ?? 'message';
+      const type: unknown = args.type ?? 'message';
       const interrupt = (args.interrupt as boolean) ?? true;
 
       // phase 895 / audit-2026-05-16 NEW.P0.2: validation guard (mirror read.ts:75 cross-claw guard)
@@ -99,6 +101,15 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           `reason=invalid_claw_id`,
         );
         return { success: false, content: `Failed to notify ${to}: invalid claw id` };
+      }
+
+      if (typeof type !== 'string' || !SAFE_WIRE_TOKEN.test(type) || type.includes('---') || type.includes('..')) {
+        deps.sink.write(
+          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+          `claw=${to}`,
+          'reason=invalid_type',
+        );
+        return { success: false, content: `Failed to notify ${to}: invalid type` };
       }
 
       // phase 943: unified boundary — clawExists throw, notifyClaw throw, and path validation throw

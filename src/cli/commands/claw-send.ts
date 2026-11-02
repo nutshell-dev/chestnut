@@ -80,11 +80,11 @@ export async function deliverClawMessage(
   const audit = actionAuditFor(clawDir, deps);
 
   // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
-  createClawNotifier({
+  await createClawNotifier({
     fs: fileSystem,
     audit,
     resolveTarget: makeClawNotifyTargetResolver(baseDir),
-  }).notify(name, {
+  }).notifyAsync(name, {
     type: 'user_inbox_message',
     source: 'user',
     priority: options?.priority ?? 'normal',

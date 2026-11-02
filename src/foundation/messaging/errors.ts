@@ -20,6 +20,14 @@ export class InboxMoveFailed extends Error {
   }
 }
 
+export class WireFieldError extends Error {
+  readonly code = 'WIRE_FIELD_ERROR' as const;
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = 'WireFieldError';
+  }
+}
+
 export class OutboxDecodeError extends Error {
   readonly code = 'OUTBOX_DECODE_ERROR' as const;
   constructor(public readonly reason: string) {

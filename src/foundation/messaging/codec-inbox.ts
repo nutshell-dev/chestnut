@@ -1,5 +1,5 @@
 import type { InboxMessage } from '../messaging/types.js';
-import { validatePriority } from './codec-validation.js';
+import { assertSafeWireToken, validatePriority } from './codec-validation.js';
 import { parseFrontmatterFrame } from './frontmatter-frame.js';
 import { assertSafeKey } from './sanitize.js';
 import { InboxDecodeError } from './errors.js';
@@ -57,6 +57,8 @@ export function encodeInbox(
   msg: InboxMessage,
   extraFields?: Record<string, string>,
 ): string {
+  assertSafeWireToken(msg.id, 'id');
+  assertSafeWireToken(msg.type, 'type');
   const lines = [
     '---',
     `id: ${msg.id}`,

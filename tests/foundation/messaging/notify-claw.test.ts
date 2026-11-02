@@ -200,6 +200,24 @@ const defaultDeps = {
       expect(failedRow).toContain('reason=invalid_claw_id');
     });
 
+    it('rejects unsafe type → NOTIFY_CLAW_FAILED reason=invalid_type + no delivery', async () => {
+      const tool = makeTool(audit.audit);
+      const result = await tool.execute(
+        { to: targetClaw, body: 'attack', type: 'bad\n---' },
+        motionCtx,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/invalid type/i);
+      expect(audit.events).toContainEqual([
+        MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+        `claw=${targetClaw}`,
+        'reason=invalid_type',
+      ]);
+      expect(audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT)).toHaveLength(0);
+      expect(await fs.exists(path.join('claws', targetClaw, 'inbox', 'pending'))).toBe(false);
+    });
+
     it('rejects nonexistent claw → NOTIFY_CLAW_FAILED reason=claw_not_found + no orphan dir created', async () => {
       // 不预建 claws/ghost-claw — 实测 orphan prevention
       const tool = makeTool(audit.audit, { clawExists: () => false });

@@ -104,6 +104,34 @@ describe('send launcher.v1 envelope', () => {
     expect(stdoutLines()[0].payload).not.toHaveProperty('requestId');
   });
 
+  it('非法 requestId：stdout 唯一 error envelope，无 ack、无 inbox 落盘', async () => {
+    await expect(sendCommand(commandDeps, 'test-claw', 'hello', {
+      requestId: 'req\nid: forged',
+    })).rejects.toThrow(/unsafe id/);
+
+    const envelopes = stdoutLines();
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({ kind: 'error', payload: { class: 'rejected' } });
+    expect(fs.existsSync(path.join(tmpRoot, '.chestnut', 'claws', 'test-claw', 'inbox', 'pending'))).toBe(false);
+  });
+
+  it('真实写入失败：stdout 唯一 error envelope，不静默 ack', async () => {
+    const failingDeps = makeClawCommandDeps((dir: string) => {
+      const nodeFs = fsFactory(dir);
+      vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      return nodeFs;
+    });
+
+    await expect(sendCommand(failingDeps, 'test-claw', 'hello', { requestId: 'req-42' }))
+      .rejects.toThrow('disk full');
+
+    const envelopes = stdoutLines();
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({ kind: 'error', payload: { class: 'rejected' } });
+  });
+
   it('失败（claw 不存在）：stdout error envelope + 错误继续抛出', async () => {
     // loadClaw 返回 undefined = claw 不存在（assertPublishedClaw 抛 CliError）
     const missingDeps = makeClawCommandDeps(fsFactory, { loadClaw: () => undefined });
