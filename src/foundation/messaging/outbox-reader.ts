@@ -16,7 +16,16 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
 import type { MessagingAuditSink } from './audit-sink.js';
-import { emitOutboxClaimFailed, emitOutboxListFailed, emitOutboxPeekFailed, emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
+import {
+  emitOutboxClaimFailed,
+  emitOutboxDelivered,
+  emitOutboxListFailed,
+  emitOutboxPeekFailed,
+  emitOutboxProcessingOrphanCleaned,
+  emitOutboxReconcile,
+  emitOutboxSkipped,
+  emitOutboxStageQuarantine,
+} from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
 import type { OutboxMessage } from './types.js';
 import {
@@ -26,7 +35,6 @@ import {
   OUTBOX_FAILED_DIR,
 } from './dirs.js';
 import { newShortUuid } from '../node-utils/index.js';
-import { emitOutboxDelivered, emitOutboxSkipped } from './audit-emit.js';
 
 type ClaimResult =
   | { status: 'empty' }
@@ -64,6 +72,7 @@ export class OutboxReader {
     await this.fs.ensureDir(path.join(clawDir, OUTBOX_PROCESSING_DIR));
     await this.fs.ensureDir(path.join(clawDir, OUTBOX_DONE_DIR));
     await this._reconcileProcessing(clawDir);
+    await this._recoverStaged(clawDir);
   }
 
   /**
@@ -327,6 +336,160 @@ export class OutboxReader {
     if (revertedCount > 0) {
       emitOutboxProcessingOrphanCleaned(this.audit, { count: revertedCount });
     }
+  }
+
+  /**
+   * Recover crash-leftover pending/.tmp_*.staging files after processing reconcile.
+   * The pending target is published only with O_EXCL; existing targets are never overwritten.
+   */
+  private async _recoverStaged(clawDir: string): Promise<void> {
+    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
+    const STAGE_RE = /^\.tmp_[a-f0-9]{8}_(.+\.md)\.staging$/i;
+
+    let entries: { name: string }[];
+    try {
+      entries = await this.fs.list(pendingDir, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      emitOutboxListFailed(this.audit, {
+        dir: pendingDir,
+        op: 'recover_stage',
+        reason: formatErr(err),
+      });
+      return;
+    }
+
+    let revertedCount = 0;
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.staging')) continue;
+      const match = entry.name.match(STAGE_RE);
+      const stagePath = path.join(pendingDir, entry.name);
+      if (!match) {
+        const quarantinePath = path.join(
+          failedDir,
+          `${Date.now()}_${newShortUuid()}_quarantine_staging_${entry.name}`,
+        );
+        try {
+          await this.fs.ensureDir(failedDir);
+          await this.fs.move(stagePath, quarantinePath);
+        } catch (err) {
+          if (isFileNotFound(err)) continue;
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'recover_stage_quarantine',
+            reason: formatErr(err),
+          });
+          continue;
+        }
+        emitOutboxStageQuarantine(this.audit, {
+          file: entry.name,
+          reason: 'unparseable_staging_format',
+        });
+        continue;
+      }
+
+      try {
+        const result = await this._resolveStagedFile(
+          clawDir,
+          entry.name,
+          match[1],
+          'startup_stage_recover',
+        );
+        if (result === 'restored') revertedCount++;
+      } catch (err) {
+        if (isFileNotFound(err)) continue;
+        emitOutboxClaimFailed(this.audit, {
+          file: entry.name,
+          op: 'recover_stage',
+          reason: formatErr(err),
+        });
+      }
+    }
+
+    if (revertedCount > 0) {
+      emitOutboxReconcile(this.audit, {
+        revertedCount,
+        from: 'stage',
+        to: 'pending',
+        reason: 'startup_stage_recover',
+      });
+    }
+  }
+
+  /** Resolve one staged pending file without replacing an existing target. */
+  private async _resolveStagedFile(
+    clawDir: string,
+    stageName: string,
+    originalName: string,
+    recoveryReason: 'startup_stage_recover' | 'claim_rollback',
+  ): Promise<'restored' | 'deduped' | 'conflict'> {
+    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    const stagePath = path.join(pendingDir, stageName);
+    const targetPath = path.join(pendingDir, originalName);
+    const stageContent = await this.fs.read(stagePath);
+
+    const deleteStage = (): void => {
+      try {
+        this.fs.deleteSync(stagePath);
+      } catch (err) {
+        if (!isFileNotFound(err)) throw err;
+      }
+    };
+
+    let targetContent: string | null = null;
+    try {
+      targetContent = await this.fs.read(targetPath);
+    } catch (err) {
+      if (!isFileNotFound(err)) throw err;
+    }
+
+    if (targetContent === null) {
+      try {
+        this.fs.writeExclusiveSync(targetPath, stageContent);
+        deleteStage();
+        return 'restored';
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        try {
+          targetContent = await this.fs.read(targetPath);
+        } catch (readErr) {
+          if (!isFileNotFound(readErr)) throw readErr;
+          // The target vanished between EEXIST and re-read; retry the exclusive publish once.
+          this.fs.writeExclusiveSync(targetPath, stageContent);
+          deleteStage();
+          return 'restored';
+        }
+      }
+    }
+
+    if (stageContent === targetContent) {
+      const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
+      await this.fs.ensureDir(doneDir);
+      await this.fs.move(
+        stagePath,
+        path.join(doneDir, `${Date.now()}_${newShortUuid()}_${originalName}`),
+      );
+      emitOutboxReconcile(this.audit, {
+        revertedCount: 0,
+        from: 'stage',
+        to: 'done',
+        reason: `${recoveryReason}_dedupe`,
+      });
+      return 'deduped';
+    }
+
+    const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
+    await this.fs.ensureDir(failedDir);
+    await this.fs.move(
+      stagePath,
+      path.join(failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`),
+    );
+    emitOutboxStageQuarantine(this.audit, {
+      file: originalName,
+      reason: 'conflict',
+    });
+    return 'conflict';
   }
 
   /**

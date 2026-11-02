@@ -421,3 +421,113 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
     expect(events.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=reconcile_pending'))).toBe(true);
   });
 });
+
+
+describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('restores a crash-leftover stage when the pending target is missing', async () => {
+    const stageName = '.tmp_deadbeef_msg.md.staging';
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => {
+        if (dir.includes('/processing')) return Promise.resolve([]);
+        return Promise.resolve([{ name: stageName }]);
+      }),
+      read: vi.fn().mockImplementation((p: string) => {
+        if (p.endsWith(stageName)) return Promise.resolve('staged content');
+        return Promise.reject(enoent(p));
+      }),
+    });
+    const { audit, events } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'staged content');
+    expect(fs.deleteSync).toHaveBeenCalledWith(`/claw/outbox/pending/${stageName}`);
+    expect(events.some(e =>
+      e[0] === 'outbox_reconcile' &&
+      String(e).includes('from=stage') &&
+      String(e).includes('to=pending') &&
+      String(e).includes('reverted_count=1')
+    )).toBe(true);
+    const listedDirs = (fs.list as ReturnType<typeof vi.fn>).mock.calls.map(call => call[0]);
+    expect(listedDirs).toEqual([
+      '/claw/outbox/processing',
+      '/claw/outbox/pending',
+      '/claw/outbox/pending',
+    ]);
+  });
+
+  it('archives a stage copy when the pending target has identical content', async () => {
+    const stageName = '.tmp_deadbeef_msg.md.staging';
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+        dir.includes('/pending') ? [{ name: stageName }] : [],
+      )),
+      read: vi.fn().mockResolvedValue('same content'),
+    });
+    const { audit, events } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/pending/${stageName}`,
+      expect.stringMatching(/^\/claw\/outbox\/done\/\d+_[0-9a-f]{8}_msg\.md$/),
+    );
+    expect(events.some(e =>
+      e[0] === 'outbox_reconcile' && String(e).includes('reason=startup_stage_recover_dedupe')
+    )).toBe(true);
+  });
+
+  it('quarantines a conflicting stage copy without replacing pending content', async () => {
+    const stageName = '.tmp_deadbeef_msg.md.staging';
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+        dir.includes('/pending') ? [{ name: stageName }] : [],
+      )),
+      read: vi.fn().mockImplementation((p: string) => Promise.resolve(
+        p.endsWith(stageName) ? 'staged content' : 'pending content',
+      )),
+    });
+    const { audit, events } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/pending/${stageName}`,
+      expect.stringMatching(/^\/claw\/outbox\/failed\/\d+_[0-9a-f]{8}_msg\.md$/),
+    );
+    expect(events.some(e =>
+      e[0] === 'outbox_stage_quarantine' && String(e).includes('reason=conflict')
+    )).toBe(true);
+  });
+
+  it('quarantines an unparseable staging filename with audit', async () => {
+    const stageName = '.tmp_not-a-stage.staging';
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+        dir.includes('/pending') ? [{ name: stageName }] : [],
+      )),
+    });
+    const { audit, events } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.read).not.toHaveBeenCalled();
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/pending/${stageName}`,
+      expect.stringMatching(/^\/claw\/outbox\/failed\/\d+_[0-9a-f]{8}_quarantine_staging_\.tmp_not-a-stage\.staging$/),
+    );
+    expect(events.some(e =>
+      e[0] === 'outbox_stage_quarantine' && String(e).includes('reason=unparseable_staging_format')
+    )).toBe(true);
+  });
+});

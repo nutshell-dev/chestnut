@@ -812,9 +812,12 @@
       "outbox_delivered",
       "outbox_list_failed",
       "outbox_processing_orphan_cleaned",
+      "outbox_reconcile",
       "outbox_send_failed",
       "outbox_sent",
-      "outbox_skipped"
+      "outbox_skipped",
+      "outbox_stage_quarantine",
+      "outbox_write_durability_degraded"
     ],
     "foundation_process-manager_audit-events": [
       "clean_stop_cleared",

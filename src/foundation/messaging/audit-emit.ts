@@ -309,6 +309,48 @@ export function emitOutboxSent(
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_SENT, ...cols);
 }
 
+// ─── OUTBOX_WRITE_DURABILITY_DEGRADED (Phase 2049 Step E) ───────────────────
+export function emitOutboxWriteDurabilityDegraded(
+  audit: MessagingAuditSink,
+  opts: { file: string; to: string; id: string; type: string; durability: string; error: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_WRITE_DURABILITY_DEGRADED,
+    `file=${opts.file}`,
+    `to=${opts.to}`,
+    `id=${opts.id}`,
+    `type=${opts.type}`,
+    `durability=${opts.durability}`,
+    `error=${opts.error}`,
+  );
+}
+
+// ─── OUTBOX_RECONCILE (Phase 2049 Step C) ────────────────────────────────────
+export function emitOutboxReconcile(
+  audit: MessagingAuditSink,
+  opts: { revertedCount: number; from: string; to: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_RECONCILE,
+    `reverted_count=${opts.revertedCount}`,
+    `from=${opts.from}`,
+    `to=${opts.to}`,
+    `reason=${opts.reason}`,
+  );
+}
+
+// ─── OUTBOX_STAGE_QUARANTINE (Phase 2049 Step C) ─────────────────────────────
+export function emitOutboxStageQuarantine(
+  audit: MessagingAuditSink,
+  opts: { file: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_STAGE_QUARANTINE,
+    `file=${opts.file}`,
+    `reason=${opts.reason}`,
+  );
+}
+
 // ─── OUTBOX_LIST_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxListFailed(
   audit: MessagingAuditSink,

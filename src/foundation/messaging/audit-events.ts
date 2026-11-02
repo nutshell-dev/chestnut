@@ -43,6 +43,11 @@ export const MESSAGING_AUDIT_EVENTS = {
   // phase 1748: outbox-skip 不读内容归档、独立审计（区别于 delivered）
   OUTBOX_SKIPPED: 'outbox_skipped',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',
+  // Phase 2049 Step C: 启动恢复 crash-leftover staging，并隔离冲突/不可解析副本
+  OUTBOX_RECONCILE: 'outbox_reconcile',
+  OUTBOX_STAGE_QUARANTINE: 'outbox_stage_quarantine',
+  // Phase 2049 Step E: rename 已提交但目录耐久性降级，保留 outbox_sent 并留证
+  OUTBOX_WRITE_DURABILITY_DEGRADED: 'outbox_write_durability_degraded',
   // phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、防 disk DoS
   OUTBOX_BODY_OVERSIZE: 'outbox_body_oversize',
   NOTIFY_CLAW_SENT: 'notify_claw_sent',
@@ -100,6 +105,9 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<MessagingAuditEvent, 'audit
   outbox_delivered: 'audit',
   outbox_skipped: 'audit',
   outbox_send_failed: 'audit',
+  outbox_reconcile: 'audit',
+  outbox_stage_quarantine: 'audit',
+  outbox_write_durability_degraded: 'audit',
   outbox_body_oversize: 'audit',
   notify_claw_sent: 'audit',
   notify_claw_failed: 'audit',
