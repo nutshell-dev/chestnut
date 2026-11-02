@@ -74,6 +74,21 @@ export function isContentChunk(chunk: ProviderStreamChunk): boolean {
     || chunk.type === 'tool_use_delta';
 }
 
+const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
+  'model_context_window_exceeded',  // anthropic
+  'context_length_exceeded',         // openai variant
+]);
+
+export type StreamDoneClassification = 'not_done' | 'done' | 'context_exceeded';
+
+/** Module-internal done classification shared by sequential and hedge streams. */
+export function classifyStreamDone(chunk: ProviderStreamChunk): StreamDoneClassification {
+  if (chunk.type !== 'done') return 'not_done';
+  return chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)
+    ? 'context_exceeded'
+    : 'done';
+}
+
 /** Wrap a non-streaming LLMResponse as a stream of chunks. */
 export async function* wrapResponseAsStream(
   response: LLMResponse,

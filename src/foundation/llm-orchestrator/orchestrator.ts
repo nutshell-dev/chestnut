@@ -41,6 +41,7 @@ import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type L
 import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
 import {
+  classifyStreamDone,
   computeDynamicCallTimeoutMs,
   delay,
   estimatePromptTokens,
@@ -131,11 +132,6 @@ interface InstanceStateCandidate {
 }
 
 type InstanceConfig = LLMOrchestratorConfig & { lifecycle: LLMInstanceLifecycle };
-
-const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
-  'model_context_window_exceeded',  // anthropic
-  'context_length_exceeded',         // openai variant
-]);
 
 /**
  * LLM Service implementation
@@ -1401,9 +1397,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             if (isContentChunk(chunk)) hasContent = true;
             if (chunk.type === 'done') {
               receivedDone = true;
-              if (chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)) {
+              if (classifyStreamDone(chunk) === 'context_exceeded') {
                 contextExceeded = true;
-                this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: chunk.stopReason });
+                this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: chunk.stopReason! });
                 yield {
                   type: 'reset',
                   provider: adapter.name,
@@ -1816,6 +1812,25 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return false;
   }
   
+  /** Context-done is a request-local terminal failure after hedge A has produced content. */
+  private async* _failHedgePrimaryContext(
+    inv: CallPathAudit,
+    stopReason: string,
+  ): AsyncIterableIterator<LLMStreamChunk> {
+    this.events.emit({ type: 'context_exceeded_failover', provider: this.primary.name, stopReason });
+    this.recordAttemptResult(inv, this.primary.name, this.identityAt(0, this.primary.name), 'failure', {
+      errorClass: 'context_exceeded',
+      error: 'stream done with context_exceeded stopReason',
+    });
+    yield { type: 'reset', provider: this.primary.name };
+    this.recordExhausted(inv);
+    throw new LLMError(
+      `All 1 providers exhausted with context_window_exceeded. ` +
+      `Reduce system prompt, tool definitions, or conversation history.`,
+      { totalAttempted: 1, skippedCount: 0 },
+    );
+  }
+
   /**
    * 2-track hedge on breaker open (phase 737).
    * Track A: primary stream — wait for first content chunk (real recovery evidence).
@@ -1934,6 +1949,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         trackBCtrl.abort();
         yield winner.chunk;
         let receivedDone = false;
+        let contextDoneStopReason: string | undefined;
         let drainError: Error | undefined;
         try {
           // phase 991 B.2: drain loop user-abort early-exit guard
@@ -1941,7 +1957,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             if (options.signal?.aborted) {
               throw makeExternalAbortError(options.signal.reason);
             }
-            if (chunk.type === 'done') receivedDone = true;
+            if (chunk.type === 'done') {
+              if (classifyStreamDone(chunk) === 'context_exceeded') {
+                contextDoneStopReason = chunk.stopReason;
+                break;
+              }
+              receivedDone = true;
+            }
             yield chunk;
           }
         } catch (err) {
@@ -1973,6 +1995,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           // phase 1374 sub-2: explicit cleanup instead of relying on GC / for-await auto-close
           await closePrimary();
           cleanupSignals();
+        }
+        if (contextDoneStopReason) {
+          yield* this._failHedgePrimaryContext(inv, contextDoneStopReason);
+          return;
         }
         if (!receivedDone && !drainError) {
           // Clean EOF without done → truncated stream, treat as provider failure
@@ -2120,6 +2146,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         trackBCtrl.abort();
         yield aResult.chunk;
         let receivedDone = false;
+        let contextDoneStopReason: string | undefined;
         let drainError: Error | undefined;
         try {
           // phase 991 B.2: drain loop user-abort early-exit guard
@@ -2127,7 +2154,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             if (options.signal?.aborted) {
               throw makeExternalAbortError(options.signal.reason);
             }
-            if (chunk.type === 'done') receivedDone = true;
+            if (chunk.type === 'done') {
+              if (classifyStreamDone(chunk) === 'context_exceeded') {
+                contextDoneStopReason = chunk.stopReason;
+                break;
+              }
+              receivedDone = true;
+            }
             yield chunk;
           }
         } catch (err) {
@@ -2155,6 +2188,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           drainError = err as Error;
         } finally {
           cleanupSignals();
+        }
+        if (contextDoneStopReason) {
+          yield* this._failHedgePrimaryContext(inv, contextDoneStopReason);
+          return;
         }
         if (!receivedDone && !drainError) {
           // Clean EOF without done → truncated stream, treat as provider failure
