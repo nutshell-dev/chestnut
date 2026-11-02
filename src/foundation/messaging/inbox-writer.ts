@@ -176,62 +176,63 @@ export class InboxWriter {
 
   /** sync 写，供 task/system 同步路径使用 */
   writeSync(opts: InboxMessageOptionsBase): string {
-    const now = new Date();
-    const priority = opts.priority ?? 'normal';
-    const timestamp = String(now.getTime()).padStart(15, '0');
-    const idPrefix = opts.idPrefix ?? opts.type;
-
-    // Phase 1955 Step D：稳定 id 的幂等通知——pending 中已有同一业务身份时不落盘。
-    const stableId = opts.messageId;
-    if (stableId !== undefined) {
-      const existing = this.findPendingByMessageId(stableId);
-      if (existing !== undefined) {
-        emitInboxDeduped(this.audit, {
-          file: existing,
-          id: stableId,
-          type: opts.type,
-        });
-        return existing;
-      }
-    }
-
-    // Phase 1230: single UUID shared by envelope id and filename suffix（默认路径）。
-    // Phase 1955 Step D: 显式 stable id 时与随机 filename UUID 解耦。
-    const messageUuid = newUuid();
-    const messageId = opts.messageId ?? `${idPrefix}-${messageUuid}`;
-    const message: InboxMessage = {
-      id: messageId,
-      type: opts.type as InboxMessage['type'],
-      from: opts.source,
-      to: opts.to ?? '',
-      content: opts.body,
-      priority,
-      timestamp: now.toISOString(),
-      metadata: opts.metadata,
-    };
-
-    // phase 273 Step A:
-    assertMessageShape(message, this.audit, 'inbox', 'write');
-
-    // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
-    const encoded = encodeInbox(message, opts.extraFields);
-    const wireSize = Buffer.byteLength(encoded, 'utf-8');
-    const maxBytes = this.limits.bodyMaxBytes;
-    if (wireSize > maxBytes) {
-      emitInboxBodyOversize(this.audit, {
-        source: opts.source,
-        to: opts.to,
-        id: message.id,
-        type: opts.type,
-        bodySize: Buffer.byteLength(opts.body, 'utf-8'),
-        wireSize,
-        cap: maxBytes,
-      });
-      throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
-    }
-
     let filename: string | undefined;
+    let message: InboxMessage | undefined;
     try {
+      const now = new Date();
+      const priority = opts.priority ?? 'normal';
+      const timestamp = String(now.getTime()).padStart(15, '0');
+      const idPrefix = opts.idPrefix ?? opts.type;
+
+      // Phase 1955 Step D：稳定 id 的幂等通知——pending 中已有同一业务身份时不落盘。
+      const stableId = opts.messageId;
+      if (stableId !== undefined) {
+        const existing = this.findPendingByMessageId(stableId);
+        if (existing !== undefined) {
+          emitInboxDeduped(this.audit, {
+            file: existing,
+            id: stableId,
+            type: opts.type,
+          });
+          return existing;
+        }
+      }
+
+      // Phase 1230: single UUID shared by envelope id and filename suffix（默认路径）。
+      // Phase 1955 Step D: 显式 stable id 时与随机 filename UUID 解耦。
+      const messageUuid = newUuid();
+      const messageId = opts.messageId ?? `${idPrefix}-${messageUuid}`;
+      message = {
+        id: messageId,
+        type: opts.type as InboxMessage['type'],
+        from: opts.source,
+        to: opts.to ?? '',
+        content: opts.body,
+        priority,
+        timestamp: now.toISOString(),
+        metadata: opts.metadata,
+      };
+
+      // phase 273 Step A:
+      assertMessageShape(message, this.audit, 'inbox', 'write');
+
+      // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
+      const encoded = encodeInbox(message, opts.extraFields);
+      const wireSize = Buffer.byteLength(encoded, 'utf-8');
+      const maxBytes = this.limits.bodyMaxBytes;
+      if (wireSize > maxBytes) {
+        emitInboxBodyOversize(this.audit, {
+          source: opts.source,
+          to: opts.to,
+          id: message.id,
+          type: opts.type,
+          bodySize: Buffer.byteLength(opts.body, 'utf-8'),
+          wireSize,
+          cap: maxBytes,
+        });
+        throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
+      }
+
       this.fs.ensureDirSync(this.inboxDir);
       const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
       filename = `${source}-${timestamp}_${priority}_${messageUuid}.md`;
@@ -247,13 +248,18 @@ export class InboxWriter {
           error: formatErr(result.error),
         });
       }
+      emitInboxWritten(this.audit, { file: filename, to: opts.to, id: message.id, type: message.type });
+      return filename;
     } catch (e) {
-      const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: opts.to, reason, id: message.id, type: message.type });
+      emitInboxWriteFailed(this.audit, {
+        file: filename ?? '<unknown>',
+        to: opts.to,
+        reason: formatErr(e),
+        id: message?.id ?? opts.messageId ?? opts.type,
+        type: opts.type,
+      });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename as string, to: opts.to, id: message.id, type: message.type });
-    return filename as string;
   }
 
   /** Phase 1955 Step D: pending 中查找同一稳定业务身份（仅显式 messageId 调用）。 */

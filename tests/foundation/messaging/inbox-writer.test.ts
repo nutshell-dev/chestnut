@@ -264,6 +264,50 @@ describe('InboxWriter', () => {
     expect(failed).not.toContain('contract_id');
   });
 
+  it('audits INBOX_WRITE_FAILED and rethrows reserved extraFields encode errors', () => {
+    expect(() => writer.writeSync({
+      type: 'ping',
+      source: 'motion',
+      body: 'test',
+      extraFields: { id: 'override' },
+    })).toThrow(/conflicts with reserved frontmatter field/);
+
+    const failed = auditCalls.find(c => c.startsWith('inbox_write_failed:'));
+    expect(failed).toBeDefined();
+    expect(failed).toContain('type=ping');
+    expect(fsSync.existsSync(path.join(testDir, INBOX_PENDING_DIR))).toBe(false);
+  });
+
+  it('audits INBOX_WRITE_FAILED and rethrows unsafe metadata key errors', () => {
+    expect(() => writer.writeSync({
+      type: 'ping',
+      source: 'motion',
+      body: 'test',
+      metadata: { 'bad\nkey': 'value' },
+    })).toThrow();
+
+    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+    expect(fsSync.existsSync(path.join(testDir, INBOX_PENDING_DIR))).toBe(false);
+  });
+
+  it('audits INBOX_WRITE_FAILED and rethrows non-ENOENT dedup list errors', () => {
+    vi.spyOn(nfs, 'listSync').mockImplementation(() => {
+      throw Object.assign(new Error('dedup list failed'), { code: 'EIO' });
+    });
+
+    expect(() => writer.writeSync({
+      type: 'ping',
+      source: 'motion',
+      body: 'test',
+      messageId: 'stable-1',
+    })).toThrow('dedup list failed');
+
+    const failed = auditCalls.find(c => c.startsWith('inbox_write_failed:'));
+    expect(failed).toBeDefined();
+    expect(failed).toContain('id=stable-1');
+    expect(failed).toContain('type=ping');
+  });
+
   // ─── .readMeta() ─────────────────────────────────────────────────────────
 
   it('readMeta returns ok with meta for valid file', async () => {

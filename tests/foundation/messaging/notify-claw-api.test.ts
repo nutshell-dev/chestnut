@@ -114,6 +114,21 @@ describe('notifyClaw API', () => {
     expect(writtenEvents.length).toBe(1);
   });
 
+  it('keeps best-effort delivery while preserving early write failure audit', () => {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+
+    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+      type: 'audit_test',
+      source: 'system',
+      body: 'audit me',
+      extraFields: { type: 'override' },
+    }, audit)).not.toThrow();
+
+    const failedEvents = auditEvents.filter(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_WRITE_FAILED);
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0]).toContain('type=audit_test');
+  });
+
   it('uses priority + filename convention via InboxWriter codec', () => {
     const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
     notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
