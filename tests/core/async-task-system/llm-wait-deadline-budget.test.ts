@@ -210,8 +210,9 @@ describe('Phase 1934 Z-D1：等待预算帽（首次持久 deadline 不重置）
       makeExecDeps(fs, audit, makeProposal(T0)));
     expect(readDeadlineRecord(fileMap, task).expiresAt).toBe(T0 + TASK_TIMEOUT_MS);
 
-    // 真实 resume 路径（gate ready、未到 deadline）→ pending + 事实清除
+    // 真实 resume 路径（gate ready、nextProbeAt 已到、未到 deadline）→ pending + 事实清除
     // （预算帽记录不随等待事实清除——这是 Z-D1 的关键载体）
+    vi.setSystemTime(T0 + PROBE_OFFSET_MS);
     const system = new AsyncTaskSystem('/tmp/claw', fs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -253,7 +254,8 @@ describe('Phase 1934 Z-D1：等待预算帽（首次持久 deadline 不重置）
     // 第一轮等待（t0）建立预算帽
     await executeSubAgentTask(task, new AbortController().signal,
       makeExecDeps(fs, audit, makeProposal(T0)));
-    // 模拟 resume + 重新 dispatch（budget 帽保留、事实清除）
+    // 模拟到点 resume + 重新 dispatch（budget 帽保留、事实清除）
+    vi.setSystemTime(T0 + PROBE_OFFSET_MS);
     const resumeSystem = new AsyncTaskSystem('/tmp/claw', fs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

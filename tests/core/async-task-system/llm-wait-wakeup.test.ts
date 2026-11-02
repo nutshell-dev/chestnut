@@ -60,7 +60,7 @@ function makeFact(overrides: Partial<LLMWaitFact> = {}): LLMWaitFact {
   const now = Date.now();
   return {
     orchestratorInstance: 'claw-process',
-    nextProbeAt: now + 60_000,
+    nextProbeAt: now,
     recordedAt: now,
     expiresAt: now + 3_600_000,
     reason: 'All LLM providers failed',
@@ -171,6 +171,28 @@ describe('Step F-1: resumeWaitingTasks（gate ready）→ 唤醒恰一次、幂�
     expect((fs.move as ReturnType<typeof vi.fn>).mock.calls.length).toBe(moveCallsBefore);
     expect(events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED).length).toBe(1);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
+  });
+  it('ready 信号不越过 nextProbeAt：下界前保持，到点后正常唤醒', async () => {
+    vi.useFakeTimers();
+    const task = makeValidTask(FULL_ID_A);
+    const fact = makeFact({ nextProbeAt: Date.now() + 1_000 });
+    const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
+    const { audit } = makeMockAudit();
+    const system = makeSystem(fs, audit, { canResume: () => true });
+
+    try {
+      expect(await system.resumeWaitingTasks()).toBe(0);
+      expect(fs.move).not.toHaveBeenCalled();
+      expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await system.resumeWaitingTasks()).toBe(1);
+      expect(fileMap.has(`tasks/queues/pending/${task.id}.json`)).toBe(true);
+      expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(false);
+    } finally {
+      await system.shutdown(1).catch(() => { /* silent: teardown */ });
+      vi.useRealTimers();
+    }
   });
 });
 

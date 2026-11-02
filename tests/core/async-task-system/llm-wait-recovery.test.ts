@@ -21,6 +21,7 @@ import type { SubAgentTask, TaskExecutionOutcome } from '../../../src/core/async
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
+import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import {
   LLMAllProvidersFailedError,
   type LLMOrchestratorOwner,
@@ -64,7 +65,7 @@ function makeFact(overrides: Partial<LLMWaitFact> = {}): LLMWaitFact {
   const now = Date.now();
   return {
     orchestratorInstance: 'claw-process',
-    nextProbeAt: now + 60_000,
+    nextProbeAt: now,
     recordedAt: now,
     expiresAt: now + 3_600_000,
     reason: 'All LLM providers failed',
@@ -233,6 +234,40 @@ describe('Step E-2: 恢复 gate 未就绪/缺席 → 保持 waiting', () => {
     const continued = events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_CONTINUED);
     expect(continued.length).toBe(1);
     expect(continued[0].some(c => c === 'reason=gate_not_ready')).toBe(true);
+  });
+
+  it('重启后新 orchestrator 空 sharedFailures 判 ready，持久未来 nextProbeAt 仍保持 waiting', async () => {
+    const task = makeValidTask();
+    const fact = makeFact({ nextProbeAt: Date.now() + 60_000 });
+    const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
+    const { audit, events } = makeMockAudit();
+    const owner = createLLMOrchestrator({
+      primary: {
+        name: 'primary',
+        apiKey: 'key-primary',
+        model: 'model-primary',
+        temperature: 0,
+        timeoutMs: 1_000,
+        apiFormat: 'anthropic',
+      },
+      fallbacks: [],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+    });
+    expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
+
+    await recoverTasks(makeRecoverDeps(fs, audit, {
+      canResume: () => owner.getSharedRecoveryDecision().kind === 'ready',
+    }));
+
+    expect(fs.move).not.toHaveBeenCalled();
+    expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
+    expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(true);
+    expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED)).toBe(false);
+    const continued = events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_CONTINUED);
+    expect(continued.length).toBe(1);
+    expect(continued[0].some(c => c === 'reason=next_probe_at_not_reached')).toBe(true);
+    await owner.close();
   });
 });
 

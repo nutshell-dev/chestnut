@@ -14,7 +14,6 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import { STATUS_SUBDIR } from '../process-manager/index.js';
 
 /** 恢复状态持久化文件名（scope 注入的 FileSystem 下的 status/ 子目录）。 */
 export const LLM_RECOVERY_STATE_FILE = 'llm-recovery-state.json' as const;
@@ -455,15 +454,15 @@ export type RecoveryStateLoad =
   | { kind: 'ok'; state: LLMRecoveryStateV1 }
   | { kind: 'unusable'; reason: 'parse_failed' | 'schema_invalid' | 'field_type_mismatch' | 'scope_mismatch' | 'read_failed'; detail: string };
 
-/** 相对 scope FileSystem base 的状态文件路径。 */
-export function recoveryStateRelPath(): string {
-  return path.join(STATUS_SUBDIR, LLM_RECOVERY_STATE_FILE);
+/** 相对 scope FileSystem base 的状态文件路径；缺省 status 仅作旧文件兼容。 */
+export function recoveryStateRelPath(stateDir = 'status'): string {
+  return path.join(stateDir, LLM_RECOVERY_STATE_FILE);
 }
 
-export function loadRecoveryState(fs: FileSystem, scopeId: string): RecoveryStateLoad {
+export function loadRecoveryState(fs: FileSystem, scopeId: string, stateDir = 'status'): RecoveryStateLoad {
   let raw: string;
   try {
-    raw = fs.readSync(recoveryStateRelPath());
+    raw = fs.readSync(recoveryStateRelPath(stateDir));
   } catch (e) {
     // 失败原因以 typed RecoveryStateLoad 交给调用方（结构化暴露，不静默）
     if (isFileNotFound(e)) return { kind: 'missing' };
@@ -488,19 +487,20 @@ export function loadRecoveryState(fs: FileSystem, scopeId: string): RecoveryStat
 export function saveRecoveryState(
   fs: FileSystem,
   state: LLMRecoveryStateV1,
+  stateDir = 'status',
 ): ReturnType<FileSystem['writeAtomicSync']> {
   try {
-    fs.ensureDirSync(STATUS_SUBDIR);
-    return fs.writeAtomicSync(recoveryStateRelPath(), JSON.stringify(state));
+    fs.ensureDirSync(stateDir);
+    return fs.writeAtomicSync(recoveryStateRelPath(stateDir), JSON.stringify(state));
   } catch (e) {
     throw new Error(`Failed to persist LLM recovery state: ${String(e)}`, { cause: e });
   }
 }
 
 /** 读取新格式原文（用于降级/迁移时保留不可表达信息并留存证据）。 */
-export function readRecoveryStateRaw(fs: FileSystem): string | undefined {
+export function readRecoveryStateRaw(fs: FileSystem, stateDir = 'status'): string | undefined {
   try {
-    return fs.readSync(recoveryStateRelPath());
+    return fs.readSync(recoveryStateRelPath(stateDir));
   } catch (e) {
     if (isFileNotFound(e)) return undefined;
     throw e;

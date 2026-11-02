@@ -65,7 +65,7 @@ function makeFact(overrides: Partial<LLMWaitFact> = {}): LLMWaitFact {
   const now = Date.now();
   return {
     orchestratorInstance: 'claw-process',
-    nextProbeAt: now + 60_000,
+    nextProbeAt: now,
     recordedAt: now,
     expiresAt: now + 3_600_000,
     reason: 'All LLM providers failed',
@@ -240,6 +240,25 @@ describe('同事实矩阵：startup recovery / ready wakeup 两入口一致', ()
     expect(countEvent(events, TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED)).toBe(1);
     expect(countEvent(events, TASK_AUDIT_EVENTS.TASK_LLM_WAIT_EXPIRED)).toBe(0);
     expect(sendFallbackResult).not.toHaveBeenCalled();
+    await cleanupHandle(handle);
+  });
+
+  it.each(ENTRIES)('%s：gate ready + nextProbeAt 未到 → keep（reason=next_probe_at_not_reached）', async (entry) => {
+    const task = makeValidTask();
+    const fact = makeFact({ nextProbeAt: Date.now() + 60_000 });
+    const seed = runningTaskSeed(task, waitFileSeed(task, fact));
+    const factBytes = seed[waitPath(task.id)];
+    const { fs, fileMap } = makeMapFs(seed);
+    const { audit, events } = makeAudit();
+
+    const handle = await runEntry(entry, { fs, audit, gate: { canResume: () => true } });
+
+    expect(fs.move).not.toHaveBeenCalled();
+    expect(fileMap.has(runningPath(task.id))).toBe(true);
+    expect(fileMap.has(pendingPath(task.id))).toBe(false);
+    expect(fileMap.get(waitPath(task.id))).toBe(factBytes);
+    expect(hasEvent(events, TASK_AUDIT_EVENTS.TASK_LLM_WAIT_CONTINUED, 'reason=next_probe_at_not_reached')).toBe(true);
+    expect(countEvent(events, TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED)).toBe(0);
     await cleanupHandle(handle);
   });
 

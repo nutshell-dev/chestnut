@@ -199,6 +199,8 @@ export interface RecoverySessionDeps {
   scopeId: string;
   /** 注入的持久化范围（目录位置由装配方提供，文件/schema 归 owner）。 */
   fs: FileSystem;
+  /** scope 内相对状态目录；缺省 status 仅作旧文件兼容，生产由 Assembly 显式注入。 */
+  stateDir?: string;
   events: LLMEventSink;
   orchestrator: LLMOrchestratorOwner;
   now?: () => number;
@@ -238,6 +240,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   private state: LLMRecoveryStateV1;
   private readonly scopeId: string;
   private readonly fs: FileSystem;
+  private readonly stateDir: string | undefined;
   private readonly events: LLMEventSink;
   private readonly now: () => number;
   private readonly orchestrator: LLMOrchestratorOwner;
@@ -245,11 +248,12 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   constructor(deps: RecoverySessionDeps) {
     this.scopeId = deps.scopeId;
     this.fs = deps.fs;
+    this.stateDir = deps.stateDir;
     this.events = deps.events;
     this.now = deps.now ?? Date.now;
     this.orchestrator = deps.orchestrator;
 
-    const load = loadRecoveryState(deps.fs, deps.scopeId);
+    const load = loadRecoveryState(deps.fs, deps.scopeId, deps.stateDir);
     if (load.kind === 'unusable') {
       // 拒绝启动并保留原文：不猜默认值继续发请求。
       throw new Error(
@@ -945,7 +949,7 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   /** 先保存后替换内存：写失败抛错时调用方不得继续真发，内存仍为旧状态。 */
   private commitNext(next: LLMRecoveryStateV1, context: string): void {
     next.updatedAt = new Date(this.now()).toISOString();
-    const result = saveRecoveryState(this.fs, next);
+    const result = saveRecoveryState(this.fs, next, this.stateDir);
     this.state = next;
     this.reportDurability(result, context);
   }

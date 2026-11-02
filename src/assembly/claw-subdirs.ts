@@ -33,6 +33,8 @@ import { MEMORY_DIR } from '../core/memory/index.js';
 import { CLAWSPACE_DIR } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
+export { STATUS_SUBDIR };
+
 export const CLAW_SUBDIRS = [
   // L2b DialogStore
   DIALOG_DIR,

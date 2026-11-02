@@ -10,7 +10,7 @@
  * 由装配注入的 LLMWaitGate 给出，ATS 只消费）。
  *
  * 协议（deadline 优先于 ready）：
- * - keep：gate 缺席/未就绪且未到期 → 保持 waiting（不投递不终态、不改写事实）。
+ * - keep：nextProbeAt 未到、gate 缺席/未就绪且未到期 → 保持 waiting（不投递不终态、不改写事实）。
  * - expired：走既有失败协议——投递失败通知（notified marker 幂等）→ 写
  *   terminalState='failed' terminal intent → move running→failed → 清事实；
  *   不是仅 move failed。每个 await 点失败留证、任务留 running，重试收敛
@@ -58,8 +58,8 @@ export type WaitDispositionOutcome =
   | { kind: 'resumed' }
   /** 已转 failed（投递 + terminal intent + move 完成；清事实失败仅留证）。 */
   | { kind: 'expired' }
-  /** 保持 waiting（gate 缺席/未就绪且未到期）。 */
-  | { kind: 'kept'; reason: 'gate_absent' | 'gate_not_ready' }
+  /** 保持 waiting（持久下界未到、gate 缺席/未就绪且未到期）。 */
+  | { kind: 'kept'; reason: 'next_probe_at_not_reached' | 'gate_absent' | 'gate_not_ready' }
   /** 处置中途失败/被 mayProceed 拦截：任务留 running、证据保留，重试收敛。 */
   | { kind: 'deferred' }
   /** commit 点任务文件已消失（cancel/dispatch 竞争）——不作处置、不算唤醒。 */
@@ -101,11 +101,15 @@ export async function applyWaitDisposition(
   const now = opts.now ?? Date.now();
   const fullTaskId = task.id as FullTaskId;
   const shortTaskId = taskShortId(task);
-  const ready = gate ? gate.canResume(fact.orchestratorInstance) : false;
+  const ready = gate
+    ? gate.canResume(fact.orchestratorInstance) && now >= fact.nextProbeAt
+    : false;
   const disposition = decideWait(now, fact.expiresAt, ready);
 
   if (disposition === 'keep') {
-    const reason = gate ? 'gate_not_ready' : 'gate_absent';
+    const reason = now < fact.nextProbeAt
+      ? 'next_probe_at_not_reached'
+      : gate ? 'gate_not_ready' : 'gate_absent';
     emitLLMWaitContinued(deps.auditWriter, {
       fullTaskId,
       shortTaskId,

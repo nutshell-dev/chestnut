@@ -262,6 +262,14 @@ vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
   };
 });
 
+vi.mock('../../src/foundation/llm-orchestrator/recovery.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/llm-orchestrator/recovery.js')>();
+  return {
+    ...actual,
+    createRecoverySession: vi.fn(actual.createRecoverySession),
+  };
+});
+
 vi.mock('../../src/foundation/monitor/monitor.js', () => ({
   JsonlLogger: trackCtor('JsonlLogger', () => ({ log: vi.fn(), close: vi.fn() })),
 }));
@@ -411,6 +419,8 @@ import { runContractObserver } from '../../src/core/contract/jobs/contract-obser
 import { createContractSystem } from '../../src/core/contract/manager.js';
 // phase 1872 Step G: 首载失败分类断言（owner 类型化错误）
 import { SkillSystemInitialLoadError } from '../../src/foundation/skill-system/index.js';
+import { createRecoverySession } from '../../src/foundation/llm-orchestrator/recovery.js';
+import { STATUS_SUBDIR } from '../../src/assembly/claw-subdirs.js';
 
 
 // ============================================================================
@@ -461,6 +471,13 @@ describe('assemble', () => {
     expect(mockCronRunner.stop).toHaveBeenCalled();
     expect(mockRuntime.stop).toHaveBeenCalled();
     expect(mockStreamWriter.close).toHaveBeenCalled();
+  });
+
+  it('生产恢复 session 显式注入 Assembly 的 status stateDir', async () => {
+    const result = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
+
+    expect(createRecoverySession).toHaveBeenCalledWith(expect.objectContaining({ stateDir: STATUS_SUBDIR }));
+    await result.dispose('SIGTERM');
   });
 
   it('motion + cron.enabled=false → 不构造 cronRunner、仍公开 heartbeat', async () => {

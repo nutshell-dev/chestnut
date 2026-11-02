@@ -11,6 +11,7 @@ import {
   LLM_RECOVERY_STATE_FILE,
   createInitialRecoveryState,
   loadRecoveryState,
+  readRecoveryStateRaw,
   saveRecoveryState,
   validateRecoveryState,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
@@ -62,6 +63,20 @@ describe('recovery state schema', () => {
       expect(loaded.state.scopeId).toBe(SCOPE);
       expect(loaded.state.schedule).toEqual({ kind: 'ready', revision: 1 });
     }
+  });
+
+  it('custom stateDir writes and reads only in the injected directory', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    const state = createInitialRecoveryState(SCOPE, budget(), T0);
+    saveRecoveryState(fs, state, 'custom-recovery');
+
+    expect(fs.existsSync(path.join(dir, 'custom-recovery', LLM_RECOVERY_STATE_FILE))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE))).toBe(false);
+    expect(readRecoveryStateRaw(fs, 'custom-recovery')).toBe(JSON.stringify(state));
+    expect(readRecoveryStateRaw(fs)).toBeUndefined();
+    const loaded = loadRecoveryState(fs, SCOPE, 'custom-recovery');
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind === 'ok') expect(loaded.state).toEqual(state);
   });
 
   it('missing file reports missing (first start)', async () => {

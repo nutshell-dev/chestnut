@@ -33,6 +33,7 @@ import { createClawNotifier } from '../foundation/messaging/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { createAggregatedFileRouting } from './file-routing-aggregator.js';
 import { initializeClawLayout } from './claw-subdirs.js';
+import { STATUS_SUBDIR } from './claw-subdirs.js';
 import { createAssemblyRollback } from './rollback.js';
 import type { AssembleConfig, AssemblyContributions } from './types.js';
 
@@ -263,6 +264,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       recoverySession = createRecoverySession({
         scopeId: FOREGROUND_RECOVERY_SCOPE,
         fs: systemFs,
+        stateDir: STATUS_SUBDIR,
         events: llmEvents,
         orchestrator: llm,
       });
