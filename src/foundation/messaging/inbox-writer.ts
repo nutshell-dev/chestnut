@@ -23,6 +23,7 @@ import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { assertMessageShape } from './invariants.js';
 import { sanitizeMessageIdentifier } from './sanitize.js';
 import type { MessagingWriterLimits } from './config-schema.js';
+import { INBOX_DONE_DIR, INBOX_INFLIGHT_DIR } from './dirs.js';
 
 type Result<T, E> =
   | { ok: true; value: T }
@@ -46,9 +47,11 @@ export interface InboxMessageOptionsBase {
   idPrefix?: string;
   /**
    * Phase 1955 Step D：稳定业务身份。提供时 envelope id 用它而不是随机 UUID；
-   * 同一 id 已在 pending 中则不重复落盘（幂等通知，不制造新的业务身份）。
+   * 同一 id 已在 pending/inflight 中则不重复落盘；includeDoneWithinMs 可扩展至 done 窗口。
    */
   messageId?: string;
+  /** 可选 done 查重窗口；缺省或 <= 0 时不扫描 done。 */
+  includeDoneWithinMs?: number;
   extraFields?: Record<string, string>;
   // metadata is opaque passthrough for the codec; messaging never interprets it
   // (phase 1851 Step B). Producers own any business keys they put inside.
@@ -78,11 +81,25 @@ export class InboxWriter {
   }
 
   /** async 写，atomic */
-  async write(msg: InboxMessage, extraFields?: Record<string, string>): Promise<void> {
+  async write(
+    msg: InboxMessage,
+    extraFields?: Record<string, string>,
+    opts: { dedupeByMessageId?: boolean; includeDoneWithinMs?: number } = {},
+  ): Promise<void> {
     let filename: string | undefined;
     try {
       // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
       assertMessageShape(msg, this.audit, 'inbox', 'write');
+
+      if (opts.dedupeByMessageId === true) {
+        const existing = await this.findExistingByIdentity(msg.id, {
+          includeDoneWithinMs: opts.includeDoneWithinMs,
+        });
+        if (existing !== undefined) {
+          emitInboxDeduped(this.audit, { file: existing, id: msg.id, type: msg.type });
+          return;
+        }
+      }
 
       // Phase 1230: filename identity suffix is an independent storage UUID;
       // caller-owned envelope (especially `id`) must be preserved unchanged.
@@ -184,10 +201,12 @@ export class InboxWriter {
       const timestamp = String(now.getTime()).padStart(15, '0');
       const idPrefix = opts.idPrefix ?? opts.type;
 
-      // Phase 1955 Step D：稳定 id 的幂等通知——pending 中已有同一业务身份时不落盘。
+      // 稳定 id 在 pending/inflight（以及显式 done 窗口）中已有时不重复落盘。
       const stableId = opts.messageId;
       if (stableId !== undefined) {
-        const existing = this.findPendingByMessageId(stableId);
+        const existing = this.findExistingByIdentitySync(stableId, {
+          includeDoneWithinMs: opts.includeDoneWithinMs,
+        });
         if (existing !== undefined) {
           emitInboxDeduped(this.audit, {
             file: existing,
@@ -262,19 +281,74 @@ export class InboxWriter {
     }
   }
 
-  /** Phase 1955 Step D: pending 中查找同一稳定业务身份（仅显式 messageId 调用）。 */
-  private findPendingByMessageId(messageId: string): string | undefined {
-    let entries;
-    try {
-      entries = this.fs.listSync(this.inboxDir, { includeDirs: false });
-    } catch (error) {
-      if (isFileNotFound(error)) return undefined;
-      throw error;
+  private identityDirs(includeDoneWithinMs?: number): Array<{ dir: string; done: boolean }> {
+    const inboxRoot = path.dirname(this.inboxDir);
+    const dirs = [
+      { dir: this.inboxDir as string, done: false },
+      { dir: path.join(inboxRoot, path.basename(INBOX_INFLIGHT_DIR)), done: false },
+    ];
+    if (includeDoneWithinMs !== undefined && includeDoneWithinMs > 0) {
+      dirs.push({ dir: path.join(inboxRoot, path.basename(INBOX_DONE_DIR)), done: true });
     }
-    for (const entry of entries) {
-      if (!entry.name.endsWith('.md')) continue;
-      const meta = InboxWriter.readMeta(this.fs, path.join(this.inboxDir, entry.name));
-      if (meta.ok && meta.value.id === messageId) return entry.name;
+    return dirs;
+  }
+
+  /** 同步查找稳定身份；非 ENOENT 故障必须上抛，不能当作“无重复”。 */
+  private findExistingByIdentitySync(
+    messageId: string,
+    opts: { includeDoneWithinMs?: number } = {},
+  ): string | undefined {
+    const cutoff = Date.now() - (opts.includeDoneWithinMs ?? 0);
+    for (const { dir, done } of this.identityDirs(opts.includeDoneWithinMs)) {
+      let entries;
+      try {
+        entries = this.fs.listSync(dir, { includeDirs: false });
+      } catch (error) {
+        if (isFileNotFound(error)) continue;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (!entry.name.endsWith('.md')) continue;
+        const filePath = path.join(dir, entry.name);
+        if (done && this.fs.statSync(filePath).mtime.getTime() < cutoff) continue;
+        const meta = InboxWriter.readMeta(this.fs, filePath);
+        if (!meta.ok) {
+          if (meta.error.kind === 'not_found') continue;
+          throw meta.error.cause;
+        }
+        if (meta.value.id === messageId) return entry.name;
+      }
+    }
+    return undefined;
+  }
+
+  /** 异步 opt-in 查重；与同步路径相同，仅扫描 pending/inflight 与显式 done 窗口。 */
+  private async findExistingByIdentity(
+    messageId: string,
+    opts: { includeDoneWithinMs?: number } = {},
+  ): Promise<string | undefined> {
+    const cutoff = Date.now() - (opts.includeDoneWithinMs ?? 0);
+    for (const { dir, done } of this.identityDirs(opts.includeDoneWithinMs)) {
+      let entries;
+      try {
+        entries = await this.fs.list(dir, { includeDirs: false });
+      } catch (error) {
+        if (isFileNotFound(error)) continue;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (!entry.name.endsWith('.md')) continue;
+        const filePath = path.join(dir, entry.name);
+        if (done && (await this.fs.stat(filePath)).mtime.getTime() < cutoff) continue;
+        let content: string;
+        try {
+          content = await this.fs.read(filePath);
+        } catch (error) {
+          if (isFileNotFound(error)) continue;
+          throw error;
+        }
+        if (parseFrontmatter(content).meta.id === messageId) return entry.name;
+      }
     }
     return undefined;
   }

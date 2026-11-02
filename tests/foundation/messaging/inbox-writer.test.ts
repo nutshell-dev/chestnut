@@ -320,6 +320,94 @@ describe('InboxWriter', () => {
     expect(fsSync.existsSync(path.join(testDir, INBOX_PENDING_DIR))).toBe(false);
   });
 
+  it.each(['pending', 'inflight'] as const)('writeSync dedupes a stable messageId in %s', (state) => {
+    const opts = { type: 'ping', source: 'motion', body: 'test', messageId: 'stable-state' };
+    const original = writer.writeSync(opts);
+    if (state === 'inflight') {
+      const inflightDir = path.join(testDir, 'inbox', 'inflight');
+      fsSync.mkdirSync(inflightDir, { recursive: true });
+      fsSync.renameSync(path.join(testDir, INBOX_PENDING_DIR, original), path.join(inflightDir, original));
+    }
+
+    expect(writer.writeSync(opts)).toBe(original);
+    const pendingFiles = fsSync.readdirSync(path.join(testDir, INBOX_PENDING_DIR));
+    expect(pendingFiles).toHaveLength(state === 'pending' ? 1 : 0);
+    expect(auditCalls.filter(c => c.startsWith('inbox_deduped:'))).toHaveLength(1);
+  });
+
+  it('writeSync dedupes a stable messageId inside the explicit done window', () => {
+    const opts = { type: 'ping', source: 'motion', body: 'test', messageId: 'stable-done' };
+    const original = writer.writeSync(opts);
+    const doneDir = path.join(testDir, 'inbox', 'done');
+    fsSync.mkdirSync(doneDir, { recursive: true });
+    fsSync.renameSync(path.join(testDir, INBOX_PENDING_DIR, original), path.join(doneDir, original));
+
+    expect(writer.writeSync({ ...opts, includeDoneWithinMs: 60_000 })).toBe(original);
+    expect(fsSync.readdirSync(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(0);
+    expect(auditCalls.filter(c => c.startsWith('inbox_deduped:'))).toHaveLength(1);
+  });
+
+  it('writeSync allows a new write when the done message is outside the window', () => {
+    const opts = { type: 'ping', source: 'motion', body: 'test', messageId: 'old-done' };
+    const original = writer.writeSync(opts);
+    const doneDir = path.join(testDir, 'inbox', 'done');
+    fsSync.mkdirSync(doneDir, { recursive: true });
+    const doneFile = path.join(doneDir, original);
+    fsSync.renameSync(path.join(testDir, INBOX_PENDING_DIR, original), doneFile);
+    const old = new Date(Date.now() - 120_000);
+    fsSync.utimesSync(doneFile, old, old);
+
+    expect(writer.writeSync({ ...opts, includeDoneWithinMs: 1_000 })).not.toBe(original);
+    expect(fsSync.readdirSync(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(1);
+    expect(auditCalls.some(c => c.startsWith('inbox_deduped:'))).toBe(false);
+  });
+
+  it('async write dedupes by messageId only when explicitly enabled', async () => {
+    const msg: InboxMessage = {
+      id: 'async-stable', type: 'message', from: 'sender', to: 'claw',
+      content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
+    };
+    await writer.write(msg);
+    await writer.write(msg, undefined, { dedupeByMessageId: false });
+    expect(await fs.readdir(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(2);
+
+    await writer.write(msg, undefined, { dedupeByMessageId: true });
+    expect(await fs.readdir(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(2);
+    expect(auditCalls.filter(c => c.startsWith('inbox_deduped:'))).toHaveLength(1);
+  });
+
+  it.each(['inflight', 'done'] as const)('async opt-in dedupes a messageId in %s', async (state) => {
+    const msg: InboxMessage = {
+      id: `async-${state}`, type: 'message', from: 'sender', to: 'claw',
+      content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
+    };
+    await writer.write(msg);
+    const [original] = await fs.readdir(path.join(testDir, INBOX_PENDING_DIR));
+    const stateDir = path.join(testDir, 'inbox', state);
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.rename(path.join(testDir, INBOX_PENDING_DIR, original), path.join(stateDir, original));
+
+    await writer.write(msg, undefined, {
+      dedupeByMessageId: true,
+      ...(state === 'done' ? { includeDoneWithinMs: 60_000 } : {}),
+    });
+
+    expect(await fs.readdir(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(0);
+    expect(auditCalls.filter(c => c.startsWith('inbox_deduped:'))).toHaveLength(1);
+  });
+
+  it('dedup scan rethrows non-ENOENT read failures instead of writing a duplicate', () => {
+    const opts = { type: 'ping', source: 'motion', body: 'test', messageId: 'stable-read' };
+    writer.writeSync(opts);
+    vi.spyOn(nfs, 'readSync').mockImplementation(() => {
+      throw Object.assign(new Error('identity read failed'), { code: 'EIO' });
+    });
+
+    expect(() => writer.writeSync(opts)).toThrow('identity read failed');
+    expect(fsSync.readdirSync(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(1);
+    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+  });
+
   // ─── .readMeta() ─────────────────────────────────────────────────────────
 
   it('readMeta returns ok with meta for valid file', async () => {
