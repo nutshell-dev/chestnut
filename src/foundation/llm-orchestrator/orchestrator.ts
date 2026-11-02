@@ -1417,8 +1417,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             }
             yield chunk;
           }
-          clearTimeout(idleTimer);
-          cleanupSignal?.();
 
           if (contextExceeded) {
             contextExceededCount++;
@@ -1438,8 +1436,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           success = true;
           break; // Success, exit retry loop
         } catch (error) {
-          clearTimeout(idleTimer);
-          cleanupSignal?.();
           const err = error as Error;
           lastError = err;
           const isUserAbort = options.signal?.aborted;
@@ -1559,6 +1555,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: limits.maxAttempts, backoffMs });
             await delay(backoffMs, options.signal);
           }
+        } finally {
+          // Phase 2045 Step C：每 attempt 统一在 finally 清理 idle timer 与 merged signal
+          // listener——成功、异常、break/continue 与 consumer 在内容 yield 后提前 return
+          // （generator return 必经 finally）都恰好执行一次；正常/catch 路径不再各自清理。
+          clearTimeout(idleTimer);
+          cleanupSignal?.();
         }
       }
 
