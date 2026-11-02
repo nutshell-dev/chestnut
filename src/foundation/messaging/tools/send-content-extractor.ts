@@ -16,12 +16,14 @@ interface SendContentTracker {
   contentStart: number;
   /** How many characters of cleaned content have been emitted */
   emitted: number;
+  /** Whether the closing quote of the content string has been observed */
+  contentClosed: boolean;
   /** Accumulated raw partial JSON input */
   buffer: string;
 }
 
 export function createSendContentTracker(): SendContentTracker {
-  return { inContent: false, contentStart: 0, emitted: 0, buffer: '' };
+  return { inContent: false, contentStart: 0, emitted: 0, contentClosed: false, buffer: '' };
 }
 
 /**
@@ -44,42 +46,119 @@ export function feedSendContentDelta(
 
   // Extract raw content (from contentStart to end), strip JSON closing chars
   const raw = tracker.buffer.slice(tracker.contentStart);
-  const cleaned = stripJsonClosing(raw);
+  const { content, closed } = stripJsonClosing(raw);
+  if (closed) tracker.contentClosed = true;
 
-  if (cleaned.length <= tracker.emitted) return null;
+  const end = tracker.contentClosed
+    ? content.length
+    : safeEmitEnd(content, tracker.emitted);
+  if (end <= tracker.emitted) return null;
 
-  const delta = cleaned.slice(tracker.emitted);
-  tracker.emitted = cleaned.length;
+  const delta = content.slice(tracker.emitted, end);
+  tracker.emitted = end;
 
-  // Unescape JSON string escapes in the delta
-  return unescapeJsonString(delta);
+  return decodeJsonStringEscapes(delta, tracker.contentClosed);
 }
 
-function stripJsonClosing(s: string): string {
+function stripJsonClosing(s: string): { content: string; closed: boolean } {
   // Strip trailing " or "} that close the JSON string value and object
   let end = s.length;
   while (end > 0 && s[end - 1] === '}') end--;
+  let closed = false;
   if (end > 0 && s[end - 1] === '"') {
     // Check for escaped quote before the closing "
     if (end >= 2 && s[end - 2] === '\\') {
       // It's an escaped quote inside the content — keep it for unescaping
     } else {
       end--;
+      closed = true;
     }
   }
-  return s.slice(0, end);
+  return { content: s.slice(0, end), closed };
 }
 
-function unescapeJsonString(s: string): string {
-  // Simple JSON string unescape
-  return s.replace(/\\(.)/g, (_match, char) => {
-    switch (char) {
-      case 'n': return '\n';
-      case 't': return '\t';
-      case 'r': return '\r';
-      case 'b': return '\b';
-      case 'f': return '\f';
-      default: return char; // \" → ", \\ → \, etc.
+function safeEmitEnd(raw: string, from: number): number {
+  let i = from;
+  while (i < raw.length) {
+    if (raw[i] !== '\\') {
+      i += 1;
+      continue;
     }
-  });
+    if (i + 1 >= raw.length) return i;
+    if (raw[i + 1] === 'u') {
+      if (i + 6 > raw.length) return i;
+      i += 6;
+    } else {
+      i += 2;
+    }
+  }
+  return i;
+}
+
+function decodeJsonStringEscapes(raw: string, final: boolean): string {
+  let out = '';
+  for (let i = 0; i < raw.length;) {
+    const ch = raw[i];
+    if (ch !== '\\') {
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    const esc = raw[i + 1];
+    if (esc === undefined) {
+      if (final) out += '\\';
+      break;
+    }
+
+    switch (esc) {
+      case 'n': out += '\n'; i += 2; break;
+      case 't': out += '\t'; i += 2; break;
+      case 'r': out += '\r'; i += 2; break;
+      case 'b': out += '\b'; i += 2; break;
+      case 'f': out += '\f'; i += 2; break;
+      case '"': out += '"'; i += 2; break;
+      case '\\': out += '\\'; i += 2; break;
+      case '/': out += '/'; i += 2; break;
+      case 'u': {
+        const hex = raw.slice(i + 2, i + 6);
+        if (hex.length < 4) {
+          if (final) out += raw.slice(i);
+          return out;
+        }
+        if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+          // Keep the legacy lenient behavior for malformed complete escapes.
+          out += 'u' + hex;
+          i += 6;
+          break;
+        }
+
+        const code = Number.parseInt(hex, 16);
+        const lowEsc = raw.slice(i + 6, i + 8);
+        const lowHex = raw.slice(i + 8, i + 12);
+        if (
+          code >= 0xd800 && code <= 0xdbff
+          && lowEsc === '\\u' && /^[0-9a-fA-F]{4}$/.test(lowHex)
+        ) {
+          const low = Number.parseInt(lowHex, 16);
+          if (low >= 0xdc00 && low <= 0xdfff) {
+            out += String.fromCodePoint(
+              0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00),
+            );
+            i += 12;
+            break;
+          }
+        }
+        out += String.fromCharCode(code);
+        i += 6;
+        break;
+      }
+      default:
+        // Unknown escapes retain their displayable character, as before.
+        out += esc;
+        i += 2;
+        break;
+    }
+  }
+  return out;
 }
