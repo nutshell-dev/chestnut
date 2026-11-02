@@ -118,6 +118,40 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
     expect(nackAudit[0].cols.some(c => c.includes('reason=user_interrupt'))).toBe(true);
   });
 
+  it('nack on a vanished inflight file audits and throws instead of succeeding silently', async () => {
+    await writeMsg('msg-nack-vanished', 'hello');
+    const { handles } = await reader.drainAndDeliver();
+    await fs.rm(handles[0].filePath);
+
+    await expect(reader.nack(handles[0], 'vanished')).rejects.toMatchObject({
+      name: 'InboxMoveFailed',
+      op: 'nack_pending',
+    });
+
+    const failures = auditCalls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_MOVE_FAILED);
+    expect(failures).toHaveLength(1);
+    expect(failures[0].cols).toContain('op=nack_vanished');
+    expect(failures[0].cols).toContain('error_code=ENOENT');
+    expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_NACK)).toBe(false);
+  });
+
+  it('defer on a vanished inflight file audits and throws instead of succeeding silently', async () => {
+    await writeMsg('msg-defer-vanished', 'hello');
+    const { handles } = await reader.drainAndDeliver();
+    await fs.rm(handles[0].filePath);
+
+    await expect(reader.defer(handles[0], 'budget')).rejects.toMatchObject({
+      name: 'InboxMoveFailed',
+      op: 'defer_pending',
+    });
+
+    const failures = auditCalls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_MOVE_FAILED);
+    expect(failures).toHaveLength(1);
+    expect(failures[0].cols).toContain('op=defer_vanished');
+    expect(failures[0].cols).toContain('error_code=ENOENT');
+    expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEFERRED)).toBe(false);
+  });
+
   // ─── Case 4: init reconcile inflight→pending on startup ───────────────────
   it('init() reconciles orphaned inflight files back to pending', async () => {
     await writeMsg('msg-1', 'hello');

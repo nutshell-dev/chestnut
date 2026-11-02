@@ -129,6 +129,22 @@ describe('cleanupPendingByType (phase 1804)', () => {
     expect(await pendingFiles()).toHaveLength(1);
   });
 
+  it('readMeta 后文件消失（delete ENOENT）→ race，不计 partial', async () => {
+    await writeMsg('hb-raced', 'heartbeat');
+    const racedFs = wrapFs({
+      delete: async (filePath: string) => {
+        await fs.delete(filePath);
+        throw Object.assign(new Error('vanished before delete'), { code: 'ENOENT' });
+      },
+    });
+    const { reader } = makeReader(racedFs);
+
+    const result = await reader.cleanupPendingByType('heartbeat');
+
+    expect(result).toEqual({ kind: 'complete', removed: 0 });
+    expect(await pendingFiles()).toHaveLength(0);
+  });
+
   it('pending 目录不存在（ENOENT）→ complete removed=0', async () => {
     await fsAsync.rm(path.join(root, 'inbox'), { recursive: true, force: true });
     const { reader } = makeReader();

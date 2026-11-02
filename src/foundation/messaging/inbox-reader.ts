@@ -126,6 +126,8 @@ interface PendingView {
   issues: PendingViewIssue[];
 }
 
+type RestoreOutcome = 'restored' | 'vanished' | 'deduped' | 'conflict';
+
 /** Claimed inbox entries and their durable settlement handles. */
 export interface InboxDeliveryBatch {
   readonly entries: InboxEntry[];
@@ -392,7 +394,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         // phase 1020: conflict-aware restore — never silently overwrite a pending
         // file with the same name (bare rename semantics).
         const restored = await this._restoreToPending(sourcePath, originalName, 'reconcile');
-        if (restored) revertedCount++;
+        if (restored === 'restored') revertedCount++;
       } catch (err) {
         const reason = formatErr(err);
         emitInboxMoveFailed(this.audit, {
@@ -949,10 +951,10 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
   async defer(handle: InboxHandle, reason: string): Promise<void> {
     const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
+    let outcome: RestoreOutcome;
     try {
       // 不调 _markRedelivery：defer 不递增 delivery_attempts。
-      const restored = await this._restoreToPending(sourcePath, fileName, 'defer');
-      if (!restored) return;
+      outcome = await this._restoreToPending(sourcePath, fileName, 'defer');
     } catch (err) {
       const errReason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
@@ -963,6 +965,17 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       });
       throw new InboxMoveFailed(handle.filePath, 'defer_pending', err);
     }
+    if (outcome === 'vanished') {
+      const err = Object.assign(new Error('inflight source vanished before defer'), { code: 'ENOENT' });
+      emitInboxMoveFailed(this.audit, {
+        file: fileName,
+        op: 'defer_vanished',
+        errorCode: 'ENOENT',
+        reason: formatErr(err),
+      });
+      throw new InboxMoveFailed(handle.filePath, 'defer_pending', err);
+    }
+    if (outcome !== 'restored') return;
     emitInboxDeferred(this.audit, { file: fileName, reason });
   }
 
@@ -970,14 +983,14 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
   async nack(handle: InboxHandle, reason?: string): Promise<void> {
     const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
+    let outcome: RestoreOutcome;
     try {
       // Phase 1955 Step D：幂等业务消息重投递计数（首次 timestamp 保持不变）。
       await this._markRedelivery(sourcePath);
       // phase 1020: conflict-aware restore — dedupe/conflict paths are audited
       // inside _restoreToPending and sourcePath no longer exists afterwards, so
       // skip the INBOX_NACK emit there.
-      const restored = await this._restoreToPending(sourcePath, fileName, 'nack');
-      if (!restored) return;
+      outcome = await this._restoreToPending(sourcePath, fileName, 'nack');
     } catch (err) {
       const errReason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
@@ -988,6 +1001,17 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       });
       throw new InboxMoveFailed(handle.filePath, 'nack_pending', err);
     }
+    if (outcome === 'vanished') {
+      const err = Object.assign(new Error('inflight source vanished before nack'), { code: 'ENOENT' });
+      emitInboxMoveFailed(this.audit, {
+        file: fileName,
+        op: 'nack_vanished',
+        errorCode: 'ENOENT',
+        reason: formatErr(err),
+      });
+      throw new InboxMoveFailed(handle.filePath, 'nack_pending', err);
+    }
+    if (outcome !== 'restored') return;
     emitInboxNack(this.audit, { file: fileName, reason });
   }
 
@@ -1036,14 +1060,14 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
    *             same content → archive the stage copy to done/ (dedupe);
    *             different content → stage copy to failed/ DLQ (both preserved).
    *
-   * @returns true if the message was restored to pending/ under its original
-   *          name; false if it was handled via dedupe/conflict (or vanished).
+   * @returns whether the message was restored, vanished, deduped, or quarantined
+   *          after a conflict. Callers must not treat vanished as success.
    */
   private async _restoreToPending(
     sourcePath: string,
     originalName: string,
     op: string,
-  ): Promise<boolean> {
+  ): Promise<RestoreOutcome> {
     // Stage 1 — atomic stage (unique name cannot conflict).
     // phase 1021: `.staging` suffix — must NOT end with `.md`, or a crash between
     // the target claim and the stage cleanup would leave a drainable duplicate.
@@ -1052,7 +1076,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     try {
       await this.fs.move(sourcePath, stagePath);
     } catch (err) {
-      if (isFileNotFound(err)) return false; // concurrent ack/cleanup already handled
+      if (isFileNotFound(err)) return 'vanished'; // concurrent ack/cleanup already handled
       throw err;
     }
 
@@ -1076,7 +1100,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         } catch (err) {
           if (!isFileNotFound(err)) throw err;
         }
-        return true;
+        return 'restored';
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
         // target appeared concurrently → re-read and fall through to Stage 3
@@ -1091,13 +1115,13 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       const archivePath = path.join(this.doneDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
       await this.fs.move(stagePath, archivePath);
       emitInboxDeduped(this.audit, { file: originalName });
-      return false;
+      return 'deduped';
     }
     // different content → keep both: stage copy goes to failed/ DLQ
     const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
     await this.fs.move(stagePath, dlqPath);
     emitInboxRestoreConflict(this.audit, { file: originalName, op, stageName });
-    return false;
+    return 'conflict';
   }
 
   /** Move processed file to done/ (legacy helper; ack() preferred) */
@@ -1224,6 +1248,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         await this.fs.delete(filePath);
         removed++;
       } catch (e) {
+        if (isFileNotFound(e)) continue;  // race: consumed between readMeta and delete
         failures.push({ messageId: meta.value.id, error: formatErr(e) });
       }
     }
