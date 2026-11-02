@@ -355,28 +355,32 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             shouldReclaim = true;
           }
         } else {
-          // No startTime recorded (legacy claim or fallback) — use mtime lease.
-          // If the inflight file is older than STALE_THRESHOLD_MS, assume the claimant is dead.
-          const sourcePath = path.join(this.inflightDir, entry.name);
-          try {
-            const stat = await this.fs.stat(sourcePath);
-            if (Date.now() - stat.mtime.getTime() >= STALE_THRESHOLD_MS) {
+          // No startTime recorded: dead claims can be reclaimed immediately;
+          // live claims retain the mtime lease as a PID-reuse safeguard.
+          if (!isAlive(pid)) {
+            shouldReclaim = true;
+          } else {
+            const sourcePath = path.join(this.inflightDir, entry.name);
+            try {
+              const stat = await this.fs.stat(sourcePath);
+              if (Date.now() - stat.mtime.getTime() >= STALE_THRESHOLD_MS) {
+                shouldReclaim = true;
+              }
+            } catch (statErr) {
+              if (!isFileNotFound(statErr)) {
+                // phase 1781: read 失败不再 throw 中断整批 —— 记录证据、该 entry 留 inflight/
+                emitInboxMoveFailed(this.audit, {
+                  file: entry.name,
+                  op: 'reconcile_stat',
+                  errorCode: classifyErrno(statErr),
+                  reason: formatErr(statErr),
+                });
+                firstFailure ??= { stage: 'read', entry: entry.name, error: statErr };
+                continue;
+              }
+              // File vanished — reclaim is safe (nothing to move, will fail silently below).
               shouldReclaim = true;
             }
-          } catch (statErr) {
-            if (!isFileNotFound(statErr)) {
-              // phase 1781: read 失败不再 throw 中断整批 —— 记录证据、该 entry 留 inflight/
-              emitInboxMoveFailed(this.audit, {
-                file: entry.name,
-                op: 'reconcile_stat',
-                errorCode: classifyErrno(statErr),
-                reason: formatErr(statErr),
-              });
-              firstFailure ??= { stage: 'read', entry: entry.name, error: statErr };
-              continue;
-            }
-            // File vanished — reclaim is safe (nothing to move, will fail silently below).
-            shouldReclaim = true;
           }
         }
       }
@@ -806,6 +810,9 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
    * Crash before ack → init() reconcile moves inflight/ back to pending/.
    */
   async drainAndDeliver(): Promise<InboxDeliveryResult> {
+    // Reconcile on every active recovery pass, not only during init(). A degraded
+    // reconcile is already audited; keep draining the entries that are available.
+    await this._reconcileInflight();
     // claim 阶段（pending 读取 + malformed/duplicate quarantine）失败：尚未 claim
     // 任何 entry；typed evidence 交 caller，不再以异常穿越 drain 边界。
     let drain: DrainInboxResult;

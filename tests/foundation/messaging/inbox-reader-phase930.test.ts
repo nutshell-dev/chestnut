@@ -177,6 +177,43 @@ describe('InboxReader phase 930', () => {
     expect(inflightFiles).toHaveLength(1);
   });
 
+  it('reclaims a recent dead-PID startTime=0 claim before drain and delivers it', async () => {
+    await writeMsg('msg-dead-drain', 'hello');
+    const pendingDir = path.join(testDir, 'inbox', 'pending');
+    const inflightDir = path.join(testDir, 'inbox', 'inflight');
+    const originalName = (await fs.readdir(pendingDir)).find(f => f.endsWith('.md'))!;
+    await fs.rename(
+      path.join(pendingDir, originalName),
+      path.join(inflightDir, `99999999_0_${originalName}`),
+    );
+
+    const result = await reader.drainAndDeliver();
+
+    expect(result.kind).toBe('complete');
+    expect(result.entries.map(entry => entry.message.id)).toEqual(['msg-dead-drain']);
+    expect(result.handles).toHaveLength(1);
+    expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RECONCILE)).toBe(true);
+  });
+
+  it('keeps a recent live-PID startTime=0 claim during drain', async () => {
+    await writeMsg('msg-live-drain', 'hello');
+    const pendingDir = path.join(testDir, 'inbox', 'pending');
+    const inflightDir = path.join(testDir, 'inbox', 'inflight');
+    const originalName = (await fs.readdir(pendingDir)).find(f => f.endsWith('.md'))!;
+    await fs.rename(
+      path.join(pendingDir, originalName),
+      path.join(inflightDir, `${process.pid}_0_${originalName}`),
+    );
+
+    const result = await reader.drainAndDeliver();
+
+    expect(result.kind).toBe('complete');
+    expect(result.entries).toHaveLength(0);
+    expect(result.handles).toHaveLength(0);
+    expect(await fs.readdir(inflightDir)).toHaveLength(1);
+    expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RECONCILE)).toBe(false);
+  });
+
   // ─── Case 5: transient read error → keep pending ──────────────────────────
   it('keeps message in pending on transient read error', async () => {
     const events: Array<[string, ...(string | number)[]]> = [];
