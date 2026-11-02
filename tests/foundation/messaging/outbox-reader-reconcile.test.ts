@@ -177,6 +177,7 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
 
     await reader.init('/claw');
 
+    expect(isAlive).toHaveBeenCalledWith(process.pid);
     expect(fs.move).not.toHaveBeenCalled();
   });
 
@@ -459,6 +460,40 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
       '/claw/outbox/pending',
       '/claw/outbox/pending',
     ]);
+  });
+
+  it('re-reads an EEXIST target and dedupes without overwriting it', async () => {
+    const stageName = '.tmp_deadbeef_msg.md.staging';
+    let targetAppeared = false;
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+        dir.includes('/pending') ? [{ name: stageName }] : [],
+      )),
+      read: vi.fn().mockImplementation((p: string) => {
+        if (p.endsWith(stageName)) return Promise.resolve('same content');
+        return targetAppeared ? Promise.resolve('same content') : Promise.reject(enoent(p));
+      }),
+      writeExclusiveSync: vi.fn().mockImplementation(() => {
+        targetAppeared = true;
+        const err = new Error('file already exists') as NodeJS.ErrnoException;
+        err.code = 'EEXIST';
+        throw err;
+      }),
+    });
+    const { audit, events } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'same content');
+    expect(fs.deleteSync).not.toHaveBeenCalled();
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/pending/${stageName}`,
+      expect.stringMatching(/^\/claw\/outbox\/done\/\d+_[0-9a-f]{8}_msg\.md$/),
+    );
+    expect(events.some(e =>
+      e[0] === 'outbox_reconcile' && String(e).includes('reason=startup_stage_recover_dedupe')
+    )).toBe(true);
   });
 
   it('archives a stage copy when the pending target has identical content', async () => {
