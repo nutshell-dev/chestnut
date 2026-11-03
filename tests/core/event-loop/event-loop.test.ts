@@ -152,7 +152,7 @@ describe('EventLoop.run', () => {
   function makeEventLoop(
     runtime: Partial<Runtime>,
     audit?: AuditLog,
-    recovery?: import('../../../src/foundation/llm-orchestrator/index.js').LLMRecoveryController,
+    recovery?: Pick<import('../../../src/foundation/llm-orchestrator/index.js').LLMRecoverySession, 'inspect'>,
   ): EventLoop {
     return new EventLoop({
       runtime: runtime as Runtime,

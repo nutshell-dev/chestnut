@@ -9,11 +9,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/recovery.js';
+import { LLMRecoverySessionImpl } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import type {
   LLMEventSink,
   LLMOrchestratorOwner,
-  LLMRecoverySession,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
@@ -50,7 +49,7 @@ interface FixtureOpts {
 }
 
 interface Fixture {
-  session: () => LLMRecoverySession;
+  session: () => LLMRecoverySessionImpl;
   sharedOrchestrator: LLMOrchestratorOwner;
   calls: () => number;
   advance: (ms: number) => void;
@@ -96,7 +95,7 @@ async function makeFixture(opts: FixtureOpts = {}): Promise<Fixture> {
   });
 
   return {
-    session: () => createRecoverySession({
+    session: () => new LLMRecoverySessionImpl({
       scopeId: 'foreground', fs, events, orchestrator, now: () => nowMs,
     }),
     sharedOrchestrator: orchestrator,
@@ -109,7 +108,7 @@ async function makeFixture(opts: FixtureOpts = {}): Promise<Fixture> {
 const OPTIONS = { messages: [{ role: 'user' as const, content: 'test' }] };
 
 async function failedCall(
-  s: LLMRecoverySession,
+  s: LLMRecoverySessionImpl,
   orchestrator: LLMOrchestratorOwner,
   stream = false,
 ): Promise<void> {

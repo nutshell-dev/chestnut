@@ -13,10 +13,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type {
-  LLMRecoveryController,
-  LLMRecoverySession,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const EVENT_LOOP_DIR = new URL('../../../src/core/event-loop/', import.meta.url);
 
@@ -110,7 +107,7 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     expect(types).toContain('inspectLlmRecoverySchedule?: () => Promise<LLMRecoverySchedule | undefined>');
   });
 
-  it('LLMRecoveryController 跨边界协议保持 typed facts 与只读 schedule 事实', () => {
+  it('公共 recovery session 仅暴露 llm 与 inspect，准入控制留在 owner 内部', () => {
     const recoverySrc = readFileSync(
       new URL('../../../src/foundation/llm-orchestrator/recovery.ts', import.meta.url), 'utf8');
     const stateSrc = readFileSync(
@@ -134,7 +131,16 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     ]) {
       expect(stateSrc).toContain(variant);
     }
-    // Session 仍是 Controller 的超集：装配面收窄不破坏既有 session 语义。
-    expectTypeOf<LLMRecoverySession>().toMatchTypeOf<LLMRecoveryController>();
+    expectTypeOf<keyof LLMRecoverySession>().toEqualTypeOf<'llm' | 'inspect'>();
+    expectTypeOf<LLMRecoverySession>().not.toHaveProperty('begin');
+    expectTypeOf<LLMRecoverySession>().not.toHaveProperty('finish');
+    const barrel = readFileSync(
+      new URL('../../../src/foundation/llm-orchestrator/index.ts', import.meta.url), 'utf8');
+    const recoveryExport = barrel.match(
+      /export type \{(?<body>[\s\S]*?)\} from '\.\/recovery\.js';/,
+    )?.groups?.body;
+    expect(recoveryExport).toBeDefined();
+    expect(recoveryExport).not.toContain('LLMRecoveryController');
+    expect(recoveryExport).not.toContain('LLMRecoveryAdmission');
   });
 });

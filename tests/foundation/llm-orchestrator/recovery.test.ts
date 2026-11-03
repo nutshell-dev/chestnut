@@ -7,7 +7,7 @@ import * as fsNative from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/recovery.js';
+import { LLMRecoverySessionImpl } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import {
   createInitialRecoveryState,
   LLM_RECOVERY_STATE_FILE,
@@ -107,7 +107,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
   };
   const orchestrator = createLLMOrchestrator(config);
   let nowMs = T0;
-  const makeSession = () => createRecoverySession({
+  const makeSession = () => new LLMRecoverySessionImpl({
     scopeId: SCOPE,
     fs,
     events: sink,

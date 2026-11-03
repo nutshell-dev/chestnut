@@ -192,9 +192,11 @@ export interface LLMRecoveryController {
   finish(attemptId: string, outcome: 'completed' | 'interrupted' | 'failed'): Promise<void>;
 }
 
-export interface LLMRecoverySession extends LLMRecoveryController {
+export interface LLMRecoverySession {
   /** 绑定本 scope 的 LLM 调用视图（同一 owner 的范围视图，非另建实例）。Phase 1944 Step B：同时满足 Runtime 窄消费面。 */
   readonly llm: LLMOrchestrator & LLMRuntimeCapability;
+  /** 只读恢复安排；begin/finish 准入控制留在 owner 实现内部。 */
+  inspect(): Promise<LLMRecoverySchedule>;
 }
 
 export interface RecoverySessionDeps {

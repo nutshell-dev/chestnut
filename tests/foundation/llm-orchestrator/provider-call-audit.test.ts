@@ -19,7 +19,7 @@ import { createAuditReader } from '../../../src/foundation/audit/reader.js';
 import type { AuditRecord } from '../../../src/foundation/audit/reader.js';
 import { createLLMEventSink } from '../../../src/assembly/llm-event-sink.js';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/recovery.js';
+import { LLMRecoverySessionImpl } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { LLM_RECOVERY_STATE_FILE } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
@@ -472,7 +472,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       events: sink,
       createProviderAdapter: () => adapter,
     });
-    const session = createRecoverySession({
+    const session = new LLMRecoverySessionImpl({
       scopeId: 'foreground',
       fs: nfs,
       events: sink,
@@ -528,7 +528,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       events: sink,
       createProviderAdapter: () => adapter,
     });
-    const session = createRecoverySession({
+    const session = new LLMRecoverySessionImpl({
       scopeId: 'foreground', fs: nfs, events: sink, orchestrator, now: () => Date.now(),
     });
     const admission = await session.begin({ requestKey: 'rk-stream', facts: { interventionIds: [] } });
