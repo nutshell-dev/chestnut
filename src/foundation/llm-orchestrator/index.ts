@@ -24,10 +24,6 @@ export type {
   LLMProbeResult,
 } from './types.js';
 
-// phase 461: llm-provider-config-schema barrel re-export (M#7 接口稳定)
-export { llmProviderConfigSchema, FORMAT_MAP } from './llm-provider-config-schema.js';
-export type { LLMProviderConfig } from './llm-provider-config-schema.js';
-
 export { createLLMOrchestrator } from './orchestrator.js';
 
 // Phase 1826/1827: 恢复安排单一 owner 的公共协议 + session 工厂。
@@ -62,7 +58,6 @@ export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, LLMOrchestrator
 export type { LLMProviderFailure } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
-export { toProviderConfig } from './config-adapter.js';
 export { llmOrchestratorConfigSchema } from './config-schema.js';
 
 // phase 1872 Step H: LLM 事件命名空间 + file routing 声明归 owner（原 assembly/llm-audit-events.ts）

@@ -7,8 +7,8 @@
  * - schema 接受全档 effort（minimal..max）。
  */
 import { describe, it, expect } from 'vitest';
-import { llmProviderConfigSchema } from '../../../src/foundation/llm-orchestrator/llm-provider-config-schema.js';
-import { toProviderConfig } from '../../../src/foundation/llm-orchestrator/config-adapter.js';
+import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 
 function parseProvider(input: Record<string, unknown>) {
   return toProviderConfig(llmProviderConfigSchema.parse(input));

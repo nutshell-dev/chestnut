@@ -5,16 +5,16 @@
  * Content 与 foundation/config/adapters.ts 等同（迁不改）、import path 改自家。
  * phase 298: buildLLMConfig 迁 assembly/config-load.ts (root config 装配业务归 L6 Assembly)。
  */
-import type { ProviderConfig } from '../llm-provider/index.js';
+import type { ProviderConfig } from './types.js';
+import { resolvePreset } from './presets.js';
 import {
-  resolvePreset,
   catalogProviderEntry,
   deriveCatalogAuthProfile,
   validateCatalogAuthProfile,
   catalogModelKnown,
   CatalogModelNotFoundError,
-  resolveThinkingDefaults,
-} from '../llm-provider/index.js';
+} from './catalog-strategy.js';
+import { resolveThinkingDefaults } from './thinking-defaults.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
 
 /** bare env var 名（应写 ${...} 引用）检测——preset 与显式 catalog 路径共用。 */

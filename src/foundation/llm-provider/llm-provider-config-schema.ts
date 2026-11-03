@@ -1,19 +1,13 @@
 /**
  * LLMProvider config schema / phase 10 decentralize Config 拆解
- * Owner: llm-orchestrator（每 LLM provider 的 yaml schema 业主）
+ * Owner: llm-provider（每 LLM provider 的 yaml schema 业主）
  * Source: 迁自 foundation/config/schemas.ts:41-59 createLLMProviderSchema
  */
 import { z } from 'zod';
-import { THINKING_LEVELS } from '../llm-provider/index.js';
+import { THINKING_LEVELS } from './thinking-levels.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
 } from './defaults.js';
-
-export const FORMAT_MAP: Record<string, string> = {
-  '1': 'custom-anthropic',
-  '2': 'custom-openai',
-  '3': 'custom-gemini',
-};
 
 export const llmProviderConfigSchema = z.object({
   preset: z.string().min(1).optional(),

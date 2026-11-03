@@ -122,8 +122,8 @@ describe('provider inventory 漂移门禁（Phase 1926 Step D）', () => {
   //   provider_id + 静态 seed model 走通 schema→adapter→runtime 配置链）
   it('每个 catalog provider：provider_id + 静态 seed model 可配置（schema→adapter→runtime catalog 命中）', async () => {
     const { getBuiltinModels } = await import('@earendil-works/pi-ai/providers/all');
-    const { llmProviderConfigSchema } = await import('../../../src/foundation/llm-orchestrator/llm-provider-config-schema.js');
-    const { toProviderConfig } = await import('../../../src/foundation/llm-orchestrator/config-adapter.js');
+    const { llmProviderConfigSchema } = await import('../../../src/foundation/llm-provider/llm-provider-config-schema.js');
+    const { toProviderConfig } = await import('../../../src/foundation/llm-provider/config-adapter.js');
     const { catalogProvidersWithoutPreset } = await import('../../../src/foundation/llm-provider/catalog-strategy.js');
 
     for (const id of Object.keys(PROVIDER_INVENTORY)) {

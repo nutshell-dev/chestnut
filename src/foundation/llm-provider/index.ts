@@ -9,6 +9,10 @@ export { THINKING_LEVELS } from './thinking-levels.js';
 export type { ThinkingLevel } from './thinking-levels.js';
 export { resolveThinkingDefaults } from './thinking-defaults.js';
 export type { ResolvedThinkingDefaults } from './thinking-defaults.js';
+export { DEFAULT_LLM_TIMEOUT_MS } from './defaults.js';
+export { llmProviderConfigSchema } from './llm-provider-config-schema.js';
+export type { LLMProviderConfig } from './llm-provider-config-schema.js';
+export { toProviderConfig } from './config-adapter.js';
 
 export type {
   ProviderConfig,

@@ -6,8 +6,8 @@
  * - 自建 Model 的 reasoning 由 thinkingMode/thinkingEffort/reasoningEffort 派生。
  */
 import { describe, it, expect } from 'vitest';
-import { llmProviderConfigSchema } from '../../../src/foundation/llm-orchestrator/llm-provider-config-schema.js';
-import { toProviderConfig } from '../../../src/foundation/llm-orchestrator/config-adapter.js';
+import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 
 function parseProvider(input: Record<string, unknown>) {

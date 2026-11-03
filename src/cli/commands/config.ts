@@ -7,8 +7,13 @@ import * as readline from 'readline';
 import { Command } from 'commander';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
 import { createUserPiAiCredentialStore } from '../../assembly/index.js';
-import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
-import { PRESETS, presetAuthProfile, presetRequiresBaseUrl } from '../../foundation/llm-provider/index.js';
+import {
+  PRESETS,
+  presetAuthProfile,
+  presetRequiresBaseUrl,
+  toProviderConfig,
+  type LLMProviderConfig,
+} from '../../foundation/llm-provider/index.js';
 // Phase 1927 Step D：catalog-only provider 选择与派生 profile（显式 catalog 配置入口）
 import { catalogProvidersWithoutPreset, deriveCatalogAuthProfile } from '../../foundation/llm-provider/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -17,7 +22,8 @@ import { CliError } from '../errors.js';
 import { fitLine } from '../../viewport/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../../viewport/index.js';
-import { DEFAULT_LLM_TIMEOUT_MS, FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
+import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
+import { FORMAT_MAP } from '../provider-format-map.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -40,7 +46,6 @@ import {
   setupConnectingLine,
   setupDraftPreviewLines,
 } from '../../templates/messages/index.js';
-import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';

@@ -38,7 +38,7 @@ import {
   initWorkspaceWatchdogConfig,
   publishWatchdogLayout,
 } from '../../watchdog/index.js';
-import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
+import { toProviderConfig } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ProviderConfig } from '../../foundation/llm-provider/index.js';
 import {

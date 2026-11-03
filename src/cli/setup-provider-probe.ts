@@ -8,12 +8,12 @@
  */
 
 import { CliError } from './errors.js';
+import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import {
-  DEFAULT_LLM_TIMEOUT_MS,
   toProviderConfig,
   type LLMProviderConfig,
-} from '../foundation/llm-orchestrator/index.js';
-import type { PiAiCredentialStore } from '../foundation/llm-provider/index.js';
+  type PiAiCredentialStore,
+} from '../foundation/llm-provider/index.js';
 import {
   checkLLMConnectionFor,
   LLM_ERROR_HINTS,

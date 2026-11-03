@@ -4,7 +4,7 @@
  * Composed by: src/assembly/compose-config.ts (per-claw yaml)
  */
 import { z } from 'zod';
-import { llmProviderConfigSchema } from '../../foundation/llm-orchestrator/index.js';
+import { llmProviderConfigSchema } from '../../foundation/llm-provider/index.js';
 
 export const clawConfigSchema = z.object({
   name: z.string(),

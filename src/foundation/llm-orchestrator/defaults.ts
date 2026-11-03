@@ -16,8 +16,8 @@ export const DEFAULT_LLM_IDLE_TIMEOUT_MS = 60000;
  */
 export const INIT_LLM_IDLE_TIMEOUT_MS = 120000;
 
-/** Default LLM API call timeout (ms) */
-export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
+/** Default LLM API call timeout (ms); owned by the L1 provider config schema. */
+export { DEFAULT_LLM_TIMEOUT_MS } from '../llm-provider/index.js';
 
 /**
  * Phase 1979: probe 的最小响应预算（token）。

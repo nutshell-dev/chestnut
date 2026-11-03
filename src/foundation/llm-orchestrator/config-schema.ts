@@ -9,7 +9,7 @@ import {
   DEFAULT_RETRY_DELAY_MS,
   DEFAULT_RESET_TIMEOUT_MS,
 } from './defaults.js';
-import { llmProviderConfigSchema } from './llm-provider-config-schema.js';
+import { llmProviderConfigSchema } from '../llm-provider/index.js';
 
 const circuitBreakerConfigSchema = z.object({
   failure_threshold: z.number().min(1).max(20).default(3),

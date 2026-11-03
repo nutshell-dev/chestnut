@@ -5,8 +5,8 @@
  * api_key preset 的必填约束由 CLI 交互/缺参判定保证（provider-factory 装配期仍校验）。
  */
 import { describe, it, expect } from 'vitest';
-import { llmProviderConfigSchema } from '../../../src/foundation/llm-orchestrator/llm-provider-config-schema.js';
-import { toProviderConfig } from '../../../src/foundation/llm-orchestrator/config-adapter.js';
+import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 import { UnknownPresetError } from '../../../src/foundation/llm-provider/presets.js';
 
 describe('llmProviderConfigSchema — api_key 可选（Phase 1926 Step D）', () => {

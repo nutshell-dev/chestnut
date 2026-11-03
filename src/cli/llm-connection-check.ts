@@ -14,12 +14,12 @@ import { PRESETS } from '../foundation/llm-provider/index.js';
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
 import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.js';
 import {
-  FORMAT_MAP,
   LLM_PROBE_MAX_TOKENS,
   classifyLLMError,
   getUserActionHint,
 } from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
+import { FORMAT_MAP } from './provider-format-map.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { ProviderConfig, PiAiCredentialStore } from '../foundation/llm-provider/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
