@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderConfig } from '../../src/foundation/llm-provider/index.js';
+import { LLMModelNotFoundError, type ProviderConfig } from '../../src/foundation/llm-provider/index.js';
 
 const mocks = vi.hoisted(() => ({ call: vi.fn() }));
 
@@ -19,7 +19,7 @@ vi.mock('../../src/foundation/llm-orchestrator/index.js', async (importOriginal)
 });
 
 import { LLM_PROBE_MAX_TOKENS } from '../../src/foundation/llm-orchestrator/index.js';
-import { checkLLMConnectionFor, classifyLLMError, probeLLMConnection } from '../../src/cli/llm-connection-check.js';
+import { checkLLMConnectionFor, classifyLLMErrorForDisplay, probeLLMConnection } from '../../src/cli/llm-connection-check.js';
 
 function providerConfig(): ProviderConfig {
   return {
@@ -56,10 +56,12 @@ describe('Phase 1979 probe budget', () => {
   });
 
   it('MiniMax 400 thinking 文案 → 分类 model（不是 auth）', () => {
-    const err = new Error(
+    const err = new LLMModelNotFoundError(
+      'minimax',
+      'MiniMax-M3.1-Flash',
       'invalid params, model "MiniMax-M3.1-Flash" requires adaptive thinking; thinking.type="disabled" (2013)',
     );
-    expect(classifyLLMError(err)).toBe('model');
+    expect(classifyLLMErrorForDisplay(err)).toBe('model');
   });
 
   it('orchestrator._minimalProbe 使用常量、无固定 1-token 预算', () => {

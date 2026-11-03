@@ -13,7 +13,12 @@ import type { LLMConfigSnapshot } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
 import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.js';
-import { FORMAT_MAP, LLM_PROBE_MAX_TOKENS } from '../foundation/llm-orchestrator/index.js';
+import {
+  FORMAT_MAP,
+  LLM_PROBE_MAX_TOKENS,
+  classifyLLMError,
+  getUserActionHint,
+} from '../foundation/llm-orchestrator/index.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { ProviderConfig, PiAiCredentialStore } from '../foundation/llm-provider/index.js';
@@ -39,33 +44,17 @@ interface LLMConfigDeps {
   rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
-export function classifyLLMError(err: unknown): LLMErrorType {
-  const msg = (formatErr(err)).toLowerCase();
-
-  // quota 优先于 rate_limit / auth（permanent、需用户介入）
-  if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
-    return 'quota';
+export function classifyLLMErrorForDisplay(err: unknown): LLMErrorType {
+  switch (getUserActionHint(err)) {
+    case 'rotate_api_key': return 'auth';
+    case 'switch_primary': return 'model';
+    case 'wait_retry_after': return 'rate_limit';
+    case 'check_quota': return 'quota';
+    case 'check_endpoint':
+    case 'check_network': return 'network';
+    case null:
+      return classifyLLMError(err) === 'transient' ? 'network' : 'unknown';
   }
-
-  if (
-    msg.includes('401') ||
-    msg.includes('unauthorized') ||
-    msg.includes('api key') ||
-    msg.includes('invalid_api_key') ||
-    msg.includes('invalid api-key') ||
-    msg.includes('invalid access token') ||
-    msg.includes('token expired') ||
-    msg.includes('authenticat')
-  ) return 'auth';
-  if (msg.includes('404') || msg.includes('not found') || (msg.includes('model') && !msg.includes('network'))) return 'model';
-  if (msg.includes('429') || msg.includes('rate limit')) return 'rate_limit';
-  // network：含 5xx 服务器错（短暂性、重试可救）
-  if (msg.includes('econnrefused') || msg.includes('enotfound') || msg.includes('network') ||
-      msg.includes('timeout') || msg.includes('fetch') ||
-      /5\d\d/.test(msg) || msg.includes('server error') || msg.includes('bad gateway') || msg.includes('service unavailable')) {
-    return 'network';
-  }
-  return 'unknown';
 }
 
 export const LLM_ERROR_LABELS: Record<LLMErrorType, string> = {
@@ -171,7 +160,7 @@ export async function probeLLMConnection(
     });
     return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
   } catch (err) {
-    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err), provider: snapshot.config.primary.name, identity: snapshot.identity };
+    return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: snapshot.config.primary.name, identity: snapshot.identity };
   }
 }
 
@@ -216,7 +205,7 @@ export async function checkLLMConnectionFor(
     });
     return { ok: true, model: provider.model };
   } catch (err) {
-    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err), provider: provider.name };
+    return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: provider.name };
   }
 }
 

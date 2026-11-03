@@ -80,7 +80,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     unknown: 'Unrecognized provider error',
   },
   LLM_ERROR_HINTS: { auth: 'Check API key.' },
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // ── start 接线测试的下游 mock（全部必须零调用）────────────────────────────────

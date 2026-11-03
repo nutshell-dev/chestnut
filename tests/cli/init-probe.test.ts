@@ -66,7 +66,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   LLM_ERROR_HINTS: {
     model: 'Check that model name matches provider docs exactly.',
   },
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // ── audit log mock ─────────────────────────────────────────────────────────────

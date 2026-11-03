@@ -48,7 +48,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     unknown: 'Unrecognized provider error',
   },
   LLM_ERROR_HINTS: {},
-  classifyLLMError: () => 'unknown',
+  classifyLLMErrorForDisplay: () => 'unknown',
 }));
 
 let processExitSpy: ReturnType<typeof vi.spyOn>;

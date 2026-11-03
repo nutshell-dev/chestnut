@@ -65,7 +65,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     unknown: 'Unrecognized provider error',
   },
   LLM_ERROR_HINTS: {},
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // ── llm-login 运行缝 mock（pi-ai 原生 login 流不进本测试面） ───────────────────

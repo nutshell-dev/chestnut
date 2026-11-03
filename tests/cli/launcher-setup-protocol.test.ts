@@ -10,7 +10,7 @@ const probe = vi.hoisted(() => ({ fn: vi.fn() }));
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   probeLLMConnection: probe.fn,
   checkLLMConnectionFor: vi.fn(),
-  classifyLLMError: vi.fn(() => 'unknown'),
+  classifyLLMErrorForDisplay: vi.fn(() => 'unknown'),
   summarizeLLMFailure: (failure: Record<string, unknown>) => ({ ...failure, repairActions: ['retry', 'edit', 'cancel'] }),
   formatLLMError: vi.fn(),
 }));

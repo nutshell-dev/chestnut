@@ -1,81 +1,87 @@
 import { describe, it, expect } from 'vitest';
-import { classifyLLMError } from '../../src/cli/llm-connection-check.js';
+import {
+  LLMError,
+  LLMAuthError,
+  LLMContextExceededError,
+  LLMInvalidRequestError,
+  LLMModelNotFoundError,
+  LLMNetworkError,
+  LLMQuotaError,
+  LLMRateLimitError,
+  LLMTimeoutError,
+  makeExternalAbortError,
+} from '../../src/foundation/llm-provider/index.js';
+import {
+  classifyLLMError,
+  getUserActionHint,
+} from '../../src/foundation/llm-orchestrator/index.js';
+import { classifyLLMErrorForDisplay } from '../../src/cli/llm-connection-check.js';
 
-describe('classifyLLMError', () => {
-  describe('auth', () => {
-    it.each([
-      ['401 Unauthorized'],
-      ['Unauthorized'],
-      ['Invalid API key'],
-      ['Authentication failed'],
-      // Vendor variants that previously fell through to "unknown":
-      ['All LLM providers failed: kimi-k2.6 (Failed to authenticate user, please check your API key and try again.)'],
-      ['Failed to authenticate user'],
-      ['Please check your API key'],
-      ['Authenticating with provider failed'],
-      ['invalid_api_key'],
-      ['invalid access token or token expired'],
-      ['All LLM providers failed: Qwen ({"error":{"code":"invalid_api_key","message":"invalid access token or token expired","param":null,"type":"invalid_request_error"}})'],
-    ])('classifies %j as auth', (msg) => {
-      expect(classifyLLMError(new Error(msg))).toBe('auth');
-    });
-
-    it('auth message containing "quota" is classified as quota (quota takes precedence)', () => {
-      expect(classifyLLMError(new Error('401 Unauthorized: quota exceeded'))).toBe('quota');
-    });
+describe('classifyLLMErrorForDisplay', () => {
+  it.each([
+    {
+      name: 'auth', error: new LLMAuthError('p', 401),
+      ownerClass: 'permanent', hint: 'rotate_api_key', display: 'auth',
+    },
+    {
+      name: 'model', error: new LLMModelNotFoundError('p', 'missing'),
+      ownerClass: 'permanent', hint: 'switch_primary', display: 'model',
+    },
+    {
+      name: 'rate limit', error: new LLMRateLimitError('p'),
+      ownerClass: 'rate_limit', hint: 'wait_retry_after', display: 'rate_limit',
+    },
+    {
+      name: 'quota', error: new LLMQuotaError('p', 'quota exceeded'),
+      ownerClass: 'quota', hint: 'check_quota', display: 'quota',
+    },
+    {
+      name: 'timeout', error: new LLMTimeoutError('p', 60_000),
+      ownerClass: 'transient', hint: 'check_endpoint', display: 'network',
+    },
+    {
+      name: 'network', error: new LLMNetworkError('p', new Error('ECONNRESET')),
+      ownerClass: 'transient', hint: 'check_network', display: 'network',
+    },
+    {
+      name: 'transient without hint', error: new LLMError('temporary failure'),
+      ownerClass: 'transient', hint: null, display: 'network',
+    },
+  ])('maps typed $name using owner evidence', ({ error, ownerClass, hint, display }) => {
+    expect(classifyLLMError(error)).toBe(ownerClass);
+    expect(getUserActionHint(error)).toBe(hint);
+    expect(classifyLLMErrorForDisplay(error)).toBe(display);
   });
 
-  describe('model', () => {
-    it.each([
-      ['404 Not Found'],
-      ['Model not found'],
-      ['The model gpt-9 is not available'],
-    ])('classifies %j as model', (msg) => {
-      expect(classifyLLMError(new Error(msg))).toBe('model');
-    });
-  });
-
-  describe('rate_limit', () => {
-    it.each([
-      ['429 Too Many Requests'],
-      ['Rate limit exceeded'],
-    ])('classifies %j as rate_limit', (msg) => {
-      expect(classifyLLMError(new Error(msg))).toBe('rate_limit');
-    });
-
-    it('quota keyword no longer falls through to rate_limit', () => {
-      expect(classifyLLMError(new Error('Quota exceeded'))).toBe('quota');
-    });
-  });
-
-  describe('quota', () => {
-    it.each([
-      ['Quota exceeded'],
-      ['Insufficient credits'],
-      ['Credit balance depleted'],
-      ['Billing issue'],
-    ])('classifies %j as quota', (msg) => {
-      expect(classifyLLMError(new Error(msg))).toBe('quota');
-    });
-  });
-
-  describe('network', () => {
-    it.each([
-      ['ECONNREFUSED'],
-      ['ENOTFOUND api.example.com'],
-      ['fetch failed'],
-      ['Request timeout'],
-      ['HTTP 503 Service Unavailable'],
-      ['502 Bad Gateway'],
-      ['Internal server error'],
-    ])('classifies %j as network', (msg) => {
-      expect(classifyLLMError(new Error(msg))).toBe('network');
-    });
-  });
-
-  describe('unknown', () => {
-    it('classifies messages with no recognized keyword as unknown', () => {
-      expect(classifyLLMError(new Error('Something weird happened'))).toBe('unknown');
-    });
+  it.each([
+    {
+      name: 'plain quota text', error: new Error('quota'),
+      ownerClass: 'unknown', hint: null,
+    },
+    {
+      name: 'plain 401 text', error: new Error('401'),
+      ownerClass: 'unknown', hint: null,
+    },
+    {
+      name: 'unrecognized error', error: new Error('Something weird happened'),
+      ownerClass: 'unknown', hint: null,
+    },
+    {
+      name: 'permanent without hint',
+      error: new LLMInvalidRequestError('p', 'provider_json_parse_rejected'),
+      ownerClass: 'permanent', hint: null,
+    },
+    {
+      name: 'context exceeded without hint', error: new LLMContextExceededError('p', 400, 'too large'),
+      ownerClass: 'context_exceeded', hint: null,
+    },
+    {
+      name: 'abort without hint', error: makeExternalAbortError(),
+      ownerClass: 'abort', hint: null,
+    },
+  ])('maps $name to unknown without text fallback', ({ error, ownerClass, hint }) => {
+    expect(classifyLLMError(error)).toBe(ownerClass);
+    expect(getUserActionHint(error)).toBe(hint);
+    expect(classifyLLMErrorForDisplay(error)).toBe('unknown');
   });
 });

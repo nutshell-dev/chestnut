@@ -62,7 +62,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     model: 'Check model name.',
     unknown: 'See raw message.',
   },
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // ── notifyRunningDaemons mock (avoid touching real process manager) ────────────

@@ -75,7 +75,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
   LLM_ERROR_LABELS: MOCK_LABELS,
   LLM_ERROR_HINTS: {},
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // ── start 下游 mock（取消路径必须零调用）───────────────────────────────────────

@@ -52,7 +52,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
   LLM_REPAIR_ACTIONS: ['retry', 'edit-key', 'edit-model', 'edit-provider', 'cancel'],
   LLM_ERROR_LABELS: {},
   LLM_ERROR_HINTS: {},
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // ── audit log mock ─────────────────────────────────────────────────────────────

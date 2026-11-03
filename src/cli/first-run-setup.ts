@@ -40,7 +40,7 @@ import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import {
   probeLLMConnection,
-  classifyLLMError,
+  classifyLLMErrorForDisplay,
   formatLLMError,
   summarizeLLMFailure,
   type LLMFailureSummary,
@@ -223,7 +223,7 @@ async function probeDraft(
   } catch (err) {
     const message = formatErr(err);
     // Phase 1979: 不再硬编码 auth——凭据/配置解析失败按同一分类器归类。
-    const errorType = classifyLLMError(err);
+    const errorType = classifyLLMErrorForDisplay(err);
     audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_FAILED, `error_type=${errorType}`, `message=${audit.message(message)}`);
     return {
       ok: false,

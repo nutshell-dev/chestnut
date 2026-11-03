@@ -54,7 +54,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
     unknown: 'Unrecognized provider error',
   },
   LLM_ERROR_HINTS: {},
-  classifyLLMError: vi.fn().mockReturnValue('unknown'),
+  classifyLLMErrorForDisplay: vi.fn().mockReturnValue('unknown'),
 }));
 
 // phase 1247 Step C: config provider commands use action('required'), which calls
