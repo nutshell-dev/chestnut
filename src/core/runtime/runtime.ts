@@ -181,7 +181,7 @@ export class Runtime {
    * deps.llmOrchestrator 赋值；deps.llm / deps.llmOrchestrator 契约上同一对象）。
    * 不直接访问本字段——经下方两个类型视图消费。
    */
-  private _llmImpl!: LLMOrchestrator;
+  private _llmImpl!: LLMOrchestrator & LLMRuntimeCapability;
   /**
    * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
    * getProviderInfo / getFailureDisposition / resetLastSuccessProvider / reloadConfig / close 5 方法可编译调用。
@@ -191,7 +191,7 @@ export class Runtime {
   }
   protected set llm(value: LLMRuntimeCapability) {
     // Test seam：既有测试以窄 mock poke 本字段；mock 实带 stream/call 宽面、存储保持宽类型。
-    this._llmImpl = value as LLMOrchestrator;
+    this._llmImpl = value as LLMOrchestrator & LLMRuntimeCapability;
   }
   /**
    * phase 1860 (RT-D1)：llm 转发面视图——ExecContext 构造与 runReact 消费的完整编排面；
@@ -318,7 +318,7 @@ export class Runtime {
     this.auditWriter = deps.auditWriter;
     // phase 1860 (RT-D1)：llm 单一存储 = deps.llmOrchestrator（Assembly 契约：与 deps.llm
     // 注入同一对象；deps.llm 窄字段 = Runtime 私有消费面的类型级声明）。
-    this._llmImpl = deps.llmOrchestrator;
+    this._llmImpl = deps.llmOrchestrator as LLMOrchestrator & LLMRuntimeCapability;
     this.snapshot = deps.snapshot;
     this.sessionManager = deps.sessionManager;
     this.inboxReader = deps.inboxReader;

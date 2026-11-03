@@ -32,7 +32,7 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
     expect(types).toContain('readonly llmOrchestrator: LLMOrchestrator;');
     expect(types).not.toContain('readonly llm: LLMOrchestrator;');
     // 单一存储 + 双类型视图：窄消费面视图与转发面视图同源（_llmImpl）。
-    expect(runtime).toContain('private _llmImpl!: LLMOrchestrator;');
+    expect(runtime).toContain('private _llmImpl!: LLMOrchestrator & LLMRuntimeCapability;');
     expect(runtime).toContain('protected get llm(): LLMRuntimeCapability');
     expect(runtime).toContain('protected get llmOrchestrator(): LLMOrchestrator');
     expect(runtime).not.toContain('protected llm!: LLMOrchestrator;');

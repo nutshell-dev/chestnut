@@ -16,14 +16,14 @@
  * Per `feedback_test_contract_hygiene_typed_cast` (推 Meta 45 升格).
  */
 
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMRuntimeCapability } from '../../src/foundation/llm-orchestrator/index.js';
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { RuntimeTurnCallbacks } from '../../src/core/runtime/index.js';
 
 export interface RuntimeTestInternals {
-  llm: LLMOrchestrator;
+  llm: LLMRuntimeCapability;
   sessionManager: DialogStore;
   toolRegistry: ToolRegistry;
   auditWriter: AuditLog;

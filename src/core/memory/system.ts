@@ -1,7 +1,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SubAgentTaskScheduler } from '../async-task-system/index.js';
-import type { LLMOrchestrator, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMCallCapability, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ProgressData } from '../contract/index.js';
 import { runDeepDream } from './deep-dream.js';
 import type { DeepDreamOptions } from './deep-dream.js';
@@ -22,7 +22,7 @@ interface MemorySystemOptions {
   motionFs: FileSystem;               // baseDir = motionDir / NEW
   audit: AuditLog;
   taskSystem: SubAgentTaskScheduler;
-  llmService: LLMOrchestrator;        // ← 注入 LLM（修 N1）
+  llmService: LLMCallCapability;        // ← 注入 LLM（修 N1）
   llmConfig: LLMOrchestratorConfig;   // deep-dream 内部仍需 config（state file 路径等）
   maxCompressionTokens?: number;
   /** 临时构建 per-claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/

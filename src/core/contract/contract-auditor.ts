@@ -22,7 +22,7 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr, newUuid } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMCallCapability } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContentBlock, LLMResponse, TextBlock } from '../../foundation/llm-provider/index.js';
 import { buildAuditorPrompt } from './auditor-prompt.js';
@@ -69,7 +69,7 @@ interface ContractAuditorDeps {
   audit: AuditLog;
   fs: FileSystem;
   inbox: InboxWriter;
-  llm: LLMOrchestrator;
+  llm: LLMCallCapability;
   /** auditor LLM 最大 token 输出. Default: {@link DEFAULT_AUDITOR_MAX_OUTPUT_TOKENS} */
   maxOutputTokens?: number;
 }

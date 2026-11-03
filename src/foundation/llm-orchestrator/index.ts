@@ -13,6 +13,7 @@ export type {
   LLMEvent,
   LLMCallOptions,
   LLMRecoveryFacts,
+  LLMCallCapability,
   LLMOrchestrator,
   LLMRuntimeCapability,
   LLMFailureDisposition,

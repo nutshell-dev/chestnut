@@ -1,6 +1,6 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import type { LLMOrchestrator } from '../../../foundation/llm-orchestrator/index.js';
+import type { LLMCallCapability } from '../../../foundation/llm-orchestrator/index.js';
 import { classifyLLMError } from '../../../foundation/llm-orchestrator/index.js';
 
 import type { Message } from '../../../foundation/dialog-store/index.js';
@@ -48,7 +48,7 @@ export class AskMotionTool implements Tool {
 
   // phase 713: ctor 4 → 2 dep（llm + motionDialogStore）
   constructor(
-    private readonly llm: LLMOrchestrator,
+    private readonly llm: LLMCallCapability,
     private readonly motionDialogStore: DialogStore,
   ) {}
 

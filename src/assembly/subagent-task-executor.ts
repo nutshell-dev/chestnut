@@ -11,7 +11,7 @@ import * as nodePath from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { applyRestrictedOverrides } from '../foundation/tools/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
 import {
   LLMAllProvidersFailedError,
 } from '../foundation/llm-orchestrator/index.js';
@@ -46,12 +46,11 @@ import type {
 export interface SubagentTaskExecutorDeps {
   /**
    * 执行业务装配（owner 注入；非 per-call infra）。
-   * Phase 1933 Step E：类型升级为 LLMOrchestratorOwner；Phase 1934 Step C：
+   * 业务执行面 + 共享恢复判据的窄交叉；不持有完整 owner 的管理能力。
    * 共享故障的等待决定唯一归 owner（getSharedRecoveryDecision），本 adapter
-   * 只消费结论（不再解释 snapshot/breaker）。runSubagent 只消费 LLMOrchestrator
-   * 子集，接口兼容。
+   * 只消费结论（不再解释 snapshot/breaker）。
    */
-  llm: LLMOrchestratorOwner;
+  llm: LLMOrchestrator & Pick<LLMOrchestratorOwner, 'getSharedRecoveryDecision'>;
   registry: ToolRegistry;
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;

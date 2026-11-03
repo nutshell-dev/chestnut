@@ -133,7 +133,9 @@ export type SharedRecoveryDecision =
  * 具备 scoped 恢复能力的 owner 实例（工厂返回类型）。
  * 公共 call/stream 消费者仍只要求既有最小接口。
  */
-export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRecoverySignal {
+export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRuntimeCapability, LLMRecoverySignal {
+  /** owner 健康检查；业务执行面不持有此管理能力。 */
+  healthCheck(): Promise<boolean>;
   /** scoped view 在创建 admission 前查询 owner 的不可逆终态。 */
   isClosed(): boolean;
   callWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): Promise<LLMResponse>;
@@ -908,7 +910,6 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
           }
         }
       })(),
-      healthCheck: () => orchestrator.healthCheck(),
       getProviderInfo: () => orchestrator.getProviderInfo(),
       resetLastSuccessProvider: () => orchestrator.resetLastSuccessProvider(),
       // Phase 1944 Step B：失败处置事实转发 owner 唯一产出点，视图不自行分类。

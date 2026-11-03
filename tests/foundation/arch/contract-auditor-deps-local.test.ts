@@ -14,7 +14,7 @@ describe('Contract ContractAuditorDeps deep surface', () => {
   it('keeps the auditor deps type local behind the ContractAuditor class', () => {
     expect(auditorSource).not.toMatch(/export\s+interface\s+ContractAuditorDeps\b/);
     expect(auditorSource).toMatch(
-      /(?:^|\n)interface\s+ContractAuditorDeps\s*\{\s*\n\s*audit:\s*AuditLog;\s*\n\s*fs:\s*FileSystem;\s*\n\s*inbox:\s*InboxWriter;\s*\n\s*llm:\s*LLMOrchestrator;/,
+      /(?:^|\n)interface\s+ContractAuditorDeps\s*\{\s*\n\s*audit:\s*AuditLog;\s*\n\s*fs:\s*FileSystem;\s*\n\s*inbox:\s*InboxWriter;\s*\n\s*llm:\s*LLMCallCapability;/,
     );
     expect(auditorSource).toMatch(/export\s+class\s+ContractAuditor\b/);
     expect(auditorSource).toMatch(/constructor\(deps:\s*ContractAuditorDeps\)/);

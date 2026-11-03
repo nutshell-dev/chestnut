@@ -3,7 +3,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMCallCapability } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
@@ -128,7 +128,7 @@ export interface DeepDreamOptions {
   motionDir?: string;                    // motion 域 / dream-outputs 归属
   motionFs?: FileSystem;                 // baseDir = motionDir
   llmConfig: LLMOrchestratorConfig;
-  llmService: LLMOrchestrator;                // ← 注入的 LLM 实例（修 N1）
+  llmService: LLMCallCapability;                // ← 注入的 LLM 实例（修 N1）
   /** 压缩上限（token 估算），默认 {@link COMPRESSION_TOKENS_DEFAULT} */
   maxCompressionTokens?: number;
   fs: FileSystem;
@@ -290,7 +290,7 @@ async function discoverUnprocessed(dialogStore: DialogStore, state: DreamStateDa
 async function maybeMergeCompressions(
   compressions: string[],
   maxTokens: number,
-  llm: LLMOrchestrator,
+  llm: LLMCallCapability,
   signal?: AbortSignal,
 ): Promise<string[]> {
   const total = estimateTextTokens(compressions.join(''));
@@ -314,7 +314,7 @@ interface DreamRunContext {
   clawDir: string;
   clawFs: FileSystem;
   motionFs: FileSystem | undefined;
-  llm: LLMOrchestrator;
+  llm: LLMCallCapability;
   maxCompressionTokens: number;
   audit: AuditLog;
   /** phase 1162 Step C: caller-bound target-claw fail-loud notification */
@@ -623,7 +623,7 @@ async function runDeepDreamForClaw(
   clawDir: string,
   clawFs: FileSystem,
   motionFs: FileSystem | undefined,
-  llm: LLMOrchestrator,
+  llm: LLMCallCapability,
   maxCompressionTokens: number,
   audit: AuditLog,
   notifyClaw: DeepDreamNotifyClawFn,

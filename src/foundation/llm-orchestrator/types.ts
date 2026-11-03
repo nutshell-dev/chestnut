@@ -252,28 +252,18 @@ export interface LLMProbeResult {
   retryAfterSec?: number;
 }
 
+/** 仅执行单次非流式调用的最小业务能力。 */
+export interface LLMCallCapability {
+  call(options: LLMCallOptions): Promise<LLMResponse>;
+}
+
 /**
- * LLMOrchestrator interface — multi-provider fault-tolerant LLM orchestration
+ * LLMOrchestrator interface — 业务执行面，仅 call/stream/getProviderInfo。
+ * Runtime 管理、健康检查与恢复 owner 能力由各自的 capability 显式声明。
  *
  * Implemented by LLMOrchestratorImpl class.
  */
-export interface LLMOrchestrator {
-  call(options: LLMCallOptions): Promise<LLMResponse>;
+export interface LLMOrchestrator extends LLMCallCapability {
   stream(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk>;
-  healthCheck(): Promise<boolean>;
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
-  /**
-   * Phase 1944 Step B：LLM 失败处置事实查询（与 LLMRuntimeCapability 同源；
-   * 只读、无副作用。宽面与窄面契约上同一对象，事实结论唯一归本模块产出）。
-   */
-  getFailureDisposition(error: unknown): LLMFailureDisposition;
-  /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */
-  resetLastSuccessProvider(): void;
-  close(): Promise<void>;
-  /**
-   * phase 320: 原地替换内部 primary/fallbacks/breakers，对象引用不变。
-   * 调用方（execContext.llm / runtime.llm）持有的引用自动指向新 provider。
-   * events sink 引用不换（装配期注入）；每次成功 reload 清空 lastSuccessProvider。
-   */
-  reloadConfig(newConfig: LLMOrchestratorConfig): void;
 }

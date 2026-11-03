@@ -23,7 +23,7 @@ import type { ExecContext } from '../../src/foundation/tools/index.js';
 export class TestRuntime extends Runtime {
   /** Override LLM after initialize() — used by regime switch tests with mock LLM.
    * phase 1860 (RT-D1)：窄消费面与转发面单一存储、同步可见。 */
-  testSetLLM(llm: LLMOrchestrator): void {
+  testSetLLM(llm: LLMOrchestrator & LLMRuntimeCapability): void {
     this.llm = llm;
   }
 
