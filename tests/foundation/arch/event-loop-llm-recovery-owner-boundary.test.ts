@@ -124,7 +124,6 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     expectTypeOf<LLMOrchestratorOwner>().toHaveProperty('inspectRecoverySchedule');
     expectTypeOf<LLMOrchestratorOwner>().not.toHaveProperty('begin');
     expectTypeOf<LLMOrchestratorOwner>().not.toHaveProperty('finish');
-
     // schedule 判别联合保持 ready/at/on_change 三态（revision 决策链字段不丢）。
     for (const variant of [
       "{ kind: 'ready'; revision: number }",
