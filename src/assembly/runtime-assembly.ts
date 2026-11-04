@@ -49,8 +49,6 @@ interface RuntimeAssemblyOutput {
   streamWriter: StreamWriter;
   runtime: Runtime;
   executionRecovery: EventLoopExecutionRecoveryDeps;
-  /** Phase 1826: 前台恢复 session（daemon 把调度 capability 传给 EventLoop）。 */
-  recoverySession: import('../foundation/llm-orchestrator/index.js').LLMRecoverySession;
   /** phase 1873 Step C: 装配期构造并初始化的 EventLoop（完整模块图交付；daemon 只驱动）。 */
   eventLoop: EventLoop;
 }
@@ -62,7 +60,7 @@ export async function createRuntimeAssembly(
   const { clawDir, identity, clawId } = config;
   const isMotion = identity === 'motion';
   const {
-    systemFs, auditWriter, recoverySession, llmConfig,
+    systemFs, auditWriter, llm: llmOwner, llmConfig,
     maxSteps, toolProfile, idleTimeoutMs, toolTimeoutMs,
     skillRegistry, contractManager, fsFactory, streamWriter,
   } = core;
@@ -151,11 +149,9 @@ export async function createRuntimeAssembly(
     fsFactory,
     systemFs,
     auditWriter,
-    // Phase 1826: 前台 Runtime 使用 owner 的范围视图（scoped 调用反馈归恢复 session）；
-    // 原 orchestrator 仍供子代理/工具/契约等既有注入点使用。
-    // phase 1860 (RT-D1)：窄 capability（私有消费）与转发面注入同一 scoped 视图对象。
-    llm: recoverySession.llm,
-    llmOrchestrator: recoverySession.llm,
+    // 前台、子代理与 Contract 均直接持有同一真实 owner；恢复内化于 call/stream。
+    llm: llmOwner,
+    llmOrchestrator: llmOwner,
     contractManager,
     taskSystem,
     permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
@@ -248,7 +244,7 @@ export async function createRuntimeAssembly(
     // in-process>0（已被本事实覆盖）。磁盘 running 含崩溃残留（归 task-recovery），
     // 不作在途判据。核证用例：tests/core/async-task-system/queue-wait-facts.test.ts。
     isAsyncTaskInFlight: async () => taskSystem.getInProcessRunningCount() > 0,
-    inspectLlmRecoverySchedule: () => recoverySession.inspect(),
+    inspectLlmRecoverySchedule: () => llmOwner.inspectRecoverySchedule(),
   };
 
   // --- phase 1873 Step C: EventLoop 构造/初始化归装配 ---
@@ -268,5 +264,5 @@ export async function createRuntimeAssembly(
   // 初始化须在「驱动前」完成；装配序整体先于 daemon 驱动（风险项照应）。
   await eventLoop.initialize();
 
-  return { snapshot, streamWriter, runtime, executionRecovery, recoverySession, eventLoop };
+  return { snapshot, streamWriter, runtime, executionRecovery, eventLoop };
 }

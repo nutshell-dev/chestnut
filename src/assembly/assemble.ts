@@ -141,7 +141,7 @@ export async function assemble(
     });
     rollback.register('task_system', () => business.taskSystem.shutdown());
 
-    const { snapshot, streamWriter: sw, runtime, executionRecovery, recoverySession, eventLoop } = await createRuntimeAssembly({ core: coreInfra, business, config });
+    const { snapshot, streamWriter: sw, runtime, executionRecovery, eventLoop } = await createRuntimeAssembly({ core: coreInfra, business, config });
     streamWriter = sw;
     rollback.register('runtime', () => runtime.stop());
 
@@ -185,7 +185,6 @@ export async function assemble(
       auditWriter,
       heartbeat,
       executionRecovery,
-      recoverySession,
       dispose: (signal: string) => disassemble({
         gateway,
         runtime,

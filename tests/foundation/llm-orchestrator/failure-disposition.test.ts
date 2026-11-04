@@ -5,14 +5,11 @@
  * - LLMOrchestratorImpl.getFailureDisposition 把既有 classifyLLMError 结论映射为
  *   跨边界最小 union（provider_recovery_scheduled / context_exceeded / abort / unknown）；
  * - 聚合错误（LLMAllProvidersFailedError）按 nested 分类归派；
- * - recovery scoped 视图（session.llm）转发同一 owner 结论，不自行分类；
+ * - owner 直接提供统一结论，不依赖 session/scoped 视图；
  * - 只读无副作用：查询不触发 retry 调度、不改变 provider 状态。
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { describe, it, expect } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { LLMEventSink, LLMResponse } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
@@ -50,13 +47,6 @@ function makeAdapter(name: string): ProviderAdapter {
     stream: async function* () { throw new Error('stream not enabled in this test'); },
   };
 }
-
-const cleanupDirs: string[] = [];
-afterEach(async () => {
-  for (const dir of cleanupDirs.splice(0)) {
-    try { await cleanupTempDir(dir); } catch { /* ignore */ }
-  }
-});
 
 function makeOrchestrator() {
   const events: LLMEventSink = { emit: () => {} };
@@ -115,22 +105,12 @@ describe('phase 1944 Step B: LLMOrchestrator.getFailureDisposition', () => {
     expect(orchestrator.getFailureDisposition(undefined)).toBe('unknown');
   });
 
-  it('recovery scoped 视图（session.llm）转发同一 owner 结论', async () => {
-    const dir = await createTrackedTempDir('disposition-');
-    cleanupDirs.push(dir);
-    const { orchestrator, events } = makeOrchestrator();
-    const session = createRecoverySession({
-      scopeId: 'foreground',
-      fs: new NodeFileSystem({ baseDir: dir }),
-      events,
-      orchestrator,
-    });
+  it('owner 直接提供统一失败处置结论（无 session/scoped 视图）', () => {
+    const { orchestrator } = makeOrchestrator();
 
     const err = new LLMNetworkError('p', new Error('offline'));
-    expect(session.llm.getFailureDisposition(err)).toBe('provider_recovery_scheduled');
-    expect(session.llm.getFailureDisposition(new Error('nope'))).toBe('unknown');
-    // 与 owner 直持实例结论一致
-    expect(session.llm.getFailureDisposition(err)).toBe(orchestrator.getFailureDisposition(err));
+    expect(orchestrator.getFailureDisposition(err)).toBe('provider_recovery_scheduled');
+    expect(orchestrator.getFailureDisposition(new Error('nope'))).toBe('unknown');
   });
 
   it('查询只读：不触发 retry/状态变化，provider 信息不变', () => {

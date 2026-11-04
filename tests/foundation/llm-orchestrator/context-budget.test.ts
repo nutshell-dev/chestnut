@@ -201,6 +201,8 @@ describe('Phase 1969: no preflight admission', () => {
           isFallback: true,
           providerId: owner.getProviderIdentities()[1],
           generation: 0,
+          lastUsedAt: Date.now(),
+          cacheValidUntil: Date.now() + 300_000,
         };
       }
 

@@ -118,7 +118,7 @@ export interface RuntimeDependencies {
   readonly inboxReader: InboxDeliverySession;
 
   // === L3-L5 ===
-  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getProviderInfo/getFailureDisposition/resetLastSuccessProvider/reloadConfig/close 5 方法。 */
+  /** Runtime 私有消费面：provider 信息、失败处置、配置重载与关闭；选择缓存由 orchestrator 自主管理。 */
   readonly llm: LLMRuntimeCapability;
   /**
    * phase 1860：转发面——ExecContext/AgentExecutor 消费的完整编排面（stream/call 等）；

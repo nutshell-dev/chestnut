@@ -152,7 +152,6 @@ describe('1951B-2: createSubagentTaskExecutor 分类——uncertain typed outcom
       close: vi.fn(),
       healthCheck: vi.fn().mockResolvedValue(true),
       getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      resetLastSuccessProvider: vi.fn(),
       getFailureDisposition: vi.fn().mockReturnValue('unknown'),
       reloadConfig: vi.fn(),
       snapshot: vi.fn(),

@@ -8,7 +8,7 @@ import {
   LLM_INSTANCE_STATE_FILE,
   loadLLMInstanceState,
   saveLLMInstanceState,
-  type LLMInstanceStateV1,
+  type LLMInstanceStateV2,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
@@ -23,9 +23,10 @@ async function fixture() {
   return { dir, fs: new NodeFileSystem({ baseDir: dir }) };
 }
 
-function validState(): LLMInstanceStateV1 {
+function validState(): LLMInstanceStateV2 {
   return {
-    schema_version: 1,
+    ...createEmptyLLMInstanceState('instance-a'),
+    schema_version: 2,
     revision: 2,
     updatedAt: '2026-11-01T00:00:00.000Z',
     providers: [{
@@ -37,11 +38,11 @@ function validState(): LLMInstanceStateV1 {
   };
 }
 
-describe('LLM instance state V1', () => {
+describe('LLM instance state V2', () => {
   it('treats a missing file as empty and round-trips valid state', async () => {
     const { dir, fs } = await fixture();
     expect(loadLLMInstanceState(fs)).toEqual({ kind: 'missing' });
-    expect(createEmptyLLMInstanceState()).toMatchObject({ schema_version: 1, revision: 0, providers: [] });
+    expect(createEmptyLLMInstanceState()).toMatchObject({ schema_version: 2, revision: 0, providers: [], recovery: { invocations: [] } });
     expect(saveLLMInstanceState(fs, validState()).kind).toBe('durable');
     expect(loadLLMInstanceState(fs)).toEqual({ kind: 'ok', state: validState() });
     expect(fsNative.existsSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE))).toBe(true);
@@ -79,7 +80,7 @@ describe('LLM instance state V1', () => {
     fsNative.mkdirSync(path.dirname(file), { recursive: true });
     for (const [raw, reason] of [
       ['{bad json', 'parse_failed'],
-      [JSON.stringify({ ...validState(), schema_version: 2 }), 'schema_invalid'],
+      [JSON.stringify({ ...validState(), schema_version: 3 }), 'schema_invalid'],
     ] as const) {
       fsNative.writeFileSync(file, raw);
       expect(loadLLMInstanceState(fs)).toMatchObject({ kind: 'unusable', reason });

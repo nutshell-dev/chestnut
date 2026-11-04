@@ -12,9 +12,8 @@
  * 覆盖：
  * 1. 全候选 transient 故障：waiting 事实的 nextProbeAt 来自 owner 决定；gate 未就绪
  *    时不唤醒（证明 gate 非恒真）；探针到点验证成功 → ready 发布 → ATS 移动任务恰一次；
- *    全程 scheduleProbe 只调度一次（事实落盘时那次，成功后无重排）。
- * 2. 全候选 permanent：on_change 不定时轮询（任意时长 0 探针）；配置变化（换 key）
- *    后 gate 就绪 → 恢复路径可移动。
+ *    业务等待事实只触发一次 scheduleProbe；owner 后台持续 probe 的自主调度不计入。
+ * 2. 全候选 permanent：按 cooldown 持续 probe；候选恢复后 gate 就绪 → 恢复路径可移动。
  * 3. 同名异配置候选全故障：等待事实落盘（不塌缩为任务失败），探针验证后恢复移动
  *    （Z-C1 回归：显示名不是身份，同名不同 model/key 是两个独立候选）。
  *
@@ -39,6 +38,7 @@ import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-
 import { createStandardDeliverySink } from '../../src/core/async-task-system/index.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 import { LLM_WAIT_FILE } from '../../src/core/async-task-system/llm-wait-state.js';
+import type { LLMWaitFact } from '../../src/core/async-task-system/llm-wait-state.js';
 import type { SubAgentTask } from '../../src/core/async-task-system/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -209,6 +209,7 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
   });
 
   const { fs, fileMap } = makeMapFs();
+  const onWaitScheduled = vi.fn((fact: LLMWaitFact) => { owner.scheduleProbe(fact.nextProbeAt); });
   const system = new AsyncTaskSystem('/tmp/claw', fs, {
     shortIdIndex: new InMemoryShortIdIndex(),
     auditWriter: audit,
@@ -222,13 +223,13 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
     registry,
     // 窄 gate：只映射 owner 结论，不解释 breaker/snapshot
     waitGate: { canResume: () => owner.getSharedRecoveryDecision().kind === 'ready' },
-    onWaitScheduled: (fact) => { owner.scheduleProbe(fact.nextProbeAt); },
+    onWaitScheduled,
   });
   owner.subscribeReady(() => {
     void system.resumeWaitingTasks().catch(() => { /* silent: 测试接线同生产 fail-soft */ });
   });
 
-  return { owner, orchestratorConfig, p, f, audit, events, fs, fileMap, system, executor, emitted };
+  return { owner, orchestratorConfig, p, f, audit, events, fs, fileMap, system, executor, emitted, onWaitScheduled };
 }
 
 /** 触发 0ms 定时器并冲刷 microtask 队列（probe/唤醒异步 continuation 落点）。 */
@@ -245,11 +246,10 @@ afterEach(() => {
 });
 
 describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
-  it('transient 全故障：事实 nextProbeAt 来自 owner；gate 未就绪不唤醒；探针验证后移动恰一次、只调度一次', async () => {
+  it('transient 全故障：事实 nextProbeAt 来自 owner；gate 未就绪不唤醒；探针验证后移动恰一次、业务等待只调度一次', async () => {
     const t0 = Date.now();
     const stack = makeAssembledStack('fail', 'fail');
-    const { owner, p, f, events, fs, fileMap, system, executor } = stack;
-    const scheduleSpy = vi.spyOn(owner, 'scheduleProbe');
+    const { owner, p, f, events, fs, fileMap, system, executor, onWaitScheduled } = stack;
     const task = makeValidTask();
     // 任务在执行中（running 残留形态由 executeSubAgentTask 的 waiting 分支保持）
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
@@ -264,7 +264,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
       taskExecutor: executor,
       deliverySink: { deliver: vi.fn() },
-      onWaitScheduled: (fact) => { owner.scheduleProbe(fact.nextProbeAt); },
+      onWaitScheduled,
     });
 
     // 真实 orchestrator 全程参与：两候选各一次真实业务调用
@@ -276,9 +276,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     const persisted = JSON.parse(fileMap.get(waitPath)!) as Record<string, unknown>;
     expect(persisted.nextProbeAt).toBe(t0 + RESET_MS);
     expect(persisted.recordedAt).toBe(t0);
-    // 只调度一次（事实落盘通知那次）
-    expect(scheduleSpy).toHaveBeenCalledTimes(1);
-    expect(scheduleSpy).toHaveBeenCalledWith(t0 + RESET_MS);
+    // 业务等待事实只调度一次；owner 的自主持续 probe 另有调度，不混入此计数。
+    expect(onWaitScheduled).toHaveBeenCalledTimes(1);
+    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({ nextProbeAt: t0 + RESET_MS }));
     expect(owner.getSharedRecoveryDecision().kind).toBe('at');
 
     // gate 非恒真：owner 未就绪时 resume 不移动任务
@@ -303,8 +303,8 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     expect(fileMap.has(waitPath)).toBe(false);
     const resumedEvents = events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_LLM_WAIT_RESUMED);
     expect(resumedEvents.length).toBe(1);
-    // 成功后无重排：全程仍只调度一次
-    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    // 成功唤醒不产生新的业务等待事实；后台自主复检不属于业务等待调度。
+    expect(onWaitScheduled).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(120_000);
     expect(p.calls()).toBe(2);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
@@ -313,7 +313,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
   it('Phase 2034 C：permanent 全故障按 cooldown 持续 probe，gate 就绪后恢复移动', async () => {
     const stack = makeAssembledStack('auth', 'auth');
-    const { owner, p, f, fs, fileMap, system, executor } = stack;
+    const { owner, p, f, fs, fileMap, system, executor, onWaitScheduled } = stack;
     const task = makeValidTask({ timeoutMs: 3_600_000 });
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
@@ -327,7 +327,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
       taskExecutor: executor,
       deliverySink: { deliver: vi.fn() },
-      onWaitScheduled: (fact) => { owner.scheduleProbe(fact.nextProbeAt); },
+      onWaitScheduled,
     });
 
     const waitPath = `tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`;
@@ -356,7 +356,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
   it('同名异配置候选全故障：等待事实落盘（不塌缩为任务失败），探针验证后恢复移动（Z-C1 回归）', async () => {
     const stack = makeAssembledStack('fail', 'fail', true);  // 同名不同 model/key
-    const { owner, p, f, fs, fileMap, system, executor } = stack;
+    const { owner, p, f, fs, fileMap, system, executor, onWaitScheduled } = stack;
     const task = makeValidTask();
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
@@ -370,7 +370,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
       taskExecutor: executor,
       deliverySink: { deliver: vi.fn() },
-      onWaitScheduled: (fact) => { owner.scheduleProbe(fact.nextProbeAt); },
+      onWaitScheduled,
     });
 
     // 真实 orchestrator 全程参与：同名两候选各一次真实业务调用

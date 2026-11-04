@@ -6,7 +6,7 @@ const root = process.cwd();
 const read = (relative: string): string => fs.readFileSync(path.join(root, relative), 'utf8');
 
 describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
-  it('owner defines LLMRuntimeCapability with exactly the five consumed operations', () => {
+  it('owner defines LLMRuntimeCapability with exactly the four consumed operations', () => {
     const types = read('src/foundation/llm-orchestrator/types.ts');
     const orchestrator = read('src/foundation/llm-orchestrator/orchestrator.ts');
     const barrel = read('src/foundation/llm-orchestrator/index.ts');
@@ -15,9 +15,9 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
     )?.groups?.body;
 
     expect(body).toBeDefined();
-    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(5);
+    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(4);
     // Phase 1944 Step B: getFailureDisposition 加入窄消费面（失败处置事实唯一查询）。
-    for (const member of ['getProviderInfo(', 'getFailureDisposition(', 'resetLastSuccessProvider(', 'reloadConfig(', 'close(']) {
+    for (const member of ['getProviderInfo(', 'getFailureDisposition(', 'reloadConfig(', 'close(']) {
       expect(body).toContain(member);
     }
     expect(orchestrator).toContain('implements LLMOrchestrator, LLMOrchestratorOwner, LLMRuntimeCapability');
@@ -38,7 +38,7 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
     expect(runtime).not.toContain('protected llm!: LLMOrchestrator;');
   });
 
-  it('Runtime private consumption of this.llm stays within the five capability methods', () => {
+  it('Runtime private consumption of this.llm stays within the four capability methods', () => {
     const runtime = read('src/core/runtime/runtime.ts');
     const consumed = new Set(
       [...runtime.matchAll(/this\.llm\.([A-Za-z]+)\s*(\?\.)?\(/g)].map((m) => m[1]),
@@ -46,7 +46,7 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
 
     expect(consumed.size).toBeGreaterThan(0);
     for (const method of consumed) {
-      expect(['getProviderInfo', 'getFailureDisposition', 'resetLastSuccessProvider', 'reloadConfig', 'close']).toContain(method);
+      expect(['getProviderInfo', 'getFailureDisposition', 'reloadConfig', 'close']).toContain(method);
     }
   });
 
@@ -58,7 +58,7 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
     expect(runtime).toContain('llm: this.llmOrchestrator');
     expect(runtime).not.toMatch(/llm:\s*this\.llm[,;\s]/);
     // Assembly：两字段注入同一对象、无显式 cast。
-    expect(assembly).toMatch(/llm:\s*recoverySession\.llm,\s*\n\s*llmOrchestrator:\s*recoverySession\.llm,/);
-    expect(assembly).not.toMatch(/llm:\s*recoverySession\.llm\s+as\s+/);
+    expect(assembly).toMatch(/llm:\s*llmOwner,\s*\n\s*llmOrchestrator:\s*llmOwner,/);
+    expect(assembly).not.toMatch(/llm:\s*llmOwner\s+as\s+/);
   });
 });

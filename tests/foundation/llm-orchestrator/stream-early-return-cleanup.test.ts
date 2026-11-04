@@ -6,7 +6,8 @@
  *   与 merged signal 注册的外部 abort callback（removeEventListener 且引用一致）必须清理；
  *   不以 provider iterator 的 return 替代模块自身资源清理。
  * - provider iterator.return 被调用（流源关闭）+ currentStreamingProvider 回落既有语义。
- * - 正常 drain / 握手异常路径同样 timer=0（清理收敛不依赖退出方式，scoped interrupted 结算不变）。
+ * - 正常 drain / 握手异常路径同样清理收敛（不依赖退出方式，scoped interrupted 结算不变）；
+ *   实例级持续 probe 不属于单 stream 资源，统一在 owner.close() 后断言 timer=0。
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -121,7 +122,8 @@ describe('Phase 2045 Step C: stream early-return resource cleanup', () => {
 
     // provider 流源被关闭
     expect(providerReturnCalls).toBe(1);
-    // 模块自建 idle timer 被清理（无遗留 fake timer）
+    // 模块自建 idle timer 与实例自主 probe 调度均在 owner 关闭后归零。
+    await orchestrator.close();
     expect(vi.getTimerCount()).toBe(0);
     // 外部 signal 上注册过的 abort callback 被移除（add/remove 引用一致）
     expectAbortListenersRemoved(captured);
@@ -151,6 +153,7 @@ describe('Phase 2045 Step C: stream early-return resource cleanup', () => {
       streamIdleTimeoutMs: 60_000,
     })) { /* drain */ }
 
+    await orchestrator.close();
     expect(vi.getTimerCount()).toBe(0);
     expectAbortListenersRemoved(captured);
     expect(orchestrator.getProviderInfo()).toEqual({ name: 'primary', model: 'mock-model', isFallback: false });
@@ -177,6 +180,7 @@ describe('Phase 2045 Step C: stream early-return resource cleanup', () => {
       })) { /* drain */ }
     }).rejects.toThrow();
 
+    await orchestrator.close();
     expect(vi.getTimerCount()).toBe(0);
     expectAbortListenersRemoved(captured);
   });

@@ -132,7 +132,7 @@ vi.mock('../../src/foundation/fs/node-fs.js', () => ({
       listSync: vi.fn(function () { return []; }),
       list: vi.fn().mockResolvedValue([]),
       read: vi.fn().mockRejectedValue(new Error('ENOENT')),
-      // Phase 1826: LLM 恢复状态读写（owner session 构造期读状态文件；默认 ENOENT = 首次启动）。
+      // Phase 2055: LLM 统一实例状态读写（owner 构造期读状态文件；默认 ENOENT = 首次启动）。
       readSync: vi.fn(function (p: string) {
         const full = path.join(baseDir, p);
         if (!fs.existsSync(full)) {
@@ -259,14 +259,6 @@ vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
   return {
     LLMOrchestratorImpl,
     createLLMOrchestrator: vi.fn(function (config: any) { return new (LLMOrchestratorImpl as any)(config); }),
-  };
-});
-
-vi.mock('../../src/foundation/llm-orchestrator/recovery.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/foundation/llm-orchestrator/recovery.js')>();
-  return {
-    ...actual,
-    createRecoverySession: vi.fn(actual.createRecoverySession),
   };
 });
 
@@ -419,7 +411,7 @@ import { runContractObserver } from '../../src/core/contract/jobs/contract-obser
 import { createContractSystem } from '../../src/core/contract/manager.js';
 // phase 1872 Step G: 首载失败分类断言（owner 类型化错误）
 import { SkillSystemInitialLoadError } from '../../src/foundation/skill-system/index.js';
-import { createRecoverySession } from '../../src/foundation/llm-orchestrator/recovery.js';
+import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { STATUS_SUBDIR } from '../../src/assembly/claw-subdirs.js';
 
 
@@ -473,10 +465,18 @@ describe('assemble', () => {
     expect(mockStreamWriter.close).toHaveBeenCalled();
   });
 
-  it('生产恢复 session 显式注入 Assembly 的 status stateDir', async () => {
+  it('生产 owner 使用 Assembly 的 status stateDir，并直接注入 Runtime', async () => {
     const result = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory, createSkillVersions: mockCreateSkillVersions });
 
-    expect(createRecoverySession).toHaveBeenCalledWith(expect.objectContaining({ stateDir: STATUS_SUBDIR }));
+    expect(createLLMOrchestrator).toHaveBeenCalledWith(expect.objectContaining({
+      lifecycle: { mode: 'durable', fs: expect.anything(), stateDir: STATUS_SUBDIR },
+    }));
+    const owner = capturedLlmInstances.at(-1);
+    const runtimeOptions = (createRuntime as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] as {
+      dependencies: { llm: unknown; llmOrchestrator: unknown };
+    };
+    expect(runtimeOptions.dependencies.llm).toBe(owner);
+    expect(runtimeOptions.dependencies.llmOrchestrator).toBe(owner);
     await result.dispose('SIGTERM');
   });
 

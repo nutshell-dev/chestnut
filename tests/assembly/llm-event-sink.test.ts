@@ -165,7 +165,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
 
     const event: LLMEvent = {
       type: 'recovery_facts_accepted',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-9',
       revision: 7,
       interventionIds: ['m1', 'm2'],
       configurationRevision: 'r-fixed',
@@ -176,14 +177,16 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
 
     expect(audit.writes).toHaveLength(1);
     expect(audit.writes[0][0]).toBe('llm_recovery_facts_accepted');
-    expect(audit.writes[0]).toEqual(expect.arrayContaining([
-      'scope=foreground',
+    expect(audit.writes[0]).toEqual([
+      'llm_recovery_facts_accepted',
+      'instance=owner-1',
+      'invocation=inv-9',
       'revision=7',
       'interventions=m1,m2',
       'config=r-fixed',
       'startup=boot-1',
       'attempt=att-9',
-    ]));
+    ]);
 
     expect(stream.events).toHaveLength(1);
     const streamEvent = stream.events[0] as Record<string, unknown>;
@@ -205,7 +208,9 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
 
     sink.emit({
       type: 'recovery_scheduled',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-1',
+      attemptId: 'att-0',
       revision: 12,
       scheduleKind: 'at',
       resumeAt: '2026-10-19T06:00:00.000Z',
@@ -215,7 +220,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     });
     sink.emit({
       type: 'recovery_attempt_admitted',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-1',
       revision: 13,
       attemptId: 'att-1',
       trigger: 'user_message',
@@ -223,16 +229,26 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     });
     sink.emit({
       type: 'recovery_attempt_finished',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-1',
       revision: 14,
       attemptId: 'att-1',
       outcome: 'completed',
       accepted: true,
     });
-    sink.emit({ type: 'recovery_ready', scope: 'foreground', revision: 14, reason: 'success' });
+    sink.emit({
+      type: 'recovery_ready',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
+      revision: 14,
+      reason: 'success',
+    });
     sink.emit({
       type: 'recovery_state_write_failed',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
       reason: 'ENOSPC',
       context: 'noteFailure',
     });
@@ -240,7 +256,9 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(audit.writes).toHaveLength(5);
     expect(audit.writes[0]).toEqual([
       'llm_recovery_scheduled',
-      'scope=foreground',
+      'instance=owner-1',
+      'invocation=inv-1',
+      'attempt=att-0',
       'revision=12',
       'scheduleKind=at',
       'resumeAt=2026-10-19T06:00:00.000Z',
@@ -250,7 +268,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     ]);
     expect(audit.writes[1]).toEqual([
       'llm_recovery_attempt_admitted',
-      'scope=foreground',
+      'instance=owner-1',
+      'invocation=inv-1',
       'revision=13',
       'attempt=att-1',
       'trigger=user_message',
@@ -258,7 +277,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     ]);
     expect(audit.writes[2]).toEqual([
       'llm_recovery_attempt_finished',
-      'scope=foreground',
+      'instance=owner-1',
+      'invocation=inv-1',
       'revision=14',
       'attempt=att-1',
       'outcome=completed',
@@ -266,13 +286,17 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     ]);
     expect(audit.writes[3]).toEqual([
       'llm_recovery_ready',
-      'scope=foreground',
+      'instance=owner-1',
+      'invocation=inv-1',
+      'attempt=att-1',
       'revision=14',
       'reason=success',
     ]);
     expect(audit.writes[4]).toEqual([
       'llm_recovery_state_write_failed',
-      'scope=foreground',
+      'instance=owner-1',
+      'invocation=inv-1',
+      'attempt=att-1',
       'context=noteFailure',
       'reason=ENOSPC',
     ]);
@@ -286,14 +310,18 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     const sink = createLLMEventSink(audit, stream);
     sink.emit({
       type: 'recovery_state_write_degraded',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
       context: 'noteAttemptStarted',
       durability: 'committed_durability_unknown',
       reason: 'EIO: fsync failed',
     });
     expect(audit.writes).toEqual([[
       'llm_recovery_state_write_degraded',
-      'scope=foreground',
+      'instance=owner-1',
+      'invocation=inv-1',
+      'attempt=att-1',
       'context=noteAttemptStarted',
       'durability=committed_durability_unknown',
       'reason=EIO: fsync failed',
@@ -335,7 +363,9 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
 
     sink.emit({
       type: 'recovery_scheduled',
-      scope: 'foreground',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-5',
+      attemptId: 'att-5',
       revision: 5,
       scheduleKind: 'on_change',
       resumeAt: '',
@@ -357,6 +387,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
 
     sink.emit({
       type: 'call_invocation_started',
+      orchestratorInstance: 'owner-1',
       invocationId: 'inv-1',
       attemptId: 'att-1',
       kind: 'call',
@@ -393,7 +424,10 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       'llm_call_selection',
       'llm_call_selection',
     ]);
-    expect(audit.writes.slice(0, 3).map(write => write[2])).toEqual([
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'instance=owner-1', 'invocation=inv-1', 'attempt=att-1',
+    ]));
+    expect(audit.writes.slice(0, 3).map(write => write.find(col => col === 'attempt=att-1'))).toEqual([
       'attempt=att-1', 'attempt=att-1', 'attempt=att-1',
     ]);
     expect(audit.writes[3]).toContain('attempt=none');

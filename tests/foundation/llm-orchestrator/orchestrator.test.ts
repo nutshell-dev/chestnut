@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
-import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMAllProvidersFailedError, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   LLMEventSink,
@@ -546,7 +546,7 @@ describe('phase 1776 Step B/D: breaker 跳过 permanent/quota', () => {
     expect(onFailureSpy).not.toHaveBeenCalled();
   });
 
-  it('quota 失败后再次 call 仍真发（breaker 未 open，无半开探针语义）', async () => {
+  it('quota 失败后恢复下界内不真发，新用户干预放行一次真实 call', async () => {
     let calls = 0;
     const primary = createMockProvider('primary', {
       callError: new LLMQuotaError('kimi', 'quota exceeded'),
@@ -557,14 +557,17 @@ describe('phase 1776 Step B/D: breaker 跳过 permanent/quota', () => {
       return originalCall(opts);
     };
     const service = createOrchestrator(primary, []);
+    const request = { messages: [{ role: 'user' as const, content: 'hi' }] };
 
-    await expect(
-      service.call({ messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toBeDefined();
-    await expect(
-      service.call({ messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toBeDefined();
+    await expect(service.call(request)).rejects.toBeDefined();
+    await expect(service.call(request)).rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
+    expect(calls).toBe(1);
 
+    await expect(service.call({
+      ...request,
+      recoveryFacts: { interventionIds: ['retry-quota-after-user-intervention'] },
+    })).rejects.toBeDefined();
     expect(calls).toBe(2);
+    await service.close();
   });
 });

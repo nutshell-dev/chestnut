@@ -389,7 +389,6 @@ describe('Step E-6: executor 分类——共享故障携带 waiting（owner 决�
       close: vi.fn(),
       healthCheck: vi.fn().mockResolvedValue(true),
       getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      resetLastSuccessProvider: vi.fn(),
       getFailureDisposition: vi.fn().mockReturnValue('unknown'),
       reloadConfig: vi.fn(),
       snapshot: vi.fn(),

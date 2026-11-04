@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/index.js';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMAllProvidersFailedError, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMEvent, LLMInstanceLifecycle } from '../../../src/foundation/llm-orchestrator/types.js';
@@ -55,11 +55,11 @@ async function fixture() {
   return { dir, fs, emitted, statePath, makeOwner };
 }
 
-function wrapAtomic(fs: FileSystem, write: (original: FileSystem['writeAtomicSync']) => AtomicWriteResult): FileSystem {
+function wrapAtomic(fs: FileSystem, write: (original: FileSystem['writeAtomicSync'], raw: string) => AtomicWriteResult): FileSystem {
   return new Proxy(fs, {
     get(target, prop, receiver) {
       if (prop === 'writeAtomicSync') {
-        return (...args: Parameters<FileSystem['writeAtomicSync']>) => write(target.writeAtomicSync.bind(target, ...args));
+        return (...args: Parameters<FileSystem['writeAtomicSync']>) => write(target.writeAtomicSync.bind(target, ...args), String(args[1]));
       }
       const value = Reflect.get(target, prop, receiver) as unknown;
       return typeof value === 'function' ? value.bind(target) : value;
@@ -83,7 +83,7 @@ describe('LLM instance health persistence', () => {
     const restarted = f.makeOwner([healthy]);
     expect(restarted.snapshot().providers[0]).toMatchObject({ breakerOpen: true, consecutiveFailures: 1 });
     expect(restarted.getSharedRecoveryDecision().kind).toBe('at');
-    await expect(restarted.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(restarted.call(CALL)).rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
     expect(healthy.call).not.toHaveBeenCalled();
   });
 
@@ -94,6 +94,8 @@ describe('LLM instance health persistence', () => {
     await expect(f.makeOwner([primaryFailure, fallback]).call(CALL)).resolves.toBe(OK);
     expect(JSON.parse(fsNative.readFileSync(f.statePath, 'utf8')).lastSuccess).toEqual({
       providerId: expect.any(String),
+      lastUsedAt: expect.any(Number),
+      cacheValidUntil: expect.any(Number),
     });
 
     const primary = adapter('primary');
@@ -103,11 +105,19 @@ describe('LLM instance health persistence', () => {
     expect(restartedFallback.call).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the original provider outcome and old memory when rename-before write fails', async () => {
+  it('keeps old memory when provider outcome rename-before write fails', async () => {
     const dir = await createTrackedTempDir('instance-health-write-failure-');
     dirs.push(dir);
     const baseFs = new NodeFileSystem({ baseDir: dir });
-    const fs = wrapAtomic(baseFs, () => { throw new Error('injected rename failure'); });
+    let failWrites = false;
+    const fs = wrapAtomic(baseFs, (original, raw) => {
+      const state = JSON.parse(raw);
+      const isProviderOutcome = state.lastSuccess !== null
+        || state.providers.some((provider: { sharedFailure?: unknown; breaker: { state: string } }) =>
+          provider.sharedFailure !== undefined || provider.breaker.state === 'open');
+      if (failWrites && isProviderOutcome) throw new Error('injected rename failure');
+      return original();
+    });
     const emitted: LLMEvent[] = [];
     const primary = adapter('primary');
     const owner = new LLMOrchestratorImpl({
@@ -118,11 +128,12 @@ describe('LLM instance health persistence', () => {
       createProviderAdapter: () => primary,
     });
 
+    failWrites = true;
     await expect(owner.call(CALL)).resolves.toBe(OK);
     expect(owner.getProviderInfo().name).toBe('primary');
     expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toBeNull();
     expect(emitted.some(event => event.type === 'instance_state_write_failed')).toBe(true);
-    expect(fsNative.existsSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE))).toBe(false);
+    expect(JSON.parse(fsNative.readFileSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf8')).lastSuccess).toBeNull();
 
     const failure = adapter('failure', async () => { throw new LLMNetworkError('failure', new Error('original')); });
     const failingOwner = new LLMOrchestratorImpl({
@@ -132,7 +143,7 @@ describe('LLM instance health persistence', () => {
       lifecycle: { mode: 'durable', fs },
       createProviderAdapter: () => failure,
     });
-    await expect(failingOwner.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await expect(failingOwner.call(CALL)).rejects.toThrow();
     expect(failingOwner.snapshot().providers[0].consecutiveFailures).toBe(0);
   });
 

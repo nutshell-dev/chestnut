@@ -2,11 +2,8 @@
  * @module L2b.LLMOrchestrator.RecoveryState
  * @layer L2b LLM 语义基础设施
  *
- * Phase 1826：LLM 恢复状态的持久化形态。owner（LLMOrchestrator）拥有
- * schema、文件名、校验、迁移 intake 与降级导出；调用方只见注入的 FileSystem
- * 与稳定 opaque scope，不解析内部字段。
- *
- * 顺序不变量：读取/严格校验 → 决定新状态 → 原子持久化 → 发布安排。
+ * Phase 2055：本模块仅是旧 llm-recovery-state/llm-retry-state 的只读 intake。
+ * 新事实、revision 与原子写统一归 instance-state.ts；这里不提供任何写出口。
  * 非法/未知版本/无法无损映射的输入拒绝启动并保留原文，不猜默认值继续发请求。
  */
 
@@ -452,7 +449,7 @@ export function validateRecoveryState(
 }
 
 // ---------------------------------------------------------------------------
-// 读写（原子写；读失败语义由调用方决定拒绝启动）
+// 只读导入（读失败语义由调用方决定拒绝启动）
 // ---------------------------------------------------------------------------
 
 export type RecoveryStateLoad =
@@ -566,31 +563,4 @@ export function loadRecoveryState(
   const v = validateRecoveryState(saved, scopeId);
   if (!v.ok) return { kind: 'unusable', reason: v.reason, detail: v.detail };
   return { kind: 'ok', state: v.state };
-}
-
-/**
- * 原子写。失败时抛 typed storage error——调用方不得在持久化失败后继续真发
- * 或发布成功安排；原状态文件保持不变。
- */
-export function saveRecoveryState(
-  fs: FileSystem,
-  state: LLMRecoveryStateV1,
-  stateDir = 'status',
-): ReturnType<FileSystem['writeAtomicSync']> {
-  try {
-    fs.ensureDirSync(stateDir);
-    return fs.writeAtomicSync(recoveryStateRelPath(stateDir), JSON.stringify(state));
-  } catch (e) {
-    throw new Error(`Failed to persist LLM recovery state: ${String(e)}`, { cause: e });
-  }
-}
-
-/** 读取新格式原文（用于降级/迁移时保留不可表达信息并留存证据）。 */
-export function readRecoveryStateRaw(fs: FileSystem, stateDir = 'status'): string | undefined {
-  try {
-    return fs.readSync(recoveryStateRelPath(stateDir));
-  } catch (e) {
-    if (isFileNotFound(e)) return undefined;
-    throw e;
-  }
 }

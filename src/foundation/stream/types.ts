@@ -104,15 +104,15 @@ export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVEN
  */
 export interface StreamEventMap {
   // LLM 恢复安排（6，phase 1826）
-  recovery_scheduled: { scope: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number; trace_id?: string };
-  recovery_ready: { scope: string; revision: number; reason: string; trace_id?: string };
-  recovery_attempt_admitted: { scope: string; revision: number; attemptId: string; trigger: string; interventionCount: number; trace_id?: string };
-  recovery_attempt_finished: { scope: string; revision: number; attemptId: string; outcome: string; accepted: boolean; trace_id?: string };
-  recovery_state_write_failed: { scope: string; reason: string; context: string; trace_id?: string };
-  recovery_state_write_degraded: { scope: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string; trace_id?: string };
+  recovery_scheduled: { orchestratorInstance: string; invocationId?: string; attemptId?: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number; trace_id?: string };
+  recovery_ready: { orchestratorInstance: string; invocationId: string; attemptId?: string; revision: number; reason: string; trace_id?: string };
+  recovery_attempt_admitted: { orchestratorInstance: string; invocationId: string; revision: number; attemptId: string; trigger: string; interventionCount: number; trace_id?: string };
+  recovery_attempt_finished: { orchestratorInstance: string; invocationId: string; revision: number; attemptId: string; outcome: string; accepted: boolean; trace_id?: string };
+  recovery_state_write_failed: { orchestratorInstance: string; invocationId?: string; attemptId?: string; reason: string; context: string; trace_id?: string };
+  recovery_state_write_degraded: { orchestratorInstance: string; invocationId?: string; attemptId?: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string; trace_id?: string };
   instance_state_write_failed: { context: string; reason: string; trace_id?: string };
   instance_state_write_degraded: { context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string; trace_id?: string };
-  recovery_facts_accepted: { scope: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string; trace_id?: string };
+  recovery_facts_accepted: { orchestratorInstance: string; invocationId?: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string; trace_id?: string };
   // LLM 输出（7）
   thinking_delta: { delta: string; trace_id?: string };
   text_delta: { delta: string; trace_id?: string };

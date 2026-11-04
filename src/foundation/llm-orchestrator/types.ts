@@ -106,20 +106,19 @@ export type LLMEvent =
   // 实际执行序列号（含跳过），非配置数组下标；providerId 为不可逆身份指纹（不含凭据）。
   // outcome 'discarded'：候选已执行但未成为最终选择（hedge race loser 已产出内容）——
   // 不伪造成功也不伪造失败。
-  | { type: typeof STREAM_EVENT_NAMES.CALL_INVOCATION_STARTED; invocationId: string; attemptId?: string; kind: 'call' | 'stream'; configRevision: number; candidates: { name: string; providerId: string }[] }
+  | { type: typeof STREAM_EVENT_NAMES.CALL_INVOCATION_STARTED; orchestratorInstance: string; invocationId: string; attemptId: string; kind: 'call' | 'stream'; configRevision: number; candidates: { name: string; providerId: string }[] }
   | { type: typeof STREAM_EVENT_NAMES.CALL_ATTEMPT_RESULT; invocationId: string; attemptId?: string; attemptIndex: number; provider: string; providerId: string; outcome: 'success' | 'failure' | 'skipped' | 'discarded'; errorClass?: LLMErrorClass; error?: string; reason?: string }
   | { type: typeof STREAM_EVENT_NAMES.CALL_SELECTION; invocationId: string; attemptId?: string; outcome: 'selected' | 'exhausted'; provider?: string; providerId?: string; attemptIndex?: number }
   // 由装配层 sink 在审计持久化降级/失败时产生（LLMOrchestrator 不产生本事件）。
   | { type: typeof STREAM_EVENT_NAMES.CALL_AUDIT_WRITE_FAILED; eventType: string; invocationId?: string; reason: string }
-  // Phase 1826: 恢复安排事件（owner 唯一发布；调用方只观察，不重算策略）
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_SCHEDULED; scope: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number }
-  // Phase 1827: 事实接受证据（完整新事实；admission 事件的单 trigger 只是显示摘要）
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_FACTS_ACCEPTED; scope: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_READY; scope: string; revision: number; reason: string }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_ADMITTED; scope: string; revision: number; attemptId: string; trigger: string; interventionCount: number }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_FINISHED; scope: string; revision: number; attemptId: string; outcome: string; accepted: boolean }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_FAILED; scope: string; reason: string; context: string }
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_DEGRADED; scope: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string }
+  // 恢复事件只携稳定实例与 invocation/attempt 关联，不再有 scope/turn。
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_SCHEDULED; orchestratorInstance: string; invocationId?: string; attemptId?: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_FACTS_ACCEPTED; orchestratorInstance: string; invocationId?: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_READY; orchestratorInstance: string; invocationId: string; attemptId?: string; revision: number; reason: string }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_ADMITTED; orchestratorInstance: string; invocationId: string; revision: number; attemptId: string; trigger: string; interventionCount: number }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_FINISHED; orchestratorInstance: string; invocationId: string; revision: number; attemptId: string; outcome: string; accepted: boolean }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_FAILED; orchestratorInstance: string; invocationId?: string; attemptId?: string; reason: string; context: string }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_STATE_WRITE_DEGRADED; orchestratorInstance: string; invocationId?: string; attemptId?: string; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string }
   | { type: typeof STREAM_EVENT_NAMES.INSTANCE_STATE_WRITE_FAILED; context: string; reason: string }
   | { type: typeof STREAM_EVENT_NAMES.INSTANCE_STATE_WRITE_DEGRADED; context: string; durability: 'committed_platform_limited' | 'committed_durability_unknown'; reason: string };
 
@@ -201,12 +200,10 @@ export interface LLMRuntimeCapability {
    * 对原始失败求值，本方法不展开 AggregateError 内部因果。
    */
   getFailureDisposition(error: unknown): LLMFailureDisposition;
-  /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */
-  resetLastSuccessProvider(): void;
   close(): Promise<void>;
   /**
    * phase 320: 原地替换内部 primary/fallbacks/breakers，对象引用不变。
-   * 调用方持有的引用自动指向新 provider；events sink 引用不换；每次成功 reload 清空 lastSuccessProvider。
+   * 调用方持有的引用自动指向新 provider；events sink 引用不换；每次成功 reload 清空内部选择缓存。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void;
 }

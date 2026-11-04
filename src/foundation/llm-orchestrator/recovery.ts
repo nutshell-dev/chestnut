@@ -1,27 +1,8 @@
 /**
- * @module L2b.LLMOrchestrator.Recovery
- * @layer L2b LLM 语义基础设施
- *
- * Phase 1826：LLM 调用可用性、失败后自动唤醒、用户干预准入与恢复历史的唯一
- * 决策者。EventLoop 只执行业主给出的 ready/at/on_change 安排；准入限定在单次 invocation。
- *
- * - 决定先持久化后发布；写失败不继续真发。
- * - 显式干预只携 opaque id；owner 幂等接收，可提前尝试但不清失败历史。
- * - session 视图（`session.llm`）把 scope 作为每次调用的局部参数，不改全局状态。
- *
- * Phase 1827：一次 begin 接收本轮全部恢复事实（干预 ids / 配置修订 / 启动 token），
- * 事实互不遮蔽；接受记账、安排与至多一次准入在同一原子提交中完成，完整接受事实
- * 持久保留，单一显示原因不替代全部证据。
- *
- * Phase 1958 Step C：durable commit 屏障 —— noteSuccess/noteFailure 先构造候选
- * 状态，durable commit 成功后才替换内存；写失败保持旧内存与旧磁盘一致，事件
- * revision 只来自已提交状态（内存不得越过磁盘事实）。
+ * Orchestrator 内部恢复 controller。状态由 LLMOrchestratorImpl 的统一实例提交屏障持久化；
+ * 本模块不拥有文件、不构造 session，也不向公共 barrel 暴露 begin/finish 控制面。
  */
-
 import { formatErr, newUuid, sha256ShortHex } from '../node-utils/index.js';
-import type { FileSystem } from '../fs/index.js';
-import type { LLMResponse } from '../llm-provider/index.js';
-import { isAbortError } from '../llm-provider/index.js';
 import type {
   LLMCallOptions,
   LLMRecoveryFacts,
@@ -31,10 +12,8 @@ import type {
   LLMOrchestrator,
   LLMProbeResult,
   LLMRuntimeCapability,
-  LLMStreamChunk,
 } from './types.js';
 import type { LLMErrorClass } from './errors.js';
-import { LLMOrchestratorClosedError, LLMRecoveryWaitRequiredError } from './errors.js';
 import {
   LLM_RECOVERY_COOLDOWN_MS,
   LLM_RECOVERY_MAX_RETRIES,
@@ -48,127 +27,52 @@ import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION,
-  createInitialRecoveryState,
-  loadRecoveryState,
-  saveRecoveryState,
-  type LLMRecoveryAcceptedFactBatch,
   type LLMRecoveryBudget,
-  type LLMRecoveryProviderFact,
+  type LLMRecoveryFailureEvidence,
   type LLMRecoverySchedule,
-  type LLMRecoveryStateV1,
 } from './recovery-state.js';
+import type {
+  LLMInstanceAcceptedFactBatch,
+  LLMInstanceInvocation,
+  LLMInstanceRecoveryProviderFact,
+  LLMInstanceRecoveryState,
+} from './instance-state.js';
 
-/** scoped 调用的失败输入（orchestrator 侧构造；owner 解释策略）。 */
 export interface RecoveryFailureInput {
   providerId: string;
   errorClass: LLMErrorClass;
   message: string;
-  /** typed Retry-After（秒）；禁止从 message 正则推导。 */
   retryAfterSec?: number;
-  /** true = 仅被本地 breaker 跳过、未发生真实请求：不消耗预算、不计失败数。 */
   localSkip?: boolean;
-  /** localSkip 时的最早可尝试时刻（本地 breaker reset）。 */
   probeAllowedAtMs?: number;
-  /**
-   * Phase 1968 Step B：身份↔label 关系与调用路径关联（可选，旧路径缺省不猜）。
-   * providerLabel = 显示名（改名会产生新身份指纹，label 随事实留存供对齐）；
-   * invocationId/attemptIndex 与 llm_call_invocation_started/llm_call_attempt_result
-   * 审计事件同源；configRevision = orchestrator 配置代次。
-   */
   providerLabel?: string;
   invocationId?: string;
   attemptId?: string;
   attemptIndex?: number;
   configRevision?: number;
+  /** 错误发生时刻（ms epoch）；typed Retry-After 下界以此为准。 */
+  occurredAtMs?: number;
 }
 
-/**
- * scoped 调用与 owner 会话之间的窄协议。
- * orchestrator 只依赖本接口，不知道 schedule/admission 细节。
- */
-export interface RecoveryCallScope {
-  noteAttemptStarted(): void;
-  noteSuccess(): void;
-  noteFailure(failures: readonly RecoveryFailureInput[]): void;
-  /**
-   * 本次尝试的局部预算与资格（由 owner 的准入唯一决定）：
-   * - probeOnly：恢复 probe 模式，每候选至多一次真实调用（正常预算另计）；
-   * - allowBreakerProbe：显式干预/启动放行，候选不被本地 breaker 立即拒绝。
-   * 不修改全局配置、不置可变标志——同进程其他 caller 不受影响。
-   */
-  attemptContext(): {
-    probeOnly: boolean;
-    allowBreakerProbe: boolean;
-    attemptId?: string;
-  };
-}
-
-/**
- * Phase 1933 Step F：实例内恢复信号（进程隔离边界——与 snapshot/probe 同，
- * 探针调度与就绪信号仅存在于本 orchestrator 实例内存中，不跨进程；
- * 禁止以文件/socket/全局目录作为跨进程状态通道）。
- */
 export interface LLMRecoverySignal {
-  /** 订阅实例内恢复就绪信号；返回退订函数。close 后不再投递。 */
   subscribeReady(listener: () => void): () => void;
-  /** 安排在 atMs（ms epoch）后发起一次独立探针；重复调用替换既有安排（取最新）。 */
   scheduleProbe(atMs: number): void;
 }
 
-/**
- * Phase 1934 Step C（F-11/F-02）：共享恢复判据——provider 故障分类、候选准入、
- * 探针安排与可恢复结论唯一归 LLMOrchestrator；调用方（Assembly/ATS/EventLoop）
- * 只消费结论，不得解释 breaker/snapshot。实例内状态，不跨进程。
- * - ready：存在无共享故障记录的合法候选（任一候选可用即可按既有 fallback 顺序服务）；
- * - at：全部候选被阻断，nextProbeAt 为 owner 下界（含 typed Retry-After / breaker
- *   弹回 / 退避常量）的最早可验证时刻；
- * - on_change：仅保留给无可用时间下界的非 provider 等待；provider 故障均以 at 持续。
- */
 export type SharedRecoveryDecision =
   | { kind: 'ready' }
   | { kind: 'at'; nextProbeAt: number }
   | { kind: 'on_change' };
 
-/**
- * 具备 scoped 恢复能力的 owner 实例（工厂返回类型）。
- * 公共 call/stream 消费者仍只要求既有最小接口。
- */
+/** 唯一真实 owner；所有直接注入方均通过其公共 call/stream 进入恢复。 */
 export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRuntimeCapability, LLMRecoverySignal {
-  /** owner 健康检查；业务执行面不持有此管理能力。 */
   healthCheck(): Promise<boolean>;
-  /** scoped view 在创建 admission 前查询 owner 的不可逆终态。 */
   isClosed(): boolean;
-  callWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): Promise<LLMResponse>;
-  streamWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): AsyncIterableIterator<LLMStreamChunk>;
-
-  /**
-   * Phase 1933 Step B：实例内能力——进程隔离边界。
-   * 同一 claw 进程的全部调用方共享同一 owner；durable 健康事实可跨重启恢复，
-   * timer/listener/inflight 等运行句柄仅内存。禁止把实例文件用作跨进程多 writer 通道。
-   */
-
-  /** 实例级故障快照：进程内共享状态的只读视图（无副作用，不弹回 breaker）。 */
+  inspectRecoverySchedule(): Promise<LLMRecoverySchedule>;
   snapshot(): LLMInstanceSnapshot;
-  /**
-   * 独立探针：不依赖普通调用成功（breaker open 时仍发起真实探测）；
-   * 实例内单一调度——并发/重入调用去重为同一次真实探测，返回同一结果。
-   * 结果经返回值表达（不抛业务错）。
-   */
   probe(): Promise<LLMProbeResult>;
-  /**
-   * Phase 1934 Step C：共享恢复判据的唯一查询面（副作用自由、不触发 breaker
-   * 状态转移）。普通调用成功不解除已发布 shared blocked——只有探针验证成功
-   * 或 reloadConfig 移除已变化/删除身份的共享故障记录（未变化身份保留）。
-   */
   getSharedRecoveryDecision(): SharedRecoveryDecision;
-
-  /**
-   * Phase 1944 Step B：LLM 失败处置事实查询（LLMRuntimeCapability 同源；
-   * scoped 视图转发本方法，session.llm 消费者与直持实例消费者得到同一 owner 结论）。
-   */
   getFailureDisposition(error: unknown): LLMFailureDisposition;
-
-  /** 当前完整/旧算法身份，与 [primary, ...fallbacks] 同序的只读副本。 */
   getProviderIdentities(): readonly string[];
   getLegacyProviderIdentities(): readonly string[];
 }
@@ -176,41 +80,25 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator, LLMRuntimeCapabil
 export type { LLMRecoveryFacts } from './types.js';
 
 export type LLMRecoveryAdmission =
-  | { kind: 'admitted'; attemptId: string; factsAccepted: true }
+  | { kind: 'admitted'; invocationId: string; attemptId: string; factsAccepted: true }
   | { kind: 'waiting'; schedule: LLMRecoverySchedule; factsAccepted: boolean };
 
-/**
- * owner 内部与白盒测试使用的 admission capability；EventLoop 不再按 turn 调用。
- *
- * Phase 1950 Step B（恢复边界治理）：schedule / admission / factsAccepted 全部是
- * LLMOrchestrator owner 产生并持久化的只读事实；调用方（EventLoop）只做准入、等待、
- * ack/nack 与用户干预转发——禁止调用方填充或重算 retry/fallback/breaker/idle 策略
- * 字段、伪造 schedule 或修改 facts 语义。`facts` 入参是 typed 观察事实
- * （干预 ids / 配置修订 / 启动 token），不是策略通道。
- */
-export interface LLMRecoveryController {
-  inspect(): Promise<LLMRecoverySchedule>;
-  begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission>;
-  finish(attemptId: string, outcome: 'completed' | 'interrupted' | 'failed'): Promise<void>;
-}
-
-export interface LLMRecoverySession {
-  /** 绑定本 scope 的 LLM 调用视图（同一 owner 的范围视图，非另建实例）。Phase 1944 Step B：同时满足 Runtime 窄消费面。 */
-  readonly llm: LLMOrchestrator & LLMRuntimeCapability;
-  /** 只读恢复安排；begin/finish 准入控制留在 owner 实现内部。 */
-  inspect(): Promise<LLMRecoverySchedule>;
-}
-
-export interface RecoverySessionDeps {
-  /** 稳定 opaque scope 标识（装配方给出，owner 不解析业务含义）。 */
-  scopeId: string;
-  /** 注入的持久化范围（目录位置由装配方提供，文件/schema 归 owner）。 */
-  fs: FileSystem;
-  /** scope 内相对状态目录；缺省 status 仅作旧文件兼容，生产由 Assembly 显式注入。 */
-  stateDir?: string;
+interface RecoveryControllerDeps {
+  instanceId: string;
   events: LLMEventSink;
-  orchestrator: LLMOrchestratorOwner;
+  orchestrator: Pick<LLMOrchestratorOwner, 'getProviderIdentities' | 'getLegacyProviderIdentities'>;
+  getState(): LLMInstanceRecoveryState;
+  getRevision(): number;
+  hasSharedFailure(providerId: string): boolean;
+  /** 同步 durable commit；成功返回已提交 revision，失败必须 throw 且不得发布候选。 */
+  commit(next: LLMInstanceRecoveryState, context: string, clearSharedProviderId?: string): number;
   now?: () => number;
+}
+
+interface AcceptedFacts {
+  interventionIds: readonly string[];
+  configurationRevision?: string;
+  startupId?: string;
 }
 
 function initialBudget(): LLMRecoveryBudget {
@@ -226,9 +114,49 @@ function appendBounded(existing: string[], additions: readonly string[], max: nu
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
-/** 最近窗口是索引；完整 acceptedFactBatches 防止窗口外旧事实重放。 */
+function cloneRecovery(state: LLMInstanceRecoveryState): LLMInstanceRecoveryState {
+  return {
+    ...state,
+    budget: { ...state.budget },
+    providers: state.providers.map(fact => ({ ...fact })),
+    acceptedInterventions: [...state.acceptedInterventions],
+    acceptedConfigRevisions: [...state.acceptedConfigRevisions],
+    invocations: state.invocations.map(invocation => ({
+      ...invocation,
+      ...(invocation.interventionIds ? { interventionIds: [...invocation.interventionIds] } : {}),
+    })),
+    failures: [...state.failures],
+    importedSources: [...state.importedSources],
+    ...(state.failureEvidenceLoss ? { failureEvidenceLoss: { ...state.failureEvidenceLoss } } : {}),
+    ...(state.acceptedFactBatches
+      ? { acceptedFactBatches: state.acceptedFactBatches.map(batch => ({ ...batch, interventionIds: [...batch.interventionIds] })) }
+      : {}),
+  };
+}
+
+/** schedule 是健康事实的只读派生，不进入磁盘 schema。 */
+export function deriveLLMRecoverySchedule(
+  state: LLMInstanceRecoveryState,
+  revision: number,
+  currentProviderIds: readonly string[] = [],
+): LLMRecoverySchedule {
+  const blocked = state.providers.filter(fact => fact.blocking);
+  const blockedIds = new Set(blocked.map(fact => fact.providerId));
+  if (blocked.length === 0 || currentProviderIds.some(providerId => !blockedIds.has(providerId))) {
+    return { kind: 'ready', revision };
+  }
+  let earliest: string | undefined;
+  for (const fact of blocked) {
+    if (fact.retryAt === undefined) continue;
+    if (earliest === undefined || Date.parse(fact.retryAt) < Date.parse(earliest)) earliest = fact.retryAt;
+  }
+  return earliest === undefined
+    ? { kind: 'on_change', revision }
+    : { kind: 'at', revision, resumeAt: earliest };
+}
+
 function hasAcceptedFact(
-  state: LLMRecoveryStateV1,
+  state: LLMInstanceRecoveryState,
   kind: 'intervention' | 'configuration',
   id: string,
 ): boolean {
@@ -241,48 +169,34 @@ function hasAcceptedFact(
   );
 }
 
-export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallScope {
-  readonly llm: LLMOrchestrator & LLMRuntimeCapability;
-
-  private state: LLMRecoveryStateV1;
-  private readonly scopeId: string;
-  private readonly fs: FileSystem;
-  private readonly stateDir: string | undefined;
+export class LLMRecoveryControllerImpl {
+  private readonly instanceId: string;
   private readonly events: LLMEventSink;
+  private readonly orchestrator: RecoveryControllerDeps['orchestrator'];
+  private readonly getState: RecoveryControllerDeps['getState'];
+  private readonly getRevision: RecoveryControllerDeps['getRevision'];
+  private readonly hasSharedFailure: RecoveryControllerDeps['hasSharedFailure'];
+  private readonly commit: RecoveryControllerDeps['commit'];
   private readonly now: () => number;
-  private readonly orchestrator: LLMOrchestratorOwner;
 
-  constructor(deps: RecoverySessionDeps) {
-    this.scopeId = deps.scopeId;
-    this.fs = deps.fs;
-    this.stateDir = deps.stateDir;
+  constructor(deps: RecoveryControllerDeps) {
+    this.instanceId = deps.instanceId;
     this.events = deps.events;
-    this.now = deps.now ?? Date.now;
     this.orchestrator = deps.orchestrator;
+    this.getState = deps.getState;
+    this.getRevision = deps.getRevision;
+    this.hasSharedFailure = deps.hasSharedFailure;
+    this.commit = deps.commit;
+    this.now = deps.now ?? Date.now;
+    this.migrateProviderIdentities();
+    this.recoverInvocationsAfterRestart();
+  }
 
-    const load = loadRecoveryState(
-      deps.fs,
-      deps.scopeId,
-      deps.stateDir,
-      initialBudget(),
-      this.now(),
-    );
-    if (load.kind === 'unusable') {
-      // 拒绝启动并保留原文：不猜默认值继续发请求。
-      throw new Error(
-        `LLM recovery state is unusable (${load.reason}): ${load.detail}`,
-      );
-    }
-    this.state = load.kind === 'ok'
-      ? load.state
-      : createInitialRecoveryState(deps.scopeId, initialBudget(), this.now());
-    if (load.kind === 'ok' && load.imported === true) {
-      // 旧文件只读；迁移提交只写新文件，revision 从 1 开始，不沿用 llmRetryCount。
-      this.commitNext(this.state, 'migration');
-    }
+  async inspect(): Promise<LLMRecoverySchedule> {
+    return deriveLLMRecoverySchedule(this.getState(), this.getRevision(), this.orchestrator.getProviderIdentities());
+  }
 
-    // Phase 2027 Step C：旧算法事实先重键到当前完整身份并持久 pending。
-    // 若随后崩溃，首次 begin 仍能区分「同修订保留」与「升级同时改配置的保守重估」。
+  private migrateProviderIdentities(): void {
     const legacyToCurrent = new Map<string, string>();
     const currentIds = this.orchestrator.getProviderIdentities();
     const legacyIds = this.orchestrator.getLegacyProviderIdentities();
@@ -293,126 +207,66 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         legacyToCurrent.set(legacyId, currentId);
       }
     }
+    const state = this.getState();
     let migrated = false;
-    const migratedProviders = this.state.providers.map(fact => {
+    const next = cloneRecovery(state);
+    next.providers = next.providers.map(fact => {
       const currentId = legacyToCurrent.get(fact.providerId);
       if (currentId === undefined) return fact;
+      if (next.providers.some(other => other !== fact && other.providerId === currentId)) {
+        throw new Error(`legacy provider identity migration conflicts at ${currentId}`);
+      }
       migrated = true;
       return { ...fact, providerId: currentId, identityMigrationPending: true };
     });
-    if (migrated) {
-      const next = {
-        ...this.state,
-        providers: migratedProviders,
-        revision: this.state.revision + 1,
-      };
-      next.schedule = { ...next.schedule, revision: next.revision };
-      this.commitNext(next, 'migration');
-    }
+    if (migrated) this.commitNext(next, 'migration');
+  }
 
-    const residual = this.state.activeAdmission;
-    if (residual) {
-      const next: LLMRecoveryStateV1 = {
-        ...this.state,
-        failures: [...this.state.failures],
-        revision: this.state.revision + 1,
-      };
-      if (residual.started) {
-        // legacy turn 与新 invocation 的已开始记录都无法确定最终结果；不伪造成功。
-        next.activeAdmission = null;
+  private recoverInvocationsAfterRestart(): void {
+    const state = this.getState();
+    if (state.invocations.length === 0) return;
+    const next = cloneRecovery(state);
+    const retained: LLMInstanceInvocation[] = [];
+    let changed = false;
+    for (const invocation of state.invocations) {
+      if (invocation.started) {
+        changed = true;
         this.pushFailure(next, {
           at: new Date(this.now()).toISOString(),
           providerId: 'unknown',
           errorClass: 'unknown',
-          message: `attempt ${residual.attemptId} result unknown after restart`,
-          attemptId: residual.attemptId,
-        });
-      } else if (residual.admissionKind === undefined) {
-        // 2032 前缺省 kind 的记录覆盖整个 turn，不能按单次 invocation 恢复。
-        next.activeAdmission = null;
-        this.pushFailure(next, {
-          at: new Date(this.now()).toISOString(),
-          providerId: 'unknown',
-          errorClass: 'unknown',
-          message: `legacy_turn_admission_retired attempt=${residual.attemptId} requestKey=${residual.requestKey}`,
-          attemptId: residual.attemptId,
+          message: `invocation ${invocation.invocationId} attempt ${invocation.attemptId} result unknown after restart`,
+          invocationId: invocation.invocationId,
+          attemptId: invocation.attemptId,
         });
       } else {
-        // 新 invocation 尚未发起真实请求，可重新驱动同一 attempt。
-        next.activeAdmission = { ...residual, resumedFromRestart: true };
+        if (invocation.resumedFromRestart !== true) changed = true;
+        retained.push({ ...invocation, resumedFromRestart: true });
       }
-      next.schedule = { ...next.schedule, revision: next.revision };
-      this.commitNext(next, 'constructor');
     }
-
-    this.llm = this.createScopedView(deps.orchestrator);
+    next.invocations = retained;
+    if (changed) this.commitNext(next, 'constructor');
   }
 
-  // -------------------------------------------------------------------------
-  // LLMRecoveryController
-  // -------------------------------------------------------------------------
-
-  async inspect(): Promise<LLMRecoverySchedule> {
-    return { ...this.state.schedule };
-  }
-
-  /**
-   * Phase 1827: 一次提交全部恢复事实，由 owner 幂等接受并至多产生一次准入。
-   *
-   * 固定顺序（事实之间无优先级）：
-   * 1. 去重输入 ids；记录入口安排（probeOnly 判定用）；
-   * 2. 活跃且非「重启恢复未开始」的准入 → waiting/factsAccepted=false，不接收任何事实；
-   * 3. 复制状态，后续只改副本；计算全部新事实差集；
-   * 4. 新配置修订 → 只重估身份变化/pending 的 provider facts；on_change 在实际释放
-   *    全部阻断后转 ready，at deadline 不变；不清预算与失败证据；
-   * 5. 全部新干预 ids 一次记账，任一新 id 授予一次提前资格；
-   * 6. 新启动 token 一律记为本 boot 已处理，仅 on_change 入口授予一次启动资格；
-   * 7. 在配置评估后的安排上只做一次准入判断；
-   * 8. 重启恢复的未开始准入：合入本批新事实、解除 resumed 标记，不建第二个 attempt；
-   * 9-11. 去重/安排/接受证据/准入一次原子保存，成功后才替换内存并发布事件。
-   */
-  async begin(input: {
-    requestKey: string;
-    facts: LLMRecoveryFacts;
-  }): Promise<LLMRecoveryAdmission> {
+  async begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission> {
     const nowMs = this.now();
-    const entrySchedule = this.state.schedule;
+    const state = this.getState();
+    const entrySchedule = deriveLLMRecoverySchedule(state, this.getRevision(), this.orchestrator.getProviderIdentities());
     const dedupedIds = dedupeStrings(input.facts.interventionIds);
-
-    // 活跃准入挡住整批：不记账、不改安排、不发布接受事件；来源可重送。
-    const active = this.state.activeAdmission;
-    const resumable = active !== null && active.resumedFromRestart === true && !active.started;
-    if (active && !resumable) {
-      return { kind: 'waiting', schedule: { ...this.state.schedule }, factsAccepted: false };
+    const resumableMatches = state.invocations.filter(invocation =>
+      invocation.resumedFromRestart === true && !invocation.started && invocation.requestKey === input.requestKey,
+    );
+    if (resumableMatches.length > 1) {
+      throw new Error(`multiple restart invocations match requestKey ${input.requestKey}; refusing to guess`);
     }
-
-    const next: LLMRecoveryStateV1 = {
-      ...this.state,
-      budget: { ...this.state.budget },
-      providers: this.state.providers.map(fact => ({ ...fact })),
-      acceptedInterventions: [...this.state.acceptedInterventions],
-      acceptedConfigRevisions: [...this.state.acceptedConfigRevisions],
-      failures: [...this.state.failures],
-      importedSources: [...this.state.importedSources],
-      ...(this.state.acceptedFactBatches
-        ? { acceptedFactBatches: [...this.state.acceptedFactBatches] }
-        : {}),
-    };
+    const active = resumableMatches[0];
+    const next = cloneRecovery(state);
     let stateChanged = false;
-    const acceptedFacts: {
-      interventionIds: string[];
-      configurationRevision?: string;
-      startupId?: string;
-    } = { interventionIds: [] };
+    const acceptedFacts: AcceptedFacts = { interventionIds: [] };
 
-    // 4. 新配置修订：只重估身份变化或待迁移事实；at 的时间窗不因配置缩短。
     const configRevision = input.facts.configurationRevision;
     if (configRevision !== undefined && !hasAcceptedFact(next, 'configuration', configRevision)) {
-      next.acceptedConfigRevisions = appendBounded(
-        next.acceptedConfigRevisions,
-        [configRevision],
-        LLM_RECOVERY_ACCEPTED_IDS_MAX,
-      );
+      next.acceptedConfigRevisions = appendBounded(next.acceptedConfigRevisions, [configRevision], LLM_RECOVERY_ACCEPTED_IDS_MAX);
       const currentIds = new Set(this.orchestrator.getProviderIdentities());
       let released = false;
       next.providers = next.providers.flatMap(fact => {
@@ -425,38 +279,29 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         if (fact.rateLimitBlocked === true) released = true;
         return [clearIdentityMigrationPending(releaseRateLimitBlocked(fact))];
       });
-      const stillBlocked = next.providers.some(
-        fact => fact.errorClass === 'permanent' || fact.rateLimitBlocked === true,
+      const stillBlocked = next.providers.some(fact =>
+        fact.blocking && (fact.errorClass === 'permanent' || fact.rateLimitBlocked === true),
       );
-      if (released && next.schedule.kind === 'on_change' && !stillBlocked) {
-        next.schedule = { kind: 'ready', revision: next.revision };
+      if (released && entrySchedule.kind === 'on_change' && !stillBlocked) {
+        next.providers = next.providers.map(fact => ({ ...fact, blocking: false, retryAt: undefined }));
       }
       acceptedFacts.configurationRevision = configRevision;
       stateChanged = true;
     } else {
-      // 同修订/无修订可证明配置未变：清迁移标记但保留全部故障事实。
       const before = next.providers;
       next.providers = next.providers.map(clearIdentityMigrationPending);
       if (next.providers.some((fact, i) => fact !== before[i])) stateChanged = true;
     }
 
-    // 5. 全部新干预 ids 一次记账；多 id 归一化为一次资格，旧 id 不授予新资格。
     const freshIds = dedupedIds.filter(id => !hasAcceptedFact(next, 'intervention', id));
     if (freshIds.length > 0) {
-      next.acceptedInterventions = appendBounded(
-        next.acceptedInterventions,
-        freshIds,
-        LLM_RECOVERY_ACCEPTED_IDS_MAX,
-      );
-      // 用户干预是显式重试信号：blocked 状态解除，重新获得完整失败窗口。
+      next.acceptedInterventions = appendBounded(next.acceptedInterventions, freshIds, LLM_RECOVERY_ACCEPTED_IDS_MAX);
       next.providers = next.providers.map(releaseRateLimitBlocked);
       acceptedFacts.interventionIds = freshIds;
       stateChanged = true;
     }
     const hasUserQualification = freshIds.length > 0;
 
-    // 6. 新启动 token：不论入口安排都记为本 boot 已处理（ready/at 时不能留到本 boot
-    // 稍后失败再获得启动机会）；仅 on_change 入口授予一次启动资格。
     let hasStartupQualification = false;
     const startupId = input.facts.startupId;
     if (startupId !== undefined && startupId !== next.lastStartupProbeId) {
@@ -466,291 +311,190 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       if (entrySchedule.kind === 'on_change') hasStartupQualification = true;
     }
 
-    // Phase 2034 Step C：旧 provider on_change 在下一次 begin 按既有事实自动转为 at。
-    // 配置重估/用户/启动事实先处理；迁移只沿用既有 stateChanged/revision 提交路径。
-    if (next.schedule.kind === 'on_change') {
-      let resumeAtMs: number | undefined;
+    if (entrySchedule.kind === 'on_change') {
       for (const fact of next.providers) {
+        if (!fact.blocking || fact.retryAt !== undefined) continue;
         const delayMs = recoveryDelayForFact(fact, next.budget);
-        if (delayMs !== undefined) resumeAtMs = minDefined(resumeAtMs, nowMs + delayMs);
-      }
-      if (resumeAtMs !== undefined) {
-        next.schedule = {
-          kind: 'at',
-          revision: next.revision,
-          resumeAt: new Date(resumeAtMs).toISOString(),
-        };
-        stateChanged = true;
+        if (delayMs !== undefined) {
+          fact.retryAt = new Date(nowMs + delayMs).toISOString();
+          stateChanged = true;
+        }
       }
     }
 
     const hasNewFacts = acceptedFacts.interventionIds.length > 0
       || acceptedFacts.configurationRevision !== undefined
       || acceptedFacts.startupId !== undefined;
+    const acceptedBatchRevision = this.getRevision() + 1;
 
-    if (resumable && active) {
-      // 8. Z4+1827：重启前已授予、尚未开始的准入 → 合入本批新事实并重新驱动同一 attempt。
-      // 不做第二次准入判断；保留原预算/资格，只合入确有的新资格。
-      next.activeAdmission = {
-        ...active,
-        requestKey: input.requestKey,
-        resumedFromRestart: undefined,
-        interventionIds: mergeIds(active.interventionIds ?? [], acceptedFacts.interventionIds),
-        ...(acceptedFacts.configurationRevision !== undefined
-          ? { configurationRevision: acceptedFacts.configurationRevision }
-          : active.configurationRevision !== undefined
-            ? { configurationRevision: active.configurationRevision }
-            : {}),
-        ...(acceptedFacts.startupId !== undefined
-          ? { startupId: acceptedFacts.startupId }
-          : active.startupId !== undefined
-            ? { startupId: active.startupId }
-            : {}),
-        allowBreakerProbe: (active.allowBreakerProbe ?? false)
-          || hasUserQualification
-          || hasStartupQualification,
-      };
-      next.revision += 1;
-      next.schedule = { ...next.schedule, revision: next.revision };
+    if (active) {
+      next.invocations = next.invocations.map(invocation => invocation.invocationId === active.invocationId
+        ? {
+            ...invocation,
+            requestKey: input.requestKey,
+            resumedFromRestart: undefined,
+            interventionIds: mergeIds(invocation.interventionIds ?? [], acceptedFacts.interventionIds),
+            ...(acceptedFacts.configurationRevision !== undefined
+              ? { configurationRevision: acceptedFacts.configurationRevision }
+              : invocation.configurationRevision !== undefined
+                ? { configurationRevision: invocation.configurationRevision }
+                : {}),
+            ...(acceptedFacts.startupId !== undefined
+              ? { startupId: acceptedFacts.startupId }
+              : invocation.startupId !== undefined ? { startupId: invocation.startupId } : {}),
+            allowBreakerProbe: (invocation.allowBreakerProbe ?? false) || hasUserQualification || hasStartupQualification,
+          }
+        : invocation);
       if (hasNewFacts) {
-        next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, active.attemptId);
+        next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, active.attemptId, active.invocationId, acceptedBatchRevision);
       }
-      this.commitNext(next, 'begin');
-      if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, active.attemptId);
+      const revision = this.commitNext(next, 'begin');
+      if (hasNewFacts) this.emitFactsAccepted(revision, acceptedFacts, active.attemptId, active.invocationId);
       this.emit({
         type: 'recovery_attempt_admitted',
-        scope: this.scopeId,
-        revision: next.revision,
+        orchestratorInstance: this.instanceId,
+        invocationId: active.invocationId,
+        revision,
         attemptId: active.attemptId,
         trigger: 'resumed',
         interventionCount: acceptedFacts.interventionIds.length,
       });
-      return { kind: 'admitted', attemptId: active.attemptId, factsAccepted: true };
+      return { kind: 'admitted', invocationId: active.invocationId, attemptId: active.attemptId, factsAccepted: true };
     }
 
-    // 7. 一次准入判断（配置单独到达不缩短 at；系统消息不赋予资格）。
-    const schedule = next.schedule;
+    const schedule = deriveLLMRecoverySchedule(next, this.getRevision(), this.orchestrator.getProviderIdentities());
     let admitted = false;
-    if (schedule.kind === 'ready') {
-      admitted = true;
-    } else if (schedule.kind === 'at') {
-      // startup 资格只可能来自本次入口的旧 on_change；迁移为 at 后仍需保留本次准入。
-      admitted = nowMs >= Date.parse(schedule.resumeAt) || hasUserQualification || hasStartupQualification;
-    } else {
-      admitted = hasUserQualification || hasStartupQualification;
-    }
+    if (schedule.kind === 'ready') admitted = true;
+    else if (schedule.kind === 'at') admitted = nowMs >= Date.parse(schedule.resumeAt) || hasUserQualification || hasStartupQualification;
+    else admitted = hasUserQualification || hasStartupQualification;
 
     if (!admitted) {
-      if (!stateChanged) {
-        // 无新事实：幂等返回，不伪造接受事件。
-        return { kind: 'waiting', schedule: { ...this.state.schedule }, factsAccepted: true };
-      }
-      next.revision += 1;
-      next.schedule = { ...next.schedule, revision: next.revision };
-      if (hasNewFacts) {
-        next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, undefined);
-      }
-      this.commitNext(next, 'begin');
-      if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, undefined);
-      return { kind: 'waiting', schedule: { ...next.schedule }, factsAccepted: true };
+      if (!stateChanged) return { kind: 'waiting', schedule: entrySchedule, factsAccepted: true };
+      if (hasNewFacts) next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, undefined, undefined, acceptedBatchRevision);
+      const revision = this.commitNext(next, 'begin');
+      if (hasNewFacts) this.emitFactsAccepted(revision, acceptedFacts, undefined, undefined);
+      return { kind: 'waiting', schedule: deriveLLMRecoverySchedule(next, revision, this.orchestrator.getProviderIdentities()), factsAccepted: true };
     }
 
+    const invocationId = `inv-${newUuid()}`;
     const attemptId = `att-${newUuid()}`;
-    // 9. 局部预算/资格由本次准入唯一决定：
-    // - probeOnly：入口安排非 ready（恢复 probe 上下文）→ 每候选至多一次真实调用；
-    //   配置先置 ready 不恢复为正常 3 次预算。
-    // - allowBreakerProbe：仅有效新用户/启动资格授予（配置不授予）。
     const probeOnly = entrySchedule.kind !== 'ready';
     const allowBreakerProbe = hasUserQualification || hasStartupQualification;
-    const summary = summarizeAdmission(acceptedFacts, {
-      user: hasUserQualification,
-      startup: hasStartupQualification,
-    });
-    next.activeAdmission = {
-      admissionKind: 'invocation',
+    const summary = summarizeAdmission(acceptedFacts, { user: hasUserQualification, startup: hasStartupQualification });
+    next.invocations.push({
+      invocationId,
       attemptId,
       started: false,
       requestKey: input.requestKey,
       triggerKind: summary.kind,
       ...(summary.id !== undefined ? { triggerId: summary.id } : {}),
       interventionIds: [...acceptedFacts.interventionIds],
-      ...(acceptedFacts.configurationRevision !== undefined
-        ? { configurationRevision: acceptedFacts.configurationRevision }
-        : {}),
+      ...(acceptedFacts.configurationRevision !== undefined ? { configurationRevision: acceptedFacts.configurationRevision } : {}),
       ...(acceptedFacts.startupId !== undefined ? { startupId: acceptedFacts.startupId } : {}),
       probeOnly,
       allowBreakerProbe,
-    };
-    next.revision += 1;
-    next.schedule = { ...next.schedule, revision: next.revision };
-    if (hasNewFacts) {
-      next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, attemptId);
-    }
-    // 去重、安排、接受证据与准入一次原子保存；失败抛错，内存与来源不前移。
-    this.commitNext(next, 'begin');
-    if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, attemptId);
+    });
+    if (hasNewFacts) next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, attemptId, invocationId, acceptedBatchRevision);
+    const revision = this.commitNext(next, 'begin');
+    if (hasNewFacts) this.emitFactsAccepted(revision, acceptedFacts, attemptId, invocationId);
     this.emit({
       type: 'recovery_attempt_admitted',
-      scope: this.scopeId,
-      revision: next.revision,
+      orchestratorInstance: this.instanceId,
+      invocationId,
+      revision,
       attemptId,
       trigger: summary.kind,
       interventionCount: acceptedFacts.interventionIds.length,
     });
-    return { kind: 'admitted', attemptId, factsAccepted: true };
+    return { kind: 'admitted', invocationId, attemptId, factsAccepted: true };
   }
 
   async finish(
+    invocationId: string,
     attemptId: string,
     outcome: 'completed' | 'interrupted' | 'failed',
   ): Promise<void> {
-    const active = this.state.activeAdmission;
-    if (!active || active.attemptId !== attemptId) {
-      // 陈旧/未知句柄：不覆盖随后产生的安排，只留观察记录。
+    const state = this.getState();
+    const active = state.invocations.find(invocation => invocation.invocationId === invocationId && invocation.attemptId === attemptId);
+    if (!active) {
       this.emit({
-        type: 'recovery_attempt_finished',
-        scope: this.scopeId,
-        revision: this.state.revision,
-        attemptId,
-        outcome,
-        accepted: false,
+        type: 'recovery_attempt_finished', orchestratorInstance: this.instanceId, invocationId,
+        revision: this.getRevision(), attemptId, outcome, accepted: false,
       });
       return;
     }
-    const next: LLMRecoveryStateV1 = {
-      ...this.state,
-      activeAdmission: null,
-      schedule: { ...this.state.schedule },
-    };
-    if (outcome === 'completed' && next.schedule.kind !== 'ready') {
-      next.revision += 1;
-      next.schedule = { kind: 'ready', revision: next.revision };
-    }
-    this.commitNext(next, 'finish');
+    const next = cloneRecovery(state);
+    next.invocations = next.invocations.filter(invocation => invocation.invocationId !== invocationId);
+    const revision = this.commitNext(next, 'finish');
     this.emit({
-      type: 'recovery_attempt_finished',
-      scope: this.scopeId,
-      revision: next.revision,
-      attemptId,
-      outcome,
-      accepted: true,
+      type: 'recovery_attempt_finished', orchestratorInstance: this.instanceId, invocationId,
+      revision, attemptId, outcome, accepted: true,
     });
   }
 
-  // -------------------------------------------------------------------------
-  // RecoveryCallScope（scoped 调用反馈）
-  // -------------------------------------------------------------------------
-
-  attemptContext(): {
-    probeOnly: boolean;
-    allowBreakerProbe: boolean;
-    attemptId?: string;
-  } {
-    const active = this.state.activeAdmission;
+  attemptContext(invocationId: string): { probeOnly: boolean; allowBreakerProbe: boolean; attemptId: string } {
+    const active = this.getState().invocations.find(invocation => invocation.invocationId === invocationId);
+    if (!active) throw new Error(`unknown recovery invocation ${invocationId}`);
     return {
-      probeOnly: active?.probeOnly ?? false,
-      allowBreakerProbe: active?.allowBreakerProbe ?? false,
-      ...(active?.attemptId !== undefined ? { attemptId: active.attemptId } : {}),
+      probeOnly: active.probeOnly ?? false,
+      allowBreakerProbe: active.allowBreakerProbe ?? false,
+      attemptId: active.attemptId,
     };
   }
 
-  noteAttemptStarted(): void {
-    const active = this.state.activeAdmission;
+  noteAttemptStarted(invocationId: string): void {
+    const state = this.getState();
+    const active = state.invocations.find(invocation => invocation.invocationId === invocationId);
     if (!active || active.started) return;
-    const next: LLMRecoveryStateV1 = {
-      ...this.state,
-      activeAdmission: {
-        ...active,
-        started: true,
-        startedAt: new Date(this.now()).toISOString(),
-      },
-    };
+    const next = cloneRecovery(state);
+    next.invocations = next.invocations.map(invocation => invocation.invocationId === invocationId
+      ? { ...invocation, started: true, startedAt: new Date(this.now()).toISOString() }
+      : invocation);
     this.commitNext(next, 'noteAttemptStarted');
   }
 
-  noteSuccess(): void {
-    const budget = this.state.budget;
-    const alreadyReady = this.state.schedule.kind === 'ready';
-    const budgetClean = budget.retryCount === 0
-      && budget.retryDelayMs === LLM_RECOVERY_RETRY_INITIAL_DELAY_MS
-      && budget.quotaDelayMs === LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS;
-    // Phase 1955 Step B：成功清零 rate-limit 连续失败与 blocked 事实。
-    // Phase 1958 Step C：候选状态语义要求「无变化」判据覆盖全部会被重写的字段
-    // （含 permanent 过滤）——否则早退会跳过持久化却丢弃内存事实。
-    const providersClean = this.state.providers.every(
-      p => p.errorClass !== 'permanent'
-        && p.rateLimitFailures === undefined
-        && p.rateLimitBlocked !== true,
-    );
-    if (alreadyReady && budgetClean && providersClean) return;  // 无变化不写盘
-    // Phase 1958 Step C: durable commit 屏障 —— 先构造候选状态，durable commit 成功后
-    // 才替换内存；写失败保持旧内存与旧磁盘一致，仅发出 write_failed 证据事件。
-    const next: LLMRecoveryStateV1 = {
-      ...this.state,
-      budget: initialBudget(),
-      providers: this.state.providers
-        .filter(p => p.errorClass !== 'permanent')
-        .map(clearRateLimitFact),
-      revision: this.state.revision + 1,
-    };
-    next.schedule = { kind: 'ready', revision: next.revision };
-    try {
-      this.commitNext(next, 'noteSuccess');
-    } catch (error) {
+  noteSuccess(invocationId: string, winnerProviderId: string): void {
+    const state = this.getState();
+    const budgetClean = state.budget.retryCount === 0
+      && state.budget.retryDelayMs === LLM_RECOVERY_RETRY_INITIAL_DELAY_MS
+      && state.budget.quotaDelayMs === LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS;
+    const hasWinnerFact = state.providers.some(fact => fact.providerId === winnerProviderId);
+    if (budgetClean && !hasWinnerFact && !this.hasSharedFailure(winnerProviderId)) return;
+    const next = cloneRecovery(state);
+    // 成功只清真实 winner；其他 provider 的恢复事实与其共享曲线原样保留。
+    next.providers = next.providers.filter(fact => fact.providerId !== winnerProviderId);
+    if (!next.providers.some(fact => fact.blocking)) next.budget = initialBudget();
+    const active = state.invocations.find(invocation => invocation.invocationId === invocationId);
+    const revision = this.commitNext(next, 'noteSuccess', winnerProviderId);
+    const schedule = deriveLLMRecoverySchedule(next, revision, this.orchestrator.getProviderIdentities());
+    if (schedule.kind === 'ready') {
       this.emit({
-        type: 'recovery_state_write_failed',
-        scope: this.scopeId,
-        reason: formatErr(error),
-        context: 'noteSuccess',
+        type: 'recovery_ready', orchestratorInstance: this.instanceId, invocationId,
+        ...(active ? { attemptId: active.attemptId } : {}), revision, reason: 'success',
       });
-      return;
     }
-    // 事件 revision 只能来自已提交状态
-    this.emit({
-      type: 'recovery_ready',
-      scope: this.scopeId,
-      revision: next.revision,
-      reason: 'success',
-    });
   }
 
-  /**
-   * 失败策略的唯一解释点。数值沿用既有已批准参数：
-   * transient 30s 起翻倍 cap 5min、quota 2/4/8min、rate_limit 按 typed Retry-After。
-   * 仅被本地 breaker 跳过（localSkip）不计预算、不记失败数，但安排不得早于其 reset。
-   */
   noteFailure(failures: readonly RecoveryFailureInput[]): void {
     if (failures.length === 0) return;
-    const nowMs = this.now();
-    const nowIso = new Date(nowMs).toISOString();
-    // Phase 1958 Step C: 候选状态工作副本 —— 嵌套 budget/providers/failures 全部克隆，
-    // mutation 只落在候选上，durable commit 失败时旧内存与旧磁盘保持一致。
-    const next: LLMRecoveryStateV1 = {
-      ...this.state,
-      budget: { ...this.state.budget },
-      providers: this.state.providers.map(p => ({ ...p })),
-      failures: [...this.state.failures],
-    };
-    let nextAtMs: number | undefined;
+    const next = cloneRecovery(this.getState());
     let lastErrorClass = 'unknown';
 
     for (const failure of failures) {
       lastErrorClass = failure.errorClass;
+      const nowMs = failure.occurredAtMs ?? this.now();
+      const nowIso = new Date(nowMs).toISOString();
       if (failure.localSkip) {
-        if (failure.probeAllowedAtMs !== undefined) {
-          nextAtMs = nextAtMs === undefined
-            ? failure.probeAllowedAtMs
-            : Math.min(nextAtMs, failure.probeAllowedAtMs);
-        }
+        const fact = this.upsertProviderFact(next, failure, nowIso, false);
+        if (failure.probeAllowedAtMs !== undefined) fact.retryAt = new Date(failure.probeAllowedAtMs).toISOString();
         continue;
       }
-      this.upsertProviderFact(next, failure, nowIso);
+      const fact = this.upsertProviderFact(next, failure, nowIso, true);
       this.pushFailure(next, {
         at: nowIso,
         providerId: failure.providerId,
         errorClass: failure.errorClass,
         message: failure.message,
-        // Phase 1968 Step B：调用路径关联随证据持久化（可选字段，缺省不伪造）。
         ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
         ...(failure.invocationId !== undefined ? { invocationId: failure.invocationId } : {}),
         ...(failure.attemptId !== undefined ? { attemptId: failure.attemptId } : {}),
@@ -758,202 +502,80 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         ...(failure.configRevision !== undefined ? { configRevision: failure.configRevision } : {}),
       });
 
+      let retryAtMs: number | undefined;
       if (failure.errorClass === 'quota') {
         const delay = next.budget.quotaDelayMs;
         next.budget.quotaDelayMs = Math.min(delay * 2, LLM_RECOVERY_QUOTA_MAX_DELAY_MS);
-        nextAtMs = minDefined(nextAtMs, nowMs + delay);
+        retryAtMs = nowMs + delay;
       } else if (failure.errorClass === 'rate_limit') {
-        // 服务端 Retry-After 是权威可尝试时刻：不早于其要求，也不早于独立 cooldown；
-        // 客户端 backoff cap 不截短它（旧 phase 1268 cooldown 语义，迁移时须保持）。
         if (failure.retryAfterSec !== undefined) {
-          const delay = Math.max(LLM_RECOVERY_COOLDOWN_MS, failure.retryAfterSec * 1000);
-          nextAtMs = minDefined(nextAtMs, nowMs + delay);
+          retryAtMs = nowMs + failure.retryAfterSec * 1000;
         } else {
-          // Phase 1955 Step B / 2034 Step C：无服务端时间的 rate-limit 按 provider
-          // 独立计数，30/60/120/300/600s 有界增长；达到上限后持续使用末档，不写 blocked。
-          const fact = next.providers.find(p => p.providerId === failure.providerId);
-          if (fact) {
-            fact.rateLimitFailures = (fact.rateLimitFailures ?? 0) + 1;
-            const index = Math.min(
-              fact.rateLimitFailures - 1,
-              LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1,
-            );
-            nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index]);
-          } else {
-            nextAtMs = minDefined(nextAtMs, nowMs + next.budget.retryDelayMs);
-          }
+          fact.rateLimitFailures = (fact.rateLimitFailures ?? 0) + 1;
+          const index = Math.min(fact.rateLimitFailures - 1, LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1);
+          retryAtMs = nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
         }
       } else if (failure.errorClass === 'permanent') {
-        // 保持当前轮内 permanent_skip_retry；跨 invocation 以 cooldown 持续自动恢复。
-        nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_COOLDOWN_MS);
+        retryAtMs = nowMs + LLM_RECOVERY_COOLDOWN_MS;
       } else if (failure.errorClass === 'transient' || failure.errorClass === 'unknown') {
         if (next.budget.retryCount < LLM_RECOVERY_MAX_RETRIES) {
           next.budget.retryCount += 1;
           const delay = next.budget.retryDelayMs;
           next.budget.retryDelayMs = Math.min(delay * 2, LLM_RECOVERY_RETRY_MAX_DELAY_MS);
-          nextAtMs = minDefined(nextAtMs, nowMs + delay);
+          retryAtMs = nowMs + delay;
         } else {
-          nextAtMs = minDefined(nextAtMs, nowMs + LLM_RECOVERY_COOLDOWN_MS);
+          retryAtMs = nowMs + LLM_RECOVERY_COOLDOWN_MS;
         }
       }
-      // context_exceeded/abort 不进入失败策略（前者归 caller trim，后者非供应商失败）。
+      if (retryAtMs !== undefined) fact.retryAt = new Date(retryAtMs).toISOString();
     }
 
-    next.revision += 1;
-    next.schedule = nextAtMs === undefined
-      ? { kind: 'on_change', revision: next.revision }
-      : { kind: 'at', revision: next.revision, resumeAt: new Date(nextAtMs).toISOString() };
-    try {
-      this.commitNext(next, 'noteFailure');
-    } catch (error) {
-      // durable commit 失败：内存安排未生效（不继续真发）、磁盘保持旧状态；
-      // 持久化失败单独暴露，不掩盖原始 LLM 错误。
-      this.emit({
-        type: 'recovery_state_write_failed',
-        scope: this.scopeId,
-        reason: formatErr(error),
-        context: 'noteFailure',
-      });
-      return;
-    }
-    // 事件 revision/统计只能来自已提交状态
+    const first = failures[0];
+    const revision = this.commitNext(next, 'noteFailure');
+    const schedule = deriveLLMRecoverySchedule(next, revision, this.orchestrator.getProviderIdentities());
     this.emit({
-      type: 'recovery_scheduled',
-      scope: this.scopeId,
-      revision: next.revision,
-      scheduleKind: next.schedule.kind === 'at' ? 'at' : 'on_change',
-      resumeAt: next.schedule.kind === 'at' ? next.schedule.resumeAt : '',
+      type: 'recovery_scheduled', orchestratorInstance: this.instanceId,
+      ...(first?.invocationId !== undefined ? { invocationId: first.invocationId } : {}),
+      ...(first?.attemptId !== undefined ? { attemptId: first.attemptId } : {}),
+      revision,
+      scheduleKind: schedule.kind === 'at' ? 'at' : 'on_change',
+      resumeAt: schedule.kind === 'at' ? schedule.resumeAt : '',
       errorClass: lastErrorClass,
       providerCount: next.providers.length,
       failureCount: next.failures.length,
     });
   }
 
-  // -------------------------------------------------------------------------
-  // 内部
-  // -------------------------------------------------------------------------
-
-  private createScopedView(orchestrator: LLMOrchestratorOwner): LLMOrchestrator & LLMRuntimeCapability {
-    const session = this;
-    const assertOwnerOpen = () => {
-      if (orchestrator.isClosed()) throw new LLMOrchestratorClosedError();
-    };
-    const beginInvocation = async (options: LLMCallOptions) => session.begin({
-      requestKey: requestKeyForCall(options),
-      facts: options.recoveryFacts ?? { interventionIds: [] },
-    });
-    return {
-      call: async (options: LLMCallOptions) => {
-        assertOwnerOpen();
-        const admission = await beginInvocation(options);
-        if (admission.kind === 'waiting') {
-          throw new LLMRecoveryWaitRequiredError(admission.schedule, admission.factsAccepted);
-        }
-        let outcome: 'completed' | 'interrupted' | 'failed' = 'completed';
-        let hasInvocationError = false;
-        let invocationError: unknown;
-        try {
-          try {
-            return await orchestrator.callWithinRecovery(options, session);
-          } catch (error) {
-            hasInvocationError = true;
-            invocationError = error;
-            outcome = isAbortError(error) ? 'interrupted' : 'failed';
-            throw error;
-          }
-        } finally {
-          try {
-            await session.finish(admission.attemptId, outcome);
-          } catch (finishError) {
-            if (hasInvocationError) {
-              throw new AggregateError(
-                [invocationError, finishError],
-                'LLM invocation and recovery finish both failed',
-                { cause: invocationError },
-              );
-            }
-            throw finishError;
-          }
-        }
-      },
-      stream: (options: LLMCallOptions) => (async function* () {
-        assertOwnerOpen();
-        const admission = await beginInvocation(options);
-        if (admission.kind === 'waiting') {
-          throw new LLMRecoveryWaitRequiredError(admission.schedule, admission.factsAccepted);
-        }
-        let outcome: 'completed' | 'interrupted' | 'failed' = 'interrupted';
-        let hasInvocationError = false;
-        let invocationError: unknown;
-        try {
-          try {
-            yield* orchestrator.streamWithinRecovery(options, session);
-            outcome = 'completed';
-          } catch (error) {
-            hasInvocationError = true;
-            invocationError = error;
-            outcome = isAbortError(error) ? 'interrupted' : 'failed';
-            throw error;
-          }
-        } finally {
-          try {
-            await session.finish(admission.attemptId, outcome);
-          } catch (finishError) {
-            if (hasInvocationError) {
-              throw new AggregateError(
-                [invocationError, finishError],
-                'LLM invocation and recovery finish both failed',
-                { cause: invocationError },
-              );
-            }
-            throw finishError;
-          }
-        }
-      })(),
-      getProviderInfo: () => orchestrator.getProviderInfo(),
-      resetLastSuccessProvider: () => orchestrator.resetLastSuccessProvider(),
-      // Phase 1944 Step B：失败处置事实转发 owner 唯一产出点，视图不自行分类。
-      getFailureDisposition: (error: unknown) => orchestrator.getFailureDisposition(error),
-      // 视图不拥有底层实例：close 不转发，避免误关其他 caller 的 provider/cache。
-      close: async () => { /* no-op by design */ },
-      reloadConfig: (config) => orchestrator.reloadConfig(config),
-    };
-  }
-
-  /** 在候选 state 上原地更新 provider 故障事实（mutation 不触旧状态）。 */
-  private upsertProviderFact(state: LLMRecoveryStateV1, failure: RecoveryFailureInput, atIso: string): void {
+  private upsertProviderFact(
+    state: LLMInstanceRecoveryState,
+    failure: RecoveryFailureInput,
+    atIso: string,
+    countFailure: boolean,
+  ): LLMInstanceRecoveryProviderFact {
     const existing = state.providers.find(p => p.providerId === failure.providerId);
     if (existing) {
       existing.errorClass = failure.errorClass;
       existing.at = atIso;
-      existing.consecutiveFailures += 1;
+      if (countFailure) existing.consecutiveFailures += 1;
       existing.detail = failure.message;
-      // Phase 1968 Step B：label 随最新事实更新（身份不变、显示名可能随配置演化）。
+      existing.blocking = true;
       if (failure.providerLabel !== undefined) existing.providerLabel = failure.providerLabel;
-      return;
+      return existing;
     }
-    state.providers.push({
+    const fact: LLMInstanceRecoveryProviderFact = {
       providerId: failure.providerId,
       errorClass: failure.errorClass,
       at: atIso,
-      consecutiveFailures: 1,
+      consecutiveFailures: countFailure ? 1 : 0,
       detail: failure.message,
+      blocking: true,
       ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
-    });
+    };
+    state.providers.push(fact);
+    return fact;
   }
 
-  /** 在候选 state 上追加失败证据（有界截断；mutation 不触旧状态）。 */
-  private pushFailure(state: LLMRecoveryStateV1, evidence: {
-    at: string;
-    providerId: string;
-    errorClass: string;
-    message: string;
-    providerLabel?: string;
-    invocationId?: string;
-    attemptId?: string;
-    attemptIndex?: number;
-    configRevision?: number;
-  }): void {
+  private pushFailure(state: LLMInstanceRecoveryState, evidence: LLMRecoveryFailureEvidence): void {
     state.failures.push(evidence);
     if (state.failures.length > LLM_RECOVERY_FAILURE_EVIDENCE_MAX) {
       const droppedCount = state.failures.length - LLM_RECOVERY_FAILURE_EVIDENCE_MAX;
@@ -973,42 +595,29 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     }
   }
 
-  /** 先保存后替换内存：写失败抛错时调用方不得继续真发，内存仍为旧状态。 */
-  private commitNext(next: LLMRecoveryStateV1, context: string): void {
-    next.updatedAt = new Date(this.now()).toISOString();
-    const result = saveRecoveryState(this.fs, next, this.stateDir);
-    this.state = next;
-    this.reportDurability(result, context);
+  private commitNext(next: LLMInstanceRecoveryState, context: string, clearSharedProviderId?: string): number {
+    try {
+      return this.commit(next, context, clearSharedProviderId);
+    } catch (error) {
+      this.emit({
+        type: 'recovery_state_write_failed', orchestratorInstance: this.instanceId,
+        reason: formatErr(error), context,
+      });
+      throw error;
+    }
   }
 
-  private reportDurability(
-    result: ReturnType<typeof saveRecoveryState>,
-    context: string,
-  ): void {
-    if (result.kind === 'durable') return;
-    this.emit({
-      type: 'recovery_state_write_degraded',
-      scope: this.scopeId,
-      context,
-      durability: result.kind,
-      reason: formatErr(result.error),
-    });
-  }
-
-  /** 事实接受证据（磁盘记录权威；事件出口尽力而为，重复事实不伪造新事件）。 */
   private emitFactsAccepted(
     revision: number,
     accepted: AcceptedFacts,
     attemptId: string | undefined,
+    invocationId: string | undefined,
   ): void {
     this.emit({
-      type: 'recovery_facts_accepted',
-      scope: this.scopeId,
-      revision,
+      type: 'recovery_facts_accepted', orchestratorInstance: this.instanceId, revision,
+      ...(invocationId !== undefined ? { invocationId } : {}),
       interventionIds: [...accepted.interventionIds],
-      ...(accepted.configurationRevision !== undefined
-        ? { configurationRevision: accepted.configurationRevision }
-        : {}),
+      ...(accepted.configurationRevision !== undefined ? { configurationRevision: accepted.configurationRevision } : {}),
       ...(accepted.startupId !== undefined ? { startupId: accepted.startupId } : {}),
       ...(attemptId !== undefined ? { attemptId } : {}),
     });
@@ -1019,10 +628,33 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   }
 }
 
-interface AcceptedFacts {
-  interventionIds: readonly string[];
-  configurationRevision?: string;
-  startupId?: string;
+function appendFactBatch(
+  next: LLMInstanceRecoveryState,
+  accepted: AcceptedFacts,
+  attemptId: string | undefined,
+  invocationId: string | undefined,
+  revision: number,
+): LLMInstanceAcceptedFactBatch[] {
+  return [...(next.acceptedFactBatches ?? []), {
+    revision,
+    interventionIds: [...accepted.interventionIds],
+    ...(accepted.configurationRevision !== undefined ? { configurationRevision: accepted.configurationRevision } : {}),
+    ...(accepted.startupId !== undefined ? { startupId: accepted.startupId } : {}),
+    ...(attemptId !== undefined ? { attemptId } : {}),
+    ...(invocationId !== undefined ? { invocationId } : {}),
+  }];
+}
+
+function summarizeAdmission(
+  accepted: AcceptedFacts,
+  qualifications: { user: boolean; startup: boolean },
+): { kind: string; id?: string } {
+  if (qualifications.user) return { kind: 'intervention' };
+  if (qualifications.startup) return accepted.startupId !== undefined
+    ? { kind: 'startup', id: accepted.startupId }
+    : { kind: 'startup' };
+  if (accepted.configurationRevision !== undefined) return { kind: 'configuration', id: accepted.configurationRevision };
+  return { kind: 'automatic' };
 }
 
 function dedupeStrings(values: readonly string[]): string[] {
@@ -1040,59 +672,12 @@ function mergeIds(existing: readonly string[], additions: readonly string[]): st
   return dedupeStrings([...existing, ...additions]);
 }
 
-/** 只追加、不截断：接受历史是证据，事件出口不可靠，磁盘记录必须完整。 */
-function appendFactBatch(
-  next: LLMRecoveryStateV1,
-  accepted: AcceptedFacts,
-  attemptId: string | undefined,
-): LLMRecoveryAcceptedFactBatch[] {
-  const batch: LLMRecoveryAcceptedFactBatch = {
-    scope: next.scopeId,
-    revision: next.revision,
-    interventionIds: [...accepted.interventionIds],
-    ...(accepted.configurationRevision !== undefined
-      ? { configurationRevision: accepted.configurationRevision }
-      : {}),
-    ...(accepted.startupId !== undefined ? { startupId: accepted.startupId } : {}),
-    ...(attemptId !== undefined ? { attemptId } : {}),
-  };
-  return [...(next.acceptedFactBatches ?? []), batch];
-}
-
-/** 显示兼容摘要：只选一个主原因，完整信息由事实证据关联。 */
-function summarizeAdmission(
-  accepted: AcceptedFacts,
-  qualifications: { user: boolean; startup: boolean },
-): { kind: string; id?: string } {
-  if (qualifications.user) return { kind: 'intervention' };
-  if (qualifications.startup) {
-    return accepted.startupId !== undefined
-      ? { kind: 'startup', id: accepted.startupId }
-      : { kind: 'startup' };
-  }
-  if (accepted.configurationRevision !== undefined) {
-    return { kind: 'configuration', id: accepted.configurationRevision };
-  }
-  return { kind: 'automatic' };
-}
-
-function minDefined(current: number | undefined, candidate: number): number {
-  return current === undefined ? candidate : Math.min(current, candidate);
-}
-
-/** 旧 on_change 的自动迁移预算；无法识别的非 provider 事实不伪造时间下界。 */
-function recoveryDelayForFact(
-  fact: LLMRecoveryProviderFact,
-  budget: LLMRecoveryBudget,
-): number | undefined {
+function recoveryDelayForFact(fact: LLMInstanceRecoveryProviderFact, budget: LLMRecoveryBudget): number | undefined {
   if (fact.errorClass === 'permanent') return LLM_RECOVERY_COOLDOWN_MS;
   if (fact.errorClass === 'rate_limit') {
     const index = fact.rateLimitBlocked === true
       ? LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1
-      : Math.max(0, Math.min(
-        (fact.rateLimitFailures ?? 0) - 1,
-        LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1,
-      ));
+      : Math.max(0, Math.min((fact.rateLimitFailures ?? 0) - 1, LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1));
     return LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
   }
   if (fact.errorClass === 'quota') return budget.quotaDelayMs;
@@ -1100,38 +685,20 @@ function recoveryDelayForFact(
   return undefined;
 }
 
-/** 成功调用：清空 provider 的 rate-limit 连续失败事实（保留其他故障字段）。 */
-function clearRateLimitFact(fact: LLMRecoveryProviderFact): LLMRecoveryProviderFact {
-  if (fact.rateLimitFailures === undefined && fact.rateLimitBlocked !== true) return fact;
-  const {
-    rateLimitFailures: _failures,
-    rateLimitBlocked: _blocked,
-    rateLimitBlockedAt: _blockedAt,
-    ...rest
-  } = fact;
-  return rest;
-}
-
-/** 同修订确认后清除旧身份迁移标记，不改其他故障事实。 */
-function clearIdentityMigrationPending(fact: LLMRecoveryProviderFact): LLMRecoveryProviderFact {
+function clearIdentityMigrationPending(fact: LLMInstanceRecoveryProviderFact): LLMInstanceRecoveryProviderFact {
   if (fact.identityMigrationPending === undefined) return fact;
   const { identityMigrationPending: _pending, ...rest } = fact;
   return rest;
 }
 
-/** 用户干预/配置变化：解除 blocked 并给新的失败窗口（其他故障证据保留）。 */
-function releaseRateLimitBlocked(fact: LLMRecoveryProviderFact): LLMRecoveryProviderFact {
+function releaseRateLimitBlocked(fact: LLMInstanceRecoveryProviderFact): LLMInstanceRecoveryProviderFact {
   if (fact.rateLimitBlocked !== true) return fact;
-  const {
-    rateLimitBlocked: _blocked,
-    rateLimitBlockedAt: _blockedAt,
-    ...rest
-  } = fact;
+  const { rateLimitBlocked: _blocked, rateLimitBlockedAt: _blockedAt, ...rest } = fact;
   return { ...rest, rateLimitFailures: 0 };
 }
 
 /** 只由实际 LLM 请求语义派生身份；恢复事实、超时与 AbortSignal 不参与。 */
-function requestKeyForCall(options: LLMCallOptions): string {
+export function requestKeyForCall(options: LLMCallOptions): string {
   const canonical = canonicalizeForRequestKey({
     messages: options.messages,
     system: options.system,
@@ -1152,8 +719,4 @@ function canonicalizeForRequestKey(value: unknown): unknown {
     if (item !== undefined) result[key] = canonicalizeForRequestKey(item);
   }
   return result;
-}
-
-export function createRecoverySession(deps: RecoverySessionDeps): LLMRecoverySession {
-  return new LLMRecoverySessionImpl(deps);
 }

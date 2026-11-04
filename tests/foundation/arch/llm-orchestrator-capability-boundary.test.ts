@@ -22,7 +22,6 @@ describe('phase 2052 Step E: LLM execution, runtime management and owner capabil
     for (const method of [
       'healthCheck',
       'getFailureDisposition',
-      'resetLastSuccessProvider',
       'close',
       'reloadConfig',
       'getSharedRecoveryDecision',
@@ -33,7 +32,7 @@ describe('phase 2052 Step E: LLM execution, runtime management and owner capabil
     }
   });
 
-  it('Owner 显式保留执行面、Runtime 五方法及恢复/健康能力', () => {
+  it('Owner 显式保留执行面、Runtime 四方法及恢复/健康能力', () => {
     expectTypeOf<LLMOrchestratorOwner>().toMatchTypeOf<LLMOrchestrator>();
     expectTypeOf<LLMOrchestratorOwner>().toMatchTypeOf<LLMRuntimeCapability>();
     for (const method of [
@@ -60,7 +59,6 @@ describe('phase 2052 Step E: LLM execution, runtime management and owner capabil
     for (const method of [
       'healthCheck',
       'getFailureDisposition',
-      'resetLastSuccessProvider',
       'close',
       'reloadConfig',
       'callWithinRecovery',

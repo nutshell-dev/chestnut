@@ -51,6 +51,9 @@ export const LLM_RECOVERY_RETRY_MAX_DELAY_MS = 300_000;
 /** 预算耗尽后的完整冷却等待（原 event-loop LLM_COOLDOWN_MS）。 */
 export const LLM_RECOVERY_COOLDOWN_MS = 300_000;
 
+/** 真实业务成功后 fallback 选择缓存与 ready 状态持续 probe 的统一时间窗。 */
+export const LLM_PROVIDER_SELECTION_TTL_MS = 300_000;
+
 /** quota（配额时间窗）退避曲线初值（原 event-loop LLM_QUOTA_INITIAL_DELAY_MS）。 */
 export const LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS = 120_000;
 

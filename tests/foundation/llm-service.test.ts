@@ -430,8 +430,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     for await (const chunk of service.stream({ messages: [] })) chunks1.push(chunk);
     expect(chunks1.some(c => 'delta' in c && c.delta === 'fallback ok')).toBe(true);
 
-    // Reset for new turn — primary should be tried again
-    service.resetLastSuccessProvider();
+    // 测试显式隔离选择/健康事实，验证 primary 路径
+    isolatePrimaryAttempt(service);
 
     // Second call: primary must be tried again (regression test for startIndex bug)
     const chunks2: LLMStreamChunk[] = [];
@@ -554,6 +554,20 @@ describe('LLMOrchestratorImpl - stream failover', () => {
   });
 });
 
+/** 测试隔离候选选择/恢复健康，只保留 breaker 本体状态；不依赖已退役的 Runtime reset 能力。 */
+function isolatePrimaryAttempt(service: LLMOrchestratorImpl): void {
+  (service as any).lastSuccessProvider = null;
+  (service as any).sharedFailures.clear();
+  (service as any).recoveryState.providers = [];
+}
+
+function pauseAutonomousProbe(service: LLMOrchestratorImpl): void {
+  const internal = service as any;
+  internal.scheduleGeneration++;
+  if (internal.scheduleTimer !== undefined) clearTimeout(internal.scheduleTimer);
+  internal.scheduleTimer = undefined;
+}
+
 // Phase 20: Circuit Breaker
 describe('LLMOrchestratorImpl - circuit breaker', () => {
   beforeEach(() => {
@@ -590,7 +604,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Calls 1 and 2: primary fails, fallback saves — breaker accumulates 2 failures
     await service.call({ messages: [] });
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
     await service.call({ messages: [] });
     expect(primaryCallCount).toBe(2);
 
@@ -632,14 +646,15 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Open the breaker
     await service.call({ messages: [] }); // failure 1
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
     await service.call({ messages: [] }); // failure 2 → breaker opens
     expect(primaryFailCount).toBe(2);
 
-    // Wait past resetTimeoutMs → transitions to half-open on next isOpen() check
+    // 本用例验证业务调用驱动 half-open；独立持续 probe 已在 probe-scheduler 覆盖。
+    pauseAutonomousProbe(service);
     await vi.advanceTimersByTimeAsync(60);
     primaryShouldFail = false;
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
 
     // Half-open probe: primary should be attempted and succeed → breaker closes
     await service.call({ messages: [] });
@@ -678,12 +693,13 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Open the breaker
     await service.call({ messages: [] });
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
     await service.call({ messages: [] });
 
-    // Wait past resetTimeoutMs
+    // Wait past resetTimeoutMs without the independent scheduler taking over
+    pauseAutonomousProbe(service);
     await vi.advanceTimersByTimeAsync(60);
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
 
     // Next call triggers isOpen() → half-open transition
     await service.call({ messages: [] });
@@ -724,13 +740,14 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Open the breaker
     await service.call({ messages: [] });
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
     await service.call({ messages: [] });
 
-    // Wait past resetTimeoutMs → half-open
+    // Wait past resetTimeoutMs → half-open on the business path
+    pauseAutonomousProbe(service);
     await vi.advanceTimersByTimeAsync(60);
     primaryShouldFail = false;
-    service.resetLastSuccessProvider();
+    isolatePrimaryAttempt(service);
 
     // Probe succeeds → half-open → closed
     await service.call({ messages: [] });

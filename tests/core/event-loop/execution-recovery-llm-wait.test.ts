@@ -1,14 +1,14 @@
 /**
- * Phase 1844 组合行为：真实 LLM owner（createLLMOrchestrator + createRecoverySession）
+ * Phase 1844 组合行为：真实 LLM owner（createLLMOrchestrator，call 内置恢复 admission）
  * + 真实 EventLoop.run + 真实 Messaging inbox + 假 provider（仅模拟网络边界、计数
  * 真实调用）。验证「owner 公开安排是尚未到时的 at 时，不登记新执行提醒」，及到期 /
  * 用户提前 / on_change 启动 / 既有 pending 义务的边界。
  *
- * 时钟：共享受控变量 sharedNow——owner now 回调与 EventLoop/controller 的 Date.now
+ * 时钟：共享受控变量 sharedNow——owner 与 EventLoop/controller 的 Date.now
  * 经 vi.spyOn 取同一变量；推进共享时钟代替真实 sleep，结束恢复 Date.now。
  *
  * 边界说明：runtime 是窄测试驱动（真实 InboxReader.peekPending/drainAndDeliver/ack
- * 与真实 scoped llm 调用），不是完整 Runtime 执行器——本文件不宣称验证智能体完成
+ * 与真实 owner.call），不是完整 Runtime 执行器——本文件不宣称验证智能体完成
  * 契约，只验证 run/owner/provider 与消息链的组合事实。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -23,11 +23,11 @@ import { EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.j
 import { createInboxReader, writeInboxAsync } from '../../../src/foundation/messaging/index.js';
 import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import { createLLMOrchestrator, createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
+import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMEventSink,
   LLMRecoveryFacts,
-  LLMRecoverySession,
+  LLMOrchestratorOwner,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
@@ -42,10 +42,11 @@ const OK_RESPONSE: LLMResponse = {
   stop_reason: 'end_turn',
 };
 
-/** 共享受控时钟：owner now 回调与 Date.now spy 读同一变量。 */
+/** 共享受控时钟：owner 与 EventLoop 的 Date.now spy 读同一变量。 */
 let sharedNow = BASE_NOW;
 
 const cleanupDirs: string[] = [];
+const cleanupOwners: LLMOrchestratorOwner[] = [];
 
 beforeEach(() => {
   sharedNow = BASE_NOW;
@@ -53,6 +54,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  for (const owner of cleanupOwners.splice(0)) {
+    try { await owner.close(); } catch { /* ignore */ }
+  }
   vi.restoreAllMocks();
   for (const dir of cleanupDirs.splice(0)) {
     try { await cleanupTempDir(dir); } catch { /* ignore */ }
@@ -79,9 +83,9 @@ interface Fixture {
   fs: NodeFileSystem;
   /** 停滞观察基线（sharedNow - 10*timeout，在 fixture 创建时冻结）。 */
   activityAt: number;
-  readonly session: LLMRecoverySession;
-  /** 重启：新 session 读取原目录（真实恢复链）。 */
-  reopen: () => void;
+  readonly owner: LLMOrchestratorOwner;
+  /** 重启：新 owner 读取原目录（真实恢复链）。 */
+  reopen: () => Promise<void>;
   /** 推进共享时钟（owner 与 EventLoop 同时看到）。 */
   advance: (ms: number) => void;
   /** 之后的 provider 调用成功（不清除 owner 已记录的等待）。 */
@@ -93,7 +97,7 @@ interface Fixture {
 
 /**
  * 真实产品链建立「未来 at」（quota 失败）或「on_change」（auth 失败）：
- * begin → scoped llm.call 真实抛错 → finish(failed)，由 owner 自己生成等待安排，
+ * owner.call 内置 begin/admission → 真实抛错 → finish(failed)，由 owner 自己生成等待安排，
  * 不手写 owner 状态 JSON。
  */
 async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
@@ -120,25 +124,20 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
   };
 
   const sink: LLMEventSink = { emit: () => { /* events not under test */ } };
-  const orchestrator = createLLMOrchestrator({
-      lifecycle: { mode: 'ephemeral' },
+  const makeOwner = () => createLLMOrchestrator({
+    lifecycle: { mode: 'durable', fs },
     primary: providerConfig(),
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
     createProviderAdapter: () => adapter,
   });
-  let session = createRecoverySession({
-    scopeId: 'foreground',
-    fs,
-    events: sink,
-    orchestrator,
-    now: () => sharedNow,
-  });
+  let owner = makeOwner();
+  cleanupOwners.push(owner);
 
-  // 真实 scoped invocation 失败产生 owner 等待安排，finish 由 owner 视图自动完成。
+  // 真实 owner invocation 失败产生等待安排，finish 由 owner.call 自动完成。
   await expect(
-    session.llm.call({ messages: [{ role: 'user', content: 'work' }] }),
+    owner.call({ messages: [{ role: 'user', content: 'work' }] }),
   ).rejects.toThrow();
 
   return {
@@ -148,21 +147,17 @@ async function makeFixture(failure: 'quota' | 'auth'): Promise<Fixture> {
     doneDir,
     fs,
     activityAt: sharedNow - 10 * RECOVERY_TIMEOUT_MS,
-    get session() { return session; },
-    reopen: () => {
-      session = createRecoverySession({
-        scopeId: 'foreground',
-        fs,
-        events: sink,
-        orchestrator,
-        now: () => sharedNow,
-      });
+    get owner() { return owner; },
+    reopen: async () => {
+      await owner.close();
+      owner = makeOwner();
+      cleanupOwners.push(owner);
     },
     advance: (ms) => { sharedNow += ms; },
     succeed: () => { providerError = undefined; },
     providerCalls: () => providerCalls,
     stateBytes: () =>
-      fsNative.readFileSync(path.join(dir, 'status', 'llm-recovery-state.json'), 'utf8'),
+      fsNative.readFileSync(path.join(dir, 'status', 'llm-instance-state.json'), 'utf8'),
   };
 }
 
@@ -170,13 +165,13 @@ type AuditEntry = [string, ...(string | number)[]];
 
 interface RunOutcome {
   auditEntries: AuditEntry[];
-  /** processTurn 真实执行次数（每次都会真实调用 session.llm）。 */
+  /** processTurn 真实执行次数（每次都会真实调用 owner.call）。 */
   processed: number;
 }
 
 /**
  * 窄测试驱动 runtime：真实 peekPending/drainAndDeliver/ack，processTurn 真实调用
- * scoped session.llm（假 provider 计数即真实请求计数）。普通等待 fallback 设小值；
+ * owner.call（假 provider 计数即真实请求计数）。普通等待 fallback 设小值；
  * 从既有 recovery_wait 审计点 abort 收束，finally 确保运行结束不遗留后台 run。
  */
 async function runLoop(f: Fixture): Promise<RunOutcome> {
@@ -238,7 +233,7 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
     proactiveTrimIfNeeded: async (m: unknown[]) => m,
     processTurn: async (_messages: unknown, _system: unknown, _tools: unknown, _callbacks: unknown, _trace: unknown, recoveryFacts?: LLMRecoveryFacts) => {
       processed += 1;
-      await f.session.llm.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
+      await f.owner.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
       return { status: 'success' as const };
     },
     ackHandles: async (handles: InboxHandle[]) => {
@@ -251,7 +246,7 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
       throw new Error('reactiveTrim not expected in these tests');
     },
     // Phase 1944 Step B: post-drain catch 的 disposition 事实转发 owner 结论（同生产 Runtime 语义）。
-    getLLMFailureDisposition: (error: unknown) => f.session.llm.getFailureDisposition(error),
+    getLLMFailureDisposition: (error: unknown) => f.owner.getFailureDisposition(error),
   };
 
   loop = new EventLoop({
@@ -263,7 +258,7 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
     audit: audit as never,
     inbox: { pendingDir: f.pendingDir, fallbackTimeoutMs: 20 },
     executionRecovery: {
-      inspectLlmRecoverySchedule: () => f.session.inspect(),
+      inspectLlmRecoverySchedule: () => f.owner.inspectRecoverySchedule(),
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: f.activityAt,
@@ -304,9 +299,9 @@ function scheduleCheckAudits(entries: AuditEntry[]): AuditEntry[] {
 describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
   it('未来 at + 空 pending：不登记提醒/record，纯观察不改 owner 字节与 revision，无 provider 新请求，不进入准入等待', async () => {
     const f = await makeFixture('quota');
-    // 重启：新 session 读取原目录，inspect 仍是未来 at
-    f.reopen();
-    const schedule = await f.session.inspect();
+    // 重启：新 owner 读取原目录，inspectRecoverySchedule 仍是未来 at
+    await f.reopen();
+    const schedule = await f.owner.inspectRecoverySchedule();
     expect(schedule.kind).toBe('at');
     const bytesBefore = f.stateBytes();
 
@@ -317,7 +312,7 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
     expect(fsNative.existsSync(recordPath(f))).toBe(false);
     // 纯观察不改 owner：状态字节与 revision 不变，无新 provider 请求
     expect(f.stateBytes()).toBe(bytesBefore);
-    expect((await f.session.inspect()).revision).toBe(schedule.revision);
+    expect((await f.owner.inspectRecoverySchedule()).revision).toBe(schedule.revision);
     expect(f.providerCalls()).toBe(1);
     expect(r.processed).toBe(0);
     // 抑制审计留证；空工作不进入准入（无 recovery_wait）
@@ -331,7 +326,7 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
   it('到期 at：推进共享时钟到 deadline 后 run 登记提醒、真实 owner 准入、provider 成功一次、消息真实消费落 done', async () => {
     const f = await makeFixture('quota');
     f.succeed();
-    const schedule = await f.session.inspect();
+    const schedule = await f.owner.inspectRecoverySchedule();
     if (schedule.kind !== 'at') throw new Error('expected at schedule');
     // 推进到 deadline（resumeAt === now 已到期，不因 inspect 仍返回 at 继续抑制）
     sharedNow = Date.parse(schedule.resumeAt);
@@ -381,7 +376,7 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
 
   it('Phase 2034 C：permanent at 到期后提醒产生工作并真实准入、provider 探测一次', async () => {
     const f = await makeFixture('auth');
-    const schedule = await f.session.inspect();
+    const schedule = await f.owner.inspectRecoverySchedule();
     if (schedule.kind !== 'at') throw new Error('expected permanent at schedule');
     sharedNow = Date.parse(schedule.resumeAt);
     f.succeed();
@@ -418,7 +413,7 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
         body: 'preserved body',
       },
     });
-    const inspectSpy = vi.spyOn(f.session, 'inspect');
+    const inspectSpy = vi.spyOn(f.owner, 'inspectRecoverySchedule');
 
     const r = await runLoop(f);
 

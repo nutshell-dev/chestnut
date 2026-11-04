@@ -10,7 +10,7 @@ import { createSystemAudit, readWorkspaceAuditRetentionMaxSizeMb, type AuditLog 
 import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
-import { createLLMOrchestrator, createRecoverySession, type LLMOrchestratorOwner, type LLMRecoverySession } from '../foundation/llm-orchestrator/index.js';
+import { createLLMOrchestrator, type LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
 import { resolveLLMConfig, createUserPiAiCredentialStore } from './config/config-load.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
@@ -37,9 +37,6 @@ import { STATUS_SUBDIR } from './claw-subdirs.js';
 import { createAssemblyRollback } from './rollback.js';
 import type { AssembleConfig, AssemblyContributions } from './types.js';
 
-/** Phase 1826: 前台 LLM 恢复 session 的稳定 opaque scope 标识。 */
-export const FOREGROUND_RECOVERY_SCOPE = 'foreground' as const;
-
 interface CoreInfraInput {
   config: AssembleConfig;
   createSkillSystem?: typeof defaultCreateSkillSystem;
@@ -57,8 +54,6 @@ export interface CoreInfraOutput {
   llmConfig: ReturnType<typeof resolveLLMConfig>;
   /** Phase 1933 Step E：输出类型升级为 owner（赋值本就是 owner 实例；下游消费均为 LLMOrchestrator 子集用法）。 */
   llm: LLMOrchestratorOwner;
-  /** Phase 1826: 前台恢复 session（Runtime 用 session.llm，EventLoop 用调度面）。 */
-  recoverySession: LLMRecoverySession;
   maxSteps: number | undefined;
   maxConcurrent: number;
   toolProfile: string;
@@ -244,7 +239,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     rollback.register('stream_writer', () => streamWriter.close());
 
     let llm: LLMOrchestratorOwner;
-    let recoverySession: LLMRecoverySession;
     try {
       const auditLog = auditWriter;
       const llmEvents = createLLMEventSink(auditWriter, streamWriter);
@@ -258,16 +252,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         events: llmEvents,
         credentialStore,
         lifecycle: { mode: 'durable', fs: systemFs, stateDir: STATUS_SUBDIR },
-      });
-      // Phase 1826: 前台恢复 session。原 orchestrator 仍供子代理/其他业务使用；
-      // session.llm 是同一 owner 的范围视图（前台 Runtime 用），调度面给 EventLoop。
-      // 状态不可用时构造即抛错（拒绝启动、保留原文），不猜默认值继续发请求。
-      recoverySession = createRecoverySession({
-        scopeId: FOREGROUND_RECOVERY_SCOPE,
-        fs: systemFs,
-        stateDir: STATUS_SUBDIR,
-        events: llmEvents,
-        orchestrator: llm,
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -417,7 +401,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       processManager,
       llmConfig,
       llm,
-      recoverySession,
       maxSteps,
       maxConcurrent,
       toolProfile,

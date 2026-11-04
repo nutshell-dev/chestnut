@@ -154,13 +154,12 @@ function createAnthropicSseResponse(text: string): Response {
       expect(fetchMock()).toHaveBeenCalledTimes(3); // 3 retries
     });
 
-    it('should reset fallback status after primary succeeds', async () => {
+    it('should keep the successful fallback within the selection TTL', async () => {
       // First call fails (uses fallback)
       fetchMock()
         .mockRejectedValueOnce(new Error('Primary down'))
         .mockResolvedValueOnce(createAnthropicSseResponse('Fallback'))
-        // Second call primary succeeds
-        .mockResolvedValueOnce(createAnthropicSseResponse('Primary OK'));
+        .mockResolvedValueOnce(createAnthropicSseResponse('Fallback again'));
 
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
@@ -178,14 +177,12 @@ function createAnthropicSseResponse(text: string): Response {
       expect((response1.content[0] as { text: string }).text).toBe('Fallback');
       expect(service.getProviderInfo()!.isFallback).toBe(true);
 
-      service.resetLastSuccessProvider();
-
-      // Second call - should use primary (fallback reset)
+      // 有效缓存内不反复回 primary
       const response2 = await service.call({
         messages: [{ role: 'user', content: 'Hi' }],
       });
-      expect((response2.content[0] as { text: string }).text).toBe('Primary OK');
-      expect(service.getProviderInfo()!.isFallback).toBe(false);
+      expect((response2.content[0] as { text: string }).text).toBe('Fallback again');
+      expect(service.getProviderInfo()!.isFallback).toBe(true);
     });
 
     it('should cap backoff at 30 seconds', async () => {

@@ -104,12 +104,6 @@ describe('LLMOrchestratorImpl.close', () => {
       events: sink,
       createProviderAdapter: () => adapter,
     });
-    const scope = {
-      noteAttemptStarted: vi.fn(),
-      noteSuccess: vi.fn(),
-      noteFailure: vi.fn(),
-      attemptContext: vi.fn(() => ({ probeOnly: false, allowBreakerProbe: false })),
-    };
     const options = { messages: [{ role: 'user' as const, content: 'hi' }] };
     const nextConfig = {
       primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' as const },
@@ -121,19 +115,14 @@ describe('LLMOrchestratorImpl.close', () => {
     await orch.close();
 
     await expect(orch.call(options)).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
-    await expect(orch.callWithinRecovery(options, scope)).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
     await expect(orch.stream(options).next()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
-    await expect(orch.streamWithinRecovery(options, scope).next()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
     await expect(orch.healthCheck()).rejects.toBeInstanceOf(LLMOrchestratorClosedError);
     expect(() => orch.probe()).toThrow(LLMOrchestratorClosedError);
     expect(() => orch.reloadConfig(nextConfig)).toThrow(LLMOrchestratorClosedError);
-    expect(() => orch.resetLastSuccessProvider()).not.toThrow();
     expect(orch.getFailureDisposition(new Error('plain'))).toBe('unknown');
     expect(orch.isClosed()).toBe(true);
     expect(adapter.call).not.toHaveBeenCalled();
     expect(adapter.stream).not.toHaveBeenCalled();
-    expect(scope.noteAttemptStarted).not.toHaveBeenCalled();
-    expect(scope.attemptContext).not.toHaveBeenCalled();
     expect(emitted.some(event => event.type === 'call_invocation_started')).toBe(false);
     await expect(orch.close()).resolves.toBeUndefined();
   });

@@ -1,43 +1,44 @@
 /**
- * Phase 1826 Step Z 首轮未通过项（Z1–Z4）的正式回归。
- *
- * 复现源：`development log/phase1826-logs/Z-review-probes.test.ts.txt`（临时复现，未改源码）。
- * 与复现的差异：预算固定为生产默认 maxAttempts=3；补齐 call/stream 对称、fallback、
- * 重放与重启链路；断言基于真实 Orchestrator/session、真实临时文件存储与计数型假 provider。
+ * Phase 1826 Z1–Z4 回归，Phase 2055 迁移到 owner 公共 call/stream 与内部 invocation controller。
+ * 不再构造 session，也不调用旧 callWithinRecovery/streamWithinRecovery。
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi } from 'vitest';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { LLMRecoverySessionImpl } from '../../../src/foundation/llm-orchestrator/recovery.js';
-import type {
-  LLMEventSink,
-  LLMOrchestratorOwner,
-  LLMResponse,
-} from '../../../src/foundation/llm-orchestrator/index.js';
-import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
-import { LLMAuthError, LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
+import {
+  LLMRecoveryControllerImpl,
+  requestKeyForCall,
+  type LLMOrchestratorOwner,
+} from '../../../src/foundation/llm-orchestrator/recovery.js';
+import { LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import type { LLMEventSink, LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
+import { LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 
-const OK_RESPONSE: LLMResponse = {
-  content: [{ type: 'text', text: 'ok' }],
-  stop_reason: 'end_turn',
-};
+const T0 = Date.parse('2026-09-10T00:00:00.000Z');
+const OK_RESPONSE: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
+const OPTIONS = { messages: [{ role: 'user' as const, content: 'test' }] };
+const QUOTA_ERROR = () => new LLMQuotaError('p', 'weekly usage limit quota reached');
 
 function providerConfig(name: string): ProviderConfig {
-  return {
-    name,
-    apiKey: `key-${name}`,
-    model: `model-${name}`,
-    temperature: 0,
-    timeoutMs: 1_000,
-    apiFormat: 'anthropic',
-  };
+  return { name, apiKey: `key-${name}`, model: `model-${name}`, temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' };
 }
 
 const cleanupDirs: string[] = [];
+const owners: LLMOrchestratorOwner[] = [];
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(T0);
+});
 afterEach(async () => {
+  for (const owner of owners.splice(0)) {
+    try { await owner.close(); } catch { /* test cleanup */ }
+  }
+  vi.useRealTimers();
   for (const dir of cleanupDirs.splice(0)) {
-    try { await cleanupTempDir(dir); } catch { /* ignore */ }
+    try { await cleanupTempDir(dir); } catch { /* test cleanup */ }
   }
 });
 
@@ -48,247 +49,190 @@ interface FixtureOpts {
   maxAttempts?: number;
 }
 
-interface Fixture {
-  session: () => LLMRecoverySessionImpl;
-  sharedOrchestrator: LLMOrchestratorOwner;
-  calls: () => number;
-  advance: (ms: number) => void;
-  now: () => number;
-}
-
-async function makeFixture(opts: FixtureOpts = {}): Promise<Fixture> {
+async function makeFixture(opts: FixtureOpts = {}) {
   const dir = await createTrackedTempDir('recovery-zk-');
   cleanupDirs.push(dir);
   const fs = new NodeFileSystem({ baseDir: dir });
   const events: LLMEventSink = { emit: () => {} };
   let count = 0;
-  let nowMs = Date.now();
   const errors = opts.primaryError ?? (() => new LLMNetworkError('p', new Error('offline')));
-
   const failAdapter: ProviderAdapter = {
-    name: 'primary',
-    model: 'model-primary',
+    name: 'primary', model: 'model-primary',
     call: async () => { count++; throw errors(); },
     stream: async function* () { count++; throw errors(); },
   };
   const fallbackAdapter: ProviderAdapter = {
-    name: 'fallback',
-    model: 'model-fallback',
+    name: 'fallback', model: 'model-fallback',
     call: async () => { count++; return (opts.fallbackResponse ?? (() => OK_RESPONSE))(); },
     stream: async function* () {
       count++;
-      const r = (opts.fallbackResponse ?? (() => OK_RESPONSE))();
-      yield { type: 'text_delta' as const, delta: r.content[0] && 'text' in r.content[0] ? r.content[0].text : '' };
+      const response = (opts.fallbackResponse ?? (() => OK_RESPONSE))();
+      yield { type: 'text_delta' as const, delta: response.content[0] && 'text' in response.content[0] ? response.content[0].text : '' };
       yield { type: 'done' as const, stopReason: 'end_turn' };
     },
   };
-
-  const orchestrator = createLLMOrchestrator({
-      lifecycle: { mode: 'ephemeral' },
-    primary: providerConfig('primary'),
-    ...(opts.fallbackResponse ? { fallbacks: [providerConfig('fallback')] } : {}),
-    maxAttempts: opts.maxAttempts ?? 3,
-    retryDelayMs: 0,
-    events,
-    createProviderAdapter: (config) => (config.name === 'fallback' ? fallbackAdapter : failAdapter),
-    ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 } } : {}),
-  });
-
+  const makeOwner = () => {
+    const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'durable', fs },
+      primary: providerConfig('primary'),
+      ...(opts.fallbackResponse ? { fallbacks: [providerConfig('fallback')] } : {}),
+      maxAttempts: opts.maxAttempts ?? 3,
+      retryDelayMs: 0,
+      events,
+      createProviderAdapter: config => config.name === 'fallback' ? fallbackAdapter : failAdapter,
+      ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 } } : {}),
+    });
+    owners.push(owner);
+    return owner;
+  };
+  const owner = makeOwner();
   return {
-    session: () => new LLMRecoverySessionImpl({
-      scopeId: 'foreground', fs, events, orchestrator, now: () => nowMs,
-    }),
-    sharedOrchestrator: orchestrator,
+    owner, makeOwner,
+    controller: () => (owner as unknown as { recoveryController: LLMRecoveryControllerImpl }).recoveryController,
     calls: () => count,
-    advance: (ms) => { nowMs += ms; },
-    now: () => nowMs,
+    advance: (ms: number) => { vi.setSystemTime(Date.now() + ms); },
+    restart: async () => {
+      await owner.close();
+      const restarted = makeOwner();
+      return restarted;
+    },
   };
 }
 
-const OPTIONS = { messages: [{ role: 'user' as const, content: 'test' }] };
-
-async function failedCall(
-  s: LLMRecoverySessionImpl,
-  orchestrator: LLMOrchestratorOwner,
-  stream = false,
-): Promise<void> {
+async function failedCall(owner: LLMOrchestratorOwner, stream = false, recoveryFacts?: LLMRecoveryFacts): Promise<void> {
   try {
     if (stream) {
-      for await (const _ of orchestrator.streamWithinRecovery(OPTIONS, s)) { void _; }
+      for await (const _chunk of owner.stream({ ...OPTIONS, ...(recoveryFacts ? { recoveryFacts } : {}) })) { void _chunk; }
     } else {
-      await orchestrator.callWithinRecovery(OPTIONS, s);
+      await owner.call({ ...OPTIONS, ...(recoveryFacts ? { recoveryFacts } : {}) });
     }
-  } catch { /* expected: provider failure */ }
+  } catch { /* expected provider failure or typed waiting */ }
 }
 
-const QUOTA_ERROR = () => new LLMQuotaError('p', 'weekly usage limit quota reached');
-
-describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
-  it('quota 首次 stream 调用：单候选只 1 次真实请求（不跑满轮内预算）', async () => {
+describe('Z1 deterministic errors and local retry budget', () => {
+  it('quota first stream call makes one real request instead of exhausting in-call retries', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
-    const s = f.session();
-    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-
-    await failedCall(s, f.sharedOrchestrator, true);
-
+    await failedCall(f.owner, true);
     expect(f.calls()).toBe(1);
   });
 
-  it('quota 首次 call 调用：与 stream 对称，只 1 次真实请求', async () => {
+  it('quota first call is symmetric with stream', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
-    const s = f.session();
-    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-
-    await failedCall(s, f.sharedOrchestrator);
-
+    await failedCall(f.owner);
     expect(f.calls()).toBe(1);
   });
 
-  it('quota 恢复 probe：到期后每候选至多 1 次真实请求', async () => {
+  it('quota recovery probe admits after retryAt and still makes only one request per candidate', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
-    const s = f.session();
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator, true);
-    await s.finish(a.attemptId, 'failed');
-
+    await failedCall(f.owner, true);
+    expect(await f.owner.inspectRecoverySchedule()).toMatchObject({
+      kind: 'at', resumeAt: new Date(T0 + 120_000).toISOString(),
+    });
     f.advance(120_000);
-    const b = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    expect(b.kind).toBe('admitted');
-
     const before = f.calls();
-    await failedCall(s, f.sharedOrchestrator, true);
+    await failedCall(f.owner, true);
     expect(f.calls() - before).toBe(1);
   });
 
-  it('primary quota + fallback 成功：primary 只 1 次、fallback 正常成功、不建全局等待', async () => {
+  it('primary quota plus fallback success makes two requests and derives ready', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR, fallbackResponse: () => OK_RESPONSE });
-    const s = f.session();
-    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-
-    await f.sharedOrchestrator.callWithinRecovery(OPTIONS, s);
-
-    expect(f.calls()).toBe(2);   // primary 1 次（短路）+ fallback 1 次
-    expect((await s.inspect()).kind).toBe('ready');
+    await expect(f.owner.call(OPTIONS)).resolves.toBe(OK_RESPONSE);
+    expect(f.calls()).toBe(2);
+    expect((await f.owner.inspectRecoverySchedule()).kind).toBe('ready');
   });
 });
 
-describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
-  it('breaker open 后新用户干预：真实请求发生', async () => {
-    const f = await makeFixture({ breaker: true });
-    const s = f.session();
-
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator);           // 网络失败 → breaker open（threshold=1）
-    await s.finish(a.attemptId, 'failed');
-
+describe('Z2 explicit intervention grants a one-call breaker probe', () => {
+  it('a fresh user intervention performs a real request while breaker is open', async () => {
+    const f = await makeFixture({ breaker: true, maxAttempts: 1 });
+    await failedCall(f.owner);
     const before = f.calls();
-    const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(b.kind).toBe('admitted');
-
-    await failedCall(s, f.sharedOrchestrator);
+    await failedCall(f.owner, false, { interventionIds: ['new-user'] });
     expect(f.calls()).toBeGreaterThan(before);
   });
 
-  it('同一 id 重放：不再获得提前资格（不被 breaker 放行）', async () => {
-    const f = await makeFixture({ breaker: true });
-    const s = f.session();
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator);
-    await s.finish(a.attemptId, 'failed');
-
-    const first = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(first.kind).toBe('admitted');
-    if (first.kind !== 'admitted') return;
-    await failedCall(s, f.sharedOrchestrator);
-    await s.finish(first.attemptId, 'failed');
-
-    const replay = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(replay.kind).toBe('waiting');
-  });
-
-  it('无 scope 的其他 caller 在 breaker open 时仍被跳过（资格不外溢）', async () => {
-    const f = await makeFixture({ breaker: true });
-    const s = f.session();
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator);
-    await s.finish(a.attemptId, 'failed');
-
+  it('replaying the same intervention does not admit early', async () => {
+    const f = await makeFixture({ breaker: true, maxAttempts: 1 });
+    await failedCall(f.owner);
+    await failedCall(f.owner, false, { interventionIds: ['new-user'] });
     const before = f.calls();
-    await expect(f.sharedOrchestrator.call(OPTIONS)).rejects.toBeTruthy();
-    expect(f.calls()).toBe(before);   // 非 scoped 调用没有资格，未真发
+    await expect(f.owner.call({ ...OPTIONS, recoveryFacts: { interventionIds: ['new-user'] } }))
+      .rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
+    expect(f.calls()).toBe(before);
+  });
+
+  it('an ordinary call has no implicit scope or breaker bypass qualification', async () => {
+    const f = await makeFixture({ breaker: true, maxAttempts: 1 });
+    await failedCall(f.owner);
+    const before = f.calls();
+    await expect(f.owner.call(OPTIONS)).rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
+    expect(f.calls()).toBe(before);
   });
 });
 
-describe('Z3 服务端 Retry-After 不被客户端 cap 截短', () => {
-  it('Retry-After 3600 秒：安排不早于其要求', async () => {
-    // 本用例只验跨调用恢复安排；单次真实失败即可，避免轮内等待一小时。
-    const f = await makeFixture({ primaryError: () => new LLMRateLimitError('p', 3600), maxAttempts: 1 });
-    const s = f.session();
-    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator);
-
-    const plan = await s.inspect();
-    expect(plan.kind).toBe('at');
-    if (plan.kind !== 'at') return;
-    expect(Date.parse(plan.resumeAt) - f.now()).toBeGreaterThanOrEqual(3_600_000);
+describe('Z3 Retry-After is a cross-call lower bound, not an in-call sleep', () => {
+  it.each([2, 3600])('Retry-After %ss persists exactly and makes one real request', async seconds => {
+    const f = await makeFixture({ primaryError: () => new LLMRateLimitError('p', seconds) });
+    await failedCall(f.owner);
+    expect(f.calls()).toBe(1);
+    expect(await f.owner.inspectRecoverySchedule()).toMatchObject({
+      kind: 'at', resumeAt: new Date(T0 + seconds * 1_000).toISOString(),
+    });
   });
 });
 
-describe('Z4 未开始的持久准入在重启后恢复', () => {
-  it('begin 后、首请求前重启：同 id 再 begin 得到同一 attempt', async () => {
+describe('Z4 invocation persistence across restart', () => {
+  it('an unstarted admitted invocation resumes with the same invocation and attempt', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
-    const s = f.session();
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator);
-    await s.finish(a.attemptId, 'failed');
+    await failedCall(f.owner);
+    const granted = await f.controller().begin({
+      requestKey: 'y', facts: { interventionIds: ['new-user'] },
+    });
+    if (granted.kind !== 'admitted') throw new Error('expected admitted');
 
-    const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(b.kind).toBe('admitted');
-    if (b.kind !== 'admitted') return;
-
-    const restored = f.session();   // 重启：未开始的准入应被恢复
-    const c = await restored.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(c.kind).toBe('admitted');
-    if (c.kind === 'admitted') expect(c.attemptId).toBe(b.attemptId);
+    const restored = await f.restart();
+    const controller = (restored as unknown as { recoveryController: LLMRecoveryControllerImpl }).recoveryController;
+    const resumed = await controller.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
+    expect(resumed).toMatchObject({
+      kind: 'admitted', invocationId: granted.invocationId, attemptId: granted.attemptId,
+    });
   });
 
-  it('恢复后的准入仍带原预算/资格，失败后同 id 不重复干预', async () => {
+  it('resumed invocation retains intervention qualification and replay does not requalify', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR, breaker: true });
-    const s = f.session();
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    await failedCall(s, f.sharedOrchestrator);
-    await s.finish(a.attemptId, 'failed');
+    await failedCall(f.owner);
+    const requestKey = requestKeyForCall(OPTIONS);
+    const granted = await f.controller().begin({
+      requestKey, facts: { interventionIds: ['new-user'] },
+    });
+    if (granted.kind !== 'admitted') throw new Error('expected admitted');
 
-    const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(b.kind).toBe('admitted');
-    if (b.kind !== 'admitted') return;
-
-    // 重启后重新驱动同一 attempt：局部资格（为干预放行）仍随准入恢复。
-    const restored = f.session();
-    const c = await restored.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(c.kind).toBe('admitted');
-    expect(restored.attemptContext().allowBreakerProbe).toBe(true);
-
+    const restored = await f.restart();
     const before = f.calls();
-    await failedCall(restored, f.sharedOrchestrator);                 // 真实发一次（不被旧 breaker 拒绝）
+    // 公共 call 自带 admission：按相同 requestKey 恢复未开始 invocation，并消费其干预资格。
+    await failedCall(restored, false, { interventionIds: ['new-user'] });
     expect(f.calls()).toBe(before + 1);
-    await restored.finish(c.kind === 'admitted' ? c.attemptId : '', 'failed');
-
-    // 启动后再次失败：同 id 不再获得新的提前机会
-    const replay = await restored.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
-    expect(replay.kind).toBe('waiting');
+    await expect(restored.call({ ...OPTIONS, recoveryFacts: { interventionIds: ['new-user'] } }))
+      .rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
   });
 
-  it('已开始的准入在重启后仍按「结果未知」处理（不恢复句柄）', async () => {
-    const f = await makeFixture({ primaryError: () => new LLMNetworkError('p', new Error('offline')) });
-    const s = f.session();
-    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    if (a.kind !== 'admitted') throw new Error('expected admitted');
-    await failedCall(s, f.sharedOrchestrator);   // started 已置位
+  it('a started invocation is cleared as unknown result and never resumed as success', async () => {
+    const f = await makeFixture();
+    const started = await f.controller().begin({ requestKey: 'x', facts: { interventionIds: [] } });
+    if (started.kind !== 'admitted') throw new Error('expected admitted');
+    f.controller().noteAttemptStarted(started.invocationId);
 
-    const restored = f.session();
-    const c = await restored.begin({ requestKey: 'x', facts: { interventionIds: [] } });
-    // 结果未知的旧 attempt 不复活；当前安排（failure）决定是否放行。
-    expect(c.kind === 'admitted' ? c.attemptId !== a.attemptId : true).toBe(true);
+    const restored = await f.restart();
+    const controller = (restored as unknown as { recoveryController: LLMRecoveryControllerImpl }).recoveryController;
+    const recovered = (restored as unknown as {
+      recoveryState: { invocations: unknown[]; failures: Array<{ message: string; invocationId?: string }> };
+    }).recoveryState;
+    expect(recovered.invocations).toEqual([]);
+    expect(recovered.failures.at(-1)).toMatchObject({
+      invocationId: started.invocationId, message: expect.stringContaining('result unknown after restart'),
+    });
+    const next = await controller.begin({ requestKey: 'x', facts: { interventionIds: [] } });
+    expect(next.kind).toBe('admitted');
+    if (next.kind === 'admitted') expect(next.attemptId).not.toBe(started.attemptId);
   });
 });

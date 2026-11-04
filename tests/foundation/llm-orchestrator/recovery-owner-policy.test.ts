@@ -29,7 +29,6 @@ import type {
   LLMEvent,
   LLMEventSink,
   LLMResponse,
-  RecoveryCallScope,
   RecoveryFailureInput,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import {
@@ -283,15 +282,12 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     };
     const { owner, emitted } = createOwner(primary);
     const scopedFailures: RecoveryFailureInput[][] = [];
-    const scope: RecoveryCallScope = {
-      noteAttemptStarted() {},
-      noteSuccess() {},
-      noteFailure(failures) { scopedFailures.push([...failures]); },
-      attemptContext() { return { probeOnly: false, allowBreakerProbe: false }; },
-    };
+    const recovery = (owner as unknown as { recoveryController: { noteFailure(failures: RecoveryFailureInput[]): void } }).recoveryController;
+    const noteFailure = recovery.noteFailure.bind(recovery);
+    recovery.noteFailure = failures => { scopedFailures.push([...failures]); noteFailure(failures); };
 
     await expect(async () => {
-      for await (const _chunk of owner.streamWithinRecovery(OPTIONS, scope)) { /* drain */ }
+      for await (const _chunk of owner.stream(OPTIONS)) { /* drain */ }
     }).rejects.toThrow();
 
     expect(scopedFailures).toHaveLength(1);
@@ -326,7 +322,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await owner.close();
   });
 
-  it('业务抢探禁止：普通成功不解除已发布 shared blocked，探针验证后才 ready', async () => {
+  it('统一 admission 拦截未到期业务；显式干预后的真实成功只清 winner', async () => {
     const t0 = Date.now();
     const p = createControllableAdapter('primary', 'rate_limit');  // typed Retry-After = 60s
     const { owner } = createOwner(p.adapter);
@@ -341,19 +337,22 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     owner.subscribeReady(listener);
     owner.scheduleProbe((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt);
 
-    // breaker 弹回后业务调用成功——普通成功不能解除已发布 shared blocked
+    // Retry-After 未到期时普通业务仍被 admission 拒绝，不能抢探。
     p.setBehavior('ok');
     await vi.advanceTimersByTimeAsync(RESET_MS + 1_000);
-    await expect(owner.call(OPTIONS)).resolves.toBe(OK_RESPONSE);
+    await expect(owner.call(OPTIONS)).rejects.toThrow();
+    expect(p.calls()).toBe(1);
     expect(owner.getSharedRecoveryDecision().kind).toBe('at');
     expect(listener).not.toHaveBeenCalled();
 
-    // owner 下界到点 → 探针验证成功 → 发布 ready
-    await vi.advanceTimersByTimeAsync(RETRY_AFTER_SEC * 1000 - RESET_MS - 1_000);
-    await flush();
-    expect(p.calls()).toBe(3);  // 业务 2 + 探针 1
-    expect(listener).toHaveBeenCalledTimes(1);
+    // 显式干预只允许本次真实调用；成功证据清除 winner，不伪造 probe 唤醒。
+    await expect(owner.call({
+      ...OPTIONS,
+      recoveryFacts: { interventionIds: ['allow-business-recovery'] },
+    })).resolves.toBe(OK_RESPONSE);
+    expect(p.calls()).toBe(2);
     expect(owner.getSharedRecoveryDecision().kind).toBe('ready');
+    expect(listener).not.toHaveBeenCalled();
     await owner.close();
   });
 
@@ -454,7 +453,10 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await flush();
     expect(p.calls()).toBe(2);
     p.pushBehavior('fail');
-    await expect(owner.call(OPTIONS)).rejects.toThrow();
+    await expect(owner.call({
+      ...OPTIONS,
+      recoveryFacts: { interventionIds: ['force-new-failure-during-probe'] },
+    })).rejects.toThrow();
 
     // probe 迟到成功：旧代次结果不得清新状态
     p.release();
@@ -592,28 +594,15 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
 });
 
 
-describe('Phase 2034 Step C: scoped candidates execute without legacy blocked exclusions', () => {
-  function makeScope(scopedFailures: RecoveryFailureInput[][]): RecoveryCallScope {
-    return {
-      noteAttemptStarted() {},
-      noteSuccess() {},
-      noteFailure(failures) { scopedFailures.push([...failures]); },
-      attemptContext() {
-        return { probeOnly: false, allowBreakerProbe: false };
-      },
-    };
-  }
-
-  it('scoped call 真实执行候选，circuit-breaker localSkip 语义保持', async () => {
+describe('Phase2055 Step C: public candidates execute with unified admission', () => {
+  it('public call 真实执行候选，无旧 scope 排除', async () => {
     const p = createControllableAdapter('primary', 'ok');
     const f = createControllableAdapter('fallback', 'ok');
     const { owner, emitted } = createOwner(p.adapter, [f.adapter]);
-    const scopedFailures: RecoveryFailureInput[][] = [];
-
-    await expect(owner.callWithinRecovery(OPTIONS, makeScope(scopedFailures))).resolves.toBe(OK_RESPONSE);
+    await expect(owner.call(OPTIONS)).resolves.toBe(OK_RESPONSE);
     expect(p.calls()).toBe(1);
     expect(f.calls()).toBe(0);
-    expect(scopedFailures).toHaveLength(0);
+    expect((owner as unknown as { recoveryState: { failures: unknown[] } }).recoveryState.failures).toHaveLength(0);
     expect(emitted.some(
       event => event.type === 'call_attempt_result' && event.outcome === 'skipped'
         && event.reason === 'rate_limit_blocked',

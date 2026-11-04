@@ -92,8 +92,6 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
       inboxReader: {} as any,
       llm: {
         close: vi.fn().mockResolvedValue(undefined),
-        resetLastSuccessProvider: vi.fn(),
-    getFailureDisposition: vi.fn().mockReturnValue('unknown'),
         getFailureDisposition: vi.fn().mockReturnValue('unknown'),
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
       } as any,
@@ -129,7 +127,6 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
   };
   (runtime as any).llm = {
     close: vi.fn().mockResolvedValue(undefined),
-    resetLastSuccessProvider: vi.fn(),
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
   };
   (runtime as any).sessionManager = mockDialogStore;

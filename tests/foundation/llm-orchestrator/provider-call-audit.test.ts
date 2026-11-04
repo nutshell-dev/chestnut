@@ -19,10 +19,9 @@ import { createAuditReader } from '../../../src/foundation/audit/reader.js';
 import type { AuditRecord } from '../../../src/foundation/audit/reader.js';
 import { createLLMEventSink } from '../../../src/assembly/llm-event-sink.js';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { LLMRecoverySessionImpl } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
-import { LLM_RECOVERY_STATE_FILE } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
+import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import type {
   LLMEvent,
   LLMEventSink,
@@ -206,7 +205,9 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const startedCols = colMap(started!);
     expect(startedCols.kind).toBe('call');
     expect(startedCols.config_rev).toBe('0');
-    expect(startedCols.attempt).toBe('none');
+    expect(startedCols.instance).toEqual(expect.any(String));
+    expect(startedCols.attempt).toMatch(/^att-/);
+    const attemptId = startedCols.attempt;
     // 候选清单同时携带 label 与不可逆身份指纹
     expect(startedCols.candidates).toContain('kimi-year:');
     expect(startedCols.candidates).toContain('kimi-year2:');
@@ -216,10 +217,10 @@ describe('provider 调用路径审计（磁盘重建）', () => {
         attempt_index: '0', provider: 'kimi-year', outcome: 'success',
       }),
     ]);
-    expect(attemptRows(rows, inv)[0].attempt).toBe('none');
+    expect(attemptRows(rows, inv)[0].attempt).toBe(attemptId);
     expect(selectionRows(rows, inv)).toEqual([
       expect.objectContaining({
-        outcome: 'selected', provider: 'kimi-year', attempt_index: '0', attempt: 'none',
+        outcome: 'selected', provider: 'kimi-year', attempt_index: '0', attempt: attemptId,
       }),
     ]);
     // selection 的 provider_id 与 started 候选清单中的身份一致
@@ -458,65 +459,54 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     }
   });
 
-  it('scoped 恢复失败事实：label/invocation/attemptIndex/configRevision 随状态落盘', async () => {
+  it('owner.call 恢复失败事实：label/invocation/attemptIndex/configRevision 随实例状态落盘', async () => {
     const dir = await makeDir();
     const nfs = new NodeFileSystem({ baseDir: dir });
     const emitted: LLMEvent[] = [];
     const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
     const adapter = failProvider('kimi-year', new LLMNetworkError('kimi-year', new Error('ECONNREFUSED')));
     const orchestrator = new LLMOrchestratorImpl({
-      lifecycle: { mode: 'ephemeral' },
+      lifecycle: { mode: 'durable', fs: nfs },
       primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 1,
       events: sink,
       createProviderAdapter: () => adapter,
     });
-    const session = new LLMRecoverySessionImpl({
-      scopeId: 'foreground',
-      fs: nfs,
-      events: sink,
-      orchestrator,
-      now: () => Date.now(),
-    });
-    const admission = await session.begin({ requestKey: 'rk-1', facts: { interventionIds: [] } });
-    if (admission.kind !== 'admitted') throw new Error('expected admitted');
 
-    await expect(orchestrator.callWithinRecovery(CALL, session)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
-    await session.finish(admission.attemptId, 'failed');
+    await expect(orchestrator.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
 
-    // 恢复状态磁盘证据：providerLabel + invocationId/attemptId + attemptIndex + configRevision
+    const started = emitted.find(e => e.type === 'call_invocation_started');
+    expect(started).toBeDefined();
+    if (started?.type !== 'call_invocation_started') throw new Error('expected invocation started');
+
+    // 实例恢复状态磁盘证据：providerLabel + invocationId/attemptId + attemptIndex + configRevision
     const state = JSON.parse(
-      await fsNative.readFile(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE), 'utf-8'),
+      await fsNative.readFile(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf-8'),
     );
-    expect(state.failures).toHaveLength(1);
-    const ev = state.failures[0];
+    expect(started.orchestratorInstance).toBe(state.instanceId);
+    expect(state.recovery.failures).toHaveLength(1);
+    const ev = state.recovery.failures[0];
     expect(ev.providerLabel).toBe('kimi-year');
     expect(typeof ev.invocationId).toBe('string');
-    expect(ev.attemptId).toBe(admission.attemptId);
+    expect(ev.attemptId).toBe(started.attemptId);
     expect(ev.attemptIndex).toBe(0);
     expect(ev.configRevision).toBe(0);
     // provider fact 同步携带 label（身份↔名称关系可见）
-    expect(state.providers[0].providerLabel).toBe('kimi-year');
+    expect(state.recovery.providers[0].providerLabel).toBe('kimi-year');
     // invocationId 与审计事件的 invocation 关联键同源
-    const started = emitted.find(e => e.type === 'call_invocation_started') as {
-      invocationId: string;
-      attemptId?: string;
-    };
     expect(ev.invocationId).toBe(started.invocationId);
-    expect(started.attemptId).toBe(admission.attemptId);
     const correlated = emitted.filter(e =>
       e.type === 'call_invocation_started'
       || e.type === 'call_attempt_result'
       || e.type === 'call_selection');
     expect(correlated).toHaveLength(3);
-    expect(correlated.every(e => e.attemptId === admission.attemptId)).toBe(true);
+    expect(correlated.every(e => e.attemptId === started.attemptId)).toBe(true);
     expect(correlated.find(e => e.type === 'call_attempt_result')).toMatchObject({ attemptIndex: 0 });
+    await orchestrator.close();
   });
 
-  it('scoped stream carries the same attemptId through started, result and selection', async () => {
-    const dir = await makeDir();
-    const nfs = new NodeFileSystem({ baseDir: dir });
+  it('owner.stream carries the same attemptId through started, result and selection', async () => {
     const emitted: LLMEvent[] = [];
     const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
     const adapter = streamOkProvider('kimi-year');
@@ -528,22 +518,20 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       events: sink,
       createProviderAdapter: () => adapter,
     });
-    const session = new LLMRecoverySessionImpl({
-      scopeId: 'foreground', fs: nfs, events: sink, orchestrator, now: () => Date.now(),
-    });
-    const admission = await session.begin({ requestKey: 'rk-stream', facts: { interventionIds: [] } });
-    if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    for await (const _chunk of orchestrator.stream(CALL)) { /* drain */ }
 
-    for await (const _chunk of orchestrator.streamWithinRecovery(CALL, session)) { /* drain */ }
-    await session.finish(admission.attemptId, 'completed');
+    const started = emitted.find(e => e.type === 'call_invocation_started');
+    expect(started).toBeDefined();
+    if (started?.type !== 'call_invocation_started') throw new Error('expected invocation started');
 
     const correlated = emitted.filter(e =>
       e.type === 'call_invocation_started'
       || e.type === 'call_attempt_result'
       || e.type === 'call_selection');
     expect(correlated).toHaveLength(3);
-    expect(correlated.every(e => e.attemptId === admission.attemptId)).toBe(true);
+    expect(correlated.every(e => e.attemptId === started.attemptId)).toBe(true);
     expect(new Set(correlated.map(e => e.invocationId)).size).toBe(1);
     expect(correlated.find(e => e.type === 'call_attempt_result')).toMatchObject({ attemptIndex: 0 });
+    await orchestrator.close();
   });
 });

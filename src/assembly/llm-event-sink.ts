@@ -238,7 +238,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     case 'recovery_facts_accepted':
       // phase 1827: 完整新事实接受证据（多事实不互相遮蔽）；磁盘接受记录仍是证据权威。
       w(LLM_AUDIT_EVENTS.RECOVERY_FACTS_ACCEPTED,
-        `scope=${event.scope}`, `revision=${event.revision}`,
+        `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId ?? 'none'}`, `revision=${event.revision}`,
         `interventions=${event.interventionIds.join(',') || 'none'}`,
         `config=${event.configurationRevision ?? 'none'}`,
         `startup=${event.startupId ?? 'none'}`,
@@ -248,7 +248,8 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     // 重建「失败→安排→准入→就绪」迁移；revision 与 recovery-state 磁盘 revision 对齐。
     case 'recovery_scheduled':
       w(LLM_AUDIT_EVENTS.RECOVERY_SCHEDULED,
-        `scope=${event.scope}`, `revision=${event.revision}`,
+        `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId ?? 'none'}`,
+        `attempt=${event.attemptId ?? 'none'}`, `revision=${event.revision}`,
         `scheduleKind=${event.scheduleKind}`,
         `resumeAt=${event.resumeAt || 'none'}`,
         `errorClass=${event.errorClass}`,
@@ -257,32 +258,35 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       break;
     case 'recovery_ready':
       w(LLM_AUDIT_EVENTS.RECOVERY_READY,
-        `scope=${event.scope}`, `revision=${event.revision}`,
+        `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId}`,
+        `attempt=${event.attemptId ?? 'none'}`, `revision=${event.revision}`,
         `reason=${event.reason}`);
       break;
     case 'recovery_attempt_admitted':
       w(LLM_AUDIT_EVENTS.RECOVERY_ATTEMPT_ADMITTED,
-        `scope=${event.scope}`, `revision=${event.revision}`,
+        `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId}`, `revision=${event.revision}`,
         `attempt=${event.attemptId}`,
         `trigger=${event.trigger}`,
         `interventions=${event.interventionCount}`);
       break;
     case 'recovery_attempt_finished':
       w(LLM_AUDIT_EVENTS.RECOVERY_ATTEMPT_FINISHED,
-        `scope=${event.scope}`, `revision=${event.revision}`,
+        `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId}`, `revision=${event.revision}`,
         `attempt=${event.attemptId}`,
         `outcome=${event.outcome}`,
         `accepted=${event.accepted}`);
       break;
     case 'recovery_state_write_failed':
       w(LLM_AUDIT_EVENTS.RECOVERY_STATE_WRITE_FAILED,
-        `scope=${event.scope}`,
+        `instance=${event.orchestratorInstance}`,
+        `invocation=${event.invocationId ?? 'none'}`, `attempt=${event.attemptId ?? 'none'}`,
         `context=${event.context}`,
         `reason=${event.reason}`);
       break;
     case 'recovery_state_write_degraded':
       w(LLM_AUDIT_EVENTS.RECOVERY_STATE_WRITE_DEGRADED,
-        `scope=${event.scope}`,
+        `instance=${event.orchestratorInstance}`,
+        `invocation=${event.invocationId ?? 'none'}`, `attempt=${event.attemptId ?? 'none'}`,
         `context=${event.context}`,
         `durability=${event.durability}`,
         `reason=${event.reason}`);
@@ -301,7 +305,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     // Phase 1968 Step B：provider 调用路径审计（invocation/attempt/selection）。
     case 'call_invocation_started':
       w(LLM_AUDIT_EVENTS.CALL_INVOCATION_STARTED,
-        `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,
+        `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId}`, `attempt=${event.attemptId}`,
         `kind=${event.kind}`, `config_rev=${event.configRevision}`,
         `candidates=${event.candidates.map(c => `${c.name}:${c.providerId}`).join(',')}`);
       break;

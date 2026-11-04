@@ -1,6 +1,5 @@
 /**
- * Phase 1826: 恢复状态持久化 — schema 校验、原子读写。
- * phase 1890 Step D：迁移 intake / 降级导出随存量废弃删除（对应专测同删）。
+ * Phase 2055：旧恢复状态仅做严格只读导入；原子写屏障由统一 instance-state V2 writer 承担。
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fsNative from 'fs';
@@ -11,8 +10,7 @@ import {
   LLM_RECOVERY_STATE_FILE,
   createInitialRecoveryState,
   loadRecoveryState,
-  readRecoveryStateRaw,
-  saveRecoveryState,
+  recoveryStateRelPath,
   validateRecoveryState,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import type {
@@ -20,6 +18,12 @@ import type {
   LLMRecoveryStateV1,
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/types.js';
+import {
+  createEmptyLLMInstanceState,
+  LLM_INSTANCE_STATE_FILE,
+  loadLLMInstanceState,
+  saveLLMInstanceState,
+} from '../../../src/foundation/llm-orchestrator/instance-state.js';
 
 const SCOPE = 'foreground';
 
@@ -47,13 +51,19 @@ async function makeTrackedDir() {
 
 const T0 = Date.parse('2026-09-10T00:00:00.000Z');
 
+/** 测试夹具写入旧格式；生产 recovery-state.ts 仅通过 loadRecoveryState 只读导入。 */
+function writeLegacyState(fs: NodeFileSystem, state: LLMRecoveryStateV1, stateDir = 'status'): void {
+  fs.ensureDirSync(stateDir);
+  fs.writeAtomicSync(recoveryStateRelPath(stateDir), JSON.stringify(state));
+}
+
 describe('recovery state schema', () => {
   it('initial state validates and round-trips through disk', async () => {
     const { dir, fs } = await makeTrackedDir();
     const state = createInitialRecoveryState(SCOPE, budget(), T0);
     expect(validateRecoveryState(state, SCOPE).ok).toBe(true);
 
-    saveRecoveryState(fs, state);
+    writeLegacyState(fs, state);
     const filePath = path.join(dir, 'status', LLM_RECOVERY_STATE_FILE);
     expect(fsNative.existsSync(filePath)).toBe(true);
 
@@ -68,12 +78,12 @@ describe('recovery state schema', () => {
   it('custom stateDir writes and reads only in the injected directory', async () => {
     const { dir, fs } = await makeTrackedDir();
     const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    saveRecoveryState(fs, state, 'custom-recovery');
+    writeLegacyState(fs, state, 'custom-recovery');
 
     expect(fs.existsSync(path.join(dir, 'custom-recovery', LLM_RECOVERY_STATE_FILE))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE))).toBe(false);
-    expect(readRecoveryStateRaw(fs, 'custom-recovery')).toBe(JSON.stringify(state));
-    expect(readRecoveryStateRaw(fs)).toBeUndefined();
+    expect(fs.readSync(path.join('custom-recovery', LLM_RECOVERY_STATE_FILE))).toBe(JSON.stringify(state));
+    expect(() => fs.readSync(path.join('status', LLM_RECOVERY_STATE_FILE))).toThrow();
     const loaded = loadRecoveryState(fs, SCOPE, 'custom-recovery');
     expect(loaded.kind).toBe('ok');
     if (loaded.kind === 'ok') expect(loaded.state).toEqual(state);
@@ -114,7 +124,7 @@ describe('recovery state schema', () => {
   it('prefers an existing new recovery file over the legacy file', async () => {
     const { dir, fs } = await makeTrackedDir();
     const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    saveRecoveryState(fs, state);
+    writeLegacyState(fs, state);
     const legacyPath = path.join(dir, 'status', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
     fsNative.writeFileSync(legacyPath, '{not valid legacy json');
@@ -176,7 +186,7 @@ describe('recovery state schema', () => {
   it('scope mismatch is rejected (state belongs to another scope)', async () => {
     const { dir, fs } = await makeTrackedDir();
     const state = createInitialRecoveryState('other-scope', budget(), T0);
-    saveRecoveryState(fs, state);
+    writeLegacyState(fs, state);
     const loaded = loadRecoveryState(fs, SCOPE);
     expect(loaded.kind).toBe('unusable');
     if (loaded.kind === 'unusable') expect(loaded.reason).toBe('scope_mismatch');
@@ -186,7 +196,7 @@ describe('recovery state schema', () => {
     { kind: 'durable' },
     { kind: 'committed_platform_limited', error: Object.assign(new Error('unsupported'), { code: 'ENOTSUP' }) },
     { kind: 'committed_durability_unknown', error: Object.assign(new Error('fsync failed'), { code: 'EIO' }) },
-  ] satisfies AtomicWriteResult[])('save returns the atomic durability result: $kind', async (result) => {
+  ] satisfies AtomicWriteResult[])('unified V2 writer returns the atomic durability result: $kind', async result => {
     const { fs } = await makeTrackedDir();
     const wrapped = new Proxy(fs, {
       get(target, prop) {
@@ -195,30 +205,28 @@ describe('recovery state schema', () => {
         return typeof value === 'function' ? value.bind(target) : value;
       },
     }) as FileSystem;
-    const state = createInitialRecoveryState(SCOPE, budget(), T0);
-    expect(saveRecoveryState(wrapped, state)).toBe(result);
+    expect(saveLLMInstanceState(wrapped, createEmptyLLMInstanceState('instance-a'))).toBe(result);
   });
 
-  it('save failure surfaces as error without leaving partial file', async () => {
+  it('unified V2 save failure leaves the previous complete state readable', async () => {
     const { dir, fs } = await makeTrackedDir();
-    const original = createInitialRecoveryState(SCOPE, budget(), T0);
-    saveRecoveryState(fs, original);
+    const original = { ...createEmptyLLMInstanceState('instance-a'), revision: 1, updatedAt: new Date(T0).toISOString() };
+    saveLLMInstanceState(fs, original);
 
     const spy = new NodeFileSystem({ baseDir: dir });
     const broken = new Proxy(spy, {
       get(target, prop) {
-        if (prop === 'writeAtomicSync') {
-          return () => { throw new Error('disk full'); };
-        }
+        if (prop === 'writeAtomicSync') return () => { throw new Error('disk full'); };
         const value = Reflect.get(target, prop);
         return typeof value === 'function' ? value.bind(target) : value;
       },
     }) as unknown as NodeFileSystem;
-    expect(() => saveRecoveryState(broken, { ...original, revision: 5 })).toThrow(/persist/);
+    expect(() => saveLLMInstanceState(broken, { ...original, revision: 5 })).toThrow('disk full');
 
-    const loaded = loadRecoveryState(fs, SCOPE);
+    const loaded = loadLLMInstanceState(fs);
     expect(loaded.kind).toBe('ok');
     if (loaded.kind === 'ok') expect(loaded.state.revision).toBe(1);
+    expect(fsNative.existsSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE))).toBe(true);
   });
 });
 
@@ -321,7 +329,7 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
       configRevision: 0,
     });
     expect(validateRecoveryState(state, SCOPE).ok).toBe(true);
-    saveRecoveryState(fs, state);
+    writeLegacyState(fs, state);
     const loaded = loadRecoveryState(fs, SCOPE);
     expect(loaded.kind).toBe('ok');
     if (loaded.kind !== 'ok') return;
@@ -351,7 +359,7 @@ describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
       errorClass: 'permanent',
       message: 'auth',
     });
-    saveRecoveryState(fs, state);
+    writeLegacyState(fs, state);
     const loaded = loadRecoveryState(fs, SCOPE);
     expect(loaded.kind).toBe('ok');
     if (loaded.kind !== 'ok') return;
@@ -478,7 +486,7 @@ describe('Phase 2035 Step D/E: loss record and semantic validation', () => {
   it('failureEvidenceLoss 随合法状态 round-trip，旧文件缺省仍兼容', async () => {
     const { fs } = await makeTrackedDir();
     const state = semanticState();
-    saveRecoveryState(fs, state);
+    writeLegacyState(fs, state);
     const loaded = loadRecoveryState(fs, SCOPE);
     expect(loaded.kind).toBe('ok');
     if (loaded.kind !== 'ok') return;

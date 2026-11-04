@@ -1486,16 +1486,17 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
     return { sink, emitted };
   }
 
-  function makeOrchestrator(provider: ProviderAdapter, sink: LLMEventSink, maxAttempts = 3) {
+  function makeOrchestrator(provider: ProviderAdapter, sink: LLMEventSink, maxAttempts = 3, fallback?: ProviderAdapter) {
     const orchestrator = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
       primary: { name: provider.name, apiKey: 'test', model: provider.model, apiFormat: 'anthropic' as const },
+      ...(fallback ? { fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }] } : {}),
       maxAttempts,
       retryDelayMs: 1,
       events: sink,
-      createProviderAdapter: () => provider as any,
+      createProviderAdapter: config => (config.name === fallback?.name ? fallback : provider) as any,
     });
-    (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
+    (orchestrator as any).breakers = Array.from({ length: fallback ? 2 : 1 }, () => new CircuitBreaker(5, 1000, () => {}));
     return orchestrator;
   }
 
@@ -1537,8 +1538,9 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
     const orchestrator = makeOrchestrator(rateLimited, sink, 1);
 
     await expect(orchestrator.call({})).rejects.toThrow();
+    const streamOrchestrator = makeOrchestrator(rateLimited, sink, 1);
     await expect(async () => {
-      for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
+      for await (const _chunk of streamOrchestrator.stream({ messages: [] })) { /* drain */ }
     }).rejects.toThrow();
 
     const attemptFailed = emitted.filter(e => e.type === 'provider_attempt_failed');
@@ -1556,8 +1558,9 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
     };
     const orchestrator2 = makeOrchestrator(plain, sink2, 1);
     await expect(orchestrator2.call({})).rejects.toThrow();
+    const plainStreamOrchestrator = makeOrchestrator(plain, sink2, 1);
     await expect(async () => {
-      for await (const _chunk of orchestrator2.stream({ messages: [] })) { /* drain */ }
+      for await (const _chunk of plainStreamOrchestrator.stream({ messages: [] })) { /* drain */ }
     }).rejects.toThrow();
     const plainFailed = emitted2.filter(e => e.type === 'provider_attempt_failed');
     expect(plainFailed.length).toBe(2);
@@ -1566,97 +1569,48 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
     }
   });
 
-  it('call/stream 1 败后成功 → exact event sequence 对称', async () => {
-    const { sink, emitted } = createMockSink();
-    let callCount = 0;
-    let streamCount = 0;
-    const provider: ProviderAdapter = {
-      name: 'primary',
-      model: 'mock-model',
-      async call() {
-        callCount++;
-        if (callCount === 1) throw new LLMRateLimitError('primary', 7);
-        return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse;
-      },
-      async *stream() {
-        streamCount++;
-        if (streamCount === 1) throw new LLMRateLimitError('primary', 7);
-        yield { type: 'text_delta', delta: 'ok' } as ProviderStreamChunk;
-        yield { type: 'done' } as ProviderStreamChunk;
-      },
-    };
-    const orchestrator = makeOrchestrator(provider, sink);
-
-    // sdk_client_cache_hit/miss 是 call/stream 不对称的正交缓存事件，对称比较只取 retry 事件。
-    const isRetryEvent = (e: LLMEvent) => e.type === 'provider_attempt_failed' || e.type === 'retry_scheduled';
-    const detail = (e: LLMEvent) =>
-      e.type === 'provider_attempt_failed' || e.type === 'retry_scheduled'
-        ? `${e.type}:${e.attempt}/${e.maxAttempts}:${'retryAfterSec' in e ? e.retryAfterSec : 'none'}`
-        : e.type;
-
-    await orchestrator.call({});
-    const callDetail = emitted.filter(isRetryEvent).map(detail);
-
-    emitted.length = 0;
-    for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
-    const streamDetail = emitted.filter(isRetryEvent).map(detail);
-
-    expect(streamDetail).toEqual(callDetail);
-    expect(callDetail).toEqual([
-      'provider_attempt_failed:0/3:7',
-      'retry_scheduled:0/3:none',
-    ]);
-  });
-
-  it('call/stream 实际 retry 等待不早于 typed Retry-After', async () => {
-    vi.useFakeTimers();
-    try {
+  it('call/stream typed Retry-After 后立即 fallback → exact event sequence 对称', async () => {
+    for (const kind of ['call', 'stream'] as const) {
       const { sink, emitted } = createMockSink();
-      let callCount = 0;
-      let streamCount = 0;
       const provider: ProviderAdapter = {
-        name: 'primary',
-        model: 'mock-model',
-        async call() {
-          callCount++;
-          if (callCount === 1) throw new LLMRateLimitError('primary', 7);
-          return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse;
-        },
+        name: 'primary', model: 'mock-model',
+        async call() { throw new LLMRateLimitError('primary', 7); },
+        async *stream() { throw new LLMRateLimitError('primary', 7); },
+      };
+      const fallback: ProviderAdapter = {
+        name: 'fallback', model: 'mock-model',
+        async call() { return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse; },
         async *stream() {
-          streamCount++;
-          if (streamCount === 1) throw new LLMRateLimitError('primary', 7);
-          yield { type: 'text_delta', delta: 'ok' };
-          yield { type: 'done' };
+          yield { type: 'text_delta', delta: 'ok' } as ProviderStreamChunk;
+          yield { type: 'done' } as ProviderStreamChunk;
         },
       };
-      const orchestrator = makeOrchestrator(provider, sink, 2);
-      (orchestrator as any).config.retryDelayMs = 0;
-
-      const callPromise = orchestrator.call({});
-      await vi.advanceTimersByTimeAsync(6_999);
-      expect(callCount).toBe(1);
-      await vi.advanceTimersByTimeAsync(1);
-      await expect(callPromise).resolves.toMatchObject({ stop_reason: 'end_turn' });
-      expect(callCount).toBe(2);
-
-      const streamPromise = (async () => {
-        for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
-      })();
-      await vi.advanceTimersByTimeAsync(6_999);
-      expect(streamCount).toBe(1);
-      await vi.advanceTimersByTimeAsync(1);
-      await expect(streamPromise).resolves.toBeUndefined();
-      expect(streamCount).toBe(2);
-      expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(2);
-      for (const event of emitted) {
-        if (event.type === 'retry_scheduled') expect(event.backoffMs).toBe(7_000);
-      }
-
-      (orchestrator as any).config.retryDelayMs = 30_000;
-      expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 7))).toBeGreaterThan(7_000);
-      expect((orchestrator as any).computeAttemptDelayMs(0, new LLMRateLimitError('primary', 31))).toBe(31_000);
-    } finally {
-      vi.useRealTimers();
+      const orchestrator = makeOrchestrator(provider, sink, 3, fallback);
+      if (kind === 'call') await orchestrator.call({});
+      else for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
+      expect(emitted.filter(e => e.type === 'provider_attempt_failed')).toHaveLength(1);
+      expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(0);
+      await orchestrator.close();
     }
+  });
+
+  it('typed Retry-After 不做轮内等待，普通退避仍使用原曲线', async () => {
+    const { sink, emitted } = createMockSink();
+    const primary: ProviderAdapter = {
+      name: 'primary', model: 'mock-model',
+      async call() { throw new LLMRateLimitError('primary', 7); },
+    };
+    const fallback: ProviderAdapter = {
+      name: 'fallback', model: 'mock-model',
+      async call() { return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse; },
+    };
+    const orchestrator = makeOrchestrator(primary, sink, 2, fallback);
+    (orchestrator as any).config.retryDelayMs = 0;
+    await orchestrator.call({});
+    expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(0);
+    (orchestrator as any).config.retryDelayMs = 30_000;
+    expect((orchestrator as any).computeAttemptDelayMs(0)).toBeGreaterThanOrEqual(22_500);
+    expect((orchestrator as any).computeAttemptDelayMs(0)).toBeLessThanOrEqual(30_000);
+    await orchestrator.close();
   });
 });

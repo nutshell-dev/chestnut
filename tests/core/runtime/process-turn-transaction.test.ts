@@ -70,7 +70,6 @@ function createMockDeps() {
     sessionManager: createMockSessionManager() as unknown as import('../../../src/foundation/dialog-store/index.js').DialogStore,
     inboxReader: {} as unknown as import('../../../src/foundation/messaging/index.js').InboxReader,
     llm: {
-      resetLastSuccessProvider: vi.fn(),
       getFailureDisposition: vi.fn().mockReturnValue('unknown'),
       getProviderInfo: vi.fn().mockReturnValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),

@@ -184,7 +184,7 @@ export class Runtime {
   private _llmImpl!: LLMOrchestrator & LLMRuntimeCapability;
   /**
    * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
-   * getProviderInfo / getFailureDisposition / resetLastSuccessProvider / reloadConfig / close 5 方法可编译调用。
+   * getProviderInfo / getFailureDisposition / reloadConfig / close 方法可编译调用。
    */
   protected get llm(): LLMRuntimeCapability {
     return this._llmImpl;
@@ -1281,7 +1281,7 @@ export class Runtime {
    * 由 TurnResult.failureDisposition 携带，不读本方法。
    */
   getLLMFailureDisposition(error: unknown): LLMFailureDisposition {
-    // 防御式可选链与既有 this.llm.resetLastSuccessProvider?.() 测试 seam 同款：
+    // 防御式可选链保留旧窄 mock double 的兼容 seam：
     // 生产装配类型保证实现存在；旧窄 mock double 缺省时回落 'unknown'（通用 dispatch）。
     return this.llm.getFailureDisposition?.(error) ?? 'unknown';
   }
@@ -1616,9 +1616,6 @@ export class Runtime {
         });
         // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
         applyBlockIdAssignments(messages, saved.assignedBlockIds);
-
-        // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
-        this.llm.resetLastSuccessProvider?.();
 
         await this._runReact(messages, systemPrompt, toolsForLLM, callbacks, recoveryFacts);
 

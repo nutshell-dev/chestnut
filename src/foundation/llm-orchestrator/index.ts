@@ -26,14 +26,10 @@ export type {
 
 export { createLLMOrchestrator } from './orchestrator.js';
 
-// Phase 1826/1827: 恢复安排单一 owner 的公共协议 + session 工厂。
-export { createRecoverySession } from './recovery.js';
+// 恢复只归真实 owner；调用方不持有 session/begin/finish 控制面。
 export type {
-  LLMRecoverySession,
   LLMOrchestratorOwner,
-  RecoveryCallScope,
   RecoveryFailureInput,
-  RecoverySessionDeps,
   SharedRecoveryDecision,
 } from './recovery.js';
 export type { LLMRecoverySchedule } from './recovery-state.js';

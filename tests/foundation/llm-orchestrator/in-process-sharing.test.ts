@@ -17,8 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import {
-  LLMAllProvidersFailedError,
-  LLMCircuitBreakerOpenError,
+  LLMRecoveryWaitRequiredError,
 } from '../../../src/foundation/llm-orchestrator/errors.js';
 import {
   LLMContextExceededError,
@@ -189,7 +188,7 @@ describe('Phase 1933 Step B：进程内共享状态与独立探针', () => {
     await expectCallFailed(owner); // breaker open
     expect(owner.snapshot().providers[0].breakerOpen).toBe(true);
 
-    // 普通 call 直接被本地 breaker 拒（未发起真实请求）。
+    // 普通 call 由统一恢复 admission 拒绝（未发起真实请求）。
     const callsBefore = mock.calls();
     let breakerErr: unknown;
     try {
@@ -197,10 +196,7 @@ describe('Phase 1933 Step B：进程内共享状态与独立探针', () => {
     } catch (err) {
       breakerErr = err;
     }
-    expect(breakerErr).toBeInstanceOf(LLMAllProvidersFailedError);
-    const failures = (breakerErr as LLMAllProvidersFailedError).failures;
-    expect(failures).toHaveLength(1);
-    expect(failures[0].error).toBeInstanceOf(LLMCircuitBreakerOpenError);
+    expect(breakerErr).toBeInstanceOf(LLMRecoveryWaitRequiredError);
     expect(mock.calls()).toBe(callsBefore); // 无真实请求
 
     // mock 恢复成功：probe() 不因 breaker open 拒绝，发起真实调用。

@@ -43,12 +43,23 @@ describe('Phase 2045 Step D: llm-orchestrator recovery internal surface', () => 
     }
   });
 
-  it('公共 recovery 能力不被误伤：session 工厂与 schedule 类型仍在 barrel', () => {
-    expect(barrelSource).toMatch(
-      /export\s*\{\s*createRecoverySession\s*\}\s*from\s*'\.\/recovery\.js';/,
-    );
-    expect(barrelSource).toMatch(
-      /export\s+type\s*\{\s*LLMRecoverySchedule\s*\}\s*from\s*'\.\/recovery-state\.js';/,
-    );
+  it('公共 barrel 不再暴露 session/scope/begin/finish 控制面', () => {
+    for (const name of [
+      'createRecoverySession', 'LLMRecoverySession', 'RecoveryCallScope',
+      'RecoverySessionDeps', 'callWithinRecovery', 'streamWithinRecovery',
+    ]) {
+      expect(barrelSource).not.toMatch(new RegExp(`\\b${name}\\b`));
+    }
+    expect(barrelSource).toMatch(/LLMOrchestratorOwner/);
+  });
+
+  it('Assembly/Runtime/EventLoop 直接注入真实 owner', () => {
+    const core = readFileSync(new URL('../../../src/assembly/core-infrastructure.ts', import.meta.url), 'utf8');
+    const runtime = readFileSync(new URL('../../../src/assembly/runtime-assembly.ts', import.meta.url), 'utf8');
+    expect(core).not.toMatch(/createRecoverySession|recoverySession|FOREGROUND_RECOVERY_SCOPE/);
+    expect(runtime).toMatch(/llm: llmOwner/);
+    expect(runtime).toMatch(/llmOrchestrator: llmOwner/);
+    expect(runtime).toMatch(/inspectLlmRecoverySchedule: \(\) => llmOwner\.inspectRecoverySchedule\(\)/);
+    expect(runtime).not.toMatch(/recoverySession/);
   });
 });

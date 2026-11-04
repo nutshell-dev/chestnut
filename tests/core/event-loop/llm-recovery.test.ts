@@ -1,13 +1,13 @@
 /**
- * Phase 1826 组合行为：真实 EventLoop + 真实 messaging inbox 消费 + owner session
- * + 记录真实 provider 请求次数的假 provider。
+ * Phase 1826 组合行为：真实 EventLoop + 真实 messaging inbox 消费 + 真实 owner
+ * + 记录真实 provider 请求次数的假 provider；恢复 admission 内置于 owner.call。
  *
  * 断言目标（计划 §6.2 行为矩阵）：
  * - 用户提前输入：未到 deadline 也发起一次尝试，旧消息与新消息进入同一真实 turn；
  * - 失败回队的同一消息不重复获得提前尝试资格；
  * - 系统消息到达不清零历史、不提前真发；
  * - deadline 到期自动放行；
- * - 子代理（非 scoped 调用）成功不清前台等待。
+ * - 子代理与前台共享统一 owner；成功只清真实 winner 的恢复事实。
  *
  * 计时：恢复 delay 常量在本文件缩到毫秒级（不靠真实分钟 sleep）；墙钟用真实时间，
  * 断言前用短窗口观察「未到点」行为。
@@ -26,13 +26,11 @@ import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/inbox-message-types.js';
 import { LLMAuthError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 import { createLLMOrchestrator, LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/index.js';
-import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMEvent,
   LLMEventSink,
   LLMOrchestratorOwner,
   LLMRecoveryFacts,
-  LLMRecoverySession,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
@@ -69,7 +67,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 const cleanupDirs: string[] = [];
+const cleanupOwners: LLMOrchestratorOwner[] = [];
 afterEach(async () => {
+  for (const owner of cleanupOwners.splice(0)) {
+    try { await owner.close(); } catch { /* ignore */ }
+  }
   for (const dir of cleanupDirs.splice(0)) {
     try { await cleanupTempDir(dir); } catch { /* ignore */ }
   }
@@ -77,20 +79,22 @@ afterEach(async () => {
 
 interface Harness {
   eventLoop: EventLoop;
-  session: LLMRecoverySession;
-  /** 非 scoped 的 owner 实例（子代理等 callers 的路径）。 */
-  sharedOrchestrator: LLMOrchestratorOwner;
+  /** 前台与子代理直接共享的唯一 owner。 */
+  owner: LLMOrchestratorOwner;
   providerCalls: string[];
   turns: Array<Array<{ role: string; content: string }>>;
   emitted: LLMEvent[];
   writePending: (msg: Partial<InboxMessage> & { type: string; from: string; content: string }) => void;
   listPending: () => string[];
   setProviderError: (error: Error | undefined) => void;
+  setFallbackError: (error: Error | undefined) => void;
+  /** 双 provider 用例读取统一实例中仍保留的恢复事实。 */
+  recoveryProviderIds: () => string[];
   /** 让接下来的 N 次干预事实读取抛错（测读取失败不以空集合继续准入）。 */
   setInterventionPeekFailures: (n: number) => void;
 }
 
-async function makeHarness(): Promise<Harness> {
+async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> {
   const dir = await createTrackedTempDir('llm-recovery-combo-');
   cleanupDirs.push(dir);
   const fs = new NodeFileSystem({ baseDir: dir });
@@ -111,6 +115,7 @@ async function makeHarness(): Promise<Harness> {
 
   const providerCalls: string[] = [];
   let providerError: Error | undefined;
+  let fallbackError: Error | undefined;
   const adapter: ProviderAdapter = {
     name: 'primary',
     model: 'model-primary',
@@ -122,23 +127,31 @@ async function makeHarness(): Promise<Harness> {
     stream: async function* () { throw new Error('stream unused in this suite'); },
   };
 
+  const fallbackAdapter: ProviderAdapter = {
+    name: 'fallback',
+    model: 'model-fallback',
+    call: async () => {
+      providerCalls.push('fallback');
+      if (fallbackError) throw fallbackError;
+      return OK_RESPONSE;
+    },
+    stream: async function* () { throw new Error('stream unused in this suite'); },
+  };
+
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
-  const sharedOrchestrator = createLLMOrchestrator({
-      lifecycle: { mode: 'ephemeral' },
+  const owner = createLLMOrchestrator({
+    lifecycle: opts?.dualProvider ? { mode: 'durable', fs } : { mode: 'ephemeral' },
     primary: providerConfig(),
+    ...(opts?.dualProvider ? {
+      fallbacks: [{ ...providerConfig(), name: 'fallback', apiKey: 'key-fallback', model: 'model-fallback' }],
+    } : {}),
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
-    createProviderAdapter: () => adapter,
+    createProviderAdapter: (config) => config.name === 'fallback' ? fallbackAdapter : adapter,
   });
-  const session = createRecoverySession({
-    scopeId: 'foreground',
-    fs,
-    events: sink,
-    orchestrator: sharedOrchestrator,
-  });
-
+  cleanupOwners.push(owner);
   const turns: Harness['turns'] = [];
   let peekFailures = 0;
 
@@ -194,23 +207,23 @@ async function makeHarness(): Promise<Harness> {
     getSystemPrompt: async () => 'sys',
     getToolsForLLM: () => [],
     proactiveTrimIfNeeded: async (m: unknown[]) => m,
-    // 组合要点：turn 内的真实 LLM 调用走 owner 的 scoped 视图 —— 假 provider
-    // 的请求计数即真实请求计数，失败/成功经 owner 策略回流到 EventLoop 的调度。
+    // 组合要点：turn 内的真实 LLM 调用直接走 owner —— 假 provider 的请求计数
+    // 即真实请求计数，失败/成功经 owner 内置 admission 回流到 EventLoop 的调度。
     processTurn: async (messages: Array<{ role: string; content: string }>, _system: unknown, _tools: unknown, _callbacks: unknown, _trace: unknown, recoveryFacts?: LLMRecoveryFacts) => {
       turns.push(messages.map(m => ({ role: m.role, content: m.content })));
       try {
-        await session.llm.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
+        await owner.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
         return { status: 'success' as const };
       } catch (error) {
         if (error instanceof LLMRecoveryWaitRequiredError) throw error;
-        return { status: 'failed' as const, error, failureDisposition: session.llm.getFailureDisposition(error) };
+        return { status: 'failed' as const, error, failureDisposition: owner.getFailureDisposition(error) };
       }
     },
     reactiveTrim: async () => {
       throw new Error('reactiveTrim not expected in these tests');
     },
     // Phase 1944 Step B: post-drain catch 的 disposition 事实转发 owner 结论（同生产 Runtime 语义）。
-    getLLMFailureDisposition: (error: unknown) => session.llm.getFailureDisposition(error),
+    getLLMFailureDisposition: (error: unknown) => owner.getFailureDisposition(error),
   };
 
   const eventLoop = new EventLoop({
@@ -225,8 +238,7 @@ async function makeHarness(): Promise<Harness> {
 
   return {
     eventLoop,
-    session,
-    sharedOrchestrator,
+    owner,
     providerCalls,
     turns,
     emitted,
@@ -244,6 +256,13 @@ async function makeHarness(): Promise<Harness> {
     },
     listPending: () => fsNative.readdirSync(pendingDir).filter(n => n.endsWith('.md')),
     setProviderError: (error) => { providerError = error; },
+    setFallbackError: (error) => { fallbackError = error; },
+    recoveryProviderIds: () => {
+      const state = JSON.parse(fsNative.readFileSync(
+        path.join(dir, 'status', 'llm-instance-state.json'), 'utf8',
+      )) as { recovery: { providers: Array<{ providerId: string }> } };
+      return state.recovery.providers.map(provider => provider.providerId);
+    },
     setInterventionPeekFailures: (n) => { peekFailures = n; },
   };
 }
@@ -266,7 +285,7 @@ class ComboRuntime extends Runtime {
 
 interface RuntimeHarness {
   eventLoop: EventLoop;
-  session: LLMRecoverySession;
+  owner: LLMOrchestratorOwner;
   providerCalls: string[];
   turns: Array<Array<{ role: string; content: string }>>;
   emitted: LLMEvent[];
@@ -318,20 +337,14 @@ async function makeRuntimeHarness(opts?: {
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
   const orchestrator = createLLMOrchestrator({
-      lifecycle: { mode: 'ephemeral' },
+    lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
     createProviderAdapter: () => adapter,
   });
-  const session = createRecoverySession({
-    scopeId: 'foreground',
-    fs,
-    events: sink,
-    orchestrator,
-  });
-
+  cleanupOwners.push(orchestrator);
   // 配置提供者（fake）：返回不同身份的 primary → 新配置修订；应用时假装换上可用 key。
   let reloadCalls = 0;
   const fixedConfig = {
@@ -411,11 +424,11 @@ async function makeRuntimeHarness(opts?: {
   runtimeAny.processTurn = async (messages: Array<{ role: string; content: string }>, _system: unknown, _tools: unknown, _callbacks: unknown, _trace: unknown, recoveryFacts?: LLMRecoveryFacts) => {
     turns.push(messages.map(m => ({ role: m.role, content: m.content })));
     try {
-      await session.llm.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
+      await orchestrator.call({ messages: [{ role: 'user', content: 'turn' }], recoveryFacts });
       return { status: 'success' as const };
     } catch (error) {
       if (error instanceof LLMRecoveryWaitRequiredError) throw error;
-      return { status: 'failed' as const, error, failureDisposition: session.llm.getFailureDisposition(error) };
+      return { status: 'failed' as const, error, failureDisposition: orchestrator.getFailureDisposition(error) };
     }
   };
 
@@ -443,7 +456,7 @@ async function makeRuntimeHarness(opts?: {
 
   return {
     eventLoop,
-    session,
+    owner: orchestrator,
     providerCalls,
     turns,
     emitted,
@@ -471,7 +484,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
     expect(h.listPending()).toContain('m-old.md');
-    expect((await h.session.inspect()).kind).toBe('at');
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
 
     // 第二条真新用户消息到达：提前尝试（不等 deadline）。
     h.writePending({ id: 'm-new', type: 'user_chat', from: 'user', content: 'new instruction' });
@@ -502,7 +515,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
-    const scheduleBefore = await h.session.inspect();
+    const scheduleBefore = await h.owner.inspectRecoverySchedule();
     expect(scheduleBefore.kind).toBe('at');
 
     // 系统消息（任务结果）到达：保存为 pending，不触发提前尝试。
@@ -510,7 +523,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     const rerun = h.eventLoop.run();
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(h.providerCalls.length).toBe(1);
-    const after = await h.session.inspect();
+    const after = await h.owner.inspectRecoverySchedule();
     expect(after.kind).toBe('at');
     // 系统消息不清零失败历史、不重置 deadline（墙钟到点后 revision 可前进，
     // 但同一 resumeAt 保持——系统消息本身不改变安排）。
@@ -556,35 +569,54 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.writePending({ id: 'm-2', type: 'user_chat', from: 'user', content: 'second' });
     await sleep(600);   // 跨过 deadline 与唤醒处理
 
-    expect(h.providerCalls.length).toBe(2);   // 只多一次真实尝试
+    // owner 的自主 probe 也经过同一假 provider；用 invocation 审计区分真实 turn 请求，
+    // 仍严格断言本次唤醒只新增一次 admission、一个 turn、一次候选真发。
+    const invocations = h.emitted.filter(e => e.type === 'call_invocation_started');
+    expect(invocations).toHaveLength(2);
+    const secondInvocation = invocations[1];
+    expect(h.emitted.filter(e =>
+      e.type === 'call_attempt_result' && e.invocationId === secondInvocation?.invocationId
+    )).toHaveLength(1);
     expect(h.turns.length).toBe(2);           // 只多一个 turn
     expect(h.turns[1].map(m => m.content)).toEqual(['first', 'second']);
     h.eventLoop.abort();
     await rerun;
   });
 
-  it('子代理（非 scoped 调用）成功不清前台等待', async () => {
-    const h = await makeHarness();
+  it('子代理与前台共享统一 owner：成功只清真实 winner，其他 provider 等待保留', async () => {
+    const h = await makeHarness({ dualProvider: true });
     h.setProviderError(QUOTA_ERROR());
+    h.setFallbackError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
     await h.eventLoop.run();
-    expect(h.providerCalls.length).toBe(1);
-    const waiting = await h.session.inspect();
-    expect(waiting.kind).toBe('at');
+    expect(h.providerCalls).toEqual(['primary', 'fallback']);
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
+    const blockedBefore = h.recoveryProviderIds();
+    expect(blockedBefore).toHaveLength(2);
 
-    // 另一 caller 直接用共享 owner 实例调用（子代理路径）并成功。
+    // 子代理直接调用同一 owner；新干预授予提前资格，primary 成为真实 winner。
     h.setProviderError(undefined);
-    await h.sharedOrchestrator.call({ messages: [{ role: 'user', content: 'subagent work' }] });
-    expect(h.providerCalls.length).toBe(2);
+    await h.owner.call({
+      messages: [{ role: 'user', content: 'subagent work' }],
+      recoveryFacts: { interventionIds: ['subagent-work'] },
+    });
+    expect(h.providerCalls).toEqual(['primary', 'fallback', 'primary']);
 
-    // 前台等待安排未被外部成功改变：仍未到点（短窗口内不追加请求）。
-    expect(await h.session.inspect()).toEqual(waiting);
-    const rerun = h.eventLoop.run();
-    await new Promise<void>(resolve => setImmediate(resolve));
-    expect(h.providerCalls.length).toBe(2);
-    h.eventLoop.abort();
-    await rerun;
+    const selected = h.emitted.find(e => e.type === 'call_selection' && e.outcome === 'selected');
+    if (selected?.type !== 'call_selection') throw new Error('expected selected winner');
+    const blockedAfter = h.recoveryProviderIds();
+    expect(blockedAfter).toEqual(blockedBefore.filter(id => id !== selected.providerId));
+    expect(blockedAfter).toHaveLength(1);
+    // winner 已可用，所以实例 schedule ready；非 winner 的恢复事实仍原样保留。
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('ready');
+
+    const scheduled = h.emitted.filter(e => e.type.startsWith('recovery_'));
+    expect(scheduled.length).toBeGreaterThan(0);
+    for (const event of scheduled) {
+      expect(event).toMatchObject({ orchestratorInstance: expect.any(String) });
+      expect(event).not.toHaveProperty('scope');
+    }
   });
 });
 
@@ -624,7 +656,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     // 第一次：permanent 失败 → 安排 at；旧用户 id 已被接受记账。
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
-    expect((await h.session.inspect()).kind).toBe('at');
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
     expect(h.listPending()).toContain('old-user.md');
 
     // 用户修好配置：reload 控制消息落盘；真实 consumePendingControls 应用并返回新修订。
@@ -638,22 +670,23 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.eventLoop.abort();
     await running;
 
-    // 配置事实被接受但不缩短 at；cooldown 到期后自动发起第二次真实请求。
+    // 新 provider 身份的配置事实被接受，经 owner 内置 admission 发起第二次真实请求。
     expect(h.providerCalls.length).toBe(2);
     expect(h.reloadCalls()).toBe(1);
 
     // 接受证据：同一批事实里配置修订与旧用户身份都可关联。
     const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
     expect(accepted.length).toBeGreaterThanOrEqual(1);
-    const batch = accepted.at(-1);
-    expect(batch).toMatchObject({ scope: 'foreground' });
+    const batch = accepted.find(e => e.configurationRevision !== undefined);
+    expect(batch).toMatchObject({ orchestratorInstance: expect.any(String) });
+    expect(batch).not.toHaveProperty('scope');
     if (batch?.type === 'recovery_facts_accepted') {
       expect(typeof batch.configurationRevision).toBe('string');
-      expect(batch.attemptId).toBeUndefined();  // 配置先在 waiting invocation 接受，不提前准入
     }
-    // 到期恢复的主原因是 automatic；配置接受证据仍与 invocation 关联。
+    // 新身份配置是本 invocation 的真实准入原因；公共事件只关联实例/invocation，无 scope。
     const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
-    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'automatic' });
+    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
+    expect(admittedEvents.at(-1)).not.toHaveProperty('scope');
     h.eventLoop.abort();
   });
 
@@ -662,7 +695,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
     await h.eventLoop.run();
-    expect((await h.session.inspect()).kind).toBe('at');
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
     expect(h.providerCalls.length).toBe(1);
 
     // 本批只有 reload：应用并 ack 控制消息，但没有 LLM invocation 可接收 facts。
@@ -730,7 +763,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     // 第一次：permanent 失败 → 安排 at。
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
-    expect((await h.session.inspect()).kind).toBe('at');
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
 
     // 用户只改 temperature → reload 落盘并接受新修订，但不发起第二次请求。
     currentTemperature = 0.5;
@@ -745,7 +778,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
 
     expect(h.reloadCalls()).toBe(1);
     expect(h.providerCalls.length).toBe(1);
-    expect((await h.session.inspect()).kind).toBe('at');
+    expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
     const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
     const batch = accepted.at(-1);
     if (batch?.type === 'recovery_facts_accepted') {

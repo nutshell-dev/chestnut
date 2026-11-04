@@ -66,7 +66,6 @@ function makeFakeLlm(scripts: (LLMStreamChunk[] | Error)[]) {
     call: vi.fn(),
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'fake', model: 'fake-model', isFallback: false })),
-    resetLastSuccessProvider: vi.fn(),
     getFailureDisposition: vi.fn(() => 'unknown' as const),
     close: vi.fn(async () => {}),
     reloadConfig: vi.fn(),

@@ -9,13 +9,15 @@
  * 4. 失败退避：持续失败 → probe 失败后自动安排下一次（不早于 probeAllowedAtMs）；
  *    typed Retry-After 由 breaker probeAllowedAtMs 覆盖时下一次不早于其下界。
  * 5. 成功唤醒：失败一次后恢复 → probe 成功 → subscribeReady listener 恰一次。
- * 6. close 取消：scheduleProbe 后 close() → 任意时长 0 调用 0 投递；close 幂等。
+ * 6. ready 后继续按统一 TTL 自主复检。
+ * 7. close 取消：scheduleProbe 后 close() → 任意时长 0 调用 0 投递；close 幂等。
  *
  * 风格：不用 vi.mock，走 createProviderAdapter DI seam（同 in-process-sharing.test.ts）；
  * 定时器用 vi.useFakeTimers + advanceTimersByTimeAsync（async timer 惯例）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
+import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import type {
   LLMEvent,
   LLMEventSink,
@@ -122,7 +124,7 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     expect(mock.calls()).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(mock.calls()).toBe(1);
-    // 成功后无重排：再推进也不追加调用
+    // 60s 未到统一 TTL：本窗口内不追加调用
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mock.calls()).toBe(1);
     await owner.close();
@@ -229,10 +231,26 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
 
     // 探针成功按既有语义记账 breaker（不新增记账路径）→ 快照显示恢复
     expect(owner.snapshot().providers[0].breakerOpen).toBe(false);
-    // 成功后无重排无重复投递
+    // 成功后的就绪投递不重复；持续 probe 的 TTL 尚未到
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mock.calls()).toBe(2);
     expect(listener).toHaveBeenCalledTimes(1);
+    await owner.close();
+  });
+
+  it('ready 后也按统一 TTL 持续自主 probe', async () => {
+    const mock = createControllableAdapter('primary', 'ok');
+    const { owner } = createOwner(mock.adapter);
+    owner.scheduleProbe(Date.now());
+    await flush();
+    expect(mock.calls()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS - 1);
+    expect(mock.calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mock.calls()).toBe(2);
+    await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS);
+    expect(mock.calls()).toBe(3);
     await owner.close();
   });
 
