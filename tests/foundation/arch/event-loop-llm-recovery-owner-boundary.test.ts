@@ -13,7 +13,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { LLMRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMOrchestratorOwner } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const EVENT_LOOP_DIR = new URL('../../../src/core/event-loop/', import.meta.url);
 
@@ -107,22 +107,24 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     expect(types).toContain('inspectLlmRecoverySchedule?: () => Promise<LLMRecoverySchedule | undefined>');
   });
 
-  it('公共 recovery session 仅暴露 llm 与 inspect，准入控制留在 owner 内部', () => {
+  it('公共 owner 仅暴露实例 schedule 查询，invocation 准入与结算留在内部', () => {
     const recoverySrc = readFileSync(
       new URL('../../../src/foundation/llm-orchestrator/recovery.ts', import.meta.url), 'utf8');
     const stateSrc = readFileSync(
       new URL('../../../src/foundation/llm-orchestrator/recovery-state.ts', import.meta.url), 'utf8');
 
-    const controller = recoverySrc.match(
-      /export interface LLMRecoveryController \{(?<body>[\s\S]*?)\n\}/,
+    const owner = recoverySrc.match(
+      /export interface LLMOrchestratorOwner extends[^{]+\{(?<body>[\s\S]*?)\n\}/,
     )?.groups?.body;
-    expect(controller).toBeDefined();
-    // begin 入参是 typed LLMRecoveryFacts，不是开放式策略通道。
-    expect(controller).toContain('facts: LLMRecoveryFacts');
-    expect(controller).not.toContain('Record<string, string>');
-    // admission 判别联合保持 admitted/waiting 两态。
-    expect(recoverySrc).toContain("{ kind: 'admitted'; attemptId: string; factsAccepted: true }");
-    expect(recoverySrc).toContain("{ kind: 'waiting'; schedule: LLMRecoverySchedule; factsAccepted: boolean }");
+    expect(owner).toBeDefined();
+    expect(owner).toContain('inspectRecoverySchedule(): Promise<LLMRecoverySchedule>');
+    for (const internalControl of ['begin(', 'finish(', 'callWithinRecovery(', 'streamWithinRecovery(']) {
+      expect(owner).not.toContain(internalControl);
+    }
+    expectTypeOf<LLMOrchestratorOwner>().toHaveProperty('inspectRecoverySchedule');
+    expectTypeOf<LLMOrchestratorOwner>().not.toHaveProperty('begin');
+    expectTypeOf<LLMOrchestratorOwner>().not.toHaveProperty('finish');
+
     // schedule 判别联合保持 ready/at/on_change 三态（revision 决策链字段不丢）。
     for (const variant of [
       "{ kind: 'ready'; revision: number }",
@@ -131,16 +133,18 @@ describe('phase 1950 Step B: event-loop LLM recovery owner boundary', () => {
     ]) {
       expect(stateSrc).toContain(variant);
     }
-    expectTypeOf<keyof LLMRecoverySession>().toEqualTypeOf<'llm' | 'inspect'>();
-    expectTypeOf<LLMRecoverySession>().not.toHaveProperty('begin');
-    expectTypeOf<LLMRecoverySession>().not.toHaveProperty('finish');
     const barrel = readFileSync(
       new URL('../../../src/foundation/llm-orchestrator/index.ts', import.meta.url), 'utf8');
     const recoveryExport = barrel.match(
       /export type \{(?<body>[\s\S]*?)\} from '\.\/recovery\.js';/,
     )?.groups?.body;
     expect(recoveryExport).toBeDefined();
-    expect(recoveryExport).not.toContain('LLMRecoveryController');
-    expect(recoveryExport).not.toContain('LLMRecoveryAdmission');
+    for (const retiredSurface of [
+      'LLMRecoveryController', 'LLMRecoveryAdmission', 'LLMRecoverySession',
+      'RecoveryCallScope', 'RecoverySessionDeps',
+    ]) {
+      expect(recoveryExport).not.toContain(retiredSurface);
+    }
+    expect(barrel).not.toContain('createRecoverySession');
   });
 });
