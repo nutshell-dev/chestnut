@@ -80,6 +80,7 @@ export const STREAM_EVENT_NAMES = {
   CALL_ATTEMPT_RESULT: 'call_attempt_result',
   CALL_SELECTION: 'call_selection',
   CALL_AUDIT_WRITE_FAILED: 'call_audit_write_failed',
+  PROBE_TARGET_SELECTED: 'probe_target_selected',
   // context trim 展示（2，phase 1978；EventLoop trim 路径的结构化状态，供 viewport 分流）
   CONTEXT_TRIM_RETRY_SCHEDULED: 'context_trim_retry_scheduled',
   CONTEXT_TRIM_BLOCKED: 'context_trim_blocked',
@@ -154,6 +155,7 @@ export interface StreamEventMap {
   sdk_client_cache_hit: { preset: string; model: string; trace_id?: string };
   sdk_client_cache_miss: { preset: string; model: string; trace_id?: string };
   provider_close_failed: { error: string; trace_id?: string };
+  probe_target_selected: { provider: string; providerId: string; reason: string; nextCursor: number; trace_id?: string };
   // context trim 展示（2，phase 1978）
   context_trim_retry_scheduled: { attempt: number; maxAttempts: number; delayMs: number; before: number; after: number; trace_id?: string };
   context_trim_blocked: { reason: 'no_progress' | 'policy_conflict' | 'retry_exhausted'; before?: number; after?: number; attempts?: number; maxAttempts?: number; trace_id?: string };

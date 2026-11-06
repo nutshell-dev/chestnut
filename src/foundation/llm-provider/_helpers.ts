@@ -8,13 +8,42 @@ import { LLMError, LLMRateLimitError, LLMQuotaError, LLMAuthError, LLMModelNotFo
 import { LLMInvalidRequestError } from './request-unicode.js';
 
 const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid json request body/i;
+const QUOTA_429_RE = /accountquotaexceeded|allocationquota|quota[\s\S]*reset|reset[\s\S]*quota/i;
+const QUOTA_RESET_RE = /\breset(?:\s+(?:at|on))?\s*[:=]?\s*(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(\.\d+)?\s*(Z|[+-]\d{2}:?\d{2})\b/i;
+
+/** 只接受带数字偏移或 Z 的 reset 时间；无法确定的日期不进入 typed 下界。 */
+function parseProviderResetTime(body: string): number | undefined {
+  const match = body.match(QUOTA_RESET_RE);
+  if (!match) return undefined;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction = '', offset] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day) return undefined;
+  if (hour > 23 || minute > 59 || second > 59) return undefined;
+  const offsetMatch = offset.match(/^[+-](\d{2}):?(\d{2})$/);
+  if (offsetMatch && (Number(offsetMatch[1]) > 23 || Number(offsetMatch[2]) > 59)) return undefined;
+  const normalizedOffset = offset === 'Z' || offset.includes(':')
+    ? offset
+    : `${offset.slice(0, 3)}:${offset.slice(3)}`;
+  const milliseconds = `${fraction.slice(1)}000`.slice(0, 3);
+  const parsed = Date.parse(`${yearText}-${monthText}-${dayText}T${hourText}:${minuteText}:${secondText}.${milliseconds}${normalizedOffset}`);
+  if (!Number.isFinite(parsed)) return undefined;
+  // 超出毫秒精度的非零尾部向上取整，真实 probe 不得早于 provider reset 下界。
+  const subMillisecondRemainder = fraction.length > 4 && /[1-9]/.test(fraction.slice(4));
+  return parsed + (subMillisecondRemainder ? 1 : 0);
+}
 
 /**
  * Parse HTTP error response and throw the appropriate LLMError subclass.
  *
  * Handles fetch Response with 4xx/5xx status:
  * - 402 → LLMQuotaError with the original provider message
- * - 429 → LLMRateLimitError with parsed retry-after header
+ * - 429 → 明确 quota body 为 LLMQuotaError；其余保持 LLMRateLimitError
  * - 5xx → LLMError "server error" tier
  * - else → LLMError generic
  *
@@ -33,17 +62,22 @@ export async function throwHttpErrorResponse(
 ): Promise<never> {
   const status = response.status;
   let resolvedErrorText: string;
+  let quotaEvidenceText: string;
 
   if (errorText !== undefined) {
     resolvedErrorText = errorText;
+    quotaEvidenceText = errorText;
   } else {
     const cloned = response.clone();
     try {
       const errorData = await response.json() as { error?: { message?: string } };
       resolvedErrorText = errorData.error?.message ?? JSON.stringify(errorData);
+      // 展示文本可能只取 error.message；quota 分类仍须看到 error.code 等原始字段。
+      quotaEvidenceText = JSON.stringify(errorData);
     } catch {
       // silent: json parse fallback — use raw text instead
       resolvedErrorText = await cloned.text();
+      quotaEvidenceText = resolvedErrorText;
     }
   }
 
@@ -62,8 +96,15 @@ export async function throwHttpErrorResponse(
   }
 
   if (status === 429) {
-    const retryAfter = response.headers.get('retry-after');
-    throw new LLMRateLimitError(provider, parseRetryAfter(retryAfter));
+    const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+    if (QUOTA_429_RE.test(quotaEvidenceText)) {
+      const resetAtMs = parseProviderResetTime(quotaEvidenceText);
+      throw new LLMQuotaError(provider, resolvedErrorText, {
+        ...(retryAfter !== undefined ? { retryAfter } : {}),
+        ...(resetAtMs !== undefined ? { resetAtMs } : {}),
+      });
+    }
+    throw new LLMRateLimitError(provider, retryAfter);
   }
 
   // Phase 1960: 413 的 status 是权威事实，归 context_exceeded（用户拍板）

@@ -306,7 +306,9 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     // 成功唤醒不产生新的业务等待事实；后台自主复检不属于业务等待调度。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(120_000);
-    expect(p.calls()).toBe(2);
+    // Phase 2056：ready 后公平轮转也会复检健康 primary，不再让故障 fallback 独占。
+    expect(p.calls()).toBeGreaterThan(2);
+    expect(f.calls()).toBeGreaterThan(1);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
     await owner.close();
   });

@@ -53,8 +53,8 @@ export interface LLMRecoveryProviderFact {
    */
   rateLimitFailures?: number;
   /**
-   * Phase 2034 起仅作 legacy 证据：旧文件用于 begin 迁移到末档 at；新失败不再写入，
-   * scoped 候选也不再按此字段排除。schema 与原字段保留，历史事实不删除。
+   * Phase 2056：无 Retry-After 的 rate-limit 连续失败达到上限后写入，派生
+   * on_change 有界恢复；旧文件仍按同一 schema 读取，新干预/配置事实可显式释放。
    */
   rateLimitBlocked?: boolean;
   rateLimitBlockedAt?: string;

@@ -39,6 +39,8 @@ const OK_RESPONSE: LLMResponse = {
 
 /** breaker resetTimeoutMs：测试内统一 5s（退避下界的时间基准）。 */
 const RESET_MS = 5_000;
+/** transient/rate-limit 无 header 的 recovery owner 初始下界。 */
+const RECOVERY_MS = 30_000;
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];
@@ -57,7 +59,7 @@ function providerConfig(name: string): ProviderConfig {
   };
 }
 
-type Behavior = 'fail' | 'ok' | 'hang' | 'rate_limit';
+type Behavior = 'fail' | 'ok' | 'hang' | 'rate_limit' | 'rate_limit_bounded';
 
 /** 可控行为的 mock adapter（同 in-process-sharing.test.ts 惯例；rate_limit 携带 typed Retry-After）。 */
 function createControllableAdapter(name: string, initial: Behavior) {
@@ -75,6 +77,7 @@ function createControllableAdapter(name: string, initial: Behavior) {
       }
       if (behavior === 'fail') throw new LLMNetworkError(name, new Error('offline'));
       if (behavior === 'rate_limit') throw new LLMRateLimitError(name, 2);  // typed Retry-After = 2s
+      if (behavior === 'rate_limit_bounded') throw new LLMRateLimitError(name);
       return OK_RESPONSE;
     },
   };
@@ -87,16 +90,19 @@ function createControllableAdapter(name: string, initial: Behavior) {
   };
 }
 
-function createOwner(adapter: ProviderAdapter) {
+function createOwner(adapterOrAdapters: ProviderAdapter | ProviderAdapter[]) {
+  const adapters = Array.isArray(adapterOrAdapters) ? adapterOrAdapters : [adapterOrAdapters];
+  const primary = adapters[0]!;
   const { sink, emitted } = createMockSink();
   const owner = createLLMOrchestrator({
-      lifecycle: { mode: 'ephemeral' },
-    primary: providerConfig(adapter.name),
+    lifecycle: { mode: 'ephemeral' },
+    primary: providerConfig(primary.name),
+    fallbacks: adapters.slice(1).map(adapter => providerConfig(adapter.name)),
     maxAttempts: 1,
     retryDelayMs: 0,
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
-    createProviderAdapter: () => adapter,
+    createProviderAdapter: config => adapters.find(adapter => adapter.name === config.name) ?? primary,
   });
   return { owner, emitted };
 }
@@ -180,7 +186,7 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     // 自动重排的下界前不触发
     await vi.advanceTimersByTimeAsync(RESET_MS - 1);
     expect(mock.calls()).toBe(1);
-    // 到点触发第二次（再次失败 → 下界前移一个 RESET_MS）
+    // 到点触发第二次（再次失败 → 下界前移）
     await vi.advanceTimersByTimeAsync(1);
     expect(mock.calls()).toBe(2);
     await vi.advanceTimersByTimeAsync(RESET_MS - 1);
@@ -251,6 +257,60 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     expect(mock.calls()).toBe(2);
     await vi.advanceTimersByTimeAsync(LLM_PROVIDER_SELECTION_TTL_MS);
     expect(mock.calls()).toBe(3);
+    await owner.close();
+  });
+
+  it('Phase 2056：滚动故障 fallback 不再饿死已恢复 primary，选择原因可审计', async () => {
+    const primary = createControllableAdapter('primary', 'fail');
+    const fallback = createControllableAdapter('fallback', 'fail');
+    const { owner, emitted } = createOwner([primary.adapter, fallback.adapter]);
+    await expect(owner.call({ messages: [{ role: 'user', content: 'work' }] })).rejects.toThrow();
+    expect(primary.calls()).toBe(1);
+    expect(fallback.calls()).toBe(1);
+
+    primary.setBehavior('ok');
+    await vi.setSystemTime(Date.now() + RECOVERY_MS);
+    const first = await owner.probe();
+    expect(first).toMatchObject({ ok: true, provider: 'primary' });
+
+    await vi.setSystemTime(Date.now() + RECOVERY_MS);
+    const second = await owner.probe();
+    expect(second).toMatchObject({ ok: false, provider: 'fallback', errorClass: 'transient' });
+    await vi.setSystemTime(Date.now() + RECOVERY_MS);
+    const third = await owner.probe();
+    expect(third).toMatchObject({ ok: true, provider: 'primary' });
+    await vi.setSystemTime(Date.now() + RECOVERY_MS * 4);
+    const fourth = await owner.probe();
+    expect(fourth).toMatchObject({ ok: false, provider: 'fallback' });
+
+    expect(primary.calls()).toBe(3);
+    expect(fallback.calls()).toBe(3);
+    expect(emitted.filter(event => event.type === 'probe_target_selected')).toEqual([
+      expect.objectContaining({ provider: 'primary', reason: 'expired_failure' }),
+      expect.objectContaining({ provider: 'fallback', reason: 'expired_failure' }),
+      expect.objectContaining({ provider: 'primary', reason: 'fairness_rotation' }),
+      expect.objectContaining({ provider: 'fallback', reason: 'expired_failure' }),
+    ]);
+    await owner.close();
+  });
+
+  it('Phase 2056：probe 复用 rate-limit 有界恢复，第 10 次后不再真实请求', async () => {
+    const mock = createControllableAdapter('primary', 'rate_limit_bounded');
+    const { owner, emitted } = createOwner(mock.adapter);
+    const delays = [30_000, 60_000, 120_000, 300_000, 600_000, 600_000, 600_000, 600_000, 600_000];
+
+    for (let round = 0; round < 10; round++) {
+      if (round > 0) await vi.setSystemTime(Date.now() + delays[round - 1]!);
+      const result = await owner.probe();
+      expect(result).toMatchObject({ ok: false, provider: 'primary', errorClass: 'rate_limit' });
+      expect(mock.calls()).toBe(round + 1);
+    }
+    expect(await owner.inspectRecoverySchedule()).toMatchObject({ kind: 'on_change' });
+
+    const blocked = await owner.probe();
+    expect(blocked).toMatchObject({ ok: false, provider: 'none', reason: 'recovery_floor' });
+    expect(mock.calls()).toBe(10);
+    expect(emitted.filter(event => event.type === 'probe_target_selected')).toHaveLength(10);
     await owner.close();
   });
 

@@ -53,7 +53,7 @@ import {
   type ExecutionRecoveryStore,
   type PendingExecutionResume,
 } from './execution-recovery.js';
-import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks } from './types.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks, LlmGateReleaseFact, LlmGateReleaseBaseline } from './types.js';
 import type { PreparedInboxBatch, PreparedInboxEntry } from '../runtime/index.js';
 
 /**
@@ -224,6 +224,7 @@ export class EventLoop {
           EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED,
           `old=${gate.previous.requestFingerprint}`,
           `new=${gate.fingerprint}`,
+          ...this._llmGateReleaseAuditFacts(gate.releaseFact),
         );
       }
 
@@ -382,7 +383,7 @@ export class EventLoop {
         `type=turn_recovery_required`,
         `fingerprint=${failedRequestFingerprint}`,
       );
-      this._enterLlmRequestBlocked({
+      await this._enterLlmRequestBlocked({
         version: 2,
         reason: 'recovery_required',
         requestFingerprint: failedRequestFingerprint,
@@ -437,7 +438,7 @@ export class EventLoop {
   ): Promise<void> {
     if (this.contextTrimRetryCount >= CONTEXT_TRIM_RETRY_MAX) {
       const attempts = this.contextTrimRetryCount;
-      this._enterLlmRequestBlocked({
+      await this._enterLlmRequestBlocked({
         version: 2,
         reason: 'retry_exhausted',
         requestFingerprint: failedRequestFingerprint,
@@ -467,7 +468,7 @@ export class EventLoop {
         return;
       case 'no_progress':
       case 'policy_conflict':
-        this._enterLlmRequestBlocked({
+        await this._enterLlmRequestBlocked({
           version: 2,
           reason: outcome.status,
           requestFingerprint: failedRequestFingerprint,
@@ -579,11 +580,44 @@ export class EventLoop {
     if (!this.llmRequestBlocked) {
       return { kind: 'open', fingerprint: await this.runtime.computeTurnRequestFingerprint() };
     }
+    if (this.llmRequestBlocked.pendingRelease) {
+      return this._releaseLlmRequestGate();
+    }
     try {
+      let facts: LlmGateReleaseBaseline | undefined;
+      if (this.runtime.peekLlmGateFacts) {
+        // pending reload 不是释放事实；先在 blocked 路径应用，再读取已提交 revision。
+        const controls = await this.runtime.consumePendingControls();
+        if (controls.configRevision !== undefined) this.configurationRevision = controls.configRevision;
+        facts = await this.runtime.peekLlmGateFacts();
+        if (!this.llmRequestBlocked.releaseBaseline) {
+          const previous = this.llmRequestBlocked;
+          const withBaseline: LLMRequestBlockedState = {
+            ...previous,
+            releaseBaseline: {
+              ...(facts.configurationRevision !== undefined ? { configurationRevision: facts.configurationRevision } : {}),
+              userMessageIds: [...facts.userMessageIds],
+              providerHealth: facts.providerHealth.map(fact => ({ ...fact })),
+            },
+          };
+          this.llmRequestBlocked = withBaseline;
+          try {
+            this._writeLlmRequestBlockedState(withBaseline);
+          } catch (error) {
+            this.llmRequestBlocked = previous;
+            throw error;
+          }
+        }
+      }
+
       const fingerprint = await this.runtime.computeTurnRequestFingerprint();
+      const baseline = this.llmRequestBlocked.releaseBaseline;
+      const releaseFact = baseline && facts ? this._findLlmGateReleaseFact(baseline, facts) : undefined;
+      if (releaseFact) return this._releaseLlmRequestGate(releaseFact, fingerprint);
       if (fingerprint === this.llmRequestBlocked.requestFingerprint) {
         return { kind: 'blocked', state: this.llmRequestBlocked };
       }
+      // 既有 session/tools/普通 pending 变化仍由 fingerprint 释放；typed fact 优先且带原因。
       const previous = this._clearLlmRequestBlockedState();
       return { kind: 'released', previous, fingerprint };
     } catch (error) {
@@ -592,6 +626,66 @@ export class EventLoop {
       }
       throw error;
     }
+  }
+
+  private _findLlmGateReleaseFact(
+    baseline: LlmGateReleaseBaseline,
+    current: LlmGateReleaseBaseline,
+  ): LlmGateReleaseFact | undefined {
+    if (current.configurationRevision !== undefined
+      && current.configurationRevision !== baseline.configurationRevision) {
+      return { kind: 'config_applied', revision: current.configurationRevision };
+    }
+    for (const health of current.providerHealth) {
+      const previous = baseline.providerHealth.find(fact => fact.providerId === health.providerId);
+      if (previous && health.epoch > previous.epoch && health.healthKey !== previous.healthKey) {
+        return { kind: 'provider_health_changed', providerId: health.providerId, epoch: health.epoch };
+      }
+    }
+    const previousMessageIds = new Set(baseline.userMessageIds);
+    const messageId = current.userMessageIds.find(id => !previousMessageIds.has(id));
+    return messageId === undefined ? undefined : { kind: 'new_user_message', messageId };
+  }
+
+  private _releaseLlmRequestGate(
+    fact?: LlmGateReleaseFact,
+    fingerprint?: string,
+  ): LLMRequestGateDecision {
+    const blocked = this.llmRequestBlocked;
+    if (!blocked) throw new Error('LLM request blocked state is not set');
+    const releaseFact = fact ?? blocked.pendingRelease?.fact;
+    if (!releaseFact) throw new Error('LLM gate release fact is required');
+    const pendingRelease = blocked.pendingRelease ?? {
+      fact: releaseFact,
+      fingerprint: fingerprint ?? blocked.requestFingerprint,
+    };
+    if (!blocked.pendingRelease) {
+      const pending: LLMRequestBlockedState = { ...blocked, pendingRelease };
+      this.llmRequestBlocked = pending;
+      try {
+        this._writeLlmRequestBlockedState(pending);
+      } catch (error) {
+        // 未落盘的 fact 不能在下一 tick 被当成已提交事实放行。
+        this.llmRequestBlocked = blocked;
+        throw error;
+      }
+    }
+    const previous = this._clearLlmRequestBlockedState();
+    return {
+      kind: 'released',
+      previous,
+      fingerprint: pendingRelease.fingerprint,
+      releaseFact: pendingRelease.fact,
+    };
+  }
+
+  private _llmGateReleaseAuditFacts(fact: LlmGateReleaseFact | undefined): string[] {
+    if (!fact) return ['reason=request_fingerprint_changed'];
+    if (fact.kind === 'config_applied') return [`reason=${fact.kind}`, `revision=${fact.revision}`];
+    if (fact.kind === 'provider_health_changed') {
+      return [`reason=${fact.kind}`, `provider_id=${fact.providerId}`, `epoch=${fact.epoch}`];
+    }
+    return [`reason=${fact.kind}`, `message_id=${fact.messageId}`];
   }
 
   /**
@@ -796,6 +890,7 @@ export class EventLoop {
             EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED,
             `old=${gate.previous.requestFingerprint}`,
             `new=${gate.fingerprint}`,
+            ...this._llmGateReleaseAuditFacts(gate.releaseFact),
           );
         }
         turnFingerprint = gate.fingerprint;
@@ -1140,6 +1235,13 @@ export class EventLoop {
     if (s.version !== 2) return false;
     if (typeof s.requestFingerprint !== 'string' || s.requestFingerprint.length === 0) return false;
     if (typeof s.blockedAt !== 'string') return false;
+    if (s.releaseBaseline !== undefined && !this._isValidLlmGateReleaseBaseline(s.releaseBaseline)) return false;
+    if (s.pendingRelease !== undefined) {
+      if (typeof s.pendingRelease !== 'object' || s.pendingRelease === null) return false;
+      const pending = s.pendingRelease as Record<string, unknown>;
+      if (typeof pending.fingerprint !== 'string' || pending.fingerprint.length === 0
+        || !this._isValidLlmGateReleaseFact(pending.fact)) return false;
+    }
 
     if (s.reason === 'no_progress' || s.reason === 'policy_conflict') {
       if (typeof s.before !== 'number' || typeof s.after !== 'number') return false;
@@ -1161,14 +1263,70 @@ export class EventLoop {
     return false;
   }
 
+  private _isValidLlmGateReleaseBaseline(value: unknown): value is LlmGateReleaseBaseline {
+    if (typeof value !== 'object' || value === null) return false;
+    const baseline = value as Record<string, unknown>;
+    if (baseline.configurationRevision !== undefined && typeof baseline.configurationRevision !== 'string') return false;
+    if (!Array.isArray(baseline.userMessageIds)
+      || !baseline.userMessageIds.every(id => typeof id === 'string' && id.length > 0)) return false;
+    return Array.isArray(baseline.providerHealth) && baseline.providerHealth.every(item => {
+      if (typeof item !== 'object' || item === null) return false;
+      const fact = item as Record<string, unknown>;
+      return typeof fact.providerId === 'string' && fact.providerId.length > 0
+        && typeof fact.epoch === 'number' && Number.isInteger(fact.epoch) && fact.epoch >= 0
+        && typeof fact.healthKey === 'string' && fact.healthKey.length > 0;
+    });
+  }
+
+  private _isValidLlmGateReleaseFact(value: unknown): value is LlmGateReleaseFact {
+    if (typeof value !== 'object' || value === null) return false;
+    const fact = value as Record<string, unknown>;
+    if (fact.kind === 'config_applied') return typeof fact.revision === 'string' && fact.revision.length > 0;
+    if (fact.kind === 'provider_health_changed') {
+      return typeof fact.providerId === 'string' && fact.providerId.length > 0
+        && typeof fact.epoch === 'number' && Number.isInteger(fact.epoch) && fact.epoch >= 0;
+    }
+    return fact.kind === 'new_user_message' && typeof fact.messageId === 'string' && fact.messageId.length > 0;
+  }
+
   /**
    * Phase 1154 Step E: enter LLM-request blocked state atomically.
    * Memory is set first (fail-closed for current process), then persisted.
    * Only emit CONTEXT_BLOCKED after atomic write succeeds; otherwise keep the
    * in-memory gate and throw so the caller cannot report success.
    */
-  private _enterLlmRequestBlocked(state: LLMRequestBlockedState): void {
-    this.llmRequestBlocked = state;
+  private async _enterLlmRequestBlocked(state: LLMRequestBlockedState): Promise<void> {
+    let persisted = state;
+    if (this.runtime.peekLlmGateFacts && !state.releaseBaseline) {
+      try {
+        const facts = await this.runtime.peekLlmGateFacts();
+        persisted = {
+          ...state,
+          releaseBaseline: {
+            ...(facts.configurationRevision !== undefined ? { configurationRevision: facts.configurationRevision } : {}),
+            userMessageIds: [...facts.userMessageIds],
+            providerHealth: facts.providerHealth.map(fact => ({ ...fact })),
+          },
+        };
+      } catch (error) {
+        // 基线不可读时仍先持久 blocked；后续 typed release 不得猜测缺失基线。
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.FATAL,
+          'context=readLlmGateReleaseBaseline',
+          `reason=${formatErr(error)}`,
+        );
+      }
+    }
+    this.llmRequestBlocked = persisted;
+    this._writeLlmRequestBlockedState(persisted);
+    this.audit.write(
+      EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED,
+      `reason=${persisted.reason}`,
+      `fingerprint=${persisted.requestFingerprint}`,
+    );
+  }
+
+  private _writeLlmRequestBlockedState(state: LLMRequestBlockedState): void {
     try {
       this.agentFs.ensureDirSync(STATUS_SUBDIR);
       this.agentFs.writeAtomicSync(
@@ -1183,11 +1341,6 @@ export class EventLoop {
       );
       throw error;
     }
-    this.audit.write(
-      EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED,
-      `reason=${state.reason}`,
-      `fingerprint=${state.requestFingerprint}`,
-    );
   }
 
   /**

@@ -22,7 +22,7 @@ function adapter(name: string, behavior: () => Promise<LLMResponse> = async () =
   return { name, model: `model-${name}`, call: vi.fn(behavior) };
 }
 
-function ephemeral(adapters: ProviderAdapter[]) {
+function ephemeral(adapters: ProviderAdapter[], resetTimeoutMs?: number) {
   return new LLMOrchestratorImpl({
     lifecycle: { mode: 'ephemeral' },
     primary: config(adapters[0].name),
@@ -30,6 +30,7 @@ function ephemeral(adapters: ProviderAdapter[]) {
     maxAttempts: 1,
     retryDelayMs: 0,
     events: { emit: () => {} },
+    ...(resetTimeoutMs !== undefined ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs } } : {}),
     createProviderAdapter: provider => adapters.find(item => item.name === provider.name)!,
   });
 }
@@ -68,12 +69,13 @@ describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
       return OK;
     });
     const fallback = adapter('fallback');
-    const owner = ephemeral([primary, fallback]);
+    const owner = ephemeral([primary, fallback], 5_000);
     await owner.call(CALL);
     const selection = (owner as unknown as { lastSuccessProvider: { providerId: string; lastUsedAt: number } }).lastSuccessProvider;
     const before = { providerId: selection.providerId, lastUsedAt: selection.lastUsedAt };
 
     primaryFails = false;
+    vi.setSystemTime(Date.now() + 5_000);
     await expect(owner.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
     expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toMatchObject(before);
     expect((owner as unknown as { currentStreamingProvider: unknown }).currentStreamingProvider).toBeNull();
@@ -133,6 +135,7 @@ describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
 
     firstFails = true;
     primaryFails = false;
+    vi.setSystemTime(Date.now() + 300_000);
     await owner.probe(); // primary 健康事实已恢复，但有效 fallback 缓存仍保留
     await owner.call(CALL);
     expect(primary.call).toHaveBeenCalledTimes(3); // initial failure + probe + re-evaluation

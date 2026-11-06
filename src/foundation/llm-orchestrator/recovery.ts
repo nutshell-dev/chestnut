@@ -20,6 +20,7 @@ import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
   LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
+  LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_MAX_DELAY_MS,
 } from './defaults.js';
@@ -43,6 +44,8 @@ export interface RecoveryFailureInput {
   errorClass: LLMErrorClass;
   message: string;
   retryAfterSec?: number;
+  /** L1 已解析并校验时区的 quota reset 下界。 */
+  resetAtMs?: number;
   localSkip?: boolean;
   probeAllowedAtMs?: number;
   providerLabel?: string;
@@ -314,6 +317,8 @@ export class LLMRecoveryControllerImpl {
     if (entrySchedule.kind === 'on_change') {
       for (const fact of next.providers) {
         if (!fact.blocking || fact.retryAt !== undefined) continue;
+        // 达到有界恢复上限后只能由上方新鲜干预/配置事实释放，不能自动改回 at。
+        if (fact.rateLimitBlocked === true) continue;
         const delayMs = recoveryDelayForFact(fact, next.budget);
         if (delayMs !== undefined) {
           fact.retryAt = new Date(nowMs + delayMs).toISOString();
@@ -506,14 +511,28 @@ export class LLMRecoveryControllerImpl {
       if (failure.errorClass === 'quota') {
         const delay = next.budget.quotaDelayMs;
         next.budget.quotaDelayMs = Math.min(delay * 2, LLM_RECOVERY_QUOTA_MAX_DELAY_MS);
-        retryAtMs = nowMs + delay;
+        const backoffAtMs = nowMs + delay;
+        const resetAtMs = failure.resetAtMs !== undefined && failure.resetAtMs > nowMs
+          ? failure.resetAtMs
+          : undefined;
+        const retryAfterAtMs = failure.retryAfterSec !== undefined
+          ? nowMs + failure.retryAfterSec * 1000
+          : undefined;
+        // 无可信未来 reset 时走既有 quota 曲线；header/reset 只能推后真实下界。
+        retryAtMs = Math.max(backoffAtMs, resetAtMs ?? 0, retryAfterAtMs ?? 0);
       } else if (failure.errorClass === 'rate_limit') {
         if (failure.retryAfterSec !== undefined) {
           retryAtMs = nowMs + failure.retryAfterSec * 1000;
         } else {
           fact.rateLimitFailures = (fact.rateLimitFailures ?? 0) + 1;
-          const index = Math.min(fact.rateLimitFailures - 1, LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1);
-          retryAtMs = nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
+          if (fact.rateLimitFailures >= LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS) {
+            fact.rateLimitBlocked = true;
+            fact.rateLimitBlockedAt = nowIso;
+            delete fact.retryAt;
+          } else {
+            const index = Math.min(fact.rateLimitFailures - 1, LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1);
+            retryAtMs = nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
+          }
         }
       } else if (failure.errorClass === 'permanent') {
         retryAtMs = nowMs + LLM_RECOVERY_COOLDOWN_MS;

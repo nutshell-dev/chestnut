@@ -14,7 +14,7 @@
  * 风格：不用 vi.mock，走 createProviderAdapter DI seam（同 orchestrator.test.ts /
  * recovery-zk.test.ts 惯例）。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import {
   LLMRecoveryWaitRequiredError,
@@ -100,6 +100,10 @@ function createOwner(adapter: ProviderAdapter) {
 
 const OPTIONS = { messages: [{ role: 'user' as const, content: 'test' }] };
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 async function expectCallFailed(owner: { call(o: typeof OPTIONS): Promise<LLMResponse> }) {
   await expect(owner.call(OPTIONS)).rejects.toThrow();
 }
@@ -166,6 +170,9 @@ describe('Phase 1933 Step B：进程内共享状态与独立探针', () => {
     await expectCallFailed(owner); // breaker open
     expect(mock.calls()).toBe(1);
 
+    // Phase 2056：手动 probe 同样不能绕过故障下界。
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 60_000);
     // 切到 hang：probe 的真实调用挂起，制造并发窗口。
     mock.setBehavior('hang');
     const p1 = owner.probe();
@@ -199,7 +206,9 @@ describe('Phase 1933 Step B：进程内共享状态与独立探针', () => {
     expect(breakerErr).toBeInstanceOf(LLMRecoveryWaitRequiredError);
     expect(mock.calls()).toBe(callsBefore); // 无真实请求
 
-    // mock 恢复成功：probe() 不因 breaker open 拒绝，发起真实调用。
+    // mock 恢复成功：到恢复下界后 probe() 发起真实调用。
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 60_000);
     mock.setBehavior('ok');
     const result = await owner.probe();
     expect(result.ok).toBe(true);

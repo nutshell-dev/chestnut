@@ -192,9 +192,14 @@ export function getUserActionHint(err: unknown): UserActionHint {
 }
 
 /**
- * Phase 1268 Step C: 从 typed LLMRateLimitError 提取 Retry-After 秒数。
- * 只允许 typed 字段，禁止凭 error message 正则推导；非 rate-limit / 无 header 返回 undefined。
+ * 从 L1 typed error 提取 Retry-After 秒数；quota 与 rate-limit 共用 header 事实，
+ * 禁止凭 error message 正则推导。provider reset 由独立字段消费，不混入 header。
  */
 export function getRetryAfterSec(err: unknown): number | undefined {
-  return err instanceof LLMRateLimitError ? err.retryAfter : undefined;
+  return err instanceof LLMRateLimitError || err instanceof LLMQuotaError ? err.retryAfter : undefined;
+}
+
+/** L1 已校验时区的 quota reset 下界；L2 不重新解析 provider 自然语言。 */
+export function getQuotaResetAtMs(err: unknown): number | undefined {
+  return err instanceof LLMQuotaError ? err.resetAtMs : undefined;
 }

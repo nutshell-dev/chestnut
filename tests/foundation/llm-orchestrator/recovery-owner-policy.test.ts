@@ -449,6 +449,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
 
     // probe 在途（挂起于 primary）；期间业务调用再次真实失败（代次 N+1）
     p.pushBehavior('hang');
+    vi.setSystemTime(Date.now() + 300_000);
     const probePromise = owner.probe();
     await flush();
     expect(p.calls()).toBe(2);

@@ -13,6 +13,7 @@ import {
   classifyLLMError,
   getUserActionHint,
   getRetryAfterSec,
+  getQuotaResetAtMs,
   type LLMErrorClass,
   type LLMProviderFailure } from './errors.js';
 
@@ -25,7 +26,9 @@ import type {
   LLMOrchestrator,
   LLMProbeResult,
   LLMProviderSnapshotEntry,
+  LLMProviderHealthSnapshot,
   LLMRuntimeCapability,
+  ProbeTargetReason,
   LLMFailureDisposition,
   LLMStreamChunk } from './types.js';
 import {
@@ -210,6 +213,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 纯内存字段：探针调度不跨进程，禁止文件/socket/全局目录作为状态通道。
    */
   private inflightProbe: Promise<LLMProbeResult> | null = null;
+  /** Phase 2056：实例内公平游标；重启从 0 重建，持久健康/恢复下界仍由 V2 继承。 */
+  private probeCursor = 0;
 
   /**
    * Phase 1933 Step F：进程内探针唤醒调度（实例内能力，不跨进程）。
@@ -912,6 +917,22 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return { takenAtMs: Date.now(), providers };
   }
 
+  getProviderHealthSnapshot(): LLMProviderHealthSnapshot {
+    return {
+      revision: this.instanceRevision,
+      providers: this.providerIds.map((providerId, index) => {
+        const shared = this.sharedFailures.get(providerId);
+        const recovery = this.recoveryState.providers.find(fact => fact.providerId === providerId && fact.blocking);
+        const breakerOpen = (this.breakers[index]?.probeAllowedAtMs() ?? undefined) !== undefined;
+        const errorClass = shared?.errorClass ?? recovery?.errorClass ?? (breakerOpen ? 'transient' : undefined);
+        return {
+          providerId,
+          healthKey: errorClass === undefined ? 'healthy' : `blocked:${errorClass}`,
+        };
+      }),
+    };
+  }
+
   /**
    * Phase 1933 Step B / 1934 Step C：独立探针。
    *
@@ -933,29 +954,36 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return this.inflightProbe;
   }
 
-  /** 探针目标选择：每次恰好一个候选（依次验证语义由调度器续探承担）。 */
-  private pickProbeTarget(): { adapter: LLMProvider; breakerIndex: number; isFallback: boolean; identity: string } {
+  /** 探针目标选择：故障下界先过滤，再从实例游标公平轮转；未到期候选绝不真实调用。 */
+  private pickProbeTarget(): {
+    adapter: LLMProvider;
+    breakerIndex: number;
+    isFallback: boolean;
+    identity: string;
+    reason: ProbeTargetReason;
+    nextCursor: number;
+  } | undefined {
     const adapters = [this.primary, ...this.fallbacks];
-    const entry = (i: number) => ({
-      adapter: adapters[i],
-      breakerIndex: i,
-      isFallback: i > 0,
-      identity: this.providerIds[i] ?? `unknown:${adapters[i].name}`,
-    });
-    const now = Date.now();
-    // 已到点的故障候选优先（按既有 fallback 顺序依次验证）
-    for (let i = 0; i < adapters.length; i++) {
-      const record = this.sharedFailures.get(entry(i).identity);
-      if (!record) continue;
-      if (this.sharedFailureFloorMs(i, record) <= now) return entry(i);
+    const entries = adapters.map((adapter, index) => ({
+      adapter,
+      breakerIndex: index,
+      isFallback: index > 0,
+      identity: this.providerIds[index] ?? `unknown:${adapter.name}`,
+      failed: this.hasProbeFailure(index),
+    }));
+    if (!entries.some(entry => entry.failed)) {
+      return { ...entries[0]!, reason: 'default_primary', nextCursor: 1 % entries.length };
     }
-    // 无到点候选：任一故障候选（手动 probe 语义，包括 permanent）
-    for (let i = 0; i < adapters.length; i++) {
-      const record = this.sharedFailures.get(entry(i).identity);
-      if (record) return entry(i);
-    }
-    // 无故障记录：默认探测 primary
-    return entry(0);
+    const nowMs = Date.now();
+    const start = this.probeCursor % entries.length;
+    const ordered = [...entries.slice(start), ...entries.slice(0, start)];
+    const candidate = ordered.find(entry => this.probeFloorMs(entry.breakerIndex) <= nowMs);
+    if (!candidate) return undefined;
+    return {
+      ...candidate,
+      reason: candidate.failed ? 'expired_failure' : 'fairness_rotation',
+      nextCursor: (candidate.breakerIndex + 1) % entries.length,
+    };
   }
 
   /** 候选的共享故障时间下界：owner 记录下界与本地 breaker 弹回时刻取 max（只读）。 */
@@ -963,7 +991,33 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return Math.max(record.floorMs ?? 0, this.breakers[index]?.probeAllowedAtMs() ?? 0);
   }
 
-  /** 选择资格同时尊重持久健康事实、typed Retry-After 与 breaker；显式恢复 admission 可放行一次。 */
+  private hasProbeFailure(index: number): boolean {
+    const providerId = this.providerIds[index];
+    if (providerId === undefined) return false;
+    return this.sharedFailures.has(providerId)
+      || (this.breakers[index]?.probeAllowedAtMs() ?? undefined) !== undefined
+      || this.recoveryState.providers.some(fact => fact.providerId === providerId && fact.blocking);
+  }
+
+  /** shared、breaker 与 recovery owner 的统一只读下界；无时间的 blocking fact 只能等待变化。 */
+  private probeFloorMs(index: number): number {
+    const providerId = this.providerIds[index];
+    if (providerId === undefined) return 0;
+    let floorMs = this.breakers[index]?.probeAllowedAtMs() ?? 0;
+    const shared = this.sharedFailures.get(providerId);
+    if (shared) floorMs = Math.max(floorMs, this.sharedFailureFloorMs(index, shared));
+    const fact = this.recoveryState.providers.find(item => item.providerId === providerId && item.blocking);
+    if (fact?.rateLimitBlocked === true) return Number.POSITIVE_INFINITY;
+    if (fact && (fact.errorClass === 'rate_limit' || fact.errorClass === 'quota')) {
+      if (fact.retryAt === undefined) return Number.POSITIVE_INFINITY;
+      const retryAtMs = Date.parse(fact.retryAt);
+      if (!Number.isFinite(retryAtMs)) return Number.POSITIVE_INFINITY;
+      floorMs = Math.max(floorMs, retryAtMs);
+    }
+    return floorMs;
+  }
+
+  /** 普通业务候选保持既有判定；probe 专用统一 Infinity 下界不反向改变审计原因。 */
   private isRecoveryBlocking(index: number, allowBreakerProbe: boolean): boolean {
     if (allowBreakerProbe) return false;
     const providerId = this.providerIds[index];
@@ -980,6 +1034,24 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const probedAtMs = Date.now();
     const generation = this.configGeneration;
     const target = this.pickProbeTarget();
+    if (!target) {
+      return {
+        ok: false,
+        provider: 'none',
+        probedAtMs,
+        error: 'no provider is currently eligible for probe',
+        reason: 'recovery_floor',
+      };
+    }
+    this.probeCursor = target.nextCursor;
+    this.events.emit({
+      type: 'probe_target_selected',
+      provider: target.adapter.name,
+      providerId: target.identity,
+      reason: target.reason,
+      nextCursor: target.nextCursor,
+    });
+    const probeInvocationId = `probe:${this.instanceId}:${probedAtMs}:${target.breakerIndex}`;
     const epoch = this.sharedFailures.get(target.identity)?.epoch ?? 0;
     const targetConfig = target.breakerIndex === 0
       ? this.config.primary
@@ -1014,9 +1086,19 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       return { ok: true, provider: target.adapter.name, probedAtMs };
     } catch (err) {
       const e = err as Error;
-      // 探针失败推进共享故障下界（close/旧配置代次的迟到失败不记账）
+      // 与普通候选失败共用 shared + recovery owner；close/旧配置代次的迟到失败不记账。
       if (!this.closed && generation === this.configGeneration) {
-        this.noteSharedFailures([{ provider: target.adapter.name, error: e, providerId: target.identity }]);
+        const failure = { provider: target.adapter.name, error: e, providerId: target.identity };
+        this.noteSharedFailures([failure]);
+        const errorClass = classifyLLMError(e);
+        if (errorClass !== 'context_exceeded' && errorClass !== 'abort') {
+          this.recoveryController.noteFailure(this.toRecoveryFailures(
+            [failure],
+            probeInvocationId,
+            `${probeInvocationId}:attempt`,
+          ));
+          this.scheduleProbe(this.nextAutonomousProbeAt());
+        }
       }
       return {
         ok: false,
@@ -1056,9 +1138,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const nowMs = Date.now();
     let nextFailureAt: number | undefined;
     for (let i = 0; i < this.providerIds.length; i++) {
-      const record = this.sharedFailures.get(this.providerIds[i]!);
-      if (!record) continue;
-      const floorMs = this.sharedFailureFloorMs(i, record);
+      if (!this.hasProbeFailure(i)) continue;
+      const floorMs = this.probeFloorMs(i);
+      if (!Number.isFinite(floorMs)) continue;
       nextFailureAt = nextFailureAt === undefined ? floorMs : Math.min(nextFailureAt, floorMs);
     }
     return nextFailureAt ?? nowMs + LLM_PROVIDER_SELECTION_TTL_MS;
@@ -1107,6 +1189,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         } else if (d.kind === 'at') {
           this.scheduleProbe(d.nextProbeAt);
         }
+      }).catch(error => {
+        this.events.emit({ type: 'instance_state_write_failed', context: 'probe_timer', reason: formatErr(error) });
+        if (!this.closed && fireGeneration === this.configGeneration) {
+          this.scheduleProbe(this.nextAutonomousProbeAt());
+        }
       });
     }, Math.max(0, effectiveAtMs - Date.now()));
   }
@@ -1119,19 +1206,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    * 只读判定：不触发 breaker 状态转移（probeAllowedAtMs 纯查询），不发事件、不写盘。
    */
   getSharedRecoveryDecision(): SharedRecoveryDecision {
-    const adapters = [this.primary, ...this.fallbacks];
     let minAtMs: number | undefined;
-    let hasTimedBlock = false;
-    for (let i = 0; i < adapters.length; i++) {
-      const identity = this.providerIds[i];
-      const record = identity !== undefined ? this.sharedFailures.get(identity) : undefined;
-      if (!record) return { kind: 'ready' };
-      hasTimedBlock = true;
-      const floorMs = this.sharedFailureFloorMs(i, record);
+    for (let i = 0; i < this.providerIds.length; i++) {
+      if (!this.hasProbeFailure(i)) return { kind: 'ready' };
+      const floorMs = this.probeFloorMs(i);
+      if (!Number.isFinite(floorMs)) continue;
       minAtMs = minAtMs === undefined ? floorMs : Math.min(minAtMs, floorMs);
     }
-    if (hasTimedBlock) return { kind: 'at', nextProbeAt: minAtMs ?? Date.now() };
-    return { kind: 'on_change' };
+    return minAtMs === undefined
+      ? { kind: 'on_change' }
+      : { kind: 'at', nextProbeAt: minAtMs };
   }
 
   /**
@@ -1156,12 +1240,17 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (identity === undefined) continue;
       const retryAfterSec = getRetryAfterSec(f.error);
       const nowMs = this.failureObservedAtMs.get(f.error) ?? observedNowMs;
+      const quotaResetAtMs = getQuotaResetAtMs(f.error);
       const floorMs = errorClass === 'permanent'
         ? nowMs + LLM_RECOVERY_COOLDOWN_MS
         : errorClass === 'rate_limit' && retryAfterSec !== undefined
           ? nowMs + retryAfterSec * 1000
           : errorClass === 'quota'
-            ? nowMs + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS
+            ? Math.max(
+                nowMs + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+                quotaResetAtMs !== undefined && quotaResetAtMs > nowMs ? quotaResetAtMs : 0,
+                retryAfterSec !== undefined ? nowMs + retryAfterSec * 1000 : 0,
+              )
             : nowMs + (this.config.circuitBreaker?.resetTimeoutMs ?? LLM_RECOVERY_COOLDOWN_MS);
       const prev = sharedFailures.get(identity);
       sharedFailures.set(identity, {
@@ -1189,6 +1278,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   ): RecoveryFailureInput[] {
     return failures.map((f) => {
       const retryAfterSec = getRetryAfterSec(f.error);
+      const resetAtMs = getQuotaResetAtMs(f.error);
       const breakerSkip = f.error instanceof LLMCircuitBreakerOpenError;
       const localSkip = f.localSkip === true || breakerSkip;
       const probeAllowedAtMs = breakerSkip ? this.breakerProbeAllowedAt(f.provider) : undefined;
@@ -1204,6 +1294,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         errorClass: classifyLLMError(f.error),
         message: f.error.message,
         ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
+        ...(resetAtMs !== undefined ? { resetAtMs } : {}),
         occurredAtMs: this.failureObservedAtMs.get(f.error) ?? Date.now(),
         ...(localSkip ? { localSkip } : {}),
         ...(probeAllowedAtMs !== undefined ? { probeAllowedAtMs } : {}),
@@ -2534,6 +2625,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     }, 'reload_config', [], newProviderIds);
     if (!committed) throw new Error('LLM instance state persistence failed during reloadConfig');
 
+    this.probeCursor = 0;
     this.config = newConfig;
     this.primary = newPrimary;
     this.fallbacks = newFallbacks;

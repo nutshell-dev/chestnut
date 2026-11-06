@@ -47,6 +47,12 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   peekPendingInterventionFacts(): Promise<{ userIds: string[] }>;
   /** Phase 1826: 等待期间的 Runtime 控制入口（应用最新配置并返回身份修订）。 */
   consumePendingControls(): Promise<{ consumed: number; configRevision?: string }>;
+  /** Phase 2056：已应用配置、已提交健康与 pending 用户身份的只读 gate 投影。 */
+  peekLlmGateFacts?(): Promise<{
+    configurationRevision?: string;
+    userMessageIds: string[];
+    providerHealth: Array<{ providerId: string; epoch: number; healthKey: string }>;
+  }>;
   /**
    * Phase 1847: 原始消息准备 —— 只领取/分流，返回未格式化消息及其句柄；
    * 句柄自返回起归 EventLoop 处置。准备完成不注入、不发 INBOX_INJECT。
@@ -100,10 +106,25 @@ export interface LoopErrorContext {
   signal?: AbortSignal;
 }
 
+export type LlmGateReleaseFact =
+  | { kind: 'config_applied'; revision: string }
+  | { kind: 'provider_health_changed'; providerId: string; epoch: number }
+  | { kind: 'new_user_message'; messageId: string };
+
+export interface LlmGateReleaseBaseline {
+  configurationRevision?: string;
+  userMessageIds: string[];
+  providerHealth: Array<{ providerId: string; epoch: number; healthKey: string }>;
+}
+
 interface LLMRequestBlockedBase {
   version: 2;
   requestFingerprint: string;
   blockedAt: string;
+  /** 进入 blocked 后的首次 gate 重建并持久化；旧 V2 缺失时先补建，不猜空基线。 */
+  releaseBaseline?: LlmGateReleaseBaseline;
+  /** 先持久化释放事实，再删除 blocked；删除失败可在下一 tick/重启重放。 */
+  pendingRelease?: { fact: LlmGateReleaseFact; fingerprint: string };
 }
 
 export type LLMRequestBlockedState =
@@ -132,7 +153,7 @@ export type LLMRequestBlockedState =
 
 export type LLMRequestGateDecision =
   | { kind: 'open'; fingerprint: string }
-  | { kind: 'released'; previous: LLMRequestBlockedState; fingerprint: string }
+  | { kind: 'released'; previous: LLMRequestBlockedState; fingerprint: string; releaseFact?: LlmGateReleaseFact }
   | { kind: 'blocked'; state: LLMRequestBlockedState }
   | { kind: 'indeterminate'; error: import('../../foundation/messaging/index.js').PendingViewError };
 

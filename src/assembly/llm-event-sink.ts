@@ -317,6 +317,11 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
         `error_class=${event.errorClass ?? 'none'}`, `reason=${event.reason ?? 'none'}`,
         `error=${event.error ?? 'none'}`);
       break;
+    case 'probe_target_selected':
+      w(LLM_AUDIT_EVENTS.PROBE_TARGET_SELECTED,
+        `provider=${event.provider}`, `provider_id=${event.providerId}`,
+        `reason=${event.reason}`, `next_cursor=${event.nextCursor}`);
+      break;
     case 'call_selection':
       w(LLM_AUDIT_EVENTS.CALL_SELECTION,
         `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,

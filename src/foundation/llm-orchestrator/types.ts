@@ -70,7 +70,10 @@ export interface LLMOrchestratorConfig {
 /**
  * LLM event payload union — emitted by LLMOrchestrator, consumed by fan-out adapter
  */
+export type ProbeTargetReason = 'expired_failure' | 'fairness_rotation' | 'default_primary';
+
 export type LLMEvent =
+  | { type: typeof STREAM_EVENT_NAMES.PROBE_TARGET_SELECTED; provider: string; providerId: string; reason: ProbeTargetReason; nextCursor: number }
   // Phase 1268 Step C: 显式 maxAttempts + 可选 retryAfterSec；attempt 保持 owner 现有 0-based 语义，
   // 指“刚失败的 attempt”；presentation 自转 1-based，消费者不解析错误文本。
   | { type: typeof STREAM_EVENT_NAMES.PROVIDER_ATTEMPT_FAILED; provider: string; attempt: number; maxAttempts: number; error: string; errorClass: LLMErrorClass; userActionHint: UserActionHint; retryAfterSec?: number }
@@ -206,6 +209,8 @@ export interface LLMRuntimeCapability {
    * 调用方持有的引用自动指向新 provider；events sink 引用不换；每次成功 reload 清空内部选择缓存。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void;
+  /** 已提交实例 revision 与各 provider 健康摘要；仅供 Runtime 投影 gate release fact。 */
+  getProviderHealthSnapshot?(): LLMProviderHealthSnapshot;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +238,12 @@ export interface LLMInstanceSnapshot {
   providers: LLMProviderSnapshotEntry[];  // primary 在前
 }
 
+/** EventLoop gate 专用的已提交健康投影；healthKey 是不透明状态摘要，不含恢复内部结构。 */
+export interface LLMProviderHealthSnapshot {
+  revision: number;
+  providers: Array<{ providerId: string; healthKey: string }>;
+}
+
 /**
  * Phase 1933：独立探针结果。ok=false 时 error 为显示摘要。
  * Phase 1934 Step C：保留失败分类与 typed Retry-After（替代只有 error 字符串），
@@ -245,8 +256,10 @@ export interface LLMProbeResult {
   error?: string;
   /** 失败分类（ok=true 时缺省）。 */
   errorClass?: LLMErrorClass;
-  /** typed Retry-After（秒；仅 rate_limit 且服务端给出时存在）。 */
+  /** typed Retry-After（秒；rate_limit/quota 服务端给出时存在）。 */
   retryAfterSec?: number;
+  /** 未发起真实调用时说明调度原因；业务错误分类仍只由 errorClass 表达。 */
+  reason?: 'recovery_floor';
 }
 
 /** 仅执行单次非流式调用的最小业务能力。 */

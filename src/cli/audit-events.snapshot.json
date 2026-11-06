@@ -31,6 +31,7 @@
       "llm_instance_state_write_degraded",
       "llm_instance_state_write_failed",
       "llm_permanent_skip_retry",
+      "llm_probe_target_selected",
       "llm_provider_attempt_failed",
       "llm_provider_close_failed",
       "llm_provider_exhausted",

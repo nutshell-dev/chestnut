@@ -1769,8 +1769,8 @@ export class Runtime {
 
   /**
    * Phase 1153 Step C: read a stable, non-consuming view of pending inbox facts.
-   * Controls (reload_llm_config) are included in the fingerprint because they can
-   * change provider configuration and therefore must unblock a gated claw.
+   * Controls (reload_llm_config) remain visible for application, but are excluded from
+   * the request fingerprint until their configuration identity is actually applied.
    */
   /**
    * Phase 1826: 尚未处理的用户干预身份（用户来源消息 id 列表）。
@@ -1786,6 +1786,27 @@ export class Runtime {
       .filter(e => !e.message.to || e.message.to === this.options.clawId)
       .map(e => e.message.id);
     return { userIds };
+  }
+
+  /** Phase 2056：只投影已应用配置、owner 已提交健康与 pending 用户身份。 */
+  async peekLlmGateFacts(): Promise<{
+    configurationRevision?: string;
+    userMessageIds: string[];
+    providerHealth: Array<{ providerId: string; epoch: number; healthKey: string }>;
+  }> {
+    const [{ userIds }, health] = await Promise.all([
+      this.peekPendingInterventionFacts(),
+      Promise.resolve(this.llm.getProviderHealthSnapshot?.()),
+    ]);
+    return {
+      ...(this.appliedConfigRevision !== undefined ? { configurationRevision: this.appliedConfigRevision } : {}),
+      userMessageIds: userIds,
+      providerHealth: (health?.providers ?? []).map(provider => ({
+        providerId: provider.providerId,
+        epoch: health?.revision ?? 0,
+        healthKey: provider.healthKey,
+      })),
+    };
   }
 
   /**
@@ -1825,18 +1846,22 @@ export class Runtime {
   /**
    * Phase 1153 Step C: canonical SHA-256 fingerprint of the request that would be
    * sent to the LLM if drain/processing proceeded now. Any material change to
-   * session, system prompt, tools, pending addressed messages, controls, provider,
-   * or trim policy changes the fingerprint and releases a blocked state.
+   * session, system prompt, tools, pending addressed messages, applied configuration,
+   * provider, or trim policy changes the fingerprint. Raw reload controls are excluded:
+   * only an actually applied revision may participate in gate release.
    */
   async computeTurnRequestFingerprint(): Promise<string> {
     const providerInfo = this.llm.getProviderInfo?.();
     const primary = this.options.llmConfig.primary;
+    const pending = await this.peekPendingTurnFacts();
     const facts = {
-      version: 1,
+      version: 2,
       sessionMessages: await this.getMessages(),
       systemPrompt: await this.getSystemPrompt(),
       tools: this.getToolsForLLM(),
-      pending: await this.peekPendingTurnFacts(),
+      // pending reload 先经 consumePendingControls 应用；原始 control 不直接释放 gate。
+      pending: { addressed: pending.addressed },
+      configurationRevision: this.appliedConfigRevision ?? null,
       provider: {
         name: providerInfo?.name ?? primary.name,
         model: providerInfo?.model ?? primary.model,

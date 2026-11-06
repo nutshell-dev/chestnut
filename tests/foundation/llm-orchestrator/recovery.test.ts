@@ -126,13 +126,14 @@ async function restart(f: Fixture): Promise<void> {
 async function failOnce(
   f: Fixture,
   errorClass: 'transient' | 'quota' | 'rate_limit' | 'permanent' | 'unknown',
-  extra: { retryAfterSec?: number; inputFacts?: LLMRecoveryFacts } = {},
+  extra: { retryAfterSec?: number; resetAtMs?: number; inputFacts?: LLMRecoveryFacts } = {},
 ) {
   const admission = await f.controller.begin({ requestKey: 'fp', facts: extra.inputFacts ?? facts() });
   if (admission.kind !== 'admitted') throw new Error('expected admitted');
   f.controller.noteFailure([{
     providerId: f.owner.getProviderIdentities()[0]!, errorClass, message: `${errorClass} failure`,
     ...(extra.retryAfterSec !== undefined ? { retryAfterSec: extra.retryAfterSec } : {}),
+    ...(extra.resetAtMs !== undefined ? { resetAtMs: extra.resetAtMs } : {}),
     invocationId: admission.invocationId, attemptId: admission.attemptId, occurredAtMs: Date.now(),
   }]);
   await f.controller.finish(admission.invocationId, admission.attemptId, 'failed');
@@ -246,6 +247,19 @@ describe('recovery failure policy on derived V2 schedules', () => {
     expect(f.emitted.some(event => event.type === 'recovery_scheduled')).toBe(true);
   });
 
+  it('quota uses typed reset and Retry-After as lower bounds with the quota curve', async () => {
+    const f = await makeFixture();
+    const schedule = await failOnce(f, 'quota', {
+      resetAtMs: T0 + 300_000,
+      retryAfterSec: 400,
+    });
+    expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + 400_000).toISOString() });
+
+    await restart(f);
+    expect(f.readState().recovery.providers[0]?.retryAt).toBe(new Date(T0 + 400_000).toISOString());
+    expect((await f.controller.inspect()).kind).toBe('at');
+  });
+
   it('waits until the persisted retryAt and then admits a new invocation', async () => {
     const f = await makeFixture();
     await failOnce(f, 'quota');
@@ -277,10 +291,10 @@ describe('recovery failure policy on derived V2 schedules', () => {
     }
   });
 
-  it('rate_limit without Retry-After keeps the bounded curve through rounds 10/11', async () => {
+  it('rate_limit without Retry-After enters on_change at the tenth failure', async () => {
     const f = await makeFixture();
     const delays: number[] = [];
-    for (let round = 0; round < 11; round++) {
+    for (let round = 0; round < 9; round++) {
       const schedule = await failOnce(f, 'rate_limit');
       if (schedule.kind !== 'at') throw new Error('expected at');
       delays.push(Date.parse(schedule.resumeAt) - Date.now());
@@ -288,10 +302,28 @@ describe('recovery failure policy on derived V2 schedules', () => {
     }
     expect(delays).toEqual([
       30_000, 60_000, 120_000, 300_000, 600_000,
-      600_000, 600_000, 600_000, 600_000, 600_000, 600_000,
+      600_000, 600_000, 600_000, 600_000,
     ]);
-    expect(f.readState().recovery.providers[0]).toMatchObject({ rateLimitFailures: 11 });
-    expect(f.readState().recovery.providers[0].rateLimitBlocked).toBeUndefined();
+
+    const tenth = await failOnce(f, 'rate_limit');
+    expect(tenth.kind).toBe('on_change');
+    expect(f.readState().recovery.providers[0]).toMatchObject({
+      rateLimitFailures: 10,
+      rateLimitBlocked: true,
+      rateLimitBlockedAt: new Date(Date.now()).toISOString(),
+    });
+    expect(f.readState().recovery.providers[0]?.retryAt).toBeUndefined();
+    expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
+    expect(f.readState().recovery.providers[0]?.retryAt).toBeUndefined();
+    f.advance(1_000_000);
+    expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
+    expect(await f.controller.inspect()).toMatchObject({ kind: 'on_change' });
+
+    const released = await f.controller.begin({
+      requestKey: 'fp', facts: facts({ interventionIds: ['manual-rate-limit-review'] }),
+    });
+    expect(released.kind).toBe('admitted');
+    expect(f.readState().recovery.providers[0]?.rateLimitBlocked).toBeUndefined();
   });
 
   it.each([2, 900])('Retry-After %ss is the exact lower bound, without in-call sleep or a 5min floor', async seconds => {

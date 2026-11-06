@@ -21,7 +21,9 @@ export type {
   // Phase 1933 Step B：实例级共享状态能力类型
   LLMProviderSnapshotEntry,
   LLMInstanceSnapshot,
+  LLMProviderHealthSnapshot,
   LLMProbeResult,
+  ProbeTargetReason,
 } from './types.js';
 
 export { createLLMOrchestrator } from './orchestrator.js';

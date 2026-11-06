@@ -60,11 +60,28 @@ export class LLMRateLimitError extends LLMError {
   }
 }
 
+export interface LLMQuotaErrorOptions {
+  /** HTTP Retry-After delta-seconds，独立于 provider body 中的 reset 时间。 */
+  retryAfter?: number;
+  /** 带明确时区/偏移的 provider reset 下界（UTC epoch milliseconds）。 */
+  resetAtMs?: number;
+}
+
 export class LLMQuotaError extends LLMError {
   readonly code: LLMErrorCode = 'LLM_QUOTA_EXCEEDED';
+  readonly rawMessage: string;
+  readonly retryAfter?: number;
+  readonly resetAtMs?: number;
 
-  constructor(provider: string, providerMessage: string) {
-    super(`Provider quota exhausted: ${providerMessage}`, { provider });
+  constructor(provider: string, providerMessage: string, options: LLMQuotaErrorOptions = {}) {
+    super(`Provider quota exhausted: ${providerMessage}`, {
+      provider,
+      ...(options.retryAfter !== undefined ? { retryAfter: options.retryAfter } : {}),
+      ...(options.resetAtMs !== undefined ? { resetAtMs: options.resetAtMs } : {}),
+    });
+    this.rawMessage = providerMessage;
+    this.retryAfter = options.retryAfter;
+    this.resetAtMs = options.resetAtMs;
   }
 }
 
