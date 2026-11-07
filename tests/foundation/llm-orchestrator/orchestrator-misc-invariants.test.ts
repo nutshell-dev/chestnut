@@ -36,6 +36,26 @@ import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../..
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
+function providerState(service: LLMOrchestratorImpl, index: number) {
+  const providerId = service.getProviderIdentities()[index];
+  return (service as any).providerStates.find((state: any) => state.providerId === providerId);
+}
+
+function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+  const now = Date.now();
+  const providerId = service.getProviderIdentities()[index];
+  const previous = providerState(service, index);
+  const states = (service as any).providerStates.filter((state: any) => state.providerId !== providerId);
+  states.push({
+    ...previous,
+    providerId,
+    status: 'waiting',
+    retryAt: now + 60_000,
+    lastError: { class: cause, at: now, message: `forced ${cause} failure` },
+    consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1,
+  });
+  (service as any).providerStates = states;
+}
 
 
 /**
@@ -317,11 +337,6 @@ describe('all-providers-context-exceeded-emit', () => {
     return service;
   }
 
-  function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-    const breaker = (service as any).breakers[index] as CircuitBreaker;
-    breaker['onFailure'](cause);
-  }
-
   function attachEventSpy(service: LLMOrchestratorImpl) {
     const emitted: LLMEvent[] = [];
     const sink = (service as any).events as LLMEventSink;
@@ -372,9 +387,9 @@ describe('all-providers-context-exceeded-emit', () => {
       const service = createOrchestrator(primary, [fb1]);
       const events = attachEventSpy(service);
 
-      // Open primary's breaker so it gets skipped on next attempt
-      // Use 'permanent' cause to avoid triggering hedge path (phase 737)
-      forceBreakerOpen(service, 0, 'permanent');
+      // Keep primary waiting so it gets skipped on next attempt.
+      // Use 'permanent' cause to avoid triggering hedge path (phase 737).
+      forceProviderWaiting(service, 0, 'permanent');
 
       await expect(async () => {
         const stream = service.stream({ messages: [], tools: [] });
@@ -636,11 +651,6 @@ describe('race-loser-cleanup', () => {
     return service;
   }
 
-  function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-    const breaker = (service as any).breakers[index] as CircuitBreaker;
-    breaker['onFailure'](cause);
-  }
-
   /**
    * Wrap a provider's stream generator so that .return() calls are spyable.
    */
@@ -695,7 +705,7 @@ describe('race-loser-cleanup', () => {
       const { sink, emitted } = createEventSink();
       const service = createOrchestrator(primary, [fb1]);
       (service as any).events = sink;
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -727,7 +737,7 @@ describe('race-loser-cleanup', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -761,7 +771,7 @@ describe('race-loser-cleanup', () => {
       const { sink, emitted } = createEventSink();
       const service = createOrchestrator(primary, [fb1]);
       (service as any).events = sink;
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -850,11 +860,6 @@ describe('hedge-cache-token-emit', () => {
     return service;
   }
 
-  function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-    const breaker = (service as any).breakers[index] as CircuitBreaker;
-    breaker['onFailure'](cause);
-  }
-
   function attachEventSpy(service: LLMOrchestratorImpl) {
     const emitted: LLMEvent[] = [];
     const sink = (service as any).events as LLMEventSink;
@@ -890,7 +895,7 @@ describe('hedge-cache-token-emit', () => {
         callDelayMs: 50,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
 
       const chunks: LLMStreamChunk[] = [];
@@ -928,7 +933,7 @@ describe('hedge-cache-token-emit', () => {
         callDelayMs: 50,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
 
       const chunks: LLMStreamChunk[] = [];
@@ -956,7 +961,7 @@ describe('hedge-cache-token-emit', () => {
         callDelayMs: 50,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
 
       const chunks: LLMStreamChunk[] = [];
@@ -1023,7 +1028,6 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         events: sink,
         createProviderAdapter: () => primary as any,
       });
-      (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
       await expect(orchestrator.call({})).rejects.toThrow();
 
@@ -1064,7 +1068,6 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         events: sink,
         createProviderAdapter: () => primary as any,
       });
-      (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
       const result = await orchestrator.call({});
       expect(result.content[0]).toMatchObject({ type: 'text', text: 'success' });
@@ -1092,7 +1095,6 @@ describe('call-retry-provider-attempt-failed-emit', () => {
         events: sink,
         createProviderAdapter: () => primary as any,
       });
-      (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
       await orchestrator.call({});
 
@@ -1153,10 +1155,6 @@ describe('call-retry-symmetry', () => {
         events: sink,
         createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
-      (orchestrator as any).breakers = [
-        new CircuitBreaker(5, 1000, () => {}),
-        new CircuitBreaker(5, 1000, () => {}),
-      ];
 
       await expect(orchestrator.call({})).rejects.toThrow();
 
@@ -1187,10 +1185,6 @@ describe('call-retry-symmetry', () => {
         events: sink,
         createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
-      (orchestrator as any).breakers = [
-        new CircuitBreaker(5, 1000, () => {}),
-        new CircuitBreaker(5, 1000, () => {}),
-      ];
 
       const result = await orchestrator.call({});
       expect(result.content[0]).toMatchObject({ type: 'text', text: 'success' });
@@ -1228,10 +1222,6 @@ describe('call-retry-symmetry', () => {
         events: sink,
         createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
-      (orchestrator as any).breakers = [
-        new CircuitBreaker(5, 1000, () => {}),
-        new CircuitBreaker(5, 1000, () => {}),
-      ];
 
       await expect(orchestrator.call({})).rejects.toThrow();
 
@@ -1309,7 +1299,6 @@ describe('streaming-fallback-switched-emit', () => {
       events: sink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
-    (orchestrator as any).breakers = [primary, ...fallbacks].map(() => new CircuitBreaker(5, 1000, () => {}));
     return { orchestrator, emitted };
   }
 
@@ -1387,7 +1376,7 @@ describe('streaming-fallback-switched-emit', () => {
       expect(switches[0]).toMatchObject({ from: 'primary', to: 'fallback' });
     });
 
-    it('single-provider mid-stream failure preserves the typed error and trips the breaker', async () => {
+    it('single-provider mid-stream failure preserves the typed error and records provider recovery', async () => {
       const providerError = new LLMNetworkError('primary', new Error('mid-stream'));
       const primary: ProviderAdapter = {
         name: 'primary',
@@ -1399,7 +1388,6 @@ describe('streaming-fallback-switched-emit', () => {
         },
       };
       const { orchestrator } = buildOrchestrator(primary, []);
-      (orchestrator as any).breakers = [new CircuitBreaker(1, 1000, () => {})];
       const chunks: any[] = [];
       let caught: unknown;
       try {
@@ -1414,9 +1402,15 @@ describe('streaming-fallback-switched-emit', () => {
       expect(aggregate.failures).toHaveLength(1);
       expect(aggregate.failures[0].error).toBe(providerError);
       expect(aggregate.failures[0].error.message).toContain('mid-stream');
-      const breaker = (orchestrator as any).breakers[0] as CircuitBreaker;
-      expect(breaker.getConsecutiveFailures()).toBe(1);
-      expect(breaker.isOpen()).toBe(true);
+      expect(providerState(orchestrator, 0)).toMatchObject({
+        status: 'waiting',
+        consecutiveFailures: 1,
+        lastError: {
+          class: 'transient',
+          at: expect.any(Number),
+          message: expect.stringContaining('mid-stream'),
+        },
+      });
     });
   });
 });
@@ -1496,7 +1490,6 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       events: sink,
       createProviderAdapter: config => (config.name === fallback?.name ? fallback : provider) as any,
     });
-    (orchestrator as any).breakers = Array.from({ length: fallback ? 2 : 1 }, () => new CircuitBreaker(5, 1000, () => {}));
     return orchestrator;
   }
 

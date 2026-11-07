@@ -1,5 +1,5 @@
 /**
- * Phase 2055：恢复策略与持久化统一到 LLMRecoveryControllerImpl / llm-instance-state.json V2。
+ * Phase 2058：恢复策略与持久化统一到 LLMRecoveryControllerImpl / llm-instance-state.json V3。
  * 公共业务入口只有 owner.call/stream；controller 深导入仅用于内部策略与崩溃屏障白盒测试。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -17,7 +17,7 @@ import { createInitialRecoveryState } from '../../../src/foundation/llm-orchestr
 import {
   LLM_INSTANCE_STATE_FILE,
   saveLLMInstanceState,
-  type LLMInstanceStateV2,
+  type LLMInstanceStateV3,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMAllProvidersFailedError, LLMOrchestratorClosedError } from '../../../src/foundation/llm-orchestrator/errors.js';
@@ -105,7 +105,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     return owner;
   };
   const statePath = path.join(dir, 'status', LLM_INSTANCE_STATE_FILE);
-  const readState = () => JSON.parse(fsNative.readFileSync(statePath, 'utf8')) as LLMInstanceStateV2;
+  const readState = () => JSON.parse(fsNative.readFileSync(statePath, 'utf8')) as LLMInstanceStateV3;
   const owner = makeOwner();
   return {
     dir, fs, sink, emitted, config, owner, controller: controllerOf(owner), makeOwner, readState, statePath,
@@ -116,6 +116,23 @@ async function makeFixture(opts: FixtureOpts = {}) {
 
 type Fixture = Awaited<ReturnType<typeof makeFixture>>;
 const facts = (partial: Partial<LLMRecoveryFacts> = {}): LLMRecoveryFacts => ({ interventionIds: [], ...partial });
+
+function recordProviderSuccess(f: Fixture, providerIndex = 0): void {
+  const owner = f.owner as unknown as {
+    primary: ProviderAdapter;
+    fallbacks: ProviderAdapter[];
+    configGeneration: number;
+    recordProviderSuccess(
+      index: number,
+      adapter: ProviderAdapter,
+      isFallback: boolean,
+      generation: number,
+      updateSelection?: boolean,
+    ): void;
+  };
+  const adapter = providerIndex === 0 ? owner.primary : owner.fallbacks[providerIndex - 1]!;
+  owner.recordProviderSuccess(providerIndex, adapter, providerIndex > 0, owner.configGeneration, true);
+}
 
 async function restart(f: Fixture): Promise<void> {
   await f.owner.close();
@@ -236,15 +253,28 @@ describe('recovery invocation admission and restart', () => {
   });
 });
 
-describe('recovery failure policy on derived V2 schedules', () => {
-  it('quota schedules the initial curve, doubles it, and does not consume retry budget', async () => {
+describe('recovery failure policy on unified V3 provider states', () => {
+  it('quota uses a per-provider 120s curve capped at 480s without a global budget', async () => {
     const f = await makeFixture();
     const schedule = await failOnce(f, 'quota');
     expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + 120_000).toISOString() });
-    const saved = f.readState().recovery;
-    expect(saved.budget).toMatchObject({ retryCount: 0, quotaDelayMs: 240_000 });
-    expect(saved.providers[0]).toMatchObject({ blocking: true, retryAt: new Date(T0 + 120_000).toISOString() });
-    expect(f.emitted.some(event => event.type === 'recovery_scheduled')).toBe(true);
+    const saved = f.readState();
+    expect(saved.recovery.budget).toEqual({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
+    expect(saved.providers[0]).toMatchObject({
+      status: 'waiting', retryAt: T0 + 120_000, consecutiveFailures: 1,
+      lastError: { class: 'quota', at: T0, message: 'quota failure' },
+    });
+    expect(saved.recovery.providers).toEqual([]);
+
+    const delays = [120_000];
+    for (let round = 0; round < 3; round++) {
+      f.advance(1_000_000);
+      const next = await failOnce(f, 'quota');
+      if (next.kind !== 'at') throw new Error('expected at');
+      delays.push(Date.parse(next.resumeAt) - Date.now());
+    }
+    expect(delays).toEqual([120_000, 240_000, 480_000, 480_000]);
+    expect(f.emitted.filter(event => event.type === 'recovery_scheduled')).toHaveLength(4);
   });
 
   it('quota uses typed reset and Retry-After as lower bounds with the quota curve', async () => {
@@ -256,7 +286,11 @@ describe('recovery failure policy on derived V2 schedules', () => {
     expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + 400_000).toISOString() });
 
     await restart(f);
-    expect(f.readState().recovery.providers[0]?.retryAt).toBe(new Date(T0 + 400_000).toISOString());
+    expect(f.readState().providers[0]).toMatchObject({
+      status: 'waiting',
+      retryAt: T0 + 400_000,
+      lastError: { retryAfterSec: 400, quotaResetAtMs: T0 + 300_000 },
+    });
     expect((await f.controller.inspect()).kind).toBe('at');
   });
 
@@ -268,17 +302,17 @@ describe('recovery failure policy on derived V2 schedules', () => {
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('admitted');
   });
 
-  it('transient failures consume budget and end in cooldown', async () => {
+  it('transient failures use per-provider exponential backoff capped at 300s', async () => {
     const f = await makeFixture();
     const delays: number[] = [];
-    for (let round = 0; round < 4; round++) {
+    for (let round = 0; round < 5; round++) {
       const schedule = await failOnce(f, 'transient');
       if (schedule.kind !== 'at') throw new Error('expected at');
       delays.push(Date.parse(schedule.resumeAt) - Date.now());
       f.advance(1_000_000);
     }
-    expect(delays).toEqual([30_000, 60_000, 120_000, 300_000]);
-    expect(f.emitted.filter(event => event.type === 'recovery_scheduled')).toHaveLength(4);
+    expect(delays).toEqual([30_000, 60_000, 120_000, 240_000, 300_000]);
+    expect(f.emitted.filter(event => event.type === 'recovery_scheduled')).toHaveLength(5);
   });
 
   it('permanent failures continuously schedule cooldown attempts', async () => {
@@ -291,39 +325,41 @@ describe('recovery failure policy on derived V2 schedules', () => {
     }
   });
 
-  it('rate_limit without Retry-After enters on_change at the tenth failure', async () => {
+  it('rate_limit without Retry-After keeps timed probes after the tenth failure', async () => {
     const f = await makeFixture();
     const delays: number[] = [];
-    for (let round = 0; round < 9; round++) {
+    for (let round = 0; round < 10; round++) {
       const schedule = await failOnce(f, 'rate_limit');
       if (schedule.kind !== 'at') throw new Error('expected at');
       delays.push(Date.parse(schedule.resumeAt) - Date.now());
-      f.advance(1_000_000);
+      if (round < 9) f.advance(1_000_000);
     }
     expect(delays).toEqual([
       30_000, 60_000, 120_000, 300_000, 600_000,
-      600_000, 600_000, 600_000, 600_000,
+      600_000, 600_000, 600_000, 600_000, 600_000,
     ]);
 
-    const tenth = await failOnce(f, 'rate_limit');
-    expect(tenth.kind).toBe('on_change');
-    expect(f.readState().recovery.providers[0]).toMatchObject({
-      rateLimitFailures: 10,
-      rateLimitBlocked: true,
-      rateLimitBlockedAt: new Date(Date.now()).toISOString(),
+    const retryAt = Date.now() + 600_000;
+    expect(f.readState().providers[0]).toMatchObject({
+      status: 'waiting', retryAt, consecutiveFailures: 10,
+      lastError: { class: 'rate_limit' },
     });
-    expect(f.readState().recovery.providers[0]?.retryAt).toBeUndefined();
+    expect(f.readState().providers[0]).not.toHaveProperty('rateLimitBlocked');
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
-    expect(f.readState().recovery.providers[0]?.retryAt).toBeUndefined();
-    f.advance(1_000_000);
-    expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
-    expect(await f.controller.inspect()).toMatchObject({ kind: 'on_change' });
+
+    f.advance(600_000);
+    const timed = await f.controller.begin({ requestKey: 'fp-timed', facts: facts() });
+    expect(timed.kind).toBe('admitted');
+    if (timed.kind !== 'admitted') throw new Error('expected admitted');
+    expect(f.controller.attemptContext(timed.invocationId).probeOnly).toBe(true);
+    expect((await f.controller.inspect()).kind).toBe('at');
 
     const released = await f.controller.begin({
-      requestKey: 'fp', facts: facts({ interventionIds: ['manual-rate-limit-review'] }),
+      requestKey: 'fp-manual', facts: facts({ interventionIds: ['manual-rate-limit-review'] }),
     });
     expect(released.kind).toBe('admitted');
-    expect(f.readState().recovery.providers[0]?.rateLimitBlocked).toBeUndefined();
+    expect(f.readState().providers[0]).toMatchObject({ status: 'waiting', retryAt, consecutiveFailures: 10 });
+    expect(f.readState().recovery.acceptedInterventions).toContain('manual-rate-limit-review');
   });
 
   it.each([2, 900])('Retry-After %ss is the exact lower bound, without in-call sleep or a 5min floor', async seconds => {
@@ -331,10 +367,14 @@ describe('recovery failure policy on derived V2 schedules', () => {
     const schedule = await failOnce(f, 'rate_limit', { retryAfterSec: seconds });
     expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + seconds * 1_000).toISOString() });
     expect(f.emitted.filter(event => event.type === 'retry_scheduled')).toHaveLength(0);
-    expect(f.readState().recovery.providers[0].rateLimitFailures).toBeUndefined();
+    expect(f.readState().providers[0]).toMatchObject({
+      status: 'waiting', retryAt: T0 + seconds * 1_000,
+      lastError: { class: 'rate_limit', retryAfterSec: seconds },
+    });
+    expect(f.readState().providers[0]).not.toHaveProperty('rateLimitFailures');
   });
 
-  it('success clears only the real winner and retains other provider facts and their curve', async () => {
+  it('owner success clears only the real winner and retains the other provider curve', async () => {
     const f = await makeFixture({ fallbacks: [{ name: 'fallback' }] });
     const [primaryId, fallbackId] = f.owner.getProviderIdentities();
     f.controller.noteFailure([{ providerId: primaryId!, errorClass: 'transient', message: 'primary down' }]);
@@ -343,30 +383,40 @@ describe('recovery failure policy on derived V2 schedules', () => {
       requestKey: 'fp', facts: facts({ interventionIds: ['manual-retry'] }),
     });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
+    const beforeSuccess = f.readState();
+    f.controller.noteSuccess(admission.invocationId, primaryId!);
+    expect(f.readState()).toEqual(beforeSuccess); // noteSuccess 不再拥有健康写入口
+    expect(f.emitted.filter(event => event.type === 'recovery_ready')).toHaveLength(0);
+
+    recordProviderSuccess(f);
     f.controller.noteSuccess(admission.invocationId, primaryId!);
 
-    const saved = f.readState().recovery;
-    expect(saved.budget).toEqual({ retryCount: 2, retryDelayMs: 120_000, quotaDelayMs: 120_000 });
-    expect(saved.providers).toEqual([expect.objectContaining({ providerId: fallbackId })]);
+    const saved = f.readState();
+    expect(saved.recovery.budget).toEqual({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
+    expect(saved.providers).toEqual([
+      expect.objectContaining({ providerId: primaryId, status: 'available', consecutiveFailures: 0 }),
+      expect.objectContaining({ providerId: fallbackId, status: 'waiting', consecutiveFailures: 1 }),
+    ]);
+    expect(saved.providers[0]?.retryAt).toBeUndefined();
+    expect(saved.providers[1]?.retryAt).toBe(T0 + 30_000);
+    expect(saved.recovery.providers).toEqual([]);
     expect((await f.controller.inspect()).kind).toBe('ready');
     expect(f.emitted.filter(event => event.type === 'recovery_ready').at(-1)).toMatchObject({
-      invocationId: admission.invocationId, revision: f.readState().revision,
+      invocationId: admission.invocationId, revision: saved.revision,
     });
   });
 
-  it('local breaker skips do not consume budget and persist only the probe floor', async () => {
+  it('local breaker skips persist neither provider health nor failure evidence', async () => {
     const f = await makeFixture();
     const providerId = f.owner.getProviderIdentities()[0]!;
+    const before = f.readState();
     f.controller.noteFailure([{
       providerId, errorClass: 'transient', message: 'breaker open', localSkip: true,
       probeAllowedAtMs: T0 + 60_000,
     }]);
-    const saved = f.readState().recovery;
-    expect(saved.budget.retryCount).toBe(0);
-    expect(saved.failures).toEqual([]);
-    expect(saved.providers[0]).toMatchObject({
-      consecutiveFailures: 0, blocking: true, retryAt: new Date(T0 + 60_000).toISOString(),
-    });
+    expect(f.readState()).toEqual(before);
+    expect(f.readState().providers).toEqual([]);
+    expect(f.readState().recovery.failures).toEqual([]);
   });
 });
 
@@ -429,10 +479,12 @@ describe('recovery fact combination and dedupe', () => {
       requestKey: 'fp', facts: facts({ interventionIds: ['m1'], configurationRevision: 'r1' }),
     });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    const saved = f.readState().recovery;
-    expect(saved.failures).toHaveLength(1);
-    expect(saved.budget.quotaDelayMs).toBe(240_000);
-    expect(saved.invocations[0]).toMatchObject({ probeOnly: true, allowBreakerProbe: true });
+    const saved = f.readState();
+    expect(saved.recovery.failures).toHaveLength(1);
+    expect(saved.providers[0]).toMatchObject({
+      status: 'waiting', retryAt: T0 + 120_000, consecutiveFailures: 1,
+    });
+    expect(saved.recovery.invocations[0]).toMatchObject({ probeOnly: true, allowBreakerProbe: true });
   });
 
   it('all repeated facts are idempotent waiting without a new batch or admission', async () => {
@@ -448,24 +500,20 @@ describe('recovery fact combination and dedupe', () => {
     expect(f.readState()).toEqual(before);
   });
 
-  it('startup qualifies only an on_change hold; it does not shorten a later at hold', async () => {
+  it('startup is audited but does not shorten a permanent at hold', async () => {
     const f = await makeFixture();
-    const state = f.readState();
-    state.recovery.providers = [{
-      providerId: f.owner.getProviderIdentities()[0]!, errorClass: 'permanent', at: new Date(T0).toISOString(),
-      consecutiveFailures: 1, detail: 'auth', blocking: true,
-    }];
-    saveLLMInstanceState(f.fs, state);
-    await restart(f);
+    await failOnce(f, 'permanent');
     const startup = await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-1' }) });
-    expect(startup.kind).toBe('admitted');
-    if (startup.kind !== 'admitted') return;
-    await f.controller.finish(startup.invocationId, startup.attemptId, 'interrupted');
-    expect((await f.controller.inspect()).kind).toBe('at');
+    expect(startup.kind).toBe('waiting');
+    expect(f.readState().recovery.lastStartupProbeId).toBe('boot-1');
+    expect(f.readState().providers[0]).toMatchObject({ status: 'waiting', retryAt: T0 + 300_000 });
 
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) })).kind).toBe('waiting');
     f.advance(300_000);
-    expect((await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) })).kind).toBe('admitted');
+    const timed = await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) });
+    expect(timed.kind).toBe('admitted');
+    if (timed.kind !== 'admitted') return;
+    expect(f.controller.attemptContext(timed.invocationId).probeOnly).toBe(true);
   });
 
   it('accepted-id windows and complete batches dedupe old, middle and latest replays', async () => {
@@ -508,7 +556,7 @@ describe('recovery fact combination and dedupe', () => {
   });
 });
 
-describe('legacy read-only migration into instance state V2', () => {
+describe('legacy read-only migration into instance state V3', () => {
   it('imports known EventLoop retry state without modifying it or writing old recovery files', async () => {
     const f = await makeFixture();
     await f.owner.close();
@@ -523,7 +571,7 @@ describe('legacy read-only migration into instance state V2', () => {
     f.owner = f.makeOwner();
     f.controller = controllerOf(f.owner);
     expect(f.readState()).toMatchObject({
-      schema_version: 2,
+      schema_version: 3,
       recovery: {
         budget: { retryCount: 3, retryDelayMs: 45_000, quotaDelayMs: 120_000 },
         importedSources: ['status/llm-retry-state.json#schema_version=2'],
@@ -552,8 +600,15 @@ describe('legacy read-only migration into instance state V2', () => {
 
     f.owner = f.makeOwner();
     f.controller = controllerOf(f.owner);
-    expect(f.readState().recovery.providers).toEqual([
+    const migrated = f.readState();
+    expect(migrated.recovery.providers).toEqual([
       expect.objectContaining({ blocking: true, retryAt: resumeAt }),
+    ]);
+    expect(migrated.providers).toEqual([
+      expect.objectContaining({
+        status: 'waiting', retryAt: Date.parse(resumeAt), consecutiveFailures: 2,
+        lastError: expect.objectContaining({ class: 'transient', at: T0, message: 'offline' }),
+      }),
     ]);
     expect(await f.controller.inspect()).toMatchObject({ kind: 'at', resumeAt });
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);
@@ -599,13 +654,18 @@ describe('legacy read-only migration into instance state V2', () => {
 
     f.owner = f.makeOwner(currentConfig);
     f.controller = controllerOf(f.owner);
-    const migrated = f.readState().recovery;
+    const migrated = f.readState();
     expect(migrated.providers[0]).toMatchObject({
+      providerId: f.owner.getProviderIdentities()[0], status: 'waiting', retryAt: T0 + 300_000,
+      consecutiveFailures: 10, lastError: { class: 'rate_limit', at: T0, message: 'blocked' },
+    });
+    expect(migrated.providers[0]).not.toHaveProperty('identityMigrationPending');
+    expect(migrated.recovery.providers[0]).toMatchObject({
       providerId: f.owner.getProviderIdentities()[0], identityMigrationPending: true,
       rateLimitBlocked: true, rateLimitFailures: 10,
     });
-    expect(migrated.providers[1]).toMatchObject({ providerId: 'unrelated-legacy-id' });
-    expect(migrated.providers[1].identityMigrationPending).toBeUndefined();
+    expect(migrated.recovery.providers[1]).toMatchObject({ providerId: 'unrelated-legacy-id' });
+    expect(migrated.recovery.providers[1].identityMigrationPending).toBeUndefined();
   });
 
   it('configuration re-evaluates changed providers without clearing unchanged permanent facts', async () => {
@@ -616,14 +676,21 @@ describe('legacy read-only migration into instance state V2', () => {
       { providerId: 'old-a', errorClass: 'permanent', at: new Date(T0).toISOString(), consecutiveFailures: 3, detail: 'old', blocking: true },
       { providerId: currentId, errorClass: 'permanent', at: new Date(T0).toISOString(), consecutiveFailures: 3, detail: 'current', blocking: true },
     ];
+    state.providers = ['old-a', currentId].map(providerId => ({
+      providerId, status: 'waiting' as const, retryAt: T0 + 300_000, consecutiveFailures: 3,
+      lastError: { class: 'permanent' as const, at: T0, message: providerId === currentId ? 'current' : 'old' },
+    }));
     saveLLMInstanceState(f.fs, state);
     await restart(f);
 
     expect((await f.controller.begin({
       requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }),
     })).kind).toBe('waiting');
-    const saved = f.readState().recovery;
-    expect(saved.providers).toEqual([expect.objectContaining({ providerId: currentId, consecutiveFailures: 3 })]);
+    const saved = f.readState();
+    expect(saved.recovery.providers).toEqual([expect.objectContaining({ providerId: currentId, consecutiveFailures: 3 })]);
+    expect(saved.providers).toEqual([
+      expect.objectContaining({ providerId: currentId, status: 'waiting', consecutiveFailures: 3 }),
+    ]);
     expect((await f.controller.inspect()).kind).toBe('at');
   });
 
@@ -634,12 +701,17 @@ describe('legacy read-only migration into instance state V2', () => {
       providerId, errorClass: 'permanent', at: new Date(T0).toISOString(),
       consecutiveFailures: 3, detail: 'old', blocking: true,
     }));
+    state.providers = ['old-a', 'old-b'].map(providerId => ({
+      providerId, status: 'waiting' as const, retryAt: T0 + 300_000, consecutiveFailures: 3,
+      lastError: { class: 'permanent' as const, at: T0, message: 'old' },
+    }));
     saveLLMInstanceState(f.fs, state);
     await restart(f);
     expect((await f.controller.begin({
       requestKey: 'fp', facts: facts({ configurationRevision: 'r1' }),
     })).kind).toBe('admitted');
     expect(f.readState().recovery.providers).toEqual([]);
+    expect(f.readState().providers).toEqual([]);
     expect(f.readState().recovery).not.toHaveProperty('schedule');
     expect((await f.controller.inspect()).kind).toBe('ready');
   });
@@ -758,12 +830,16 @@ describe('unified instance durable commit barrier', () => {
     f.controller.noteFailure([failure]);
     const saved = f.readState();
     expect(saved.recovery.failures).toHaveLength(1);
+    expect(saved.providers[0]).toMatchObject({
+      status: 'waiting', retryAt: T0 + 30_000, consecutiveFailures: 1,
+      lastError: { class: 'transient', message: 'boom' },
+    });
     expect(f.emitted.filter(event => event.type === 'recovery_scheduled')[0]).toMatchObject({
       revision: saved.revision, scheduleKind: 'at', invocationId: admission.invocationId,
     });
   });
 
-  it('noteSuccess write failure does not publish ready and the same invocation can recommit', async () => {
+  it('provider success write failure does not publish ready and can be recommitted', async () => {
     const write = { failing: false };
     const f = await makeFixture({ wrapFs: fs => wrapWriteFailure(fs, write) });
     await failOnce(f, 'transient');
@@ -774,12 +850,15 @@ describe('unified instance durable commit barrier', () => {
     const readyBefore = f.emitted.filter(event => event.type === 'recovery_ready').length;
 
     write.failing = true;
-    expect(() => f.controller.noteSuccess(admission.invocationId, f.owner.getProviderIdentities()[0]!)).toThrow(/noteSuccess/);
+    expect(() => recordProviderSuccess(f)).toThrow(/provider success/);
     expect(f.readState()).toEqual(before);
     expect(f.emitted.filter(event => event.type === 'recovery_ready')).toHaveLength(readyBefore);
 
     write.failing = false;
+    recordProviderSuccess(f);
     f.controller.noteSuccess(admission.invocationId, f.owner.getProviderIdentities()[0]!);
+    expect(f.readState().providers[0]).toMatchObject({ status: 'available', consecutiveFailures: 0 });
+    expect(f.readState().providers[0]?.retryAt).toBeUndefined();
     expect(f.readState().recovery.providers).toEqual([]);
     expect(f.emitted.filter(event => event.type === 'recovery_ready').at(-1)).toMatchObject({
       revision: f.readState().revision, invocationId: admission.invocationId,
@@ -811,13 +890,13 @@ describe('unified instance durable commit barrier', () => {
     { context: 'finish', kind: 'committed_durability_unknown' },
     { context: 'noteAttemptStarted', kind: 'committed_platform_limited' },
     { context: 'noteFailure', kind: 'committed_durability_unknown' },
-    { context: 'noteSuccess', kind: 'committed_platform_limited' },
+    { context: 'provider_success', kind: 'committed_platform_limited' },
   ] as const)('committed $kind commits $context and emits unified instance evidence', async ({ context, kind }) => {
     const write = { result: { kind: 'durable' } as AtomicWriteResult };
     const f = await makeFixture({ wrapFs: fs => wrapWriteDurability(fs, write) });
     let admission = await f.controller.begin({ requestKey: 'fp', facts: facts() });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
-    if (context === 'noteSuccess') {
+    if (context === 'provider_success') {
       f.controller.noteFailure([{
         providerId: f.owner.getProviderIdentities()[0]!, errorClass: 'transient', message: 'boom',
       }]);
@@ -832,7 +911,7 @@ describe('unified instance durable commit barrier', () => {
     } else if (context === 'noteFailure') {
       f.controller.noteFailure([{ providerId: f.owner.getProviderIdentities()[0]!, errorClass: 'transient', message: 'boom' }]);
     } else {
-      f.controller.noteSuccess(admission.invocationId, f.owner.getProviderIdentities()[0]!);
+      recordProviderSuccess(f);
     }
     expect(f.emitted.some(event => event.type === 'instance_state_write_degraded'
       && event.context === context && event.durability === kind)).toBe(true);
@@ -851,7 +930,7 @@ describe('public invocation finish barrier', () => {
         get(target, prop, receiver) {
           if (prop === 'writeAtomicSync') {
             return (...args: Parameters<FileSystem['writeAtomicSync']>) => {
-              const candidate = JSON.parse(String(args[1])) as LLMInstanceStateV2;
+              const candidate = JSON.parse(String(args[1])) as LLMInstanceStateV3;
               if (failFinish && candidate.recovery.invocations.length === 0) {
                 throw new Error('finish write failed');
               }

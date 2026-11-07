@@ -39,7 +39,6 @@ import {
   type RecoveryFailureInput,
   type SharedRecoveryDecision,
 } from './recovery.js';
-import { CircuitBreaker, type CircuitBreakerSnapshot } from './circuit-breaker.js';
 import {
   createEmptyLLMInstanceState,
   loadLLMInstanceState,
@@ -48,6 +47,8 @@ import {
   type LLMInstanceRecoveryState,
   type LLMInstanceStateV1,
   type LLMInstanceStateV2,
+  type LLMInstanceStateV3,
+  type LLMProviderRecoveryState,
 } from './instance-state.js';
 import { LLMCircuitBreakerOpenError, LLMOrchestratorClosedError, LLMRecoveryWaitRequiredError } from './errors.js';
 import { loadRecoveryState } from './recovery-state.js';
@@ -69,7 +70,6 @@ import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './pr
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   LLM_PROBE_MAX_TOKENS,
-  LLM_RECOVERY_COOLDOWN_MS,
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_PROVIDER_SELECTION_TTL_MS,
@@ -118,25 +118,6 @@ interface CallPathAudit {
   recordedFailures: Set<LLMProviderFailure>;
 }
 
-/**
- * Phase 1934 Step C：单个候选的共享故障记录（orchestrator 内部实现细节）。
- * floorMs 为 owner 时间下界：rate_limit 用 typed Retry-After（秒×1000）；quota 用
- * 既有退避常量初值；transient/unknown 用 breaker resetTimeoutMs（无 breaker 配置时
- * 用独立 cooldown 下界，防空转探测环）；permanent 同样使用独立 cooldown 下界。
- * epoch 为故障代次：每次新失败 +1，probe 在途期间到达的新故障使旧 probe 结果失效。
- */
-interface SharedFailureRecord {
-  errorClass: LLMErrorClass;
-  floorMs?: number;
-  epoch: number;
-}
-
-interface PendingBreakerTransition {
-  provider: string;
-  transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened';
-  failures?: number;
-}
-
 interface LastSuccessProvider {
   name: string;
   model: string;
@@ -148,9 +129,7 @@ interface LastSuccessProvider {
 }
 
 interface InstanceStateCandidate {
-  breakers: CircuitBreaker[];
-  sharedFailures: Map<string, SharedFailureRecord>;
-  lastSuccessProvider: LastSuccessProvider | null;
+  providers: LLMProviderRecoveryState[];
   recovery: LLMInstanceRecoveryState;
 }
 
@@ -172,7 +151,29 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   /** 与 providerIds 同序的旧算法身份，仅供既有恢复事实兼容重键。 */
   private legacyProviderIds: string[] = [];
 
-  private lastSuccessProvider: LastSuccessProvider | null = null;
+  private providerStates: LLMProviderRecoveryState[] = [];
+
+  /** 展示与 sticky 选择均从每 provider 的成功时间派生，不维护第二份选择事实。 */
+  private get lastSuccessProvider(): LastSuccessProvider | null {
+    let latest: LLMProviderRecoveryState | undefined;
+    for (const provider of this.providerStates) {
+      if (provider.lastSuccessAt === undefined || provider.cacheValidUntil === undefined) continue;
+      if (latest === undefined || provider.lastSuccessAt > latest.lastSuccessAt!) latest = provider;
+    }
+    if (!latest) return null;
+    const index = this.providerIds.indexOf(latest.providerId);
+    const adapter = index >= 0 ? [this.primary, ...this.fallbacks][index] : undefined;
+    if (!adapter || index < 0) return null;
+    return {
+      name: adapter.name,
+      model: adapter.model,
+      isFallback: index > 0,
+      providerId: latest.providerId,
+      generation: this.configGeneration,
+      lastUsedAt: latest.lastSuccessAt!,
+      cacheValidUntil: latest.cacheValidUntil!,
+    };
+  }
 
   // phase 686: 「正在流的 provider」/ stream 中首 chunk yield 时设、generator 出口（finally）清
   // 修 getProviderInfo 滞后一轮的 bug（failover 转换轮内本字段反映本轮 provider、非上一轮）
@@ -181,9 +182,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     model: string;
     isFallback: boolean;
   } | null = null;
-
-  // Circuit breakers for each provider (primary + fallbacks)
-  private breakers: CircuitBreaker[];
 
   private events: LLMEventSink;
   private readonly lifecycle: LLMInstanceLifecycle;
@@ -228,13 +226,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   private scheduleGeneration = 0;
   private closed = false;
 
-  /**
-   * Phase 1934 Step C（F-11/F-02）：共享故障记录——按候选身份指纹（非显示名）键控的
-   * owner 唯一恢复判据。普通 call/stream 的聚合失败在此记账；探针验证成功可清除，
-   * reloadConfig 只移除不再存在的身份并推进代次。durable 健康事实可跨重启恢复；
-   * 运行句柄仅内存，不引入跨进程 writer。
-   */
-  private sharedFailures = new Map<string, SharedFailureRecord>();
   /** provider 抛错的真实观察时刻；Retry-After 下界不得被后续聚合/持久化延迟抬高。 */
   private failureObservedAtMs = new WeakMap<Error, number>();
   /** 配置代次：reloadConfig 单调 +1；旧代次 probe 结果不得清新状态/投递唤醒。 */
@@ -307,12 +298,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       throw new Error(`LLM instance state is unusable (${loaded.reason}): ${loaded.detail}`);
     }
     let needsInitialPersist = false;
-    let persisted: LLMInstanceStateV2;
+    let persisted: LLMInstanceStateV3;
     if (loaded.kind === 'ok') {
       // V2 存在即唯一权威：即使旧文件仍存在，也不再读取或合并。
       persisted = loaded.state;
     } else if (this.lifecycle.mode === 'durable') {
-      const legacyHealth: LLMInstanceStateV1 | undefined = loaded.kind === 'legacy' ? loaded.state : undefined;
+      const legacyHealth: LLMInstanceStateV1 | LLMInstanceStateV2 | undefined = loaded.kind === 'legacy' ? loaded.state : undefined;
       // 先旧 scope，再由 intake 在 scope 缺失时读取已知旧 EventLoop retry 文件。
       const legacyRecovery = loadRecoveryState(
         this.lifecycle.fs,
@@ -345,41 +336,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.instanceRevision = persisted.revision;
     this.instanceId = persisted.instanceId;
     this.recoveryState = persisted.recovery;
-    const persistedById = new Map(persisted.providers.map(provider => [provider.providerId, provider]));
-
-    const cb = config.circuitBreaker;
-    const allProviders = [this.primary, ...this.fallbacks];
-    this.breakers = cb
-      ? allProviders.map((p, index) => {
-          const onTransition = (transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened', failures?: number) => {
-            this.emitBreakerTransition({ provider: p.name, transition, ...(failures !== undefined ? { failures } : {}) });
-          };
-          const saved = persistedById.get(this.providerIds[index] ?? '')?.breaker;
-          return saved
-            ? CircuitBreaker.fromSnapshot(cb.failureThreshold, cb.resetTimeoutMs, saved, onTransition)
-            : new CircuitBreaker(cb.failureThreshold, cb.resetTimeoutMs, onTransition);
-        })
-      : [];
-    for (const providerId of this.providerIds) {
-      const sharedFailure = persistedById.get(providerId)?.sharedFailure;
-      // epoch 仅用于本进程内拒绝旧 probe 覆盖新故障；重启后从 0 重新建立运行代次。
-      if (sharedFailure) this.sharedFailures.set(providerId, { ...sharedFailure, epoch: 0 });
-    }
-    if (persisted.lastSuccess?.lastUsedAt !== undefined && persisted.lastSuccess.cacheValidUntil !== undefined) {
-      const index = this.providerIds.indexOf(persisted.lastSuccess.providerId);
-      const adapter = index >= 0 ? allProviders[index] : undefined;
-      if (adapter && index >= 0) {
-        this.lastSuccessProvider = {
-          name: adapter.name,
-          model: adapter.model,
-          isFallback: index > 0,
-          providerId: persisted.lastSuccess.providerId,
-          generation: this.configGeneration,
-          lastUsedAt: persisted.lastSuccess.lastUsedAt,
-          cacheValidUntil: persisted.lastSuccess.cacheValidUntil,
-        };
-      }
-    }
+    this.providerStates = persisted.providers.map(provider => ({ ...provider }));
     if (needsInitialPersist && this.lifecycle.mode === 'durable') {
       const result = saveLLMInstanceState(this.lifecycle.fs, persisted, this.lifecycle.stateDir);
       if (result.kind !== 'durable') {
@@ -395,14 +352,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       orchestrator: this,
       getState: () => this.recoveryState,
       getRevision: () => this.instanceRevision,
-      hasSharedFailure: providerId => this.sharedFailures.has(providerId),
-      commit: (recovery, context, clearSharedProviderId) => {
-        const sharedFailures = new Map(this.sharedFailures);
-        if (clearSharedProviderId !== undefined) sharedFailures.delete(clearSharedProviderId);
+      getProviders: () => this.providerStates,
+      commit: (recovery, context, providers) => {
         const committed = this.commitInstanceCandidate({
-          breakers: [...this.breakers],
-          sharedFailures,
-          lastSuccessProvider: this.lastSuccessProvider,
+          providers: [...(providers ?? this.providerStates)],
           recovery,
         }, context);
         if (!committed) throw new Error(`LLM instance state persistence failed during ${context}`);
@@ -413,81 +366,40 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     this.scheduleProbe(this.nextAutonomousProbeAt());
   }
 
-  private emitBreakerTransition(transition: PendingBreakerTransition): void {
-    if (transition.transition === 'breaker_opened') {
-      this.events.emit({
-        type: 'breaker_opened',
-        provider: transition.provider,
-        consecutiveFailures: transition.failures ?? 0,
-      });
-    } else {
-      this.events.emit({ type: transition.transition, provider: transition.provider });
-    }
-  }
-
-  private persistedBreaker(snapshot: CircuitBreakerSnapshot | undefined): LLMInstanceStateV2['providers'][number]['breaker'] {
-    if (!snapshot) return { state: 'closed', consecutiveFailures: 0, lastFailureClass: null };
-    // half-open 只是本进程运行态；crash 后仍按原 open 事实恢复，不伪造 probe 成功。
-    const state = snapshot.state === 'half-open' ? 'open' : snapshot.state;
-    return {
-      state,
-      consecutiveFailures: snapshot.consecutiveFailures,
-      ...(state === 'open' && snapshot.openedAtMs !== undefined ? { openedAtMs: snapshot.openedAtMs } : {}),
-      lastFailureClass: snapshot.lastFailureClass,
-    };
-  }
-
   private instanceStateFor(
     candidate: InstanceStateCandidate,
     providerIds: readonly string[],
     revision: number,
     updatedAt: string,
-  ): LLMInstanceStateV2 {
+  ): LLMInstanceStateV3 {
+    const byId = new Map(candidate.providers.map(provider => [provider.providerId, provider]));
     return {
-      schema_version: 2,
+      schema_version: 3,
       instanceId: this.instanceId,
       revision,
       updatedAt,
-      providers: providerIds.map((providerId, index) => {
-        const sharedFailure = candidate.sharedFailures.get(providerId);
-        return {
-          providerId,
-          breaker: this.persistedBreaker(candidate.breakers[index]?.snapshot()),
-          ...(sharedFailure ? {
-            sharedFailure: {
-              errorClass: sharedFailure.errorClass,
-              ...(sharedFailure.floorMs !== undefined ? { floorMs: sharedFailure.floorMs } : {}),
-            },
-          } : {}),
-        };
+      providers: providerIds.flatMap(providerId => {
+        const provider = byId.get(providerId);
+        return provider ? [{ ...provider }] : [];
       }),
-      lastSuccess: candidate.lastSuccessProvider
-        ? {
-            providerId: candidate.lastSuccessProvider.providerId,
-            lastUsedAt: candidate.lastSuccessProvider.lastUsedAt,
-            cacheValidUntil: candidate.lastSuccessProvider.cacheValidUntil,
-          }
-        : null,
       recovery: candidate.recovery,
     };
   }
 
-  /** 唯一实例提交屏障：健康、选择、恢复与 invocation 候选一次原子写入。 */
+  /** 唯一实例提交屏障：provider 恢复/选择与 invocation 审计一次原子写入。 */
   private commitInstanceCandidate(
     candidate: InstanceStateCandidate,
     context: string,
-    transitions: PendingBreakerTransition[] = [],
     providerIds: readonly string[] = this.providerIds,
+    force = false,
   ): boolean {
     const current = this.instanceStateFor({
-      breakers: this.breakers,
-      sharedFailures: this.sharedFailures,
-      lastSuccessProvider: this.lastSuccessProvider,
+      providers: this.providerStates,
       recovery: this.recoveryState,
     }, providerIds, this.instanceRevision, '');
     const nextComparable = this.instanceStateFor(candidate, providerIds, this.instanceRevision, '');
-    const persistentChanged = JSON.stringify(current.providers) !== JSON.stringify(nextComparable.providers)
-      || JSON.stringify(current.lastSuccess) !== JSON.stringify(nextComparable.lastSuccess)
+    const persistentChanged = force
+      || JSON.stringify(current.providers) !== JSON.stringify(nextComparable.providers)
       || JSON.stringify(current.recovery) !== JSON.stringify(nextComparable.recovery);
 
     let durability: ReturnType<typeof saveLLMInstanceState> | undefined;
@@ -509,12 +421,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       this.instanceRevision = next.revision;
     }
 
-    // 先写成功后统一发布全部内存事实；open→half-open 等纯运行转移仍需提交。
-    this.breakers = candidate.breakers;
-    this.sharedFailures = candidate.sharedFailures;
-    this.lastSuccessProvider = candidate.lastSuccessProvider;
+    // 写成功后才发布候选；失败时磁盘与内存都保持旧事实。
+    this.providerStates = candidate.providers;
     this.recoveryState = candidate.recovery;
-    for (const transition of transitions) this.emitBreakerTransition(transition);
     if (durability && durability.kind !== 'durable') {
       this.events.emit({
         type: 'instance_state_write_degraded',
@@ -526,76 +435,38 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     return true;
   }
 
-  private candidateBreakers(transitions: PendingBreakerTransition[]): CircuitBreaker[] {
-    return this.breakers.map((breaker, index) => breaker.fork((transition, failures) => {
-      const provider = index === 0
-        ? this.config.primary.name
-        : this.config.fallbacks?.[index - 1]?.name;
-      transitions.push({
-        provider: provider ?? `provider-${index}`,
-        transition,
-        ...(failures !== undefined ? { failures } : {}),
-      });
-    }));
-  }
-
-  private recordBreakerSuccess(
-    breakerIndex: number,
+  private recordProviderSuccess(
+    providerIndex: number,
     adapter: LLMProvider,
-    isFallback: boolean,
+    _isFallback: boolean,
     generation: number,
     updateSelection = true,
   ): void {
-    const transitions: PendingBreakerTransition[] = [];
-    const breakers = this.candidateBreakers(transitions);
-    breakers[breakerIndex]?.onSuccess();
+    if (generation !== this.configGeneration) return;
+    const providerId = this.identityAt(providerIndex, adapter.name);
     const nowMs = Date.now();
-    const lastSuccessProvider = updateSelection && generation === this.configGeneration
-      ? {
-          name: adapter.name,
-          model: adapter.model,
-          isFallback,
-          providerId: this.identityAt(breakerIndex, adapter.name),
-          generation,
-          lastUsedAt: nowMs,
-          cacheValidUntil: nowMs + LLM_PROVIDER_SELECTION_TTL_MS,
-        }
-      : this.lastSuccessProvider;
-    this.commitInstanceCandidate({
-      breakers,
-      sharedFailures: new Map(this.sharedFailures),
-      lastSuccessProvider,
-      recovery: this.recoveryState,
-    }, 'provider_success', transitions);
-  }
-
-  private recordBreakerFailure(breakerIndex: number, errorClass: LLMErrorClass): void {
-    if (!this.breakers[breakerIndex]) return;
-    const transitions: PendingBreakerTransition[] = [];
-    const breakers = this.candidateBreakers(transitions);
-    breakers[breakerIndex]?.onFailure(errorClass);
-    this.commitInstanceCandidate({
-      breakers,
-      sharedFailures: new Map(this.sharedFailures),
-      lastSuccessProvider: this.lastSuccessProvider,
-      recovery: this.recoveryState,
-    }, 'provider_failure', transitions);
-  }
-
-  private breakerIsOpen(breakerIndex: number): boolean {
-    const current = this.breakers[breakerIndex];
-    if (!current) return false;
-    const transitions: PendingBreakerTransition[] = [];
-    const breakers = this.candidateBreakers(transitions);
-    const candidateResult = breakers[breakerIndex]?.isOpen() ?? false;
+    const providers = this.providerStates.map(provider => ({ ...provider }));
+    const index = providers.findIndex(provider => provider.providerId === providerId);
+    const previous: LLMProviderRecoveryState = index >= 0
+      ? providers[index]!
+      : { providerId, status: 'available' };
+    const next: LLMProviderRecoveryState = {
+      ...previous,
+      status: 'available',
+      retryAt: undefined,
+      consecutiveFailures: 0,
+      ...(updateSelection ? {
+        lastSuccessAt: nowMs,
+        cacheValidUntil: nowMs + LLM_PROVIDER_SELECTION_TTL_MS,
+      } : {}),
+    };
+    if (index >= 0) providers[index] = next;
+    else providers.push(next);
     const committed = this.commitInstanceCandidate({
-      breakers,
-      sharedFailures: new Map(this.sharedFailures),
-      lastSuccessProvider: this.lastSuccessProvider,
+      providers,
       recovery: this.recoveryState,
-    }, 'breaker_admission', transitions);
-    // rename 前失败时内存仍为 open，不能借持久化失败放行真实请求。
-    return committed ? candidateResult : current.snapshot().state === 'open';
+    }, updateSelection ? 'provider_success' : 'probe_provider_health_clear');
+    if (!committed) throw new Error('LLM instance state persistence failed during provider success');
   }
 
   /**
@@ -648,7 +519,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         if (updateSelection) this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback };
         const response = await adapter.call(providerOptions);
         cleanupSignal();
-        this.recordBreakerSuccess(breakerIndex, adapter, isFallback, generation, updateSelection);
+        if (updateSelection) this.recordProviderSuccess(breakerIndex, adapter, isFallback, generation);
         return response;
       } catch (error) {
         cleanupSignal();
@@ -696,16 +567,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       }
     }
 
-    // All retries exhausted — record breaker failure and throw
-    // (breaker_opened emit 由 onTransition 回调独占，phase 1275)
-    // phase 1776: permanent/quota 失败不进熔断计数——配置类开 breaker 无意义
-    // （半开探针每 resetTimeout 空烧）；quota 的时间窗恢复语义由 EventLoop 层承担。
-    // Phase 1933 Step B 核证：context_exceeded 在上方循环内已 throw-through（不走到
-    // 本块），请求局部错误不进入共享故障状态（breaker consecutiveFailures 不计入）。
-    const lastClass = classifyLLMError(lastError!);
-    if (lastClass !== 'permanent' && lastClass !== 'quota') {
-      this.recordBreakerFailure(breakerIndex, lastClass);
-    }
+    // 候选失败由 noteCandidateFailure 统一写入 provider 恢复事实。
     this.events.emit({ type: 'provider_exhausted', provider: adapter.name, error: lastError!.message });
     throw lastError;
   }
@@ -743,14 +605,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
    */
   private identityAt(index: number, providerName: string): string {
     return this.providerIds[index] ?? `unknown:${providerName}`;
-  }
-
-  /** 本地 breaker 的最早可试时刻（不调用有副作用的 isOpen）。 */
-  private breakerProbeAllowedAt(providerName: string): number | undefined {
-    const adapters = [this.primary, ...this.fallbacks];
-    const index = adapters.findIndex((p) => p.name === providerName);
-    if (index < 0) return undefined;
-    return this.breakers[index]?.probeAllowedAtMs() ?? undefined;
   }
 
   // ---------------------------------------------------------------------------
@@ -838,8 +692,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     inv.failures.push(failure);
     if (recordImmediately && !inv.recordedFailures.has(failure)) {
       inv.recordedFailures.add(failure);
-      this.noteSharedFailures([failure]);
-      this.recoveryController.noteFailure(this.toRecoveryFailures([failure], inv.invocationId, inv.attemptId));
+      this.recordRecoveryFailures(this.toRecoveryFailures([failure], inv.invocationId, inv.attemptId));
     }
   }
 
@@ -903,15 +756,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   snapshot(): LLMInstanceSnapshot {
     const adapters = [this.primary, ...this.fallbacks];
     const providers: LLMProviderSnapshotEntry[] = adapters.map((adapter, index) => {
-      const breaker = this.breakers[index];
-      const probeAllowedAtMs = breaker?.probeAllowedAtMs() ?? undefined;
+      const providerId = this.providerIds[index];
+      const state = this.providerStates.find(provider => provider.providerId === providerId);
+      const waiting = state?.status === 'waiting';
       return {
         provider: adapter.name,
         isFallback: index > 0,
-        breakerOpen: probeAllowedAtMs !== undefined,
-        openCause: breaker?.getOpenCause() ?? null,
-        consecutiveFailures: breaker?.getConsecutiveFailures() ?? 0,
-        ...(probeAllowedAtMs !== undefined ? { probeAllowedAtMs } : {}),
+        breakerOpen: waiting,
+        openCause: waiting ? state?.lastError?.class ?? 'unknown' : null,
+        consecutiveFailures: state?.consecutiveFailures ?? 0,
+        ...(waiting && state?.retryAt !== undefined ? { probeAllowedAtMs: state.retryAt } : {}),
       };
     });
     return { takenAtMs: Date.now(), providers };
@@ -920,11 +774,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   getProviderHealthSnapshot(): LLMProviderHealthSnapshot {
     return {
       revision: this.instanceRevision,
-      providers: this.providerIds.map((providerId, index) => {
-        const shared = this.sharedFailures.get(providerId);
-        const recovery = this.recoveryState.providers.find(fact => fact.providerId === providerId && fact.blocking);
-        const breakerOpen = (this.breakers[index]?.probeAllowedAtMs() ?? undefined) !== undefined;
-        const errorClass = shared?.errorClass ?? recovery?.errorClass ?? (breakerOpen ? 'transient' : undefined);
+      providers: this.providerIds.map(providerId => {
+        const state = this.providerStates.find(provider => provider.providerId === providerId);
+        const errorClass = state?.status === 'waiting' ? state.lastError?.class ?? 'unknown' : undefined;
         return {
           providerId,
           healthKey: errorClass === undefined ? 'healthy' : `blocked:${errorClass}`,
@@ -977,7 +829,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const nowMs = Date.now();
     const start = this.probeCursor % entries.length;
     const ordered = [...entries.slice(start), ...entries.slice(0, start)];
-    const candidate = ordered.find(entry => this.probeFloorMs(entry.breakerIndex) <= nowMs);
+    const primary = entries[0]!;
+    const candidate = primary.failed && this.probeFloorMs(0) <= nowMs
+      ? primary
+      : ordered.find(entry => entry.failed && this.probeFloorMs(entry.breakerIndex) <= nowMs)
+        ?? ordered.find(entry => this.probeFloorMs(entry.breakerIndex) <= nowMs);
     if (!candidate) return undefined;
     return {
       ...candidate,
@@ -986,47 +842,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     };
   }
 
-  /** 候选的共享故障时间下界：owner 记录下界与本地 breaker 弹回时刻取 max（只读）。 */
-  private sharedFailureFloorMs(index: number, record: SharedFailureRecord): number {
-    return Math.max(record.floorMs ?? 0, this.breakers[index]?.probeAllowedAtMs() ?? 0);
-  }
-
   private hasProbeFailure(index: number): boolean {
     const providerId = this.providerIds[index];
-    if (providerId === undefined) return false;
-    return this.sharedFailures.has(providerId)
-      || (this.breakers[index]?.probeAllowedAtMs() ?? undefined) !== undefined
-      || this.recoveryState.providers.some(fact => fact.providerId === providerId && fact.blocking);
+    return this.providerStates.some(provider => provider.providerId === providerId && provider.status === 'waiting');
   }
 
-  /** shared、breaker 与 recovery owner 的统一只读下界；无时间的 blocking fact 只能等待变化。 */
   private probeFloorMs(index: number): number {
     const providerId = this.providerIds[index];
-    if (providerId === undefined) return 0;
-    let floorMs = this.breakers[index]?.probeAllowedAtMs() ?? 0;
-    const shared = this.sharedFailures.get(providerId);
-    if (shared) floorMs = Math.max(floorMs, this.sharedFailureFloorMs(index, shared));
-    const fact = this.recoveryState.providers.find(item => item.providerId === providerId && item.blocking);
-    if (fact?.rateLimitBlocked === true) return Number.POSITIVE_INFINITY;
-    if (fact && (fact.errorClass === 'rate_limit' || fact.errorClass === 'quota')) {
-      if (fact.retryAt === undefined) return Number.POSITIVE_INFINITY;
-      const retryAtMs = Date.parse(fact.retryAt);
-      if (!Number.isFinite(retryAtMs)) return Number.POSITIVE_INFINITY;
-      floorMs = Math.max(floorMs, retryAtMs);
-    }
-    return floorMs;
+    const state = this.providerStates.find(provider => provider.providerId === providerId);
+    if (state?.status !== 'waiting') return 0;
+    return state.retryAt ?? Number.POSITIVE_INFINITY;
   }
 
-  /** 普通业务候选保持既有判定；probe 专用统一 Infinity 下界不反向改变审计原因。 */
-  private isRecoveryBlocking(index: number, allowBreakerProbe: boolean): boolean {
-    if (allowBreakerProbe) return false;
+  private isRecoveryBlocking(index: number, allowRecoveryProbe: boolean): boolean {
+    if (allowRecoveryProbe) return false;
     const providerId = this.providerIds[index];
-    if (providerId === undefined) return false;
-    const nowMs = Date.now();
-    const shared = this.sharedFailures.get(providerId);
-    if (shared && this.sharedFailureFloorMs(index, shared) > nowMs) return true;
-    const fact = this.recoveryState.providers.find(item => item.providerId === providerId && item.blocking);
-    return fact?.retryAt !== undefined && Date.parse(fact.retryAt) > nowMs;
+    const state = this.providerStates.find(provider => provider.providerId === providerId);
+    return state?.status === 'waiting' && (state.retryAt ?? Number.POSITIVE_INFINITY) > Date.now();
   }
 
   /** 探针的真实执行体（单一实例；并发去重由 probe() 保证）。 */
@@ -1052,7 +884,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       nextCursor: target.nextCursor,
     });
     const probeInvocationId = `probe:${this.instanceId}:${probedAtMs}:${target.breakerIndex}`;
-    const epoch = this.sharedFailures.get(target.identity)?.epoch ?? 0;
+    const failureObservedAt = this.providerStates.find(provider => provider.providerId === target.identity)?.lastError?.at;
     const targetConfig = target.breakerIndex === 0
       ? this.config.primary
       : this.config.fallbacks?.[target.breakerIndex - 1];
@@ -1066,33 +898,22 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     try {
       // Probe 保持配置的有界 timeout（不按输入规模扩展）：显式探测要求快速了结。
       await this._tryCallProvider(target.adapter, target.breakerIndex, target.isFallback, probeOptions, 1, 0, generation, false);
-      // 旧配置/旧故障代次的迟到成功不得清新状态（普通成功同样不清——见 call/stream 路径）
+      // 旧配置或更新失败事实之后到达的 probe 成功不得覆盖新状态。
       if (generation === this.configGeneration) {
-        const current = this.sharedFailures.get(target.identity);
-        if ((current?.epoch ?? 0) === epoch) {
-          const sharedFailures = new Map(this.sharedFailures);
-          sharedFailures.delete(target.identity);
-          this.commitInstanceCandidate({
-            breakers: [...this.breakers],
-            sharedFailures,
-            lastSuccessProvider: this.lastSuccessProvider,
-            recovery: {
-              ...this.recoveryState,
-              providers: this.recoveryState.providers.filter(fact => fact.providerId !== target.identity),
-            },
-          }, 'probe_provider_health_clear');
+        const currentFailureAt = this.providerStates.find(provider => provider.providerId === target.identity)?.lastError?.at;
+        if (currentFailureAt === failureObservedAt) {
+          this.recordProviderSuccess(target.breakerIndex, target.adapter, target.isFallback, generation, false);
         }
       }
       return { ok: true, provider: target.adapter.name, probedAtMs };
     } catch (err) {
       const e = err as Error;
-      // 与普通候选失败共用 shared + recovery owner；close/旧配置代次的迟到失败不记账。
+      // 与真实候选失败共用同一 provider 恢复事实；close/旧配置代次的迟到失败不记账。
       if (!this.closed && generation === this.configGeneration) {
         const failure = { provider: target.adapter.name, error: e, providerId: target.identity };
-        this.noteSharedFailures([failure]);
-        const errorClass = classifyLLMError(e);
+          const errorClass = classifyLLMError(e);
         if (errorClass !== 'context_exceeded' && errorClass !== 'abort') {
-          this.recoveryController.noteFailure(this.toRecoveryFailures(
+          this.recordRecoveryFailures(this.toRecoveryFailures(
             [failure],
             probeInvocationId,
             `${probeInvocationId}:attempt`,
@@ -1149,15 +970,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   scheduleProbe(atMs: number): void {
     if (this.closed) return;
     const decision = this.getSharedRecoveryDecision();
-    if (decision.kind === 'on_change') {
-      // 无可用时间下界：不定时轮询
-      this.scheduleGeneration += 1;
-      if (this.scheduleTimer !== undefined) {
-        clearTimeout(this.scheduleTimer);
-        this.scheduleTimer = undefined;
-      }
-      return;
-    }
     const effectiveAtMs = decision.kind === 'at' ? Math.max(atMs, decision.nextProbeAt) : atMs;
     const generation = ++this.scheduleGeneration;
     if (this.scheduleTimer !== undefined) {
@@ -1169,7 +981,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (generation !== this.scheduleGeneration || this.closed) return;
       const fireGeneration = this.configGeneration;
       const fireDecision = this.getSharedRecoveryDecision();
-      if (fireDecision.kind === 'on_change') return;
       if (fireDecision.kind === 'at' && fireDecision.nextProbeAt > Date.now()) {
         // 下界被后续故障推后：重排到 owner 下界（不到点不空探）
         this.scheduleProbe(fireDecision.nextProbeAt);
@@ -1218,55 +1029,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       : { kind: 'at', nextProbeAt: minAtMs };
   }
 
-  /**
-   * 共享故障记账的唯一写入口（候选失败发生处立即提交、最终聚合仅补漏、探针失败共用）。按候选身份指纹键控；仅被本地 breaker 跳过的候选（未发生真实
-   * 请求）不记账；context_exceeded/abort 是请求局部错误，不进共享故障状态。
-   * 普通调用成功不在此清除——解除已发布 shared blocked 唯一归探针验证/配置变化。
-   */
-  private noteSharedFailures(failures: ReadonlyArray<LLMProviderFailure>): void {
-    const observedNowMs = Date.now();
-    const sharedFailures = new Map(this.sharedFailures);
-    let changed = false;
-    for (const f of failures) {
-      if (f.localSkip === true || f.error instanceof LLMCircuitBreakerOpenError) continue;  // localSkip：未发生真实请求
-      const errorClass = classifyLLMError(f.error);
-      if (errorClass === 'context_exceeded' || errorClass === 'abort') continue;
-      let identity = f.providerId;
-      if (identity === undefined) {
-        const adapters = [this.primary, ...this.fallbacks];
-        const index = adapters.findIndex((p) => p.name === f.provider);
-        identity = index >= 0 ? this.providerIds[index] : undefined;
-      }
-      if (identity === undefined) continue;
-      const retryAfterSec = getRetryAfterSec(f.error);
-      const nowMs = this.failureObservedAtMs.get(f.error) ?? observedNowMs;
-      const quotaResetAtMs = getQuotaResetAtMs(f.error);
-      const floorMs = errorClass === 'permanent'
-        ? nowMs + LLM_RECOVERY_COOLDOWN_MS
-        : errorClass === 'rate_limit' && retryAfterSec !== undefined
-          ? nowMs + retryAfterSec * 1000
-          : errorClass === 'quota'
-            ? Math.max(
-                nowMs + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
-                quotaResetAtMs !== undefined && quotaResetAtMs > nowMs ? quotaResetAtMs : 0,
-                retryAfterSec !== undefined ? nowMs + retryAfterSec * 1000 : 0,
-              )
-            : nowMs + (this.config.circuitBreaker?.resetTimeoutMs ?? LLM_RECOVERY_COOLDOWN_MS);
-      const prev = sharedFailures.get(identity);
-      sharedFailures.set(identity, {
-        errorClass,
-        floorMs,
-        epoch: (prev?.epoch ?? 0) + 1,
-      });
-      changed = true;
-    }
-    if (!changed) return;
-    this.commitInstanceCandidate({
-      breakers: [...this.breakers],
-      sharedFailures,
-      lastSuccessProvider: this.lastSuccessProvider,
-      recovery: this.recoveryState,
-    }, 'shared_failures');
+  private recordRecoveryFailures(failures: RecoveryFailureInput[]): void {
+    if (failures.length === 0) return;
+    this.recoveryController.noteFailure(failures);
     if (!this.closed) this.scheduleProbe(this.nextAutonomousProbeAt());
   }
 
@@ -1281,7 +1046,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       const resetAtMs = getQuotaResetAtMs(f.error);
       const breakerSkip = f.error instanceof LLMCircuitBreakerOpenError;
       const localSkip = f.localSkip === true || breakerSkip;
-      const probeAllowedAtMs = breakerSkip ? this.breakerProbeAllowedAt(f.provider) : undefined;
       return {
         providerId: f.providerId ?? this.providerIdOf(f.provider),
         // Phase 1968 Step B：显示名（label）与执行序/invocation 关联随失败事实持久化，
@@ -1297,7 +1061,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         ...(resetAtMs !== undefined ? { resetAtMs } : {}),
         occurredAtMs: this.failureObservedAtMs.get(f.error) ?? Date.now(),
         ...(localSkip ? { localSkip } : {}),
-        ...(probeAllowedAtMs !== undefined ? { probeAllowedAtMs } : {}),
       };
     });
   }
@@ -1347,8 +1110,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       const response = await this._callCore(options, limits, inv);
       const unrecorded = inv.failures.filter(failure => !inv.recordedFailures.has(failure));
       if (unrecorded.length > 0) {
-        this.noteSharedFailures(unrecorded);
-        this.recoveryController.noteFailure(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+        this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
       }
       if (inv.winnerProviderId === undefined) throw new Error('LLM call succeeded without a selected provider');
       this.recoveryController.noteSuccess(inv.invocationId, inv.winnerProviderId);
@@ -1357,8 +1119,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (error instanceof LLMAllProvidersFailedError) {
         const unrecorded = error.failures.filter(failure => !inv.recordedFailures.has(failure));
         if (unrecorded.length > 0) {
-          this.noteSharedFailures(unrecorded);
-          this.recoveryController.noteFailure(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+            this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
         }
       }
       throw error;
@@ -1402,14 +1163,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     const allowBreakerProbe = limits.allowBreakerProbe;
     // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
     const estimatedInputTokens = estimatePromptTokens(options);
-    const isBreakerOpen = (index: number): boolean => {
-      const breaker = this.breakers[index];
-      return breaker ? this.breakerIsOpen(index) : false;
-    };
-    // 显式干预/启动放行的一次性资格：候选不因本地 breaker open 被跳过
-    // （仍会触发 open→half-open 状态机；成功/失败按既有语义记账，历史不重置）。
-    const isBreakerBlocking = (index: number): boolean =>
-      isBreakerOpen(index) && !allowBreakerProbe;
+    const primaryAvailable = this.providerStates.find(provider => provider.providerId === this.providerIds[0])?.status !== 'waiting';
 
     const failures: LLMProviderFailure[] = [];
 
@@ -1417,16 +1171,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       // 统一 TTL 内保持上次成功的可用 fallback；到期或失败后从 primary 重评
       let stickyFb: LLMProvider | undefined;
       let stickyIdx = -1;
-      if (this.lastSuccessProvider?.isFallback && this.lastSuccessProvider.cacheValidUntil > Date.now()) {
+      if (!primaryAvailable && this.lastSuccessProvider?.isFallback && this.lastSuccessProvider.cacheValidUntil > Date.now()) {
         const hint = this.lastSuccessProvider;
         stickyIdx = this.fallbacks.findIndex((_, i) => this.providerIds[i + 1] === hint.providerId);
         stickyFb = stickyIdx >= 0 ? this.fallbacks[stickyIdx] : undefined;
         if (stickyFb && stickyIdx >= 0) {
           if (this.isRecoveryBlocking(stickyIdx + 1, allowBreakerProbe)) {
             this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'provider_recovery_floor');
-          } else if (isBreakerBlocking(stickyIdx + 1)) {
-            // Phase 1968 Step B：sticky 候选被熔断拦截此前无任何记录——跳过也是 attempt path。
-            this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'circuit_breaker_open');
           } else {
             try {
               const response = await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
@@ -1447,7 +1198,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       let primaryFailed = false;
       if (this.isRecoveryBlocking(0, allowBreakerProbe)) {
         this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), 'provider_recovery_floor');
-      } else if (!isBreakerBlocking(0)) {
+      } else {
         try {
           const response = await this._tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
@@ -1460,8 +1211,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           primaryFailed = true;
           this.noteCandidateFailure(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), err as Error);
         }
-      } else {
-        this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(this.primary.name));
       }
 
       // Primary exhausted/open — announce the fallback that is actually about
@@ -1478,11 +1227,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), 'provider_recovery_floor');
           continue;
         }
-        if (isBreakerBlocking(i + 1)) {
-          this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(this.fallbacks[i].name));
-          continue;
-        }
-
         try {
           this.events.emit({
             type: 'fallback_switched',
@@ -1555,16 +1299,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (error instanceof LLMAllProvidersFailedError) {
         const unrecorded = error.failures.filter(failure => !inv.recordedFailures.has(failure));
         if (unrecorded.length > 0) {
-          this.noteSharedFailures(unrecorded);
-          this.recoveryController.noteFailure(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+            this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
         }
       }
       throw error;
     }
     const unrecorded = inv.failures.filter(failure => !inv.recordedFailures.has(failure));
     if (unrecorded.length > 0) {
-      this.noteSharedFailures(unrecorded);
-      this.recoveryController.noteFailure(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
+      this.recordRecoveryFailures(this.toRecoveryFailures(unrecorded, inv.invocationId, inv.attemptId));
     }
     if (inv.winnerProviderId === undefined) throw new Error('LLM stream succeeded without a selected provider');
     this.recoveryController.noteSuccess(inv.invocationId, inv.winnerProviderId);
@@ -1577,11 +1319,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   ): AsyncIterableIterator<LLMStreamChunk> {
     // Phase 1969：不做调用前预算 admission；估计值仅用于动态 timeout。
     const estimatedInputTokens = estimatePromptTokens(options);
-    // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
-    const primaryBreakerOpen = this.breakerIsOpen(0);
-    const openCause = this.breakers[0]?.getOpenCause() ?? null;
-    // 显式干预/启动放行的 probe 不走 hedge（直接在该候选上做一次真实尝试）。
-    if (primaryBreakerOpen && !limits.allowBreakerProbe && openCause === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
+    // primary 的 transient 故障保留双轨 hedge；有效 fallback cache 期间不越过 cache。
+    const primaryState = this.providerStates.find(provider => provider.providerId === this.providerIds[0]);
+    const primaryWaiting = primaryState?.status === 'waiting';
+    const hasValidFallbackCache = this.lastSuccessProvider?.isFallback === true
+      && this.lastSuccessProvider.cacheValidUntil > Date.now();
+    if (primaryWaiting && !hasValidFallbackCache && !limits.allowBreakerProbe
+      && primaryState?.lastError?.class === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
       yield* this._streamHedge(options, inv);
       return;
     }
@@ -1591,8 +1335,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       ...this.fallbacks.map((fb, i) => ({ adapter: fb, breakerIndex: i + 1, isFallback: true })),
     ];
 
-    // 统一 TTL 内保持上次成功的可用 fallback；到期后恢复配置序（primary 优先）
-    if (this.lastSuccessProvider?.isFallback && this.lastSuccessProvider.cacheValidUntil > Date.now()) {
+    // primary 已由 probe 恢复时立即优先；否则在 TTL 内保持可用 fallback。
+    if (primaryWaiting && this.lastSuccessProvider?.isFallback && this.lastSuccessProvider.cacheValidUntil > Date.now()) {
       const hint = this.lastSuccessProvider;
       const stickyIdx = providers.findIndex(p => this.providerIds[p.breakerIndex] === hint.providerId);
       if (stickyIdx > 0) {
@@ -1629,16 +1373,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         this.noteCandidateSkipped(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), 'provider_recovery_floor');
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Provider recovery floor not reached' };
         lastFailedProviderName = adapter.name;
-        continue;
-      }
-
-      // Check circuit breaker（显式干预/启动放行时忽略拒绝，但保留状态机推移与记账）
-      const breaker = this.breakers[breakerIndex];
-      if (breaker && this.breakerIsOpen(breakerIndex) && !limits.allowBreakerProbe) {
-        skippedCount++;
-        this.noteCandidateSkipped(inv, failures, adapter.name, this.identityAt(breakerIndex, adapter.name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(adapter.name));
-        yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Circuit breaker open' };
-        lastFailedProviderName = adapter.name;  // phase 686
         continue;
       }
 
@@ -1879,7 +1613,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
       if (success && receivedDone && hasContent) {
         // breaker 与 lastSuccess 在同一候选中提交。
-        this.recordBreakerSuccess(breakerIndex, adapter, providers[pi].isFallback, inv.generation);
+        this.recordProviderSuccess(breakerIndex, adapter, providers[pi].isFallback, inv.generation);
         // Phase 1968 Step B：selection 先于成功返回上层（本 return 即 generator 成功出口）。
         this.noteCandidateSuccess(inv, adapter.name, this.identityAt(breakerIndex, adapter.name));
         return; // Success, exit generator
@@ -1895,7 +1629,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         };
         // phase 1275: breaker_opened emit 由 CircuitBreaker.onTransition 回调
         // 独占（实计数）；此处手动检查与回调判定同一状态转移、重复 emit。
-        this.recordBreakerFailure(breakerIndex, 'unknown');
         const err = new LLMEmptyResponseError(adapter.name);
         this.events.emit({
           type: 'provider_attempt_failed',
@@ -1919,7 +1652,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           type: 'reset',
           provider: adapter.name,
         };
-        this.recordBreakerFailure(breakerIndex, 'transient');
         const err = new LLMStreamAbortedError(adapter.name, 'stream ended without done chunk');
         this.events.emit({
           type: 'provider_attempt_failed',
@@ -1942,7 +1674,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         // Stream completed normally but produced nothing — treat as failure
         // phase 815 P1.34: 显式 pass 'unknown' / 防 half-open probe 失败时 lastFailureClass 保 stale prior class
         // （`if (errClass)` 守卫在 CircuitBreaker.onFailure 不 update lastFailureClass when errClass undefined / 修触发点不动 CB）
-        this.recordBreakerFailure(breakerIndex, 'unknown');
         const err = new LLMEmptyResponseError(adapter.name);
         this.events.emit({
           type: 'provider_attempt_failed',
@@ -1959,7 +1690,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         // Continue to next provider
       } else if (!success && !contextExceeded) {
         // Circuit breaker: record failure（breaker_opened emit 由 onTransition 回调独占）
-        this.recordBreakerFailure(breakerIndex, classifyLLMError(lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured')));
         // Phase 1268 Step C: 删除 provider 结束后硬编码 attempt: 0 的第二个
         // provider_attempt_failed —— 握手前逐 attempt emit（retry loop catch）已覆盖，
         // provider_failed stream chunk 保留为对调用方的不同语义信号。
@@ -1998,30 +1728,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     throw new LLMAllProvidersFailedError(failures);
   }
   
-  private updateLastSuccess(
-    adapter: LLMProvider,
-    isFallback: boolean,
-    breakerIndex: number,
-    generation: number,
-  ): void {
-    if (generation !== this.configGeneration) return;
-    const nowMs = Date.now();
-    this.commitInstanceCandidate({
-      breakers: [...this.breakers],
-      sharedFailures: new Map(this.sharedFailures),
-      lastSuccessProvider: {
-        name: adapter.name,
-        model: adapter.model,
-        isFallback,
-        providerId: this.identityAt(breakerIndex, adapter.name),
-        generation,
-        lastUsedAt: nowMs,
-        cacheValidUntil: nowMs + LLM_PROVIDER_SELECTION_TTL_MS,
-      },
-      recovery: this.recoveryState,
-    }, 'last_success');
-  }
-
   /**
    * Get current provider info
    */
@@ -2212,8 +1918,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         for (let i = 0; i < this.fallbacks.length; i++) {
           if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
           const fb = this.fallbacks[i];
-          if (this.breakerIsOpen(i + 1)) {
-            this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'circuit_breaker_open', new LLMCircuitBreakerOpenError(fb.name));
+          if (this.isRecoveryBlocking(i + 1, false)) {
+            this.noteCandidateSkipped(inv, failures, fb.name, this.identityAt(i + 1, fb.name), 'provider_recovery_floor');
             continue;
           }
           const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);
@@ -2226,7 +1932,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           try {
             const response = await fb.call(fbOpts);
             fbMerged.cleanup();
-            this.recordBreakerSuccess(i + 1, fb, true, inv.generation);
+            this.recordProviderSuccess(i + 1, fb, true, inv.generation);
             return { winner: 'B', provider: fb, providerIndex: i, response };
           } catch (err) {
             fbMerged.cleanup();
@@ -2238,7 +1944,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             const e = err as Error;
             this.failureObservedAtMs.set(e, Date.now());
             const errClass = classifyLLMError(e);
-            this.recordBreakerFailure(i + 1, errClass);
             this.events.emit({
               type: 'provider_attempt_failed',
               provider: fb.name,
@@ -2288,7 +1993,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
           }
-          this.recordBreakerFailure(0, classifyLLMError(err));
           // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
           this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
           this.events.emit({
@@ -2316,7 +2020,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         }
         if (!receivedDone && !drainError) {
           // Clean EOF without done → truncated stream, treat as provider failure
-          this.recordBreakerFailure(0, 'transient');
           this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
           this.failureObservedAtMs.set(error, Date.now());
@@ -2327,7 +2030,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         }
         if (drainError) throw drainError;
         if (receivedDone) {
-          this.recordBreakerSuccess(0, this.primary, false, inv.generation);
+          this.recordProviderSuccess(0, this.primary, false, inv.generation);
           this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
           // Phase 1968 Step B：selection 先于成功返回（hedge A 轨恢复成功）。
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
@@ -2380,7 +2083,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           });
         }
 
-        this.updateLastSuccess(winner.provider, true, winner.providerIndex + 1, inv.generation);
         // Phase 1968 Step B：B 轨成功被 commit——selection 先于 yield* 响应。
         this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name));
         // NEW: drain primary generator (mirror L821 double-fail template)
@@ -2421,7 +2123,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             cacheCreationInputTokens: bResult.response.usage?.cache_creation_input_tokens ?? undefined,
             cacheReadInputTokens: bResult.response.usage?.cache_read_input_tokens ?? undefined,
           });
-          this.updateLastSuccess(bResult.provider, true, bResult.providerIndex + 1, inv.generation);
           this.noteCandidateSuccess(inv, bResult.provider.name, this.identityAt(bResult.providerIndex + 1, bResult.provider.name));
           cleanupSignals();
           yield* wrapResponseAsStream(bResult.response);
@@ -2432,7 +2133,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         if (options.signal?.aborted) {
           throw makeExternalAbortError(options.signal.reason);
         }
-        this.recordBreakerFailure(0, classifyLLMError(winner.error));
         await closePrimary();
         cleanupSignals();
         // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
@@ -2471,7 +2171,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
           }
-          this.recordBreakerFailure(0, classifyLLMError(err));
           // Phase 1968 Step B：hedge primary 首 chunk 后失败也是 attempt 终态。
           this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), err as Error);
           this.events.emit({
@@ -2495,7 +2194,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         }
         if (!receivedDone && !drainError) {
           // Clean EOF without done → truncated stream, treat as provider failure
-          this.recordBreakerFailure(0, 'transient');
           this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
           this.failureObservedAtMs.set(error, Date.now());
@@ -2506,7 +2204,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         }
         if (drainError) throw drainError;
         if (receivedDone) {
-          this.recordBreakerSuccess(0, this.primary, false, inv.generation);
+          this.recordProviderSuccess(0, this.primary, false, inv.generation);
           this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
           // Phase 1968 Step B：selection 先于成功返回（B 全败后 A 恢复成功）。
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
@@ -2527,7 +2225,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         cleanupSignals();
         throw aResult.error;
       }
-      this.recordBreakerFailure(0, classifyLLMError(aResult.error));
       await closePrimary();
       cleanupSignals();
       // Phase 1968 Step B：双失败终态——A 失败 attempt（B 侧各候选已在 track B 循环记录）。
@@ -2590,39 +2287,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
   reloadConfig(newConfig: LLMOrchestratorConfig): void {
     this.assertOpen();
     const oldKeys = new Set(this.sdkClientCache.keys());
-    const oldProviderIds = this.providerIds;
-    const oldBreakers = this.breakers;
-    const oldBreakerPolicy = this.config.circuitBreaker;
-
     // 先构造新身份视图并提交实例健康；写失败时运行配置与旧健康状态均不替换。
     const newPrimary = this.getSdkClient(newConfig.primary);
     const newFallbacks = (newConfig.fallbacks ?? []).map((c) => this.getSdkClient(c));
     const allProviders = [newPrimary, ...newFallbacks];
     const newProviderIds = [newConfig.primary, ...(newConfig.fallbacks ?? [])].map(providerIdentity);
     const newLegacyProviderIds = [newConfig.primary, ...(newConfig.fallbacks ?? [])].map(legacyProviderIdentity);
-    const cb = newConfig.circuitBreaker;
-    const unchangedPolicy = oldBreakerPolicy?.failureThreshold === cb?.failureThreshold
-      && oldBreakerPolicy?.resetTimeoutMs === cb?.resetTimeoutMs;
-    const newBreakers = cb
-      ? allProviders.map((p, i) => {
-          const oldIndex = oldProviderIds.indexOf(newProviderIds[i] ?? '');
-          const previous = oldIndex >= 0 ? oldBreakers[oldIndex] : undefined;
-          if (unchangedPolicy && previous) return previous;
-          return new CircuitBreaker(cb.failureThreshold, cb.resetTimeoutMs, (transition, failures) => {
-            this.emitBreakerTransition({ provider: p.name, transition, ...(failures !== undefined ? { failures } : {}) });
-          });
-        })
-      : [];
     const currentIds = new Set(newProviderIds);
-    const newSharedFailures = new Map(
-      [...this.sharedFailures].filter(([providerId]) => currentIds.has(providerId)),
-    );
+    const newProviderStates = this.providerStates
+      .filter(provider => currentIds.has(provider.providerId))
+      .map(provider => {
+        const { lastSuccessAt: _lastSuccessAt, cacheValidUntil: _cacheValidUntil, ...retained } = provider;
+        return retained;
+      });
     const committed = this.commitInstanceCandidate({
-      breakers: newBreakers,
-      sharedFailures: newSharedFailures,
-      lastSuccessProvider: null,
+      providers: newProviderStates,
       recovery: this.recoveryState,
-    }, 'reload_config', [], newProviderIds);
+    }, 'reload_config', newProviderIds, true);
     if (!committed) throw new Error('LLM instance state persistence failed during reloadConfig');
 
     this.probeCursor = 0;

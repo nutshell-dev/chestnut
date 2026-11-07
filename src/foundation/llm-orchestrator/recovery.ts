@@ -16,11 +16,9 @@ import type {
 import type { LLMErrorClass } from './errors.js';
 import {
   LLM_RECOVERY_COOLDOWN_MS,
-  LLM_RECOVERY_MAX_RETRIES,
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
   LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
-  LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_MAX_DELAY_MS,
 } from './defaults.js';
@@ -28,7 +26,6 @@ import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_POLICY_VERSION,
-  type LLMRecoveryBudget,
   type LLMRecoveryFailureEvidence,
   type LLMRecoverySchedule,
 } from './recovery-state.js';
@@ -37,6 +34,7 @@ import type {
   LLMInstanceInvocation,
   LLMInstanceRecoveryProviderFact,
   LLMInstanceRecoveryState,
+  LLMProviderRecoveryState,
 } from './instance-state.js';
 
 export interface RecoveryFailureInput {
@@ -92,9 +90,9 @@ interface RecoveryControllerDeps {
   orchestrator: Pick<LLMOrchestratorOwner, 'getProviderIdentities' | 'getLegacyProviderIdentities'>;
   getState(): LLMInstanceRecoveryState;
   getRevision(): number;
-  hasSharedFailure(providerId: string): boolean;
+  getProviders(): readonly LLMProviderRecoveryState[];
   /** 同步 durable commit；成功返回已提交 revision，失败必须 throw 且不得发布候选。 */
-  commit(next: LLMInstanceRecoveryState, context: string, clearSharedProviderId?: string): number;
+  commit(next: LLMInstanceRecoveryState, context: string, providers?: readonly LLMProviderRecoveryState[]): number;
   now?: () => number;
 }
 
@@ -102,14 +100,6 @@ interface AcceptedFacts {
   interventionIds: readonly string[];
   configurationRevision?: string;
   startupId?: string;
-}
-
-function initialBudget(): LLMRecoveryBudget {
-  return {
-    retryCount: 0,
-    retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-    quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
-  };
 }
 
 function appendBounded(existing: string[], additions: readonly string[], max: number): string[] {
@@ -137,25 +127,47 @@ function cloneRecovery(state: LLMInstanceRecoveryState): LLMInstanceRecoveryStat
   };
 }
 
-/** schedule 是健康事实的只读派生，不进入磁盘 schema。 */
+/** schedule 是每个 provider 唯一恢复事实的只读派生，不进入磁盘 schema。 */
 export function deriveLLMRecoverySchedule(
-  state: LLMInstanceRecoveryState,
+  state: LLMInstanceRecoveryState | readonly LLMProviderRecoveryState[],
   revision: number,
   currentProviderIds: readonly string[] = [],
 ): LLMRecoverySchedule {
-  const blocked = state.providers.filter(fact => fact.blocking);
-  const blockedIds = new Set(blocked.map(fact => fact.providerId));
-  if (blocked.length === 0 || currentProviderIds.some(providerId => !blockedIds.has(providerId))) {
+  // 保留旧 recovery-state 输入仅供迁移测试；生产 controller 只传统一 provider state。
+  if (!Array.isArray(state)) {
+    const legacy = state as LLMInstanceRecoveryState;
+    const blocked = legacy.providers.filter(fact => fact.blocking);
+    const blockedIds = new Set(blocked.map(fact => fact.providerId));
+    if (blocked.length === 0 || currentProviderIds.some(providerId => !blockedIds.has(providerId))) {
+      return { kind: 'ready', revision };
+    }
+    let earliest: string | undefined;
+    for (const fact of blocked) {
+      if (fact.retryAt === undefined) continue;
+      if (earliest === undefined || Date.parse(fact.retryAt) < Date.parse(earliest)) earliest = fact.retryAt;
+    }
+    return earliest === undefined
+      ? { kind: 'on_change', revision }
+      : { kind: 'at', revision, resumeAt: earliest };
+  }
+
+  const providers = state as readonly LLMProviderRecoveryState[];
+  const byId = new Map(providers.map(provider => [provider.providerId, provider]));
+  const current = currentProviderIds.length > 0
+    ? currentProviderIds.map(providerId => byId.get(providerId))
+    : providers;
+  const blocked = current.filter((provider): provider is LLMProviderRecoveryState => provider?.status === 'waiting');
+  if (blocked.length === 0 || current.some(provider => provider === undefined || provider.status === 'available')) {
     return { kind: 'ready', revision };
   }
-  let earliest: string | undefined;
-  for (const fact of blocked) {
-    if (fact.retryAt === undefined) continue;
-    if (earliest === undefined || Date.parse(fact.retryAt) < Date.parse(earliest)) earliest = fact.retryAt;
+  let earliest: number | undefined;
+  for (const provider of blocked) {
+    if (provider.retryAt === undefined) continue;
+    if (earliest === undefined || provider.retryAt < earliest) earliest = provider.retryAt;
   }
   return earliest === undefined
     ? { kind: 'on_change', revision }
-    : { kind: 'at', revision, resumeAt: earliest };
+    : { kind: 'at', revision, resumeAt: new Date(earliest).toISOString() };
 }
 
 function hasAcceptedFact(
@@ -178,7 +190,7 @@ export class LLMRecoveryControllerImpl {
   private readonly orchestrator: RecoveryControllerDeps['orchestrator'];
   private readonly getState: RecoveryControllerDeps['getState'];
   private readonly getRevision: RecoveryControllerDeps['getRevision'];
-  private readonly hasSharedFailure: RecoveryControllerDeps['hasSharedFailure'];
+  private readonly getProviders: RecoveryControllerDeps['getProviders'];
   private readonly commit: RecoveryControllerDeps['commit'];
   private readonly now: () => number;
 
@@ -188,7 +200,7 @@ export class LLMRecoveryControllerImpl {
     this.orchestrator = deps.orchestrator;
     this.getState = deps.getState;
     this.getRevision = deps.getRevision;
-    this.hasSharedFailure = deps.hasSharedFailure;
+    this.getProviders = deps.getProviders;
     this.commit = deps.commit;
     this.now = deps.now ?? Date.now;
     this.migrateProviderIdentities();
@@ -196,7 +208,7 @@ export class LLMRecoveryControllerImpl {
   }
 
   async inspect(): Promise<LLMRecoverySchedule> {
-    return deriveLLMRecoverySchedule(this.getState(), this.getRevision(), this.orchestrator.getProviderIdentities());
+    return deriveLLMRecoverySchedule(this.getProviders(), this.getRevision(), this.orchestrator.getProviderIdentities());
   }
 
   private migrateProviderIdentities(): void {
@@ -216,13 +228,21 @@ export class LLMRecoveryControllerImpl {
     next.providers = next.providers.map(fact => {
       const currentId = legacyToCurrent.get(fact.providerId);
       if (currentId === undefined) return fact;
-      if (next.providers.some(other => other !== fact && other.providerId === currentId)) {
-        throw new Error(`legacy provider identity migration conflicts at ${currentId}`);
-      }
       migrated = true;
       return { ...fact, providerId: currentId, identityMigrationPending: true };
     });
-    if (migrated) this.commitNext(next, 'migration');
+    const providers = this.getProviders().map(provider => ({ ...provider }));
+    for (let i = 0; i < providers.length; i++) {
+      const provider = providers[i]!;
+      const currentId = legacyToCurrent.get(provider.providerId);
+      if (currentId === undefined) continue;
+      if (providers.some((other, index) => index !== i && other.providerId === currentId)) {
+        throw new Error(`legacy provider identity migration conflicts at ${currentId}`);
+      }
+      provider.providerId = currentId;
+      migrated = true;
+    }
+    if (migrated) this.commitNext(next, 'migration', providers);
   }
 
   private recoverInvocationsAfterRestart(): void {
@@ -254,7 +274,7 @@ export class LLMRecoveryControllerImpl {
   async begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission> {
     const nowMs = this.now();
     const state = this.getState();
-    const entrySchedule = deriveLLMRecoverySchedule(state, this.getRevision(), this.orchestrator.getProviderIdentities());
+    const entrySchedule = deriveLLMRecoverySchedule(this.getProviders(), this.getRevision(), this.orchestrator.getProviderIdentities());
     const dedupedIds = dedupeStrings(input.facts.interventionIds);
     const resumableMatches = state.invocations.filter(invocation =>
       invocation.resumedFromRestart === true && !invocation.started && invocation.requestKey === input.requestKey,
@@ -314,19 +334,6 @@ export class LLMRecoveryControllerImpl {
       if (entrySchedule.kind === 'on_change') hasStartupQualification = true;
     }
 
-    if (entrySchedule.kind === 'on_change') {
-      for (const fact of next.providers) {
-        if (!fact.blocking || fact.retryAt !== undefined) continue;
-        // 达到有界恢复上限后只能由上方新鲜干预/配置事实释放，不能自动改回 at。
-        if (fact.rateLimitBlocked === true) continue;
-        const delayMs = recoveryDelayForFact(fact, next.budget);
-        if (delayMs !== undefined) {
-          fact.retryAt = new Date(nowMs + delayMs).toISOString();
-          stateChanged = true;
-        }
-      }
-    }
-
     const hasNewFacts = acceptedFacts.interventionIds.length > 0
       || acceptedFacts.configurationRevision !== undefined
       || acceptedFacts.startupId !== undefined;
@@ -367,7 +374,7 @@ export class LLMRecoveryControllerImpl {
       return { kind: 'admitted', invocationId: active.invocationId, attemptId: active.attemptId, factsAccepted: true };
     }
 
-    const schedule = deriveLLMRecoverySchedule(next, this.getRevision(), this.orchestrator.getProviderIdentities());
+    const schedule = deriveLLMRecoverySchedule(this.getProviders(), this.getRevision(), this.orchestrator.getProviderIdentities());
     let admitted = false;
     if (schedule.kind === 'ready') admitted = true;
     else if (schedule.kind === 'at') admitted = nowMs >= Date.parse(schedule.resumeAt) || hasUserQualification || hasStartupQualification;
@@ -378,7 +385,7 @@ export class LLMRecoveryControllerImpl {
       if (hasNewFacts) next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, undefined, undefined, acceptedBatchRevision);
       const revision = this.commitNext(next, 'begin');
       if (hasNewFacts) this.emitFactsAccepted(revision, acceptedFacts, undefined, undefined);
-      return { kind: 'waiting', schedule: deriveLLMRecoverySchedule(next, revision, this.orchestrator.getProviderIdentities()), factsAccepted: true };
+      return { kind: 'waiting', schedule: deriveLLMRecoverySchedule(this.getProviders(), revision, this.orchestrator.getProviderIdentities()), factsAccepted: true };
     }
 
     const invocationId = `inv-${newUuid()}`;
@@ -458,20 +465,10 @@ export class LLMRecoveryControllerImpl {
     this.commitNext(next, 'noteAttemptStarted');
   }
 
-  noteSuccess(invocationId: string, winnerProviderId: string): void {
-    const state = this.getState();
-    const budgetClean = state.budget.retryCount === 0
-      && state.budget.retryDelayMs === LLM_RECOVERY_RETRY_INITIAL_DELAY_MS
-      && state.budget.quotaDelayMs === LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS;
-    const hasWinnerFact = state.providers.some(fact => fact.providerId === winnerProviderId);
-    if (budgetClean && !hasWinnerFact && !this.hasSharedFailure(winnerProviderId)) return;
-    const next = cloneRecovery(state);
-    // 成功只清真实 winner；其他 provider 的恢复事实与其共享曲线原样保留。
-    next.providers = next.providers.filter(fact => fact.providerId !== winnerProviderId);
-    if (!next.providers.some(fact => fact.blocking)) next.budget = initialBudget();
-    const active = state.invocations.find(invocation => invocation.invocationId === invocationId);
-    const revision = this.commitNext(next, 'noteSuccess', winnerProviderId);
-    const schedule = deriveLLMRecoverySchedule(next, revision, this.orchestrator.getProviderIdentities());
+  noteSuccess(invocationId: string, _winnerProviderId: string): void {
+    const active = this.getState().invocations.find(invocation => invocation.invocationId === invocationId);
+    const revision = this.getRevision();
+    const schedule = deriveLLMRecoverySchedule(this.getProviders(), revision, this.orchestrator.getProviderIdentities());
     if (schedule.kind === 'ready') {
       this.emit({
         type: 'recovery_ready', orchestratorInstance: this.instanceId, invocationId,
@@ -481,20 +478,38 @@ export class LLMRecoveryControllerImpl {
   }
 
   noteFailure(failures: readonly RecoveryFailureInput[]): void {
-    if (failures.length === 0) return;
+    const realFailures = failures.filter(failure => failure.localSkip !== true
+      && failure.errorClass !== 'abort' && failure.errorClass !== 'context_exceeded');
+    if (realFailures.length === 0) return;
     const next = cloneRecovery(this.getState());
+    const providers = this.getProviders().map(provider => ({ ...provider }));
     let lastErrorClass = 'unknown';
 
-    for (const failure of failures) {
+    for (const failure of realFailures) {
       lastErrorClass = failure.errorClass;
       const nowMs = failure.occurredAtMs ?? this.now();
       const nowIso = new Date(nowMs).toISOString();
-      if (failure.localSkip) {
-        const fact = this.upsertProviderFact(next, failure, nowIso, false);
-        if (failure.probeAllowedAtMs !== undefined) fact.retryAt = new Date(failure.probeAllowedAtMs).toISOString();
-        continue;
-      }
-      const fact = this.upsertProviderFact(next, failure, nowIso, true);
+      const index = providers.findIndex(provider => provider.providerId === failure.providerId);
+      const previous: LLMProviderRecoveryState = index >= 0
+        ? providers[index]!
+        : { providerId: failure.providerId, status: 'available' };
+      const consecutiveFailures = (previous.consecutiveFailures ?? 0) + 1;
+      const nextProvider: LLMProviderRecoveryState = {
+        ...previous,
+        status: 'waiting',
+        retryAt: retryAtForFailure(previous, failure, nowMs, consecutiveFailures),
+        consecutiveFailures,
+        lastError: {
+          class: failure.errorClass,
+          at: nowMs,
+          message: failure.message,
+          ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
+          ...(failure.retryAfterSec !== undefined ? { retryAfterSec: failure.retryAfterSec } : {}),
+          ...(failure.resetAtMs !== undefined ? { quotaResetAtMs: failure.resetAtMs } : {}),
+        },
+      };
+      if (index >= 0) providers[index] = nextProvider;
+      else providers.push(nextProvider);
       this.pushFailure(next, {
         at: nowIso,
         providerId: failure.providerId,
@@ -506,52 +521,11 @@ export class LLMRecoveryControllerImpl {
         ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
         ...(failure.configRevision !== undefined ? { configRevision: failure.configRevision } : {}),
       });
-
-      let retryAtMs: number | undefined;
-      if (failure.errorClass === 'quota') {
-        const delay = next.budget.quotaDelayMs;
-        next.budget.quotaDelayMs = Math.min(delay * 2, LLM_RECOVERY_QUOTA_MAX_DELAY_MS);
-        const backoffAtMs = nowMs + delay;
-        const resetAtMs = failure.resetAtMs !== undefined && failure.resetAtMs > nowMs
-          ? failure.resetAtMs
-          : undefined;
-        const retryAfterAtMs = failure.retryAfterSec !== undefined
-          ? nowMs + failure.retryAfterSec * 1000
-          : undefined;
-        // 无可信未来 reset 时走既有 quota 曲线；header/reset 只能推后真实下界。
-        retryAtMs = Math.max(backoffAtMs, resetAtMs ?? 0, retryAfterAtMs ?? 0);
-      } else if (failure.errorClass === 'rate_limit') {
-        if (failure.retryAfterSec !== undefined) {
-          retryAtMs = nowMs + failure.retryAfterSec * 1000;
-        } else {
-          fact.rateLimitFailures = (fact.rateLimitFailures ?? 0) + 1;
-          if (fact.rateLimitFailures >= LLM_RECOVERY_RATE_LIMIT_MAX_ATTEMPTS) {
-            fact.rateLimitBlocked = true;
-            fact.rateLimitBlockedAt = nowIso;
-            delete fact.retryAt;
-          } else {
-            const index = Math.min(fact.rateLimitFailures - 1, LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1);
-            retryAtMs = nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
-          }
-        }
-      } else if (failure.errorClass === 'permanent') {
-        retryAtMs = nowMs + LLM_RECOVERY_COOLDOWN_MS;
-      } else if (failure.errorClass === 'transient' || failure.errorClass === 'unknown') {
-        if (next.budget.retryCount < LLM_RECOVERY_MAX_RETRIES) {
-          next.budget.retryCount += 1;
-          const delay = next.budget.retryDelayMs;
-          next.budget.retryDelayMs = Math.min(delay * 2, LLM_RECOVERY_RETRY_MAX_DELAY_MS);
-          retryAtMs = nowMs + delay;
-        } else {
-          retryAtMs = nowMs + LLM_RECOVERY_COOLDOWN_MS;
-        }
-      }
-      if (retryAtMs !== undefined) fact.retryAt = new Date(retryAtMs).toISOString();
     }
 
-    const first = failures[0];
-    const revision = this.commitNext(next, 'noteFailure');
-    const schedule = deriveLLMRecoverySchedule(next, revision, this.orchestrator.getProviderIdentities());
+    const first = realFailures[0];
+    const revision = this.commitNext(next, 'noteFailure', providers);
+    const schedule = deriveLLMRecoverySchedule(providers, revision, this.orchestrator.getProviderIdentities());
     this.emit({
       type: 'recovery_scheduled', orchestratorInstance: this.instanceId,
       ...(first?.invocationId !== undefined ? { invocationId: first.invocationId } : {}),
@@ -560,39 +534,11 @@ export class LLMRecoveryControllerImpl {
       scheduleKind: schedule.kind === 'at' ? 'at' : 'on_change',
       resumeAt: schedule.kind === 'at' ? schedule.resumeAt : '',
       errorClass: lastErrorClass,
-      providerCount: next.providers.length,
+      providerCount: providers.length,
       failureCount: next.failures.length,
     });
   }
 
-  private upsertProviderFact(
-    state: LLMInstanceRecoveryState,
-    failure: RecoveryFailureInput,
-    atIso: string,
-    countFailure: boolean,
-  ): LLMInstanceRecoveryProviderFact {
-    const existing = state.providers.find(p => p.providerId === failure.providerId);
-    if (existing) {
-      existing.errorClass = failure.errorClass;
-      existing.at = atIso;
-      if (countFailure) existing.consecutiveFailures += 1;
-      existing.detail = failure.message;
-      existing.blocking = true;
-      if (failure.providerLabel !== undefined) existing.providerLabel = failure.providerLabel;
-      return existing;
-    }
-    const fact: LLMInstanceRecoveryProviderFact = {
-      providerId: failure.providerId,
-      errorClass: failure.errorClass,
-      at: atIso,
-      consecutiveFailures: countFailure ? 1 : 0,
-      detail: failure.message,
-      blocking: true,
-      ...(failure.providerLabel !== undefined ? { providerLabel: failure.providerLabel } : {}),
-    };
-    state.providers.push(fact);
-    return fact;
-  }
 
   private pushFailure(state: LLMInstanceRecoveryState, evidence: LLMRecoveryFailureEvidence): void {
     state.failures.push(evidence);
@@ -614,9 +560,13 @@ export class LLMRecoveryControllerImpl {
     }
   }
 
-  private commitNext(next: LLMInstanceRecoveryState, context: string, clearSharedProviderId?: string): number {
+  private commitNext(
+    next: LLMInstanceRecoveryState,
+    context: string,
+    providers?: readonly LLMProviderRecoveryState[],
+  ): number {
     try {
-      return this.commit(next, context, clearSharedProviderId);
+      return this.commit(next, context, providers);
     } catch (error) {
       this.emit({
         type: 'recovery_state_write_failed', orchestratorInstance: this.instanceId,
@@ -691,17 +641,33 @@ function mergeIds(existing: readonly string[], additions: readonly string[]): st
   return dedupeStrings([...existing, ...additions]);
 }
 
-function recoveryDelayForFact(fact: LLMInstanceRecoveryProviderFact, budget: LLMRecoveryBudget): number | undefined {
-  if (fact.errorClass === 'permanent') return LLM_RECOVERY_COOLDOWN_MS;
-  if (fact.errorClass === 'rate_limit') {
-    const index = fact.rateLimitBlocked === true
-      ? LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1
-      : Math.max(0, Math.min((fact.rateLimitFailures ?? 0) - 1, LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1));
-    return LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index];
+function retryAtForFailure(
+  _previous: LLMProviderRecoveryState,
+  failure: RecoveryFailureInput,
+  nowMs: number,
+  consecutiveFailures: number,
+): number {
+  const retryAfterAtMs = failure.retryAfterSec !== undefined
+    ? nowMs + failure.retryAfterSec * 1000
+    : 0;
+  if (failure.errorClass === 'quota') {
+    const delayMs = Math.min(
+      LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS * 2 ** Math.max(0, consecutiveFailures - 1),
+      LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
+    );
+    return Math.max(nowMs + delayMs, retryAfterAtMs, failure.resetAtMs ?? 0);
   }
-  if (fact.errorClass === 'quota') return budget.quotaDelayMs;
-  if (fact.errorClass === 'transient' || fact.errorClass === 'unknown') return budget.retryDelayMs;
-  return undefined;
+  if (failure.errorClass === 'rate_limit') {
+    if (retryAfterAtMs > 0) return retryAfterAtMs;
+    const index = Math.min(Math.max(0, consecutiveFailures - 1), LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS.length - 1);
+    return nowMs + LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[index]!;
+  }
+  if (failure.errorClass === 'permanent') return nowMs + LLM_RECOVERY_COOLDOWN_MS;
+  const delayMs = Math.min(
+    LLM_RECOVERY_RETRY_INITIAL_DELAY_MS * 2 ** Math.max(0, consecutiveFailures - 1),
+    LLM_RECOVERY_RETRY_MAX_DELAY_MS,
+  );
+  return nowMs + delayMs;
 }
 
 function clearIdentityMigrationPending(fact: LLMInstanceRecoveryProviderFact): LLMInstanceRecoveryProviderFact {

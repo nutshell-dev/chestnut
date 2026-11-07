@@ -47,8 +47,11 @@ const OK_RESPONSE: LLMResponse = {
   stop_reason: 'end_turn',
 };
 
-/** breaker resetTimeoutMs：测试内统一 5s（owner 时间下界基准之一）。 */
+/** breaker 配置仍保留用于覆盖旧配置/旧故障竞态；统一恢复下界由 provider 状态决定。 */
 const RESET_MS = 5_000;
+/** transient/unknown 每 provider 的前两次退避。 */
+const TRANSIENT_RETRY_MS = 30_000;
+const TRANSIENT_SECOND_RETRY_MS = 60_000;
 /** rate_limit 用例的 typed Retry-After（秒）。 */
 const RETRY_AFTER_SEC = 60;
 
@@ -173,7 +176,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     owner.scheduleProbe((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt);
 
     p.setBehavior('ok');  // 仅 primary 恢复
-    await vi.advanceTimersByTimeAsync(RESET_MS - 1);
+    await vi.advanceTimersByTimeAsync(TRANSIENT_RETRY_MS - 1);
     expect(listener).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     await flush();
@@ -200,7 +203,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     owner.scheduleProbe((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt);
 
     f.setBehavior('ok');  // 仅 fallback 恢复
-    await vi.advanceTimersByTimeAsync(RESET_MS);
+    await vi.advanceTimersByTimeAsync(TRANSIENT_RETRY_MS);
     // fake-timer 怪癖：tick 内微任务新建的 0ms 重排定时器需再推进 ≥1ms 才触发
     // （真实环境 setTimeout(0) 正常；此处 primary 探针失败 → 立即重排验证已到点的 fallback）
     await vi.advanceTimersByTimeAsync(1);
@@ -227,15 +230,15 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     owner.subscribeReady(listener);
     owner.scheduleProbe((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt);
 
-    await vi.advanceTimersByTimeAsync(RESET_MS);   // 第一轮：primary 探针失败
-    await vi.advanceTimersByTimeAsync(1);            // 0ms 重排定时器（fake-timer 怪癖需 ≥1ms）→ fallback 探针失败
+    await vi.advanceTimersByTimeAsync(TRANSIENT_RETRY_MS); // 第一轮：primary 探针失败
+    await vi.advanceTimersByTimeAsync(1);                  // 0ms 重排定时器（fake-timer 怪癖需 ≥1ms）→ fallback 探针失败
     await flush();
     expect(p.calls()).toBe(2);
     expect(f.calls()).toBe(2);
     const d1 = owner.getSharedRecoveryDecision();
     expect(d1.kind).toBe('at');                    // 全失败仍有下一安排
 
-    await vi.advanceTimersByTimeAsync(RESET_MS);   // 第二轮继续
+    await vi.advanceTimersByTimeAsync(TRANSIENT_SECOND_RETRY_MS); // 第二轮继续
     await vi.advanceTimersByTimeAsync(1);
     await flush();
     expect(p.calls()).toBe(3);
@@ -330,7 +333,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     await expect(owner.call(OPTIONS)).rejects.toThrow();
     const d0 = owner.getSharedRecoveryDecision();
     expect(d0.kind).toBe('at');
-    // typed Retry-After 下界（60s）晚于 breaker 下界（5s）：owner 取 max
+    // typed Retry-After 直接形成该 provider 的 60s 恢复下界。
     expect((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt).toBe(t0 + RETRY_AFTER_SEC * 1000);
 
     const listener = vi.fn();
@@ -385,8 +388,8 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     owner.subscribeReady(listener);
 
     p.setBehavior('hang');
-    owner.scheduleProbe(Date.now());   // 被 owner 下界钳制到 breaker 弹回时刻
-    await vi.advanceTimersByTimeAsync(RESET_MS);
+    owner.scheduleProbe(Date.now());   // 被 owner 下界钳制到每 provider transient 退避时刻
+    await vi.advanceTimersByTimeAsync(TRANSIENT_RETRY_MS);
     expect(p.calls()).toBe(2);  // 探针在途（挂起）
 
     // 配置代次推进（换 key）→ 旧代次探针结果失效
@@ -416,8 +419,8 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     owner.subscribeReady(listener);
 
     p.setBehavior('hang');
-    owner.scheduleProbe(Date.now());   // 被 owner 下界钳制到 breaker 弹回时刻
-    await vi.advanceTimersByTimeAsync(RESET_MS);
+    owner.scheduleProbe(Date.now());   // 被 owner 下界钳制到每 provider transient 退避时刻
+    await vi.advanceTimersByTimeAsync(TRANSIENT_RETRY_MS);
     expect(p.calls()).toBe(2);  // 探针在途
 
     await owner.close();       // close 取消在途（abort signal 到达挂起的 adapter）
@@ -576,8 +579,8 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     expect(d0.kind).toBe('at');
 
     owner.scheduleProbe((d0 as { kind: 'at'; nextProbeAt: number }).nextProbeAt);
-    await vi.advanceTimersByTimeAsync(RESET_MS);   // 第一轮：fallback 探针失败
-    await vi.advanceTimersByTimeAsync(1);           // 0ms 重排定时器（fake-timer 怪癖需 ≥1ms）
+    await vi.advanceTimersByTimeAsync(TRANSIENT_RETRY_MS); // 第一轮：fallback 探针失败
+    await vi.advanceTimersByTimeAsync(1);                  // 0ms 重排定时器（fake-timer 怪癖需 ≥1ms）
     await flush();
     expect(f.calls()).toBe(2);  // 业务 1 + 探针 1
     expect(p.calls()).toBe(1);  // permanent 下界未到，探针先触及 fallback
@@ -585,7 +588,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
     // 第二轮到点：fallback 仍故障 → 再次探 fallback。
     // 若探针失败按显示名记账，会覆盖 primary 的 permanent 记录为 transient，
     // 下一轮探针目标将错选 primary（p.calls 增长）——本断言即对此设防。
-    await vi.advanceTimersByTimeAsync(RESET_MS);
+    await vi.advanceTimersByTimeAsync(TRANSIENT_SECOND_RETRY_MS);
     await vi.advanceTimersByTimeAsync(1);
     await flush();
     expect(f.calls()).toBe(3);  // 业务 1 + 探针 2

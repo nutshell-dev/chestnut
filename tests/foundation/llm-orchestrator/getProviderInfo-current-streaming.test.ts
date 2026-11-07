@@ -10,7 +10,6 @@
 
 import { describe, it, expect } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -37,7 +36,6 @@ function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[
   });
   (orchestrator as any).primary = primary;
   (orchestrator as any).fallbacks = fallbacks;
-  (orchestrator as any).breakers = [primary, ...fallbacks].map(() => new CircuitBreaker(5, 1000, () => {}));
   return orchestrator;
 }
 
@@ -86,9 +84,19 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     for await (const _ of gen) { /* drain */ }
 
     // 流式结束后 currentStreamingProvider 已 finally 清回 null
-    // getProviderInfo 回落到 lastSuccessProvider（updateLastSuccess 已设）
+    // getProviderInfo 回落到由最新 providerStates 成功事实派生的 lastSuccessProvider。
     const info = orchestrator.getProviderInfo();
     expect(info).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
+    const successState = (orchestrator as any).providerStates.find(
+      (state: any) => state.providerId === orchestrator.getProviderIdentities()[0],
+    );
+    expect(successState).toMatchObject({
+      status: 'available',
+      consecutiveFailures: 0,
+      lastSuccessAt: expect.any(Number),
+      cacheValidUntil: expect.any(Number),
+    });
+    expect(successState.cacheValidUntil - successState.lastSuccessAt).toBe(300_000);
   });
 
   it('failover 接管时 getProviderInfo 返 fallback info + isFallback=true（修复目标）', async () => {
@@ -184,8 +192,14 @@ describe('Phase 2027 last-success provider identity', () => {
     const orchestrator = buildOrchestrator(primary, [first, second]);
 
     await orchestrator.call({});
-    expect((orchestrator as any).lastSuccessProvider.providerId)
-      .toBe((orchestrator as any).providerIds[2]);
+    const secondProviderId = orchestrator.getProviderIdentities()[2];
+    expect((orchestrator as any).lastSuccessProvider.providerId).toBe(secondProviderId);
+    expect((orchestrator as any).providerStates).toContainEqual(expect.objectContaining({
+      providerId: secondProviderId,
+      status: 'available',
+      lastSuccessAt: expect.any(Number),
+      cacheValidUntil: expect.any(Number),
+    }));
     expect(orchestrator.getProviderInfo()).toEqual({
       name: 'same-name',
       model: 'model-b',

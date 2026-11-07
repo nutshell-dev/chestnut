@@ -1,11 +1,10 @@
 /**
  * LLMOrchestrator hedge mode tests
- * Phase 737 Step F — 2-track hedge on breaker open
+ * Phase 737 Step F — 2-track hedge on primary transient waiting state
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import {
   LLMAllProvidersFailedError,
 } from '../../../src/foundation/llm-orchestrator/errors.js';
@@ -81,16 +80,20 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0,
     events: noopSink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });
   return service;
 }
 
-function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-  const breaker = (service as any).breakers[index] as CircuitBreaker;
-  // Force open by calling onFailure enough times (threshold = 1)
-  breaker['onFailure'](cause);
+function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+  const now = Date.now();
+  (service as any).providerStates = [{
+    providerId: (service as any).providerIds[index],
+    status: 'waiting',
+    retryAt: now + 60_000,
+    lastError: { class: cause, at: now, message: 'forced provider failure' },
+    consecutiveFailures: 1,
+  }];
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -111,7 +114,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     vi.clearAllMocks();
   });
 
-  it('hedge_primary_recovered: primary first chunk wins, breaker auto-close', async () => {
+  it('hedge_primary_recovered: primary first chunk wins, provider state recovers', async () => {
     const primary = createMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'hello' },
@@ -126,7 +129,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       callDelayMs: 500,
     });
     const service = createOrchestrator(primary, [fallback]);
-    forceBreakerOpen(service, 0, 'transient');
+    forceProviderWaiting(service, 0, 'transient');
     const events = attachEventSpy(service);
 
     const chunks: LLMStreamChunk[] = [];
@@ -141,7 +144,11 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       { type: 'done', stopReason: 'end_turn' },
     ]);
     expect(service.getProviderInfo()?.name).toBe('primary');
-    expect((service as any).breakers[0].getOpenCause()).toBeNull();
+    expect((service as any).providerStates[0]).toMatchObject({
+      status: 'available',
+      retryAt: undefined,
+      consecutiveFailures: 0,
+    });
   });
 
   it('hedge_fallback_committed: primary slow/fail, fallback wins, wrap as stream', async () => {
@@ -158,7 +165,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       callDelayMs: 50,
     });
     const service = createOrchestrator(primary, [fallback]);
-    forceBreakerOpen(service, 0, 'transient');
+    forceProviderWaiting(service, 0, 'transient');
     const events = attachEventSpy(service);
 
     const chunks: LLMStreamChunk[] = [];
@@ -184,14 +191,14 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       callError: new LLMNetworkError('fb2', new Error('ECONNREFUSED')),
     });
     const service = createOrchestrator(primary, [fb1, fb2]);
-    forceBreakerOpen(service, 0, 'transient');
+    forceProviderWaiting(service, 0, 'transient');
 
     await expect(async () => {
       for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
     }).rejects.toThrow(LLMAllProvidersFailedError);
   });
 
-  it('hedge gate: breaker open with permanent cause → no hedge / sequential failover', async () => {
+  it('hedge gate: primary waiting with permanent cause → no hedge / sequential failover', async () => {
     const primary = createMockProvider('primary', {
       streamError: new LLMAuthError('primary', 401),
     });
@@ -202,7 +209,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       ],
     });
     const service = createOrchestrator(primary, [fallback]);
-    forceBreakerOpen(service, 0, 'permanent');
+    forceProviderWaiting(service, 0, 'permanent');
     const events = attachEventSpy(service);
 
     const chunks: LLMStreamChunk[] = [];
@@ -214,7 +221,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     expect(chunks.some(c => c.type === 'text_delta' && c.delta === 'fb')).toBe(true);
   });
 
-  it('hedge gate: breaker open with rate_limit cause → no hedge', async () => {
+  it('hedge gate: primary waiting with rate_limit cause → no hedge', async () => {
     const primary = createMockProvider('primary', {
       streamError: new LLMRateLimitError('primary'),
     });
@@ -225,7 +232,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       ],
     });
     const service = createOrchestrator(primary, [fallback]);
-    forceBreakerOpen(service, 0, 'rate_limit');
+    forceProviderWaiting(service, 0, 'rate_limit');
     const events = attachEventSpy(service);
 
     const chunks: LLMStreamChunk[] = [];
@@ -248,7 +255,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       },
     });
     const service = createOrchestrator(primary, [fb1]);
-    // breaker closed → sequential failover path
+    // primary available → sequential failover path
     const events = attachEventSpy(service);
 
     await (async () => {

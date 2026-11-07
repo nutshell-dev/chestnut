@@ -261,7 +261,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     ]);
   });
 
-  it('fallback1 被熔断跳过 + fallback2 成功：跳过原因持久化', async () => {
+  it('fallback1 被恢复下界跳过 + fallback2 成功：跳过原因持久化', async () => {
     const dir = await makeDir();
     const h = makeHarness(dir, {
       providers: {
@@ -273,9 +273,24 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       fallbackNames: ['fb1', 'fb2'],
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
     });
-    // fb1 熔断（index 1 = 第一个 fallback）
-    (h.service as unknown as { breakers: { onFailure(c: string): void }[] })
-      .breakers[1].onFailure('transient');
+    // fb1 waiting（index 1 = 第一个 fallback）
+    const internal = h.service as unknown as {
+      providerIds: string[];
+      providerStates: Array<{
+        providerId: string;
+        status: 'waiting';
+        retryAt: number;
+        consecutiveFailures: number;
+        lastError: { class: 'transient'; at: number; message: string };
+      }>;
+    };
+    internal.providerStates = [{
+      providerId: internal.providerIds[1],
+      status: 'waiting',
+      retryAt: Date.now() + 60_000,
+      consecutiveFailures: 1,
+      lastError: { class: 'transient', at: Date.now(), message: 'offline' },
+    }];
 
     await h.service.call(CALL);
 
@@ -283,7 +298,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     const inv = lastInvocationId(rows);
     expect(attemptRows(rows, inv)).toEqual([
       expect.objectContaining({ attempt_index: '0', provider: 'kimi-year', outcome: 'failure', error_class: 'permanent' }),
-      expect.objectContaining({ attempt_index: '1', provider: 'fb1', outcome: 'skipped', reason: 'circuit_breaker_open' }),
+      expect.objectContaining({ attempt_index: '1', provider: 'fb1', outcome: 'skipped', reason: 'provider_recovery_floor' }),
       expect.objectContaining({ attempt_index: '2', provider: 'fb2', outcome: 'success' }),
     ]);
     expect(selectionRows(rows, inv)).toEqual([
@@ -492,8 +507,8 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     expect(ev.attemptId).toBe(started.attemptId);
     expect(ev.attemptIndex).toBe(0);
     expect(ev.configRevision).toBe(0);
-    // provider fact 同步携带 label（身份↔名称关系可见）
-    expect(state.recovery.providers[0].providerLabel).toBe('kimi-year');
+    // 唯一 provider state 同步携带 label（身份↔名称关系可见）
+    expect(state.providers[0].lastError.providerLabel).toBe('kimi-year');
     // invocationId 与审计事件的 invocation 关联键同源
     expect(ev.invocationId).toBe(started.invocationId);
     const correlated = emitted.filter(e =>

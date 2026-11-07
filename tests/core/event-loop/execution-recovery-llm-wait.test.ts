@@ -390,6 +390,30 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
     expect(scheduleCheckAudits(r.auditEntries)).toHaveLength(0);
   });
 
+  it('Phase 2058 D：provider 失败 nack/audit 后直接等待 owner schedule，不再开启 waiting-only turn', async () => {
+    const f = await makeFixture('quota');
+    // 新用户事实授予提前准入；本次真实 provider 仍失败，由 EventLoop 直接消费新安排。
+    await writeInboxAsync(f.fs, f.pendingDir, {
+      id: 'user-provider-failure-1',
+      type: 'user_inbox_message',
+      from: 'user',
+      to: CLAW_ID,
+      priority: 'normal',
+      timestamp: new Date(sharedNow).toISOString(),
+      content: 'retry now',
+    }, { write: () => {} });
+
+    const r = await runLoop(f);
+
+    expect(r.processed).toBe(1);
+    expect(f.providerCalls()).toBe(2);
+    expect(messagesByType(f.pendingDir, 'user_inbox_message')).toEqual(['user-provider-failure-1']);
+    expect(r.auditEntries.some(e =>
+      e.some(col => String(col) === 'type=llm_failure_deferred')
+    )).toBe(true);
+    expect(r.auditEntries.some(e => e.some(col => String(col) === 'type=recovery_wait'))).toBe(true);
+  });
+
   it('已有 pending 义务 + 未来 at：inspect 0 调用，原身份义务继续投递并确认，不实际发请求', async () => {
     const f = await makeFixture('quota');
     // 通过真实 store.save 预置本模块 record（不是手写 owner 状态）：
@@ -431,9 +455,9 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
     expect(messagesByType(f.pendingDir, 'execution_recovery'))
       .toEqual(['execution_recovery-preserved']);
     expect(f.providerCalls()).toBe(1);
-    // invocation 准入已移到 processTurn 内：可进入 turn，但 provider 请求仍为 0。
+    // 既有 waiting 下的 admission 仍保留 typed waiting fallback：可进入 turn，但 provider 请求为 0。
     expect(r.processed).toBe(1);
-    // 正常准入等待流程未被打断：到达 recovery_wait 后由测试 abort 收束
+    // fallback 到达 recovery_wait 后由测试 abort 收束。
     expect(r.auditEntries.some(e => e.some(col => String(col) === 'type=recovery_wait'))).toBe(true);
   });
 });

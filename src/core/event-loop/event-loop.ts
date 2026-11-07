@@ -340,6 +340,12 @@ export class EventLoop {
     return this.stopped ? 'stopped' : 'recheck';
   }
 
+  /** Phase 2058 Step D: provider 失败后直接消费 owner 安排；typed waiting 仅作准入竞态 fallback。 */
+  private async _waitForScheduledLlmRecovery(): Promise<void> {
+    const schedule = await this.executionRecoveryDeps?.inspectLlmRecoverySchedule?.();
+    if (schedule) await this._waitOnSchedule(schedule);
+  }
+
   /** Phase 1826: 是否有可工作的 pending 事实（普通/控制消息任一）。 */
   private async _hasPendingWork(): Promise<boolean> {
     try {
@@ -420,6 +426,7 @@ export class EventLoop {
         // recovery-state 磁盘 activeAdmission.requestKey（turn 外无 trace_id 可用）。
         `fingerprint=${failedRequestFingerprint}`,
       );
+      await this._waitForScheduledLlmRecovery();
       return;
     }
     await this._dispatchError(result.error);
@@ -844,6 +851,7 @@ export class EventLoop {
           `owner=llm-orchestrator`,
           `fingerprint=${args.turnFingerprint}`,
         );
+        await this._waitForScheduledLlmRecovery();
       } else {
         await this._dispatchError(error);
       }

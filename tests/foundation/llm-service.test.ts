@@ -7,7 +7,7 @@ import type { LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrat
 import type { ProviderAdapter, ProviderStreamChunk } from '../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
-import { LLMError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
+import { LLMError, LLMNetworkError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 
 /**
  * AbortController 触发延迟 (50ms): 等 retry/stream 进入 backoff sleep 后再 abort.
@@ -554,11 +554,9 @@ describe('LLMOrchestratorImpl - stream failover', () => {
   });
 });
 
-/** 测试隔离候选选择/恢复健康，只保留 breaker 本体状态；不依赖已退役的 Runtime reset 能力。 */
+/** 测试隔离候选选择/恢复 fixture；lastSuccessProvider 由 providerStates 派生，不能直接赋值。 */
 function isolatePrimaryAttempt(service: LLMOrchestratorImpl): void {
-  (service as any).lastSuccessProvider = null;
-  (service as any).sharedFailures.clear();
-  (service as any).recoveryState.providers = [];
+  (service as any).providerStates = [];
 }
 
 function pauseAutonomousProbe(service: LLMOrchestratorImpl): void {
@@ -568,8 +566,8 @@ function pauseAutonomousProbe(service: LLMOrchestratorImpl): void {
   internal.scheduleTimer = undefined;
 }
 
-// Phase 20: Circuit Breaker
-describe('LLMOrchestratorImpl - circuit breaker', () => {
+// Phase 2058: unified provider recovery
+describe('LLMOrchestratorImpl - provider recovery', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -577,184 +575,175 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     vi.useRealTimers();
   });
 
-  it('should skip primary after threshold failures (circuit opens)', async () => {
-    // threshold=2: primary fails twice → breaker opens → 3rd call skips primary entirely
+  it('should skip primary until the initial transient retryAt', async () => {
     let primaryCallCount = 0;
     const failingPrimary: ProviderAdapter = {
       name: 'primary',
       model: 'x',
-      async call() { primaryCallCount++; throw new Error('primary down'); },
+      async call() {
+        primaryCallCount++;
+        throw new LLMNetworkError('primary', new Error('primary down'));
+      },
       async *stream() { throw new Error('primary down'); },
     };
 
-    const goodFallback = createMockProvider('fallback');
-
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 60000 },
       events: noopSink,
     
   createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = failingPrimary;
-    (service as any).fallbacks = [goodFallback];
+    (service as any).fallbacks = [createMockProvider('fallback')];
 
-    // Calls 1 and 2: primary fails, fallback saves — breaker accumulates 2 failures
     await service.call({ messages: [] });
-    isolatePrimaryAttempt(service);
-    await service.call({ messages: [] });
-    expect(primaryCallCount).toBe(2);
+    pauseAutonomousProbe(service);
 
-    // Call 3: breaker is now open → primary is skipped entirely
+    const primaryState = (service as any).providerStates.find(
+      (state: any) => state.providerId === service.getProviderIdentities()[0],
+    );
+    expect(primaryState).toMatchObject({
+      status: 'waiting',
+      lastError: { class: 'transient' },
+      consecutiveFailures: 1,
+    });
+    expect(primaryState.retryAt).toBe(primaryState.lastError.at + 30_000);
+
+    await vi.advanceTimersByTimeAsync(29_999);
     await service.call({ messages: [] });
-    expect(primaryCallCount).toBe(2); // primary NOT called on 3rd attempt
+    expect(primaryCallCount).toBe(1);
+    expect(primaryState.status).toBe('waiting');
   });
 
-  it('should allow probe in half-open state after resetTimeoutMs', async () => {
-    let primaryFailCount = 0;
+  it('should allow a real business probe at retryAt and mark primary available on success', async () => {
+    let primaryAttempts = 0;
     let primaryShouldFail = true;
     const probePrimary: ProviderAdapter = {
       name: 'primary',
       model: 'x',
       async call() {
-        if (primaryShouldFail) {
-          primaryFailCount++;
-          throw new Error('down');
-        }
+        primaryAttempts++;
+        if (primaryShouldFail) throw new LLMNetworkError('primary', new Error('down'));
         return { content: [{ type: 'text' as const, text: 'ok' }], stop_reason: 'end_turn' as const };
       },
       async *stream() { yield { type: 'done' as const }; },
     };
 
-    const goodFallback = createMockProvider('fb');
-
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
+      fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
       events: noopSink,
     
   createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = probePrimary;
-    (service as any).fallbacks = [goodFallback];
 
-    // Open the breaker
-    await service.call({ messages: [] }); // failure 1
-    isolatePrimaryAttempt(service);
-    await service.call({ messages: [] }); // failure 2 → breaker opens
-    expect(primaryFailCount).toBe(2);
-
-    // 本用例验证业务调用驱动 half-open；独立持续 probe 已在 probe-scheduler 覆盖。
+    await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(primaryAttempts).toBe(1);
     pauseAutonomousProbe(service);
-    await vi.advanceTimersByTimeAsync(60);
+
     primaryShouldFail = false;
-    isolatePrimaryAttempt(service);
-
-    // Half-open probe: primary should be attempted and succeed → breaker closes
+    await vi.advanceTimersByTimeAsync(30_000);
     await service.call({ messages: [] });
-    expect(primaryFailCount).toBe(2); // no new failures (shouldFail=false)
 
-    // Provider should have returned to primary
-    const info = service.getProviderInfo()!;
-    expect(info.isFallback).toBe(false);
+    expect(primaryAttempts).toBe(2);
+    expect(service.getProviderInfo()!.isFallback).toBe(false);
+    expect((service as any).providerStates[0]).toMatchObject({
+      providerId: service.getProviderIdentities()[0],
+      status: 'available',
+      retryAt: undefined,
+      consecutiveFailures: 0,
+    });
   }, 2000);
 
-  it('should emit breaker_half_open event when transitioning open → half-open', async () => {
-    const events: any[] = [];
-    const eventSink = { emit: (e: any) => events.push(e) };
-
-    let callCount = 0;
+  it('should gate real attempts by retryAt and keep waiting after another failure', async () => {
+    let primaryAttempts = 0;
     const failingPrimary: ProviderAdapter = {
       name: 'primary',
       model: 'x',
-      async call() { callCount++; throw new Error('down'); },
+      async call() {
+        primaryAttempts++;
+        throw new LLMNetworkError('primary', new Error('down'));
+      },
       async *stream() { throw new Error('down'); },
     };
-    const goodFallback = createMockProvider('fb');
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
+      fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
-      events: eventSink,
+      events: noopSink,
     
   createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = failingPrimary;
-    (service as any).fallbacks = [goodFallback];
 
-    // Open the breaker
-    await service.call({ messages: [] });
-    isolatePrimaryAttempt(service);
-    await service.call({ messages: [] });
-
-    // Wait past resetTimeoutMs without the independent scheduler taking over
+    await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
-    await vi.advanceTimersByTimeAsync(60);
-    isolatePrimaryAttempt(service);
 
-    // Next call triggers isOpen() → half-open transition
-    await service.call({ messages: [] });
+    await vi.advanceTimersByTimeAsync(29_999);
+    await expect(service.call({ messages: [] })).rejects.toThrow();
+    expect(primaryAttempts).toBe(1);
+    expect((service as any).providerStates[0]).toMatchObject({
+      status: 'waiting',
+      consecutiveFailures: 1,
+    });
 
-    const halfOpenEvents = events.filter(e => e.type === 'breaker_half_open');
-    expect(halfOpenEvents.length).toBe(1);
-    expect(halfOpenEvents[0].provider).toBe('p');
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(primaryAttempts).toBe(2);
+    expect((service as any).providerStates[0]).toMatchObject({
+      status: 'waiting',
+      lastError: { class: 'transient' },
+      consecutiveFailures: 2,
+    });
   }, 2000);
 
-  it('should emit breaker_closed event when probe succeeds in half-open state', async () => {
-    const events: any[] = [];
-    const eventSink = { emit: (e: any) => events.push(e) };
-
+  it('should mark primary available after a real probe succeeds at retryAt', async () => {
+    let primaryAttempts = 0;
     let primaryShouldFail = true;
     const probePrimary: ProviderAdapter = {
       name: 'primary',
       model: 'x',
       async call() {
-        if (primaryShouldFail) throw new Error('down');
+        primaryAttempts++;
+        if (primaryShouldFail) throw new LLMNetworkError('primary', new Error('down'));
         return { content: [{ type: 'text' as const, text: 'ok' }], stop_reason: 'end_turn' as const };
       },
       async *stream() { yield { type: 'done' as const }; },
     };
-    const goodFallback = createMockProvider('fb');
 
     const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
+      fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
-      events: eventSink,
+      events: noopSink,
     
   createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
     (service as any).primary = probePrimary;
-    (service as any).fallbacks = [goodFallback];
 
-    // Open the breaker
-    await service.call({ messages: [] });
-    isolatePrimaryAttempt(service);
-    await service.call({ messages: [] });
-
-    // Wait past resetTimeoutMs → half-open on the business path
+    await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
-    await vi.advanceTimersByTimeAsync(60);
+
     primaryShouldFail = false;
-    isolatePrimaryAttempt(service);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(service.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
 
-    // Probe succeeds → half-open → closed
-    await service.call({ messages: [] });
-
-    const closedEvents = events.filter(e => e.type === 'breaker_closed');
-    expect(closedEvents.length).toBe(1);
-    expect(closedEvents[0].provider).toBe('p');
+    expect(primaryAttempts).toBe(2);
+    expect((service as any).providerStates[0]).toMatchObject({
+      providerId: service.getProviderIdentities()[0],
+      status: 'available',
+      retryAt: undefined,
+      consecutiveFailures: 0,
+    });
   }, 2000);
 
   it('should throw LLMAllProvidersFailedError when all providers fail', async () => {

@@ -70,7 +70,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const migrated = makeOwner();
     const saved = f.readState();
     expect(saved).toMatchObject({
-      schema_version: 2,
+      schema_version: 3,
       recovery: {
         budget: { retryCount: 3, retryDelayMs: 45_000 },
         importedSources: ['status/llm-retry-state.json#schema_version=2'],
@@ -115,10 +115,17 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
       primary: config('primary'), maxAttempts: 1, retryDelayMs: 1,
       events: { emit: () => {} }, createProviderAdapter: () => adapter('primary', async () => OK),
     });
-    expect(f.readState().recovery).toMatchObject({
+    const migrated = f.readState();
+    expect(migrated.recovery).toMatchObject({
       budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 },
       providers: [{ blocking: true, retryAt: resumeAt }],
     });
+    expect(migrated.providers).toEqual([
+      expect.objectContaining({
+        status: 'waiting', retryAt: Date.parse(resumeAt), consecutiveFailures: 2,
+        lastError: expect.objectContaining({ class: 'transient', message: 'offline' }),
+      }),
+    ]);
     expect(await owner.inspectRecoverySchedule()).toMatchObject({ kind: 'at', resumeAt });
     expect(fsNative.readFileSync(scopePath, 'utf8')).toBe(scopeRaw);
     expect(fsNative.readFileSync(retryPath, 'utf8')).toBe(retryRaw);
@@ -174,7 +181,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     await f.owner.close();
   });
 
-  it('clears only the real winner and emits instance/invocation events without scope or turn', async () => {
+  it('records unified provider health for only the real winner and emits instance/invocation events', async () => {
     let primaryFails = true;
     const primary = adapter('primary', async () => {
       if (primaryFails) throw new LLMNetworkError('primary', new Error('offline'));
@@ -184,24 +191,36 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const f = await fixture(primary, [fallback]);
     await f.owner.call({ messages: [{ role: 'user', content: 'fallback-wins' }] });
     const saved = f.readState();
-    const primaryId = saved.providers.find((item: { providerId: string; breaker: unknown }, index: number) => index === 0).providerId;
+    const primaryId = saved.providers[0].providerId;
     const fallbackId = saved.providers[1].providerId;
-    expect(saved.recovery.providers.map((item: { providerId: string }) => item.providerId)).toEqual([primaryId]);
-    expect(saved.recovery.budget.retryCount).toBe(1); // fallback 成功不得重置非 winner 的恢复曲线
-    expect(saved.providers[0].sharedFailure).toBeDefined();
-    expect(saved.providers[1].sharedFailure).toBeUndefined();
+    expect(saved.recovery.providers).toEqual([]); // 旧 recovery.providers 仅保留迁移审计，不再记录生产健康
+    expect(saved.recovery.budget.retryCount).toBe(0);
+    expect(saved.providers[0]).toMatchObject({
+      providerId: primaryId, status: 'waiting', consecutiveFailures: 1,
+      lastError: { class: 'transient', providerLabel: 'primary' },
+    });
+    expect(saved.providers[1]).toMatchObject({
+      providerId: fallbackId, status: 'available', consecutiveFailures: 0,
+      lastSuccessAt: expect.any(Number), cacheValidUntil: expect.any(Number),
+    });
     const selection = f.events.find(event => event.type === 'call_selection' && event.outcome === 'selected');
     expect(selection).toMatchObject({ providerId: fallbackId });
 
     primaryFails = false;
-    (f.owner as unknown as { lastSuccessProvider: { cacheValidUntil: number } }).lastSuccessProvider.cacheValidUntil = 0;
+    const cached = (f.owner as unknown as { providerStates: Array<{ lastSuccessAt?: number; cacheValidUntil?: number }> }).providerStates[1]!;
+    cached.cacheValidUntil = cached.lastSuccessAt;
     await f.owner.call({
       messages: [{ role: 'user', content: 'primary-wins' }],
       recoveryFacts: { interventionIds: ['manual-retry'] },
     });
     const after = f.readState();
     expect(after.recovery.providers).toEqual([]);
-    expect(after.providers[0].sharedFailure).toBeUndefined();
+    expect(after.providers[0]).toMatchObject({
+      providerId: primaryId, status: 'available', consecutiveFailures: 0,
+      lastSuccessAt: expect.any(Number), cacheValidUntil: expect.any(Number),
+    });
+    expect(after.providers[0].retryAt).toBeUndefined();
+    expect(after.providers[1].status).toBe('available');
     const recoveryEvents = f.events.filter(event => event.type.startsWith('recovery_'));
     expect(recoveryEvents.length).toBeGreaterThan(0);
     for (const event of recoveryEvents) {

@@ -75,14 +75,18 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     expect(f.events.filter(event => event.type === 'retry_scheduled')).toHaveLength(0);
 
     const state = f.readState();
-    expect(state.providers[0].sharedFailure.floorMs).toBe(startedAt + 2_000);
-    expect(state.providers[1].sharedFailure.floorMs).toBe(startedAt + 900_000);
-    expect(state.recovery.providers).toEqual([
-      expect.objectContaining({ providerId: state.providers[0].providerId, retryAt: new Date(startedAt + 2_000).toISOString() }),
-      expect.objectContaining({ providerId: state.providers[1].providerId, retryAt: new Date(startedAt + 900_000).toISOString() }),
-    ]);
+    expect(state.providers[0].retryAt).toBe(startedAt + 2_000);
+    expect(state.providers[1].retryAt).toBe(startedAt + 900_000);
+    expect(state.providers[0].lastError).toMatchObject({ class: 'rate_limit', at: startedAt, retryAfterSec: 2 });
+    expect(state.providers[1].lastError).toMatchObject({ class: 'rate_limit', at: startedAt, retryAfterSec: 900 });
+    expect(state.recovery.providers).toEqual([]);
     expect(state.recovery.failures).toHaveLength(2);
-    expect(state.lastSuccess.providerId).toBe(state.providers[2].providerId);
+    expect(state.providers[2]).toMatchObject({
+      status: 'available',
+      lastSuccessAt: expect.any(Number),
+      cacheValidUntil: expect.any(Number),
+    });
+    expect(state).not.toHaveProperty('lastSuccess');
     await f.owner.close();
   });
 
@@ -99,12 +103,12 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     expect(fallback.stream).toHaveBeenCalledTimes(1);
     expect(f.events.filter(event => event.type === 'retry_scheduled')).toHaveLength(0);
     const state = f.readState();
-    expect(state.providers[0].sharedFailure.floorMs).toBe(startedAt + 7_000);
+    expect(state.providers[0].retryAt).toBe(startedAt + 7_000);
     expect(state.recovery.failures).toHaveLength(1);
     await f.owner.close();
   });
 
-  it('all-failed aggregation does not duplicate shared epoch, evidence or recovery budget', async () => {
+  it('all-failed aggregation does not duplicate provider failures, evidence or recovery budget', async () => {
     const primary = adapter('primary', async () => { throw new LLMRateLimitError('primary', 3); });
     const fallback = adapter('fallback', async () => { throw new LLMRateLimitError('fallback', 4); });
     const f = await fixture([primary, fallback]);
@@ -112,10 +116,11 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
 
     const state = f.readState();
     expect(state.recovery.failures).toHaveLength(2);
-    expect(state.recovery.providers.map((fact: { consecutiveFailures: number }) => fact.consecutiveFailures)).toEqual([1, 1]);
+    expect(state.providers.map((provider: { consecutiveFailures: number }) => provider.consecutiveFailures)).toEqual([1, 1]);
+    expect(state.recovery.providers).toEqual([]);
     expect(state.recovery.budget).toMatchObject({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
-    const internal = f.owner as unknown as { sharedFailures: Map<string, { epoch: number }> };
-    expect([...internal.sharedFailures.values()].map(record => record.epoch)).toEqual([1, 1]);
+    const internal = f.owner as unknown as { providerStates: Array<{ consecutiveFailures: number }> };
+    expect(internal.providerStates.map(provider => provider.consecutiveFailures)).toEqual([1, 1]);
     await f.owner.close();
   });
 
@@ -133,9 +138,9 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     expect(f.events.filter(event =>
       event.type === 'call_attempt_result' && event.outcome === 'failure'
     )).toHaveLength(2);
-    const internal = f.owner as unknown as { sharedFailures: Map<string, { epoch: number }> };
-    expect(internal.sharedFailures).toHaveProperty('size', 2);
-    expect([...internal.sharedFailures.values()].map(record => record.epoch)).toEqual([1, 1]);
+    const internal = f.owner as unknown as { providerStates: Array<{ consecutiveFailures: number }> };
+    expect(internal.providerStates).toHaveLength(2);
+    expect(internal.providerStates.map(provider => provider.consecutiveFailures)).toEqual([1, 1]);
     await f.owner.close();
   });
 
@@ -151,7 +156,7 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     await vi.advanceTimersByTimeAsync(1_999);
     await expect(restarted.call(CALL)).rejects.toBeInstanceOf(LLMRecoveryWaitRequiredError);
     expect(healthy.call).not.toHaveBeenCalled();
-    expect(f.readState().providers[0].sharedFailure.floorMs).toBe(startedAt + 2_000);
+    expect(f.readState().providers[0].retryAt).toBe(startedAt + 2_000);
 
     await vi.advanceTimersByTimeAsync(1);
     await expect(restarted.call(CALL)).resolves.toBe(OK);

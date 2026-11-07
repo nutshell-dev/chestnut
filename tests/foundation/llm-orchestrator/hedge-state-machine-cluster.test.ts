@@ -1,11 +1,10 @@
 /**
  * Hedge state machine cluster (phase 991)
- * 4 sub-fix reverse tests: B.2 drain abort guard + B.3 double-fail onFailure + B.4 skippedCount + B.6 reset event
+ * 4 sub-fix reverse tests: B.2 drain abort guard + B.3 double-fail providerStates + B.4 skippedCount + B.6 reset event
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import {
   LLMAllProvidersFailedError,
 } from '../../../src/foundation/llm-orchestrator/errors.js';
@@ -87,15 +86,20 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0,
     events: noopSink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });
   return service;
 }
 
-function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-  const breaker = (service as any).breakers[index] as CircuitBreaker;
-  breaker['onFailure'](cause);
+function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+  const now = Date.now();
+  (service as any).providerStates = [{
+    providerId: (service as any).providerIds[index],
+    status: 'waiting',
+    retryAt: now + 60_000,
+    lastError: { class: cause, at: now, message: 'forced provider failure' },
+    consecutiveFailures: 1,
+  }];
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -123,10 +127,9 @@ describe('hedge state machine cluster (phase 991)', () => {
       const primary = createMockProvider('primary', { streamError: providerError });
       const fallback = createMockProvider('fb1', { callDelayMs: 50 });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const emitted = attachEventSpy(service);
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
 
       let caught: unknown;
       try {
@@ -135,7 +138,7 @@ describe('hedge state machine cluster (phase 991)', () => {
         caught = error;
       }
       expect(caught).toBe(providerError);
-      expect(onFailureSpy).not.toHaveBeenCalled();
+      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
       expect(emitted.some(e => e.type === 'hedge_fallback_committed')).toBe(false);
       expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'selected')).toBe(false);
       expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'exhausted')).toBe(false);
@@ -151,7 +154,7 @@ describe('hedge state machine cluster (phase 991)', () => {
         callError: new LLMNetworkError('fb1', new Error('offline')),
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       let caught: unknown;
       try {
@@ -185,9 +188,8 @@ describe('hedge state machine cluster (phase 991)', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      forceProviderWaiting(service, 0, 'transient');
+      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -209,7 +211,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       expect(chunks.some(ch => (ch as any).delta === 'c4')).toBe(false);
       expect(chunks.some(ch => ch.type === 'done')).toBe(false);
       // user abort is not a provider failure
-      expect(onFailureSpy).not.toHaveBeenCalled();
+      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
     });
 
     it('B-error-then-A-win drain loop throws AbortError when user aborts mid-drain', async () => {
@@ -227,7 +229,7 @@ describe('hedge state machine cluster (phase 991)', () => {
         callDelayMs: 5,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -258,9 +260,8 @@ describe('hedge state machine cluster (phase 991)', () => {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      forceProviderWaiting(service, 0, 'transient');
+      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
 
       // Abort mid-race, before either 100ms track settles
       const ABORT_DELAY_MS = 10; // derive: enough for track promise to start but not resolve (>0, <100ms track delay)
@@ -273,10 +274,10 @@ describe('hedge state machine cluster (phase 991)', () => {
       clearTimeout(abortTimer);
 
       // user abort must not be wrapped as all-providers-failed
-      expect(onFailureSpy).not.toHaveBeenCalled();
+      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
     });
 
-    it('does not trip breaker when user aborts during A-win drain catch', async () => {
+    it('does not record provider failure when user aborts during A-win drain catch', async () => {
       const abortCtrl = new AbortController();
       const primary: ProviderAdapter = {
         name: 'primary',
@@ -303,10 +304,9 @@ describe('hedge state machine cluster (phase 991)', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
-      const breaker = (service as any).breakers[0] as CircuitBreaker;
-      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -324,16 +324,16 @@ describe('hedge state machine cluster (phase 991)', () => {
       // user abort takes priority over the provider error
       expect(caught).toBeDefined();
       expect(caught!.name).toBe('AbortError');
-      // breaker must not be tripped for user abort
-      expect(onFailureSpy).not.toHaveBeenCalled();
+      // provider recovery state must not change for user abort
+      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
       // stream_reset must not be emitted for user abort
       expect(events.some(e => e.type === 'stream_reset')).toBe(false);
       expect(chunks.some(c => c.type === 'reset')).toBe(false);
     });
   });
 
-  describe('B.3 双失败 breakers[0] onFailure', () => {
-    it('A-error + B-error 双失败 → breakers[0].onFailure called with primary error class', async () => {
+  describe('B.3 双失败 providerStates failure accounting', () => {
+    it('A-error + B-error 双失败 → primary provider state records the error class', async () => {
       const primary = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
       });
@@ -341,19 +341,23 @@ describe('hedge state machine cluster (phase 991)', () => {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
-      const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
+      const failuresBefore = (service as any).providerStates[0].consecutiveFailures;
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
       }).rejects.toThrow(LLMAllProvidersFailedError);
 
-      expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
-      expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
+      const primaryState = (service as any).providerStates[0];
+      expect(primaryState.status).toBe('waiting');
+      expect(primaryState.retryAt).toEqual(expect.any(Number));
+      expect(primaryState.consecutiveFailures).toBe(failuresBefore + 1);
+      expect(primaryState.lastError.class).toBe('transient');
+      expect(primaryState.lastError.message).toContain('ECONNREFUSED');
     });
 
-    it('B-error + A-error 双失败 → breakers[0].onFailure called with primary error class', async () => {
+    it('B-error + A-error 双失败 → primary provider state records the error class', async () => {
       const primary = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
         streamDelayMs: 50,
@@ -362,21 +366,25 @@ describe('hedge state machine cluster (phase 991)', () => {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
-      const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
+      const failuresBefore = (service as any).providerStates[0].consecutiveFailures;
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
       }).rejects.toThrow(LLMAllProvidersFailedError);
 
-      expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
-      expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
+      const primaryState = (service as any).providerStates[0];
+      expect(primaryState.status).toBe('waiting');
+      expect(primaryState.retryAt).toEqual(expect.any(Number));
+      expect(primaryState.consecutiveFailures).toBe(failuresBefore + 1);
+      expect(primaryState.lastError.class).toBe('transient');
+      expect(primaryState.lastError.message).toContain('ECONNREFUSED');
     });
   });
 
   describe('B.4 contextExceededCount accounting', () => {
-    it('1 breaker-open + 2 context_exceeded (3 total) → throws context-exceeded user message', async () => {
+    it('1 waiting primary + 2 context_exceeded (3 total) → throws context-exceeded user message', async () => {
       const primary = createMockProvider('primary', {
         streamChunks: [{ type: 'text_delta', delta: 'ok' }],
       });
@@ -391,8 +399,8 @@ describe('hedge state machine cluster (phase 991)', () => {
         ],
       });
       const service = createOrchestrator(primary, [fb1, fb2]);
-      // primary breaker open with permanent cause → no hedge → non-hedge stream loop
-      forceBreakerOpen(service, 0, 'permanent');
+      // primary waiting with permanent cause → no hedge → non-hedge stream loop
+      forceProviderWaiting(service, 0, 'permanent');
 
       let thrown: Error | undefined;
       try {
@@ -427,7 +435,7 @@ describe('hedge state machine cluster (phase 991)', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
 
       const chunks: LLMStreamChunk[] = [];

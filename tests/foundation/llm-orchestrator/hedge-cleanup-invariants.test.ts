@@ -8,7 +8,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   LLMEventSink,
@@ -24,7 +23,7 @@ import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/in
  * Hedge drain post-first-chunk failure — reverse test for phase 903 B2
  *
  * When primary wins (first chunk) but drain throws mid-stream,
- * breaker.onFailure must be called + audit event emitted + error rethrown.
+ * providerStates must record the failure + audit event emitted + error rethrown.
  */
 describe('hedge-post-first-chunk-failure', () => {
   function createMockProvider(
@@ -87,15 +86,20 @@ describe('hedge-post-first-chunk-failure', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
 
-  function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-    const breaker = (service as any).breakers[index] as CircuitBreaker;
-    breaker['onFailure'](cause);
+  function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+    const now = Date.now();
+    (service as any).providerStates = [{
+      providerId: (service as any).providerIds[index],
+      status: 'waiting',
+      retryAt: now + 60_000,
+      lastError: { class: cause, at: now, message: 'forced provider failure' },
+      consecutiveFailures: 1,
+    }];
   }
 
   function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -116,7 +120,7 @@ describe('hedge-post-first-chunk-failure', () => {
       vi.clearAllMocks();
     });
 
-    it('calls breaker.onFailure + emits audit event + rethrows when drain throws', async () => {
+    it('records provider failure + emits audit event + rethrows when drain throws', async () => {
       const drainErr = new LLMNetworkError('primary', new Error('ECONNRESET'));
       const primary = createMockProvider('primary', {
         streamChunks: [
@@ -134,10 +138,10 @@ describe('hedge-post-first-chunk-failure', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fallback]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const failuresBefore = ((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures();
+      const failuresBefore = (service as any).providerStates[0].consecutiveFailures;
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -159,9 +163,13 @@ describe('hedge-post-first-chunk-failure', () => {
       expect(caught).toBeDefined();
       expect(caught!.message).toContain('ECONNRESET');
 
-      // 候选提交后，当前 breaker 恰好增加一次失败并保留错误分类。
-      expect(((service as any).breakers[0] as CircuitBreaker).getConsecutiveFailures()).toBe(failuresBefore + 1);
-      expect(((service as any).breakers[0] as CircuitBreaker).getOpenCause()).toBe('transient');
+      // 候选提交后，统一 provider 状态恰好增加一次失败并保留错误分类。
+      const primaryState = (service as any).providerStates[0];
+      expect(primaryState.status).toBe('waiting');
+      expect(primaryState.retryAt).toEqual(expect.any(Number));
+      expect(primaryState.consecutiveFailures).toBe(failuresBefore + 1);
+      expect(primaryState.lastError.class).toBe('transient');
+      expect(primaryState.lastError.message).toContain('ECONNRESET');
 
       // audit event emitted
       const auditEvent = events.find(e => e.type === 'hedge_primary_post_first_chunk_failure');
@@ -240,15 +248,20 @@ describe('hedge-double-fail-generator-cleanup', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
 
-  function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-    const breaker = (service as any).breakers[index] as CircuitBreaker;
-    breaker['onFailure'](cause);
+  function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+    const now = Date.now();
+    (service as any).providerStates = [{
+      providerId: (service as any).providerIds[index],
+      status: 'waiting',
+      retryAt: now + 60_000,
+      lastError: { class: cause, at: now, message: 'forced provider failure' },
+      consecutiveFailures: 1,
+    }];
   }
 
   /**
@@ -288,7 +301,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
         callDelayMs: 50,
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
@@ -308,7 +321,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
@@ -335,7 +348,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -416,15 +429,20 @@ describe('hedge-bwins-cleanup', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
   }
 
-  function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-    const breaker = (service as any).breakers[index] as CircuitBreaker;
-    breaker['onFailure'](cause);
+  function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+    const now = Date.now();
+    (service as any).providerStates = [{
+      providerId: (service as any).providerIds[index],
+      status: 'waiting',
+      retryAt: now + 60_000,
+      lastError: { class: cause, at: now, message: 'forced provider failure' },
+      consecutiveFailures: 1,
+    }];
   }
 
   /**
@@ -471,7 +489,7 @@ describe('hedge-bwins-cleanup', () => {
         callDelayMs: 50,
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -503,7 +521,7 @@ describe('hedge-bwins-cleanup', () => {
         callDelayMs: 50,
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -532,7 +550,7 @@ describe('hedge-bwins-cleanup', () => {
         callDelayMs: 500,
       });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
 
       const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -557,7 +575,7 @@ describe('hedge-bwins-cleanup', () => {
         ? { callDelayMs: 500 }
         : { callError: new LLMNetworkError('fb1', new Error('offline')) });
       const service = createOrchestrator(primary, [fb1]);
-      forceBreakerOpen(service, 0, 'transient');
+      forceProviderWaiting(service, 0, 'transient');
       const userCtrl = new AbortController();
       const addSpy = vi.spyOn(userCtrl.signal, 'addEventListener');
       const removeSpy = vi.spyOn(userCtrl.signal, 'removeEventListener');

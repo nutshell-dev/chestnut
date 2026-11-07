@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import { classifyStreamDone } from '../../../src/foundation/llm-orchestrator/utils.js';
 import type { LLMEvent, LLMEventSink, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';
 import { LLMError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
@@ -57,12 +56,17 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0,
     events: eventSink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
     createProviderAdapter: findAdapter,
   });
-  const breaker = (service as any).breakers[0] as CircuitBreaker;
-  breaker.onFailure('transient');
-  return { service, events, breaker };
+  const now = Date.now();
+  (service as any).providerStates = [{
+    providerId: (service as any).providerIds[0],
+    status: 'waiting',
+    retryAt: now + 60_000,
+    lastError: { class: 'transient', at: now, message: 'forced provider failure' },
+    consecutiveFailures: 1,
+  }];
+  return { service, events };
 }
 
 function spyOnPrimaryReturn(provider: ProviderAdapter) {
@@ -136,23 +140,19 @@ describe('hedge primary context-done', () => {
     const returnSpy = spyOnPrimaryReturn(primaryRaw.provider);
     const fallback = createMockProvider('fallback', { callPending: true });
     const secondFallback = createMockProvider('fallback-2', { callPending: true });
-    const { service, events, breaker } = createOrchestrator(
+    const { service, events } = createOrchestrator(
       primaryRaw.provider,
       [fallback.provider, secondFallback.provider],
     );
-    const failureSpy = vi.spyOn(breaker, 'onFailure');
-    const successSpy = vi.spyOn(breaker, 'onSuccess');
+    const primaryStateBefore = structuredClone((service as any).providerStates[0]);
 
     const result = await collectStream(service);
 
     expectContextFailure(result, events);
     expect(fallback.callSpy).toHaveBeenCalledTimes(1);
     expect(secondFallback.callSpy).not.toHaveBeenCalled();
-    expect(failureSpy).not.toHaveBeenCalled();
-    expect(successSpy).not.toHaveBeenCalled();
-    expect(breaker.getOpenCause()).toBe('transient');
+    expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
     expect((service as any).lastSuccessProvider).toBeNull();
-    expect((service as any).sharedFailures).toHaveProperty('size', 0);
     expect(returnSpy).toHaveBeenCalled();
   });
 
@@ -168,19 +168,15 @@ describe('hedge primary context-done', () => {
     const fallback = createMockProvider('fallback', {
       callError: new LLMNetworkError('fallback', new Error('offline')),
     });
-    const { service, events, breaker } = createOrchestrator(primaryRaw.provider, [fallback.provider]);
-    const failureSpy = vi.spyOn(breaker, 'onFailure');
-    const successSpy = vi.spyOn(breaker, 'onSuccess');
+    const { service, events } = createOrchestrator(primaryRaw.provider, [fallback.provider]);
+    const primaryStateBefore = structuredClone((service as any).providerStates[0]);
 
     const result = await collectStream(service);
 
     expectContextFailure(result, events);
     expect(fallback.callSpy).toHaveBeenCalledTimes(1);
-    expect(failureSpy).not.toHaveBeenCalled();
-    expect(successSpy).not.toHaveBeenCalled();
-    expect(breaker.getOpenCause()).toBe('transient');
+    expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
     expect((service as any).lastSuccessProvider).toBeNull();
-    expect((service as any).sharedFailures).toHaveProperty('size', 0);
     expect(returnSpy).toHaveBeenCalled();
   });
 
@@ -202,6 +198,11 @@ describe('hedge primary context-done', () => {
       { type: 'done', stopReason: 'end_turn' },
     ]);
     expect(events.some(event => event.type === 'hedge_primary_recovered')).toBe(true);
+    expect((service as any).providerStates[0]).toMatchObject({
+      status: 'available',
+      retryAt: undefined,
+      consecutiveFailures: 0,
+    });
     expect(events.some(event =>
       event.type === 'call_selection' && event.outcome === 'selected' && event.provider === 'primary'
     )).toBe(true);

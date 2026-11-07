@@ -1,5 +1,5 @@
 /**
- * phase 320 Step A: LLMOrchestratorImpl.reloadConfig — 原地替换 primary/fallbacks/breakers，对象引用不变。
+ * phase 320 Step A: LLMOrchestratorImpl.reloadConfig — 原地替换 primary/fallbacks/providerStates，对象引用不变。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -92,7 +92,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     expect((orch as any).fallbacks.length).toBe(0);
   });
 
-  it('circuitBreaker 重建：reload 后 breakers 数 = 1 + fallbacks 数', () => {
+  it('provider 身份视图重建：reload 后 providerIds 数 = 1 + fallbacks 数，且不重建 breaker', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
@@ -103,7 +103,8 @@ describe('phase 320 Step A: reloadConfig', () => {
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
     });
 
-    expect((orch as any).breakers.length).toBe(1);
+    expect((orch as any).providerIds).toHaveLength(1);
+    expect((orch as any).breakers).toBeUndefined();
 
     orch.reloadConfig({
       primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' },
@@ -117,7 +118,8 @@ describe('phase 320 Step A: reloadConfig', () => {
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
     });
 
-    expect((orch as any).breakers.length).toBe(3);
+    expect((orch as any).providerIds).toHaveLength(3);
+    expect((orch as any).breakers).toBeUndefined();
   });
 
   it('events sink 引用保持（reload 不换 events）', () => {
@@ -141,7 +143,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     expect(eventsAfter).toBe(eventsBefore);
   });
 
-  it('Phase 1268 Step E: reloadConfig 沿用 circuit breaker 默认语义', () => {
+  it('Phase 1268 Step E: reloadConfig 沿用 circuit breaker 配置语义但不重建 breaker', () => {
     const { sink } = createSink();
     const cfgA = createGlobalConfigSchema().parse({
       llm: {
@@ -150,10 +152,10 @@ describe('phase 320 Step A: reloadConfig', () => {
     });
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' }, ...resolveLLMConfig(cfgA), events: sink });
-    expect((orch as any).breakers).toHaveLength(1);
-    const firstBreaker = (orch as any).breakers[0];
-    expect(firstBreaker.threshold).toBe(3);
-    expect(firstBreaker.resetTimeoutMs).toBe(60_000);
+    expect((orch as any).providerIds).toHaveLength(1);
+    expect((orch as any).config.circuitBreaker.failureThreshold).toBe(3);
+    expect((orch as any).config.circuitBreaker.resetTimeoutMs).toBe(60_000);
+    expect((orch as any).breakers).toBeUndefined();
 
     const cfgB = createGlobalConfigSchema().parse({
       llm: {
@@ -164,7 +166,8 @@ describe('phase 320 Step A: reloadConfig', () => {
       },
     });
     orch.reloadConfig({ ...resolveLLMConfig(cfgB), events: sink });
-    expect((orch as any).breakers).toHaveLength(2);
+    expect((orch as any).providerIds).toHaveLength(2);
+    expect((orch as any).breakers).toBeUndefined();
   });
 
   it('Phase 899: reloadConfig 淘汰不在新 config 中的旧 provider', () => {
@@ -224,63 +227,82 @@ describe('Phase 2027 selective runtime reload', () => {
     circuitBreaker: policy,
   });
 
-  it('只改 fallback B 时保留 primary/A 的 breaker 与 sharedFailure', () => {
+  it('只改 fallback B 时保留 primary/A 的 waiting 与 lastError', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
     const ids = [...(orch as any).providerIds] as string[];
-    const breakers = [...(orch as any).breakers];
-    const records = ids.map((providerId, i) => [providerId, { errorClass: 'transient', epoch: i + 1 }]);
-    (orch as any).sharedFailures = new Map(records);
+    const records = ids.map((providerId, i) => ({
+      providerId,
+      status: 'waiting',
+      retryAt: i + 1,
+      lastError: { class: 'transient', at: i + 1, message: `offline-${i}` },
+    }));
+    (orch as any).providerStates = records;
 
     orch.reloadConfig({
       ...baseConfig(sink),
       fallbacks: [fallbackA, { ...fallbackB, model: 'mb-new' }],
     });
 
-    expect((orch as any).breakers[0]).toBe(breakers[0]);
-    expect((orch as any).breakers[1]).toBe(breakers[1]);
-    expect((orch as any).breakers[2]).not.toBe(breakers[2]);
-    expect((orch as any).sharedFailures.get(ids[0])).toBe(records[0][1]);
-    expect((orch as any).sharedFailures.get(ids[1])).toBe(records[1][1]);
-    expect((orch as any).sharedFailures.has(ids[2])).toBe(false);
+    expect((orch as any).providerStates).toHaveLength(2);
+    expect((orch as any).providerStates[0]).toEqual(records[0]);
+    expect((orch as any).providerStates[1]).toEqual(records[1]);
+    expect((orch as any).providerStates.some((provider: { providerId: string }) =>
+      provider.providerId === ids[2])).toBe(false);
+    expect((orch as any).breakers).toBeUndefined();
   });
 
-  it('只改 temperature 时保留故障身份与 breaker，但创建新 adapter', () => {
+  it('只改 temperature 时保留故障身份与 waiting/lastError、清成功 cache，但创建新 adapter', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
     const id = (orch as any).providerIds[0];
-    const breaker = (orch as any).breakers[0];
     const adapter = (orch as any).primary;
-    const record = { errorClass: 'transient', epoch: 1 };
-    (orch as any).sharedFailures = new Map([[id, record]]);
+    const record = {
+      providerId: id,
+      status: 'waiting',
+      retryAt: 1,
+      lastError: { class: 'transient', at: 1, message: 'offline' },
+      lastSuccessAt: 1,
+      cacheValidUntil: 2,
+    };
+    (orch as any).providerStates = [record];
 
     orch.reloadConfig({ ...baseConfig(sink), primary: { ...primary, temperature: 1 } });
 
     expect((orch as any).providerIds[0]).toBe(id);
-    expect((orch as any).breakers[0]).toBe(breaker);
-    expect((orch as any).sharedFailures.get(id)).toBe(record);
+    expect((orch as any).providerStates[0]).toMatchObject({
+      providerId: id,
+      status: 'waiting',
+      retryAt: 1,
+      lastError: record.lastError,
+    });
+    expect((orch as any).providerStates[0]).not.toHaveProperty('lastSuccessAt');
+    expect((orch as any).providerStates[0]).not.toHaveProperty('cacheValidUntil');
+    expect((orch as any).lastSuccessProvider).toBeNull();
     expect((orch as any).primary).not.toBe(adapter);
   });
 
-  it('breaker 策略变化重建全部 breaker，sharedFailures 仍按身份保留', () => {
+  it('breaker 策略变化只更新配置，providerStates 仍按身份保留', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
     const ids = [...(orch as any).providerIds] as string[];
-    const breakers = [...(orch as any).breakers];
-    const record = { errorClass: 'transient', epoch: 1 };
-    (orch as any).sharedFailures = new Map([[ids[0], record]]);
+    const record = {
+      providerId: ids[0],
+      status: 'waiting',
+      retryAt: 1,
+      lastError: { class: 'transient', at: 1, message: 'offline' },
+    };
+    (orch as any).providerStates = [record];
 
     orch.reloadConfig({
       ...baseConfig(sink),
       circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 2_000 },
     });
 
-    expect((orch as any).breakers[0]).not.toBe(breakers[0]);
-    expect((orch as any).breakers[1]).not.toBe(breakers[1]);
-    expect((orch as any).breakers[2]).not.toBe(breakers[2]);
-    expect((orch as any).breakers[0].threshold).toBe(5);
-    expect((orch as any).breakers[0].resetTimeoutMs).toBe(2_000);
-    expect((orch as any).sharedFailures.get(ids[0])).toBe(record);
+    expect((orch as any).config.circuitBreaker.failureThreshold).toBe(5);
+    expect((orch as any).config.circuitBreaker.resetTimeoutMs).toBe(2_000);
+    expect((orch as any).providerStates[0]).toEqual(record);
+    expect((orch as any).breakers).toBeUndefined();
   });
 
   it('reload 后旧流正常完成但不写回 last-success', async () => {

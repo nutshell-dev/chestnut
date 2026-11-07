@@ -9,7 +9,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   LLMEventSink,
@@ -88,15 +87,20 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     maxAttempts: 1,
     retryDelayMs: 0,
     events: noopSink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });
   return service;
 }
 
-function forceBreakerOpen(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
-  const breaker = (service as any).breakers[index] as CircuitBreaker;
-  breaker['onFailure'](cause);
+function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
+  const now = Date.now();
+  (service as any).providerStates = [{
+    providerId: (service as any).providerIds[index],
+    status: 'waiting',
+    retryAt: now + 60_000,
+    lastError: { class: cause, at: now, message: 'forced provider failure' },
+    consecutiveFailures: 1,
+  }];
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -128,7 +132,7 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
       },
     });
     const service = createOrchestrator(primaryDef.provider, [fallbackDef.provider]);
-    forceBreakerOpen(service, 0, 'transient');
+    forceProviderWaiting(service, 0, 'transient');
     const events = attachEventSpy(service);
 
     const streamPromise = (async () => {
@@ -170,7 +174,7 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
       },
     });
     const service = createOrchestrator(primaryDef.provider, [fallbackDef.provider]);
-    forceBreakerOpen(service, 0, 'transient');
+    forceProviderWaiting(service, 0, 'transient');
     const events = attachEventSpy(service);
 
     const streamPromise = (async () => {
@@ -218,7 +222,7 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
       },
     });
     const service = createOrchestrator(primaryDef.provider, [fallbackDef.provider]);
-    forceBreakerOpen(service, 0, 'transient');
+    forceProviderWaiting(service, 0, 'transient');
     const events = attachEventSpy(service);
 
     const streamPromise = service.stream({ messages: [{ role: 'user', content: 'hi' }] });

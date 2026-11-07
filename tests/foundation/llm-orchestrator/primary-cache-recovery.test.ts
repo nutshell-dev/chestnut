@@ -62,7 +62,7 @@ afterEach(async () => {
 });
 
 describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
-  it('keeps a valid fallback cache after a successful primary probe without refreshing selection', async () => {
+  it('switches back to primary after a successful primary probe without refreshing its selection cache', async () => {
     let primaryFails = true;
     const primary = adapter('primary', async () => {
       if (primaryFails) throw new LLMNetworkError('primary', new Error('offline'));
@@ -75,14 +75,14 @@ describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
     const before = { providerId: selection.providerId, lastUsedAt: selection.lastUsedAt };
 
     primaryFails = false;
-    vi.setSystemTime(Date.now() + 5_000);
+    vi.setSystemTime(Date.now() + 30_000);
     await expect(owner.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
     expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toMatchObject(before);
     expect((owner as unknown as { currentStreamingProvider: unknown }).currentStreamingProvider).toBeNull();
 
     await owner.call(CALL);
-    expect(primary.call).toHaveBeenCalledTimes(2); // initial business failure + probe only
-    expect(fallback.call).toHaveBeenCalledTimes(2);
+    expect(primary.call).toHaveBeenCalledTimes(3); // initial failure + probe + primary-first business call
+    expect(fallback.call).toHaveBeenCalledTimes(1);
     await owner.close();
   });
 
@@ -136,7 +136,7 @@ describe('Phase2055 Step E: TTL selection cache and primary recovery', () => {
     firstFails = true;
     primaryFails = false;
     vi.setSystemTime(Date.now() + 300_000);
-    await owner.probe(); // primary 健康事实已恢复，但有效 fallback 缓存仍保留
+    await owner.probe(); // primary 健康事实恢复；下一 invocation 立即 primary 优先
     await owner.call(CALL);
     expect(primary.call).toHaveBeenCalledTimes(3); // initial failure + probe + re-evaluation
     expect(second.call).not.toHaveBeenCalled();

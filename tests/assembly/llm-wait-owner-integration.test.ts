@@ -47,9 +47,6 @@ import { createSubagentTaskExecutor } from '../../src/assembly/subagent-task-exe
 import { makeTestRegistry } from '../helpers/task-system.js';
 
 const FULL_ID = '550e8400-e29b-41d4-a716-446655440000';
-/** breaker resetTimeoutMs：owner 时间下界基准（transient 候选的下一探针时刻）。 */
-const RESET_MS = 5_000;
-
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
   stop_reason: 'end_turn',
@@ -192,7 +189,7 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
     maxAttempts: 1,
     retryDelayMs: 0,
     events: sink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
+    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 30_000 },
     createProviderAdapter: (c: ProviderConfig) => adapters.get((sameName ? c.model : c.name) ?? '')!,
   };
   const owner = createLLMOrchestrator(orchestratorConfig);
@@ -270,15 +267,15 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     // 真实 orchestrator 全程参与：两候选各一次真实业务调用
     expect(p.calls()).toBe(1);
     expect(f.calls()).toBe(1);
-    // waiting 事实落盘：nextProbeAt 来自 owner 决定（transient 下界 = breaker 弹回时刻）
+    // waiting 事实落盘：nextProbeAt 来自 owner 决定（transient 首次统一 30s retryAt）
     const waitPath = `tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`;
     expect(fileMap.has(waitPath)).toBe(true);
     const persisted = JSON.parse(fileMap.get(waitPath)!) as Record<string, unknown>;
-    expect(persisted.nextProbeAt).toBe(t0 + RESET_MS);
+    expect(persisted.nextProbeAt).toBe(t0 + 30_000);
     expect(persisted.recordedAt).toBe(t0);
     // 业务等待事实只调度一次；owner 的自主持续 probe 另有调度，不混入此计数。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
-    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({ nextProbeAt: t0 + RESET_MS }));
+    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({ nextProbeAt: t0 + 30_000 }));
     expect(owner.getSharedRecoveryDecision().kind).toBe('at');
 
     // gate 非恒真：owner 未就绪时 resume 不移动任务
@@ -289,7 +286,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
     // 候选恢复 → 下界到点 → 探针验证 → ready 发布 → ATS 移动
     p.setBehavior('ok');
-    await vi.advanceTimersByTimeAsync(RESET_MS - 1);
+    await vi.advanceTimersByTimeAsync(30_000 - 1);
     expect(p.calls()).toBe(1);  // 下界前无探针
     await vi.advanceTimersByTimeAsync(1);
     await flush();
@@ -306,8 +303,8 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     // 成功唤醒不产生新的业务等待事实；后台自主复检不属于业务等待调度。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(120_000);
-    // Phase 2056：ready 后公平轮转也会复检健康 primary，不再让故障 fallback 独占。
-    expect(p.calls()).toBeGreaterThan(2);
+    // primary 已恢复；ready 后的健康复检使用 5 分钟 TTL，本窗口不重复调用。
+    expect(p.calls()).toBe(2);
     expect(f.calls()).toBeGreaterThan(1);
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
     await owner.close();
@@ -388,7 +385,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     // 候选恢复 → 下界到点 → 探针验证 primary 成功 → ready 发布 → ATS 移动恰一次
     p.setBehavior('ok');
     f.setBehavior('ok');
-    await vi.advanceTimersByTimeAsync(RESET_MS);
+    await vi.advanceTimersByTimeAsync(30_000);
     await flush();
     await flush();  // ready listener → resumeWaitingTasks 异步落点
 

@@ -68,16 +68,22 @@ function wrapAtomic(fs: FileSystem, write: (original: FileSystem['writeAtomicSyn
 }
 
 describe('LLM instance health persistence', () => {
-  it('restores breaker and shared failure state from the independent file', async () => {
+  it('restores provider waiting and failure state from the independent file', async () => {
     const f = await fixture();
     const failing = adapter('primary', async () => { throw new LLMNetworkError('primary', new Error('offline')); });
     await expect(f.makeOwner([failing]).call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
+    expect(disk.schema_version).toBe(3);
     expect(disk.providers[0]).toMatchObject({
-      breaker: { state: 'open', consecutiveFailures: 1, lastFailureClass: 'transient' },
-      sharedFailure: { errorClass: 'transient' },
+      status: 'waiting',
+      consecutiveFailures: 1,
+      retryAt: expect.any(Number),
+      lastError: { class: 'transient', at: expect.any(Number), message: expect.any(String) },
     });
-    expect(disk.providers[0].sharedFailure).not.toHaveProperty('epoch');
+    expect(disk.providers[0].retryAt).toBe(disk.providers[0].lastError.at + 30_000);
+    expect(disk.providers[0]).not.toHaveProperty('breaker');
+    expect(disk.providers[0]).not.toHaveProperty('sharedFailure');
+    expect(disk).not.toHaveProperty('lastSuccess');
 
     const healthy = adapter('primary');
     const restarted = f.makeOwner([healthy]);
@@ -92,11 +98,14 @@ describe('LLM instance health persistence', () => {
     const primaryFailure = adapter('primary', async () => { throw new LLMNetworkError('primary', new Error('offline')); });
     const fallback = adapter('fallback');
     await expect(f.makeOwner([primaryFailure, fallback]).call(CALL)).resolves.toBe(OK);
-    expect(JSON.parse(fsNative.readFileSync(f.statePath, 'utf8')).lastSuccess).toEqual({
+    const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
+    expect(disk.providers[1]).toMatchObject({
       providerId: expect.any(String),
-      lastUsedAt: expect.any(Number),
+      status: 'available',
+      lastSuccessAt: expect.any(Number),
       cacheValidUntil: expect.any(Number),
     });
+    expect(disk).not.toHaveProperty('lastSuccess');
 
     const primary = adapter('primary');
     const restartedFallback = adapter('fallback');
@@ -112,9 +121,13 @@ describe('LLM instance health persistence', () => {
     let failWrites = false;
     const fs = wrapAtomic(baseFs, (original, raw) => {
       const state = JSON.parse(raw);
-      const isProviderOutcome = state.lastSuccess !== null
-        || state.providers.some((provider: { sharedFailure?: unknown; breaker: { state: string } }) =>
-          provider.sharedFailure !== undefined || provider.breaker.state === 'open');
+      const isProviderOutcome = state.providers.some((provider: {
+        status: string;
+        lastError?: unknown;
+        lastSuccessAt?: number;
+      }) => provider.status === 'waiting'
+        || provider.lastError !== undefined
+        || provider.lastSuccessAt !== undefined);
       if (failWrites && isProviderOutcome) throw new Error('injected rename failure');
       return original();
     });
@@ -129,11 +142,13 @@ describe('LLM instance health persistence', () => {
     });
 
     failWrites = true;
-    await expect(owner.call(CALL)).resolves.toBe(OK);
+    await expect(owner.call(CALL)).rejects.toThrow();
     expect(owner.getProviderInfo().name).toBe('primary');
     expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toBeNull();
     expect(emitted.some(event => event.type === 'instance_state_write_failed')).toBe(true);
-    expect(JSON.parse(fsNative.readFileSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf8')).lastSuccess).toBeNull();
+    const disk = JSON.parse(fsNative.readFileSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf8'));
+    expect(disk.providers).toEqual([]);
+    expect(disk).not.toHaveProperty('lastSuccess');
 
     const failure = adapter('failure', async () => { throw new LLMNetworkError('failure', new Error('original')); });
     const failingOwner = new LLMOrchestratorImpl({
@@ -202,25 +217,34 @@ describe('LLM instance health persistence', () => {
     const restarted = f.makeOwner([adapter('primary')]);
     vi.advanceTimersByTime(61_000);
 
-    expect((restarted as unknown as { breakerIsOpen(index: number): boolean }).breakerIsOpen(0)).toBe(false);
-    expect(JSON.parse(fsNative.readFileSync(f.statePath, 'utf8')).providers[0].breaker.state).toBe('open');
+    expect((restarted as unknown as { isRecoveryBlocking(index: number, allowRecoveryProbe: boolean): boolean })
+      .isRecoveryBlocking(0, false)).toBe(false);
+    expect(JSON.parse(fsNative.readFileSync(f.statePath, 'utf8')).providers[0].status).toBe('waiting');
     const afterCrash = f.makeOwner([adapter('primary')]);
     expect(afterCrash.snapshot().providers[0].breakerOpen).toBe(true);
   });
 
-  it('persists reload identity filtering and clears lastSuccess', async () => {
+  it('persists reload identity filtering, retains failure state and clears success cache', async () => {
     const f = await fixture();
     const primary = adapter('primary', async () => { throw new LLMNetworkError('primary', new Error('offline')); });
     const fallback = adapter('fallback');
     const owner = f.makeOwner([primary, fallback]);
     await owner.call(CALL);
+    const providerId = (owner as unknown as { providerIds: string[] }).providerIds[0];
     (owner as unknown as {
-      providerIds: string[];
-      noteSharedFailures(failures: Array<{ provider: string; providerId: string; error: Error }>): void;
-    }).noteSharedFailures([{
-      provider: 'primary',
-      providerId: (owner as unknown as { providerIds: string[] }).providerIds[0],
-      error: new LLMNetworkError('primary', new Error('shared offline')),
+      recoveryController: {
+        noteFailure(failures: Array<{
+          providerId: string;
+          providerLabel: string;
+          errorClass: 'transient';
+          message: string;
+        }>): void;
+      };
+    }).recoveryController.noteFailure([{
+      providerId,
+      providerLabel: 'primary',
+      errorClass: 'transient',
+      message: 'shared offline',
     }]);
 
     owner.reloadConfig({
@@ -231,8 +255,10 @@ describe('LLM instance health persistence', () => {
     });
     const disk = JSON.parse(fsNative.readFileSync(f.statePath, 'utf8'));
     expect(disk.providers).toHaveLength(1);
-    expect(disk.providers[0].sharedFailure.errorClass).toBe('transient');
-    expect(disk.lastSuccess).toBeNull();
+    expect(disk.providers[0]).toMatchObject({ status: 'waiting', lastError: { class: 'transient' } });
+    expect(disk.providers[0]).not.toHaveProperty('lastSuccessAt');
+    expect(disk.providers[0]).not.toHaveProperty('cacheValidUntil');
+    expect(disk).not.toHaveProperty('lastSuccess');
     expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toBeNull();
   });
 

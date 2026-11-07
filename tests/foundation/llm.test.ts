@@ -340,15 +340,13 @@ function createAnthropicSseResponse(text: string): Response {
         getProviderInfo: () => ({ name: 'fallback', model: 'fallback-model' }),
       };
 
-      const emittedEvents: any[] = [];
       const service = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
         retryDelayMs: 10,
-        circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 30_000 },
-        events: { emit: (e) => emittedEvents.push(e) },
+        events: { emit: () => {} },
         createProviderAdapter: (config) =>
           config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
       });
@@ -365,8 +363,15 @@ function createAnthropicSseResponse(text: string): Response {
       expect(chunks.some(c => c.type === 'text_delta' && c.delta === 'Fallback')).toBe(true);
       expect(chunks.some(c => c.type === 'done')).toBe(true);
 
-      // ⚓5 α default doc invariant: 0-chunk → onFailure (conservative miss-detect)
-      expect(emittedEvents.some(e => e.type === 'breaker_opened' && e.provider === 'primary')).toBe(true);
+      // 0-chunk 统一记为 primary 的 unknown 恢复事实，不再发射 breaker 事件。
+      const primaryState = (service as any).providerStates.find(
+        (state: any) => state.providerId === service.getProviderIdentities()[0],
+      );
+      expect(primaryState).toMatchObject({
+        status: 'waiting',
+        lastError: { class: 'transient' },
+        consecutiveFailures: 1,
+      });
     });
 
     it('should throw LLMAllProvidersFailedError when all providers yield 0 chunks', async () => {

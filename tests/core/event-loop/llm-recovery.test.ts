@@ -92,6 +92,8 @@ interface Harness {
   recoveryProviderIds: () => string[];
   /** 让接下来的 N 次干预事实读取抛错（测读取失败不以空集合继续准入）。 */
   setInterventionPeekFailures: (n: number) => void;
+  /** EventLoop 已消费 owner 等待安排的次数。 */
+  recoveryWaits: () => number;
 }
 
 async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> {
@@ -226,13 +228,22 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     getLLMFailureDisposition: (error: unknown) => owner.getFailureDisposition(error),
   };
 
+  let recoveryWaits = 0;
   const eventLoop = new EventLoop({
     runtime: runtime as never,
     fsFactory: (baseDir: string) => new NodeFileSystem({ baseDir }),
     agentDir: dir,
     clawId: 'claw-1',
-    audit: { write: () => {} } as never,
+    audit: {
+      write: (_type: string, ...cols: Array<string | number>) => {
+        if (cols.includes('type=recovery_wait')) recoveryWaits += 1;
+      },
+    } as never,
     inbox: { pendingDir, fallbackTimeoutMs: 30 },
+    executionRecovery: {
+      inspectLlmRecoverySchedule: () => owner.inspectRecoverySchedule(),
+      probeActivity: async () => ({ lastActivityAt: null, lastToolCallAt: null }),
+    },
   });
   await eventLoop.initialize();
 
@@ -260,10 +271,11 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     recoveryProviderIds: () => {
       const state = JSON.parse(fsNative.readFileSync(
         path.join(dir, 'status', 'llm-instance-state.json'), 'utf8',
-      )) as { recovery: { providers: Array<{ providerId: string }> } };
-      return state.recovery.providers.map(provider => provider.providerId);
+      )) as { providers: Array<{ providerId: string; status: string }> };
+      return state.providers.filter(provider => provider.status === 'waiting').map(provider => provider.providerId);
     },
     setInterventionPeekFailures: (n) => { peekFailures = n; },
+    recoveryWaits: () => recoveryWaits,
   };
 }
 
@@ -479,33 +491,28 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     const h = await makeHarness();
     h.setProviderError(QUOTA_ERROR());
 
-    // 旧消息：首次尝试失败后回队（nack → 仍在 pending）。
+    // 旧消息：首次尝试失败后回队，并直接消费 owner schedule；不再开 waiting-only turn。
     h.writePending({ id: 'm-old', type: 'user_chat', from: 'user', content: 'old instruction' });
-    await h.eventLoop.run();
+    const firstRun = h.eventLoop.run();
+    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
     expect(h.providerCalls.length).toBe(1);
+    expect(h.turns.length).toBe(1);
     expect(h.listPending()).toContain('m-old.md');
     expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
+    h.eventLoop.abort();
+    await firstRun;
 
-    // 第二条真新用户消息到达：提前尝试（不等 deadline）。
+    // 第二条真新用户消息到达：提前尝试（不等 deadline）。失败后同样直接等待 owner。
     h.writePending({ id: 'm-new', type: 'user_chat', from: 'user', content: 'new instruction' });
-    await h.eventLoop.run();
+    const secondRun = h.eventLoop.run();
+    await waitFor(() => h.recoveryWaits() === 2, 5_000, 10);
 
     expect(h.providerCalls.length).toBe(2);
     expect(h.turns.length).toBe(2);
     expect(h.turns[1].map(m => m.content)).toEqual(['old instruction', 'new instruction']);
-
-    // 同一批消息失败回队后不重复放行：未到点的短窗口内不再真发。
-    const rerun = h.eventLoop.run();
-    // 第三次进入 processTurn 后由 owner 抛 typed waiting：消息回队、provider 0 新请求。
-    await waitFor(() => h.turns.length === 3, 5_000, 10);
-    expect(h.providerCalls.length).toBe(2);
-    await waitFor(
-      () => ['m-old.md', 'm-new.md'].every(file => h.listPending().includes(file)),
-      5_000,
-      10,
-    );
+    expect(h.listPending()).toEqual(expect.arrayContaining(['m-old.md', 'm-new.md']));
     h.eventLoop.abort();
-    await rerun;
+    await secondRun;
   });
 
   it('系统消息到达：不清零失败历史、不提前真发', async () => {
@@ -513,7 +520,10 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setProviderError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
-    await h.eventLoop.run();
+    const firstRun = h.eventLoop.run();
+    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    h.eventLoop.abort();
+    await firstRun;
     expect(h.providerCalls.length).toBe(1);
     const scheduleBefore = await h.owner.inspectRecoverySchedule();
     expect(scheduleBefore.kind).toBe('at');
@@ -521,8 +531,10 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 系统消息（任务结果）到达：保存为 pending，不触发提前尝试。
     h.writePending({ id: 's-1', type: 'task_result', from: 'system', content: 'task done' });
     const rerun = h.eventLoop.run();
-    await new Promise<void>(resolve => setImmediate(resolve));
+    // 已有 waiting 的新一轮 admission 仍由 typed waiting fallback 收束。
+    await waitFor(() => h.recoveryWaits() === 2, 5_000, 10);
     expect(h.providerCalls.length).toBe(1);
+    expect(h.turns.length).toBe(2);
     const after = await h.owner.inspectRecoverySchedule();
     expect(after.kind).toBe('at');
     // 系统消息不清零失败历史、不重置 deadline（墙钟到点后 revision 可前进，
@@ -540,7 +552,10 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setProviderError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
-    await h.eventLoop.run();
+    const firstRun = h.eventLoop.run();
+    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    h.eventLoop.abort();
+    await firstRun;
     expect(h.providerCalls.length).toBe(1);
 
     // 等到 deadline（500ms 缩放值）后由 EventLoop 自动放行一次。
@@ -558,7 +573,10 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setProviderError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'first' });
-    await h.eventLoop.run();
+    const firstRun = h.eventLoop.run();
+    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    h.eventLoop.abort();
+    await firstRun;
     expect(h.providerCalls.length).toBe(1);
     expect(h.turns.length).toBe(1);
 
@@ -589,7 +607,10 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setFallbackError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
-    await h.eventLoop.run();
+    const firstRun = h.eventLoop.run();
+    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    h.eventLoop.abort();
+    await firstRun;
     expect(h.providerCalls).toEqual(['primary', 'fallback']);
     expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
     const blockedBefore = h.recoveryProviderIds();

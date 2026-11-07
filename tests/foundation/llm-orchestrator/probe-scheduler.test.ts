@@ -175,42 +175,36 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     await owner.close();
   });
 
-  it('失败退避：持续失败 → probe 失败后按 probeAllowedAtMs 自动安排下一次', async () => {
+  it('失败退避：持续失败 → probe 失败后按统一 retryAt 自动安排下一次', async () => {
     const mock = createControllableAdapter('primary', 'fail');
     const { owner } = createOwner(mock.adapter);
 
     owner.scheduleProbe(Date.now());
     await flush();
-    expect(mock.calls()).toBe(1);  // 首次 probe 失败 → breaker open（probeAllowedAtMs = t0+RESET_MS）
+    expect(mock.calls()).toBe(1);  // 首次 probe 失败 → retryAt = t0+30s
 
-    // 自动重排的下界前不触发
-    await vi.advanceTimersByTimeAsync(RESET_MS - 1);
+    await vi.advanceTimersByTimeAsync(RECOVERY_MS - 1);
     expect(mock.calls()).toBe(1);
-    // 到点触发第二次（再次失败 → 下界前移）
     await vi.advanceTimersByTimeAsync(1);
     expect(mock.calls()).toBe(2);
-    await vi.advanceTimersByTimeAsync(RESET_MS - 1);
+    // 第二次连续失败使用同一 provider 的 60s 退避。
+    await vi.advanceTimersByTimeAsync(RECOVERY_MS * 2 - 1);
     expect(mock.calls()).toBe(2);
     await vi.advanceTimersByTimeAsync(1);
     expect(mock.calls()).toBe(3);
     await owner.close();
   });
 
-  it('失败退避（Retry-After）：typed Retry-After 被 breaker probeAllowedAtMs 覆盖时下一次不早于其下界', async () => {
+  it('失败退避（Retry-After）：typed Retry-After 直接决定统一 retryAt', async () => {
     const mock = createControllableAdapter('primary', 'rate_limit');  // Retry-After = 2s < RESET_MS
     const { owner } = createOwner(mock.adapter);
 
     owner.scheduleProbe(Date.now());
     await flush();
-    expect(mock.calls()).toBe(1);  // 首次 probe 失败（rate_limit → breaker open）
+    expect(mock.calls()).toBe(1);
 
-    // Retry-After 下界（2s）已过，但 probeAllowedAtMs（5s）更晚：取 max，不提前触发
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(1_999);
     expect(mock.calls()).toBe(1);
-    // probeAllowedAtMs 下界前不触发
-    await vi.advanceTimersByTimeAsync(RESET_MS - 2_000 - 1);
-    expect(mock.calls()).toBe(1);
-    // 到点（不早于 probeAllowedAtMs，自然不早于 Retry-After）触发第二次
     await vi.advanceTimersByTimeAsync(1);
     expect(mock.calls()).toBe(2);
     await owner.close();
@@ -224,11 +218,11 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
 
     owner.scheduleProbe(Date.now());
     await flush();
-    expect(mock.calls()).toBe(1);  // 首次失败 → 自动重排到 t0+RESET_MS
+    expect(mock.calls()).toBe(1);  // 首次失败 → 自动重排到 t0+30s
     expect(listener).not.toHaveBeenCalled();
 
     mock.setBehavior('ok');
-    await vi.advanceTimersByTimeAsync(RESET_MS - 1);
+    await vi.advanceTimersByTimeAsync(RECOVERY_MS - 1);
     expect(mock.calls()).toBe(1);
     expect(listener).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -294,10 +288,10 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
     await owner.close();
   });
 
-  it('Phase 2056：probe 复用 rate-limit 有界恢复，第 10 次后不再真实请求', async () => {
+  it('Phase 2058：rate-limit 没有独立 blocked 状态，第 10 次后仍持续 probe', async () => {
     const mock = createControllableAdapter('primary', 'rate_limit_bounded');
     const { owner, emitted } = createOwner(mock.adapter);
-    const delays = [30_000, 60_000, 120_000, 300_000, 600_000, 600_000, 600_000, 600_000, 600_000];
+    const delays = [30_000, 60_000, 120_000, 300_000, 600_000, 600_000, 600_000, 600_000, 600_000, 600_000];
 
     for (let round = 0; round < 10; round++) {
       if (round > 0) await vi.setSystemTime(Date.now() + delays[round - 1]!);
@@ -305,12 +299,13 @@ describe('Phase 1933 Step F：进程内探针唤醒调度', () => {
       expect(result).toMatchObject({ ok: false, provider: 'primary', errorClass: 'rate_limit' });
       expect(mock.calls()).toBe(round + 1);
     }
-    expect(await owner.inspectRecoverySchedule()).toMatchObject({ kind: 'on_change' });
+    expect(await owner.inspectRecoverySchedule()).toMatchObject({ kind: 'at' });
 
-    const blocked = await owner.probe();
-    expect(blocked).toMatchObject({ ok: false, provider: 'none', reason: 'recovery_floor' });
-    expect(mock.calls()).toBe(10);
-    expect(emitted.filter(event => event.type === 'probe_target_selected')).toHaveLength(10);
+    await vi.setSystemTime(Date.now() + delays[9]!);
+    const continued = await owner.probe();
+    expect(continued).toMatchObject({ ok: false, provider: 'primary', errorClass: 'rate_limit' });
+    expect(mock.calls()).toBe(11);
+    expect(emitted.filter(event => event.type === 'probe_target_selected')).toHaveLength(11);
     await owner.close();
   });
 
