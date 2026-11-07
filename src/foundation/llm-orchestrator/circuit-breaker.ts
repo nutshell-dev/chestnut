@@ -1,9 +1,10 @@
 /**
- * Circuit Breaker for provider health
+ * Legacy/test-only Circuit Breaker for provider health.
  *
- * Module-level state machine used by LLMOrchestratorImpl per provider (primary + fallbacks).
- * Self-contained: 0 cross-module state dependencies / not exported from barrel
- * (implementation detail of llm-orchestrator).
+ * Retained for migration evidence and legacy tests only. Production orchestration
+ * must use ProviderAdmission/RecoveryLedger state; this type is not instantiated
+ * by the production Facade, InvocationExecutor, or ProviderRuntime.
+ * Self-contained: 0 cross-module state dependencies / not exported from barrel.
  *
  * State machine:
  * closed --(连续失败 N 次)--> open --(resetTimeoutMs 后)--> half-open

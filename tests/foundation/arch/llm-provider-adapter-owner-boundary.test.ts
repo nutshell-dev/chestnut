@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 const orchestratorTypes = readFileSync(new URL('../../../src/foundation/llm-orchestrator/types.ts', import.meta.url), 'utf8');
 const providerBarrel = readFileSync(new URL('../../../src/foundation/llm-provider/index.ts', import.meta.url), 'utf8');
 const callers = [
-  '../../../src/foundation/llm-orchestrator/orchestrator.ts',
+  '../../../src/foundation/llm-orchestrator/provider-runtime.ts',
   '../../../tests/foundation/llm-service.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge.test.ts',
   '../../../tests/foundation/llm-orchestrator/orchestrator.test.ts',

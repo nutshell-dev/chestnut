@@ -5,7 +5,7 @@ import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/in
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 const sources = [
-  '../../../src/foundation/llm-orchestrator/orchestrator.ts',
+  '../../../src/foundation/llm-orchestrator/invocation-executor.ts',
   '../../../src/core/step-executor/llm-stream-collector.ts',
   '../../../tests/foundation/llm/abort-helper.test.ts',
   '../../../tests/foundation/llm-service.test.ts',

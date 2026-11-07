@@ -7,7 +7,7 @@ import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/er
 // Phase 1826: EventLoop 不再消费 LLMRateLimitError（Retry-After 提取与退避解释
 // 唯一归 LLMOrchestrator 恢复 owner）。
 const sources = [
-  '../../../src/foundation/llm-orchestrator/orchestrator.ts',
+  '../../../src/foundation/llm-orchestrator/invocation-executor.ts',
   '../../../tests/foundation/llm-orchestrator/hedge.test.ts',
   '../../../tests/foundation/llm-provider/pi-ai-adapter.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));

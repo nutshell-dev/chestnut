@@ -7,7 +7,7 @@ const orchestratorTypes = read('../../../src/foundation/llm-orchestrator/types.t
 const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.ts');
 const sdkBarrel = read('../../../src/index.ts');
 const callers = [
-  '../../../src/foundation/llm-orchestrator/orchestrator.ts',
+  '../../../src/foundation/llm-orchestrator/provider-runtime.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-cleanup-invariants.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-primary-success-race-lost.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge-state-machine-cluster.test.ts',

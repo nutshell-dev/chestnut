@@ -2,7 +2,7 @@
  * Phase 1979: probe 预算统一（LLM_PROBE_MAX_TOKENS = 64）。
  *
  * - probeLLMConnection / checkLLMConnectionFor 经 mock orchestrator 断言 maxTokens；
- * - orchestrator._minimalProbe 为私有路径，以源文件断言常量使用（无第二套 1-token 预算）。
+ * - InvocationExecutor.minimalProbe 以源文件断言常量使用（无第二套 1-token 预算）。
  */
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,9 +64,9 @@ describe('Phase 1979 probe budget', () => {
     expect(classifyLLMErrorForDisplay(err)).toBe('model');
   });
 
-  it('orchestrator._minimalProbe 使用常量、无固定 1-token 预算', () => {
+  it('InvocationExecutor.minimalProbe 使用常量、无固定 1-token 预算', () => {
     const source = readFileSync(
-      new URL('../../src/foundation/llm-orchestrator/orchestrator.ts', import.meta.url),
+      new URL('../../src/foundation/llm-orchestrator/invocation-executor.ts', import.meta.url),
       'utf8',
     );
     expect(source).toMatch(/maxTokens:\s*LLM_PROBE_MAX_TOKENS/);

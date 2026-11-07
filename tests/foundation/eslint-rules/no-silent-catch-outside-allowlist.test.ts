@@ -20,6 +20,11 @@ describe('eslint custom rule: no-silent-catch-outside-allowlist (phase 343)', ()
         code: 'try { foo(); } catch { /* silent: generator already closed */ }',
         filename: 'src/foundation/llm-orchestrator/orchestrator.ts',
       },
+      // allowlist: invocation-executor.ts (hedge iterator cleanup)
+      {
+        code: 'try { foo(); } catch { /* silent: iterator already closed */ }',
+        filename: 'src/foundation/llm-orchestrator/invocation-executor.ts',
+      },
       // allowlist: watcher.ts
       {
         code: 'try { foo(); } catch { }',

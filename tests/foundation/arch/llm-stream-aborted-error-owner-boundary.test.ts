@@ -4,7 +4,7 @@ import { LLMStreamAbortedError } from '../../../src/foundation/llm-provider/inde
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 const orchestratorSource = readFileSync(
-  new URL('../../../src/foundation/llm-orchestrator/orchestrator.ts', import.meta.url),
+  new URL('../../../src/foundation/llm-orchestrator/invocation-executor.ts', import.meta.url),
   'utf8',
 );
 

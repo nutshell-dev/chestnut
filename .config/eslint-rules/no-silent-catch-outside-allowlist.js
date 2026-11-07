@@ -23,6 +23,8 @@ const ALLOWLIST_BASENAMES = new Set([
   // phase 1324 ratify
   'task-recovery.ts',
   'orchestrator.ts',
+  // Phase 2060 Step E: hedge loser/iterator cleanup is best-effort and idempotent.
+  'invocation-executor.ts',
   // phase 272 Step E baseline
   'chat-viewport-init.ts',
   'chat-viewport-input.ts',

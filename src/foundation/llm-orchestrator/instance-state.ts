@@ -1,6 +1,6 @@
 /**
  * LLMOrchestrator 实例的唯一持久事实：健康、选择基础、恢复历史与在途 invocation。
- * 旧 recovery/retry 文件只由 orchestrator 构造期只读导入；运行期写入只经过本文件。
+ * 旧 recovery/retry 文件只由 InstanceStateStore 构造期只读导入；原子写入由 Store 调用本文件。
  */
 import * as path from 'path';
 import { formatErr, newUuid } from '../node-utils/index.js';

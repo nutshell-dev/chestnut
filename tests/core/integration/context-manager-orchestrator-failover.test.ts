@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 describe('orchestrator upper-layer context error boundary', () => {
   it('does not contain the L4 ContextTrim error name or its dedicated failover', () => {
     const source = readFileSync(
-      new URL('../../../src/foundation/llm-orchestrator/orchestrator.ts', import.meta.url),
+      new URL('../../../src/foundation/llm-orchestrator/invocation-executor.ts', import.meta.url),
       'utf8',
     );
 

@@ -5,7 +5,7 @@ import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/in
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 const sources = [
-  '../../../src/foundation/llm-orchestrator/orchestrator.ts',
+  '../../../src/foundation/llm-orchestrator/invocation-executor.ts',
   '../../../tests/foundation/llm-service.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
 const sdkSource = readFileSync(new URL('../../../src/index.ts', import.meta.url), 'utf8');
