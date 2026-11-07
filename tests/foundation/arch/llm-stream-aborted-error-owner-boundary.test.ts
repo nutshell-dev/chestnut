@@ -23,6 +23,7 @@ describe('LLMStreamAbortedError owner boundary', () => {
     expect(orchestratorSource).not.toMatch(
       /import\s*\{[^}]*LLMStreamAbortedError[^}]*\}\s*from\s*['"]\.\/errors\.js['"]/s,
     );
-    expect(orchestratorSource.match(/new LLMStreamAbortedError\(/g)).toHaveLength(6);
+    // Phase 2058 移除重复 breaker 记账后，错误仍在各实际失败出口构造，共 5 处。
+    expect(orchestratorSource.match(/new LLMStreamAbortedError\(/g)).toHaveLength(5);
   });
 });
