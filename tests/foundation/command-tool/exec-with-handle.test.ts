@@ -9,6 +9,11 @@ import { describe, it, expect } from 'vitest';
 import { createExecWithHandle } from '../../../src/foundation/command-tool/exec.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
+import {
+  EMPTY_OUTPUT_COMMAND,
+  PRINT_WORKING_DIRECTORY_COMMAND,
+  printEnvCommand,
+} from './platform-commands.js';
 
 describe('createExecWithHandle', () => {
   it('should return ExecHandle for valid command', async () => {
@@ -23,7 +28,7 @@ describe('createExecWithHandle', () => {
   it('should resolve workspaceDir-relative cwd', async () => {
     const execWithHandle = createExecWithHandle();
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
-    const handle = await execWithHandle({ command: 'pwd', cwd: '.' }, ctx);
+    const handle = await execWithHandle({ command: PRINT_WORKING_DIRECTORY_COMMAND, cwd: '.' }, ctx);
     const result = await handle.promise;
     expect(result.exitCode).toBe(0);
     expect(result.output.trim()).toBe(process.cwd());
@@ -35,7 +40,7 @@ describe('createExecWithHandle', () => {
       workspaceDir: process.cwd(),
       subagentTaskId: 'subagent-fixture-456',
     });
-    const handle = await execWithHandle({ command: 'echo "$CHESTNUT_SUBAGENT_TASK_ID"' }, ctx);
+    const handle = await execWithHandle({ command: printEnvCommand('CHESTNUT_SUBAGENT_TASK_ID') }, ctx);
     const result = await handle.promise;
     expect(result.exitCode).toBe(0);
     expect(result.output.trim()).toBe('subagent-fixture-456');
@@ -58,7 +63,7 @@ describe('createExecWithHandle', () => {
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
     let threw = false;
     try {
-      await execWithHandle({ command: 'true' }, ctx);
+      await execWithHandle({ command: EMPTY_OUTPUT_COMMAND }, ctx);
     } catch (err) {
       threw = true;
       expect(err).toBeInstanceOf(Error);
@@ -123,7 +128,7 @@ describe('createExecWithHandle deadline passthrough (phase 1272 Step C)', () => 
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
     await expect(
       // @ts-expect-error phase 1272: the two timeout strategies are mutually exclusive at the type level
-      execWithHandle({ command: 'true', timeoutMs: 1000, deadlineAtMs: Date.now() + 1000 }, ctx),
+      execWithHandle({ command: EMPTY_OUTPUT_COMMAND, timeoutMs: 1000, deadlineAtMs: Date.now() + 1000 }, ctx),
     ).rejects.toThrow('mutually exclusive');
   });
 

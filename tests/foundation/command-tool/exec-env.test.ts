@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'node:fs';
 import { randomUUID } from 'crypto';
+import { printEnvCommand, printEnvPairCommand } from './platform-commands.js';
 
 describe('exec tool env injection', () => {
   let lastDir: string;
@@ -44,7 +45,7 @@ describe('exec tool env injection', () => {
   it('ctx.subagentTaskId set → spawn child env contains CHESTNUT_SUBAGENT_TASK_ID', async () => {
     const { ctx } = await makeCtx('task-fixture-123');
     const tool = createExecTool();
-    const result = await tool.execute({ command: 'echo "$CHESTNUT_SUBAGENT_TASK_ID"' }, ctx);
+    const result = await tool.execute({ command: printEnvCommand('CHESTNUT_SUBAGENT_TASK_ID') }, ctx);
     expect(result.success).toBe(true);
     expect((result.content as string).trim()).toBe('task-fixture-123');
   });
@@ -52,7 +53,7 @@ describe('exec tool env injection', () => {
   it('ctx.subagentTaskId unset → env not injected', async () => {
     const { ctx } = await makeCtx();
     const tool = createExecTool();
-    const result = await tool.execute({ command: 'echo "$CHESTNUT_SUBAGENT_TASK_ID"' }, ctx);
+    const result = await tool.execute({ command: printEnvCommand('CHESTNUT_SUBAGENT_TASK_ID') }, ctx);
     expect(result.success).toBe(true);
     expect((result.content as string).trim()).toBe('');
   });
@@ -61,11 +62,11 @@ describe('exec tool env injection', () => {
   it('主代理 exec（无 subagentTaskId）→ CHESTNUT_CALLER_AGENT_ID = clawId', async () => {
     const { ctx } = await makeCtx();
     const tool = createExecTool();
-    const result = await tool.execute({ command: 'echo "$CHESTNUT_CALLER_AGENT_ID"' }, ctx);
+    const result = await tool.execute({ command: printEnvCommand('CHESTNUT_CALLER_AGENT_ID') }, ctx);
     expect(result.success).toBe(true);
     expect((result.content as string).trim()).toBe('test-claw');
     // 既有 subagent env 行为保留：未设时不注入
-    const sub = await tool.execute({ command: 'echo "$CHESTNUT_SUBAGENT_TASK_ID"' }, ctx);
+    const sub = await tool.execute({ command: printEnvCommand('CHESTNUT_SUBAGENT_TASK_ID') }, ctx);
     expect((sub.content as string).trim()).toBe('');
   });
 
@@ -73,7 +74,7 @@ describe('exec tool env injection', () => {
     const { ctx } = await makeCtx('spawn-abc', 'spawn-abc');
     const tool = createExecTool();
     const result = await tool.execute(
-      { command: 'echo "$CHESTNUT_CALLER_AGENT_ID/$CHESTNUT_SUBAGENT_TASK_ID"' },
+      { command: printEnvPairCommand('CHESTNUT_CALLER_AGENT_ID', 'CHESTNUT_SUBAGENT_TASK_ID') },
       ctx,
     );
     expect(result.success).toBe(true);

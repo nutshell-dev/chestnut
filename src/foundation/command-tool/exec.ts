@@ -28,6 +28,7 @@ import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
+import { resolveHostShell } from './host-shell.js';
 
 function toSafeNumber(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(String(v));
@@ -223,16 +224,25 @@ export async function formatExecOutputForToolResult(
 export const EXEC_TOOL_NAME = 'exec' as const;
 
 export function createExecTool(preExecGuard?: PreExecGuard): Tool {
+  const hostShell = resolveHostShell('');
+  const isWindows = hostShell.executable === 'cmd.exe';
+  const description = isWindows
+    ? 'Execute a shell command in your clawspace. Runs via `cmd.exe /d /s /c`; write commands using cmd.exe syntax, so shell features (pipes, redirects, quotes) work normally. Use powershell.exe -NoProfile -Command "..." when PowerShell is needed. Relative paths resolve against your clawspace.'
+    : 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace.';
+  const commandDescription = isWindows
+    ? 'Command string to execute with cmd.exe, e.g. "dir" or "type file.txt | findstr foo"'
+    : 'Shell command string to execute, e.g. "ls -la" or "grep -r foo . | head -20"';
+
   return {
     name: EXEC_TOOL_NAME,
     profiles: ['full', 'subagent', 'miner'],
-    description: 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace.',
+    description,
     schema: {
       type: 'object',
       properties: {
         command: {
           type: 'string',
-          description: 'Shell command string to execute, e.g. "ls -la" or "grep -r foo . | head -20"',
+          description: commandDescription,
         },
         cwd: {
           type: 'string',
@@ -244,7 +254,7 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
         },
         stdin: {
           type: 'string',
-          description: 'Content to pipe to the command stdin. Use "cat > file" with this instead of heredoc to avoid shell escaping issues.',
+          description: 'Content to pipe directly to the child process stdin; it is not parsed by the shell.',
         },
       },
       required: ['command'],
@@ -279,7 +289,8 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
       // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup
 
       try {
-        const result = await exec('sh', ['-c', command], {
+        const hostShell = resolveHostShell(command);
+        const result = await exec(hostShell.executable, hostShell.args, {
           cwd,
           timeout: timeoutMs,
           signal: ctx.signal,
@@ -357,7 +368,8 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
       throw new Error('timeoutMs and deadlineAtMs are mutually exclusive');
     }
 
-    return execWithHandle('sh', ['-c', command], {
+    const hostShell = resolveHostShell(command);
+    return execWithHandle(hostShell.executable, hostShell.args, {
       cwd,
       ...(deadlineAtMs !== undefined ? { deadlineAtMs } : { timeout: timeoutMs }),
       signal: ctx.signal,

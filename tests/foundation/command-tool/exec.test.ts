@@ -6,11 +6,18 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { fileURLToPath } from 'url';
 import { createExecTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
 import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
+import {
+  EMPTY_OUTPUT_COMMAND,
+  IS_WINDOWS,
+  LONG_EMPTY_OUTPUT_COMMAND,
+  NON_ZERO_EXIT_COMMAND,
+} from './platform-commands.js';
 
 const execTool = createExecTool();
 
@@ -41,31 +48,52 @@ describe('phase 1472 Step B: agent exec 默认时限 ownership（CommandTool 三
   });
 });
 
+describe('phase 2061 host-aware exec tool description', () => {
+  it('describes the actual host shell without expanding the schema', () => {
+    const props = execTool.schema.properties as Record<string, { description?: string }>;
+
+    if (IS_WINDOWS) {
+      expect(execTool.description).toContain('cmd.exe /d /s /c');
+      expect(execTool.description).toContain('powershell.exe -NoProfile -Command');
+      expect(props.command.description).toContain('dir');
+      expect(props.command.description).toContain('findstr');
+      expect(props.command.description).not.toContain('ls -la');
+    } else {
+      expect(execTool.description).toContain('sh -c');
+      expect(execTool.description).not.toContain('cmd.exe');
+      expect(props.command.description).toContain('ls -la');
+    }
+    expect(props).not.toHaveProperty('shell');
+    expect(props.stdin.description).toContain('pipe directly');
+    expect(props.stdin.description).toContain('not parsed by the shell');
+  });
+});
+
 describe('phase 96 exec empty-output placeholder', () => {
   it('exit 0 + empty output → content carries (no output) + [command]', async () => {
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
-    const result = await execTool.execute({ command: 'true' }, ctx);
+    const result = await execTool.execute({ command: EMPTY_OUTPUT_COMMAND }, ctx);
     expect(result.success).toBe(true);
     expect(result.content).toContain('(no output)');
-    expect(result.content).toContain('[command]: true');
+    expect(result.content).toContain(`[command]: ${EMPTY_OUTPUT_COMMAND}`);
   });
 
   it('non-zero exit + empty output → content has [exit N] + (no output) + [command]', async () => {
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
-    const result = await execTool.execute({ command: 'false' }, ctx);
+    const result = await execTool.execute({ command: NON_ZERO_EXIT_COMMAND }, ctx);
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/\[exit 1\]/);
     expect(result.content).toContain('(no output)');
-    expect(result.content).toContain('[command]: false');
+    expect(result.content).toContain(`[command]: ${NON_ZERO_EXIT_COMMAND}`);
   });
 
   it('long command (> 200 chars) truncated in placeholder', async () => {
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
-    const longCmd = 'true ' + '#'.repeat(500); // sh 注释、cmd 仍 exit 0、output 空
+    const longCmd = LONG_EMPTY_OUTPUT_COMMAND;
     const result = await execTool.execute({ command: longCmd }, ctx);
     expect(result.success).toBe(true);
     expect(result.content).toContain('(no output)');
-    expect(result.content).toContain('[command]: true');
+    expect(result.content).toContain('[command]: ');
     expect(result.content).toContain('[truncated]');
     // command 字符串部分（含 [command]: prefix 前缀）应不超 ~210（200 + prefix + truncated 标记）
     const commandLine = result.content
@@ -75,6 +103,47 @@ describe('phase 96 exec empty-output placeholder', () => {
     expect(commandLine!.length).toBeLessThanOrEqual(
       EXEC_COMMAND_PLACEHOLDER_CHARS + '[command]: '.length + '[truncated]'.length,
     );
+  });
+});
+
+describe('phase 2061 real Windows cmd behavior', () => {
+  it.runIf(IS_WINDOWS)('supports cmd pipes', async () => {
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    const result = await execTool.execute({ command: 'echo phase2061 | findstr phase2061' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('phase2061');
+  });
+
+  it.runIf(IS_WINDOWS)('supports cmd redirection and paths containing spaces', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2061-cmd-'));
+    try {
+      const ctx = makeExecContext({ workspaceDir: dir });
+      const result = await execTool.execute({ command: 'echo phase2061 > "output file.txt"' }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'output file.txt'), 'utf8').trim()).toBe('phase2061');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(IS_WINDOWS)('preserves quoted arguments containing spaces', async () => {
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    const result = await execTool.execute({ command: 'echo "hello world"' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('hello world');
+  });
+
+  it.runIf(IS_WINDOWS)('supports explicit PowerShell without making it the default shell', async () => {
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    const result = await execTool.execute({
+      command: 'powershell.exe -NoProfile -Command "Write-Output \'phase2061\'"',
+    }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content.trim()).toBe('phase2061');
   });
 });
 
