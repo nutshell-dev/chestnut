@@ -21,14 +21,13 @@ import {
 } from './constants.js';
 import { CALLER_AGENT_ID_ENV } from './env.js';
 
-import { exec, execWithHandle } from '../process-exec/index.js';
+import { exec, execWithHandle, resolveHostCommand } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_MAX_BUFFER } from '../process-exec/index.js';
 import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
-import { resolveHostShell } from './host-shell.js';
 
 function toSafeNumber(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(String(v));
@@ -224,14 +223,9 @@ export async function formatExecOutputForToolResult(
 export const EXEC_TOOL_NAME = 'exec' as const;
 
 export function createExecTool(preExecGuard?: PreExecGuard): Tool {
-  const hostShell = resolveHostShell('');
-  const isWindows = hostShell.executable === 'cmd.exe';
-  const description = isWindows
-    ? 'Execute a shell command in your clawspace. Runs via `cmd.exe /d /s /c`; write commands using cmd.exe syntax, so shell features (pipes, redirects, quotes) work normally. Use powershell.exe -NoProfile -Command "..." when PowerShell is needed. Relative paths resolve against your clawspace.'
-    : 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace.';
-  const commandDescription = isWindows
-    ? 'Command string to execute with cmd.exe, e.g. "dir" or "type file.txt | findstr foo"'
-    : 'Shell command string to execute, e.g. "ls -la" or "grep -r foo . | head -20"';
+  const hostCommand = resolveHostCommand('');
+  const description = `Execute a shell command in your clawspace. Runs via \`${hostCommand.invocation}\`; use commands and syntax supported by that interpreter, so shell features (pipes, redirects, quotes) work normally. Use powershell.exe -NoProfile -Command "..." when PowerShell is needed on Windows. Relative paths resolve against your clawspace.`;
+  const commandDescription = 'Command string to execute using the syntax and commands supported by the host interpreter';
 
   return {
     name: EXEC_TOOL_NAME,
@@ -289,8 +283,8 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
       // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup
 
       try {
-        const hostShell = resolveHostShell(command);
-        const result = await exec(hostShell.executable, hostShell.args, {
+        const hostCommand = resolveHostCommand(command);
+        const result = await exec(hostCommand.executable, hostCommand.args, {
           cwd,
           timeout: timeoutMs,
           signal: ctx.signal,
@@ -368,8 +362,8 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
       throw new Error('timeoutMs and deadlineAtMs are mutually exclusive');
     }
 
-    const hostShell = resolveHostShell(command);
-    return execWithHandle(hostShell.executable, hostShell.args, {
+    const hostCommand = resolveHostCommand(command);
+    return execWithHandle(hostCommand.executable, hostCommand.args, {
       cwd,
       ...(deadlineAtMs !== undefined ? { deadlineAtMs } : { timeout: timeoutMs }),
       signal: ctx.signal,

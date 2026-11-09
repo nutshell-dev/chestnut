@@ -10,7 +10,7 @@ import * as os from 'os';
 import { fileURLToPath } from 'url';
 import { createExecTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
 import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
-import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
+import { ProcessExecError, resolveHostCommand } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import {
   EMPTY_OUTPUT_COMMAND,
@@ -48,21 +48,18 @@ describe('phase 1472 Step B: agent exec 默认时限 ownership（CommandTool 三
   });
 });
 
-describe('phase 2061 host-aware exec tool description', () => {
-  it('describes the actual host shell without expanding the schema', () => {
+describe('phase 2062 L1 host invocation exec tool description', () => {
+  it('interpolates the L1 invocation without platform-specific examples or schema expansion', () => {
     const props = execTool.schema.properties as Record<string, { description?: string }>;
+    const { invocation } = resolveHostCommand('');
 
-    if (IS_WINDOWS) {
-      expect(execTool.description).toContain('cmd.exe /d /s /c');
-      expect(execTool.description).toContain('powershell.exe -NoProfile -Command');
-      expect(props.command.description).toContain('dir');
-      expect(props.command.description).toContain('findstr');
-      expect(props.command.description).not.toContain('ls -la');
-    } else {
-      expect(execTool.description).toContain('sh -c');
-      expect(execTool.description).not.toContain('cmd.exe');
-      expect(props.command.description).toContain('ls -la');
-    }
+    expect(execTool.description).toContain(`Runs via \`${invocation}\``);
+    expect(execTool.description).toContain('commands and syntax supported by that interpreter');
+    expect(execTool.description).toContain('powershell.exe -NoProfile -Command');
+    expect(props.command.description).toContain('supported by the host interpreter');
+    expect(props.command.description).not.toContain('dir');
+    expect(props.command.description).not.toContain('findstr');
+    expect(props.command.description).not.toContain('ls -la');
     expect(props).not.toHaveProperty('shell');
     expect(props.stdin.description).toContain('pipe directly');
     expect(props.stdin.description).toContain('not parsed by the shell');

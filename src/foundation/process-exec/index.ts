@@ -9,6 +9,8 @@
  */
 
 export { exec, execWithHandle } from './exec.js';
+export { resolveHostCommand } from './host-command.js';
+export type { ResolvedHostCommand } from './host-command.js';
 export type {
   ExecHandle,
   ProcessInfo,
