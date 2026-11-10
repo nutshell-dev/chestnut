@@ -163,7 +163,12 @@ async function walk(
   }
 }
 
-function renderSkips(skips: SkipEntry[]): string {
+/**
+ * Skipped 段渲染。`limit === undefined` 表示完整模式（artifact 用）：列出**全部**明细，
+ * 绝不出现「+N more」省略标记；给定 limit 时只列前 limit 条，且**仅在确有省略时**追加
+ * `- +N more`。两模式共用同一份 reason 计数（基于完整集合）。
+ */
+function renderSkips(skips: SkipEntry[], limit?: number): string {
   if (skips.length === 0) return '';
   const counts: Record<SkipReason, number> = { binary: 0, permission: 0, io_error: 0, size_limit: 0 };
   for (const s of skips) counts[s.reason]++;
@@ -172,13 +177,11 @@ function renderSkips(skips: SkipEntry[]): string {
     if (counts[k] > 0) parts.push(`${k}=${counts[k]}`);
   }
   const header = `[Skipped] (${skips.length} files, reasons: ${parts.join(', ')})`;
-  const head = skips.slice(0, SEARCH_SKIP_DISPLAY_LIMIT)
-    .map(s => `- ${s.path} (${s.reason})`)
-    .join('\n');
-  const more = skips.length > SEARCH_SKIP_DISPLAY_LIMIT
-    ? `\n- +${skips.length - SEARCH_SKIP_DISPLAY_LIMIT} more`
-    : '';
-  return `${header}\n${head}${more}`;
+  const shown = limit === undefined ? skips : skips.slice(0, limit);
+  const lines = shown.map(s => `- ${s.path} (${s.reason})`);
+  const omitted = skips.length - shown.length;
+  if (omitted > 0) lines.push(`- +${omitted} more`);
+  return [header, ...lines].join('\n');
 }
 
 /* ---------------- phase 2086 Step C：有界预览（行 / 总字节预算） ---------------- */
@@ -229,14 +232,33 @@ function toDisplayPath(p: string, workspaceClawDirRel: string | null): string {
 }
 
 /**
- * 分段渲染（Filename / Content / Skipped）。`lineMaxBytes === undefined` 时输出完整内容
- * （artifact 用，绝不裁剪）；指定时逐行裁剪，供预览使用。
+ * 渲染模式（显式传播 preview / full 意图）。
+ * - full：artifact 用，绝不裁剪——既无行字节上限，也无 Skipped 条数上限。
+ * - preview：预览用，行 ≤ lineMaxBytes、Skipped 明细 ≤ skipLimit，二者**显式**成对给出。
+ * 一律不用某个字段的 undefined 隐式代表另一种模式，避免后续调整行预算时重新把完整输出混用为预览。
+ */
+type RenderMode =
+  | { mode: 'full' }
+  | { mode: 'preview'; lineMaxBytes: number; skipLimit: number };
+
+function lineCapOf(renderMode: RenderMode): number | undefined {
+  return renderMode.mode === 'full' ? undefined : renderMode.lineMaxBytes;
+}
+
+function skipLimitOf(renderMode: RenderMode): number | undefined {
+  return renderMode.mode === 'full' ? undefined : renderMode.skipLimit;
+}
+
+/**
+ * 分段渲染（Filename / Content / Skipped）。full 模式输出完整内容（artifact 用，绝不裁剪）；
+ * preview 模式逐行裁剪且 Skipped 明细限流，供预览使用。
  */
 function renderBlocks(
   result: WalkResult,
   workspaceClawDirRel: string | null,
-  lineMaxBytes?: number,
+  renderMode: RenderMode,
 ): { blocks: RenderBlock[]; state: RenderState } {
+  const lineMaxBytes = lineCapOf(renderMode);
   const state: RenderState = { lineTruncated: false };
   const blocks: RenderBlock[] = [];
 
@@ -262,7 +284,7 @@ function renderBlocks(
     blocks.push({ header: '[Content matches]', lines });
   }
 
-  const skipBlock = renderSkips(result.skips);
+  const skipBlock = renderSkips(result.skips, skipLimitOf(renderMode));
   if (skipBlock) {
     const [header, ...lines] = skipBlock.split('\n');
     blocks.push({ header, lines: lines.map(l => capRenderedLine(l, lineMaxBytes, state)) });
@@ -275,21 +297,21 @@ function joinBlocks(blocks: RenderBlock[]): string {
   return blocks.map(b => [b.header, ...b.lines].join('\n')).join(SECTION_SEPARATOR);
 }
 
-/** 完整 artifact 内容：不裁剪、不复用预览结果 */
+/** 完整 artifact 内容：不裁剪、不复用预览结果（显式 full 模式 → 全部 Skipped 明细） */
 function buildFullOutput(result: WalkResult, workspaceClawDirRel: string | null): string {
-  return joinBlocks(renderBlocks(result, workspaceClawDirRel).blocks);
+  return joinBlocks(renderBlocks(result, workspaceClawDirRel, { mode: 'full' }).blocks);
 }
 
 function buildNoMatchBody(
   pattern: string,
   skips: SkipEntry[],
-  lineMaxBytes?: number,
+  renderMode: RenderMode,
 ): { text: string; state: RenderState } {
   const body = `No matches for "${pattern}".`;
   if (skips.length === 0) return { text: body, state: { lineTruncated: false } };
   const state: RenderState = { lineTruncated: false };
-  const [header, ...lines] = renderSkips(skips).split('\n');
-  const capped = [header, ...lines.map(l => capRenderedLine(l, lineMaxBytes, state))].join('\n');
+  const [header, ...lines] = renderSkips(skips, skipLimitOf(renderMode)).split('\n');
+  const capped = [header, ...lines.map(l => capRenderedLine(l, lineCapOf(renderMode), state))].join('\n');
   return { text: `${body}${SECTION_SEPARATOR}${capped}`, state };
 }
 
@@ -393,19 +415,26 @@ async function finalize(
 
   // 2) 预览候选：≤SEARCH_PREVIEW_LIMIT 条、每行 ≤SEARCH_PREVIEW_LINE_MAX_BYTES
   const previewResult = takePreview(result);
+  const previewMode: RenderMode = {
+    mode: 'preview',
+    lineMaxBytes: SEARCH_PREVIEW_LINE_MAX_BYTES,
+    skipLimit: SEARCH_SKIP_DISPLAY_LIMIT,
+  };
   const preview = totalMatches === 0
-    ? buildNoMatchBody(pattern, previewResult.skips, SEARCH_PREVIEW_LINE_MAX_BYTES)
+    ? buildNoMatchBody(pattern, previewResult.skips, previewMode)
     : (() => {
-        const rendered = renderBlocks(previewResult, workspaceClawDirRel, SEARCH_PREVIEW_LINE_MAX_BYTES);
+        const rendered = renderBlocks(previewResult, workspaceClawDirRel, previewMode);
         return { text: joinBlocks(rendered.blocks), state: rendered.state };
       })();
 
   const overCount = totalMatches > SEARCH_PREVIEW_LIMIT;
   const overLineLimit = preview.state.lineTruncated;
   const overTotalBudget = utf8Bytes(preview.text) > SEARCH_OUTPUT_MAX_BYTES;
+  // Skipped 明细被截断也算「显示裁剪」：仅条数超限（含零匹配）同样必须落盘一次完整结果
+  const overSkipCount = result.skips.length > SEARCH_SKIP_DISPLAY_LIMIT;
 
   // 3) 短且完整：保持原文本，零落盘
-  if (!overCount && !overLineLimit && !overTotalBudget) {
+  if (!overCount && !overLineLimit && !overTotalBudget && !overSkipCount) {
     return { success: true, content: preview.text };
   }
 

@@ -646,3 +646,145 @@ describe('phase 2086 C: bounded search preview (line / total byte budget)', () =
     expect(readBack.content).toContain('needle-000');
   });
 });
+
+/* ========================================================================
+ * phase 2086 Step R：Skipped 完整交付
+ * 完整 artifact 必须列出全部 Skipped 明细；预览最多 5 条 + 「+N more」；
+ * 仅 Skipped 条数超限（含零匹配）也必须落盘一次完整结果。
+ * ====================================================================== */
+
+describe('phase 2086 R: complete skipped delivery', () => {
+  let tempDir: string;
+  let clawDir: string;
+  const workspace = (): string => path.join(clawDir, 'clawspace');
+  const overflowDir = (): string => path.join(clawDir, 'tasks/sync/search');
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+    clawDir = path.join(tempDir, 'claw');
+    await fs.mkdir(workspace(), { recursive: true });
+    await fs.mkdir(overflowDir(), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
+
+  async function overflowFiles(): Promise<string[]> {
+    return fs.readdir(overflowDir());
+  }
+
+  /** 真实临时目录里的 N 个二进制文件（含 NUL，文件名不含 pattern） */
+  async function writeBinaries(count: number): Promise<string[]> {
+    const names: string[] = [];
+    for (let i = 1; i <= count; i++) {
+      const name = `blob${i}.bin`;
+      await fs.writeFile(path.join(workspace(), name), Buffer.from([0x00, 0x01, 0x02, i]));
+      names.push(name);
+    }
+    return names;
+  }
+
+  /** 读回唯一 artifact 的正文（去掉 frontmatter） */
+  async function readArtifact(): Promise<string> {
+    const files = await overflowFiles();
+    expect(files).toHaveLength(1);
+    const raw = await fs.readFile(path.join(overflowDir(), files[0]!), 'utf-8');
+    return raw.replace(/^---\n[\s\S]*?\n---\n/, '');
+  }
+
+  /** 从 artifact / 预览正文中提取 Skipped 明细行（集合语义，不依赖目录枚举顺序） */
+  function skipDetailLines(text: string): string[] {
+    return text.split('\n').filter((l) => /^- .+ \((binary|permission|io_error|size_limit)\)$/.test(l));
+  }
+
+  it('R/① 30 条短匹配 + 6 skipped：artifact 列出全部 6 条明细且无省略标记，预览最多 5 条 + 「+1 more」', async () => {
+    const names = await writeBinaries(6);
+    const lines = Array.from({ length: 30 }, (_, i) => `needle-${String(i).padStart(3, '0')}`).join('\n');
+    await fs.writeFile(path.join(workspace(), 'hits.txt'), lines);
+
+    const result = await searchTool.execute({ text: 'needle' }, makeCtx(clawDir));
+    expect(result.success).toBe(true);
+
+    // artifact：全部 6 条明细、集合相等、无「+N more」省略标记
+    const artifact = await readArtifact();
+    const artifactDetails = skipDetailLines(artifact);
+    expect(new Set(artifactDetails)).toEqual(new Set(names.map((n) => `- clawspace/${n} (binary)`)));
+    expect(artifact).not.toMatch(/^- \+\d+ more$/m);
+    expect(artifact).toContain('[Skipped] (6 files, reasons: binary=6)');
+
+    // 预览：最多 5 条明细 + 明确省略计数；整响应仍在 16KiB 内
+    const previewDetails = skipDetailLines(result.content);
+    expect(previewDetails).toHaveLength(5);
+    expect(new Set(previewDetails).size).toBe(5);
+    expect(result.content).toContain('- +1 more');
+    expect(bytesOf(result.content)).toBeLessThanOrEqual(SEARCH_OUTPUT_MAX_BYTES);
+    expect(result.content).toContain('Full results saved at');
+  });
+
+  it('R/② 零匹配 + 6 skipped：也落盘一次，artifact 列出全部 6 条明细', async () => {
+    const names = await writeBinaries(6);
+
+    const result = await searchTool.execute({ text: 'needle' }, makeCtx(clawDir));
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('No matches for "needle"');
+    expect(result.content).toContain('Full results saved at');
+
+    const artifact = await readArtifact();
+    const artifactDetails = skipDetailLines(artifact);
+    expect(new Set(artifactDetails)).toEqual(new Set(names.map((n) => `- clawspace/${n} (binary)`)));
+    expect(artifact).not.toMatch(/^- \+\d+ more$/m);
+    expect(artifact).toContain('[Skipped] (6 files, reasons: binary=6)');
+
+    const previewDetails = skipDetailLines(result.content);
+    expect(previewDetails).toHaveLength(5);
+    expect(result.content).toContain('- +1 more');
+    expect(bytesOf(result.content)).toBeLessThanOrEqual(SEARCH_OUTPUT_MAX_BYTES);
+  });
+
+  it('R/③ 1 条短匹配 + 6 skipped：落盘且 artifact 完整列出 6 条明细', async () => {
+    const names = await writeBinaries(6);
+    await fs.writeFile(path.join(workspace(), 'one.txt'), 'needle only-once');
+
+    const result = await searchTool.execute({ text: 'needle' }, makeCtx(clawDir));
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('1: needle only-once');
+
+    const artifact = await readArtifact();
+    expect(new Set(skipDetailLines(artifact))).toEqual(new Set(names.map((n) => `- clawspace/${n} (binary)`)));
+    expect(artifact).not.toMatch(/^- \+\d+ more$/m);
+    expect(artifact).toContain('[Skipped] (6 files, reasons: binary=6)');
+    expect(skipDetailLines(result.content)).toHaveLength(5);
+    expect(result.content).toContain('- +1 more');
+  });
+
+  it('R/④ 恰 5 skipped 且未超其他预算：维持零落盘、原文本、无省略标记', async () => {
+    const names = await writeBinaries(5);
+    await fs.writeFile(path.join(workspace(), 'one.txt'), 'needle only-once');
+
+    const result = await searchTool.execute({ text: 'needle' }, makeCtx(clawDir));
+    expect(result.success).toBe(true);
+    expect(result.content).not.toContain('Full results saved at');
+    expect(result.content).not.toContain('Preview truncated');
+    expect(result.content).not.toContain('+0 more');
+    expect(await overflowFiles()).toHaveLength(0);
+    // 5 条明细全部在正文里
+    expect(new Set(skipDetailLines(result.content))).toEqual(new Set(names.map((n) => `- clawspace/${n} (binary)`)));
+  });
+
+  it('R/⑤ Skipped-only 路径故障注入：一次 writeAtomic、success=false、不谎报 saved', async () => {
+    await writeBinaries(6);
+    const throwing = throwingFs(clawDir, 'skipped-only persist boom');
+
+    const result = await searchTool.execute({ text: 'needle' }, makeCtx(clawDir, { fs: throwing.fs }));
+
+    expect(throwing.control.writeAtomicCalls).toBe(1);
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('overflow persist failed');
+    expect(result.content).not.toContain('Full results saved at');
+    expect(bytesOf(result.content)).toBeLessThanOrEqual(SEARCH_OUTPUT_MAX_BYTES);
+    expect(await overflowFiles()).toHaveLength(0);
+    // 预览仍是 5 条明细 + 省略计数（失败路径不回退全量）
+    expect(skipDetailLines(result.content)).toHaveLength(5);
+  });
+});
