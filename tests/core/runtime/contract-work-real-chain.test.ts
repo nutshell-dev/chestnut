@@ -37,6 +37,7 @@ type Prepared = Awaited<ReturnType<Runtime['prepareInbox']>>;
 
 interface TestRuntime {
   prepareInbox: (opts?: { messageType?: string; deliveryId?: string }) => Promise<Prepared>;
+  nackHandles: (handles: Prepared['entries'][number]['handle'][], reason: string, path: string) => Promise<void>;
 }
 
 /** 与既有 applicability 测试同形的 Runtime 子类：注入 reader/auditWriter 后直接调 prepareInbox。 */
@@ -235,37 +236,43 @@ describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前�
 
     // 未终态前：续作消息照常交付（守卫：过滤只在已确认终态后发生）
     const before = makeFactQuery();
-    const beforePrepared = await makePreparer(before.sink, before.factQuery).prepareInbox();
+    const beforeRuntime = makePreparer(before.sink, before.factQuery);
+    const beforePrepared = await beforeRuntime.prepareInbox();
     expect(beforePrepared.entries.map(e => e.message.id)).toEqual([resumeMsg!.id]);
+
+    // R2 剩余项：把第一次领取的原句柄归还 pending —— 取消后重新消费「同一条」消息，
+    // 而不是让调用方再生成一条新消息来替代验证。
+    await beforeRuntime.nackHandles(
+      beforePrepared.entries.map(e => e.handle),
+      'phase2094 resume chain requeue',
+      'pending',
+    );
+    expect(decodeAll(pendingNames(), 'pending').map(m => m.id)).toEqual([resumeMsg!.id]);
 
     // 取消（真实取消链，onboarding 契约已过期/未推进也不影响取消）
     const outcome = await system.cancel(ONBOARDING_CONTRACT_ID, 'phase2094 resume chain');
     expect(outcome.commit.kind).toBe('committed');
 
-    // phase 2094 Step R2: 取消落地后 scheduler 再次触发真实续作入口——
-    // 这条「晚到的排队指令」必须由生产代码写出并经真实 decodeInbox 读回，不得手写替代。
-    const lateResult = await ensureOnboardingAndNotify(deps, onboardingInput());
-    expect(lateResult.state).toBe('resumed');
-    expect(lateResult.contractId).toBe(ONBOARDING_CONTRACT_ID);
-
-    const pendingMsgs = decodeAll(pendingNames(), 'pending');
-    const lateMsg = pendingMsgs.find(m => m.type === 'contract_resume' && m.id !== resumeMsg!.id);
-    expect(lateMsg, '真实续作入口第二次调用未写出新的 contract_resume').toBeDefined();
-
-    // 原消息身份：来自真实磁盘、由真实 decodeInbox 解出，且与契约身份一致
-    expect(lateMsg!.from).toBe('system');
-    expect(lateMsg!.metadata?.contract_id).toBe(ONBOARDING_CONTRACT_ID);
-    expect(lateMsg!.content).toContain(ONBOARDING_CONTRACT_ID);
-    expect(lateMsg!.id).not.toBe(resumeMsg!.id);
-
-    // 交付/过滤结果必须与这条原消息的身份一致（而非与手造 ID 一致）
+    // R2 剩余项：取消落地后再次领取 —— 只交付真实 contract_cancelled；
+    // 同一条原 resume 消息按 id 被过滤进 done/（经真实 decodeInbox 读回核对身份）。
     const after = makeFactQuery();
     const afterPrepared = await makePreparer(after.sink, after.factQuery).prepareInbox();
-    expect(afterPrepared.entries.map(e => e.message.id)).not.toContain(lateMsg!.id);
-    // 已确认终态 → 该原消息被 ack 进 done/，pending 中不再存在同一身份
-    expect(decodeAll(pendingNames(), 'pending').map(m => m.id)).not.toContain(lateMsg!.id);
-    expect(decodeAll(doneNames(), 'done').map(m => m.id)).toContain(lateMsg!.id);
-    // 终态判定用的是这条真实原消息里的契约身份（审计行可观测，不依赖 spy）
+    expect(afterPrepared.entries.map(e => e.message.type)).toEqual(['contract_cancelled']);
+    expect(afterPrepared.entries.map(e => e.message.id)).not.toContain(resumeMsg!.id);
+
+    const resumeInDone = decodeAll(doneNames(), 'done').find(m => m.id === resumeMsg!.id);
+    expect(resumeInDone, '原 resume 消息未被过滤进 done/').toBeDefined();
+    // 身份一致：type / from / content / metadata.contract_id 与原消息相同
+    // （nack 允许改写 delivery_attempts 等处理元数据，故不整体深比较）
+    expect(resumeInDone!.type).toBe('contract_resume');
+    expect(resumeInDone!.from).toBe(resumeMsg!.from);
+    expect(resumeInDone!.content).toBe(resumeMsg!.content);
+    expect(resumeInDone!.metadata?.contract_id).toBe(ONBOARDING_CONTRACT_ID);
+    expect(resumeInDone!.metadata?.contract_id).toBe(resumeMsg!.metadata?.contract_id);
+    // pending 中不再存在同一身份
+    expect(decodeAll(pendingNames(), 'pending').map(m => m.id)).not.toContain(resumeMsg!.id);
+
+    // 终态审计断言（保留）：判定用的是这条原 resume 消息里的契约身份
     const termRows = after.sink.events.filter(e => e[0] === 'runtime_inbox_contract_terminal');
     expect(termRows).toHaveLength(1);
     expect(termRows[0].slice(1).map(String).join(' ')).toContain(`contract=${ONBOARDING_CONTRACT_ID}`);
