@@ -23,6 +23,18 @@ describe('resolvePreset', () => {
     expect(preset.piAiProvider).toBeUndefined();
   });
 
+  it('should align moonshot preset with CN catalog while preserving its defaults', () => {
+    const preset = resolvePreset('moonshot');
+    expect(preset).toMatchObject({
+      apiFormat: 'openai',
+      defaultBaseUrl: 'https://api.moonshot.cn/v1',
+      defaultModel: 'kimi-k2.5',
+      envVar: 'MOONSHOT_API_KEY',
+      piAiProvider: 'moonshotai-cn',
+      thinkingDefaults: { reasoningEffort: 'max' },
+    });
+  });
+
   it('should return kimi preset with apiFormat=anthropic and default model k3-256k', () => {
     const preset = resolvePreset('kimi');
     expect(preset).toMatchObject({ apiFormat: 'anthropic', defaultModel: 'k3-256k' });

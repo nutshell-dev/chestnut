@@ -137,6 +137,64 @@ describe('显式 catalog provider 配置链（schema → adapter → runtime cat
   });
 });
 
+describe('Phase 2080：Moonshot 中国站 preset 身份与真实 catalog 链', () => {
+  it('moonshot + kimi-k2.6 命中 CN 目录完整模型对象', async () => {
+    const config = parseProvider({ preset: 'moonshot', model: 'kimi-k2.6', api_key: 'synthetic-key' });
+    const runtime = await loadPiAiRuntime();
+    const expected = runtime.getBuiltinModels('moonshotai-cn').find((m) => m.id === config.model);
+    expect(expected).toBeDefined();
+
+    const resolved = resolvePiAiModel(runtime, config);
+    expect(resolved.fromCatalog).toBe(true);
+    expect(resolved.model).toEqual(expected);
+  });
+
+  it('显式 base_url 只覆盖请求地址，其余元数据保持 CN 目录对象', async () => {
+    const config = parseProvider({
+      preset: 'moonshot',
+      model: 'kimi-k2.6',
+      api_key: 'synthetic-key',
+      base_url: 'https://proxy.example.com/v1',
+    });
+    const runtime = await loadPiAiRuntime();
+    const expected = runtime.getBuiltinModels('moonshotai-cn').find((m) => m.id === config.model);
+    expect(expected).toBeDefined();
+
+    const resolved = resolvePiAiModel(runtime, config);
+    expect(resolved.fromCatalog).toBe(true);
+    expect(resolved.model).toEqual({ ...expected, baseUrl: 'https://proxy.example.com/v1' });
+    expect(resolved.model.cost).toEqual(expected!.cost);
+    expect(resolved.model.compat).toEqual(expected!.compat);
+    expect(resolved.model.provider).toBe('moonshotai-cn');
+  });
+
+  it('显式 provider_id=moonshotai 保持国际目录身份', async () => {
+    const config = parseProvider({ provider_id: 'moonshotai', model: 'kimi-k2.6', api_key: 'synthetic-key' });
+    const runtime = await loadPiAiRuntime();
+    const expected = runtime.getBuiltinModels('moonshotai').find((m) => m.id === config.model);
+    expect(expected).toBeDefined();
+
+    const resolved = resolvePiAiModel(runtime, config);
+    expect(resolved.fromCatalog).toBe(true);
+    expect(resolved.model).toEqual(expected);
+  });
+
+  it('默认 kimi-k2.5 保留既有自建回退与 CN 身份、协议、地址', async () => {
+    const config = parseProvider({ preset: 'moonshot', api_key: 'synthetic-key' });
+    expect(config.model).toBe('kimi-k2.5');
+
+    const runtime = await loadPiAiRuntime();
+    const resolved = resolvePiAiModel(runtime, config);
+    expect(resolved.fromCatalog).toBe(false);
+    expect(resolved.model).toMatchObject({
+      id: 'kimi-k2.5',
+      provider: 'moonshotai-cn',
+      api: 'openai-completions',
+      baseUrl: 'https://api.moonshot.cn/v1',
+    });
+  });
+});
+
 describe('Phase 1975 Step C：五家 curated preset 的 metadata-only catalog 解析', () => {
   // 断言四元组：fromCatalog=false、model.id=实际 wire model、api=anthropic-messages、
   // baseUrl=curated；contextWindow 取自 pi-ai 1.4.0 catalog 元数据。
@@ -222,6 +280,8 @@ describe('catalog 配置策略单源', () => {
     // pi-ai 1.4.0：azure-openai-responses 只是 api，不再是 provider
     expect(uncovered).toContain('azure');
     expect(uncovered).toContain('radius');
+    expect(uncovered).toContain('moonshotai');
+    expect(uncovered).not.toContain('moonshotai-cn');
     // preset 已覆盖的不重复出现
     expect(uncovered).not.toContain('anthropic');
     expect(uncovered).not.toContain('openai-codex');

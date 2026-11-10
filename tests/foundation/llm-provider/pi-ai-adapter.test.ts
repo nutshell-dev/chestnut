@@ -28,6 +28,8 @@ import {
 import { LLMQuotaError as RootLLMQuotaError } from '../../../src/index.js';
 import { ExternalAbortError } from '../../../src/foundation/llm-provider/abort-helper.js';
 import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';
+import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -785,6 +787,39 @@ describe('PiAiAdapter — model 解析与 catalog', () => {
     await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toBe('https://proxy.example.com/v1/chat/completions');
+  });
+
+  it('Phase 2080：Moonshot CN preset 经真实 SDK 序列化到默认中国站地址', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('ok'))));
+    vi.stubGlobal('fetch', fetchMock);
+    const config = toProviderConfig(llmProviderConfigSchema.parse({
+      preset: 'moonshot',
+      model: 'kimi-k2.6',
+      api_key: 'synthetic-key',
+    }));
+    const adapter = createLLMProvider(config);
+
+    await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('https://api.moonshot.cn/v1/chat/completions');
+    expect(JSON.parse(init.body as string).model).toBe('kimi-k2.6');
+  });
+
+  it('Phase 2080：Moonshot CN preset 的显式代理地址覆盖请求 URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(openaiSse(openaiTextFrames('ok'))));
+    vi.stubGlobal('fetch', fetchMock);
+    const config = toProviderConfig(llmProviderConfigSchema.parse({
+      preset: 'moonshot',
+      model: 'kimi-k2.6',
+      api_key: 'synthetic-key',
+      base_url: 'https://proxy.example.com/v1',
+    }));
+    const adapter = createLLMProvider(config);
+
+    await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('https://proxy.example.com/v1/chat/completions');
+    expect(JSON.parse(init.body as string).model).toBe('kimi-k2.6');
   });
 
   it('catalog model api 权威于 apiFormat 映射（gpt-4o → openai-responses 端点）', async () => {

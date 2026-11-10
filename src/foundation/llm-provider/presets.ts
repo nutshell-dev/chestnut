@@ -68,7 +68,7 @@ interface ProviderPreset {
   envVar?: string;
   /**
    * Phase 1925 Step C：preset → pi-ai catalog provider id 显式映射（G3 决策 3）。
-   * 同名可直连 6 个；别名 5 个（gemini→google、grok→xai、moonshot→moonshotai、
+   * 同名可直连 6 个；别名 5 个（gemini→google、grok→xai、moonshot→moonshotai-cn、
    * openrouter-anthropic→openrouter）；无对应者（ollama、qwen-coder、custom-*）
    * = undefined → catalog 未命中走显式自建 Model + 启发式回退，
    * 不做名字相似度猜测。
@@ -134,7 +134,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     defaultModel: 'kimi-k2.5',
     envVar: 'MOONSHOT_API_KEY',
-    piAiProvider: 'moonshotai',
+    piAiProvider: 'moonshotai-cn',
     thinkingDefaults: { reasoningEffort: 'max' },
   },
   'kimi': {
