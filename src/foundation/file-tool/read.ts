@@ -208,7 +208,7 @@ export const readTool: Tool = {
       // phase 2098 Step B: 溢出保存失败 = 本次 read 未能完整交付所选输出 → 工具业务失败。
       // 只在 kind === 'failed'（无任何产物）置位；durable / committed 两态仍成功（2095）。
       let overflowPersistFailed = false;
-      if (content.length > READ_OUTPUT_HARD_CAP_BYTES) {
+      if (Buffer.byteLength(content, 'utf8') > READ_OUTPUT_HARD_CAP_BYTES) {
         byteCapTriggered = true;
         const overflow = await persistOverflow(ctx, content);
         throwIfFileToolAborted(ctx.signal);

@@ -700,6 +700,44 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     expect(readBackSearch.content).toContain('needle-TARGET-MARKER-B2-000');
   });
 
+  it('phase 2102：跨 claw Unicode 超字节触发 overflow，产物归 caller 且可分页取回', async () => {
+    const caller = makeClawRoot('unicode-caller');
+    const target = makeClawRoot('unicode-target');
+    const source = Array.from(
+      { length: 2000 },
+      (_, i) => `${i}:${'中'.repeat(20)}`,
+    ).join('\n');
+    expect(source.length).toBeLessThan(100 * 1024);
+    expect(Buffer.byteLength(source, 'utf8')).toBeGreaterThan(100 * 1024);
+    await fs.writeFile(path.join(target.workspaceDir, 'unicode.txt'), source);
+
+    const topology = makeTopology({ 'target-claw': target.clawDir });
+    const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+    const readFileStateBefore = new Map(callerCtx.readFileState);
+
+    const result = await read.execute(
+      { path: 'unicode.txt', limit: 3000, claw: 'target-claw' },
+      callerCtx,
+    );
+
+    expect(result.success).toBe(true);
+    const artifacts = await listDirSafe(path.join(caller.syncDir, 'read'));
+    expect(artifacts).toHaveLength(1);
+    expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
+    expect(await listDirSafe(target.clawDir)).not.toContain('read-state.json');
+    expect(callerCtx.readFileState).toEqual(readFileStateBefore);
+    const artifact = await fs.readFile(path.join(caller.syncDir, 'read', artifacts[0]!), 'utf8');
+    expect(artifact.endsWith(source)).toBe(true);
+
+    const rel = parseReadHint(result.content)!;
+    const head = await readTool.execute({ path: rel, offset: 1, limit: 6 }, callerCtx);
+    const tail = await readTool.execute({ path: rel, offset: -1, limit: 1 }, callerCtx);
+    expect(head.success).toBe(true);
+    expect(head.content).toContain(source.split('\n')[0]!);
+    expect(tail).toEqual({ success: true, content: source.split('\n').at(-1)! });
+  });
+
   it('B3 caller.workspaceDir 为子代理子目录：提示路径按 caller 基准生成且可取回', async () => {
     const caller = makeClawRoot('caller-side', path.join('tasks', 'subagents', 'task-abc'));
     const target = makeClawRoot('target-side');
