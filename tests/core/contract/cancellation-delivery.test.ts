@@ -182,6 +182,44 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     await expect(fs.access(path.join(clawDir, 'contract/archive/cancelled', id))).resolves.toBeUndefined();
   });
 
+  it.each(['observer', 'audit', 'diagnostic'] as const)(
+    'returns observation failures through the %s stage without changing delivery',
+    async (mode) => {
+      const observerError = new Error('OBSERVER_EIO');
+      const auditError = new Error('OBSERVER_AUDIT_EIO');
+      const diagnosticError = new Error('OBSERVER_STDERR_EIO');
+      const audit = makeMockAudit();
+      vi.mocked(audit.write).mockImplementation((type: string) => {
+        if (type === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED && mode !== 'observer') throw auditError;
+      });
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => {
+        if (mode === 'diagnostic') throw diagnosticError;
+        return true;
+      });
+      const observer = vi.fn((event: ContractNotification) => {
+        if (event.type === 'contract_cancelled') throw observerError;
+      });
+      const deliver = vi.fn(async () => {});
+      const manager = makeManager({ deliverCancellation: deliver, audit, onNotify: observer });
+      const id = await manager.create(makeContractYaml());
+      observer.mockClear();
+      const outcome = await manager.cancel(makeContractId(id), 'stop');
+      expect(outcome.commit.kind).toBe('committed');
+      expect(outcome.cancellationDelivery).toEqual({ kind: 'delivered' });
+      const expected: Array<{ stage: string; cause: unknown }> = [{ stage: 'observer', cause: observerError }];
+      if (mode !== 'observer') expected.push({ stage: 'observer_audit', cause: auditError });
+      if (mode === 'diagnostic') expected.push({ stage: 'diagnostic_output', cause: diagnosticError });
+      expect(outcome.cancellationFailures).toEqual(expected);
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(deliver).toHaveBeenCalledTimes(1);
+      if (mode === 'observer') expect(stderr).not.toHaveBeenCalled();
+      else expect(stderr).toHaveBeenCalledTimes(1);
+      const repeat = await manager.cancel(makeContractId(id), 'repeat');
+      expect(repeat.cancellationFailures).toEqual([]);
+      expect(observer).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('preserves a cancelled-audit failure and a stderr fallback failure while delivering', async () => {
     const auditError = new Error('CANCELLED_AUDIT_EIO');
     const diagnosticError = new Error('STDERR_EIO');

@@ -6,7 +6,7 @@
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { emitContractNotifyFailed } from './audit-emit.js';
-import type { CancellationTransitionOutcome } from './lifecycle.js';
+import type { CancellationPostCommitFailure, CancellationTransitionOutcome } from './lifecycle.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
 
 export type ContractCancelledEvent = Extract<ContractNotification, { type: 'contract_cancelled' }>;
@@ -70,22 +70,31 @@ export function notifyCancellationObserver(
   event: ContractCancelledEvent,
   onNotify: ContractNotificationSink | undefined,
   audit: AuditLog,
-): void {
+): readonly CancellationPostCommitFailure[] {
+  const failures: CancellationPostCommitFailure[] = [];
   try {
     onNotify?.(event);
   } catch (observerError) {
+    failures.push({ stage: 'observer', cause: observerError });
     try {
       emitContractNotifyFailed(audit, {
         notifyType: event.type,
         error: formatErr(observerError),
       });
     } catch (auditError) {
-      process.stderr.write(
-        `[contract] cancellation observer failure audit error: ${JSON.stringify({
-          observerError: formatErr(observerError),
-          auditError: formatErr(auditError),
-        })}\n`,
-      );
+      failures.push({ stage: 'observer_audit', cause: auditError });
+      try {
+        process.stderr.write(
+          `[contract] cancellation observer failure audit error: ${JSON.stringify({
+            observerError: formatErr(observerError),
+            auditError: formatErr(auditError),
+          })}\n`,
+        );
+      } catch (diagnosticError) {
+        // Report fallback failure through the committed outcome, not a new throw.
+        failures.push({ stage: 'diagnostic_output', cause: diagnosticError });
+      }
     }
   }
+  return failures;
 }

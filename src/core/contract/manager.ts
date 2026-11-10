@@ -1168,8 +1168,12 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       this.deliverCancellation,
       this.audit,
     );
-    notifyCancellationObserver(event, this.onNotify, this.audit);
-    return { ...outcome, cancellationDelivery };
+    const observerFailures = notifyCancellationObserver(event, this.onNotify, this.audit);
+    return {
+      ...outcome,
+      cancellationFailures: [...outcome.cancellationFailures, ...observerFailures],
+      cancellationDelivery,
+    };
   }
 
   async markCorrupted(

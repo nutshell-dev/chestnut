@@ -270,6 +270,44 @@ describe('contractCancelCommand (phase 1471)', () => {
     expect(pending).toEqual([]);
   });
 
+  it('keeps real delivery and reports observer, audit and fallback failures together', async () => {
+    const id = await seedActiveContract();
+    const observerError = new Error('OBSERVER_EIO');
+    const auditError = new Error('OBSERVER_AUDIT_EIO');
+    const diagnosticError = new Error('OBSERVER_STDERR_EIO');
+    const realCreate = assembly.createContractActionContext;
+    let dispose: ReturnType<typeof vi.spyOn> | undefined;
+    vi.spyOn(assembly, 'createContractActionContext').mockImplementation(async (deps, claw) => {
+      const action = await realCreate(deps, claw);
+      action.system.onNotify = () => { throw observerError; };
+      const original = action.audit.write.bind(action.audit);
+      action.audit.write = (type, ...cols) => {
+        if (type === 'contract_notify_failed') throw auditError;
+        return original(type, ...cols);
+      };
+      dispose = vi.spyOn(action, 'dispose');
+      return action;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => { throw diagnosticError; });
+    let caught: unknown;
+    try { await contractCancelCommand({ fsFactory }, CLAW_ID, 'observer failure', id); }
+    catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CliError);
+    const error = caught as CliError;
+    expect(error.message).toContain(`Contract cancelled: ${id}`);
+    expect(error.message).toContain('cancellation notification delivered');
+    for (const cause of [observerError, auditError, diagnosticError]) expect(error.message).toContain(cause.message);
+    expect((error.cause as AggregateError).errors).toEqual([observerError, auditError, diagnosticError]);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await expect(fs.access(path.join(clawDir, 'contract/archive/cancelled', id))).resolves.toBeUndefined();
+    const pendingDir = path.join(clawDir, 'inbox/pending');
+    const pending = await fs.readdir(pendingDir);
+    expect(pending).toHaveLength(1);
+    const body = await fs.readFile(path.join(pendingDir, pending[0]), 'utf8');
+    expect(body).toContain(id);
+    expect(body).toContain('observer failure');
+  });
+
   it('reports a real committed cancellation and pending message when owner audit fails', async () => {
     const contractId = await seedActiveContract();
     const auditError = new Error('OWNER_CANCELLED_AUDIT_EIO');

@@ -88,7 +88,9 @@ export type CancellationPostCommitFailure =
   | { readonly stage: 'verifier_abort'; readonly cause: unknown }
   | { readonly stage: 'verifier_abort_audit'; readonly cause: unknown }
   | { readonly stage: 'cancelled_audit'; readonly cause: unknown }
-  | { readonly stage: 'diagnostic_output'; readonly cause: unknown };
+  | { readonly stage: 'diagnostic_output'; readonly cause: unknown }
+  | { readonly stage: 'observer'; readonly cause: unknown }
+  | { readonly stage: 'observer_audit'; readonly cause: unknown };
 
 export interface CancellationTransitionOutcome extends TerminalTransitionOutcome {
   /** 提交后各独立动作的原始失败；非 committed 或全部成功时为空。 */
