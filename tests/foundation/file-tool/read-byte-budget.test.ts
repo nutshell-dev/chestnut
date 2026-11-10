@@ -5,6 +5,7 @@ import { readTool } from '../../../src/foundation/file-tool/read.js';
 import { writeTool } from '../../../src/foundation/file-tool/write.js';
 import { READ_OUTPUT_HARD_CAP_BYTES } from '../../../src/foundation/file-tool/constants.js';
 import { NodeFileSystem, type FileSystem } from '../../../src/foundation/fs/index.js';
+import { assertWellFormedUnicode, truncateUtf8Prefix } from '../../../src/foundation/node-utils/utf8.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
@@ -12,6 +13,7 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 const CAP = READ_OUTPUT_HARD_CAP_BYTES;
 const TARGET = 'clawspace/data.txt';
+const FAILURE_NOTE = '\n[truncated - overflow persist failed]';
 
 describe('phase 2102: read UTF-8 byte budget', () => {
   let tempDir: string;
@@ -190,5 +192,77 @@ describe('phase 2102: read UTF-8 byte budget', () => {
     expect(write.success).toBe(false);
     expect(write.content).toContain('has not been fully read');
     expect(await fs.readFile(path.join(workspaceDir, 'data.txt'), 'utf8')).toBe(source);
+  });
+
+  for (const code of ['EIO', 'ENOSPC'] as const) {
+    it.each([
+      ['ASCII', 'a'.repeat(CAP + 500)],
+      ['CJK', '中'.repeat(40000)],
+      ['emoji', '😀'.repeat(30000)],
+      ['mixed code points', 'a中😀é'.repeat(20000)],
+    ])(`${code} %s 保存失败：完整响应含标记且不超 UTF-8 字节预算`, async (_name, source) => {
+      expect(Buffer.byteLength(source, 'utf8')).toBeGreaterThan(CAP);
+      await writeSource(source);
+      const longMessage = `${code} ${'sensitive-diagnostic-'.repeat(100)}`;
+      const error = Object.assign(new Error(longMessage), { code });
+      const { ctx, events, writes } = makeFailingCtx(error);
+
+      const result = await readTool.execute({ path: 'data.txt' }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(writes()).toBe(1);
+      expect(await artifactFiles()).toEqual([]);
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(CAP);
+      expect(result.content.endsWith(FAILURE_NOTE)).toBe(true);
+      expect(parseReadHint(result.content)).toBeUndefined();
+      expect(result.content).not.toContain(longMessage);
+      expect(result.content).not.toContain('\uFFFD');
+      expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+      const preview = result.content.slice(0, -FAILURE_NOTE.length);
+      expect(source.startsWith(preview)).toBe(true);
+      const previewBytes = CAP - Buffer.byteLength(FAILURE_NOTE, 'utf8');
+      expect(previewBytes).toBeGreaterThanOrEqual(0);
+      expect(result.content).toBe(truncateUtf8Prefix(source, previewBytes) + FAILURE_NOTE);
+      if (_name === 'ASCII') expect(Buffer.byteLength(result.content, 'utf8')).toBe(CAP);
+      expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+      const audit = events.find((event) => event[0] === 'read_overflow_persist_failed');
+      expect(audit?.join(' ')).toContain(code);
+      expect(audit?.join(' ')).toContain(longMessage);
+    });
+  }
+
+  it('保存失败将旧 full-read 状态降级，后续真实 write 仍被拒绝', async () => {
+    await writeSource('small');
+    const error = Object.assign(new Error('synthetic EIO'), { code: 'EIO' });
+    const { ctx } = makeFailingCtx(error);
+    expect((await readTool.execute({ path: 'data.txt' }, ctx)).success).toBe(true);
+    expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(true);
+    const source = '😀'.repeat(30000);
+    await writeSource(source);
+
+    const result = await readTool.execute({ path: 'data.txt' }, ctx);
+
+    expect(result.success).toBe(false);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(CAP);
+    expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+    const write = await writeTool.execute({ path: 'data.txt', content: 'REPLACED' }, ctx);
+    expect(write.success).toBe(false);
+    expect(write.content).toContain('has not been fully read');
+    expect(await fs.readFile(path.join(workspaceDir, 'data.txt'), 'utf8')).toBe(source);
+  });
+
+  it('保存失败后取消仍沿 AbortError 传播且不重试', async () => {
+    await writeSource('中'.repeat(40000));
+    const controller = new AbortController();
+    const error = Object.assign(new Error('synthetic EIO'), { code: 'EIO' });
+    const { ctx, writes } = makeFailingCtx(error, () => {
+      controller.abort({ type: 'tool_timeout', ms: 1 });
+    });
+    ctx.signal = controller.signal;
+
+    await expect(readTool.execute({ path: 'data.txt' }, ctx))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(writes()).toBe(1);
+    expect(await artifactFiles()).toEqual([]);
   });
 });

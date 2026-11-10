@@ -16,7 +16,7 @@
  */
 
 import * as nodePath from 'path';
-import { newShortUuid } from  '../node-utils/index.js';
+import { newShortUuid, truncateUtf8Prefix } from  '../node-utils/index.js';
 import { z } from 'zod';
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
@@ -41,6 +41,7 @@ function toSafeNumber(v: unknown): number | undefined {
 }
 
 const READ_TOOL_NAME = 'read' as const;
+const READ_OVERFLOW_FAILURE_NOTE = '\n[truncated - overflow persist failed]';
 
 const ReadInputSchema = z.object({
   path: z.string().describe(
@@ -216,7 +217,9 @@ export const readTool: Tool = {
           // 不得提前 return：保留预览交给调用方，并让后续 recordReadResult 照常把
           // 旧 isFullRead=true 降级为 false（否则覆盖门会放行伪全文状态）。
           overflowPersistFailed = true;
-          content = content.slice(0, READ_OUTPUT_HARD_CAP_BYTES) + '\n[truncated - overflow persist failed]';
+          const previewBytes = READ_OUTPUT_HARD_CAP_BYTES
+            - Buffer.byteLength(READ_OVERFLOW_FAILURE_NOTE, 'utf8');
+          content = truncateUtf8Prefix(content, previewBytes) + READ_OVERFLOW_FAILURE_NOTE;
         } else {
           content = truncateHeadTail(content, overflow.relPath);
           if (overflow.kind !== 'durable') {
