@@ -6,6 +6,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/generation.js';
+import { EXPECTED_LLM_IDENTITY_ENV } from '../../src/daemon/index.js';
 import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 import { once } from 'events';
 import { EventEmitter } from 'events';
@@ -216,11 +217,12 @@ function makeMockInstances(overrides?: Partial<any>) {
 }
 
 beforeEach(() => {
-  process.env[PROCESS_GENERATION_ENV] = TEST_GENERATION_ID;
+  vi.stubEnv(PROCESS_GENERATION_ENV, TEST_GENERATION_ID);
+  vi.stubEnv(EXPECTED_LLM_IDENTITY_ENV, undefined);
 });
 
 afterEach(() => {
-  delete process.env[PROCESS_GENERATION_ENV];
+  vi.unstubAllEnvs();
 });
 
 async function flushMicrotasks(n = 10) {
@@ -345,12 +347,17 @@ describe('daemonCommand - A4a startup success', () => {
   it('motion: assemble 成功 + identity=motion + onInboxMessages undefined (phase411)', async () => {
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'motion' }));
 
-    const cmdPromise = daemonCommand('motion');
-
-    // Wait for mockStartDaemonLoop call event (phase 779 Step C)
-    await once(mockStartDaemonLoopCallEvent, 'call');
-    if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: expected-failure */ });
+    const started = once(mockStartDaemonLoopCallEvent, 'call');
+    const running = daemonCommand('motion');
+    try {
+      await Promise.race([
+        started,
+        running.then(() => { throw new Error('daemon ended before loop started'); }),
+      ]);
+    } finally {
+      if (mockState.stopFn) mockState.stopFn();
+    }
+    await running;
 
     // 断言：motion 身份分支
     expect(mockState.mockAssemble).toHaveBeenCalledWith(expect.objectContaining({
@@ -409,6 +416,21 @@ describe('daemonCommand - A4a startup failure', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('motion: 显式 expected LLM 身份不匹配 → 装配前拒绝', async () => {
+    vi.stubEnv(EXPECTED_LLM_IDENTITY_ENV, 'phase2087-mismatch');
+
+    await expect(daemonCommand('motion')).rejects.toThrow('process.exit(1)');
+
+    expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
+      'daemon_pre_runtime_failed',
+      'stage=llm_identity',
+      'phase=preconstruct',
+      expect.stringContaining('reason='),
+    );
+    expect(mockState.mockAssemble).not.toHaveBeenCalled();
+    expect(mockState.mockStartDaemonLoop).not.toHaveBeenCalled();
   });
 
   it('it #4: assemble 任意 error（不按错误名分支）→ audit module=pre_assemble + exit 1', async () => {
@@ -704,16 +726,21 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
   });
 
   it('phase411: onInboxMessages 始终 undefined（review_request 已由 ContractSystem 事件驱动）', async () => {
-    const cmdPromise = daemonCommand('motion');
-
-    // Guard: ensure mockStartDaemonLoop has been called before reading calls[0] (phase 779 Step D / B.flaky-2)
-    await once(mockStartDaemonLoopCallEvent, 'call');
+    const started = once(mockStartDaemonLoopCallEvent, 'call');
+    const running = daemonCommand('motion');
+    try {
+      await Promise.race([
+        started,
+        running.then(() => { throw new Error('daemon ended before loop started'); }),
+      ]);
+    } finally {
+      if (mockState.stopFn) mockState.stopFn();
+    }
 
     const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
     expect(options.motion?.onInboxMessages).toBeUndefined();
 
-    if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: expected-failure */ });
+    await running;
   });
 
   it('claw 模式下 onInboxMessages 未注册（undefined）', async () => {
