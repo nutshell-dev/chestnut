@@ -303,7 +303,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const classLabel = formatRecoveryErrorClass(event.errorClass);
         const resumeClock = formatIsoClock(event.resumeAt);
         const text = event.scheduleKind === 'ready'
-          ? `⟳ \x1b[2mllm ${classLabel}; fallback ready`
+          ? `⟳ \x1b[2mllm ${classLabel}; ready`
           : event.scheduleKind === 'on_change'
             ? `⟳ \x1b[2mllm ${classLabel}; waiting for intervention or config change`
             : `⟳ \x1b[2m${classLabel} recovery; next attempt at ${resumeClock}`;

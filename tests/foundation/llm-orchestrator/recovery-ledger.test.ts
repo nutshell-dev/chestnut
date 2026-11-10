@@ -200,6 +200,34 @@ describe('RecoveryLedger failure evidence', () => {
     });
   });
 
+  it('reports ready when fallback fails but primary remains available', () => {
+    const initial = createEmptyLLMInstanceState('instance-a');
+    initial.providers = [
+      { providerId: 'primary', status: 'available' },
+      { providerId: 'fallback', status: 'available' },
+    ];
+    const f = fixture(initial, ['primary', 'fallback'], ['legacy-primary', 'legacy-fallback']);
+
+    f.controller.noteFailure([{
+      providerId: 'fallback', errorClass: 'transient', message: 'fallback offline',
+      occurredAtMs: 10_000, invocationId: 'invocation-fallback', attemptId: 'attempt-fallback',
+    }]);
+
+    expect(f.events).toEqual([expect.objectContaining({
+      type: 'recovery_scheduled', revision: f.read().revision,
+      scheduleKind: 'ready', resumeAt: '',
+      invocationId: 'invocation-fallback', attemptId: 'attempt-fallback',
+      errorClass: 'transient', failureCount: 1,
+    })]);
+    expect(f.read().providers).toEqual([
+      expect.objectContaining({ providerId: 'primary', status: 'available' }),
+      expect.objectContaining({ providerId: 'fallback', status: 'waiting' }),
+    ]);
+    expect(f.read().recovery.failures[0]).toMatchObject({
+      providerId: 'fallback', message: 'fallback offline', invocationId: 'invocation-fallback',
+    });
+  });
+
   it('ignores local skips and reports commit failure without publishing the candidate', () => {
     const f = fixture();
     const before = f.read();

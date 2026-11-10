@@ -631,6 +631,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     });
     handle({
       type: 'recovery_scheduled', scope: 'foreground', revision: 7, scheduleKind: 'ready',
+      invocationId: 'invocation-fallback', attemptId: 'attempt-fallback',
       resumeAt: '', errorClass: 'transient', providerCount: 2, failureCount: 5,
     });
 
@@ -641,7 +642,9 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     // 不能「不是 rate_limit 就 transient」：permanent 显示为需配置变化。
     expect(lines[3]).toContain('config change needed; waiting for intervention');
     expect(lines[3]).not.toContain('transient');
-    expect(lines[4]).toContain('transient; fallback ready');
+    expect(lines[4]).toContain('transient; ready');
+    expect(lines[4]).not.toContain('fallback ready');
+    expect(lines[4]).not.toContain('primary ready');
     expect(lines[4]).not.toContain('next attempt');
     for (const line of lines) expect(line).toContain('⟳');
   });
