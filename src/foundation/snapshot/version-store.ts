@@ -68,6 +68,17 @@ const PUBLISH_MAX_ATTEMPTS = 3;
 /** 孪生胜检测：published 首父链回扫深度上限 */
 const TWIN_SCAN_DEPTH = 32;
 
+/**
+ * phase 2084 Step B：一次 open 的**完整**初始化写入区由该 O_EXCL 锁独占
+ * （.git 初始化 → 归属/独立根/sha1 验证 → 三项本地配置 → published create-only
+ * CAS → HEAD 绑定 → 释放）。已有 .git、已有完整库同样必须取锁，不得以 readiness
+ * 探测绕过。锁文件不含字节语义，仅互斥；不探测 PID、不偷锁、失败不清理现场。
+ */
+const VERSION_INIT_LOCK = '.version-store-init.lock';
+/** 沿用 phase 1919 Step B 的 init 等待策略：10_000ms 预算 / 20ms 轮询，不暗增 */
+const VERSION_OPEN_WAIT_MS = 10_000;
+const VERSION_OPEN_POLL_MS = 20;
+
 interface WorkspaceRecord {
   schema: 1;
   kind: 'workspace';
@@ -255,59 +266,90 @@ class GitVersionStore implements VersionStore {
       throw new VersionStoreError('invalid_argument', `workspaceParent must be absolute: ${this.workspaceParent}`);
     }
 
-    // 并发 open 串行化（phase 1919 Step B）：git init 非原子（.git 目录先建、
-    // 模板后填充），`.git` 在场 ≠ init 完成。初始化段由 O_EXCL 锁文件互斥；
-    // 败者有界轮询等待胜者完成。崩溃遗留锁/半成品 .git → loud 失败，现场保留
-    // （绝不清理 .git）；锁文件不含字节语义，仅互斥。
-    const INIT_LOCK = '.version-store-init.lock';
-    const probeGitReady = async (): Promise<boolean> =>
-      (await this.fs.exists('.git')) &&
-      (await this.gitExec(['rev-parse', '--git-dir'], { discovery: true })).ok;
-    if (!(await probeGitReady())) {
-      let isInitializer = false;
+    await this.acquireInitLock();
+
+    // 持锁退出（phase 2084 Step B）：用显式 failed 标记区分「初始化失败」与「成功」，
+    // 不用 undefined 判定——JS 允许 throw undefined。释放失败绝不报成功：初始化与释放
+    // 双失败用 AggregateError 保留两者，主异常不被清理异常替换。
+    let failed = false;
+    let primary: unknown;
+    try {
+      await this.initializeLocked();
+    } catch (error) {
+      // silent: 本 catch 不吞错——主异常暂存于此，持锁退出释放后再原样抛出（双失败时聚合）
+      failed = true;
+      primary = error;
+    }
+    try {
+      await this.fs.delete(VERSION_INIT_LOCK);
+    } catch (releaseError) {
+      const cause = failed
+        ? new AggregateError([primary, releaseError], 'initialization and lock release failed')
+        : releaseError;
+      emitSnapshotVersionInitFailed(this.audit, {
+        dir: this.repositoryDir,
+        kind: 'repo_init_failed',
+        reason: `initialization lock release failed: ${formatErr(releaseError)}`,
+      });
+      throw new VersionStoreError('repo_init_failed', 'initialization lock release failed; site preserved', { cause });
+    }
+    if (failed) throw primary;
+  }
+
+  /**
+   * 取 `.version-store-init.lock`（唯一初始化锁）：只对 EEXIST 等待，其他错误立即带
+   * cause 抛出；未取得锁的调用绝不 delete（不得清理他人/残留锁）；等待超时只记一条审计。
+   */
+  private async acquireInitLock(): Promise<void> {
+    const deadline = Date.now() + VERSION_OPEN_WAIT_MS;
+    for (;;) {
       try {
-        await this.fs.writeExclusive(INIT_LOCK, String(process.pid));
-        isInitializer = true;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException)?.code !== 'EEXIST') throw e;
-      }
-      if (isInitializer) {
-        try {
-          if (!(await this.fs.exists('.git'))) {
-            const init = await this.gitExec(['init'], { discovery: true });
-            if (!init.ok) {
-              emitSnapshotVersionInitFailed(this.audit, {
-                dir: this.repositoryDir,
-                kind: 'repo_init_failed',
-                reason: init.output,
-              });
-              // phase 1918: 持久版本库不适用 Snapshot.init 的 tryCleanupGit——现场保留
-              throw new VersionStoreError('repo_init_failed', `git init failed: ${init.output.slice(0, 300)}`);
-            }
-          }
-          // .git 在场但 probe 不过（损坏现场）→ 不 reinit，落入下方归属验证 loud 拒绝
-        } finally {
-          await this.fs.delete(INIT_LOCK).catch(() => {
-            // silent: 锁释放失败留下残留；后续 open 按「锁在场但 .git 就绪」路径收敛
+        await this.fs.writeExclusive(VERSION_INIT_LOCK, String(process.pid));
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') {
+          // 文件可能已创建但写入/fsync 失败：所有权未确立 → 保留现场，不接管、不删除
+          throw new VersionStoreError(
+            'repo_init_failed',
+            `version-store initialization lock acquire failed: ${formatErr(error)}`,
+            { cause: error },
+          );
+        }
+        if (Date.now() >= deadline) {
+          emitSnapshotVersionInitFailed(this.audit, {
+            dir: this.repositoryDir,
+            kind: 'repo_init_failed',
+            reason: `initialization lock wait timed out after ${VERSION_OPEN_WAIT_MS}ms (lock: ${VERSION_INIT_LOCK}); site preserved`,
           });
+          throw new VersionStoreError(
+            'repo_init_failed',
+            `timed out waiting for concurrent version-store initialization (lock: ${VERSION_INIT_LOCK}); site preserved`,
+            { cause: error },
+          );
         }
-      } else {
-        const deadline = Date.now() + 10_000;
-        while (!(await probeGitReady())) {
-          if (!(await this.fs.exists(INIT_LOCK))) {
-            throw new VersionStoreError(
-              'repo_init_failed',
-              'concurrent initializer released its lock without a valid .git; manual recovery required (site preserved)',
-            );
-          }
-          if (Date.now() > deadline) {
-            throw new VersionStoreError(
-              'repo_init_failed',
-              `timed out waiting for concurrent git init (lock: ${INIT_LOCK}); site preserved`,
-            );
-          }
-          await new Promise((r) => setTimeout(r, 20));
-        }
+        await new Promise((resolve) => setTimeout(resolve, VERSION_OPEN_POLL_MS));
+      }
+    }
+  }
+
+  /**
+   * 持锁初始化主体（调用前必须已取得 `.version-store-init.lock`）：.git 初始化 →
+   * 归属/独立根/sha1 验证 → 三项本地配置核验写入 → published create-only CAS → HEAD。
+   * 任何失败都保留现场（不删 .git、不删锁）；异常原样冒泡，由 open 统一释放并保全。
+   */
+  private async initializeLocked(): Promise<void> {
+    // 独立根初始化：.git 不存在才 init（锁内不存在并发 init，故 exists 即事实）。
+    // .git 在场但 probe 不过（损坏现场）→ 不 reinit，落入下方归属验证 loud 拒绝。
+    if (!(await this.fs.exists('.git'))) {
+      const init = await this.gitExec(['init'], { discovery: true });
+      if (!init.ok) {
+        emitSnapshotVersionInitFailed(this.audit, {
+          dir: this.repositoryDir,
+          kind: 'repo_init_failed',
+          reason: init.output,
+        });
+        // phase 1918: 持久版本库不适用 Snapshot.init 的 tryCleanupGit——现场保留
+        throw new VersionStoreError('repo_init_failed', `git init failed: ${init.output.slice(0, 300)}`);
       }
     }
 
