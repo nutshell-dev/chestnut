@@ -2,8 +2,8 @@
  * Phase 1297 Step C/D: ConfigStore public surface ratchet。
  *
  * 冻结两条 module invariant：
- * 1. 唯一 caller 经 barrel：src 内对 ConfigStore 的 import 只有
- *    assembly/config/config-load.ts 一条边、且必须指向 index barrel；
+ * 1. 调用方仅限 Assembly 配置读写和 L4 配置管理的兼容凭据存储，
+ *    且必须通过 index 公开入口；
  * 2. 最小 barrel：无 export *、导出集合精确匹配 phase 1297 计划表面。
  *
  * 物理归属/依赖方向/零业务符号 invariant 归 config-store-boundary.test.ts。
@@ -56,9 +56,9 @@ const EXPECTED_BARREL_SURFACE = [
 ];
 
 describe('phase 1297: ConfigStore caller 白名单经 barrel', () => {
-  it('src 内对 ConfigStore 的 import 只有 config-load.ts 与 credentials/local.ts 且指向 barrel', () => {
+  it('ConfigStore 仅由 Assembly 配置读写与 L4 兼容凭据存储通过公开入口调用', () => {
     // 排除 ConfigStore 模块内部边，只统计外部 caller。
-    // Phase 1925 Step B：credentials/local.ts 复用 withYamlConfigLock 跨进程锁原语
+    // Phase 2097：凭据存储迁入 L4，仍复用 withYamlConfigLock 跨进程锁原语
     // （凭据文件写纪律 = 锁内重读 + 原子发布），同样只经 barrel。
     const edges = collectRelativeImportEdges(SRC_ROOT).filter((e) =>
       isInsideConfigStore(e.resolved) && !isInsideConfigStore(path.resolve(PROJECT_ROOT, e.file))
@@ -67,7 +67,7 @@ describe('phase 1297: ConfigStore caller 白名单经 barrel', () => {
     expect(deepImports).toEqual([]);
     expect([...new Set(edges.map((e) => e.file))].sort()).toEqual([
       path.join('src', 'assembly', 'config', 'config-load.ts'),
-      path.join('src', 'foundation', 'credentials', 'local.ts'),
+      path.join('src', 'core', 'llm-configuration', 'legacy-credentials', 'local.ts'),
     ]);
   });
 
