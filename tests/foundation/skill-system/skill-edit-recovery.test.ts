@@ -77,10 +77,14 @@ describe.skipIf(!gitAvailable)('技能分支编辑事务：崩溃恢复（phase 
     });
   }
 
-  function seedBaseline(): void {
+  function seedAlphaBaseline(): void {
     const alpha = path.join(repositoryDir(), 'alpha');
     fsSync.mkdirSync(alpha, { recursive: true });
     fsSync.writeFileSync(path.join(alpha, 'SKILL.md'), SKILL_MD('alpha', '# Alpha orig\n'));
+  }
+
+  function seedBaseline(): void {
+    seedAlphaBaseline();
     const beta = path.join(repositoryDir(), 'beta');
     fsSync.mkdirSync(beta, { recursive: true });
     fsSync.writeFileSync(path.join(beta, 'SKILL.md'), SKILL_MD('beta', '# Beta orig\n'));
@@ -91,6 +95,51 @@ describe.skipIf(!gitAvailable)('技能分支编辑事务：崩溃恢复（phase 
     fsSync.mkdirSync(path.dirname(abs), { recursive: true });
     fsSync.writeFileSync(abs, content);
   }
+
+  it('新技能 edit 发布后 state.lock 写入失败：同实例重试恢复索引且不重发', async () => {
+    seedAlphaBaseline();
+    let armed = false;
+    const injected = Object.assign(new Error('injected state.lock acquisition failure'), { code: 'EIO' });
+    const failingFsFactory = (baseDir: string): FileSystem => {
+      const backend = new NodeFileSystem({ baseDir });
+      return new Proxy(backend, {
+        get(target, key) {
+          if (key === 'writeExclusive') {
+            return async (rel: string, content: string) => {
+              if (armed && baseDir === stateDir() && rel === 'state.lock') {
+                armed = false;
+                throw injected;
+              }
+              return target.writeExclusive(rel, content);
+            };
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    };
+    const svc = await makeService({ fsFactory: failingFsFactory });
+    const edit = await svc.beginEdit({ skillName: 'beta', requestId: 'req-state-recovery', basis });
+    writeWsFile(edit, 'SKILL.md', SKILL_MD('beta', '# Beta recovered\n'));
+
+    // baseline 与 begin 均已完成；仅让发布后的首次 state.lock 获取失败。
+    armed = true;
+    await expect(svc.submitEdit(edit.editId)).rejects.toBe(injected);
+    expect(armed).toBe(false);
+    const publishedHead = git(repositoryDir(), 'rev-parse', 'refs/version/published');
+    const published = await svc.readPublished('beta');
+    expect(published.sourceVersion).toMatch(/^[0-9a-f]{40}$/);
+    expect(JSON.parse(fsSync.readFileSync(path.join(stateDir(), 'state.json'), 'utf-8')).skills).toEqual(['alpha']);
+    expect(JSON.parse(
+      fsSync.readFileSync(path.join(stateDir(), 'edits', `${edit.editId}.json`), 'utf-8'),
+    )).toMatchObject({ status: 'saved', version: null });
+
+    const retry = await svc.submitEdit(edit.editId);
+    expect(retry).toEqual({ kind: 'published', editId: edit.editId, version: published.sourceVersion });
+    expect(JSON.parse(fsSync.readFileSync(path.join(stateDir(), 'state.json'), 'utf-8')).skills).toEqual(['alpha', 'beta']);
+    expect(await svc.editStatus(edit.editId)).toMatchObject({ status: 'published', version: published.sourceVersion });
+    expect(git(repositoryDir(), 'rev-parse', 'refs/version/published')).toBe(publishedHead);
+  });
 
   it('CAS 后进程中断：重启 editStatus 经操作记录对账为 published，不重复发布', async () => {
     seedBaseline();

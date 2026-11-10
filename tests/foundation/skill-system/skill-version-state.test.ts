@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import {
@@ -21,6 +21,7 @@ import {
   type SkillVersions,
 } from '../../../src/foundation/skill-system/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -30,6 +31,11 @@ const gitAvailable = (() => {
 
 const SKILL_MD = (name: string, body: string) => `---\nname: ${name}\ndescription: ${name} desc\n---\n${body}`;
 const basis: SkillBasis = { actor: 'test-agent', reason: 'multi-instance index test', sourceRefs: ['ref-1'] };
+const GIT_ENV = { ...process.env, GIT_CONFIG_NOSYSTEM: '1' };
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, env: GIT_ENV, encoding: 'utf8' }).trim();
+}
 
 describe.skipIf(!gitAvailable)('SkillVersions 多实例索引一致性（Phase 1921 Step C）', () => {
   let tmpDir: string;
@@ -50,13 +56,15 @@ describe.skipIf(!gitAvailable)('SkillVersions 多实例索引一致性（Phase 1
     return new NodeFileSystem({ baseDir });
   }
 
-  async function makeService(): Promise<SkillVersions> {
+  async function makeService(opts?: {
+    fsFactory?: (baseDir: string) => FileSystem;
+  }): Promise<SkillVersions> {
     fsSync.mkdirSync(repositoryDir(), { recursive: true });
     return createSkillVersions({
       repositoryDir: repositoryDir(),
       workspaceParent: workspaceParent(),
       stateDir: stateDir(),
-      fsFactory,
+      fsFactory: opts?.fsFactory ?? fsFactory,
       audit: makeAudit().audit,
     });
   }
@@ -85,6 +93,14 @@ describe.skipIf(!gitAvailable)('SkillVersions 多实例索引一致性（Phase 1
     const abs = path.join(handle.path, rel);
     fsSync.mkdirSync(path.dirname(abs), { recursive: true });
     fsSync.writeFileSync(abs, content);
+  }
+
+  function readImportRecord(operationId: string) {
+    const importsDir = path.join(stateDir(), 'imports');
+    const records = fsSync.readdirSync(importsDir).map(file => JSON.parse(
+      fsSync.readFileSync(path.join(importsDir, file), 'utf-8'),
+    ) as { operationId: string; status: string; result?: unknown });
+    return records.find(record => record.operationId === operationId);
   }
 
   it('两个实例交错发布不同技能：state / projection / summary 含完整集合', async () => {
@@ -155,6 +171,59 @@ describe.skipIf(!gitAvailable)('SkillVersions 多实例索引一致性（Phase 1
     expect(await svcA.loadPublished('beta')).toContain('# Beta v2');
     expect(await svcB.loadPublished('alpha')).toContain('# Alpha v2');
   });
+
+  for (const restart of [false, true]) {
+    it(`import 发布后 state.lock 写入失败：${restart ? '重启' : '同实例'}重试恢复索引且不重发`, async () => {
+      seedBaseline();
+      let armed = false;
+      const injected = Object.assign(new Error('injected state.lock acquisition failure'), { code: 'EIO' });
+      const failingFsFactory = (baseDir: string): FileSystem => {
+        const backend = new NodeFileSystem({ baseDir });
+        return new Proxy(backend, {
+          get(target, key) {
+            if (key === 'writeExclusive') {
+              return async (rel: string, content: string) => {
+                if (armed && baseDir === stateDir() && rel === 'state.lock') {
+                  armed = false;
+                  throw injected;
+                }
+                return target.writeExclusive(rel, content);
+              };
+            }
+            const value = Reflect.get(target, key);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+      };
+      const svc1 = await makeService({ fsFactory: failingFsFactory });
+      const input = {
+        name: 'beta',
+        source: skillSrc('beta', '# Beta recovered\n'),
+        operationId: 'imp-state-recovery',
+        basis,
+      };
+
+      // baseline 已完成；仅让发布后的首次 state.lock 获取失败。
+      armed = true;
+      await expect(svc1.importSkill(input)).rejects.toBe(injected);
+      expect(armed).toBe(false);
+      const publishedHead = git(repositoryDir(), 'rev-parse', 'refs/version/published');
+      const published = await svc1.readPublished('beta');
+      expect(published.sourceVersion).toMatch(/^[0-9a-f]{40}$/);
+      expect(readStateSkills()).toEqual(['alpha']);
+      expect(readImportRecord(input.operationId)).toMatchObject({ status: 'prepared' });
+
+      const svc2 = restart ? await makeService() : svc1;
+      const retry = await svc2.importSkill(input);
+      expect(retry).toEqual({ kind: 'published', version: published.sourceVersion });
+      expect(readStateSkills()).toEqual(['alpha', 'beta']);
+      expect(readImportRecord(input.operationId)).toMatchObject({
+        status: 'completed',
+        result: { kind: 'published', version: published.sourceVersion },
+      });
+      expect(git(repositoryDir(), 'rev-parse', 'refs/version/published')).toBe(publishedHead);
+    });
+  }
 
   it('崩溃残留 state.lock（死 holder）被接管，发布不饿死', async () => {
     seedBaseline();

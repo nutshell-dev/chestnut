@@ -722,8 +722,8 @@ export class SkillVersionService implements SkillVersions {
       if (!this.state.skills.includes(name)) {
         this.state.skills.push(name);
         this.state.skills.sort();
-        await this.writeState();
       }
+      await this.writeState();
       record.status = 'completed';
       record.result = { kind: 'published', version: result.version as string };
       await this.writeImportRecord(record);
@@ -1051,8 +1051,8 @@ export class SkillVersionService implements SkillVersions {
     if (!this.state.skills.includes(record.skillName)) {
       this.state.skills.push(record.skillName);
       this.state.skills.sort();
-      await this.writeState();
     }
+    await this.writeState();
     await this.editStore.save(record);
     this.opts.audit.write(
       SKILL_AUDIT_EVENTS.VERSION_EDIT_PUBLISHED,
