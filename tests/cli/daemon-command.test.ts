@@ -131,8 +131,6 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   patchGlobalConfigPrimary: vi.fn(),
   saveClawConfig: vi.fn(),
   clawExists: vi.fn(() => true),
-  resolveLLMConfig: vi.fn(),  // phase 1886 Step B: mock 随 alias 删除归名
-  llmConfigIdentity: vi.fn(() => 'test-llm-identity'),  // Phase 1927 Step C: motion ready 业务事实发布
 }));
 vi.mock('../../src/core/llm-configuration/index.js', async () => ({
   resolveLLMConfig: vi.fn(),
