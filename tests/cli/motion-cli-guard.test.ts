@@ -45,6 +45,10 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
   const motion = program.command('motion');
   motion.command('inbox').action(actionSpy);
 
+  const watchdog = program.command('watchdog');
+  watchdog.command('start').action(actionSpy);
+  watchdog.command('stop').action(actionSpy);
+
   program.command('stop').action(actionSpy);
   program.command('start').action(actionSpy);
 
@@ -187,6 +191,29 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
       vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
       captureCliCallerIdentity();
       await expect(program.parseAsync(['node', 'chestnut', 'launcher', verb, '--help']))
+        .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
+      expect(action).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Watchdog controls motion supervision', () => {
+    it.each(['start', 'stop'].flatMap(verb => ['alice', 'task-123', ''].map(caller => ({ verb, caller }))))(
+      'rejects $caller before watchdog $verb action', async ({ verb, caller }) => {
+        expect(await runCli(['watchdog', verb], caller)).toEqual({ actionCalls: 0, exitCode: 1 });
+      },
+    );
+    it.each(['start', 'stop'].flatMap(verb => [undefined, 'motion'].map(caller => ({ verb, caller }))))(
+      'allows $caller to invoke watchdog $verb', async ({ verb, caller }) => {
+        expect(await runCli(['watchdog', verb], caller)).toEqual({ actionCalls: 1, exitCode: undefined });
+      },
+    );
+    it.each(['start', 'stop'])('allows help for watchdog %s', async (verb) => {
+      const action = vi.fn();
+      const program = buildProgram(action);
+      program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+      vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
+      captureCliCallerIdentity();
+      await expect(program.parseAsync(['node', 'chestnut', 'watchdog', verb, '--help']))
         .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
       expect(action).not.toHaveBeenCalled();
     });

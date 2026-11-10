@@ -60,6 +60,9 @@ function commandTargetsMotion(command: Command): boolean {
   // 顶层 stop / start
   if (path.length === 1 && (path[0] === 'stop' || path[0] === 'start')) return true;
 
+  // Watchdog start/stop directly control motion supervision.
+  if (path[0] === 'watchdog') return true;
+
   // 任意命令的 --claw motion（contract / skill / audit / 未来命令）
   const opts = command.opts() as { claw?: unknown };
   if (opts.claw === MOTION_CLAW_ID) return true;
