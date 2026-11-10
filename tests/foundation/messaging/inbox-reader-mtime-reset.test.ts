@@ -13,7 +13,9 @@ function expectedInflightPath(fileName: string): string {
 
 function makeMockFs(): FileSystem {
   return {
-    list: vi.fn().mockResolvedValue([{ name: 'msg.md', path: '/inbox/pending/msg.md' }]),
+    list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+      dir === '/inbox/pending' ? [{ name: 'msg.md', path: '/inbox/pending/msg.md' }] : [],
+    )),
     read: vi.fn().mockResolvedValue(
       '---\nid: msg-1\ntype: message\nfrom: "sender"\nto: "receiver"\npriority: normal\ntimestamp: 2026-05-27T00:00:00Z\n---\n\nbody\n',
     ),

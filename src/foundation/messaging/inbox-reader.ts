@@ -20,7 +20,7 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
-import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
+import { getProcessStartTime } from '../process-exec/index.js';
 import { decodeInbox, encodeInbox } from './codec-inbox.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
@@ -45,6 +45,13 @@ import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { makeClawId } from '../claw-identity/index.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
 import { INBOX_INFLIGHT_DIR, INBOX_MISROUTED_DIR } from './dirs.js';
+import { observeLegacyClaim } from './claim-process-observation.js';
+import {
+  ClaimObservationPersistenceError,
+  ClaimObservationStore,
+  type ClaimDecision,
+  type ClaimLease,
+} from './claim-observation-store.js';
 
 // Phase 992: inbox-reader owns its transient-read error to avoid reaching into dialog-store internals.
 class InboxReadError extends Error {
@@ -291,7 +298,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
    * Guarantees DP「中断可恢复」+「未经显式决策不得丢弃」。
    *
    * Phase 930: inflight filenames carry a claim lease `{pid}_{startTime}_{originalName}`.
-   * Only stale claims (owner process not alive) are reclaimed.
+   * Only explicitly gone owners or eligible expired leases are reclaimed.
    *
    * Phase 1781: 失败不静默——list 失败即 degraded；read(move-stat)/move 失败记录首个
    * 失败（保留 entry identity 与原始 error）后继续处置其余 entry（各自独立、
@@ -314,6 +321,12 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       return { kind: 'degraded', stage: 'list', error: err, recovered: 0 };
     }
 
+    let observationStore: ClaimObservationStore | undefined;
+    const getObservationStore = (): ClaimObservationStore => {
+      observationStore ??= new ClaimObservationStore(this.fs, this.inflightDir);
+      return observationStore;
+    };
+
     const CLAIM_RE = /^(\d+)_([0-9a-f]+)_(.+\.md)$/i;
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
     let revertedCount = 0;
@@ -323,73 +336,92 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
 
-      let originalName: string;
-      let shouldReclaim = false;
+      const sourcePath = path.join(this.inflightDir, entry.name);
       const match = entry.name.match(CLAIM_RE);
-      if (!match) {
-        // Legacy format (pre-Phase 930): no PID lease, use mtime-based heuristic.
-        originalName = entry.name;
-        const sourcePath = path.join(this.inflightDir, entry.name);
+      const originalName = match ? match[3] : entry.name;
+      let facts: ReturnType<typeof observeLegacyClaim> | undefined;
+      let decision: ClaimDecision | undefined;
+      let lease: ClaimLease | undefined;
+      let shouldStat = !match;
+
+      if (match) {
+        const pid = parseInt(match[1], 10);
+        const startTimeHex = match[2];
+        facts = observeLegacyClaim(
+          pid,
+          startTimeHex === '0' ? undefined : Buffer.from(startTimeHex, 'hex').toString('utf8'),
+        );
+        await getObservationStore().recordObservation({
+          rawName: entry.name,
+          originalName,
+          process: facts,
+        });
+
+        if (facts.decoded.kind !== 'decoded') {
+          decision = { kind: 'retain', reason: 'invalid_reference' };
+        } else if (facts.observed?.kind === 'gone') {
+          decision = { kind: 'reclaim', reason: 'process_gone' };
+        } else if (startTimeHex !== '0') {
+          // Legacy nonzero startTimes cannot establish identity or lease eligibility.
+          decision = {
+            kind: 'retain',
+            reason: facts.observed?.kind === 'alive' ? 'alive' : 'unknown',
+          };
+        } else {
+          // Without a startTime, a non-gone owner still has the original mtime lease.
+          shouldStat = true;
+        }
+      }
+
+      if (shouldStat) {
         let mtime: number;
         try {
           const stat = await this.fs.stat(sourcePath);
           mtime = stat.mtime.getTime();
         } catch (err) {
-          emitInboxMoveFailed(this.audit, {
-            file: entry.name,
-            op: 'reconcile_stat',
-            errorCode: classifyErrno(err),
-            reason: formatErr(err),
-          });
-          firstFailure ??= { stage: 'read', entry: entry.name, error: err };
+          if (!isFileNotFound(err)) {
+            // phase 1781: read 失败不再 throw 中断整批 —— 记录证据、该 entry 留 inflight/
+            emitInboxMoveFailed(this.audit, {
+              file: entry.name,
+              op: 'reconcile_stat',
+              errorCode: classifyErrno(err),
+              reason: formatErr(err),
+            });
+            firstFailure ??= { stage: 'read', entry: entry.name, error: err };
+          }
+          await getObservationStore().recordDecision({
+            rawName: entry.name,
+            originalName,
+            ...(facts !== undefined && { process: facts }),
+            decision: {
+              kind: 'skip',
+              reason: isFileNotFound(err) ? 'source_absent' : 'stat_failed',
+            },
+          }, { originalStatError: err });
           continue;
         }
-        if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
-          shouldReclaim = true;
-        }
-      } else {
-        const pid = parseInt(match[1], 10);
-        const startTimeHex = match[2];
-        originalName = match[3];
-        if (startTimeHex !== '0') {
-          const startTime = makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
-          if (!isAlive(pid, startTime)) {
-            shouldReclaim = true;
-          }
-        } else {
-          // No startTime recorded: dead claims can be reclaimed immediately;
-          // live claims retain the mtime lease as a PID-reuse safeguard.
-          if (!isAlive(pid)) {
-            shouldReclaim = true;
-          } else {
-            const sourcePath = path.join(this.inflightDir, entry.name);
-            try {
-              const stat = await this.fs.stat(sourcePath);
-              if (Date.now() - stat.mtime.getTime() >= STALE_THRESHOLD_MS) {
-                shouldReclaim = true;
-              }
-            } catch (statErr) {
-              if (!isFileNotFound(statErr)) {
-                // phase 1781: read 失败不再 throw 中断整批 —— 记录证据、该 entry 留 inflight/
-                emitInboxMoveFailed(this.audit, {
-                  file: entry.name,
-                  op: 'reconcile_stat',
-                  errorCode: classifyErrno(statErr),
-                  reason: formatErr(statErr),
-                });
-                firstFailure ??= { stage: 'read', entry: entry.name, error: statErr };
-                continue;
-              }
-              // File vanished — reclaim is safe (nothing to move, will fail silently below).
-              shouldReclaim = true;
-            }
-          }
-        }
+
+        const observedAtMs = Date.now();
+        lease = {
+          thresholdMs: STALE_THRESHOLD_MS,
+          observedAtMs,
+          ...(Number.isFinite(mtime) ? { valueMs: mtime } : { valueMsText: String(mtime) }),
+        };
+        decision = Number.isFinite(mtime) && observedAtMs - mtime >= STALE_THRESHOLD_MS
+          ? { kind: 'reclaim', reason: 'lease_elapsed' }
+          : { kind: 'retain', reason: 'lease_active' };
       }
 
-      if (!shouldReclaim) continue;
+      if (decision === undefined) throw new Error('unreachable inbox claim decision state');
+      await getObservationStore().recordDecision({
+        rawName: entry.name,
+        originalName,
+        ...(facts !== undefined && { process: facts }),
+        ...(lease !== undefined && { lease }),
+        decision,
+      });
+      if (decision.kind !== 'reclaim') continue;
 
-      const sourcePath = path.join(this.inflightDir, entry.name);
       try {
         // phase 1020: conflict-aware restore — never silently overwrite a pending
         // file with the same name (bare rename semantics).
@@ -816,7 +848,21 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
   async drainAndDeliver(): Promise<InboxDeliveryResult> {
     // Reconcile on every active recovery pass, not only during init(). A degraded
     // reconcile is already audited; keep draining the entries that are available.
-    await this._reconcileInflight();
+    try {
+      await this._reconcileInflight();
+    } catch (err) {
+      if (!(err instanceof ClaimObservationPersistenceError)) throw err;
+      return {
+        kind: 'partial_failure',
+        entries: [],
+        handles: [],
+        transientErrors: 0,
+        permanentErrors: 0,
+        stage: 'claim',
+        entry: err.entry,
+        error: err,
+      };
+    }
     // claim 阶段（pending 读取 + malformed/duplicate quarantine）失败：尚未 claim
     // 任何 entry；typed evidence 交 caller，不再以异常穿越 drain 边界。
     let drain: DrainInboxResult;

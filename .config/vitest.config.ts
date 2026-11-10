@@ -172,7 +172,9 @@ const VI_MOCK_FILES = [
   // 'tests/foundation/llm.test.ts',
   // 'tests/foundation/llm-provider/anthropic-adapter.test.ts',
   'tests/foundation/messaging/inbox-reader-race.test.ts',
-  'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // phase 908: vi.mock process-exec isAlive
+  'tests/foundation/messaging/claim-process-observation.test.ts',
+  'tests/foundation/messaging/inbox-claim-observation.test.ts',
+  'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // vi.mock process-exec inspectProcessRef
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
   // 'tests/foundation/process-manager/isready-stale-self-cleanup.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
