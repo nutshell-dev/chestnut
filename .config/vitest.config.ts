@@ -301,6 +301,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/watchdog/watchdog-ownership-process-race.test.ts',
   // Phase 1931 Step B/C: real child skill install race（同名/混合来源确定性竞争）
   'tests/cli/skill-install-process-race.test.ts',
+  // Phase 2071 Step C: real ConfigStore holder exit/reclaim and persisted evidence
+  'tests/foundation/config-store/lock-process-observation.integration.test.ts',
 ];
 
 /**

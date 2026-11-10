@@ -19,9 +19,16 @@
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../fs/index.js';
-import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
+import {
+  decodeProcessRef,
+  getProcessStartTime,
+  inspectProcessRef,
+  type ProcessRefDecode,
+  type ProcessRefObservation,
+} from '../process-exec/index.js';
 import { newShortUuid } from '../node-utils/index.js';
 import { ConfigStoreError } from './errors.js';
+import { LockObservationWriter } from './lock-observations.js';
 
 /**
  * 模块私有 unknown error 格式化（phase 1297 Step B：替代 NodeUtils formatErr，
@@ -241,21 +248,22 @@ const CONFIG_LOCK_POLL_MS = 50;
  * - `pid` + `process_start_time`：holder 活性证明（PID 回收防御）；
  * - `createdAt`：仅决定何时开始探测，时间戳本身不构成回收依据。
  * 1910 legacy lock（无 token / 无 startTime）仍可被读：token 缺省 → 以
- * `pid:createdAt` 为代际身份；startTime 缺省 → 活性降级为 kill(0) 判定。
+ * `pid:createdAt` 为代际身份；旧技术字段只适配为 L1 v0 引用，不在此解释。
  */
-interface ConfigLockPayload {
-  token?: string;
-  pid?: number;
-  process_start_time?: string;
-  createdAt?: string;
+interface ConfigLockPayload extends Record<string, unknown> {
+  token?: unknown;
+  pid?: unknown;
+  process_start_time?: unknown;
+  createdAt?: unknown;
 }
 
 /** 代际身份：token 优先；legacy 退化为 pid+createdAt；不可解析以原文为身份。 */
 function lockIdentity(raw: string): string {
   try {
-    const payload = JSON.parse(raw) as ConfigLockPayload;
-    if (typeof payload.token === 'string' && payload.token !== '') return `token:${payload.token}`;
-    return `legacy:${String(payload.pid)}:${String(payload.createdAt)}`;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) return `raw:${raw}`;
+    if (typeof parsed.token === 'string' && parsed.token !== '') return `token:${parsed.token}`;
+    return `legacy:${String(parsed.pid)}:${String(parsed.createdAt)}`;
   } catch {
     // silent: 不可解析内容以原文为代际身份（保守不授予回收权）
     return `raw:${raw}`;
@@ -265,7 +273,7 @@ function lockIdentity(raw: string): string {
 type LockObservation =
   | { kind: 'absent' }                     // 读时已被释放 —— 下一轮 O_EXCL 裁决
   | { kind: 'unreadable' }                 // EIO/EACCES 等 —— 不可判，保守持有
-  | { kind: 'malformed' }                  // 半写（O_EXCL 先发布路径）—— 保守持有
+  | { kind: 'malformed'; raw: string }     // 半写/非对象（O_EXCL 先发布路径）—— 保守持有
   | { kind: 'ok'; raw: string; payload: ConfigLockPayload };
 
 function observeLock(fs: FileSystem, lockName: string): LockObservation {
@@ -276,34 +284,58 @@ function observeLock(fs: FileSystem, lockName: string): LockObservation {
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return { kind: 'absent' };
     return { kind: 'unreadable' }; // 读错误 ≠ 可回收（1911：不再折叠成可删）
   }
-  let payload: ConfigLockPayload;
+  let parsed: unknown;
   try {
-    payload = JSON.parse(raw) as ConfigLockPayload;
+    parsed = JSON.parse(raw) as unknown;
   } catch {
     // silent: 半写 lock（O_EXCL 先发布路径）—— 保守持有，交超时/活性协议
-    return { kind: 'malformed' };
+    return { kind: 'malformed', raw };
   }
-  return { kind: 'ok', raw, payload };
+  if (!isRecord(parsed)) return { kind: 'malformed', raw };
+  return { kind: 'ok', raw, payload: parsed };
 }
 
-/**
- * holder 活性证明：仅当 ESRCH（进程不存在）或 PID 已回收（startTime 不匹配）
- * 才返回 false —— 两者都是确凿死亡证据。EPERM / ps 不可用 / 字段缺失一律
- * 保守存活（不确定 ≠ 死亡，不授予删除权）。
- */
-function isLockHolderAlive(payload: ConfigLockPayload): boolean {
-  if (typeof payload.pid !== 'number' || !Number.isInteger(payload.pid) || payload.pid <= 0) {
-    return true; // 无 pid 可探测 → 保守持有
+function isRecord(value: unknown): value is ConfigLockPayload {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+type LockTarget =
+  | { kind: 'reference'; input: unknown }
+  | { kind: 'unverifiable'; reason: string };
+
+/** Validate the business envelope without interpreting technical process fields. */
+function targetOf(payload: ConfigLockPayload): LockTarget {
+  if (!('lock_version' in payload)) {
+    return { kind: 'reference', input: {
+      version: 0,
+      pid: payload.pid,
+      startTime: payload.process_start_time,
+    } };
   }
-  const startTime = typeof payload.process_start_time === 'string' && payload.process_start_time !== ''
-    ? makeProcessStartTime(payload.process_start_time)
-    : undefined;
-  return isAlive(payload.pid, startTime);
+  if (payload.lock_version !== 2) {
+    return { kind: 'unverifiable', reason: 'unsupported_lock_version' };
+  }
+  if (typeof payload.token !== 'string' || payload.token === '') {
+    return { kind: 'unverifiable', reason: 'invalid_lock_token' };
+  }
+  if (typeof payload.createdAt !== 'string' || Number.isNaN(Date.parse(payload.createdAt))) {
+    return { kind: 'unverifiable', reason: 'invalid_lock_created_at' };
+  }
+  if (typeof payload.observationAttemptId !== 'string' || payload.observationAttemptId === '') {
+    return { kind: 'unverifiable', reason: 'invalid_observation_attempt_id' };
+  }
+  const holder = payload.holder;
+  if (typeof holder === 'object' && holder !== null && !Array.isArray(holder)
+      && 'kind' in holder && holder.kind === 'reference'
+      && 'ref' in holder && typeof holder.ref === 'string') {
+    return { kind: 'reference', input: holder.ref };
+  }
+  return { kind: 'unverifiable', reason: 'holder_unverifiable' };
 }
 
 /** 是否到达探测窗口（年龄只触发探测；判龄失败保守不探测）。 */
 function isLockProbeDue(payload: ConfigLockPayload, staleMs: number): boolean {
-  const createdAt = Date.parse(payload.createdAt ?? '');
+  const createdAt = Date.parse(typeof payload.createdAt === 'string' ? payload.createdAt : '');
   if (Number.isNaN(createdAt)) return false;
   return Date.now() - createdAt >= staleMs;
 }
@@ -373,6 +405,7 @@ async function tryReclaimDeadHolder(
 async function acquireConfigLock(
   fs: FileSystem,
   lockName: string,
+  configFileName: string,
   opts: { acquireTimeoutMs: number; staleMs: number; pollMs: number },
 ): Promise<string> {
   const myToken = newShortUuid();
@@ -382,31 +415,93 @@ async function acquireConfigLock(
     process_start_time: getProcessStartTime(process.pid),
     createdAt: new Date().toISOString(),
   };
+  const observations = new LockObservationWriter(fs, `${configFileName}.lock-observations`);
   const deadline = Date.now() + opts.acquireTimeoutMs;
+  const acquireTimeout = (): ConfigStoreError => new ConfigStoreError(
+    'lock_timeout',
+    `Config lock acquire timeout: ${lockName} held by another process; ` +
+    `process observations at ${observations.location}`,
+  );
+  // Only raw facts that did not trigger an OS query may be deduplicated.
+  let lastUnqueriedRaw: string | null = null;
+
   for (;;) {
+    if (Date.now() >= deadline) throw acquireTimeout();
     try {
       fs.writeExclusiveSync(lockName, JSON.stringify(myPayload));
       return myToken;
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
     }
-    if (Date.now() >= deadline) {
-      throw new ConfigStoreError(
-        'lock_timeout',
-        `Config lock acquire timeout: ${lockName} held by another process`,
-      );
-    }
+    if (Date.now() >= deadline) throw acquireTimeout();
+
     const observed = observeLock(fs, lockName);
-    if (
-      observed.kind === 'ok' &&
-      isLockProbeDue(observed.payload, opts.staleMs) &&
-      !isLockHolderAlive(observed.payload)
-    ) {
-      // holder 已被证明死亡（ESRCH / PID 回收）—— rename-claim 回收其 corpse
+    let decoded: ProcessRefDecode | undefined;
+    let outcome: ProcessRefDecode | ProcessRefObservation
+      | { kind: 'unverifiable'; reason: string };
+    let queried = false;
+
+    if (observed.kind === 'malformed') {
+      outcome = { kind: 'unverifiable', reason: 'malformed_lock' };
+    } else if (observed.kind !== 'ok') {
+      lastUnqueriedRaw = null;
+      if (Date.now() >= deadline) throw acquireTimeout();
+      await new Promise<void>(resolve => setTimeout(resolve, opts.pollMs));
+      continue;
+    } else if (!isLockProbeDue(observed.payload, opts.staleMs)) {
+      lastUnqueriedRaw = null;
+      if (Date.now() >= deadline) throw acquireTimeout();
+      await new Promise<void>(resolve => setTimeout(resolve, opts.pollMs));
+      continue;
+    } else {
+      const target = targetOf(observed.payload);
+      if (target.kind === 'unverifiable') {
+        outcome = target;
+      } else {
+        try {
+          decoded = decodeProcessRef(target.input);
+          if (decoded.kind === 'decoded') {
+            outcome = inspectProcessRef(decoded.value);
+            queried = true;
+          } else {
+            outcome = decoded;
+          }
+        } catch (error) {
+          throw new ConfigStoreError(
+            'lock_indeterminate',
+            `Config lock process observation failed for ${lockName}; ` +
+            `attempt ${observations.attemptId} at ${observations.location}`,
+            { cause: {
+              kind: 'process_observation_failed',
+              lockName,
+              lockRaw: observed.raw,
+              attemptId: observations.attemptId,
+              attemptDir: observations.location,
+              error,
+            } },
+          );
+        }
+      }
+    }
+
+    const decision = outcome.kind === 'gone' ? 'consider_reclaim' : 'wait';
+    if (queried || observed.raw !== lastUnqueriedRaw) {
+      observations.record({
+        lockRaw: observed.raw,
+        ...(decoded !== undefined && { decoded }),
+        outcome,
+        decision,
+      });
+    }
+    lastUnqueriedRaw = queried ? null : observed.raw;
+
+    // Observation and persistence consume the original budget; a late gone
+    // result is evidence, not permission to act after the deadline.
+    if (Date.now() >= deadline) throw acquireTimeout();
+    if (outcome.kind === 'gone') {
       await tryReclaimDeadHolder(fs, lockName, observed.raw);
       continue;
     }
-    // absent / unreadable / malformed / 存活 / 未到探测窗口 —— 保守等待
     await new Promise<void>(resolve => setTimeout(resolve, opts.pollMs));
   }
 }
@@ -448,8 +543,8 @@ function releaseConfigLock(fs: FileSystem, lockName: string, myToken: string): C
  * 在锁内组合本模块既有同步原语（loadYamlConfig / writeYamlConfig /
  * patchYamlConfig），使 read→modify→write 整体串行化：任何成功提交的字段
  * 不会被另一成功 mutation 静默抹掉。锁文件为 `<config>.lock`，O_EXCL 创建裁决。
- * Phase 1911 Step C：holder 活性以 PID+进程启动时间证明，死亡才可回收
- * （rename-claim 原子抢占 + 代际复核）；释放只删自己持有的 token 代；
+ * Phase 2071 Step C：holder 由 L1 完整观测，仅明确 gone 才可回收；观测先持久化，
+ * 再沿 rename-claim 原子抢占 + 代际复核处置；释放只删自己持有的 token 代；
  * 获取超时 typed 'lock_timeout'，不可判状态 typed 'lock_indeterminate'，
  * 锁被替换 typed 'lock_lost'。锁不可重入、不可嵌套（CLI 一次性进程语义）。
  */
@@ -461,8 +556,9 @@ export async function withYamlConfigLock(
 ): Promise<void> {
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
-  const lockName = `${path.basename(configPath)}.lock`;
-  const myToken = await acquireConfigLock(fs, lockName, {
+  const configFileName = path.basename(configPath);
+  const lockName = `${configFileName}.lock`;
+  const myToken = await acquireConfigLock(fs, lockName, configFileName, {
     acquireTimeoutMs: opts?.acquireTimeoutMs ?? CONFIG_LOCK_ACQUIRE_TIMEOUT_MS,
     staleMs: opts?.staleMs ?? CONFIG_LOCK_STALE_MS,
     pollMs: opts?.pollMs ?? CONFIG_LOCK_POLL_MS,
@@ -483,8 +579,8 @@ export async function withYamlConfigLock(
 
 /**
  * Phase 1927 Step E：withYamlConfigLock 的异步变体——临界区允许 async fn
- * （如凭据事务内的 OAuth refresh 网络调用）。死 holder 回收由 holder 活性
- * 探测保证（PID+启动时间；活 holder 持锁久不触发回收），获取超时 typed
+ * （如凭据事务内的 OAuth refresh 网络调用）。死 holder 回收由持久化后的
+ * L1 明确 gone 观测授权（活/unknown 均不回收），获取超时 typed
  * 'lock_timeout'。错误纪律同同步版：fn 错误优先，释放失败显式报告。
  */
 export async function withYamlConfigLockAsync<T>(
@@ -495,8 +591,9 @@ export async function withYamlConfigLockAsync<T>(
 ): Promise<T> {
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
-  const lockName = `${path.basename(configPath)}.lock`;
-  const myToken = await acquireConfigLock(fs, lockName, {
+  const configFileName = path.basename(configPath);
+  const lockName = `${configFileName}.lock`;
+  const myToken = await acquireConfigLock(fs, lockName, configFileName, {
     acquireTimeoutMs: opts?.acquireTimeoutMs ?? CONFIG_LOCK_ACQUIRE_TIMEOUT_MS,
     staleMs: opts?.staleMs ?? CONFIG_LOCK_STALE_MS,
     pollMs: opts?.pollMs ?? CONFIG_LOCK_POLL_MS,

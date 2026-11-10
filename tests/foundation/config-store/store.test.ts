@@ -418,21 +418,43 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
     ).toEqual([]);
   });
 
-  it('PID 回收（startTime 不匹配）视为原 holder 已死，可回收', async () => {
+  it('旧 PID 存在但 startTime 不匹配：identity_unverifiable 保守持有', async () => {
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
-    fs.writeFileSync(`${configPath}.lock`, JSON.stringify({
+    const lockRaw = JSON.stringify({
       token: 'recycled-pid',
-      pid: process.pid, // PID 活着但 startTime 对不上 = 原 holder 已死
+      pid: process.pid, // 缺来源的旧记录不能把字符串差异提升为死亡证明
       process_start_time: 'Sat Jan  1 00:00:00 2000',
       createdAt: OLD,
-    }));
+    });
+    fs.writeFileSync(`${configPath}.lock`, lockRaw);
+    let calls = 0;
 
-    await withYamlConfigLock({ fsFactory }, configPath, () => {
-      patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recycled = true; });
-    }, FAST);
+    let caught: unknown;
+    try {
+      await withYamlConfigLock({ fsFactory }, configPath, () => {
+        calls += 1;
+        patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recycled = true; });
+      }, FAST);
+    } catch (err) {
+      caught = err;
+    }
 
-    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
-    expect(raw.recycled).toBe(true);
+    expect(isConfigStoreError(caught)).toBe(true);
+    expect((caught as ConfigStoreError).code).toBe('lock_timeout');
+    expect(calls).toBe(0);
+    expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(lockRaw);
+    expect(yaml.load(fs.readFileSync(configPath, 'utf8'))).toEqual({ name: 'base' });
+    const evidenceDir = `${configPath}.lock-observations`;
+    const records = fs.readdirSync(evidenceDir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name === '000001.json')
+      .map((entry) => JSON.parse(fs.readFileSync(
+        path.join(entry.parentPath, entry.name), 'utf8',
+      )) as { outcome: { kind: string; reason?: string } });
+    expect(records).toHaveLength(1);
+    expect(records[0].outcome).toMatchObject({
+      kind: 'unknown',
+      reason: 'identity_unverifiable',
+    });
   });
 
   it('lock 读错误（EISDIR）不删除、不进入 mutation，typed lock_timeout', async () => {
