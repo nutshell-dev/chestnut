@@ -1065,6 +1065,7 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
     const leftover = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     expect(leftover.targets.every((t: { state: string }) => t.state === 'published')).toBe(true);
     expect(skillDirSnapshots()).toEqual([]);
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_COMMIT_PROOF))).toBe(false);
 
     killHolder(claimPath());
     await skillInstallUserCommand(deps, src);
@@ -1072,6 +1073,7 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
     // all-published 恢复快速收敛：claim 释放、无快照孤儿
     expect(fs.existsSync(claimPath())).toBe(false);
     expect(skillDirSnapshots()).toEqual([]);
+    expect(fs.existsSync(path.join(userSkillDir(), SKILL_COMMIT_PROOF))).toBe(false);
     expect(logSpy.mock.calls.flat().join('\n')).toContain('resumed');
   });
 
@@ -1123,5 +1125,286 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
     expect(await readDispatchPublished()).toBe('# myskill v1\n');
     expect(skillDirSnapshots()).toEqual([]);
     expect(fs.existsSync(claimPath())).toBe(false);
+  });
+});
+
+
+describe('commit proof 清理恢复责任（Phase 2072：HYGIENE-SKILL-COMMIT-PROOF-ALL-PUBLISHED-RECOVERY）', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
+  function killHolder(claimFile = claimPath()): void {
+    const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
+    claim.pid = 99999;
+    delete claim.process_start_time;
+    fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
+  }
+
+  function proofAbs(targetDir = userSkillDir()): string {
+    return path.join(targetDir, SKILL_COMMIT_PROOF);
+  }
+
+  function failProofFactory(
+    operation: 'read' | 'delete',
+    error: Error,
+    targetDir = userSkillDir(),
+  ): (baseDir: string) => FileSystem {
+    let failures = 1;
+    const parent = path.dirname(targetDir);
+    const rel = `${path.basename(targetDir)}/${SKILL_COMMIT_PROOF}`;
+    return (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(parent)) {
+        if (operation === 'read') {
+          const original = real.readSync.bind(real);
+          real.readSync = (p: string) => {
+            if (p === rel && failures > 0) {
+              failures--;
+              throw error;
+            }
+            return original(p);
+          };
+        } else {
+          const original = real.deleteSync.bind(real);
+          real.deleteSync = (p: string) => {
+            if (p === rel && failures > 0) {
+              failures--;
+              throw error;
+            }
+            return original(p);
+          };
+        }
+      }
+      return real;
+    };
+  }
+
+  function removeLocalSnapshots(): void {
+    for (const name of fs.readdirSync(claimParentDir()).filter((n) => n.startsWith('.skill-srcsnap-'))) {
+      fs.rmSync(path.join(claimParentDir(), name), { recursive: true, force: true });
+    }
+  }
+
+  it('fresh 全 published 后 proof 删除失败：保留 claim/proof 与 payload，不发成功回执，cause 可追踪', async () => {
+    const src = makeSkillSource('a', 'v1');
+    const injected = new Error('simulated proof delete EACCES');
+    const audit = { write: vi.fn() };
+
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('delete', injected) },
+      src,
+      { audit: audit as never },
+    )).rejects.toMatchObject({ cause: injected });
+
+    const pending = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(pending.targets.every((t: { state: string }) => t.state === 'published')).toBe(true);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+    expect(fs.readFileSync(path.join(userSkillDir(), 'run.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
+    expect(fs.existsSync(proofAbs())).toBe(true);
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(audit.write.mock.calls.filter((c: unknown[]) => c[0] === 'cli_skill_install')).toEqual([]);
+  });
+
+  it('all-published 且无 source snapshot：恢复仍清理 proof，不重新发布 dispatch，payload 字节不变', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('delete', new Error('stop after publish')) }, src,
+    )).rejects.toThrow(/cleanup is incomplete/);
+    const userBefore = fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'));
+    const dispatchBefore = await readDispatchPublished();
+    removeLocalSnapshots();
+    killHolder();
+
+    let dispatchImports = 0;
+    const noRepublishFactory: typeof createSkillVersions = async (opts) => {
+      const real = await createSkillVersions(opts);
+      const original = real.importSkill.bind(real);
+      real.importSkill = async (input) => {
+        dispatchImports++;
+        return original(input);
+      };
+      return real;
+    };
+    await skillInstallUserCommand(deps, src, { createSkillVersions: noRepublishFactory });
+
+    expect(dispatchImports).toBe(0);
+    expect(fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'))).toEqual(userBefore);
+    expect(await readDispatchPublished()).toBe(dispatchBefore);
+    expect(fs.existsSync(proofAbs())).toBe(false);
+    expect(fs.existsSync(claimPath())).toBe(false);
+  });
+
+  it('删除失败后的恢复再遇读取失败：两次均保留恢复责任，第三次幂等收敛', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('delete', new Error('first delete failure')) }, src,
+    )).rejects.toThrow(/cleanup is incomplete/);
+    killHolder();
+
+    const readFailure = new Error('simulated proof read EIO');
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('read', readFailure) }, src,
+    )).rejects.toMatchObject({ cause: readFailure });
+    expect(fs.existsSync(claimPath())).toBe(true);
+    expect(fs.existsSync(proofAbs())).toBe(true);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+
+    killHolder();
+    await skillInstallUserCommand(deps, src);
+    expect(fs.existsSync(proofAbs())).toBe(false);
+    expect(fs.existsSync(claimPath())).toBe(false);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+  });
+
+  it('mixed 中断恢复：先补齐未发布目标，再统一清理；失败时不释放全 published claim', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
+    ).rejects.toThrow(/simulated crash/);
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+    expect(fs.existsSync(proofAbs())).toBe(true);
+    killHolder();
+
+    const injected = new Error('mixed recovery proof delete failure');
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('delete', injected) }, src,
+    )).rejects.toMatchObject({ cause: injected });
+
+    const pending = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
+    expect(pending.targets.every((t: { state: string }) => t.state === 'published')).toBe(true);
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+    expect(fs.existsSync(proofAbs())).toBe(true);
+
+    killHolder();
+    await skillInstallUserCommand(deps, src);
+    expect(fs.existsSync(proofAbs())).toBe(false);
+    expect(fs.existsSync(claimPath())).toBe(false);
+  });
+
+  it.each([
+    ['installId', 'someone-else'],
+    ['manifestHash', 'different-manifest'],
+  ])('all-published proof 的 %s 身份冲突：原字节/payload/claim 全保留', async (field, value) => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('delete', new Error('leave published proof')) }, src,
+    )).rejects.toThrow(/cleanup is incomplete/);
+    const payloadBefore = fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'));
+    const proof = JSON.parse(fs.readFileSync(proofAbs(), 'utf-8'));
+    proof[field] = value;
+    const altered = JSON.stringify(proof, null, 2);
+    fs.writeFileSync(proofAbs(), altered);
+    killHolder();
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/cleanup is incomplete/);
+
+    expect(fs.readFileSync(proofAbs(), 'utf-8')).toBe(altered);
+    expect(fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'))).toEqual(payloadBefore);
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('all-published proof 非法 JSON：清理失败且证据原字节、payload、claim 均保留', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(skillInstallUserCommand(
+      { fsFactory: failProofFactory('delete', new Error('leave published proof')) }, src,
+    )).rejects.toThrow(/cleanup is incomplete/);
+    const payloadBefore = fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'));
+    fs.writeFileSync(proofAbs(), '{corrupted');
+    killHolder();
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/cleanup is incomplete/);
+
+    expect(fs.readFileSync(proofAbs(), 'utf-8')).toBe('{corrupted');
+    expect(fs.readFileSync(path.join(userSkillDir(), 'SKILL.md'))).toEqual(payloadBefore);
+    expect(fs.existsSync(claimPath())).toBe(true);
+  });
+
+  it('dispatch owner 边界：正常安装与 all-published 恢复均不读删 dispatch 目录 proof', async () => {
+    const src = makeSkillSource('a', 'v1');
+    const dispatchParent = path.dirname(dispatchSkillDir());
+    const dispatchProofRel = `myskill/${SKILL_COMMIT_PROOF}`;
+    let claimReleaseFailed = false;
+    const guardedFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(dispatchParent)) {
+        const originalRead = real.readSync.bind(real);
+        real.readSync = (p: string) => {
+          if (p === dispatchProofRel) throw new Error('forbidden dispatch proof read');
+          return originalRead(p);
+        };
+        const originalDelete = real.deleteSync.bind(real);
+        real.deleteSync = (p: string) => {
+          if (p === dispatchProofRel) throw new Error('forbidden dispatch proof delete');
+          return originalDelete(p);
+        };
+      }
+      if (path.resolve(baseDir) === path.resolve(claimBaseDir())) {
+        const originalDelete = real.deleteSync.bind(real);
+        real.deleteSync = (p: string) => {
+          if (!claimReleaseFailed && p.endsWith('.myskill.installing')) {
+            claimReleaseFailed = true;
+            throw new Error('simulated claim release failure');
+          }
+          return originalDelete(p);
+        };
+      }
+      return real;
+    };
+
+    await skillInstallUserCommand({ fsFactory: guardedFactory }, src);
+    expect(fs.existsSync(claimPath())).toBe(true);
+    killHolder();
+    await skillInstallUserCommand({ fsFactory: guardedFactory }, src);
+
+    expect(readVersion(userSkillDir())).toBe('# myskill v1\n');
+    expect(await readDispatchPublished()).toBe('# myskill v1\n');
+    expect(fs.existsSync(claimPath())).toBe(false);
+  });
+
+  it('claw pinned 全已发布恢复：保留原 sourceVersion，不重导出 live 最新来源', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await skillInstallUserCommand(deps, src);
+    const clawDir = path.join(testDir, '.chestnut', 'claws', 'bob');
+    const clawSkill = path.join(clawDir, 'skills', 'myskill');
+    const clawClaim = path.join(clawDir, 'skills', '.myskill.installing');
+    fs.mkdirSync(clawDir, { recursive: true });
+
+    await expect(skillInstallClawCommand(
+      { fsFactory: failProofFactory('delete', new Error('claw proof cleanup failure'), clawSkill) },
+      'bob',
+      'myskill',
+    )).rejects.toThrow(/cleanup is incomplete/);
+    const pending = JSON.parse(fs.readFileSync(clawClaim, 'utf-8'));
+    const pinnedVersion = pending.sourceVersion as string;
+    expect(pending.targets.every((t: { state: string }) => t.state === 'published')).toBe(true);
+    expect(readVersion(clawSkill)).toBe('# myskill v1\n');
+    expect(fs.existsSync(proofAbs(clawSkill))).toBe(true);
+
+    const srcV2 = makeSkillSource('b', 'v2');
+    await skillInstallUserCommand(deps, srcV2);
+    expect(await readDispatchPublished()).toBe('# myskill v2\n');
+    killHolder(clawClaim);
+
+    let exportSpy: ReturnType<typeof vi.fn> | undefined;
+    const recoveryVersions: typeof createSkillVersions = async (opts) => {
+      const real = await createSkillVersions(opts);
+      exportSpy = vi.fn(real.exportSkillVersion.bind(real));
+      real.exportSkillVersion = exportSpy;
+      return real;
+    };
+    const audit = { write: vi.fn() };
+    await skillInstallClawCommand(deps, 'bob', 'myskill', {
+      createSkillVersions: recoveryVersions,
+      audit: audit as never,
+    });
+
+    expect(exportSpy).toBeDefined();
+    expect(exportSpy).not.toHaveBeenCalled();
+    expect(readVersion(clawSkill)).toBe('# myskill v1\n');
+    expect(fs.readFileSync(path.join(clawSkill, 'run.sh'), 'utf-8')).toBe('echo v1\n');
+    expect(fs.existsSync(proofAbs(clawSkill))).toBe(false);
+    expect(fs.existsSync(clawClaim)).toBe(false);
+    expect(audit.write).toHaveBeenCalledWith(
+      'cli_skill_install', 'mode=claw', 'claw=bob', 'skill=myskill', `source_version=${pinnedVersion}`,
+    );
   });
 });

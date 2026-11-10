@@ -686,22 +686,35 @@ function finishAbsentBranchCommit(
 }
 
 /**
- * 清理 target 根的 post-commit 身份证据（Phase 1916 Step C follow-up）：证据
- * 只服务 committing 窗口的恢复判读，intent 登记 published 后使命结束。
- * best-effort：缺席是常态（existing 分支不写证据/上次已清理）；清理失败
- * console.warn 留证，残留证据不进 payload/manifest，由下次恢复或更新收敛。
+ * 清理 target 根的 post-commit 身份证据（Phase 1916 Step C follow-up + Phase 2072）：
+ * 只清理身份仍属于本 intent 的证据；缺席幂等。读取、身份核验或删除未完成时，
+ * 保留原始 cause 并上抛，由持久 claim 继续承担恢复责任，不能伪装成功后遗忘。
  */
 function cleanupCommitProof(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   abs: string,
+  intent: SkillInstallIntent,
 ): void {
   const parentFs = deps.fsFactory(path.dirname(abs));
   const proofRel = `${path.basename(abs)}/${SKILL_COMMIT_PROOF}`;
   try {
-    parentFs.deleteSync(proofRel);
-  } catch (err) {
-    if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return;
-    console.warn(`Warning: failed to clean up skill commit proof ${proofRel}: ${err}`);
+    const proof = readSkillCommitProof(parentFs, proofRel);
+    if (proof === null) return;
+    if (!commitProofMatches(proof, intent, sha256Hex(JSON.stringify(intent.manifest)))) {
+      throw new CliError(`Skill commit proof ${proofRel} does not belong to this install; evidence preserved`);
+    }
+    try {
+      parentFs.deleteSync(proofRel);
+    } catch (err) {
+      if (isFileNotFound(err) || (err as NodeJS.ErrnoException)?.code === 'ENOTDIR') return;
+      throw err;
+    }
+  } catch (cause) {
+    throw new CliError(
+      `Skill is published but commit proof cleanup is incomplete: ${proofRel}; ` +
+      `install claim preserved (${formatErr(cause)})`,
+      { cause },
+    );
   }
 }
 
@@ -1101,12 +1114,7 @@ async function runSkillInstall(
       opts.claimFs.writeAtomicSync(opts.claimRel, JSON.stringify(intent, null, 2));
     };
     for (const target of intent.targets) {
-      if (target.state === 'published') {
-        // 崩溃于「published 登记后、证据清理前」的残留 post-commit 证据收敛
-        const doneAbs = opts.targets.find((t) => t.id === target.id)?.absPath;
-        if (doneAbs !== undefined) cleanupCommitProof(deps, doneAbs);
-        continue;
-      }
+      if (target.state === 'published') continue;
       const abs = opts.targets.find((t) => t.id === target.id)?.absPath;
       if (!abs) {
         throw new CliError(
@@ -1134,7 +1142,6 @@ async function runSkillInstall(
           target.state = 'published';
           delete target.commitBranch;
           persistIntent();
-          cleanupCommitProof(deps, abs);
           continue;
         }
         if (action === 'commit-finish') {
@@ -1142,7 +1149,6 @@ async function runSkillInstall(
           target.state = 'published';
           delete target.commitBranch;
           persistIntent();
-          cleanupCommitProof(deps, abs);
           continue;
         }
       }
@@ -1160,11 +1166,27 @@ async function runSkillInstall(
       target.state = 'published';
       delete target.commitBranch;
       persistIntent();
-      // published 已持久化 → post-commit 证据使命结束（崩溃残留由下次恢复收敛）
-      cleanupCommitProof(deps, abs);
     }
 
-    // 全部目标发布完成 → 快照使命结束（失败/冲突路径保留快照供恢复）
+  }
+
+  // Phase 2072：fresh、mixed、all-published 都经过同一清理终结段。只有目录
+  // swap 目标持有本协议 proof；dispatch 由版本服务发布，绝不跨 owner 读删。
+  // 任一失败自然阻断 snapshot/claim 清理与调用方成功回执，持久 intent 留待恢复。
+  for (const target of intent.targets) {
+    if (target.state !== 'published') {
+      throw new CliError(`Skill install target ${target.id} is not published; claim preserved`);
+    }
+    if (target.id === 'dispatch' && opts.dispatchPublish !== undefined) continue;
+    const abs = opts.targets.find((t) => t.id === target.id)?.absPath;
+    if (abs === undefined) {
+      throw new CliError(`Unknown skill install target ${target.id}; claim preserved`);
+    }
+    cleanupCommitProof(deps, abs, intent);
+  }
+
+  if (snapshotAbs !== null) {
+    // 全部目录 proof 清理完成 → 快照使命结束（发布失败/冲突路径保留快照供恢复）
     await deps.fsFactory(claimParentAbs).removeDir(path.basename(snapshotAbs)).catch((err) => {
       // Phase 1916 Step D：清理失败保留可观察证据（不静默丢失责任）——
       // 残留 `.skill-srcsnap-*` 由下一次同名安装的 sweep 收敛
