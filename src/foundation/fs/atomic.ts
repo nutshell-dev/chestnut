@@ -7,7 +7,7 @@
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { newUuid } from  '../node-utils/index.js';
+import { formatErr, newUuid } from  '../node-utils/index.js';
 import type { AtomicWriteResult, StatInfo } from './types.js';
 
 export const IGNORE_PATTERN = '.tmp_';
@@ -95,8 +95,15 @@ export async function writeAtomic(
     // Clean up temp file on error
     try {
       await fs.unlink(tmpFile);
-    } catch {
-      // silent: rollback cleanup best-effort (tmpFile unlink failure leaves cleanup garbage); original error rethrown below preserves caller forensic
+    } catch (cleanupError) {
+      // ENOENT confirms there is no temporary file left to clean up.
+      if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new AggregateError(
+          [error, cleanupError],
+          `Atomic write failed: ${formatErr(error)}; temporary file cleanup failed: ${tmpFile}: ${formatErr(cleanupError)}`,
+          { cause: error },
+        );
+      }
     }
     throw error;
   }

@@ -24,9 +24,11 @@ interface InjectionState {
   dirOpenFailure: NodeJS.ErrnoException | null;
   /** rename 前 tmp write 注入错误（null = 不注入） */
   tmpWriteFailure: NodeJS.ErrnoException | null;
+  tmpCleanupFailure: NodeJS.ErrnoException | null;
+  leavePartialWrite: boolean;
 }
 
-const injection: InjectionState = { dirOpenFailure: null, tmpWriteFailure: null };
+const injection: InjectionState = { dirOpenFailure: null, tmpWriteFailure: null, tmpCleanupFailure: null, leavePartialWrite: false };
 
 function errnoError(code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`injected ${code}`), { code });
@@ -48,8 +50,15 @@ vi.mock('fs', async (importOriginal) => {
         if (flags === 'r' && injection.dirOpenFailure) throw injection.dirOpenFailure;
         return (actual.promises.open as unknown as (...a: unknown[]) => Promise<unknown>)(p, flags, ...rest);
       }) as typeof actual.promises.open,
+      unlink: (async (p: PathLike) => {
+        if (injection.tmpCleanupFailure && isTmpPath(p)) throw injection.tmpCleanupFailure;
+        return actual.promises.unlink(p);
+      }) as typeof actual.promises.unlink,
       writeFile: (async (p: PathLike, ...rest: unknown[]) => {
-        if (injection.tmpWriteFailure && isTmpPath(p)) throw injection.tmpWriteFailure;
+        if (injection.tmpWriteFailure && isTmpPath(p)) {
+          if (injection.leavePartialWrite) await actual.promises.writeFile(p, 'partial');
+          throw injection.tmpWriteFailure;
+        }
         return (actual.promises.writeFile as unknown as (...a: unknown[]) => Promise<unknown>)(p, ...rest);
       }) as typeof actual.promises.writeFile,
     },
@@ -73,6 +82,8 @@ async function setup(): Promise<{ tmpDir: string; nodeFs: NodeFileSystem }> {
 beforeEach(() => {
   injection.dirOpenFailure = null;
   injection.tmpWriteFailure = null;
+  injection.tmpCleanupFailure = null;
+  injection.leavePartialWrite = false;
 });
 
 describe('phase 1753: AtomicWriteResult protocol (async writeAtomic)', () => {
@@ -217,6 +228,48 @@ describe('phase 1753: AtomicWriteResult protocol (sync writeAtomicSync, symmetri
       }
       expect(thrown).toMatchObject({ code: 'ENOSPC' });
       expect(fsSync.existsSync(path.join(tmpDir, 'sd.txt'))).toBe(false);
+    } finally {
+      await cleanupTempDir(tmpDir);
+    }
+  });
+});
+
+
+describe('atomic write cleanup evidence', () => {
+  it('retains both failures and the leftover path without replacing the old target', async () => {
+    const { tmpDir, nodeFs } = await setup();
+    try {
+      await fs.writeFile(path.join(tmpDir, 'target'), 'old');
+      const writeError = errnoError('EIO');
+      const cleanupError = errnoError('EACCES');
+      injection.tmpWriteFailure = writeError;
+      injection.tmpCleanupFailure = cleanupError;
+      injection.leavePartialWrite = true;
+      const error = await nodeFs.writeAtomic('target', 'new').catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([writeError, cleanupError]);
+      expect((error as Error).cause).toBe(writeError);
+      expect((error as Error).message).toContain('injected EIO');
+      expect((error as Error).message).toContain('injected EACCES');
+      const remaining = (await fs.readdir(tmpDir)).find(name => name.startsWith('.tmp_'))!;
+      expect(remaining).toBeDefined();
+      expect((error as Error).message).toContain(path.join(tmpDir, remaining));
+      expect(await fs.readFile(path.join(tmpDir, 'target'), 'utf8')).toBe('old');
+      expect(await fs.readFile(path.join(tmpDir, remaining), 'utf8')).toBe('partial');
+    } finally {
+      injection.tmpCleanupFailure = null;
+      await cleanupTempDir(tmpDir);
+    }
+  });
+
+  it.each([false, true])('preserves original failure identity when cleanup succeeds or file is absent: partial=%s', async (partial) => {
+    const { tmpDir, nodeFs } = await setup();
+    try {
+      const original = errnoError('EIO');
+      injection.tmpWriteFailure = original;
+      injection.leavePartialWrite = partial;
+      await expect(nodeFs.writeAtomic('target', 'new')).rejects.toBe(original);
+      expect(await fs.readdir(tmpDir)).toEqual([]);
     } finally {
       await cleanupTempDir(tmpDir);
     }
