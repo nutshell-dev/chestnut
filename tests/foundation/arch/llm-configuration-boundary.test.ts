@@ -42,6 +42,16 @@ describe('Phase 2097: LLMConfiguration 物理边界', () => {
     const barrel = fs.readFileSync(path.join(SRC_ROOT, 'assembly', 'index.ts'), 'utf8');
     expect(barrel).not.toContain('createUserPiAiCredentialStore');
     expect(barrel).not.toContain('createLegacyAuthenticationStore');
+    for (const name of [
+      'resolveLLMConfig',
+      'snapshotLLMConfig',
+      'snapshotLLMConfigInput',
+      'llmConfigIdentity',
+      'LLMConfigIdentityMismatchError',
+      'LLMConfigSnapshot',
+    ]) {
+      expect(barrel).not.toContain(name);
+    }
   });
 
   it('反向 fixture：扫描器能识别上层相对导入', () => {

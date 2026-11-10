@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { resolveLLMConfig } from '../../../src/assembly/config/config-load.js';
+import { resolveLLMConfig } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 import type {
   LLMEventSink,

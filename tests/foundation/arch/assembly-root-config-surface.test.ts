@@ -3,7 +3,7 @@
  *
  * 冻结三条 invariant：
  * 1. Assembly barrel 的 RootConfig 相关新增集合精确为计划表面
- *    （createRootConfig/resolveLLMConfig/RootConfigReader/RootConfigAdmin/RootConfigDeps），
+ *    （createRootConfig/RootConfigReader/RootConfigAdmin/RootConfigDeps），
  *    且不出现 config-load 旧函数、path helper、generic ConfigStore、legacy migration 符号；
  * 2. root-config.ts 只组合同模块 owner 函数：不 import ConfigStore/FileSystem 实现，
  *    FileSystem 仅 type-only 依赖 barrel；
@@ -43,7 +43,6 @@ const EXPECTED_SURFACE = [
   'RootConfigDeps',
   'RootConfigReader',
   'createRootConfig',
-  'resolveLLMConfig',
 ];
 
 // 内部符号：不得进入 barrel。（phase 1886 Step B: 兼容出口 buildLLMConfig 已随 alias 删除出列；

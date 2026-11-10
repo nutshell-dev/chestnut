@@ -28,8 +28,11 @@ import {
   deriveCatalogAuthProfile,
 } from '../foundation/llm-provider/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
-import { snapshotLLMConfig, type LLMConfigSnapshot } from '../assembly/index.js';
-import { createLegacyAuthenticationStore } from '../core/llm-configuration/index.js';
+import {
+  createLegacyAuthenticationStore,
+  snapshotLLMConfig,
+  type LLMConfigSnapshot,
+} from '../core/llm-configuration/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { CliError } from './errors.js';

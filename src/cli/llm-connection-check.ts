@@ -8,9 +8,12 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import { snapshotLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
-import { createLegacyAuthenticationStore } from '../core/llm-configuration/index.js';
-import type { LLMConfigSnapshot } from '../assembly/index.js';
+import type { RootConfigAdmin } from '../assembly/index.js';
+import {
+  createLegacyAuthenticationStore,
+  snapshotLLMConfig,
+  type LLMConfigSnapshot,
+} from '../core/llm-configuration/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
 import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.js';

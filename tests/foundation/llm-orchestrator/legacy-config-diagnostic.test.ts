@@ -12,7 +12,7 @@ import {
   resolveLLMConfig,
   snapshotLLMConfig,
   snapshotLLMConfigInput,
-} from '../../../src/assembly/config/config-load.js';
+} from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 
 const PRIMARY = { name: 'primary', apiKey: 'key', model: 'model', apiFormat: 'anthropic' as const };

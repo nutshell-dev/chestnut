@@ -7,7 +7,8 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { getClawConfigPath } from '../../../src/foundation/claw-identity/index.js';
 
-const { loadGlobalConfig, loadClawConfig, patchGlobalConfigPrimary, resolveLLMConfig } = await import('../../../src/assembly/config/config-load.js');
+const { loadGlobalConfig, loadClawConfig, patchGlobalConfigPrimary } = await import('../../../src/assembly/config/config-load.js');
+const { resolveLLMConfig } = await import('../../../src/core/llm-configuration/index.js');
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 

@@ -28,7 +28,7 @@ import {
   START_GATE_EXIT_CODE,
   START_USAGE_EXIT_CODE,
 } from '../../src/cli/start-llm-gate.js';
-import { snapshotLLMConfig } from '../../src/assembly/index.js';
+import { snapshotLLMConfig } from '../../src/core/llm-configuration/index.js';
 import {
   encodeMotionLLMReadyFact,
   MotionLLMIdentityMismatchError,

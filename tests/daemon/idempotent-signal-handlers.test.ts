@@ -48,6 +48,10 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   resolveLLMConfig: vi.fn(),  // phase 1886 Step B: mock 随 alias 删除归名
   llmConfigIdentity: vi.fn(() => 'test-llm-identity'),  // Phase 1927 Step C: mock 缝补全（motion 分支调用）
 }));
+vi.mock('../../src/core/llm-configuration/index.js', async () => ({
+  resolveLLMConfig: vi.fn(),
+  llmConfigIdentity: vi.fn(() => 'test-llm-identity'),
+}));
 
 vi.mock('../../src/foundation/process-manager/index.js', () => ({
   createAgentProcessManager: vi.fn(() => ({

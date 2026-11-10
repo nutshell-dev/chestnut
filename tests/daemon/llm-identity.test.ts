@@ -12,7 +12,7 @@ import {
   llmConfigIdentity,
   resolveLLMConfig,
   LLMConfigIdentityMismatchError,
-} from '../../src/assembly/index.js';
+} from '../../src/core/llm-configuration/index.js';
 import { verifyExpectedLLMIdentity } from '../../src/daemon/daemon.js';
 
 function makeGlobal(model: string, apiKey = '${ANTHROPIC_API_KEY}') {

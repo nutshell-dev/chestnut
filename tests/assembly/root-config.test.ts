@@ -15,11 +15,8 @@ import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { getClawConfigPath } from '../../src/foundation/claw-identity/index.js';
-import {
-  createRootConfig,
-  resolveLLMConfig,
-  type RootConfigAdmin,
-} from '../../src/assembly/index.js';
+import { createRootConfig, type RootConfigAdmin } from '../../src/assembly/index.js';
+import { resolveLLMConfig } from '../../src/core/llm-configuration/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 

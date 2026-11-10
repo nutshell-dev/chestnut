@@ -507,7 +507,7 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   CURRENT_DIALOG_FILE: 'current.json',
 }));
 
-vi.mock('../../src/assembly/config/config-load.js', () => {
+vi.mock('../../src/core/llm-configuration/index.js', () => {
   // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
   // mockImplementationOnce 语义不变。
   const llmConfigFn = vi.fn(function () {
@@ -516,6 +516,8 @@ vi.mock('../../src/assembly/config/config-load.js', () => {
   // Phase 1927 Step E：orchestrator 装配注入 CredentialStore——mock 提供同名缝
   return {
     resolveLLMConfig: llmConfigFn,
+    createLegacyAuthenticationStore: vi.fn(function () { return undefined; }),
+    llmConfigIdentity: vi.fn(() => 'test-llm-identity'),
   };
 });
 

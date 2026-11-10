@@ -384,13 +384,15 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   CURRENT_DIALOG_FILE: 'current.json',
 }));
 
-vi.mock('../../src/assembly/config/config-load.js', () => {
+vi.mock('../../src/core/llm-configuration/index.js', () => {
   // phase 1886 Step B: 兼容 alias buildLLMConfig 已删除，mock 归名单名；
   // mockImplementationOnce 语义不变。
   const llmConfigFn = vi.fn(function () { return { provider: 'mock' }; });
   // Phase 1927 Step E：orchestrator 装配注入 CredentialStore——mock 提供同名缝
   return {
     resolveLLMConfig: llmConfigFn,
+    createLegacyAuthenticationStore: vi.fn(function () { return undefined; }),
+    llmConfigIdentity: vi.fn(() => 'test-llm-identity'),
   };
 });
 
@@ -400,7 +402,7 @@ vi.mock('../../src/assembly/config/config-load.js', () => {
 // did, without paying the per-invocation resolution cost.
 import { createStreamWriter } from '../../src/foundation/stream/index.js';
 import { CronRunner } from '../../src/foundation/cron/runner.js';
-import { resolveLLMConfig } from '../../src/assembly/config/config-load.js';
+import { resolveLLMConfig } from '../../src/core/llm-configuration/index.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
 import { createRuntime } from '../../src/core/runtime/index.js';

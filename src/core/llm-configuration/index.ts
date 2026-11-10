@@ -21,3 +21,12 @@ export {
 export { createLocalCredentials, parseDotEnv } from './legacy-credentials/index.js';
 export type { LocalCredentialsDeps } from './legacy-credentials/index.js';
 export { createLegacyAuthenticationStore } from './authentication-store.js';
+export { resolveLLMConfig } from './selection.js';
+export type { LLMGlobalConfigView, LLMClawConfigView, LLMConfigInput } from './selection.js';
+export {
+  snapshotLLMConfig,
+  snapshotLLMConfigInput,
+  llmConfigIdentity,
+  LLMConfigIdentityMismatchError,
+} from './identity.js';
+export type { LLMConfigSnapshot } from './identity.js';

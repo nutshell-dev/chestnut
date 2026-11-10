@@ -16,10 +16,13 @@ import { formatErr } from '../foundation/node-utils/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
 import {
   GlobalConfigAlreadyExistsError,
+} from '../assembly/index.js';
+import {
+  createLegacyAuthenticationStore,
+  createLocalCredentials,
   snapshotLLMConfigInput,
   type LLMConfigSnapshot,
-} from '../assembly/index.js';
-import { createLegacyAuthenticationStore, createLocalCredentials } from '../core/llm-configuration/index.js';
+} from '../core/llm-configuration/index.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,
