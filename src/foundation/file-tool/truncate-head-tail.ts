@@ -7,6 +7,8 @@
  * phase 524: 抽 file-tool/read.ts 和 command-tool/exec.ts 两 私有 truncateHeadTail 实现。
  * phase 712: 从 utils/ 迁入 file-tool/。
  */
+import { truncateUtf8Prefix } from '../node-utils/index.js';
+
 const TRUNCATE_HEAD_LIMIT = 600;
 const TRUNCATE_TAIL_LIMIT = 1400;
 
@@ -16,11 +18,18 @@ const TRUNCATE_TAIL_LIMIT = 1400;
  * relPath 可选：不提供时不附加 read 提示（用于无文件路径的场景，如 async exec partial output）。
  */
 export function truncateHeadTail(content: string, relPath?: string): string {
-  const head = content.slice(0, TRUNCATE_HEAD_LIMIT);
-  const tail = content.slice(-TRUNCATE_TAIL_LIMIT);
-  const truncatedBytes = content.length - TRUNCATE_HEAD_LIMIT - TRUNCATE_TAIL_LIMIT;
+  const head = truncateUtf8Prefix(content, TRUNCATE_HEAD_LIMIT);
+  const bytes = Buffer.from(content, 'utf8');
+  const totalBytes = bytes.length;
+  const headBytes = Buffer.byteLength(head, 'utf8');
+  let tailStart = Math.max(headBytes, totalBytes - TRUNCATE_TAIL_LIMIT);
+  while (tailStart < totalBytes && (bytes[tailStart]! & 0xc0) === 0x80) tailStart++;
+  const tail = bytes.subarray(tailStart).toString('utf8');
+  const truncatedBytes = totalBytes - headBytes - Buffer.byteLength(tail, 'utf8');
   const readHint = relPath
-    ? `\nFull output (${content.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`
+    ? `\nFull output (${totalBytes} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`
     : '';
-  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}${readHint}`;
+  return truncatedBytes === 0
+    ? content + readHint
+    : `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}${readHint}`;
 }

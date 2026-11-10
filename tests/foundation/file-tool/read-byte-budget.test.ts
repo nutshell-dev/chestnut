@@ -84,6 +84,11 @@ describe('phase 2102: read UTF-8 byte budget', () => {
     return /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
   }
 
+  function parseFullOutputBytes(content: string): number | undefined {
+    const value = /Full output \((\d+) bytes\) saved\./.exec(content)?.[1];
+    return value === undefined ? undefined : Number(value);
+  }
+
   async function writeSource(source: string, name = 'data.txt'): Promise<void> {
     await fs.writeFile(path.join(workspaceDir, name), source);
   }
@@ -113,6 +118,27 @@ describe('phase 2102: read UTF-8 byte budget', () => {
     }
     expect(result.content).not.toBe(source);
     expect(parseReadHint(result.content)).toBeDefined();
+    expect(parseFullOutputBytes(result.content)).toBe(Buffer.byteLength(source, 'utf8'));
+    expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+    expect(result.content).not.toContain('\uFFFD');
+    const artifact = await fs.readFile(path.join(syncDir, 'read', files[0]!), 'utf8');
+    expect(artifact.endsWith(source)).toBe(true);
+  });
+
+  it('真实 read 预览两侧不切断 emoji，提示与完整产物使用同一原文字节总量', async () => {
+    const source = `${'a'.repeat(599)}😀${'中'.repeat(40000)}😀${'z'.repeat(1399)}`;
+    await writeSource(source);
+    const { ctx } = makeCtx();
+
+    const result = await readTool.execute({ path: 'data.txt' }, ctx);
+    const files = await artifactFiles();
+
+    expect(result.success).toBe(true);
+    expect(files).toHaveLength(1);
+    expect(result.content.startsWith(`${'a'.repeat(599)}\n[...truncated 120008 bytes...]\n`)).toBe(true);
+    expect(result.content).toContain(`${'z'.repeat(1399)}\nFull output (${Buffer.byteLength(source, 'utf8')} bytes) saved.`);
+    expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+    expect(result.content).not.toContain('\uFFFD');
     const artifact = await fs.readFile(path.join(syncDir, 'read', files[0]!), 'utf8');
     expect(artifact.endsWith(source)).toBe(true);
   });

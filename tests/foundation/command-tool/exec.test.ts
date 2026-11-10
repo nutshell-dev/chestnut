@@ -8,10 +8,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
-import { createExecTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
-import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
+import { createExecTool, formatExecOutputForToolResult, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
+import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS, EXEC_MAX_OUTPUT } from '../../../src/foundation/command-tool/constants.js';
 import { ProcessExecError, resolveHostCommand } from '../../../src/foundation/process-exec/index.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
+import { cleanupTempDir, createTempDir } from '../../utils/temp.js';
 import {
   EMPTY_OUTPUT_COMMAND,
   IS_WINDOWS,
@@ -141,6 +144,38 @@ describe('phase 2061 real Windows cmd behavior', () => {
 
     expect(result.success).toBe(true);
     expect(result.content.trim()).toBe('phase2061');
+  });
+});
+
+describe('phase 2107 exec UTF-8 overflow preview', () => {
+  it('真实 FS 保存完整输出，预览与提示按 UTF-8 字节守恒', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace');
+      const syncDir = path.join(tempDir, 'tasks', 'sync');
+      await fs.promises.mkdir(workspaceDir, { recursive: true });
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir,
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+      });
+      const output = `${'a'.repeat(599)}😀${'中'.repeat(1000)}😀${'z'.repeat(1399)}`;
+      expect(output.length).toBeGreaterThan(EXEC_MAX_OUTPUT);
+
+      const content = await formatExecOutputForToolResult(ctx, output);
+
+      expect(content.startsWith(`${'a'.repeat(599)}\n[...truncated 3008 bytes...]\n`)).toBe(true);
+      expect(content).toContain(`${'z'.repeat(1399)}\nFull output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
+      expect(() => assertWellFormedUnicode(content)).not.toThrow();
+      expect(content).not.toContain('\uFFFD');
+      const relPath = /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
+      expect(relPath).toBeDefined();
+      const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
+      expect(artifact.endsWith(output)).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
   });
 });
 
