@@ -23,8 +23,18 @@ export const TASKS_SYNC_READ_DIR = 'tasks/sync/read';
 /** search overflow scratch subdir（phase 1422 / Snapshot whitelist 清理）*/
 export const TASKS_SYNC_SEARCH_DIR = 'tasks/sync/search';
 
-/** search 预览阈值：命中数 ≤ 此值时全返不落盘、> 时落盘 + 返预览（phase 1422 Q6 ratify）*/
+/**
+ * search 预览条数阈值（phase 1422 Q6 ratify / phase 2086 C 改为并列条件之一）：
+ * 命中数 ≤ 此值、且每行 ≤ SEARCH_PREVIEW_LINE_MAX_BYTES、且整份响应 ≤ SEARCH_OUTPUT_MAX_BYTES
+ * 时才全返不落盘；任一条件超出即落盘一次完整结果并返回有界预览。
+ */
 export const SEARCH_PREVIEW_LIMIT = 20;
+
+/** search 单条渲染行的 UTF-8 字节上限（phase 2086 Step C；超出即显式标记截短）*/
+export const SEARCH_PREVIEW_LINE_MAX_BYTES = 2 * 1024;
+
+/** 一份正常 search 响应（含标题、换行、截断标记、Skipped、artifact 路径与取回命令）的总字节上限（phase 2086 Step C）*/
+export const SEARCH_OUTPUT_MAX_BYTES = 16 * 1024;
 
 /** search binary detect：前 N 字节含 NUL 视为 binary（phase 1422 Q3+Q4 ratify）*/
 export const SEARCH_BINARY_DETECT_BYTES = 8192;

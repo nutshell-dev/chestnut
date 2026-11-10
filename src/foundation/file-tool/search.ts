@@ -6,7 +6,7 @@
  * + default exclude + Q5 全英 + Q6 全扫 / overflow 落盘 / 预览 20 + Q7 cross-claw prefix）。
  */
 
-import { newShortUuid } from  '../node-utils/index.js';
+import { newShortUuid, truncateUtf8Prefix } from  '../node-utils/index.js';
 import * as nodePath from 'path';
 import { z } from 'zod';
 import { isFileNotFound, type FileSystem } from '../fs/index.js';
@@ -25,6 +25,8 @@ import {
   SEARCH_MAX_FILE_SIZE,
   SEARCH_DEFAULT_EXCLUDE,
   SEARCH_SKIP_DISPLAY_LIMIT,
+  SEARCH_PREVIEW_LINE_MAX_BYTES,
+  SEARCH_OUTPUT_MAX_BYTES,
 } from './constants.js';
 
 /**
@@ -179,41 +181,151 @@ function renderSkips(skips: SkipEntry[]): string {
   return `${header}\n${head}${more}`;
 }
 
-function renderResults(
-  result: WalkResult,
-  workspaceClawDirRel: string | null,
-): { filename: string[]; content: string[] } {
-  const filenameLines: string[] = [];
-  const contentLines: string[] = [];
+/* ---------------- phase 2086 Step C：有界预览（行 / 总字节预算） ---------------- */
 
-  const toDisplay = (p: string): string => {
-    // Strip clawPrefix-aware processing: paths in result already include any [clawId] prefix
-    // (or none for same-claw). For same-claw, strip workspace-relative prefix.
-    if (workspaceClawDirRel && (p === workspaceClawDirRel || p.startsWith(workspaceClawDirRel + '/'))) {
-      return p === workspaceClawDirRel ? '.' : p.slice(workspaceClawDirRel.length + 1);
-    }
-    return p;
-  };
+/** 单行渲染被截短时的显式标记（其字节数在 2KiB 行上限内预留） */
+const LINE_TRUNCATION_MARKER = ' … [truncated]';
+/** 整份正文被总预算截短时的显式标记（计入 16KiB 总预算） */
+const BODY_TRUNCATION_MARKER = '\n… [truncated]';
+/** 正文与 footer 之间固定分隔（计入总预算） */
+const SECTION_SEPARATOR = '\n\n';
+/** footer 内故障文本的显示上限：完整诊断仍进 audit，不在正文里无限膨胀 */
+const FOOTER_ERROR_MAX_BYTES = 256;
+/** footer 自身放不下时的固定短错误（不含动态路径，长度固定有界） */
+const BUDGET_ERROR_MESSAGE = 'search: preview unavailable — the full result was saved, but its artifact path does not fit the output byte budget; see audit log for the path.';
 
-  for (const f of result.filenameMatches) {
-    filenameLines.push(`- ${toDisplay(f.path)}`);
-  }
+function utf8Bytes(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
+}
 
-  let lastPath = '';
-  for (const c of result.contentMatches) {
-    const displayPath = toDisplay(c.path);
-    if (displayPath !== lastPath) {
-      contentLines.push(displayPath);
-      lastPath = displayPath;
-    }
-    contentLines.push(`  ${c.line}: ${c.text}`);
-  }
+interface RenderBlock {
+  header: string;
+  lines: string[];
+}
 
-  return { filename: filenameLines, content: contentLines };
+interface RenderState {
+  lineTruncated: boolean;
 }
 
 /**
- * phase 2086 Step B：overflow 落盘结果三态（模块私有判别联合，不进 barrel）。
+ * 单行 ≤ 上限；超限时先为标记预留字节，再用 truncateUtf8Prefix 按完整码点截取
+ * （不产生孤立 surrogate）。
+ */
+function capRenderedLine(line: string, lineMaxBytes: number | undefined, state: RenderState): string {
+  if (lineMaxBytes === undefined) return line;
+  if (utf8Bytes(line) <= lineMaxBytes) return line;
+  state.lineTruncated = true;
+  const budget = Math.max(0, lineMaxBytes - utf8Bytes(LINE_TRUNCATION_MARKER));
+  return truncateUtf8Prefix(line, budget) + LINE_TRUNCATION_MARKER;
+}
+
+function toDisplayPath(p: string, workspaceClawDirRel: string | null): string {
+  // Strip clawPrefix-aware processing: paths in result already include any [clawId] prefix
+  // (or none for same-claw). For same-claw, strip workspace-relative prefix.
+  if (workspaceClawDirRel && (p === workspaceClawDirRel || p.startsWith(workspaceClawDirRel + '/'))) {
+    return p === workspaceClawDirRel ? '.' : p.slice(workspaceClawDirRel.length + 1);
+  }
+  return p;
+}
+
+/**
+ * 分段渲染（Filename / Content / Skipped）。`lineMaxBytes === undefined` 时输出完整内容
+ * （artifact 用，绝不裁剪）；指定时逐行裁剪，供预览使用。
+ */
+function renderBlocks(
+  result: WalkResult,
+  workspaceClawDirRel: string | null,
+  lineMaxBytes?: number,
+): { blocks: RenderBlock[]; state: RenderState } {
+  const state: RenderState = { lineTruncated: false };
+  const blocks: RenderBlock[] = [];
+
+  if (result.filenameMatches.length > 0) {
+    blocks.push({
+      header: '[Filename matches]',
+      lines: result.filenameMatches.map(f =>
+        capRenderedLine(`- ${toDisplayPath(f.path, workspaceClawDirRel)}`, lineMaxBytes, state)),
+    });
+  }
+
+  if (result.contentMatches.length > 0) {
+    const lines: string[] = [];
+    let lastPath = '';
+    for (const c of result.contentMatches) {
+      const displayPath = toDisplayPath(c.path, workspaceClawDirRel);
+      if (displayPath !== lastPath) {
+        lines.push(capRenderedLine(displayPath, lineMaxBytes, state));
+        lastPath = displayPath;
+      }
+      lines.push(capRenderedLine(`  ${c.line}: ${c.text}`, lineMaxBytes, state));
+    }
+    blocks.push({ header: '[Content matches]', lines });
+  }
+
+  const skipBlock = renderSkips(result.skips);
+  if (skipBlock) {
+    const [header, ...lines] = skipBlock.split('\n');
+    blocks.push({ header, lines: lines.map(l => capRenderedLine(l, lineMaxBytes, state)) });
+  }
+
+  return { blocks, state };
+}
+
+function joinBlocks(blocks: RenderBlock[]): string {
+  return blocks.map(b => [b.header, ...b.lines].join('\n')).join(SECTION_SEPARATOR);
+}
+
+/** 完整 artifact 内容：不裁剪、不复用预览结果 */
+function buildFullOutput(result: WalkResult, workspaceClawDirRel: string | null): string {
+  return joinBlocks(renderBlocks(result, workspaceClawDirRel).blocks);
+}
+
+function buildNoMatchBody(
+  pattern: string,
+  skips: SkipEntry[],
+  lineMaxBytes?: number,
+): { text: string; state: RenderState } {
+  const body = `No matches for "${pattern}".`;
+  if (skips.length === 0) return { text: body, state: { lineTruncated: false } };
+  const state: RenderState = { lineTruncated: false };
+  const [header, ...lines] = renderSkips(skips).split('\n');
+  const capped = [header, ...lines.map(l => capRenderedLine(l, lineMaxBytes, state))].join('\n');
+  return { text: `${body}${SECTION_SEPARATOR}${capped}`, state };
+}
+
+function takePreview(result: WalkResult): WalkResult {
+  const previewFilename: FilenameMatch[] = [];
+  const previewContent: ContentMatch[] = [];
+  let taken = 0;
+  for (const f of result.filenameMatches) {
+    if (taken >= SEARCH_PREVIEW_LIMIT) break;
+    previewFilename.push(f);
+    taken++;
+  }
+  for (const c of result.contentMatches) {
+    if (taken >= SEARCH_PREVIEW_LIMIT) break;
+    previewContent.push(c);
+    taken++;
+  }
+  return { filenameMatches: previewFilename, contentMatches: previewContent, skips: result.skips };
+}
+
+function joinRel(base: string, rel: string): string {
+  if (rel === '' || rel === '.') return base === '.' ? '' : base;
+  if (base === '' || base === '.') return rel;
+  return `${base}/${rel}`;
+}
+
+function remapToWorkspace(result: WalkResult, searchPath: string): WalkResult {
+  return {
+    filenameMatches: result.filenameMatches.map(f => ({ path: joinRel(searchPath, f.path) })),
+    contentMatches: result.contentMatches.map(c => ({ path: joinRel(searchPath, c.path), line: c.line, text: c.text })),
+    skips: result.skips.map(s => ({ path: joinRel(searchPath, s.path), reason: s.reason })),
+  };
+}
+
+/**
+ * overflow 落盘结果三态（模块私有判别联合，不进 barrel）。
  * - durable：rename + 父目录 fsync 均成功，提交完全持久。
  * - committed_platform_limited / committed_durability_unknown：rename 已成功、内容已提交
  *   可见，仅耐久性未获确认；必须保留 relPath，不得重写或删除 artifact。
@@ -252,52 +364,20 @@ async function persistOverflow(ctx: ExecContext, fullContent: string): Promise<O
   }
 }
 
-function buildFullOutput(
-  result: WalkResult,
-  workspaceClawDirRel: string | null,
-): string {
-  const rendered = renderResults(result, workspaceClawDirRel);
-  const sections: string[] = [];
-  if (rendered.filename.length > 0) {
-    sections.push(['[Filename matches]', ...rendered.filename].join('\n'));
-  }
-  if (rendered.content.length > 0) {
-    sections.push(['[Content matches]', ...rendered.content].join('\n'));
-  }
-  const skipBlock = renderSkips(result.skips);
-  if (skipBlock) sections.push(skipBlock);
-  return sections.join('\n\n');
-}
-
-function takePreview(result: WalkResult): WalkResult {
-  const previewFilename: FilenameMatch[] = [];
-  const previewContent: ContentMatch[] = [];
-  let taken = 0;
-  for (const f of result.filenameMatches) {
-    if (taken >= SEARCH_PREVIEW_LIMIT) break;
-    previewFilename.push(f);
-    taken++;
-  }
-  for (const c of result.contentMatches) {
-    if (taken >= SEARCH_PREVIEW_LIMIT) break;
-    previewContent.push(c);
-    taken++;
-  }
-  return { filenameMatches: previewFilename, contentMatches: previewContent, skips: result.skips };
-}
-
-function joinRel(base: string, rel: string): string {
-  if (rel === '' || rel === '.') return base === '.' ? '' : base;
-  if (base === '' || base === '.') return rel;
-  return `${base}/${rel}`;
-}
-
-function remapToWorkspace(result: WalkResult, searchPath: string): WalkResult {
-  return {
-    filenameMatches: result.filenameMatches.map(f => ({ path: joinRel(searchPath, f.path) })),
-    contentMatches: result.contentMatches.map(c => ({ path: joinRel(searchPath, c.path), line: c.line, text: c.text })),
-    skips: result.skips.map(s => ({ path: joinRel(searchPath, s.path), reason: s.reason })),
-  };
+/**
+ * 把正文与 footer 装进 SEARCH_OUTPUT_MAX_BYTES：footer（artifact 路径 + 取回命令 +
+ * 状态说明）优先保留，正文按剩余预算裁剪并显式标记。footer 自身放不下 → null，
+ * 由调用方返回固定短错误（绝不截断后伪造可用路径）。
+ */
+function fitContentToBudget(body: string, footer: string): string | null {
+  const footerBytes = utf8Bytes(footer);
+  if (footerBytes + utf8Bytes(SECTION_SEPARATOR) > SEARCH_OUTPUT_MAX_BYTES) return null;
+  const available = SEARCH_OUTPUT_MAX_BYTES - footerBytes - utf8Bytes(SECTION_SEPARATOR);
+  if (available <= 0) return footer;
+  if (utf8Bytes(body) <= available) return `${body}${SECTION_SEPARATOR}${footer}`;
+  const markerBytes = utf8Bytes(BODY_TRUNCATION_MARKER);
+  if (available <= markerBytes) return footer;
+  return `${truncateUtf8Prefix(body, available - markerBytes)}${BODY_TRUNCATION_MARKER}${SECTION_SEPARATOR}${footer}`;
 }
 
 async function finalize(
@@ -308,37 +388,60 @@ async function finalize(
 ): Promise<ToolResult> {
   const totalMatches = result.filenameMatches.length + result.contentMatches.length;
 
-  if (totalMatches === 0) {
-    const skipBlock = renderSkips(result.skips);
-    const body = `No matches for "${pattern}".`;
-    return { success: true, content: skipBlock ? `${body}\n\n${skipBlock}` : body };
-  }
-
-  if (totalMatches <= SEARCH_PREVIEW_LIMIT) {
-    return { success: true, content: buildFullOutput(result, workspaceClawDirRel) };
-  }
-
+  // 1) 完整渲染：artifact 唯一权威内容（未裁剪，也不复用下面的预览结果）
   const fullContent = buildFullOutput(result, workspaceClawDirRel);
-  const overflow = await persistOverflow(ctx, fullContent);
-  const preview = buildFullOutput(takePreview(result), workspaceClawDirRel);
-  const previewHeader = `Showing 1-${SEARCH_PREVIEW_LIMIT} of ${totalMatches} matches.`;
 
-  // 真正未落盘（rename 前异常）：success=false，只回当前预览，绝不回退输出全量内容
-  if (overflow.kind === 'failed') {
-    return {
-      success: false,
-      content: `${preview}\n\n${previewHeader} (overflow persist failed: ${overflow.error}; ${totalMatches - SEARCH_PREVIEW_LIMIT} additional matches not delivered)`,
-    };
+  // 2) 预览候选：≤SEARCH_PREVIEW_LIMIT 条、每行 ≤SEARCH_PREVIEW_LINE_MAX_BYTES
+  const previewResult = takePreview(result);
+  const preview = totalMatches === 0
+    ? buildNoMatchBody(pattern, previewResult.skips, SEARCH_PREVIEW_LINE_MAX_BYTES)
+    : (() => {
+        const rendered = renderBlocks(previewResult, workspaceClawDirRel, SEARCH_PREVIEW_LINE_MAX_BYTES);
+        return { text: joinBlocks(rendered.blocks), state: rendered.state };
+      })();
+
+  const overCount = totalMatches > SEARCH_PREVIEW_LIMIT;
+  const overLineLimit = preview.state.lineTruncated;
+  const overTotalBudget = utf8Bytes(preview.text) > SEARCH_OUTPUT_MAX_BYTES;
+
+  // 3) 短且完整：保持原文本，零落盘
+  if (!overCount && !overLineLimit && !overTotalBudget) {
+    return { success: true, content: preview.text };
   }
 
-  const readHint = `Use \`read\` to view: read({ "path": "${overflow.relPath}", "offset": ${SEARCH_PREVIEW_LIMIT + 1}, "limit": 200 })`;
-  // committed_*：artifact 已提交可见、耐久性未确认 → 保留路径并显式说明限制（不称未落盘）
+  // 4) 任何显示裁剪都先做一次完整结果保存尝试，再按预算拼 footer 与正文
+  const overflow = await persistOverflow(ctx, fullContent);
+  const limitsNote = `Preview truncated (limits: ${SEARCH_PREVIEW_LIMIT} matches, ${SEARCH_PREVIEW_LINE_MAX_BYTES}B per line, ${SEARCH_OUTPUT_MAX_BYTES}B total).`;
+  const previewHeader = totalMatches > 0
+    ? `Showing up to ${Math.min(totalMatches, SEARCH_PREVIEW_LIMIT)} of ${totalMatches} matches. `
+    : '';
+
+  if (overflow.kind === 'failed') {
+    const shortError = truncateUtf8Prefix(overflow.error, FOOTER_ERROR_MAX_BYTES);
+    const footer = `${previewHeader}${limitsNote} (overflow persist failed: ${shortError}; ${Math.max(0, totalMatches - SEARCH_PREVIEW_LIMIT)} additional matches not delivered)`;
+    const fitted = fitContentToBudget(preview.text, footer);
+    // 失败文本自身都放不下时同样只给固定短错误（完整诊断已在 audit）
+    return { success: false, content: fitted ?? BUDGET_ERROR_MESSAGE };
+  }
+
+  const readCommand = `read({ "path": ${JSON.stringify(overflow.relPath)}, "offset": 1, "limit": 200 })`;
   const durabilityNote = overflow.kind === 'durable'
     ? ''
-    : ` (artifact committed but durability unconfirmed: ${overflow.kind}; ${overflow.error})`;
-  const overflowFooter = `${previewHeader} Full results saved at ${overflow.relPath}. ${readHint}${durabilityNote}`;
-
-  return { success: true, content: `${preview}\n\n${overflowFooter}` };
+    : ` (artifact committed but durability unconfirmed: ${overflow.kind}; ${truncateUtf8Prefix(overflow.error, FOOTER_ERROR_MAX_BYTES)})`;
+  const footer = `${previewHeader}${limitsNote} Full results saved at ${overflow.relPath}. Use \`read\` to view: ${readCommand}${durabilityNote}`;
+  const fitted = fitContentToBudget(preview.text, footer);
+  if (fitted === null) {
+    // footer 自身放不下（例如异常长路径）：不截断后伪造可用路径 → 固定短错误 + 审计全量路径
+    ctx.auditWriter?.write(
+      FILE_TOOL_AUDIT_EVENTS.SEARCH_OVERFLOW_PERSIST_FAILED,
+      `stage=output-budget`,
+      `commit=${overflow.kind}`,
+      `path=${overflow.relPath}`,
+      `reason=preview footer exceeds ${SEARCH_OUTPUT_MAX_BYTES}B output budget`,
+    );
+    return { success: false, content: BUDGET_ERROR_MESSAGE };
+  }
+  return { success: true, content: fitted };
 }
 
 const SEARCH_TOOL_NAME = 'search' as const;
@@ -359,7 +462,7 @@ type SearchInput = z.infer<typeof SearchInputSchema>;
 export const searchTool: Tool = {
   name: SEARCH_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
-  description: 'Search LOCAL files (not web/network) for literal text in filenames AND contents (unified). Returns segmented [Filename matches] / [Content matches] / [Skipped]. Case-insensitive by default, no regex/glob. Full scan with no result cap; first 20 returned as preview, overflow saved to tasks/sync/search/<uuid>.md. Default base: clawspace.',
+  description: 'Search LOCAL files (not web/network) for literal text in filenames AND contents (unified). Returns segmented [Filename matches] / [Content matches] / [Skipped]. Case-insensitive by default, no regex/glob. Full scan with no match cap, but the response is bounded: at most 20 matches previewed, 2 KiB per rendered line, 16 KiB total. Anything trimmed is saved once to tasks/sync/search/<uuid>.md and the response gives that exact path plus a `read` command starting at offset 1. Default base: clawspace.',
   schema: defineFileToolSchema(SearchInputSchema),
   readonly: true,
   idempotent: true,
