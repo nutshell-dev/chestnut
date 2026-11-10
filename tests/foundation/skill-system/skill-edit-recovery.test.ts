@@ -141,6 +141,58 @@ describe.skipIf(!gitAvailable)('技能分支编辑事务：崩溃恢复（phase 
     expect(git(repositoryDir(), 'rev-parse', 'refs/version/published')).toBe(publishedHead);
   });
 
+  it('新技能 edit 发布后观测证据写失败：同实例重试补写 state 且不重发', async () => {
+    seedAlphaBaseline();
+    let armed = false;
+    const injected = new Error('injected state lock evidence failure');
+    const failingFsFactory = (baseDir: string): FileSystem => {
+      const backend = new NodeFileSystem({ baseDir });
+      return new Proxy(backend, {
+        get(target, key) {
+          if (key === 'writeAtomicSync') {
+            return (rel: string, content: string) => {
+              if (armed && baseDir === stateDir() && rel.startsWith('state-lock-observations/')
+                  && content.includes('"event":"holder_decision"')) {
+                armed = false;
+                throw injected;
+              }
+              return target.writeAtomicSync(rel, content);
+            };
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    };
+    const svc = await makeService({ fsFactory: failingFsFactory });
+    const edit = await svc.beginEdit({ skillName: 'beta', requestId: 'req-evidence-recovery', basis });
+    writeWsFile(edit, 'SKILL.md', SKILL_MD('beta', '# Beta evidence recovered\n'));
+    fsSync.writeFileSync(
+      path.join(stateDir(), 'state.lock'),
+      JSON.stringify({ pid: 99999999, at: Date.now() }),
+    );
+
+    armed = true;
+    await expect(svc.submitEdit(edit.editId)).rejects.toMatchObject({
+      kind: 'store_error',
+      cause: { pendingRecord: { event: 'holder_decision' }, error: injected },
+    });
+    expect(armed).toBe(false);
+    const publishedHead = git(repositoryDir(), 'rev-parse', 'refs/version/published');
+    const published = await svc.readPublished('beta');
+    expect(JSON.parse(fsSync.readFileSync(path.join(stateDir(), 'state.json'), 'utf-8')).skills).toEqual(['alpha']);
+    expect(JSON.parse(
+      fsSync.readFileSync(path.join(stateDir(), 'edits', `${edit.editId}.json`), 'utf-8'),
+    )).toMatchObject({ status: 'saved', version: null });
+
+    const retry = await svc.submitEdit(edit.editId);
+    expect(retry).toEqual({ kind: 'published', editId: edit.editId, version: published.sourceVersion });
+    expect(JSON.parse(fsSync.readFileSync(path.join(stateDir(), 'state.json'), 'utf-8')).skills).toEqual(['alpha', 'beta']);
+    expect(await svc.editStatus(edit.editId)).toMatchObject({ status: 'published', version: published.sourceVersion });
+    expect(await svc.loadPublished('beta')).toContain('# Beta evidence recovered');
+    expect(git(repositoryDir(), 'rev-parse', 'refs/version/published')).toBe(publishedHead);
+  });
+
   it('CAS 后进程中断：重启 editStatus 经操作记录对账为 published，不重复发布', async () => {
     seedBaseline();
     // 故障注入：仅在事务记录写入 published 终态时抛错一次（模拟该瞬间进程死亡——

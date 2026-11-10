@@ -303,6 +303,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/cli/skill-install-process-race.test.ts',
   // Phase 2071 Step C: real ConfigStore holder exit/reclaim and persisted evidence
   'tests/foundation/config-store/lock-process-observation.integration.test.ts',
+  // Phase 2081 Step C: real legacy SkillSystem holder exit/reclaim and evidence
+  'tests/foundation/skill-system/state-lock.integration.test.ts',
 ];
 
 /**

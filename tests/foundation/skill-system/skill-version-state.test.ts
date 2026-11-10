@@ -225,6 +225,66 @@ describe.skipIf(!gitAvailable)('SkillVersions 多实例索引一致性（Phase 1
     });
   }
 
+  for (const restart of [false, true]) {
+    it(`import 发布后观测证据写失败：${restart ? '重启' : '同实例'}重试补写 state 且不重发`, async () => {
+      seedBaseline();
+      let armed = false;
+      const injected = new Error('injected state lock evidence failure');
+      const failingFsFactory = (baseDir: string): FileSystem => {
+        const backend = new NodeFileSystem({ baseDir });
+        return new Proxy(backend, {
+          get(target, key) {
+            if (key === 'writeAtomicSync') {
+              return (rel: string, content: string) => {
+                if (armed && baseDir === stateDir() && rel.startsWith('state-lock-observations/')
+                    && content.includes('"event":"holder_decision"')) {
+                  armed = false;
+                  throw injected;
+                }
+                return target.writeAtomicSync(rel, content);
+              };
+            }
+            const value = Reflect.get(target, key);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+      };
+      const svc1 = await makeService({ fsFactory: failingFsFactory });
+      fsSync.writeFileSync(
+        path.join(stateDir(), 'state.lock'),
+        JSON.stringify({ pid: 99999999, at: Date.now() }),
+      );
+      const input = {
+        name: 'beta',
+        source: skillSrc('beta', '# Beta evidence recovery\n'),
+        operationId: 'imp-evidence-recovery',
+        basis,
+      };
+
+      armed = true;
+      await expect(svc1.importSkill(input)).rejects.toMatchObject({
+        kind: 'store_error',
+        cause: { pendingRecord: { event: 'holder_decision' }, error: injected },
+      });
+      expect(armed).toBe(false);
+      const publishedHead = git(repositoryDir(), 'rev-parse', 'refs/version/published');
+      const published = await svc1.readPublished('beta');
+      expect(readStateSkills()).toEqual(['alpha']);
+      expect(readImportRecord(input.operationId)).toMatchObject({ status: 'prepared' });
+
+      const svc2 = restart ? await makeService() : svc1;
+      const retry = await svc2.importSkill(input);
+      expect(retry).toEqual({ kind: 'published', version: published.sourceVersion });
+      expect(readStateSkills()).toEqual(['alpha', 'beta']);
+      expect(readImportRecord(input.operationId)).toMatchObject({
+        status: 'completed',
+        result: { kind: 'published', version: published.sourceVersion },
+      });
+      expect(git(repositoryDir(), 'rev-parse', 'refs/version/published')).toBe(publishedHead);
+      expect(await svc2.loadPublished('beta')).toContain('# Beta evidence recovery');
+    });
+  }
+
   it('崩溃残留 state.lock（死 holder）被接管，发布不饿死', async () => {
     seedBaseline();
     const svcA = await makeService();
