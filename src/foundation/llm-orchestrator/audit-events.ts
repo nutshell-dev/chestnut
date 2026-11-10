@@ -12,6 +12,7 @@
 export const LLM_AUDIT_EVENTS = {
   PROVIDER_ATTEMPT_FAILED: 'llm_provider_attempt_failed',
   PROVIDER_CLOSE_FAILED: 'llm_provider_close_failed',
+  LEGACY_CONFIG_IGNORED: 'llm_legacy_config_ignored',
   RETRY_SCHEDULED: 'llm_retry_scheduled',
   PROVIDER_EXHAUSTED: 'llm_provider_exhausted',
   FALLBACK_SWITCHED: 'llm_fallback_switched',
@@ -66,6 +67,7 @@ export const LLM_AUDIT_EVENTS = {
 export const LLM_ORCHESTRATOR_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   llm_provider_attempt_failed: 'audit',
   llm_provider_close_failed: 'audit',
+  llm_legacy_config_ignored: 'audit',
   llm_retry_scheduled: 'audit',
   llm_provider_exhausted: 'audit',
   llm_fallback_switched: 'audit',

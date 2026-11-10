@@ -6,6 +6,7 @@ import { formatErr, newUuid } from '../node-utils/index.js';
 import type { LLMEvent, LLMRecoveryFacts } from './types.js';
 import type { LLMErrorClass } from './errors.js';
 import type { ProviderAdmission } from './provider-admission.js';
+import { applyLegacyRecoveryRelease } from './legacy-recovery-compat.js';
 import type { InstanceStateStore } from './instance-state-store.js';
 import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
@@ -17,7 +18,6 @@ import {
 import type {
   LLMInstanceAcceptedFactBatch,
   LLMInstanceInvocation,
-  LLMInstanceRecoveryProviderFact,
   LLMInstanceRecoveryState,
   LLMProviderRecoveryState,
 } from './instance-state.js';
@@ -109,31 +109,12 @@ function cloneRecovery(state: LLMInstanceRecoveryState): LLMInstanceRecoveryStat
   };
 }
 
-/** schedule 是每个 provider 唯一恢复事实的只读派生，不进入磁盘 schema。 */
+/** 当前 schedule 只接受每个 provider 唯一的运行期事实，不进入磁盘 schema。 */
 export function deriveLLMRecoverySchedule(
-  state: LLMInstanceRecoveryState | readonly LLMProviderRecoveryState[],
+  providers: readonly LLMProviderRecoveryState[],
   revision: number,
   currentProviderIds: readonly string[] = [],
 ): LLMRecoverySchedule {
-  // 保留旧 recovery-state 输入仅供迁移测试；生产 controller 只传统一 provider state。
-  if (!Array.isArray(state)) {
-    const legacy = state as LLMInstanceRecoveryState;
-    const blocked = legacy.providers.filter(fact => fact.blocking);
-    const blockedIds = new Set(blocked.map(fact => fact.providerId));
-    if (blocked.length === 0 || currentProviderIds.some(providerId => !blockedIds.has(providerId))) {
-      return { kind: 'ready', revision };
-    }
-    let earliest: string | undefined;
-    for (const fact of blocked) {
-      if (fact.retryAt === undefined) continue;
-      if (earliest === undefined || Date.parse(fact.retryAt) < Date.parse(earliest)) earliest = fact.retryAt;
-    }
-    return earliest === undefined
-      ? { kind: 'on_change', revision }
-      : { kind: 'at', revision, resumeAt: earliest };
-  }
-
-  const providers = state as readonly LLMProviderRecoveryState[];
   const byId = new Map(providers.map(provider => [provider.providerId, provider]));
   const current = currentProviderIds.length > 0
     ? currentProviderIds.map(providerId => byId.get(providerId))
@@ -316,38 +297,24 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     const acceptedFacts: AcceptedFacts = { interventionIds: [] };
 
     const configRevision = input.facts.configurationRevision;
-    if (configRevision !== undefined && !hasAcceptedFact(next, 'configuration', configRevision)) {
+    const configurationChanged = configRevision !== undefined
+      && !hasAcceptedFact(next, 'configuration', configRevision);
+    const freshIds = dedupedIds.filter(id => !hasAcceptedFact(next, 'intervention', id));
+    const legacyRelease = applyLegacyRecoveryRelease(next.providers, {
+      providerIds: this.providerIds,
+      configurationChanged,
+      hasFreshIntervention: freshIds.length > 0,
+    });
+    next.providers = legacyRelease.providers;
+    if (legacyRelease.changed) stateChanged = true;
+
+    if (configurationChanged && configRevision !== undefined) {
       next.acceptedConfigRevisions = appendBounded(next.acceptedConfigRevisions, [configRevision], LLM_RECOVERY_ACCEPTED_IDS_MAX);
-      const currentIds = new Set(this.providerIds);
-      let released = false;
-      next.providers = next.providers.flatMap(fact => {
-        const changed = fact.identityMigrationPending === true || !currentIds.has(fact.providerId);
-        if (!changed) return [fact];
-        if (fact.errorClass === 'permanent') {
-          released = true;
-          return [];
-        }
-        if (fact.rateLimitBlocked === true) released = true;
-        return [clearIdentityMigrationPending(releaseRateLimitBlocked(fact))];
-      });
-      const stillBlocked = next.providers.some(fact =>
-        fact.blocking && (fact.errorClass === 'permanent' || fact.rateLimitBlocked === true),
-      );
-      if (released && entrySchedule.kind === 'on_change' && !stillBlocked) {
-        next.providers = next.providers.map(fact => ({ ...fact, blocking: false, retryAt: undefined }));
-      }
       acceptedFacts.configurationRevision = configRevision;
       stateChanged = true;
-    } else {
-      const before = next.providers;
-      next.providers = next.providers.map(clearIdentityMigrationPending);
-      if (next.providers.some((fact, i) => fact !== before[i])) stateChanged = true;
     }
-
-    const freshIds = dedupedIds.filter(id => !hasAcceptedFact(next, 'intervention', id));
     if (freshIds.length > 0) {
       next.acceptedInterventions = appendBounded(next.acceptedInterventions, freshIds, LLM_RECOVERY_ACCEPTED_IDS_MAX);
-      next.providers = next.providers.map(releaseRateLimitBlocked);
       acceptedFacts.interventionIds = freshIds;
       stateChanged = true;
     }
@@ -572,7 +539,7 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
       ...(first?.invocationId !== undefined ? { invocationId: first.invocationId } : {}),
       ...(first?.attemptId !== undefined ? { attemptId: first.attemptId } : {}),
       revision,
-      scheduleKind: schedule.kind === 'at' ? 'at' : 'on_change',
+      scheduleKind: schedule.kind,
       resumeAt: schedule.kind === 'at' ? schedule.resumeAt : '',
       errorClass: lastErrorClass,
       providerCount: providers.length,
@@ -692,16 +659,3 @@ function dedupeStrings(values: readonly string[]): string[] {
 function mergeIds(existing: readonly string[], additions: readonly string[]): string[] {
   return dedupeStrings([...existing, ...additions]);
 }
-
-function clearIdentityMigrationPending(fact: LLMInstanceRecoveryProviderFact): LLMInstanceRecoveryProviderFact {
-  if (fact.identityMigrationPending === undefined) return fact;
-  const { identityMigrationPending: _pending, ...rest } = fact;
-  return rest;
-}
-
-function releaseRateLimitBlocked(fact: LLMInstanceRecoveryProviderFact): LLMInstanceRecoveryProviderFact {
-  if (fact.rateLimitBlocked !== true) return fact;
-  const { rateLimitBlocked: _blocked, rateLimitBlockedAt: _blockedAt, ...rest } = fact;
-  return { ...rest, rateLimitFailures: 0 };
-}
-

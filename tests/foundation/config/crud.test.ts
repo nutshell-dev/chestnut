@@ -92,7 +92,7 @@ llm:
   });
 });
 
-describe('assembly/config-load: resolveLLMConfig circuit breaker defaults (phase 1268 Step E)', () => {
+describe('assembly/config-load: resolveLLMConfig legacy circuit breaker compatibility', () => {
   beforeEach(setupTempDir);
   afterEach(teardownTempDir);
 
@@ -110,19 +110,13 @@ ${extraLlmYaml}
 `);
   }
 
-  it('缺段 circuit_breaker 时 load + build 均得到默认启用配置', () => {
+  it('缺段 circuit_breaker 时 load + build 均不物化配置', () => {
     writeMinimalConfig();
     const globalConfig = loadGlobalConfig({ fsFactory });
-    expect(globalConfig.llm.circuit_breaker).toEqual({
-      failure_threshold: 3,
-      reset_timeout_ms: 60_000,
-    });
+    expect(globalConfig.llm.circuit_breaker).toBeUndefined();
 
     const llmConfig = resolveLLMConfig(globalConfig);
-    expect(llmConfig.circuitBreaker).toEqual({
-      failureThreshold: 3,
-      resetTimeoutMs: 60_000,
-    });
+    expect(llmConfig.circuitBreaker).toBeUndefined();
   });
 
   it('显式 circuit_breaker 值在读写后保持不被覆盖', () => {
@@ -140,15 +134,12 @@ ${extraLlmYaml}
     });
   });
 
-  it('缺段 + primary+2 fallbacks 时 build 得到 N+1 个 breaker 配置', () => {
+  it('缺段 + primary+2 fallbacks 时不物化 breaker 配置', () => {
     writeMinimalConfig(`  fallbacks:\n    - preset: openai\n      api_key: sk-fb1\n      model: gpt-test\n    - preset: moonshot\n      api_key: sk-fb2\n      model: kimi-test\n`);
     const globalConfig = loadGlobalConfig({ fsFactory });
     const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.fallbacks).toHaveLength(2);
-    expect(llmConfig.circuitBreaker).toEqual({
-      failureThreshold: 3,
-      resetTimeoutMs: 60_000,
-    });
+    expect(llmConfig.circuitBreaker).toBeUndefined();
   });
 });
 

@@ -629,15 +629,37 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
       type: 'recovery_scheduled', scope: 'foreground', revision: 6, scheduleKind: 'on_change',
       resumeAt: '', errorClass: 'permanent', providerCount: 1, failureCount: 4,
     });
+    handle({
+      type: 'recovery_scheduled', scope: 'foreground', revision: 7, scheduleKind: 'ready',
+      resumeAt: '', errorClass: 'transient', providerCount: 2, failureCount: 5,
+    });
 
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(5);
     expect(lines[0]).toContain('quota recovery; next attempt at');
     expect(lines[1]).toContain('rate-limit recovery; next attempt at');
     expect(lines[2]).toContain('transient recovery; next attempt at');
     // 不能「不是 rate_limit 就 transient」：permanent 显示为需配置变化。
     expect(lines[3]).toContain('config change needed; waiting for intervention');
     expect(lines[3]).not.toContain('transient');
+    expect(lines[4]).toContain('transient; fallback ready');
+    expect(lines[4]).not.toContain('next attempt');
     for (const line of lines) expect(line).toContain('⟳');
+  });
+
+  it('legacy_config_ignored 显示旧配置不生效及实际值', async () => {
+    const { createEventHandler } = await import('../../src/viewport/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({
+      type: 'legacy_config_ignored', field: 'circuitBreaker', reason: 'provider_retry_at_policy',
+      value: { failureThreshold: 7, resetTimeoutMs: 120_000 },
+    });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('circuitBreaker is ignored');
+    expect(lines[0]).toContain('failureThreshold=7');
+    expect(lines[0]).toContain('resetTimeoutMs=120000');
   });
 
   it('recovery 结算类事件静默、状态写失败可见（phase 1826）', async () => {

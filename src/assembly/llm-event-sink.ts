@@ -235,6 +235,12 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     case 'provider_close_failed':
       w(LLM_AUDIT_EVENTS.PROVIDER_CLOSE_FAILED, `error=${event.error}`);
       break;
+    case 'legacy_config_ignored':
+      w(LLM_AUDIT_EVENTS.LEGACY_CONFIG_IGNORED,
+        `field=${event.field}`, `reason=${event.reason}`,
+        `failureThreshold=${event.value.failureThreshold}`,
+        `resetTimeoutMs=${event.value.resetTimeoutMs}`);
+      break;
     case 'recovery_facts_accepted':
       // phase 1827: 完整新事实接受证据（多事实不互相遮蔽）；磁盘接受记录仍是证据权威。
       w(LLM_AUDIT_EVENTS.RECOVERY_FACTS_ACCEPTED,

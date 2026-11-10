@@ -24,6 +24,9 @@ export type {
   RecoveryLedgerDeps,
   RecoveryLedgerSnapshot,
 } from './recovery-ledger.js';
+// 深导入兼容出口；旧状态解释不进入公共 index barrel。
+export { applyLegacyRecoveryRelease, deriveLegacyRecoverySchedule } from './legacy-recovery-compat.js';
+export type { LegacyReleaseInput, LegacyReleaseResult } from './legacy-recovery-compat.js';
 
 export interface LLMRecoverySignal {
   subscribeReady(listener: () => void): () => void;

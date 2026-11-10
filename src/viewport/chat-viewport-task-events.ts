@@ -55,7 +55,8 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
       case 'recovery_state_write_degraded':
       case 'instance_state_write_failed':
       case 'instance_state_write_degraded':
-      case 'recovery_facts_accepted': {
+      case 'recovery_facts_accepted':
+      case 'legacy_config_ignored': {
         // 内部结算/持久化/事实接受事件不落 task 状态条；主 stream 渲染由 viewport 承担。
         break;
       }

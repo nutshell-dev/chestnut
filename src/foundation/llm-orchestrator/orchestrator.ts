@@ -68,6 +68,20 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       ledger: this.recoveryController,
       events,
     });
+    this.emitLegacyConfigIgnored(config);
+  }
+
+  private emitLegacyConfigIgnored(config: LLMOrchestratorConfig): void {
+    if (config.circuitBreaker === undefined) return;
+    this.events.emit({
+      type: 'legacy_config_ignored',
+      field: 'circuitBreaker',
+      reason: 'provider_retry_at_policy',
+      value: {
+        failureThreshold: config.circuitBreaker.failureThreshold,
+        resetTimeoutMs: config.circuitBreaker.resetTimeoutMs,
+      },
+    });
   }
 
   snapshot(): LLMInstanceSnapshot {
@@ -223,6 +237,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     );
     this.providerRuntime.commitReload(prepared);
     this.probeController.reload();
+    this.emitLegacyConfigIgnored(newConfig);
   }
 }
 

@@ -83,9 +83,9 @@ void _providerAttemptFailed;
 void _taskStarted;
 
 describe('StreamEvent contract', () => {
-  it('STREAM_EVENT_NAMES 成员数 == 56（phase 2056 +1 探针选择审计）', () => {
+  it('STREAM_EVENT_NAMES 成员数 == 57（phase 2068 +1 旧配置诊断）', () => {
     const keys = Object.keys(STREAM_EVENT_NAMES);
-    expect(keys.length).toBe(56);
+    expect(keys.length).toBe(57);
   });
 
   it('协议层不含上层业务事件（分层拆件：agent 6 / task 3 / daemon 1 归各模块 const）', () => {
@@ -104,7 +104,7 @@ describe('StreamEvent contract', () => {
     expect(STREAM_EVENT_NAMES).not.toHaveProperty('USER_REPLY_END');
   });
 
-  it('LLMEvent 41 个 type 字面量均存在于 STREAM_EVENT_NAMES（phase 2056 +1 探针选择）', () => {
+  it('LLMEvent 42 个 type 字面量均存在于 STREAM_EVENT_NAMES（phase 2068 +1 旧配置诊断）', () => {
     // 运行时双重检查：确保 LLMEvent 的所有 type 值都被 STREAM_EVENT_NAMES 覆盖。
     const names = new Set<string>(Object.values(STREAM_EVENT_NAMES));
     const llmEventTypes: LLMEventType[] = [
@@ -135,6 +135,7 @@ describe('StreamEvent contract', () => {
       'sdk_client_cache_hit',
       'sdk_client_cache_miss',
       'provider_close_failed',
+      'legacy_config_ignored',
       'probe_target_selected',
       // phase 1968: provider 调用路径审计（invocation/attempt/selection + sink 侧写失败暴露）
       'call_invocation_started',

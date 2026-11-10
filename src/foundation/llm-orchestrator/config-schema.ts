@@ -21,9 +21,6 @@ export const llmOrchestratorConfigSchema = z.object({
   fallbacks: z.array(llmProviderConfigSchema).optional(),
   retry_attempts: z.number().min(0).max(10).default(DEFAULT_LLM_RETRY_ATTEMPTS),
   retry_delay_ms: z.number().min(0).max(60000).default(DEFAULT_RETRY_DELAY_MS),
-  // Phase 1268 Step E: circuit breaker 默认启用；缺段或空 object 均物化为 threshold=3 / reset=60s。
-  circuit_breaker: circuitBreakerConfigSchema.default({
-    failure_threshold: 3,
-    reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
-  }),
+  // 兼容接收旧 breaker 段；缺段不物化，显式空 object 仍保留子字段默认值供诊断。
+  circuit_breaker: circuitBreakerConfigSchema.optional(),
 });

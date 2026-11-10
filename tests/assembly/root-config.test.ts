@@ -70,14 +70,11 @@ describe('RootConfigReader/Admin: global load/save', () => {
     expect(() => admin.loadGlobal()).toThrow('Global config not found.');
   });
 
-  it('schema default 与旧 loadGlobalConfig 一致（circuit_breaker 物化默认）', () => {
+  it('schema 与 loadGlobalConfig 缺段均不物化 circuit_breaker', () => {
     writeGlobalConfig();
     const cfg = admin.loadGlobal();
     expect(cfg.llm.primary.model).toBe('claude-test');
-    expect(cfg.llm.circuit_breaker).toEqual({
-      failure_threshold: 3,
-      reset_timeout_ms: 60_000,
-    });
+    expect(cfg.llm.circuit_breaker).toBeUndefined();
   });
 
   it('saveGlobal 后可回读，invalid YAML 错误文本与旧 wrapper 一致', () => {
@@ -155,10 +152,7 @@ describe('resolveLLMConfig resolver', () => {
 
     const globalOnly = resolveLLMConfig(globalCfg);
     expect(globalOnly.primary.model).toBe('claude-test');
-    expect(globalOnly.circuitBreaker).toEqual({
-      failureThreshold: 3,
-      resetTimeoutMs: 60_000,
-    });
+    expect(globalOnly.circuitBreaker).toBeUndefined();
 
     const clawPath = getClawConfigPath('overrideclaw');
     admin.saveClaw(clawPath, {

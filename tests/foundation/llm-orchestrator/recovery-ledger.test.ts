@@ -8,7 +8,11 @@ import {
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { InstanceStateStore } from '../../../src/foundation/llm-orchestrator/instance-state-store.js';
 
-function fixture(initial: LLMInstanceStateV3 = createEmptyLLMInstanceState('instance-a')) {
+function fixture(
+  initial: LLMInstanceStateV3 = createEmptyLLMInstanceState('instance-a'),
+  providerIds: readonly string[] = ['current'],
+  legacyProviderIds: readonly string[] = ['legacy'],
+) {
   let state = structuredClone(initial);
   const events: LLMEvent[] = [];
   const contexts: string[] = [];
@@ -37,8 +41,8 @@ function fixture(initial: LLMInstanceStateV3 = createEmptyLLMInstanceState('inst
   };
   const controller = new LLMRecoveryControllerImpl({
     store,
-    providerIds: ['current'],
-    legacyProviderIds: ['legacy'],
+    providerIds,
+    legacyProviderIds,
     admission: new LLMProviderAdmission(),
     now: () => 10_000,
     emit: event => { events.push(event); },
@@ -135,6 +139,30 @@ describe('RecoveryLedger failure evidence', () => {
       type: 'recovery_scheduled', revision: 1, scheduleKind: 'at', resumeAt: '1970-01-01T00:00:55.000Z',
       invocationId: 'invocation-a', attemptId: 'attempt-a', failureCount: 1,
     })]);
+  });
+
+  it('reports ready with failure evidence when another current provider remains available', () => {
+    const initial = createEmptyLLMInstanceState('instance-a');
+    initial.providers = [
+      { providerId: 'primary', status: 'available' },
+      { providerId: 'fallback', status: 'available' },
+    ];
+    const f = fixture(initial, ['primary', 'fallback'], ['legacy-primary', 'legacy-fallback']);
+
+    f.controller.noteFailure([{
+      providerId: 'primary', errorClass: 'transient', message: 'primary offline',
+      occurredAtMs: 10_000, invocationId: 'invocation-a', attemptId: 'attempt-a',
+    }]);
+
+    expect(f.events).toEqual([expect.objectContaining({
+      type: 'recovery_scheduled', revision: f.read().revision,
+      scheduleKind: 'ready', resumeAt: '',
+      invocationId: 'invocation-a', attemptId: 'attempt-a',
+      errorClass: 'transient', failureCount: 1,
+    })]);
+    expect(f.read().recovery.failures[0]).toMatchObject({
+      providerId: 'primary', message: 'primary offline', invocationId: 'invocation-a',
+    });
   });
 
   it('ignores local skips and reports commit failure without publishing the candidate', () => {

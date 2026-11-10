@@ -106,15 +106,12 @@ describe('viewportConfigSchema user_input_inline_max_chars (phase 142 / phase 12
   });
 });
 
-describe('Phase 1268 Step E — llmOrchestratorConfigSchema circuit breaker defaults', () => {
+describe('llmOrchestratorConfigSchema legacy circuit breaker compatibility', () => {
   const primary = { preset: 'anthropic', api_key: 'test-key', model: 'claude-test' };
 
-  it('缺段 circuit_breaker 时物化为默认对象', () => {
+  it('缺段 circuit_breaker 时不物化配置', () => {
     const cfg = llmOrchestratorConfigSchema.parse({ primary });
-    expect(cfg.circuit_breaker).toEqual({
-      failure_threshold: 3,
-      reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
-    });
+    expect(cfg.circuit_breaker).toBeUndefined();
   });
 
   it('空 object circuit_breaker 时同样物化默认子字段', () => {

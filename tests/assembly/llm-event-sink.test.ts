@@ -380,6 +380,36 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     ]));
   });
 
+  it('fans out a ready recovery schedule without inventing a resume time', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'recovery_scheduled',
+      orchestratorInstance: 'owner-1',
+      invocationId: 'inv-ready',
+      attemptId: 'att-ready',
+      revision: 6,
+      scheduleKind: 'ready',
+      resumeAt: '',
+      errorClass: 'transient',
+      providerCount: 2,
+      failureCount: 1,
+    });
+
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'scheduleKind=ready',
+      'resumeAt=none',
+      'invocation=inv-ready',
+      'failureCount=1',
+    ]));
+    expect(stream.events).toEqual([expect.objectContaining({
+      type: 'recovery_scheduled', scheduleKind: 'ready', resumeAt: '',
+      invocationId: 'inv-ready', failureCount: 1,
+    })]);
+  });
+
   it('writes attemptId correlation columns for call-path events and preserves stream payloads', () => {
     const audit = makeAudit();
     const stream = makeStream();
@@ -452,6 +482,32 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       type: 'provider_close_failed',
       error: 'Error: bad close',
     });
+  });
+
+  it('fans out legacy config diagnostics with the received values', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'legacy_config_ignored',
+      field: 'circuitBreaker',
+      reason: 'provider_retry_at_policy',
+      value: { failureThreshold: 7, resetTimeoutMs: 120_000 },
+    });
+
+    expect(audit.writes).toEqual([[
+      'llm_legacy_config_ignored',
+      'field=circuitBreaker',
+      'reason=provider_retry_at_policy',
+      'failureThreshold=7',
+      'resetTimeoutMs=120000',
+    ]]);
+    expect(stream.events).toEqual([expect.objectContaining({
+      type: 'legacy_config_ignored', field: 'circuitBreaker',
+      reason: 'provider_retry_at_policy',
+      value: { failureThreshold: 7, resetTimeoutMs: 120_000 },
+    })]);
   });
 
   it('normalizes Error payload to readable string in stream', () => {

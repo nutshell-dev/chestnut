@@ -55,6 +55,7 @@ export interface LLMOrchestratorConfig {
   maxAttempts: number;
   retryDelayMs: number;
   events: LLMEventSink;
+  /** @deprecated 仅兼容接收；当前 Admission 使用 provider retryAt 策略，不读取此配置。 */
   circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
   /** phase 1028: provider factory DI seam — tests inject mock adapter, production defaults to real adapter（Phase 1925 Step D 改名，旧名 createAnthropicAdapter） */
   createProviderAdapter?: (config: ProviderConfig) => ProviderAdapter;
@@ -104,6 +105,7 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_HIT; preset: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_MISS; preset: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.PROVIDER_CLOSE_FAILED; error: string }
+  | { type: typeof STREAM_EVENT_NAMES.LEGACY_CONFIG_IGNORED; field: 'circuitBreaker'; reason: 'provider_retry_at_policy'; value: { failureThreshold: number; resetTimeoutMs: number } }
   // Phase 1968 Step B：provider 调用路径可审计（LLM-CALL-SUCCESS-PROVENANCE-NOT-AUDITABLE）。
   // invocationId 关联一次 call/stream 的全部 attempt/selection 事实；attemptIndex 是
   // 实际执行序列号（含跳过），非配置数组下标；providerId 为不可逆身份指纹（不含凭据）。
@@ -115,7 +117,7 @@ export type LLMEvent =
   // 由装配层 sink 在审计持久化降级/失败时产生（LLMOrchestrator 不产生本事件）。
   | { type: typeof STREAM_EVENT_NAMES.CALL_AUDIT_WRITE_FAILED; eventType: string; invocationId?: string; reason: string }
   // 恢复事件只携稳定实例与 invocation/attempt 关联，不再有 scope/turn。
-  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_SCHEDULED; orchestratorInstance: string; invocationId?: string; attemptId?: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number }
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_SCHEDULED; orchestratorInstance: string; invocationId?: string; attemptId?: string; revision: number; scheduleKind: 'ready' | 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_FACTS_ACCEPTED; orchestratorInstance: string; invocationId?: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_READY; orchestratorInstance: string; invocationId: string; attemptId?: string; revision: number; reason: string }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_ADMITTED; orchestratorInstance: string; invocationId: string; revision: number; attemptId: string; trigger: string; interventionCount: number }

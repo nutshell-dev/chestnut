@@ -288,14 +288,25 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
+      case 'legacy_config_ignored': {
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[33m',
+          text: `⚠ LLM config ${event.field} is ignored (${event.reason}); received failureThreshold=${event.value.failureThreshold}, resetTimeoutMs=${event.value.resetTimeoutMs}`,
+        });
+        break;
+      }
+
       case 'recovery_scheduled': {
         // Phase 1826: owner（LLMOrchestrator）唯一发布的恢复安排。
         // CLI 只渲染结构化字段（穷尽分类），不重算策略、不解析 error 文本。
         const classLabel = formatRecoveryErrorClass(event.errorClass);
         const resumeClock = formatIsoClock(event.resumeAt);
-        const text = event.scheduleKind === 'on_change'
-          ? `⟳ \x1b[2mllm ${classLabel}; waiting for intervention or config change`
-          : `⟳ \x1b[2m${classLabel} recovery; next attempt at ${resumeClock}`;
+        const text = event.scheduleKind === 'ready'
+          ? `⟳ \x1b[2mllm ${classLabel}; fallback ready`
+          : event.scheduleKind === 'on_change'
+            ? `⟳ \x1b[2mllm ${classLabel}; waiting for intervention or config change`
+            : `⟳ \x1b[2m${classLabel} recovery; next attempt at ${resumeClock}`;
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text });
         break;
       }

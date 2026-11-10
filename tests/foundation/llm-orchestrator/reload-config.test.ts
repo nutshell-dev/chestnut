@@ -144,7 +144,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     expect(eventsAfter).toBe(eventsBefore);
   });
 
-  it('Phase 1268 Step E: reloadConfig 沿用 circuit breaker 配置语义但不重建 breaker', () => {
+  it('reloadConfig 缺省不物化旧 circuit breaker 配置', () => {
     const { sink } = createSink();
     const cfgA = createGlobalConfigSchema().parse({
       llm: {
@@ -154,8 +154,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' }, ...resolveLLMConfig(cfgA), events: sink });
     expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(1);
-    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.failureThreshold).toBe(3);
-    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.resetTimeoutMs).toBe(60_000);
+    expect(internalsOf(orch).providerRuntime.config().circuitBreaker).toBeUndefined();
     expect((orch as any).breakers).toBeUndefined();
 
     const cfgB = createGlobalConfigSchema().parse({

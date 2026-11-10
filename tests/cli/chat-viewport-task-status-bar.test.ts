@@ -265,7 +265,10 @@ describe('Phase 1826: task recovery_scheduled status bar', () => {
     });
     expect(bar.renderSpawn(80)).toContain('config change needed; waiting for intervention');
 
-    bar.updateTrack('task-r1', { type: 'recovery_ready', scope: 'foreground', revision: 4, reason: 'success' });
+    bar.updateTrack('task-r1', {
+      type: 'recovery_scheduled', scope: 'foreground', revision: 4, scheduleKind: 'ready',
+      resumeAt: '', errorClass: 'transient', providerCount: 2, failureCount: 3,
+    });
     expect(bar.renderSpawn(80)).not.toContain('recovery at');
     expect(bar.renderSpawn(80)).not.toContain('waiting for intervention');
   });

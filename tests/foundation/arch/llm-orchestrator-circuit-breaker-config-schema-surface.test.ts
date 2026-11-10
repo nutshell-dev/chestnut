@@ -23,7 +23,7 @@ describe('LLMOrchestrator circuitBreakerConfigSchema deep surface', () => {
       /reset_timeout_ms:\s*z\.number\(\)\.min\(1000\)\.max\(3600000\)\.default\(DEFAULT_RESET_TIMEOUT_MS\),/,
     );
     expect(configSchemaSource).toMatch(
-      /circuit_breaker:\s*circuitBreakerConfigSchema\.default\(\{\s*failure_threshold:\s*3,\s*reset_timeout_ms:\s*DEFAULT_RESET_TIMEOUT_MS,\s*\}\),/,
+      /circuit_breaker:\s*circuitBreakerConfigSchema\.optional\(\),/,
     );
     expect(barrelSource).toMatch(
       /export\s*\{[^}]*\bllmOrchestratorConfigSchema\b[^}]*\}\s*from\s*'\.\/config-schema\.js';/,

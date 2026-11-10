@@ -10,6 +10,7 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import {
+  deriveLLMRecoverySchedule,
   LLMRecoveryControllerImpl,
   type LLMOrchestratorOwner,
 } from '../../../src/foundation/llm-orchestrator/recovery.js';
@@ -546,6 +547,23 @@ describe('recovery fact combination and dedupe', () => {
       droppedCount: 2, firstDroppedAt: new Date(T0).toISOString(), lastDroppedAt: new Date(T0 + 1_000).toISOString(),
       reason: 'bounded_retention', policyVersion: 1, recoverability: 'not_preserved_in_recovery_state',
     });
+  });
+});
+
+describe('current recovery schedule input', () => {
+  it('derives all schedule kinds from current provider states only', () => {
+    const waiting = { providerId: 'current', status: 'waiting' as const, retryAt: 60_000 };
+    expect(deriveLLMRecoverySchedule([], 1, ['current'])).toEqual({ kind: 'ready', revision: 1 });
+    expect(deriveLLMRecoverySchedule([
+      waiting,
+      { providerId: 'fallback', status: 'available' },
+    ], 2, ['current', 'fallback'])).toEqual({ kind: 'ready', revision: 2 });
+    expect(deriveLLMRecoverySchedule([waiting], 3, ['current'])).toEqual({
+      kind: 'at', revision: 3, resumeAt: '1970-01-01T00:01:00.000Z',
+    });
+    expect(deriveLLMRecoverySchedule([
+      { providerId: 'current', status: 'waiting' },
+    ], 4, ['current'])).toEqual({ kind: 'on_change', revision: 4 });
   });
 });
 
