@@ -83,7 +83,9 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     await cleanupTempDir(rootDir);
   });
 
-  function makeRuntime(): TestRuntime {
+  function makeRuntime(overrides?: {
+    contractTerminalFact?: (contractId: string) => Promise<ContractTerminalFact>;
+  }): TestRuntime {
     const runtime = new TestRuntime({
       clawId: 'test-claw',
       clawDir: rootDir,
@@ -94,7 +96,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
         retryDelayMs: 0,
       },
       dependencies: {
-        contractTerminalFact: factQuery,
+        contractTerminalFact: overrides?.contractTerminalFact ?? factQuery,
         formatterRegistry: createInboxMessageTypeRegistry(),
       },
     } as never);
@@ -276,6 +278,10 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(inflightFiles()).toHaveLength(2);                 // 原消息仍在 inflight，未丢失
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(1); // 判定证据已留
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED)).toHaveLength(1);
+    // 句柄归属（可观测核证）：ack 成功即从 ownedHandles 释放——若仍持有，
+    // prepareInbox 的 catch 会把它 nack 回 pending；实测它停在 inflight/ 且零 NACK 审计。
+    expect(fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'))).toHaveLength(0);
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED)).toHaveLength(0);
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED)).toHaveLength(0);       // 不重新 nack
     moveSpy.mockRestore();
   });
@@ -307,10 +313,14 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
    * ================================================================== */
 
   it('恢复①：ack→done move 失败后 inflight 保留；恢复 FS + 过期 claim 重启重领 → 真实终态查询落到 done', async () => {
-    factQuery.mockResolvedValue({ kind: 'terminal', state: 'completed' });
+    // phase 2094 Step R2: 去掉 mock 终态查询，改走真实 readContractTerminalFact
+    // （复用 contract-work-real-chain.test.ts 同款真实查询入口；此处落一个真实 archive/completed 目录）
+    const realFact = (contractId: string) => readContractTerminalFact(fsImpl, contractId);
+    await fsImpl.ensureDir(path.join(rootDir, 'contract', 'archive', 'completed', 'c-1'));
+
     await writeMsg({ id: 'w-recover', type: 'contract_created', contractId: 'c-1' });
 
-    const runtime = makeRuntime();
+    const runtime = makeRuntime({ contractTerminalFact: realFact });
     const realMove = fsImpl.move.bind(fsImpl);
     const moveSpy = vi.spyOn(fsImpl, 'move').mockImplementation(async (src: string, dst: string) => {
       if (String(dst).includes('/done/')) throw Object.assign(new Error('EIO move'), { code: 'EIO' });
@@ -337,7 +347,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     // 重启：init reconcile 把过期 inflight 残留回 pending → 重新领取 → 再次真实判定 → ack 到 done
     const reader2 = createInboxReader(fsImpl, audit, inboxBaseDir);
     await reader2.init();
-    const runtime2 = makeRuntime();
+    const runtime2 = makeRuntime({ contractTerminalFact: realFact });
     runtime2.injectForTest({ inboxReader: reader2, auditWriter: audit });
     const prepared2 = await runtime2.testPrepareInbox();
 
@@ -345,6 +355,9 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(doneFiles()).toHaveLength(1);
     // 幂等重判：再次留证，无重复交付、无消息丢失
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(2);
+    // 重启后重领→过滤→ack 全链走完，同样无悬挂句柄（零 NACK、pending 空）
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED)).toHaveLength(0);
+    expect(fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'))).toHaveLength(0);
     const decodedDone = decodeInbox(fs.readFileSync(path.join(doneDir, doneFiles()[0]), 'utf8'));
     expect(decodedDone.id).toBe('w-recover');
     expect(decodedDone.content).toBe('work w-recover');

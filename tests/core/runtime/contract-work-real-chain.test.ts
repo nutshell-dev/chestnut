@@ -22,7 +22,7 @@ import {
 import { makeClawNotifyTargetResolver, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import { makeClawId, makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
 import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
-import { decodeInbox, encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
+import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import {
   createInboxReader,
@@ -209,21 +209,22 @@ describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前�
     } as never);
     expect(contractId).toBe(ONBOARDING_CONTRACT_ID);
 
+    const deps = { fsFactory, audit: makeAudit().audit, rootConfig: { get: () => ({}), has: () => false } as never } as never;
+    const clawNotifier = createClawNotifier({
+      fs: fsFactory(motionDir),
+      audit: makeAudit().audit,
+      resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+    });
+    const onboardingInput = () => ({
+      motionDir,
+      onboarding: { state: 'in_progress', contractId: ONBOARDING_CONTRACT_ID } as never,
+      firstRun: false,
+      language: 'zh',
+      clawNotifier,
+    });
+
     // 真实续作入口（scheduler 触发的就是这条）
-    const result = await ensureOnboardingAndNotify(
-      { fsFactory, audit: makeAudit().audit, rootConfig: { get: () => ({}), has: () => false } as never } as never,
-      {
-        motionDir,
-        onboarding: { state: 'in_progress', contractId: ONBOARDING_CONTRACT_ID } as never,
-        firstRun: false,
-        language: 'zh',
-        clawNotifier: createClawNotifier({
-          fs: fsFactory(motionDir),
-          audit: makeAudit().audit,
-          resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
-        }),
-      },
-    );
+    const result = await ensureOnboardingAndNotify(deps, onboardingInput());
     expect(result.contractId).toBe(ONBOARDING_CONTRACT_ID);
 
     const resumeMsg = decodeAll(pendingNames(), 'pending').find(m => m.type === 'contract_resume');
@@ -241,22 +242,32 @@ describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前�
     const outcome = await system.cancel(ONBOARDING_CONTRACT_ID, 'phase2094 resume chain');
     expect(outcome.commit.kind).toBe('committed');
 
-    // 补一条新的 resume 工作消息（模拟取消落地后才被 scheduler 写出的排队指令）
-    const late = encodeInbox({
-      id: 'w-late-resume',
-      from: 'system',
-      to: MOTION_CLAW_ID,
-      type: 'contract_resume',
-      priority: 'high',
-      timestamp: new Date().toISOString(),
-      content: 'Resume onboarding',
-      metadata: { contract_id: ONBOARDING_CONTRACT_ID },
-    } as never);
-    await fsSync.promises.writeFile(path.join(motionDir, 'inbox', 'pending', 'w-late-resume.md'), late, 'utf8');
+    // phase 2094 Step R2: 取消落地后 scheduler 再次触发真实续作入口——
+    // 这条「晚到的排队指令」必须由生产代码写出并经真实 decodeInbox 读回，不得手写替代。
+    const lateResult = await ensureOnboardingAndNotify(deps, onboardingInput());
+    expect(lateResult.state).toBe('resumed');
+    expect(lateResult.contractId).toBe(ONBOARDING_CONTRACT_ID);
 
+    const pendingMsgs = decodeAll(pendingNames(), 'pending');
+    const lateMsg = pendingMsgs.find(m => m.type === 'contract_resume' && m.id !== resumeMsg!.id);
+    expect(lateMsg, '真实续作入口第二次调用未写出新的 contract_resume').toBeDefined();
+
+    // 原消息身份：来自真实磁盘、由真实 decodeInbox 解出，且与契约身份一致
+    expect(lateMsg!.from).toBe('system');
+    expect(lateMsg!.metadata?.contract_id).toBe(ONBOARDING_CONTRACT_ID);
+    expect(lateMsg!.content).toContain(ONBOARDING_CONTRACT_ID);
+    expect(lateMsg!.id).not.toBe(resumeMsg!.id);
+
+    // 交付/过滤结果必须与这条原消息的身份一致（而非与手造 ID 一致）
     const after = makeFactQuery();
     const afterPrepared = await makePreparer(after.sink, after.factQuery).prepareInbox();
-    expect(afterPrepared.entries.map(m => m.message.id)).not.toContain('w-late-resume');
-    expect(pendingNames()).not.toContain('w-late-resume.md');
+    expect(afterPrepared.entries.map(e => e.message.id)).not.toContain(lateMsg!.id);
+    // 已确认终态 → 该原消息被 ack 进 done/，pending 中不再存在同一身份
+    expect(decodeAll(pendingNames(), 'pending').map(m => m.id)).not.toContain(lateMsg!.id);
+    expect(decodeAll(doneNames(), 'done').map(m => m.id)).toContain(lateMsg!.id);
+    // 终态判定用的是这条真实原消息里的契约身份（审计行可观测，不依赖 spy）
+    const termRows = after.sink.events.filter(e => e[0] === 'runtime_inbox_contract_terminal');
+    expect(termRows).toHaveLength(1);
+    expect(termRows[0].slice(1).map(String).join(' ')).toContain(`contract=${ONBOARDING_CONTRACT_ID}`);
   }, 30_000);
 });
