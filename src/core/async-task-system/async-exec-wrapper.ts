@@ -11,7 +11,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle, ExecutionIdentity } from '../../foundation/process-exec/index.js';
-import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
+import { getProcessStartTime, ProcessExecError, resolveHostCommand } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs, AsyncMigrationPolicy } from '../../foundation/command-tool/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
@@ -157,17 +157,18 @@ export function createAsyncExecWrapper(
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog, shortIdIndex } = deps;
   const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
   const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
+  const { invocation } = resolveHostCommand('');
 
   const tool: Tool = {
     name: EXEC_TOOL_NAME,
     profiles: ['full'],  // Phase 773: wrapper is only for the main agent; subagents use plain sync exec.
-    description: 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace. Long-running commands are automatically moved to async execution.',
+    description: `Execute a shell command in your clawspace. Runs via \`${invocation}\`; use commands and syntax supported by that interpreter, so shell features (pipes, redirects, quotes) work normally. Use powershell.exe -NoProfile -Command "..." when PowerShell is needed on Windows. Relative paths resolve against your clawspace. Long-running commands are automatically moved to async execution.`,
     schema: {
       type: 'object',
       properties: {
         command: {
           type: 'string',
-          description: 'Shell command string to execute, e.g. "ls -la" or "grep -r foo . | head -20"',
+          description: 'Command string to execute using the syntax and commands supported by the host interpreter',
         },
         cwd: {
           type: 'string',
@@ -184,7 +185,7 @@ export function createAsyncExecWrapper(
         },
         stdin: {
           type: 'string',
-          description: 'Content to pipe to the command stdin. Use "cat > file" with this instead of heredoc to avoid shell escaping issues.',
+          description: 'Content to pipe directly to the child process stdin; it is not parsed by the shell.',
         },
       },
       required: ['command'],

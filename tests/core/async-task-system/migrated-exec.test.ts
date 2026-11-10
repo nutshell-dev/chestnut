@@ -26,7 +26,7 @@ import { makeExecContext } from '../../helpers/exec-context.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import { getProcessStartTime, isAlive, ProcessExecError, PROCESS_EXEC_DEFAULT_TIMEOUT_MS, type ExecHandle, type ExecResult, type ExecutionIdentity } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime, isAlive, ProcessExecError, PROCESS_EXEC_DEFAULT_TIMEOUT_MS, resolveHostCommand, type ExecHandle, type ExecResult, type ExecutionIdentity } from '../../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
 import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
@@ -222,6 +222,29 @@ describe('createAsyncExecWrapper', () => {
   afterEach(async () => {
     await system.shutdown(1000).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('phase 2066: describes the L1 host invocation without Unix-only examples or schema expansion', () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+    });
+    const props = tool.schema.properties as Record<string, { description?: string }>;
+    const { invocation } = resolveHostCommand('');
+
+    expect(tool.description).toContain(`Runs via \`${invocation}\``);
+    expect(tool.description).toContain('commands and syntax supported by that interpreter');
+    expect(tool.description).toContain('automatically moved to async execution');
+    expect(tool.description).toContain('powershell.exe -NoProfile -Command');
+    expect(props.command.description).toContain('supported by the host interpreter');
+    expect(props.command.description).not.toContain('ls -la');
+    expect(props.command.description).not.toContain('grep -r');
+    expect(props.command.description).not.toContain('head -20');
+    expect(props.stdin.description).toContain('pipe directly');
+    expect(props.stdin.description).toContain('not parsed by the shell');
+    expect(props.stdin.description).not.toContain('cat > file');
+    expect(props).not.toHaveProperty('shell');
+    expect(props).not.toHaveProperty('platform');
   });
 
   it('should return sync result for short command', async () => {
