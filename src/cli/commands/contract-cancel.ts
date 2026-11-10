@@ -55,6 +55,18 @@ export async function contractCancelCommand(
         `contract=${resolvedId}`,
         `reason=${reason}`,
       );
+      const delivery = outcome.cancellationDelivery;
+      if (delivery.kind === 'failed') {
+        throw new CliError(
+          `Contract cancelled: ${resolvedId}; cancellation notification delivery failed`,
+          { cause: delivery.cause },
+        );
+      }
+      if (delivery.kind === 'not_attempted') {
+        throw new CliError(
+          `Contract cancelled: ${resolvedId}; cancellation notification was not attempted`,
+        );
+      }
       console.log(`Contract cancelled: ${resolvedId} (reason: ${reason})`);
       return;
     }
@@ -66,7 +78,7 @@ export async function contractCancelCommand(
         `contract=${resolvedId}`,
         `reason=${reason}`,
       );
-      console.log(`Contract already cancelled: ${resolvedId}`);
+      console.log(`Contract already cancelled: ${resolvedId} (notification delivery not checked)`);
       return;
     }
 

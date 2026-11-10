@@ -15,11 +15,13 @@ import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { contractCancelCommand } from '../../src/cli/commands/contract.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { readLifecycleIntentsForContract } from '../../src/core/contract/lifecycle-intent.js';
+import * as assembly from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -150,6 +152,104 @@ describe('contractCancelCommand (phase 1471)', () => {
       `contract=${contractId}`,
       'reason=default-active cancel',
     );
+  });
+
+  it('reports an already-cancelled contract without claiming delivery was checked', async () => {
+    const contractId = await seedActiveContract();
+    const audit = makeMockAudit();
+    await contractCancelCommand({ fsFactory }, CLAW_ID, 'first', contractId, { audit });
+    logSpy.mockClear();
+
+    await contractCancelCommand({ fsFactory }, CLAW_ID, 'second', contractId, { audit });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      `Contract already cancelled: ${contractId} (notification delivery not checked)`,
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('delivery failed'));
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    await expect(fs.access(archivePath)).resolves.toBeUndefined();
+  });
+
+  it('reports committed cancellation with the original inbox failure and preserves the archive', async () => {
+    const contractId = await seedActiveContract();
+    const audit = makeMockAudit();
+    const failure = new Error('INBOX_WRITE_EIO');
+    const failingFsFactory = (dir: string): FileSystem => {
+      const nodeFs = new NodeFileSystem({ baseDir: dir });
+      return new Proxy(nodeFs as unknown as FileSystem, {
+        get(target, prop) {
+          if (prop === 'writeAtomicSync') {
+            return (relativePath: string, content: string) => {
+              if (relativePath.includes(`${path.sep}inbox${path.sep}pending${path.sep}`)) {
+                throw failure;
+              }
+              return nodeFs.writeAtomicSync(relativePath, content);
+            };
+          }
+          const value = Reflect.get(target as object, prop);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    };
+
+    let caught: unknown;
+    try {
+      await contractCancelCommand(
+        { fsFactory: failingFsFactory },
+        CLAW_ID,
+        'stop but inbox fails',
+        contractId,
+        { audit },
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(CliError);
+    expect((caught as Error).message).toBe(
+      `Contract cancelled: ${contractId}; cancellation notification delivery failed`,
+    );
+    expect((caught as Error).message).not.toContain('Failed to cancel');
+    expect((caught as Error & { cause?: unknown }).cause).toBe(failure);
+    expect(logSpy).not.toHaveBeenCalledWith(
+      `Contract cancelled: ${contractId} (reason: stop but inbox fails)`,
+    );
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    await expect(fs.access(archivePath)).resolves.toBeUndefined();
+    await expect(fs.access(path.join(clawDir, 'contract', 'active', contractId))).rejects.toBeTruthy();
+    expect(audit.write).toHaveBeenCalledWith(
+      'cli_contract_cancel',
+      `claw=${CLAW_ID}`,
+      `contract=${contractId}`,
+      'reason=stop but inbox fails',
+    );
+    const pendingDir = path.join(clawDir, 'inbox', 'pending');
+    const pendingFiles = fsNative.existsSync(pendingDir) ? await fs.readdir(pendingDir) : [];
+    expect(pendingFiles).toHaveLength(0);
+  });
+
+  it('treats committed plus not_attempted as a defensive error and always disposes', async () => {
+    const dispose = vi.fn();
+    const cancel = vi.fn(async () => ({
+      commit: { kind: 'committed' },
+      cancellationDelivery: { kind: 'not_attempted' },
+    }));
+    vi.spyOn(assembly, 'createContractActionContext').mockResolvedValueOnce({
+      system: { cancel },
+      dispose,
+    } as unknown as assembly.ContractActionContext);
+
+    await expect(contractCancelCommand(
+      { fsFactory },
+      CLAW_ID,
+      'inconsistent owner result',
+      'contract-1',
+    )).rejects.toThrow(
+      'Contract cancelled: contract-1; cancellation notification was not attempted',
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it('throws CliError when no active contract and --contract omitted', async () => {
