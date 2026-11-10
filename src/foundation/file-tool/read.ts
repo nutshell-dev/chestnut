@@ -59,7 +59,12 @@ type ReadInput = z.infer<typeof ReadInputSchema>;
 // phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts、
 // 与 command-tool/exec.ts 共享同一业务 truncation 协议。
 
-async function persistOverflow(ctx: ExecContext, output: string): Promise<string | null> {
+type ReadOverflowResult =
+  | { kind: 'durable'; relPath: string }
+  | { kind: 'committed_platform_limited' | 'committed_durability_unknown'; relPath: string }
+  | { kind: 'failed' };
+
+async function persistOverflow(ctx: ExecContext, output: string): Promise<ReadOverflowResult> {
   try {
     // phase 2092 Step B：产物写 caller 的输出面（跨 claw 时 ctx.fs 已重绑到 target）。
     // 源文件读取仍用 ctx.fs / ctx.workspaceDir；这里只换写入与提示基准。
@@ -67,11 +72,29 @@ async function persistOverflow(ctx: ExecContext, output: string): Promise<string
     const id = newShortUuid();
     const fullPath = nodePath.join(writeSide.syncDir, TASKS_SYNC_READ_DIR.split('/').pop()!, `${id}.md`);
     const frontmatter = `---\nsource: read_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    await writeSide.fs.writeAtomic(fullPath, frontmatter + output);
-    return nodePath.relative(writeSide.workspaceDir, fullPath);
+    const written = await writeSide.fs.writeAtomic(fullPath, frontmatter + output);
+    const relPath = nodePath.relative(writeSide.workspaceDir, fullPath);
+    switch (written.kind) {
+      case 'durable':
+        return { kind: written.kind, relPath };
+      case 'committed_platform_limited':
+      case 'committed_durability_unknown':
+        ctx.auditWriter?.write(
+          FILE_TOOL_AUDIT_EVENTS.READ_OVERFLOW_PERSIST_FAILED,
+          'stage=durability',
+          `commit=${written.kind}`,
+          `path=${relPath}`,
+          `reason=${formatErr(written.error)}`,
+        );
+        return { kind: written.kind, relPath };
+      default: {
+        const unreachable: never = written;
+        throw new Error(`Unexpected atomic write result: ${String(unreachable)}`);
+      }
+    }
   } catch (err) {
     ctx.auditWriter?.write(FILE_TOOL_AUDIT_EVENTS.READ_OVERFLOW_PERSIST_FAILED, `reason=${formatErr(err)}`);
-    return null;
+    return { kind: 'failed' };
   }
 }
 
@@ -184,11 +207,16 @@ export const readTool: Tool = {
       let byteCapTriggered = false;
       if (content.length > READ_OUTPUT_HARD_CAP_BYTES) {
         byteCapTriggered = true;
-        const relPath = await persistOverflow(ctx, content);
+        const overflow = await persistOverflow(ctx, content);
         throwIfFileToolAborted(ctx.signal);
-        content = relPath
-          ? truncateHeadTail(content, relPath)
-          : content.slice(0, READ_OUTPUT_HARD_CAP_BYTES) + '\n[truncated - overflow persist failed]';
+        if (overflow.kind === 'failed') {
+          content = content.slice(0, READ_OUTPUT_HARD_CAP_BYTES) + '\n[truncated - overflow persist failed]';
+        } else {
+          content = truncateHeadTail(content, overflow.relPath);
+          if (overflow.kind !== 'durable') {
+            content += `\n[artifact committed but durability unconfirmed: ${overflow.kind}]`;
+          }
+        }
       }
 
       // readFileState write — same-claw only

@@ -464,3 +464,209 @@ describe('phase 2093 Step B: write backup result gating', () => {
     expect(stateAfter?.hash).not.toBe(stateBefore?.hash);
   });
 });
+
+
+/* ========================================================================
+ * phase 2095 Step B：read 溢出提交结果必须同时进入提示与审计。
+ * 使用真实 NodeFileSystem / permissionChecker / readTool；只在真实原子写
+ * 完成后替换 AtomicWriteResult，模拟目录 fsync 的两种已提交结果。
+ * ===================================================================== */
+describe('phase 2095 Step B: read overflow commit result visibility', () => {
+  const TARGET = 'clawspace/big.txt';
+  const OVERFLOW_FAILED = 'read_overflow_persist_failed';
+  const SOURCE = Array.from(
+    { length: 1500 },
+    (_, i) => `overflow-${String(i).padStart(4, '0')} ${'r'.repeat(90)}`,
+  ).join('\n');
+
+  type CommittedResult = {
+    kind: 'committed_platform_limited' | 'committed_durability_unknown';
+    error: NodeJS.ErrnoException;
+  };
+
+  let tempDir: string;
+  let clawDir: string;
+  let workspaceDir: string;
+  let syncDir: string;
+  let realFs: NodeFileSystem;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+    clawDir = tempDir;
+    workspaceDir = path.join(clawDir, 'clawspace');
+    syncDir = path.join(clawDir, 'tasks', 'sync');
+    await fs.mkdir(workspaceDir, { recursive: true });
+    realFs = new NodeFileSystem({ baseDir: clawDir });
+    await fs.writeFile(path.join(clawDir, TARGET), SOURCE);
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
+
+  function parseReadHint(content: string): string | undefined {
+    return /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
+  }
+
+  async function artifactFiles(): Promise<string[]> {
+    return fs.readdir(path.join(syncDir, 'read')).catch(() => [] as string[]);
+  }
+
+  function makeHarness(options?: {
+    committed?: CommittedResult;
+    writeThrows?: Error;
+    afterWrite?: () => void;
+  }) {
+    const { audit, events } = makeAudit();
+    let overflowWrites = 0;
+    const instrumentedFs = new Proxy(realFs, {
+      get(target, prop) {
+        if (prop === 'writeAtomic') {
+          return async (p: string, content: string) => {
+            if (!p.includes('tasks/sync/read/')) return target.writeAtomic(p, content);
+            overflowWrites++;
+            if (options?.writeThrows) throw options.writeThrows;
+            const written = await target.writeAtomic(p, content);
+            options?.afterWrite?.();
+            return options?.committed ?? written;
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as NodeFileSystem;
+    const ctx = new ExecContextImpl({
+      clawId: 'test-claw',
+      clawDir,
+      workspaceDir,
+      syncDir,
+      profile: 'full',
+      fs: instrumentedFs,
+      permissionChecker: createClawPermissionChecker({
+        audit,
+        clawDir,
+        strict: true,
+        fs: realFs,
+      }),
+      auditWriter: audit,
+    });
+    return {
+      ctx,
+      events,
+      writes: () => overflowWrites,
+    };
+  }
+
+  async function expectCompleteArtifact(relPath: string, ctx: ExecContextImpl) {
+    const absolute = path.resolve(workspaceDir, relPath);
+    const artifact = await fs.readFile(absolute, 'utf8');
+    expect(artifact.endsWith(SOURCE)).toBe(true);
+    const readBack = await readTool.execute({ path: relPath, offset: 1, limit: 6 }, ctx);
+    expect(readBack.success).toBe(true);
+    expect(readBack.content).toContain('source: read_overflow');
+    expect(readBack.content).toContain('overflow-0000');
+  }
+
+  it('durable：一次真实写入、完整取回，无耐久性失败提示或审计', async () => {
+    const { ctx, events, writes } = makeHarness();
+    const result = await readTool.execute({ path: 'big.txt', limit: 2000 }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).not.toContain('durability unconfirmed');
+    expect(result.content).not.toContain('overflow persist failed');
+    expect(events.filter((event) => event[0] === OVERFLOW_FAILED)).toEqual([]);
+    expect(writes()).toBe(1);
+    expect(await artifactFiles()).toHaveLength(1);
+    expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+    await expectCompleteArtifact(parseReadHint(result.content)!, ctx);
+  });
+
+  it.each([
+    ['committed_platform_limited', 'EINVAL'],
+    ['committed_durability_unknown', 'EIO'],
+  ] as const)('%s：保留产物并披露 kind、path、reason，不重试', async (kind, code) => {
+    const error = Object.assign(new Error(`synthetic ${code} after rename`), { code });
+    const { ctx, events, writes } = makeHarness({ committed: { kind, error } });
+    const result = await readTool.execute({ path: 'big.txt', limit: 2000 }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain(`[artifact committed but durability unconfirmed: ${kind}]`);
+    expect(result.content).not.toContain('overflow persist failed');
+    const relPath = parseReadHint(result.content)!;
+    expect(relPath).toBeDefined();
+    expect(writes()).toBe(1);
+    expect(await artifactFiles()).toEqual([path.basename(relPath)]);
+    const event = events.find((entry) => entry[0] === OVERFLOW_FAILED);
+    expect(event).toBeDefined();
+    expect(event).toContain('stage=durability');
+    expect(event).toContain(`commit=${kind}`);
+    expect(event).toContain(`path=${relPath}`);
+    expect(event?.join(' ')).toContain(`reason=`);
+    expect(event?.join(' ')).toContain(code);
+    expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+    await expectCompleteArtifact(relPath, ctx);
+  });
+
+  it('长错误诊断只进入审计 reason，LLM 输出保持固定状态说明', async () => {
+    const longMessage = `EIO ${'sensitive-diagnostic-'.repeat(300)}`;
+    const error = Object.assign(new Error(longMessage), { code: 'EIO' });
+    const { ctx, events } = makeHarness({
+      committed: { kind: 'committed_durability_unknown', error },
+    });
+    const result = await readTool.execute({ path: 'big.txt', limit: 2000 }, ctx);
+
+    expect(result.content).toContain(
+      '[artifact committed but durability unconfirmed: committed_durability_unknown]',
+    );
+    expect(result.content).not.toContain(longMessage);
+    expect(result.content).not.toContain('sensitive-diagnostic-');
+    const event = events.find((entry) => entry[0] === OVERFLOW_FAILED);
+    expect(event?.join(' ')).toContain(longMessage);
+    expect(event?.join(' ')).toContain('EIO');
+  });
+
+  it('rename 前 EIO：无产物、无 saved 路径，保留失败提示和非全文状态', async () => {
+    const error = Object.assign(new Error('synthetic pre-rename EIO'), { code: 'EIO' });
+    const { ctx, events, writes } = makeHarness({ writeThrows: error });
+    const result = await readTool.execute({ path: 'big.txt', limit: 2000 }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('[truncated - overflow persist failed]');
+    expect(result.content).not.toContain('durability unconfirmed');
+    expect(parseReadHint(result.content)).toBeUndefined();
+    expect(writes()).toBe(1);
+    expect(await artifactFiles()).toEqual([]);
+    expect(events.find((entry) => entry[0] === OVERFLOW_FAILED)?.join(' ')).toContain('EIO');
+    expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+  });
+
+  it('短读：零 overflow 写，正文和 full-read 状态不变', async () => {
+    await fs.writeFile(path.join(workspaceDir, 'small.txt'), 'small body');
+    const { ctx, events, writes } = makeHarness();
+    const result = await readTool.execute({ path: 'small.txt' }, ctx);
+
+    expect(result).toEqual({ success: true, content: 'small body' });
+    expect(writes()).toBe(0);
+    expect(await artifactFiles()).toEqual([]);
+    expect(events.filter((event) => event[0] === OVERFLOW_FAILED)).toEqual([]);
+    expect(ctx.readFileState.get('clawspace/small.txt')?.isFullRead).toBe(true);
+  });
+
+  it('写入后取消：沿 AbortError 通道传播，产物保留且不重写', async () => {
+    const controller = new AbortController();
+    const { ctx, writes } = makeHarness({
+      afterWrite: () => controller.abort({ type: 'tool_timeout', ms: 1 }),
+    });
+    ctx.signal = controller.signal;
+
+    await expect(readTool.execute({ path: 'big.txt', limit: 2000 }, ctx))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(writes()).toBe(1);
+    const files = await artifactFiles();
+    expect(files).toHaveLength(1);
+    const artifact = await fs.readFile(path.join(syncDir, 'read', files[0]!), 'utf8');
+    expect(artifact.endsWith(SOURCE)).toBe(true);
+  });
+});

@@ -902,4 +902,80 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     expect(readBack.content).toContain('source: read_overflow');
     expect(await fs.readFile(path.resolve(caller.workspaceDir, rel!), 'utf-8')).toContain('MARKER-E');
   });
+
+  describe('phase 2095 B: committed result remains caller-visible', () => {
+    it.each([
+      ['committed_platform_limited', 'EINVAL'],
+      ['committed_durability_unknown', 'EIO'],
+    ] as const)('%s：caller 单份产物可取回，提示与 caller 审计一致', async (kind, code) => {
+      const caller = makeClawRoot('caller-2095');
+      const target = makeClawRoot('target-2095');
+      await seedTarget(target.workspaceDir, `MARKER-2095-${kind}`);
+      const sourcePath = path.join(target.workspaceDir, 'big.txt');
+      const sourceBefore = await fs.readFile(sourcePath, 'utf8');
+      const error = Object.assign(new Error(`synthetic ${code} after rename`), { code });
+      let overflowWrites = 0;
+      const outputFs = new Proxy(new NodeFileSystem({ baseDir: caller.clawDir }), {
+        get(t, prop) {
+          if (prop === 'writeAtomic') {
+            return async (p: string, content: string) => {
+              overflowWrites++;
+              await t.writeAtomic(p, content);
+              return { kind, error };
+            };
+          }
+          const value = Reflect.get(t, prop, t);
+          return typeof value === 'function'
+            ? (value as (...args: unknown[]) => unknown).bind(t)
+            : value;
+        },
+      }) as FileSystem;
+      const callerAudit = makeMockAudit();
+      const callerCtx = makeRealCtx(caller, 'caller-claw', {
+        fs: outputFs,
+        auditWriter: callerAudit,
+      });
+      const callerReadStateBefore = new Map(callerCtx.readFileState);
+      const read = createCrossClawReadTool({
+        topology: makeTopology({ 'target-claw': target.clawDir }),
+        crossTargetAccess: realAccess,
+      });
+
+      const result = await read.execute(
+        { path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' },
+        callerCtx,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain(
+        `[artifact committed but durability unconfirmed: ${kind}]`,
+      );
+      expect(result.content).not.toContain('overflow persist failed');
+      const rel = parseReadHint(result.content)!;
+      expect(rel).toBeDefined();
+      expect(overflowWrites).toBe(1);
+      expect(await listDirSafe(path.join(caller.syncDir, 'read'))).toEqual([path.basename(rel)]);
+      expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
+      expect(await fs.readFile(sourcePath, 'utf8')).toBe(sourceBefore);
+      expect(callerCtx.readFileState).toEqual(callerReadStateBefore);
+      expect(await listDirSafe(target.clawDir)).not.toContain('read-state.json');
+
+      const artifact = await fs.readFile(path.resolve(caller.workspaceDir, rel), 'utf8');
+      expect(artifact.endsWith(sourceBefore)).toBe(true);
+      const readBack = await readTool.execute({ path: rel, offset: 1, limit: 6 }, callerCtx);
+      expect(readBack.success).toBe(true);
+      expect(readBack.content).toContain('source: read_overflow');
+      expect(readBack.content).toContain('row-00000');
+
+      const calls = (callerAudit.write as unknown as {
+        mock: { calls: Array<[string, ...(string | number)[]]> };
+      }).mock.calls;
+      const event = calls.find((entry) => entry[0] === 'read_overflow_persist_failed');
+      expect(event).toBeDefined();
+      expect(event).toContain('stage=durability');
+      expect(event).toContain(`commit=${kind}`);
+      expect(event).toContain(`path=${rel}`);
+      expect(event?.join(' ')).toContain(code);
+    });
+  });
 });
