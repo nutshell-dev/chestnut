@@ -6,7 +6,7 @@
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { emitContractNotifyFailed } from './audit-emit.js';
-import type { TerminalTransitionOutcome } from './lifecycle.js';
+import type { CancellationTransitionOutcome } from './lifecycle.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
 
 export type ContractCancelledEvent = Extract<ContractNotification, { type: 'contract_cancelled' }>;
@@ -16,7 +16,7 @@ export type CancellationDeliveryResult =
   | { readonly kind: 'failed'; readonly cause: unknown }
   | { readonly kind: 'not_attempted' };
 
-export type ContractCancelOutcome = TerminalTransitionOutcome & {
+export type ContractCancelOutcome = CancellationTransitionOutcome & {
   readonly cancellationDelivery: CancellationDeliveryResult;
 };
 

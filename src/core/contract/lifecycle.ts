@@ -84,6 +84,33 @@ export interface TerminalTransitionOutcome {
   };
 }
 
+export type CancellationPostCommitFailure =
+  | { readonly stage: 'verifier_abort'; readonly cause: unknown }
+  | { readonly stage: 'verifier_abort_audit'; readonly cause: unknown }
+  | { readonly stage: 'cancelled_audit'; readonly cause: unknown }
+  | { readonly stage: 'diagnostic_output'; readonly cause: unknown };
+
+export interface CancellationTransitionOutcome extends TerminalTransitionOutcome {
+  /** 提交后各独立动作的原始失败；非 committed 或全部成功时为空。 */
+  readonly cancellationFailures: readonly CancellationPostCommitFailure[];
+}
+
+function writeCancellationFailureDiagnostic(
+  contractId: ContractId,
+  stage: 'verifier_abort_audit' | 'cancelled_audit',
+  failures: CancellationPostCommitFailure[],
+  details: Record<string, string>,
+): void {
+  try {
+    process.stderr.write(
+      `[contract] cancellation ${stage} error: ${JSON.stringify({ contractId, ...details })}\n`,
+    );
+  } catch (diagnosticError) {
+    // silent: the original diagnostic error is returned in cancellationFailures.
+    failures.push({ stage: 'diagnostic_output', cause: diagnosticError });
+  }
+}
+
 function safeNotify(
   ctx: TerminalLifecycleContext,
   event: ContractNotification,
@@ -106,19 +133,20 @@ export async function cancelContract(
   contractId: ContractId,
   reason: string,
   requestId?: string,
-): Promise<TerminalTransitionOutcome> {
+): Promise<CancellationTransitionOutcome> {
   const intent = buildCancelledIntent(
     contractId,
     requestId ?? makeRequestId('cancel'),
     reason,
   );
   const commit = await commitTerminalLifecycle(ctx, contractId, intent);
+  const cancellationFailures: CancellationPostCommitFailure[] = [];
 
   if (commit.kind !== 'committed') {
     // already_committed: 幂等，原始请求拥有成功副作用。
     // lost_to_state / retryable_failure: 无成功副作用；committed winner（可能
     // 是另一终态）拥有副作用，或 intent 已持久化由调用方决定重试。
-    return { contractId, commit };
+    return { contractId, commit, cancellationFailures };
   }
 
   const emitted: string[] = [];
@@ -129,12 +157,28 @@ export async function cancelContract(
     // phase 1862 Step B (CT-D5): abort failure is an independent execution-
     // failure fact; it never rides the cancelled payload.
     verifierAbort = 'failed';
-    emitVerifierAbortFailed(ctx.audit, { contractId, reason, error: formatErr(abortErr) });
-    emitted.push(CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
+    cancellationFailures.push({ stage: 'verifier_abort', cause: abortErr });
+    try {
+      emitVerifierAbortFailed(ctx.audit, { contractId, reason, error: formatErr(abortErr) });
+      emitted.push(CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
+    } catch (auditErr) {
+      cancellationFailures.push({ stage: 'verifier_abort_audit', cause: auditErr });
+      writeCancellationFailureDiagnostic(contractId, 'verifier_abort_audit', cancellationFailures, {
+        abortError: formatErr(abortErr),
+        auditError: formatErr(auditErr),
+      });
+    }
   }
-  emitContractCancelled(ctx.audit, { contractId, reason });
-  emitted.push(CONTRACT_AUDIT_EVENTS.CANCELLED);
-  return { contractId, commit, postCommit: { verifierAbort, emitted } };
+  try {
+    emitContractCancelled(ctx.audit, { contractId, reason });
+    emitted.push(CONTRACT_AUDIT_EVENTS.CANCELLED);
+  } catch (auditErr) {
+    cancellationFailures.push({ stage: 'cancelled_audit', cause: auditErr });
+    writeCancellationFailureDiagnostic(contractId, 'cancelled_audit', cancellationFailures, {
+      auditError: formatErr(auditErr),
+    });
+  }
+  return { contractId, commit, postCommit: { verifierAbort, emitted }, cancellationFailures };
 }
 
 /**

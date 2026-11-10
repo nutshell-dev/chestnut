@@ -57,6 +57,11 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     const outcome = await manager.cancel(makeContractId(contractId), 'user requested abort');
 
     expect(outcome.commit.kind).toBe('committed');
+    expect(outcome.cancellationFailures).toEqual([]);
+    expect(outcome.postCommit).toEqual({
+      verifierAbort: 'ok',
+      emitted: [CONTRACT_AUDIT_EVENTS.CANCELLED],
+    });
     expect(outcome.cancellationDelivery).toEqual({ kind: 'delivered' });
     expect(deliverCancellation).toHaveBeenCalledTimes(1);
     expect(deliverCancellation).toHaveBeenCalledWith({
@@ -148,6 +153,102 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     expect(diagnostics).toContain('AUDIT_EIO');
   });
 
+  it('preserves a cancelled-audit failure and a stderr fallback failure while delivering', async () => {
+    const auditError = new Error('CANCELLED_AUDIT_EIO');
+    const diagnosticError = new Error('STDERR_EIO');
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === CONTRACT_AUDIT_EVENTS.CANCELLED) throw auditError;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => { throw diagnosticError; });
+    const deliverCancellation = vi.fn(async () => {});
+    const manager = makeManager({ deliverCancellation, audit });
+    const contractId = await manager.create(makeContractYaml());
+
+    const outcome = await manager.cancel(makeContractId(contractId), 'stop');
+
+    expect(outcome.commit.kind).toBe('committed');
+    expect(outcome.cancellationFailures).toEqual([
+      { stage: 'cancelled_audit', cause: auditError },
+      { stage: 'diagnostic_output', cause: diagnosticError },
+    ]);
+    expect(outcome.postCommit?.emitted).toEqual([]);
+    expect(outcome.cancellationDelivery).toEqual({ kind: 'delivered' });
+    expect(deliverCancellation).toHaveBeenCalledTimes(1);
+    await expect(fs.access(path.join(
+      clawDir, 'contract', 'archive', 'cancelled', contractId,
+    ))).resolves.toBeUndefined();
+  });
+
+  it('collects abort and audit failures without replacing a later delivery failure', async () => {
+    const abortError = new Error('ABORT_EIO');
+    const abortAuditError = new Error('ABORT_AUDIT_EIO');
+    const cancelledAuditError = new Error('CANCELLED_AUDIT_EIO');
+    const deliveryError = new Error('DELIVERY_EIO');
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED) throw abortAuditError;
+      if (type === CONTRACT_AUDIT_EVENTS.CANCELLED) throw cancelledAuditError;
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const deliverCancellation = vi.fn(async () => { throw deliveryError; });
+    const manager = makeManager({ deliverCancellation, audit });
+    const contractId = await manager.create(makeContractYaml());
+    vi.spyOn(manager as any, '_abortContractVerifiers').mockImplementation(() => { throw abortError; });
+
+    const outcome = await manager.cancel(makeContractId(contractId), 'stop');
+
+    expect(outcome.commit.kind).toBe('committed');
+    expect(outcome.cancellationFailures).toEqual([
+      { stage: 'verifier_abort', cause: abortError },
+      { stage: 'verifier_abort_audit', cause: abortAuditError },
+      { stage: 'cancelled_audit', cause: cancelledAuditError },
+    ]);
+    expect(outcome.postCommit).toEqual({ verifierAbort: 'failed', emitted: [] });
+    expect(outcome.cancellationDelivery).toEqual({ kind: 'failed', cause: deliveryError });
+    expect(deliverCancellation).toHaveBeenCalledTimes(1);
+    const diagnostics = stderr.mock.calls.map(call => String(call[0])).join('');
+    expect(diagnostics).toContain('ABORT_EIO');
+    expect(diagnostics).toContain('ABORT_AUDIT_EIO');
+    expect(diagnostics).toContain('CANCELLED_AUDIT_EIO');
+    expect(diagnostics).toContain(contractId);
+  });
+
+  it('records abort failure separately when its failure audit succeeds', async () => {
+    const abortError = new Error('ABORT_ONLY_EIO');
+    const audit = makeMockAudit();
+    const manager = makeManager({ deliverCancellation: async () => {}, audit });
+    const contractId = await manager.create(makeContractYaml());
+    vi.spyOn(manager as any, '_abortContractVerifiers').mockImplementation(() => { throw abortError; });
+
+    const outcome = await manager.cancel(makeContractId(contractId), 'stop');
+
+    expect(outcome.cancellationFailures).toEqual([
+      { stage: 'verifier_abort', cause: abortError },
+    ]);
+    expect(outcome.postCommit).toEqual({
+      verifierAbort: 'failed',
+      emitted: [
+        CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED,
+        CONTRACT_AUDIT_EVENTS.CANCELLED,
+      ],
+    });
+    expect(outcome.cancellationDelivery).toEqual({ kind: 'delivered' });
+  });
+
+  it('keeps pre-commit intent failures as rejections without delivery', async () => {
+    const intentError = new Error('INTENT_WRITE_EIO');
+    const deliverCancellation = vi.fn(async () => {});
+    const manager = makeManager({ deliverCancellation });
+    const contractId = await manager.create(makeContractYaml());
+    vi.spyOn(manager['fs'], 'writeExclusive').mockImplementation(async () => { throw intentError; });
+
+    await expect(manager.cancel(makeContractId(contractId), 'stop')).rejects.toBe(intentError);
+
+    expect(deliverCancellation).not.toHaveBeenCalled();
+    await expect(fs.access(path.join(clawDir, 'contract', 'active', contractId))).resolves.toBeUndefined();
+  });
+
   it('does not deliver or observe again for already_committed or retryable_failure', async () => {
     const deliverCancellation = vi.fn(async () => {});
     const onNotify = vi.fn();
@@ -160,8 +261,10 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     const missing = await manager.cancel(makeContractId('missing'), 'missing');
 
     expect(repeated.commit.kind).toBe('already_committed');
+    expect(repeated.cancellationFailures).toEqual([]);
     expect(repeated.cancellationDelivery).toEqual({ kind: 'not_attempted' });
     expect(missing.commit.kind).toBe('retryable_failure');
+    expect(missing.cancellationFailures).toEqual([]);
     expect(missing.cancellationDelivery).toEqual({ kind: 'not_attempted' });
     expect(deliverCancellation).toHaveBeenCalledTimes(1);
     expect(deliverCancellation).toHaveBeenCalledWith(expect.objectContaining({ reason: 'first' }));

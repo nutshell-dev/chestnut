@@ -25,7 +25,11 @@ export {
 // phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // phase 1862 Step C (CT-D2): 终态 transition 单一 typed outcome barrel export
-export type { TerminalTransitionOutcome } from './lifecycle.js';
+export type {
+  TerminalTransitionOutcome,
+  CancellationTransitionOutcome,
+  CancellationPostCommitFailure,
+} from './lifecycle.js';
 // Phase 1878 Step D: ExecutionFailureSink 窄能力工厂（0-full-instance；
 // 语义与 ContractSystem.failActiveForExecutor 1:1 同一实现源）
 export { createExecutionFailureSink } from './execution-failure.js';
