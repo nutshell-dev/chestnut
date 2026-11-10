@@ -911,6 +911,57 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     expect(await fs.readFile(path.resolve(caller.workspaceDir, rel!), 'utf-8')).toContain('MARKER-E');
   });
 
+  it('phase 2099：target stat 失败留审计，caller 同相对路径状态不变且 target 不落 read-state', async () => {
+    const caller = makeClawRoot('caller-2099');
+    const target = makeClawRoot('target-2099');
+    await fs.writeFile(path.join(caller.workspaceDir, 'note.txt'), 'CALLER-CONTENT');
+    await fs.writeFile(path.join(target.workspaceDir, 'note.txt'), 'TARGET-CONTENT');
+    const callerAudit = makeMockAudit();
+    const targetError = Object.assign(new Error('synthetic target stat EIO'), { code: 'EIO' });
+    const callerCtx = makeRealCtx(caller, 'caller-claw', {
+      auditWriter: callerAudit,
+      fsFactory: (baseDir: string) => {
+        const nodeFs = new NodeFileSystem({ baseDir });
+        if (baseDir !== target.clawDir) return nodeFs;
+        return new Proxy(nodeFs, {
+          get(t, prop) {
+            if (prop === 'stat') {
+              return async (p: string) => {
+                if (p === 'clawspace/note.txt') throw targetError;
+                return t.stat(p);
+              };
+            }
+            const value = Reflect.get(t, prop, t);
+            return typeof value === 'function'
+              ? (value as (...args: unknown[]) => unknown).bind(t)
+              : value;
+          },
+        }) as FileSystem;
+      },
+    });
+    expect((await readTool.execute({ path: 'note.txt' }, callerCtx)).success).toBe(true);
+    const callerStateBefore = new Map(callerCtx.readFileState);
+    const read = createCrossClawReadTool({
+      topology: makeTopology({ 'target-claw': target.clawDir }),
+      crossTargetAccess: realAccess,
+    });
+
+    const result = await read.execute({ path: 'note.txt', claw: 'target-claw' }, callerCtx);
+
+    expect(result).toEqual({ success: true, content: 'TARGET-CONTENT' });
+    expect(callerCtx.readFileState).toEqual(callerStateBefore);
+    expect(await listDirSafe(target.clawDir)).not.toContain('read-state.json');
+    const calls = (callerAudit.write as unknown as {
+      mock: { calls: Array<[string, ...(string | number)[]]> };
+    }).mock.calls;
+    const event = calls.find((entry) => entry[0] === 'read_file_stat_failed');
+    expect(event).toBeDefined();
+    expect(event).toContain(`claw_dir=${target.clawDir}`);
+    expect(event).toContain('path=clawspace/note.txt');
+    expect(event).toContain('invalidated=false');
+    expect(event?.join(' ')).toContain('EIO');
+  });
+
   describe('phase 2095 B: committed result remains caller-visible', () => {
     it.each([
       ['committed_platform_limited', 'EINVAL'],

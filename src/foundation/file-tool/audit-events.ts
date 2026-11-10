@@ -23,6 +23,9 @@ export const FILE_TOOL_AUDIT_EVENTS = {
   /** read overflow > READ_OUTPUT_HARD_CAP_BYTES、persist 落盘失败（phase 1430 字面 → phase 1443 const） */
   READ_OVERFLOW_PERSIST_FAILED: 'read_overflow_persist_failed',
 
+  /** read stat failure invalidates one path、payload: claw_dir path invalidated previous_* reason (phase 2099) */
+  READ_FILE_STAT_FAILED: 'read_file_stat_failed',
+
   /** readFileState mutation emit、payload: op=read|write|edit path=<resolved> isFullRead=<bool> (phase 1443) */
   READ_FILE_STATE_RECORDED: 'read_file_state_recorded',
 

@@ -20,6 +20,7 @@
 import type { ExecContext } from '../tools/index.js';
 import { computeContentHash } from './file-hash.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr } from '../node-utils/index.js';
 
 /**
  * Record a `read` tool invocation result into the gate state map.
@@ -48,6 +49,24 @@ export function recordReadResult(
     `op=read`,
     `path=${resolvedPath}`,
     `isFullRead=${isFullRead}`,
+  );
+}
+
+/** Invalidate one path when read cannot obtain a stat-backed version credential. */
+export function recordReadStatFailure(ctx: ExecContext, resolvedPath: string, error: unknown): void {
+  const previous = ctx.readFileState.get(resolvedPath);
+  ctx.readFileState.delete(resolvedPath);
+  ctx.auditWriter?.write(
+    FILE_TOOL_AUDIT_EVENTS.READ_FILE_STAT_FAILED,
+    `claw_dir=${ctx.clawDir}`,
+    `path=${resolvedPath}`,
+    `invalidated=${previous !== undefined}`,
+    ...(previous ? [
+      `previous_hash=${previous.hash}`,
+      `previous_timestamp=${previous.timestamp}`,
+      `previous_isFullRead=${previous.isFullRead}`,
+    ] : []),
+    `reason=${formatErr(error)}`,
   );
 }
 

@@ -29,7 +29,7 @@ import {
 import { resolveWorkspacePath } from './resolve-path.js';
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from './truncate-head-tail.js';
-import { recordReadResult } from './file-state-manager.js';
+import { recordReadResult, recordReadStatFailure } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 import { isFileToolAbortError, throwIfFileToolAborted } from './abort.js';
@@ -166,9 +166,9 @@ export const readTool: Tool = {
       try {
         const stat = await ctx.fs.stat(resolved);
         fileMtime = stat.mtime.getTime();
-      } catch {
-        // silent: stat failure here means FileState cannot be written for this read;
-        // downstream gate will reject overwrite (no isFullRead=true entry) — fail-safe.
+      } catch (error) {
+        // No valid version credential can be formed without stat; revoke only this path and audit the failure.
+        recordReadStatFailure(ctx, resolved, error);
       }
       throwIfFileToolAborted(ctx.signal);
 

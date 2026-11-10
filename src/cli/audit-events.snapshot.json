@@ -771,6 +771,7 @@
       "file_tool_backup_failed",
       "file_tool_input_validation_failed",
       "overwrite_gate_rejected",
+      "read_file_stat_failed",
       "read_file_state_invariant_violated",
       "read_file_state_loaded",
       "read_file_state_persist_failed",
