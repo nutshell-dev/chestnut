@@ -204,6 +204,7 @@ describe('phase1847 prepare/format 边界真实链组合', () => {
       id: 'm-2', type: 'user_chat', from: 'user', content: 'second body',
       timestamp: '2026-01-01T00:00:01.000Z',
     });
+    const pendingRaw = fsNative.readFileSync(path.join(chainA.pendingDir, 'm-1.md'), 'utf8');
 
     const prepared = await chainA.runtime.prepareInbox();
 
@@ -215,10 +216,8 @@ describe('phase1847 prepare/format 边界真实链组合', () => {
       expect(e.handle.originalFileName).toBe(`${e.message.id}.md`);
     }
     expect(chainA.listMd(chainA.inflightDir)).toHaveLength(2);
-    const inflightRaw = fsNative.readFileSync(
-      path.join(chainA.inflightDir, chainA.listMd(chainA.inflightDir).find((f) => f.endsWith('m-1.md'))!),
-      'utf8',
-    );
+    const inflightRaw = await chainA.deps.systemFs.read(prepared.entries[0].handle.filePath);
+    expect(inflightRaw).toBe(pendingRaw);
     expect(inflightRaw).toContain('first body');
     expect(inflightRaw).toContain('k1');
     // 已领取 → pending 空
@@ -382,8 +381,11 @@ describe('phase1847 prepare/format 边界真实链组合', () => {
     const chain = await makeRealChain();
     // 真实失败注入：只让 b-1 的 pending→inflight move 失败
     const realMove = chain.deps.systemFs.move.bind(chain.deps.systemFs);
+    let failedClaims = 0;
     vi.spyOn(chain.deps.systemFs, 'move').mockImplementation(async (src: string, dst: string) => {
-      if (dst.startsWith(INBOX_INFLIGHT_DIR) && dst.endsWith('b-1.md')) {
+      if (path.resolve(chain.clawDir, src) === path.join(chain.pendingDir, 'b-1.md')
+        && path.dirname(path.resolve(chain.clawDir, dst)) === chain.inflightDir) {
+        failedClaims += 1;
         throw new Error('p1847 EIO move boom');
       }
       return realMove(src, dst);
@@ -400,10 +402,14 @@ describe('phase1847 prepare/format 边界真实链组合', () => {
     const prepared = await chain.runtime.prepareInbox();
 
     // 已领取项返回真实句柄，未领取项留 pending
+    expect(failedClaims).toBe(1);
     expect(prepared.entries).toHaveLength(1);
     expect(prepared.entries[0].message.content).toBe('first');
+    expect(prepared.entries[0].handle.originalFileName).toBe('a-1.md');
     expect(chain.listMd(chain.pendingDir)).toEqual(['b-1.md']);
-    expect(chain.listMd(chain.inflightDir).some((f) => f.endsWith('a-1.md'))).toBe(true);
+    expect(chain.listMd(chain.inflightDir)).toEqual([
+      path.basename(prepared.entries[0].handle.filePath),
+    ]);
     // partial_failure 错误审计保留
     expect(
       chain.events.filter((e) => e[0] === RUNTIME_AUDIT_EVENTS.INBOX_DRAIN_FAILED),
@@ -459,9 +465,10 @@ describe('phase1847 prepare/format 边界真实链组合', () => {
         registerRejectableFormatter(registry, marker, { current: true }, 'unused'),
     });
     chain.writePending({ id: 'r-1', type: 'p1847_rejectable', from: 'system', content: 'raw body' });
+    const pendingRaw = fsNative.readFileSync(path.join(chain.pendingDir, 'r-1.md'), 'utf8');
     // 让 nack 的 inflight→pending restore 失败（claim 方向不受影响）
     const realMove = chain.deps.systemFs.move.bind(chain.deps.systemFs);
-    vi.spyOn(chain.deps.systemFs, 'move').mockImplementation(async (src: string, dst: string) => {
+    const moveSpy = vi.spyOn(chain.deps.systemFs, 'move').mockImplementation(async (src: string, dst: string) => {
       if (dst.startsWith(INBOX_PENDING_DIR)) throw new Error('p1847 EIO restore boom');
       return realMove(src, dst);
     });
@@ -472,11 +479,11 @@ describe('phase1847 prepare/format 边界真实链组合', () => {
 
     // 原 inflight bytes 保留（未丢失、未伪装回队成功）
     const inflight = chain.listMd(chain.inflightDir);
-    expect(inflight.filter((f) => f.endsWith('r-1.md'))).toHaveLength(1);
-    const preserved = fsNative.readFileSync(
-      path.join(chain.inflightDir, inflight.find((f) => f.endsWith('r-1.md'))!),
-      'utf8',
-    );
+    const failedRestores = moveSpy.mock.calls.filter(([, dst]) => dst.startsWith(INBOX_PENDING_DIR));
+    expect(failedRestores).toHaveLength(1);
+    expect(inflight).toEqual([path.basename(failedRestores[0][0])]);
+    const preserved = await chain.deps.systemFs.read(failedRestores[0][0]);
+    expect(preserved).toBe(pendingRaw);
     expect(preserved).toContain('raw body');
     expect(chain.listMd(chain.pendingDir)).toHaveLength(0);
     expect(chain.listMd(chain.doneDir)).toHaveLength(0);
