@@ -134,7 +134,7 @@ function validateCapture(value: unknown): ClaimRecordIssue | undefined {
   return validateEvidence(value.evidence);
 }
 
-function validOriginalName(value: unknown, channel: ClaimChannel): value is string {
+export function isValidClaimOriginalName(value: unknown, channel: ClaimChannel): value is string {
   return typeof value === 'string'
     && value.length > 0
     && value !== '.'
@@ -171,7 +171,7 @@ function validateDescriptor(
   if (typeof value.createdAtMs !== 'number' || !Number.isFinite(value.createdAtMs)) {
     return issue('invalid', 'createdAtMs must be finite');
   }
-  if (!validOriginalName(value.originalName, channel)) {
+  if (!isValidClaimOriginalName(value.originalName, channel)) {
     return issue('invalid', 'originalName is not a safe leaf .md filename for this channel');
   }
   return validateCapture(value.capture);

@@ -1,15 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InboxReader } from '../../../src/foundation/messaging/index.js';
-import { getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-
-function expectedInflightPath(fileName: string): string {
-  const pid = process.pid;
-  const startTime = getProcessStartTime(pid);
-  const startTimeHex = startTime ? Buffer.from(startTime).toString('hex') : '0';
-  return `/inbox/inflight/${pid}_${startTimeHex}_${fileName}`;
-}
 
 function makeMockFs(): FileSystem {
   return {
@@ -22,6 +14,8 @@ function makeMockFs(): FileSystem {
     move: vi.fn().mockResolvedValue(undefined),
     utimes: vi.fn().mockResolvedValue(undefined),
     ensureDir: vi.fn().mockResolvedValue(undefined),
+    mkdirExclusiveSync: vi.fn(),
+    writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
   } as unknown as FileSystem;
 }
 
@@ -55,11 +49,12 @@ describe('inbox-reader drainAndDeliver mtime reset (phase 1372 sub-2)', () => {
     expect(result.entries.length).toBe(1);
     expect(result.handles.length).toBe(1);
 
+    const inflightPath = result.handles[0].filePath;
     expect(mockFs.move).toHaveBeenCalledTimes(1);
-    expect(mockFs.move).toHaveBeenCalledWith('/inbox/pending/msg.md', expectedInflightPath('msg.md'));
+    expect(mockFs.move).toHaveBeenCalledWith('/inbox/pending/msg.md', inflightPath);
 
     expect(mockFs.utimes).toHaveBeenCalledTimes(1);
-    expect(mockFs.utimes).toHaveBeenCalledWith(expectedInflightPath('msg.md'), expect.any(Date), expect.any(Date));
+    expect(mockFs.utimes).toHaveBeenCalledWith(inflightPath, expect.any(Date), expect.any(Date));
 
     const utimesCall = (mockFs.utimes as ReturnType<typeof vi.fn>).mock.calls[0];
     const mtimeArg = utimesCall[2] as Date;
@@ -90,7 +85,9 @@ describe('inbox-reader drainAndDeliver mtime reset (phase 1372 sub-2)', () => {
 
     expect(result.entries.length).toBe(1);
     expect(result.handles.length).toBe(1);
-    expect(result.handles[0].filePath).toBe(expectedInflightPath('msg.md'));
+    expect(result.handles[0].filePath).toMatch(
+      /^\/inbox\/inflight\/mclaim_1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/i,
+    );
     expect(mockFs.move).toHaveBeenCalledTimes(1);
     expect(mockFs.utimes).toHaveBeenCalledTimes(1);
     expect(events.some(e => e[0] === 'inbox_move_failed' && String(e).includes('op=deliver_utimes'))).toBe(true);

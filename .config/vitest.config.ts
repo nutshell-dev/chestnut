@@ -173,6 +173,7 @@ const VI_MOCK_FILES = [
   // 'tests/foundation/llm-provider/anthropic-adapter.test.ts',
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/messaging/claim-process-observation.test.ts',
+  'tests/foundation/messaging/claim-record-store.test.ts',
   'tests/foundation/messaging/inbox-claim-observation.test.ts',
   'tests/foundation/messaging/outbox-claim-observation.test.ts',
   'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // vi.mock process-exec inspectProcessRef
@@ -310,6 +311,7 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/foundation/skill-system/state-lock.integration.test.ts',
   // Phase 2089 Step B/C: real legacy Messaging holder exit/reclaim and evidence
   'tests/foundation/messaging/claim-observation.integration.test.ts',
+  'tests/foundation/messaging/claim-reference.integration.test.ts',
 ];
 
 /**

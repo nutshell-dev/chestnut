@@ -26,6 +26,8 @@ function makeMockFs(): FileSystem {
   return {
     list: vi.fn().mockResolvedValue([{ name: 'msg.md', path: '/inbox/pending/msg.md' }]),
     ensureDir: vi.fn().mockResolvedValue(undefined),
+    mkdirExclusiveSync: vi.fn(),
+    writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
   } as unknown as FileSystem;
 }
 
@@ -100,6 +102,8 @@ describe('phase 2046 Step C: pending read/markFailed races', () => {
       read: vi.fn(read),
       move: vi.fn(move),
       utimes: vi.fn().mockResolvedValue(undefined),
+      mkdirExclusiveSync: vi.fn(),
+      writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
     } as unknown as FileSystem;
   }
 

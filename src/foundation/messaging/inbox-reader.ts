@@ -20,7 +20,7 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
-import { decodeProcessRef, getProcessStartTime, inspectProcessRef } from '../process-exec/index.js';
+import { decodeProcessRef, inspectProcessRef } from '../process-exec/index.js';
 import { decodeInbox, encodeInbox } from './codec-inbox.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
@@ -57,6 +57,7 @@ import {
   loadClaimDescriptor,
   type ClaimRecordEvidence,
 } from './claim-record.js';
+import { prepareClaimRecord } from './claim-record-store.js';
 
 // Phase 992: inbox-reader owns its transient-read error to avoid reaching into dialog-store internals.
 class InboxReadError extends Error {
@@ -962,11 +963,23 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
 
     for (const entry of entries) {
       const fileName = path.basename(entry.filePath);
-      const pid = process.pid;
-      const startTime = getProcessStartTime(pid);
-      const startTimeHex = startTime ? Buffer.from(startTime).toString('hex') : '0';
-      const inflightName = `${pid}_${startTimeHex}_${fileName}`;
-      const inflightPath = path.join(this.inflightDir, inflightName);
+      let prepared: Awaited<ReturnType<typeof prepareClaimRecord>>;
+      try {
+        prepared = await prepareClaimRecord(this.fs, this.inflightDir, 'inbox', fileName);
+      } catch (error) {
+        // silent: the original preparation error is returned as typed partial_failure evidence.
+        return {
+          kind: 'partial_failure',
+          entries: deliveredEntries,
+          handles,
+          transientErrors,
+          permanentErrors,
+          stage: 'claim',
+          entry: fileName,
+          error,
+        };
+      }
+      const inflightPath = path.join(this.inflightDir, prepared.claimName);
       try {
         await this.fs.move(entry.filePath, inflightPath);
       } catch (err) {

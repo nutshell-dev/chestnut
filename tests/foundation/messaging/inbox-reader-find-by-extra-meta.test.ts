@@ -78,10 +78,14 @@ describe('InboxReader.findByExtraMeta', () => {
       content: 'x', priority: 'normal', timestamp: new Date().toISOString(),
     }, { hash: 'inflight123' });
     // drainAndDeliver moves pending → inflight, ack/nack not called
-    await reader.drainAndDeliver();
+    const drained = await reader.drainAndDeliver();
     const hit = await reader.findByExtraMeta('hash', 'inflight123');
     expect(hit).not.toBeNull();
     expect(hit?.location).toBe('inflight');
+    expect(hit?.file).toBe(path.basename(drained.handles[0].filePath));
+    expect(hit?.file).toMatch(
+      /^mclaim_1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/i,
+    );
   });
 
   it('does NOT match failed/ (caller should re-emit on failures)', async () => {

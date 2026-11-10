@@ -307,7 +307,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(drain.kind).toBe('complete');
     expect(drain.entries).toHaveLength(3);
     expect(await listMd(pendingDir())).toHaveLength(0);
-    // 记录崩溃现场（按消息 id 键控：claim 文件名含 pid 租约前缀）
+    // 记录崩溃现场（按消息 id 键控；新 mclaim 名不再放大原消息名）
     const inflightDir = path.join(testClawDir, 'inbox', 'inflight');
     const crashedRawById = new Map<string, string>();
     for (const name of await listMd(inflightDir)) {
@@ -315,10 +315,14 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
       crashedRawById.set(decodeInbox(raw).id, raw);
     }
     expect(crashedRawById.size).toBe(3);
-    // 崩溃证据：claim 租约 owner 进程已死（重写 pid 为不存在进程，保留原租约其余部分）
-    for (const name of await listMd(inflightDir)) {
-      const deadName = name.replace(/^\d+_/, '999999_');
-      await fsp.rename(path.join(inflightDir, name), path.join(inflightDir, deadName));
+    // 本用例继续验旧格式恢复：显式转换为死 PID 旧认领夹具。
+    // 新 mclaim 的真实子进程退出恢复由 claim-reference.integration.test.ts 覆盖。
+    for (const handle of drain.handles) {
+      const deadName = `999999_0_${handle.originalFileName}`;
+      await fsp.rename(
+        path.join(inflightDir, path.basename(handle.filePath)),
+        path.join(inflightDir, deadName),
+      );
     }
 
     // 重启：新 Runtime/reader，initialize 的 startup reconcile 把 inflight 回 pending

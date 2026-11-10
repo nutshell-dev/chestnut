@@ -94,7 +94,11 @@ describe('InboxReader.peekUnsettled (phase 1869 Step C)', () => {
     const drained = await reader.drainAndDeliver();
     if (drained.kind !== 'complete') throw new Error('expected complete drain');
     const pendIdx = drained.entries.findIndex(e => e.message.id === 'kept-pending');
-    expect(drained.entries.findIndex(e => e.message.id === 'drained')).toBeGreaterThanOrEqual(0);
+    const inflightIdx = drained.entries.findIndex(e => e.message.id === 'drained');
+    expect(inflightIdx).toBeGreaterThanOrEqual(0);
+    expect(path.basename(drained.handles[inflightIdx].filePath)).toMatch(
+      /^mclaim_1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/i,
+    );
     await reader.nack(drained.handles[pendIdx], 'test_requeue');
 
     const hits = await reader.peekUnsettled(FILTER);

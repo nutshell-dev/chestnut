@@ -323,15 +323,20 @@ describe('InboxWriter', () => {
   it.each(['pending', 'inflight'] as const)('writeSync dedupes a stable messageId in %s', (state) => {
     const opts = { type: 'ping', source: 'motion', body: 'test', messageId: 'stable-state' };
     const original = writer.writeSync(opts);
+    let existing = original;
     if (state === 'inflight') {
       const inflightDir = path.join(testDir, 'inbox', 'inflight');
+      existing = `mclaim_1_${randomUUID()}.md`;
       fsSync.mkdirSync(inflightDir, { recursive: true });
-      fsSync.renameSync(path.join(testDir, INBOX_PENDING_DIR, original), path.join(inflightDir, original));
+      fsSync.renameSync(path.join(testDir, INBOX_PENDING_DIR, original), path.join(inflightDir, existing));
     }
 
-    expect(writer.writeSync(opts)).toBe(original);
+    expect(writer.writeSync(opts)).toBe(existing);
     const pendingFiles = fsSync.readdirSync(path.join(testDir, INBOX_PENDING_DIR));
     expect(pendingFiles).toHaveLength(state === 'pending' ? 1 : 0);
+    if (state === 'inflight') {
+      expect(fsSync.readdirSync(path.join(testDir, 'inbox', 'inflight'))).toEqual([existing]);
+    }
     expect(auditCalls.filter(c => c.startsWith('inbox_deduped:'))).toHaveLength(1);
   });
 
@@ -384,8 +389,9 @@ describe('InboxWriter', () => {
     await writer.write(msg);
     const [original] = await fs.readdir(path.join(testDir, INBOX_PENDING_DIR));
     const stateDir = path.join(testDir, 'inbox', state);
+    const existing = state === 'inflight' ? `mclaim_1_${randomUUID()}.md` : original;
     await fs.mkdir(stateDir, { recursive: true });
-    await fs.rename(path.join(testDir, INBOX_PENDING_DIR, original), path.join(stateDir, original));
+    await fs.rename(path.join(testDir, INBOX_PENDING_DIR, original), path.join(stateDir, existing));
 
     await writer.write(msg, undefined, {
       dedupeByMessageId: true,
@@ -393,6 +399,7 @@ describe('InboxWriter', () => {
     });
 
     expect(await fs.readdir(path.join(testDir, INBOX_PENDING_DIR))).toHaveLength(0);
+    expect(await fs.readdir(stateDir)).toEqual([existing]);
     expect(auditCalls.filter(c => c.startsWith('inbox_deduped:'))).toHaveLength(1);
   });
 
