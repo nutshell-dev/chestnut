@@ -1,5 +1,6 @@
 import type { FileSystem } from '../fs/index.js';
 import type {
+  ProcessRefCapture,
   ProcessRefDecode,
   ProcessRefObservation,
 } from '../process-exec/index.js';
@@ -17,13 +18,23 @@ export type HolderObservationInput = {
   decision: 'consider_reclaim' | 'wait';
 };
 
-export type LockObservationRecord = HolderObservationInput & {
+type LockObservationMetadata = {
   version: 1;
   attemptId: string;
   sequence: number;
   atMs: number;
+};
+
+export type HolderObservationRecord = LockObservationMetadata & HolderObservationInput & {
   event: 'holder_observation';
 };
+
+export type SelfCaptureRecord = LockObservationMetadata & {
+  event: 'self_capture';
+  capture: ProcessRefCapture;
+};
+
+export type LockObservationRecord = HolderObservationRecord | SelfCaptureRecord;
 
 type ObservationFailureCause = {
   kind: 'lock_observation_persistence_failed';
@@ -45,8 +56,8 @@ function isEexist(error: unknown): boolean {
 
 /**
  * Per-acquisition durable process evidence. The directory is claimed only when
- * the first observation is ready; every record and the first index must commit
- * durably before the caller may act on that observation.
+ * the first record is ready; every record and the first index must commit
+ * durably before the caller may act on the recorded facts.
  */
 export class LockObservationWriter {
   private currentAttemptId = newShortUuid();
@@ -123,7 +134,7 @@ export class LockObservationWriter {
     }
   }
 
-  private makeRecord(input: HolderObservationInput): LockObservationRecord {
+  private makeRecord(input: HolderObservationInput): HolderObservationRecord {
     return {
       version: 1,
       attemptId: this.currentAttemptId,
@@ -134,14 +145,25 @@ export class LockObservationWriter {
     };
   }
 
-  record(input: HolderObservationInput): void {
-    let record = this.makeRecord(input);
+  private makeCaptureRecord(capture: ProcessRefCapture): SelfCaptureRecord {
+    return {
+      version: 1,
+      attemptId: this.currentAttemptId,
+      sequence: this.sequence + 1,
+      atMs: Date.now(),
+      event: 'self_capture',
+      capture,
+    };
+  }
+
+  private persist(makeRecord: () => LockObservationRecord): void {
+    let record = makeRecord();
     let recordPath = `${this.attemptDirName}/${String(record.sequence).padStart(6, '0')}.json`;
 
     if (!this.directoryClaimed) {
       let claimed = false;
       for (let claim = 0; claim < MAX_DIRECTORY_CLAIMS; claim += 1) {
-        record = this.makeRecord(input);
+        record = makeRecord();
         recordPath = `${this.attemptDirName}/${String(record.sequence).padStart(6, '0')}.json`;
         try {
           this.fs.mkdirExclusiveSync(this.attemptDirName);
@@ -160,7 +182,7 @@ export class LockObservationWriter {
       this.directoryClaimed = true;
 
       // This sibling index fsyncs the observation directory itself, committing
-      // the attempt directory entry before the first observation is considered.
+      // the attempt directory entry before the first record is considered.
       const indexPath = `${this.observationDirName}/${this.currentAttemptId}.json`;
       this.writeJson(indexPath, {
         version: 1,
@@ -171,5 +193,13 @@ export class LockObservationWriter {
 
     this.writeJson(recordPath, record, record, recordPath);
     this.sequence = record.sequence;
+  }
+
+  record(input: HolderObservationInput): void {
+    this.persist(() => this.makeRecord(input));
+  }
+
+  recordCapture(capture: ProcessRefCapture): void {
+    this.persist(() => this.makeCaptureRecord(capture));
   }
 }

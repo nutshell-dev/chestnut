@@ -446,11 +446,12 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
     expect(yaml.load(fs.readFileSync(configPath, 'utf8'))).toEqual({ name: 'base' });
     const evidenceDir = `${configPath}.lock-observations`;
     const records = fs.readdirSync(evidenceDir, { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name === '000001.json')
+      .filter((entry) => entry.isFile() && /^\d{6}\.json$/.test(entry.name))
       .map((entry) => JSON.parse(fs.readFileSync(
         path.join(entry.parentPath, entry.name), 'utf8',
-      )) as { outcome: { kind: string; reason?: string } });
-    expect(records).toHaveLength(1);
+      )) as { event: string; outcome: { kind: string; reason?: string } })
+      .filter((record) => record.event === 'holder_observation');
+    expect(records.length).toBeGreaterThan(0);
     expect(records[0].outcome).toMatchObject({
       kind: 'unknown',
       reason: 'identity_unverifiable',

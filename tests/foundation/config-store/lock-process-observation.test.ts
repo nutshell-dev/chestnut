@@ -21,6 +21,9 @@ import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 const OLD = new Date(Date.now() - 120_000).toISOString();
 const FAST = { acquireTimeoutMs: 80, staleMs: 0, pollMs: 5 } as const;
 const EVIDENCE: ProcessEvidence = { version: 1, atMs: 0, facts: [] };
+const SELF_CAPTURE = {
+  kind: 'captured', value: 'self-ref' as ProcessRef, evidence: EVIDENCE,
+} as const;
 
 let tempDir: string;
 let configPath: string;
@@ -31,6 +34,7 @@ beforeEach(async () => {
   tempDir = await createTrackedTempDir('config-lock-observation-');
   configPath = path.join(tempDir, 'config.yaml');
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
+  vi.spyOn(processExec, 'captureCurrentProcessRef').mockReturnValue(SELF_CAPTURE);
 });
 
 afterEach(async () => {
@@ -119,7 +123,8 @@ function readRecords(): StoredRecord[] {
   return observationEntries()
     .filter(entry => entry.isFile && /^\d{6}\.json$/.test(entry.name))
     .sort((left, right) => left.path.localeCompare(right.path))
-    .map(entry => JSON.parse(nodeFs.readSync(entry.path)) as StoredRecord);
+    .map(entry => JSON.parse(nodeFs.readSync(entry.path)) as StoredRecord)
+    .filter(record => record.event === 'holder_observation');
 }
 
 describe('ConfigStore persisted holder observations', () => {
@@ -137,7 +142,7 @@ describe('ConfigStore persisted holder observations', () => {
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       version: 1,
-      sequence: 1,
+      sequence: 2,
       event: 'holder_observation',
       lockRaw: raw,
       decoded: { kind: 'decoded', value: 'decoded-opaque-ref' },
@@ -180,7 +185,7 @@ describe('ConfigStore persisted holder observations', () => {
     expect(records[0].outcome).toEqual(outcome);
     expect(records[0].decision).toBe('wait');
     expect(records.map(record => record.sequence)).toEqual(
-      records.map((_, index) => index + 1),
+      records.map((_, index) => index + 2),
     );
   });
 
@@ -318,7 +323,7 @@ describe('ConfigStore persisted holder observations', () => {
     });
   });
 
-  it('fails closed when the attempt directory cannot be claimed and retains the full pending record', async () => {
+  it('fails before acquisition when the capture attempt directory cannot be claimed', async () => {
     const raw = legacyRaw();
     writeLock(raw);
     mockOutcome({ kind: 'gone', reason: 'absent', evidence: EVIDENCE });
@@ -335,10 +340,8 @@ describe('ConfigStore persisted holder observations', () => {
       error: original,
       targetPath: expect.stringContaining('config.yaml.lock-observations/'),
       record: {
-        event: 'holder_observation',
-        lockRaw: raw,
-        outcome: { kind: 'gone', reason: 'absent' },
-        decision: 'consider_reclaim',
+        event: 'self_capture',
+        capture: SELF_CAPTURE,
       },
     });
   });
@@ -350,7 +353,7 @@ describe('ConfigStore persisted holder observations', () => {
     const originalWrite = nodeFs.writeAtomicSync.bind(nodeFs);
     const original = new Error('record write failed');
     vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation((relativePath, content) => {
-      if (relativePath.endsWith('000001.json')) throw original;
+      if (content.includes('"event":"holder_observation"')) throw original;
       return originalWrite(relativePath, content);
     });
     let calls = 0;
@@ -362,8 +365,8 @@ describe('ConfigStore persisted holder observations', () => {
     expect(error.cause).toMatchObject({
       kind: 'lock_observation_persistence_failed',
       error: original,
-      targetPath: expect.stringMatching(/000001\.json$/),
-      recordPath: expect.stringMatching(/000001\.json$/),
+      targetPath: expect.stringMatching(/000002\.json$/),
+      recordPath: expect.stringMatching(/000002\.json$/),
       record: { lockRaw: raw, decision: 'consider_reclaim' },
     });
   });
@@ -380,7 +383,7 @@ describe('ConfigStore persisted holder observations', () => {
     const writeResult = { kind, error: original };
     const write = vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation((relativePath, content) => {
       const actual = originalWrite(relativePath, content);
-      if (relativePath.endsWith('000001.json')) {
+      if (content.includes('"event":"holder_observation"')) {
         expect(actual.kind).toBe('durable');
         return writeResult;
       }
@@ -391,7 +394,7 @@ describe('ConfigStore persisted holder observations', () => {
     const error = await catchStoreError(runLock(() => { calls += 1; }), 'lock_indeterminate');
 
     expect(calls).toBe(0);
-    expect(write).toHaveBeenCalledTimes(2); // index + one committed record; no overwrite retry
+    expect(write).toHaveBeenCalledTimes(3); // index + capture + one committed holder record; no retry
     expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(raw);
     expect(error.cause).toMatchObject({
       kind: 'lock_observation_persistence_failed',

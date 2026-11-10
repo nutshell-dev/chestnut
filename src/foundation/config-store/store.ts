@@ -20,9 +20,10 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../fs/index.js';
 import {
+  captureCurrentProcessRef,
   decodeProcessRef,
-  getProcessStartTime,
   inspectProcessRef,
+  type ProcessRefCapture,
   type ProcessRefDecode,
   type ProcessRefObservation,
 } from '../process-exec/index.js';
@@ -245,8 +246,8 @@ const CONFIG_LOCK_POLL_MS = 50;
 /**
  * Phase 1911 Step C（RACE-CONFIG-LOCK-STALE-RECLAIM）：lock payload。
  * - `token`：本代锁的 owner 身份（release 只删自己持有的 token；回收按代际复核）；
- * - `pid` + `process_start_time`：holder 活性证明（PID 回收防御）；
  * - `createdAt`：仅决定何时开始探测，时间戳本身不构成回收依据。
+ * Phase 2071 Step D：新写 v2 外壳只保存 L1 不透明 holder 引用。
  * 1910 legacy lock（无 token / 无 startTime）仍可被读：token 缺省 → 以
  * `pid:createdAt` 为代际身份；旧技术字段只适配为 L1 v0 引用，不在此解释。
  */
@@ -409,14 +410,35 @@ async function acquireConfigLock(
   opts: { acquireTimeoutMs: number; staleMs: number; pollMs: number },
 ): Promise<string> {
   const myToken = newShortUuid();
-  const myPayload: ConfigLockPayload = {
-    token: myToken,
-    pid: process.pid,
-    process_start_time: getProcessStartTime(process.pid),
-    createdAt: new Date().toISOString(),
-  };
   const observations = new LockObservationWriter(fs, `${configFileName}.lock-observations`);
   const deadline = Date.now() + opts.acquireTimeoutMs;
+  let captured: ProcessRefCapture;
+  try {
+    captured = captureCurrentProcessRef();
+  } catch (error) {
+    throw new ConfigStoreError(
+      'lock_indeterminate',
+      `Config lock process capture failed for ${lockName}; ` +
+      `attempt ${observations.attemptId} at ${observations.location}`,
+      { cause: {
+        kind: 'process_capture_failed',
+        lockName,
+        attemptId: observations.attemptId,
+        attemptDir: observations.location,
+        error,
+      } },
+    );
+  }
+  observations.recordCapture(captured);
+  const myPayload: ConfigLockPayload = {
+    lock_version: 2,
+    token: myToken,
+    createdAt: new Date().toISOString(),
+    observationAttemptId: observations.attemptId,
+    holder: captured.kind === 'captured'
+      ? { kind: 'reference', ref: captured.value }
+      : { kind: 'unknown' },
+  };
   const acquireTimeout = (): ConfigStoreError => new ConfigStoreError(
     'lock_timeout',
     `Config lock acquire timeout: ${lockName} held by another process; ` +
@@ -546,7 +568,8 @@ function releaseConfigLock(fs: FileSystem, lockName: string, myToken: string): C
  * Phase 2071 Step C：holder 由 L1 完整观测，仅明确 gone 才可回收；观测先持久化，
  * 再沿 rename-claim 原子抢占 + 代际复核处置；释放只删自己持有的 token 代；
  * 获取超时 typed 'lock_timeout'，不可判状态 typed 'lock_indeterminate'，
- * 锁被替换 typed 'lock_lost'。锁不可重入、不可嵌套（CLI 一次性进程语义）。
+ * 锁被替换 typed 'lock_lost'。Phase 2071 Step D：每次获取只捕获一次当前进程，
+ * 完整 self_capture 耐久化后才发布 v2 锁。锁不可重入、不可嵌套（CLI 一次性进程语义）。
  */
 export async function withYamlConfigLock(
   deps: LoaderDeps,
