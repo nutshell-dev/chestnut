@@ -12,6 +12,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 import type { ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import {
   LLMAuthError,
   LLMModelNotFoundError,
@@ -947,6 +948,71 @@ describe('PiAiAdapter — wire 映射', () => {
     expect(toolMsg.tool_call_id).toBe('call_1');
     // 注：wire 层已恢复 toolName 交给 pi-ai；openai-completions 序列化仅在
     // compat.requiresToolResultName 时携带 name 字段，缺省 compat 不携带
+  });
+});
+
+describe('PiAiAdapter — production message projection', () => {
+  it('真实 OpenAI 发送链剥离 canonical 元数据并保留工具同名业务键与输入', async () => {
+    const businessInput = {
+      query: 'adapter-business-query',
+      origin: 'adapter-business-origin',
+      systemSubtype: 'adapter-business-system-subtype',
+      addedAt: 'adapter-business-added-at',
+      trimmed: { trimmedAt: 'adapter-business-trimmed-at', originalContentBytes: 11 },
+    };
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'adapter-assistant-text' },
+          { type: 'tool_use', id: 'adapter_call', name: 'adapter_tool', input: businessInput },
+        ],
+        origin: 'system',
+        systemSubtype: 'PHASE2076_ADAPTER_ASSISTANT_SUBTYPE',
+        addedAt: 'PHASE2076_ADAPTER_ASSISTANT_ADDED',
+        trimmed: { trimmedAt: 'PHASE2076_ADAPTER_ASSISTANT_TRIMMED', originalContentBytes: 1 },
+      },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result', tool_use_id: 'adapter_call', content: 'adapter-tool-result',
+        }],
+        origin: 'system',
+        systemSubtype: 'PHASE2076_ADAPTER_RESULT_SUBTYPE',
+        addedAt: 'PHASE2076_ADAPTER_RESULT_ADDED',
+        trimmed: { trimmedAt: 'PHASE2076_ADAPTER_RESULT_TRIMMED', originalContentBytes: 2 },
+      },
+      {
+        role: 'user',
+        content: 'adapter-plain-text',
+        origin: 'system',
+        systemSubtype: 'PHASE2076_ADAPTER_USER_SUBTYPE',
+        addedAt: 'PHASE2076_ADAPTER_USER_ADDED',
+        trimmed: { trimmedAt: 'PHASE2076_ADAPTER_USER_TRIMMED', originalContentBytes: 3 },
+      },
+    ];
+    const before = structuredClone(messages);
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse(openaiSse(openaiTextFrames('projection-ok'))),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createLLMProvider(baseConfig()).call({ messages });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    for (const message of body.messages) {
+      for (const key of ['origin', 'systemSubtype', 'addedAt', 'trimmed']) {
+        expect(message).not.toHaveProperty(key);
+      }
+    }
+    expect(JSON.stringify(body)).not.toContain('PHASE2076_ADAPTER_');
+    expect(body.messages[0].role).toBe('assistant');
+    expect(JSON.parse(body.messages[0].tool_calls[0].function.arguments)).toEqual(businessInput);
+    expect(body.messages[1]).toMatchObject({
+      role: 'tool', tool_call_id: 'adapter_call', content: 'adapter-tool-result',
+    });
+    expect(body.messages[2]).toMatchObject({ role: 'user', content: 'adapter-plain-text' });
+    expect(messages).toEqual(before);
   });
 });
 
