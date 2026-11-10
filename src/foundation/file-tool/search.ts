@@ -212,10 +212,19 @@ function renderResults(
   return { filename: filenameLines, content: contentLines };
 }
 
-async function persistOverflow(
-  ctx: ExecContext,
-  fullContent: string,
-): Promise<{ relPath: string | null; error: string | null }> {
+/**
+ * phase 2086 Step B：overflow 落盘结果三态（模块私有判别联合，不进 barrel）。
+ * - durable：rename + 父目录 fsync 均成功，提交完全持久。
+ * - committed_platform_limited / committed_durability_unknown：rename 已成功、内容已提交
+ *   可见，仅耐久性未获确认；必须保留 relPath，不得重写或删除 artifact。
+ * - failed：rename 前失败（异常），内容未落盘。
+ */
+type OverflowResult =
+  | { kind: 'durable'; relPath: string }
+  | { kind: 'committed_platform_limited' | 'committed_durability_unknown'; relPath: string; error: string }
+  | { kind: 'failed'; error: string };
+
+async function persistOverflow(ctx: ExecContext, fullContent: string): Promise<OverflowResult> {
   try {
     const id = newShortUuid();
     const fullPath = nodePath.join(
@@ -224,11 +233,22 @@ async function persistOverflow(
       `${id}.md`,
     );
     const frontmatter = `---\nsource: search_overflow\ncontent_length: ${fullContent.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    await ctx.fs.writeAtomic(fullPath, frontmatter + fullContent);
-    return { relPath: nodePath.relative(ctx.workspaceDir, fullPath), error: null };
+    const written = await ctx.fs.writeAtomic(fullPath, frontmatter + fullContent);
+    const relPath = nodePath.relative(ctx.workspaceDir, fullPath);
+    if (written.kind === 'durable') return { kind: 'durable', relPath };
+    // 已提交但耐久性未确认：artifact 已在 relPath 可见 → 不重写、不删除，只显式交付状态
+    const error = formatErr(written.error);
+    ctx.auditWriter?.write(
+      FILE_TOOL_AUDIT_EVENTS.SEARCH_OVERFLOW_PERSIST_FAILED,
+      `stage=durability`,
+      `commit=${written.kind}`,
+      `path=${relPath}`,
+      `reason=${error}`,
+    );
+    return { kind: written.kind, relPath, error };
   } catch (err) {
     ctx.auditWriter?.write(FILE_TOOL_AUDIT_EVENTS.SEARCH_OVERFLOW_PERSIST_FAILED, `reason=${formatErr(err)}`);
-    return { relPath: null, error: formatErr(err) };
+    return { kind: 'failed', error: formatErr(err) };
   }
 }
 
@@ -301,9 +321,22 @@ async function finalize(
   const fullContent = buildFullOutput(result, workspaceClawDirRel);
   const overflow = await persistOverflow(ctx, fullContent);
   const preview = buildFullOutput(takePreview(result), workspaceClawDirRel);
-  const overflowFooter = overflow.relPath !== null
-    ? `Showing 1-${SEARCH_PREVIEW_LIMIT} of ${totalMatches} matches. Full results saved at ${overflow.relPath}. Use \`read\` to view: read({ "path": "${overflow.relPath}", "offset": ${SEARCH_PREVIEW_LIMIT + 1}, "limit": 200 })`
-    : `Showing 1-${SEARCH_PREVIEW_LIMIT} of ${totalMatches} matches. (overflow persist failed: ${overflow.error}; ${totalMatches - SEARCH_PREVIEW_LIMIT} additional matches lost)`;
+  const previewHeader = `Showing 1-${SEARCH_PREVIEW_LIMIT} of ${totalMatches} matches.`;
+
+  // 真正未落盘（rename 前异常）：success=false，只回当前预览，绝不回退输出全量内容
+  if (overflow.kind === 'failed') {
+    return {
+      success: false,
+      content: `${preview}\n\n${previewHeader} (overflow persist failed: ${overflow.error}; ${totalMatches - SEARCH_PREVIEW_LIMIT} additional matches not delivered)`,
+    };
+  }
+
+  const readHint = `Use \`read\` to view: read({ "path": "${overflow.relPath}", "offset": ${SEARCH_PREVIEW_LIMIT + 1}, "limit": 200 })`;
+  // committed_*：artifact 已提交可见、耐久性未确认 → 保留路径并显式说明限制（不称未落盘）
+  const durabilityNote = overflow.kind === 'durable'
+    ? ''
+    : ` (artifact committed but durability unconfirmed: ${overflow.kind}; ${overflow.error})`;
+  const overflowFooter = `${previewHeader} Full results saved at ${overflow.relPath}. ${readHint}${durabilityNote}`;
 
   return { success: true, content: `${preview}\n\n${overflowFooter}` };
 }
