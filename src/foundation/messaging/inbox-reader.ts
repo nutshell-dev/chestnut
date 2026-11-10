@@ -20,7 +20,7 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
-import { getProcessStartTime } from '../process-exec/index.js';
+import { decodeProcessRef, getProcessStartTime, inspectProcessRef } from '../process-exec/index.js';
 import { decodeInbox, encodeInbox } from './codec-inbox.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
@@ -52,6 +52,11 @@ import {
   type ClaimDecision,
   type ClaimLease,
 } from './claim-observation-store.js';
+import {
+  ClaimRecordUnavailableError,
+  loadClaimDescriptor,
+  type ClaimRecordEvidence,
+} from './claim-record.js';
 
 // Phase 992: inbox-reader owns its transient-read error to avoid reaching into dialog-store internals.
 class InboxReadError extends Error {
@@ -337,14 +342,79 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       if (!entry.name.endsWith('.md')) continue;
 
       const sourcePath = path.join(this.inflightDir, entry.name);
-      const match = entry.name.match(CLAIM_RE);
-      const originalName = match ? match[3] : entry.name;
+      const match = entry.name.startsWith('mclaim_') ? null : entry.name.match(CLAIM_RE);
+      let originalName = match ? match[3] : entry.name;
       let facts: ReturnType<typeof observeLegacyClaim> | undefined;
+      let claim: ClaimRecordEvidence | undefined;
       let decision: ClaimDecision | undefined;
       let lease: ClaimLease | undefined;
       let shouldStat = !match;
 
-      if (match) {
+      if (entry.name.startsWith('mclaim_')) {
+        let loaded: Awaited<ReturnType<typeof loadClaimDescriptor>>;
+        try {
+          loaded = await loadClaimDescriptor(this.fs, this.inflightDir, entry.name, 'inbox');
+        } catch (error) {
+          if (!(error instanceof ClaimRecordUnavailableError)) throw error;
+          claim = {
+            ...(error.recordPath !== undefined && { recordPath: error.recordPath }),
+            ...(error.raw !== undefined && { raw: error.raw }),
+            issue: error.issue,
+          };
+          await getObservationStore().recordObservation({
+            rawName: entry.name,
+            originalName: entry.name,
+            claim,
+          }, { originalClaimReadError: error.cause ?? error });
+          throw error;
+        }
+        originalName = loaded.descriptor.originalName;
+        claim = { recordPath: loaded.recordPath, raw: loaded.raw };
+        const capture = loaded.descriptor.capture;
+        if (capture.kind === 'captured') {
+          const decoded = decodeProcessRef(capture.value);
+          facts = {
+            decoded,
+            ...(decoded.kind === 'decoded' && { observed: inspectProcessRef(decoded.value) }),
+          };
+          await getObservationStore().recordObservation({
+            rawName: entry.name,
+            originalName,
+            process: facts,
+            claim,
+          });
+          if (decoded.kind !== 'decoded') {
+            decision = { kind: 'retain', reason: 'invalid_reference' };
+            await getObservationStore().recordDecision({
+              rawName: entry.name,
+              originalName,
+              process: facts,
+              claim,
+              decision,
+            });
+            throw new ClaimRecordUnavailableError(entry.name, {
+              kind: decoded.kind === 'unsupported_version' ? 'unsupported' : 'invalid',
+              detail: decoded.kind === 'invalid'
+                ? `process reference is invalid: ${decoded.reason}`
+                : 'process reference version is not supported',
+            }, { recordPath: loaded.recordPath, raw: loaded.raw });
+          }
+          decision = facts.observed?.kind === 'gone'
+            ? { kind: 'reclaim', reason: 'process_gone' }
+            : {
+                kind: 'retain',
+                reason: facts.observed?.kind === 'alive' ? 'alive' : 'unknown',
+              };
+          shouldStat = false;
+        } else {
+          await getObservationStore().recordObservation({
+            rawName: entry.name,
+            originalName,
+            claim,
+          });
+          shouldStat = true;
+        }
+      } else if (match) {
         const pid = parseInt(match[1], 10);
         const startTimeHex = match[2];
         facts = observeLegacyClaim(
@@ -393,6 +463,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             rawName: entry.name,
             originalName,
             ...(facts !== undefined && { process: facts }),
+            ...(claim !== undefined && { claim }),
             decision: {
               kind: 'skip',
               reason: isFileNotFound(err) ? 'source_absent' : 'stat_failed',
@@ -417,6 +488,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         rawName: entry.name,
         originalName,
         ...(facts !== undefined && { process: facts }),
+        ...(claim !== undefined && { claim }),
         ...(lease !== undefined && { lease }),
         decision,
       });
@@ -851,7 +923,8 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     try {
       await this._reconcileInflight();
     } catch (err) {
-      if (!(err instanceof ClaimObservationPersistenceError)) throw err;
+      if (!(err instanceof ClaimObservationPersistenceError)
+        && !(err instanceof ClaimRecordUnavailableError)) throw err;
       return {
         kind: 'partial_failure',
         entries: [],

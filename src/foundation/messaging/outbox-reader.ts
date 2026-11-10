@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import { getProcessStartTime } from '../process-exec/index.js';
+import { decodeProcessRef, getProcessStartTime, inspectProcessRef } from '../process-exec/index.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitOutboxClaimFailed,
@@ -42,6 +42,11 @@ import {
   type ClaimDecision,
   type ClaimLease,
 } from './claim-observation-store.js';
+import {
+  ClaimRecordUnavailableError,
+  loadClaimDescriptor,
+  type ClaimRecordEvidence,
+} from './claim-record.js';
 
 type ClaimResult =
   | { status: 'empty' }
@@ -131,13 +136,36 @@ export class OutboxReader {
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
 
-      const newMatch = entry.name.match(CLAIM_TOKEN_RE);
-      const oldMatch = !newMatch ? entry.name.match(OLD_TOKEN_RE) : null;
-      const originalName = newMatch
+      const reservedClaim = entry.name.startsWith('mclaim_');
+      const newMatch = reservedClaim ? null : entry.name.match(CLAIM_TOKEN_RE);
+      const oldMatch = !reservedClaim && !newMatch ? entry.name.match(OLD_TOKEN_RE) : null;
+      let originalName = newMatch
         ? newMatch[3]
         : oldMatch
           ? oldMatch[2]
           : entry.name.replace(/^cli_[^_]+_/, '');
+      let claim: ClaimRecordEvidence | undefined;
+      let loaded: Awaited<ReturnType<typeof loadClaimDescriptor>> | undefined;
+      if (reservedClaim) {
+        try {
+          loaded = await loadClaimDescriptor(this.fs, processingDir, entry.name, 'outbox');
+        } catch (error) {
+          if (!(error instanceof ClaimRecordUnavailableError)) throw error;
+          claim = {
+            ...(error.recordPath !== undefined && { recordPath: error.recordPath }),
+            ...(error.raw !== undefined && { raw: error.raw }),
+            issue: error.issue,
+          };
+          await getObservationStore().recordObservation({
+            rawName: entry.name,
+            originalName: entry.name,
+            claim,
+          }, { originalClaimReadError: error.cause ?? error });
+          throw error;
+        }
+        originalName = loaded.descriptor.originalName;
+        claim = { recordPath: loaded.recordPath, raw: loaded.raw };
+      }
       const sourcePath = path.join(processingDir, entry.name);
       let mtime: number;
       try {
@@ -152,6 +180,7 @@ export class OutboxReader {
         await getObservationStore().recordDecision({
           rawName: entry.name,
           originalName,
+          ...(claim !== undefined && { claim }),
           decision: { kind: 'skip', reason: isFileNotFound(err) ? 'source_absent' : 'stat_failed' },
         }, { originalStatError: err });
         continue;
@@ -166,7 +195,61 @@ export class OutboxReader {
       const leaseElapsed = Number.isFinite(mtime) && observedAtMs - mtime >= STALE_THRESHOLD_MS;
       let decision: ClaimDecision;
 
-      if (!newMatch && !oldMatch) {
+      if (loaded !== undefined && claim !== undefined) {
+        const capture = loaded.descriptor.capture;
+        const store = getObservationStore();
+        if (capture.kind === 'captured') {
+          const decoded = decodeProcessRef(capture.value);
+          const facts = {
+            decoded,
+            ...(decoded.kind === 'decoded' && { observed: inspectProcessRef(decoded.value) }),
+          };
+          await store.recordObservation({
+            rawName: entry.name,
+            originalName,
+            process: facts,
+            claim,
+          });
+          if (decoded.kind !== 'decoded') {
+            decision = { kind: 'retain', reason: 'invalid_reference' };
+          } else if (facts.observed?.kind === 'gone') {
+            decision = { kind: 'reclaim', reason: 'process_gone' };
+          } else {
+            decision = {
+              kind: 'retain',
+              reason: facts.observed?.kind === 'alive' ? 'alive' : 'unknown',
+            };
+          }
+          await store.recordDecision({
+            rawName: entry.name,
+            originalName,
+            process: facts,
+            claim,
+            lease,
+            decision,
+          });
+          if (decoded.kind !== 'decoded') {
+            throw new ClaimRecordUnavailableError(entry.name, {
+              kind: decoded.kind === 'unsupported_version' ? 'unsupported' : 'invalid',
+              detail: decoded.kind === 'invalid'
+                ? `process reference is invalid: ${decoded.reason}`
+                : 'process reference version is not supported',
+            }, { recordPath: loaded.recordPath, raw: loaded.raw });
+          }
+        } else {
+          await store.recordObservation({ rawName: entry.name, originalName, claim });
+          decision = leaseElapsed
+            ? { kind: 'reclaim', reason: 'lease_elapsed' }
+            : { kind: 'retain', reason: 'lease_active' };
+          await store.recordDecision({
+            rawName: entry.name,
+            originalName,
+            claim,
+            lease,
+            decision,
+          });
+        }
+      } else if (!newMatch && !oldMatch) {
         // Legacy format (pre-Phase 908): no PID, use mtime-based heuristic only.
         decision = leaseElapsed
           ? { kind: 'reclaim', reason: 'lease_elapsed' }

@@ -1,6 +1,7 @@
 import type { FileSystem } from '../fs/index.js';
 import { newUuid } from '../node-utils/index.js';
 import type { ClaimProcessFacts } from './claim-process-observation.js';
+import type { ClaimRecordEvidence } from './claim-record.js';
 
 type AtomicWriteResult = Awaited<ReturnType<FileSystem['writeAtomic']>>;
 type PersistenceStage = 'claim_directory' | 'write_index' | 'write_record';
@@ -25,8 +26,9 @@ export type ClaimRecord = {
   sourceDir: string;
   rawName: string;
   originalName: string;
-  event: 'process_observed' | 'decision';
+  event: 'process_observed' | 'claim_observed' | 'decision';
   process?: ClaimProcessFacts;
+  claim?: ClaimRecordEvidence;
   lease?: ClaimLease;
   decision?: ClaimDecision;
 };
@@ -44,6 +46,7 @@ export class ClaimObservationPersistenceError extends Error {
     public readonly originalStatError?: unknown,
     public readonly targetPath: string = recordPath,
     public readonly stage: PersistenceStage = 'write_record',
+    public readonly originalClaimReadError?: unknown,
   ) {
     const location = targetPath === recordPath
       ? targetPath
@@ -60,13 +63,15 @@ export class ClaimObservationPersistenceError extends Error {
 type ObservationInput = {
   rawName: string;
   originalName: string;
-  process: ClaimProcessFacts;
+  process?: ClaimProcessFacts;
+  claim?: ClaimRecordEvidence;
 };
 
 type DecisionInput = {
   rawName: string;
   originalName: string;
   process?: ClaimProcessFacts;
+  claim?: ClaimRecordEvidence;
   lease?: ClaimLease;
   decision: ClaimDecision;
 };
@@ -76,6 +81,7 @@ type ClaimRecordInput = Omit<ClaimRecord,
 
 type RecordOptions = {
   originalStatError?: unknown;
+  originalClaimReadError?: unknown;
 };
 
 const MAX_DIRECTORY_CLAIMS = 3;
@@ -127,6 +133,7 @@ export class ClaimObservationStore {
       options?.originalStatError,
       targetPath,
       stage,
+      options?.originalClaimReadError,
     );
     this.poisoned = failure;
     return failure;
@@ -211,8 +218,11 @@ export class ClaimObservationStore {
     this.sequence = record.sequence;
   }
 
-  recordObservation(input: ObservationInput): Promise<void> {
-    return this.persist({ ...input, event: 'process_observed' });
+  recordObservation(input: ObservationInput, options?: RecordOptions): Promise<void> {
+    return this.persist({
+      ...input,
+      event: input.process === undefined ? 'claim_observed' : 'process_observed',
+    }, options);
   }
 
   recordDecision(input: DecisionInput, options?: RecordOptions): Promise<void> {

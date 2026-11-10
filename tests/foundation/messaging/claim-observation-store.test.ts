@@ -11,6 +11,7 @@ import type {
   ClaimRecord,
 } from '../../../src/foundation/messaging/claim-observation-store.js';
 import type { ClaimProcessFacts } from '../../../src/foundation/messaging/claim-process-observation.js';
+import { ClaimRecordUnavailableError } from '../../../src/foundation/messaging/claim-record.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { ProcessRef } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
@@ -324,5 +325,149 @@ describe('ClaimObservationStore', () => {
     await expect(store.recordDecision(decisionInput())).rejects.toBe(error);
     expect(mkdir).toHaveBeenCalledTimes(3);
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('ClaimObservationStore claim record evidence', () => {
+  const CLAIM_RAW_NAME = 'mclaim_1_123e4567-e89b-42d3-a456-426614174000.md';
+  const CLAIM_RECORD_PATH = 'custom-inflight-claims/123e4567-e89b-42d3-a456-426614174000/record.json';
+  const CLAIM = {
+    recordPath: CLAIM_RECORD_PATH,
+    raw: '{"version":1,"unknown":{"retained":true}}',
+    issue: { kind: 'io' as const, detail: 'descriptor EIO', code: 'EIO' },
+  };
+
+  function makeClaimReadError(): ClaimRecordUnavailableError {
+    return new ClaimRecordUnavailableError(CLAIM_RAW_NAME, CLAIM.issue, {
+      recordPath: CLAIM_RECORD_PATH,
+      cause: Object.assign(new Error('original descriptor EIO'), { code: 'EIO' }),
+    });
+  }
+
+  it('attaches claim evidence to a normal process observation without changing its event', async () => {
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    await store.recordObservation({
+      rawName: CLAIM_RAW_NAME,
+      originalName: ORIGINAL_NAME,
+      process: PROCESS,
+      claim: { recordPath: CLAIM_RECORD_PATH, raw: CLAIM.raw },
+    });
+
+    const persisted = await readPersisted();
+    expect(persisted.records).toHaveLength(1);
+    expect(persisted.records[0]).toMatchObject({
+      event: 'process_observed',
+      process: PROCESS,
+      claim: { recordPath: CLAIM_RECORD_PATH, raw: CLAIM.raw },
+    });
+  });
+
+  it('persists process-free claim issues and decision evidence without inventing process facts', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const originalClaimReadError = makeClaimReadError();
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    await store.recordObservation({
+      rawName: CLAIM_RAW_NAME,
+      originalName: ORIGINAL_NAME,
+      claim: CLAIM,
+    }, { originalClaimReadError });
+    await store.recordDecision({
+      rawName: CLAIM_RAW_NAME,
+      originalName: ORIGINAL_NAME,
+      claim: CLAIM,
+      decision: { kind: 'retain', reason: 'unknown' },
+    });
+
+    const persisted = await readPersisted();
+    expect(persisted.records).toEqual([
+      {
+        version: 1,
+        attemptId: persisted.attemptId,
+        sequence: 1,
+        atMs: NOW,
+        sourceDir,
+        rawName: CLAIM_RAW_NAME,
+        originalName: ORIGINAL_NAME,
+        event: 'claim_observed',
+        claim: CLAIM,
+      },
+      {
+        version: 1,
+        attemptId: persisted.attemptId,
+        sequence: 2,
+        atMs: NOW,
+        sourceDir,
+        rawName: CLAIM_RAW_NAME,
+        originalName: ORIGINAL_NAME,
+        event: 'decision',
+        claim: CLAIM,
+        decision: { kind: 'retain', reason: 'unknown' },
+      },
+    ]);
+    expect(persisted.records[0]).not.toHaveProperty('process');
+    expect(persisted.records[0]).not.toHaveProperty('originalClaimReadError');
+    expect(persisted.records[0].claim?.raw).toBe(CLAIM.raw);
+  });
+
+  it('retains the identical descriptor and record-write errors when both fail', async () => {
+    const originalClaimReadError = makeClaimReadError();
+    const writeError = new Error('claim issue record write failed');
+    const realWrite = fs.writeAtomic.bind(fs);
+    vi.spyOn(fs, 'writeAtomic')
+      .mockImplementationOnce(async (targetPath, content) => realWrite(targetPath, content))
+      .mockRejectedValueOnce(writeError);
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    const error = await catchPersistenceError(store.recordObservation({
+      rawName: CLAIM_RAW_NAME,
+      originalName: ORIGINAL_NAME,
+      claim: CLAIM,
+    }, { originalClaimReadError }));
+
+    expect(error.cause).toBe(writeError);
+    expect(error.originalClaimReadError).toBe(originalClaimReadError);
+    expect(error.originalClaimReadError).not.toBe(error.cause);
+    expect(error.stage).toBe('write_record');
+    expect(error.pendingRecord).toMatchObject({
+      rawName: CLAIM_RAW_NAME,
+      event: 'claim_observed',
+      claim: CLAIM,
+    });
+    expect(error.pendingRecord).not.toHaveProperty('process');
+  });
+
+  it.each([
+    'committed_platform_limited',
+    'committed_durability_unknown',
+  ] as const)('retains both errors and committed bytes after %s', async kind => {
+    const originalClaimReadError = makeClaimReadError();
+    const durabilityError = Object.assign(new Error(`claim record fsync: ${kind}`), { code: 'EIO' });
+    const writeResult = { kind, error: durabilityError };
+    const realWrite = fs.writeAtomic.bind(fs);
+    const write = vi.spyOn(fs, 'writeAtomic').mockImplementation(async (targetPath, content) => {
+      const actual = await realWrite(targetPath, content);
+      return content.includes('"event":"claim_observed"') ? writeResult : actual;
+    });
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    const error = await catchPersistenceError(store.recordObservation({
+      rawName: CLAIM_RAW_NAME,
+      originalName: ORIGINAL_NAME,
+      claim: CLAIM,
+    }, { originalClaimReadError }));
+
+    expect(error.cause).toBe(durabilityError);
+    expect(error.originalClaimReadError).toBe(originalClaimReadError);
+    expect(error.writeResult).toBe(writeResult);
+    expect(error.stage).toBe('write_record');
+    await expect(fsAsync.readFile(error.recordPath, 'utf8'))
+      .resolves.toBe(JSON.stringify(error.pendingRecord));
+    await expect(store.recordObservation(observationInput())).rejects.toBe(error);
+    expect(write).toHaveBeenCalledTimes(2);
+    await expect(fsAsync.readFile(error.recordPath, 'utf8'))
+      .resolves.toBe(JSON.stringify(error.pendingRecord));
   });
 });

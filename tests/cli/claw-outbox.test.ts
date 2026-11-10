@@ -12,6 +12,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { OutboxReader } from '../../src/foundation/messaging/outbox-reader.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -120,6 +121,28 @@ describe('outboxCommand', () => {
     });
 
     expect(fs.readdirSync(pending).filter(f => f.endsWith('.md'))).toEqual(['msg0.md']);
+    expect(fs.readFileSync(path.join(processing, claimName), 'utf8')).toBe('orphan content');
+    expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
+    expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
+  });
+
+  it('rejects an unavailable mclaim_ record during init before claimNext or empty output', async () => {
+    const pending = seedPending(root, 'busy', 1);
+    const clawDir = path.join(root, '.chestnut', 'claws', 'busy');
+    const processing = path.join(clawDir, 'outbox', 'processing');
+    fs.mkdirSync(processing, { recursive: true });
+    const claimName = 'mclaim_1_123e4567-e89b-42d3-a456-426614174000.md';
+    fs.writeFileSync(path.join(processing, claimName), 'orphan content');
+    const claimNext = vi.spyOn(OutboxReader.prototype, 'claimNext');
+
+    await expect(outboxCommand({ fsFactory }, 'busy')).rejects.toMatchObject({
+      code: 'CLAIM_RECORD_UNAVAILABLE',
+      entry: claimName,
+      issue: { kind: 'missing' },
+    });
+
+    expect(claimNext).not.toHaveBeenCalled();
+    expect(listMd(pending)).toEqual(['msg0.md']);
     expect(fs.readFileSync(path.join(processing, claimName), 'utf8')).toBe('orphan content');
     expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
     expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
