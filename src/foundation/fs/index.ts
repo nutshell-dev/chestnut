@@ -23,3 +23,6 @@ export { IGNORE_PATTERN } from './atomic.js';
 
 // Byte-faithful recursive directory copy (absolute paths, Phase 1919 Step B)
 export { copyDirAbsolute } from './copy-dir.js';
+
+// Host home directory resolution (Phase 2073 Step B)
+export { getHostHomeDirectory } from './host-home.js';

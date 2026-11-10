@@ -7,18 +7,25 @@ import * as path from 'node:path';
  *
  * Expected: tmpdir用法仅 foundation/audit/{writer,reader}.ts (fallback dump path)；
  * Phase 1925 Step B 起 foundation/credentials/paths.ts 经 os.homedir() 定位用户级
- * 凭据根目录（~/.chestnut，非 tmpdir 用法）。其他 src 不直 import node:os。
+ * 凭据根目录（~/.chestnut，非 tmpdir 用法）；Phase 2073 Step B 起宿主主目录
+ * 查询归 foundation/fs/host-home.ts。其他 src 不直 import node:os。
  */
 describe('os importer ratchet (phase 498)', () => {
-  it('node:os direct importers = audit/writer + reader + credentials/paths（phase 1925）', () => {
+  const expected = [
+    'foundation/audit/reader.ts',
+    'foundation/audit/writer.ts',
+    'foundation/credentials/paths.ts',
+    'foundation/fs/host-home.ts',
+  ];
+
+  it('node:os direct importers match the explicit owner list', () => {
     const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
     const cmd = `grep -rEln "from ['\\\\\\\"](node:)?os['\\\\\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });
-    const files = out.trim().split('\n').filter(Boolean);
-    expect(files.length).toBe(3);
-    expect(files.some(f => f.endsWith('foundation/audit/writer.ts'))).toBe(true);
-    expect(files.some(f => f.endsWith('foundation/audit/reader.ts'))).toBe(true);
-    expect(files.some(f => f.endsWith('foundation/credentials/paths.ts'))).toBe(true);
+    const files = out.trim().split('\n').filter(Boolean)
+      .map(file => path.relative(srcRoot, file).split(path.sep).join('/'))
+      .sort();
+    expect(files).toEqual(expected);
   });
 });
 

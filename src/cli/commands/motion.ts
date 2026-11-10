@@ -35,7 +35,7 @@ import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/sk
 import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import { getHostHomeDirectory, type FileSystem } from '../../foundation/fs/index.js';
 import { copyDir } from '../utils/copy-dir.js';
 
 // Get current file directory (ESM compatible)
@@ -102,7 +102,7 @@ async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => File
  * Get Motion configuration directory
  */
 function getMotionConfigDir(): string {
-  return path.join(process.env.HOME || process.env.USERPROFILE || '.', '.chestnut');
+  return path.join(getHostHomeDirectory(), '.chestnut');
 }
 
 /**

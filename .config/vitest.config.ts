@@ -69,6 +69,7 @@ const VI_MOCK_FILES = [
   'tests/cli/launcher-setup-protocol.test.ts',  // phase 2011: vi.mock probe + process-global CHESTNUT_ROOT/HOME
   'tests/cli/llm-probe-budget.test.ts',  // phase 1979 Step D: vi.mock orchestrator barrel（probe 预算断言）
   'tests/cli/motion-steps-action-error.test.ts',
+  'tests/cli/motion-home-directory.test.ts',  // phase 2073 Step B: vi.mock FileSystem barrel
   'tests/cli/password-restore-reverse.test.ts',
   'tests/cli/start-first-run-failure-ux.test.ts',  // phase 1976 Step D: vi.mock readline + llm-connection-check + start 下游缝
   'tests/cli/start-first-run-supervision.test.ts',  // phase 1280 Step C: vi.mock first-run-setup/motion/process-manager/contract/claw-topology/readline
@@ -164,6 +165,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/writer-fallback-origin.test.ts',
   'tests/foundation/audit/writer-fallback.test.ts',
   'tests/foundation/fs.test.ts',
+  'tests/foundation/fs/host-home.test.ts',  // phase 2073 Step B: vi.mock node:os
   // phase 1756: 补登记（phase 1753 新增 vi.mock('fs') 故障注入、phase 316 invariant 抓漂移）
   'tests/foundation/fs/atomic-write-result.test.ts',
   // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — adapter 改 DI 注入；Phase 1925 Step D 删除下两项（vi.mock @anthropic-ai/sdk 消亡；llm.test.ts 重构为 orchestrator-only、不再 mock）。
