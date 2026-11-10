@@ -1154,30 +1154,39 @@ describe('Phase 833: migrated exec stream events', () => {
     expect(completed?.taskKind).toBe('exec_migrated');
   });
 
-  it('truncates long commands in task_started event', async () => {
+  it('preserves the complete long command in task_started and the running task', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
       softTimeoutMs: 100,
     });
 
-    const releaseFile = path.join(tmpDir, 'release-truncated-command');
-    const longCommand = 'while [ ! -f release-truncated-command ]; do sleep 0.01; done; echo ' + 'x'.repeat(200);
+    const releaseFile = path.join(tmpDir, 'release-complete-command');
+    const tailMarker = '命令尾部-EXEC_COMMAND_COMPLETE';
+    const command = [
+      'while [ ! -f release-complete-command ]; do sleep 0.01; done',
+      `# ${'安全注释'.repeat(30)}`,
+      `printf '%s' '${tailMarker}'`,
+    ].join('\n');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: longCommand }, ctx);
+    let runningFile: string | undefined;
 
-    expect(result.success).toBe(true);
+    try {
+      const result = await tool.execute({ command }, ctx);
+      expect(result.success).toBe(true);
+      const fullId = result.metadata?.fullTaskId as string;
+      runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
 
-    const started = streamEvents.find(e => e.type === 'task_started') as Record<string, unknown> | undefined;
-    expect(started).toBeDefined();
-    const command = started!.command as string;
-    expect(command.length).toBeLessThanOrEqual(83); // 80 + '...'
-    expect(command.endsWith('...')).toBe(true);
+      const started = streamEvents.find(e => e.type === 'task_started');
+      expect(started?.command).toBe(command);
+      expect(started?.command).toContain(tailMarker);
 
-    const fullId = result.metadata?.fullTaskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
-    await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+      const runningTask = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
+      expect(runningTask.args.command).toBe(command);
+    } finally {
+      await fs.writeFile(releaseFile, 'go', 'utf-8');
+      if (runningFile) await waitUntilGone(runningFile, 5000);
+    }
   });
 
   it('does not emit task_started for sync completion', async () => {

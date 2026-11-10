@@ -1,7 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import stringWidth from 'string-width';
 import { createTaskStatusBar, buildTaskLine, makeTaskTrack } from '../../src/viewport/chat-viewport-task-status-bar.js';
 
 describe('chat-viewport-task-status-bar', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-11-10T12:00:00.000Z');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const makeDeps = () => {
     const updateRender = vi.fn();
     return { updateRender, bar: createTaskStatusBar({ updateRender }) };
@@ -152,14 +162,51 @@ describe('chat-viewport-task-status-bar', () => {
     expect(bar.renderMigratedExec(80)).not.toBe('');
   });
 
-  it('migrated exec command longer than 80 chars is not rendered fully by the bar', () => {
+  it('restores a complete long command after narrowing and widening', () => {
     const { bar } = makeDeps();
-    const longCommand = 'a'.repeat(120);
-    bar.addMigratedExec({ taskId: 'exec-6', command: longCommand, startedAt: Date.now() });
-    const rendered = bar.renderMigratedExec(80);
-    expect(rendered.length).toBeLessThanOrEqual(longCommand.length + 30);
-    expect(rendered).toContain('⚙ exec');
-    expect(rendered).toContain(' · ');
+    const tailMarker = 'EXEC_WIDTH_TAIL';
+    const command = `printf '%s' '${'x'.repeat(120)}-${tailMarker}'`;
+    bar.addMigratedExec({ taskId: 'exec-width', command, startedAt: Date.now() });
+    const wideCols = stringWidth(`⚙ exec 0m  · ${command}`);
+
+    const exactFit = bar.renderMigratedExec(wideCols);
+    expect(exactFit).toContain(command);
+    expect(exactFit).not.toContain('…');
+    expect(stringWidth(exactFit)).toBeLessThanOrEqual(wideCols);
+
+    const narrow = bar.renderMigratedExec(40);
+    expect(stringWidth(narrow)).toBeLessThanOrEqual(40);
+    expect(narrow).toContain('⚙ exec');
+    expect(narrow).toContain('…');
+    expect(narrow).not.toContain(tailMarker);
+
+    const wideAgain = bar.renderMigratedExec(wideCols);
+    expect(wideAgain).toContain(command);
+    expect(wideAgain).toContain(tailMarker);
+    expect(wideAgain).not.toContain('…');
+  });
+
+  it('uses visual width for Chinese commands and flattens newlines without losing content', () => {
+    const { bar } = makeDeps();
+    const tailMarker = '中文尾部标记';
+    const command = `printf '${'命令'.repeat(50)}'\n# 多行注释\nprintf '${tailMarker}'`;
+    const displayCommand = command.replace(/\r\n?|\n/g, ' ');
+    bar.addMigratedExec({ taskId: 'exec-unicode', command, startedAt: Date.now() });
+    const wideCols = stringWidth(`⚙ exec 0m  · ${displayCommand}`);
+
+    const wide = bar.renderMigratedExec(wideCols);
+    expect(wide).toContain(displayCommand);
+    expect(wide).toContain(tailMarker);
+    expect(wide).not.toContain('\n');
+    expect(stringWidth(wide)).toBeLessThanOrEqual(wideCols);
+
+    const narrow = bar.renderMigratedExec(40);
+    expect(stringWidth(narrow)).toBeLessThanOrEqual(40);
+    expect(narrow).not.toContain('\n');
+    expect(narrow).toContain('…');
+    expect(narrow).not.toContain(tailMarker);
+
+    expect(bar.renderMigratedExec(wideCols)).toContain(displayCommand);
   });
 });
 

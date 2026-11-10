@@ -9,17 +9,20 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
+import stringWidth from 'string-width';
 import { createDisplay } from '../../src/viewport/chat-viewport-display.js';
 import { createViewportObservability } from '../../src/viewport/chat-viewport-observability.js';
+import { createTaskStatusBar, type TaskStatusBarController } from '../../src/viewport/chat-viewport-task-status-bar.js';
 import type { MainTurnUIController, PreviewLine } from '../../src/viewport/main-turn-ui.js';
 
 const COLS = 80;
 
-function makeHarness() {
+function makeHarness(taskStatusBar?: TaskStatusBarController) {
   const observability = createViewportObservability({ audit: { write: () => { /* noop */ } } });
   let rendered = '';
   let status = '';
   let preview: PreviewLine[] = [];
+  let migratedExecText = '';
   let renders = 0;
   const mainUI = {
     getStatus: () => status,
@@ -35,13 +38,14 @@ function makeHarness() {
     clawTrackMap: new Map(),
     spawnText: { setText: () => { /* noop */ } },
     shadowText: { setText: () => { /* noop */ } },
-    migratedExecText: { setText: () => { /* noop */ } },
-    taskStatusBar: { renderSpawn: () => '', renderShadow: () => '', renderMigratedExec: () => '' },
+    migratedExecText: { setText: (t: string) => { migratedExecText = t; } },
+    taskStatusBar: taskStatusBar ?? { renderSpawn: () => '', renderShadow: () => '', renderMigratedExec: () => '' },
   });
   return {
     display,
     get rendered() { return rendered; },
     get renders() { return renders; },
+    get migratedExecText() { return migratedExecText; },
     setStatus: (s: string) => { status = s; },
     setPreviewLines: (p: PreviewLine[]) => { preview = p; },
     setPreviewText: (p: string) => { preview = p.split('\n').map(text => ({ text, style: 'plain' as const })); },
@@ -177,5 +181,28 @@ describe('phase 1942 Step C: 临时后缀高度有界化', () => {
     h.display.updateDisplay();
     expect(h.rendered).toContain('➤ send');
     expect(h.rendered).not.toContain('\x1b[2m➤');
+  });
+});
+
+
+describe('Phase 2079: migrated exec resize with the real task status bar', () => {
+  it('re-renders the complete command tail after narrowing and widening', () => {
+    const bar = createTaskStatusBar({ updateRender: () => { /* noop */ } });
+    const h = makeHarness(bar);
+    const tailMarker = 'DISPLAY_RESIZE_TAIL';
+    const command = `while [ ! -f release ]; do sleep 0.01; done; printf '%s' '${'x'.repeat(100)}-${tailMarker}'`;
+    bar.addMigratedExec({ taskId: 'exec-display-resize', command, startedAt: Date.now() });
+
+    setSize(40, 24);
+    h.display.onResize();
+    expect(stringWidth(h.migratedExecText)).toBeLessThanOrEqual(40);
+    expect(h.migratedExecText).toContain('…');
+    expect(h.migratedExecText).not.toContain(tailMarker);
+
+    setSize(stringWidth(command) + 40, 24);
+    h.display.onResize();
+    expect(h.migratedExecText).toContain(command);
+    expect(h.migratedExecText).toContain(tailMarker);
+    expect(h.migratedExecText).not.toContain('…');
   });
 });

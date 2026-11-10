@@ -490,7 +490,7 @@ export function createAsyncExecWrapper(
         fullTaskId: fullId,
         taskKind: 'exec_migrated',
         silent: false,
-        command: command.length > 80 ? `${command.slice(0, 80)}...` : command,
+        command,
         startedAt,
       });
 
