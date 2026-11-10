@@ -25,6 +25,7 @@ import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig, LLMRecoveryFacts } 
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AtomicWriteResult } from '../../../src/foundation/fs/types.js';
+import { internalsOf } from './test-internals.js';
 
 const T0 = Date.parse('2026-09-10T00:00:00.000Z');
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
@@ -118,20 +119,12 @@ type Fixture = Awaited<ReturnType<typeof makeFixture>>;
 const facts = (partial: Partial<LLMRecoveryFacts> = {}): LLMRecoveryFacts => ({ interventionIds: [], ...partial });
 
 function recordProviderSuccess(f: Fixture, providerIndex = 0): void {
-  const owner = f.owner as unknown as {
-    primary: ProviderAdapter;
-    fallbacks: ProviderAdapter[];
-    configGeneration: number;
-    recordProviderSuccess(
-      index: number,
-      adapter: ProviderAdapter,
-      isFallback: boolean,
-      generation: number,
-      updateSelection?: boolean,
-    ): void;
-  };
-  const adapter = providerIndex === 0 ? owner.primary : owner.fallbacks[providerIndex - 1]!;
-  owner.recordProviderSuccess(providerIndex, adapter, providerIndex > 0, owner.configGeneration, true);
+  const internals = internalsOf(f.owner);
+  internals.recoveryController.noteProviderSuccess(
+    internals.providerRuntime.providerIds()[providerIndex]!,
+    Date.now(),
+    true,
+  );
 }
 
 async function restart(f: Fixture): Promise<void> {

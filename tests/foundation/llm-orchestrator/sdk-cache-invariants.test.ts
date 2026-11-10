@@ -13,6 +13,7 @@ import type {
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import { internalsOf } from './test-internals.js';
 
 /**
  * Phase 1374 sub-3: SDK client cache (instance-lifetime)
@@ -66,8 +67,8 @@ describe('sdk-client-cache', () => {
       expect(hits[0]).toMatchObject({ preset: 'anthropic', model: 'm1' });
 
       // Verify same provider instance is reused
-      const primary = (orchestrator as any).primary;
-      const fallback = (orchestrator as any).fallbacks[0];
+      const primary = internalsOf(orchestrator).providerRuntime.primary();
+      const fallback = internalsOf(orchestrator).providerRuntime.fallbacks()[0];
       expect(primary).toBe(fallback);
     });
 
@@ -113,8 +114,8 @@ describe('sdk-client-cache', () => {
         events: sink2,
       });
 
-      const p1 = (orch1 as any).primary;
-      const p2 = (orch2 as any).primary;
+      const p1 = internalsOf(orch1).providerRuntime.primary();
+      const p2 = internalsOf(orch2).providerRuntime.primary();
       // Different orchestrator instances should have different provider objects
       // because cache is per-instance
       expect(p1).not.toBe(p2);
@@ -257,8 +258,8 @@ describe('Phase 2027 extended provider identity cache', () => {
         return createExtendedProvider(config);
       },
     });
-    const before = (orchestrator as any).primary;
-    const beforeId = (orchestrator as any).providerIds[0];
+    const before = internalsOf(orchestrator).providerRuntime.primary();
+    const beforeId = internalsOf(orchestrator).providerRuntime.providerIds()[0];
 
     orchestrator.reloadConfig({
       primary: { ...base, ...patch },
@@ -271,8 +272,8 @@ describe('Phase 2027 extended provider identity cache', () => {
       },
     });
 
-    expect((orchestrator as any).primary).not.toBe(before);
-    expect((orchestrator as any).providerIds[0]).not.toBe(beforeId);
+    expect(internalsOf(orchestrator).providerRuntime.primary()).not.toBe(before);
+    expect(internalsOf(orchestrator).providerRuntime.providerIds()[0]).not.toBe(beforeId);
     expect(created).toHaveLength(2);
     expect(created[1]).toMatchObject(patch);
     expect(emitted.filter(event => event.type === 'sdk_client_cache_miss')).toHaveLength(2);

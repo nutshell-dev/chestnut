@@ -16,6 +16,7 @@ import { LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orches
 import type { LLMEventSink, LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import { LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
+import { internalsOf } from './test-internals.js';
 
 const T0 = Date.parse('2026-09-10T00:00:00.000Z');
 const OK_RESPONSE: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
@@ -224,9 +225,7 @@ describe('Z4 invocation persistence across restart', () => {
 
     const restored = await f.restart();
     const controller = (restored as unknown as { recoveryController: LLMRecoveryControllerImpl }).recoveryController;
-    const recovered = (restored as unknown as {
-      recoveryState: { invocations: unknown[]; failures: Array<{ message: string; invocationId?: string }> };
-    }).recoveryState;
+    const recovered = internalsOf(restored).recoveryController.snapshot().recovery;
     expect(recovered.invocations).toEqual([]);
     expect(recovered.failures.at(-1)).toMatchObject({
       invocationId: started.invocationId, message: expect.stringContaining('result unknown after restart'),

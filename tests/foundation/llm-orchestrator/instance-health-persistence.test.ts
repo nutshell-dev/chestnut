@@ -10,6 +10,7 @@ import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/
 import type { LLMEvent, LLMInstanceLifecycle } from '../../../src/foundation/llm-orchestrator/types.js';
 import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
+import { internalsOf, lastSuccessProviderOf } from './test-internals.js';
 
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
@@ -144,7 +145,7 @@ describe('LLM instance health persistence', () => {
     failWrites = true;
     await expect(owner.call(CALL)).rejects.toThrow();
     expect(owner.getProviderInfo().name).toBe('primary');
-    expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toBeNull();
+    expect(lastSuccessProviderOf(owner)).toBeNull();
     expect(emitted.some(event => event.type === 'instance_state_write_failed')).toBe(true);
     const disk = JSON.parse(fsNative.readFileSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE), 'utf8'));
     expect(disk.providers).toEqual([]);
@@ -179,7 +180,7 @@ describe('LLM instance health persistence', () => {
       createProviderAdapter: () => primary,
     });
     await expect(owner.call(CALL)).resolves.toBe(OK);
-    expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).not.toBeNull();
+    expect(lastSuccessProviderOf(owner)).not.toBeNull();
     expect(emitted.some(event => event.type === 'instance_state_write_degraded'
       && event.durability === 'committed_durability_unknown')).toBe(true);
     expect(fsNative.existsSync(path.join(dir, 'status', LLM_INSTANCE_STATE_FILE))).toBe(true);
@@ -196,7 +197,7 @@ describe('LLM instance health persistence', () => {
     const next = adapter('next');
     const owner = f.makeOwner([primary, next], { mode: 'durable', fs });
     await owner.call(CALL);
-    const generation = (owner as unknown as { configGeneration: number }).configGeneration;
+    const generation = internalsOf(owner).providerRuntime.configGeneration();
     failing = true;
 
     expect(() => owner.reloadConfig({
@@ -205,7 +206,7 @@ describe('LLM instance health persistence', () => {
       createProviderAdapter: () => next,
     })).toThrow('reloadConfig');
     expect(owner.getProviderInfo().name).toBe('primary');
-    expect((owner as unknown as { configGeneration: number }).configGeneration).toBe(generation);
+    expect(internalsOf(owner).providerRuntime.configGeneration()).toBe(generation);
   });
 
   it('does not persist half-open as a successful probe across a crash', async () => {
@@ -217,8 +218,7 @@ describe('LLM instance health persistence', () => {
     const restarted = f.makeOwner([adapter('primary')]);
     vi.advanceTimersByTime(61_000);
 
-    expect((restarted as unknown as { isRecoveryBlocking(index: number, allowRecoveryProbe: boolean): boolean })
-      .isRecoveryBlocking(0, false)).toBe(false);
+    expect((internalsOf(restarted).invocationExecutor as any).isRecoveryBlocking(0, false)).toBe(false);
     expect(JSON.parse(fsNative.readFileSync(f.statePath, 'utf8')).providers[0].status).toBe('waiting');
     const afterCrash = f.makeOwner([adapter('primary')]);
     expect(afterCrash.snapshot().providers[0].breakerOpen).toBe(true);
@@ -230,7 +230,7 @@ describe('LLM instance health persistence', () => {
     const fallback = adapter('fallback');
     const owner = f.makeOwner([primary, fallback]);
     await owner.call(CALL);
-    const providerId = (owner as unknown as { providerIds: string[] }).providerIds[0];
+    const providerId = internalsOf(owner).providerRuntime.providerIds()[0];
     (owner as unknown as {
       recoveryController: {
         noteFailure(failures: Array<{
@@ -259,7 +259,7 @@ describe('LLM instance health persistence', () => {
     expect(disk.providers[0]).not.toHaveProperty('lastSuccessAt');
     expect(disk.providers[0]).not.toHaveProperty('cacheValidUntil');
     expect(disk).not.toHaveProperty('lastSuccess');
-    expect((owner as unknown as { lastSuccessProvider: unknown }).lastSuccessProvider).toBeNull();
+    expect(lastSuccessProviderOf(owner)).toBeNull();
   });
 
   it('ephemeral instances never read or write the long-lived state file', async () => {

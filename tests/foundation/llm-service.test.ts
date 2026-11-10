@@ -8,6 +8,7 @@ import type { ProviderAdapter, ProviderStreamChunk } from '../../src/foundation/
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMNetworkError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
+import { pauseAutonomousProbe, providerStatesOf, replaceProviderStates } from './llm-orchestrator/test-internals.js';
 
 /**
  * AbortController 触发延迟 (50ms): 等 retry/stream 进入 backoff sleep 后再 abort.
@@ -79,10 +80,9 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: () => primary,});
     
     // Replace internal provider with mock
-    (service as any).primary = primary;
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -114,11 +114,9 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     // Replace internal providers with mocks
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -149,10 +147,9 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
     
     // Replace internal provider with mock (no fallback)
-    (service as any).primary = primary;
     (service as any).fallback = undefined;
 
     const chunks: LLMStreamChunk[] = [];
@@ -195,9 +192,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     const received: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -229,9 +224,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [];
+  createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -251,9 +244,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = createMockProvider('primary');
-    (service as any).fallbacks = [];
+  createProviderAdapter: (config) => [createMockProvider('primary')].find(provider => provider.name === config.name)!,});
 
     await service.call({ messages: [] });
 
@@ -276,9 +267,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = badPrimary;
-    (service as any).fallbacks = [goodFallback];
+  createProviderAdapter: (config) => config.name === 'fb' ? goodFallback : badPrimary,});
 
     await service.call({ messages: [] });
 
@@ -304,9 +293,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
+  createProviderAdapter: () => primary,});
     
-    (service as any).primary = primary;
 
     let caughtError: Error | undefined;
     try {
@@ -341,9 +329,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -377,9 +363,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     let caughtError: Error | undefined;
     const chunks: LLMStreamChunk[] = [];
@@ -421,9 +405,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     // First call: primary fails, fallback succeeds
     const chunks1: LLMStreamChunk[] = [];
@@ -453,8 +435,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: noopSink,
       
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-      (service as any).primary = badPrimary;
+  createProviderAdapter: (config) => [badPrimary].find(provider => provider.name === config.name)!,});
 
       await expect(service.call({ messages: [] })).rejects.toThrow();
       expect(service.getProviderInfo()).toEqual({ name: 'p', model: 'mock-model', isFallback: false });
@@ -468,8 +449,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: noopSink,
       
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-      (service as any).primary = createMockProvider('primary');
+  createProviderAdapter: (config) => [createMockProvider('primary')].find(provider => provider.name === config.name)!,});
 
       await service.call({ messages: [] });
       expect(service.getProviderInfo()).toEqual({ name: 'primary', model: 'mock-model', isFallback: false });
@@ -488,16 +468,14 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: noopSink,
       
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-      (service as any).primary = badPrimary;
-      (service as any).fallbacks = [goodFallback];
+  createProviderAdapter: (config) => [badPrimary, goodFallback].find(provider => provider.name === config.name)!,});
 
       await service.call({ messages: [] });
       const beforeFail = service.getProviderInfo();
       expect(beforeFail).toEqual({ name: 'fb', model: 'mock-model', isFallback: true });
 
       // Now make fallback fail too
-      (service as any).fallbacks[0].call = async () => { throw new Error('fallback failed'); };
+      (goodFallback as any).call = async () => { throw new Error('fallback failed'); };
       await expect(service.call({ messages: [] })).rejects.toThrow();
       expect(service.getProviderInfo()).toEqual(beforeFail);
     });
@@ -516,9 +494,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: sink,
       
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-      (service as any).primary = badPrimary;
-      (service as any).fallbacks = [goodFallback];
+  createProviderAdapter: (config) => [badPrimary, goodFallback].find(provider => provider.name === config.name)!,});
 
       expect(await service.healthCheck()).toBe(true);
       const failedEvents = emitted.filter((e: any) => e.type === 'healthcheck_failed');
@@ -543,9 +519,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         retryDelayMs: 0,
         events: sink,
       
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-      (service as any).primary = badPrimary;
-      (service as any).fallbacks = [badFallback1, badFallback2];
+  createProviderAdapter: (config) => [badPrimary, badFallback1, badFallback2].find(provider => provider.name === config.name)!,});
 
       expect(await service.healthCheck()).toBe(false);
       const failedEvents = emitted.filter((e: any) => e.type === 'healthcheck_failed');
@@ -556,14 +530,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
 /** 测试隔离候选选择/恢复 fixture；lastSuccessProvider 由 providerStates 派生，不能直接赋值。 */
 function isolatePrimaryAttempt(service: LLMOrchestratorImpl): void {
-  (service as any).providerStates = [];
-}
-
-function pauseAutonomousProbe(service: LLMOrchestratorImpl): void {
-  const internal = service as any;
-  internal.scheduleGeneration++;
-  if (internal.scheduleTimer !== undefined) clearTimeout(internal.scheduleTimer);
-  internal.scheduleTimer = undefined;
+  replaceProviderStates(service, []);
 }
 
 // Phase 2058: unified provider recovery
@@ -595,14 +562,12 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = failingPrimary;
-    (service as any).fallbacks = [createMockProvider('fallback')];
+  createProviderAdapter: (config) => config.name === 'fb' ? createMockProvider('fallback') : failingPrimary,});
 
     await service.call({ messages: [] });
     pauseAutonomousProbe(service);
 
-    const primaryState = (service as any).providerStates.find(
+    const primaryState = providerStatesOf(service).find(
       (state: any) => state.providerId === service.getProviderIdentities()[0],
     );
     expect(primaryState).toMatchObject({
@@ -640,8 +605,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = probePrimary;
+  createProviderAdapter: () => probePrimary,});
 
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     expect(primaryAttempts).toBe(1);
@@ -653,7 +617,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
 
     expect(primaryAttempts).toBe(2);
     expect(service.getProviderInfo()!.isFallback).toBe(false);
-    expect((service as any).providerStates[0]).toMatchObject({
+    expect(providerStatesOf(service)[0]).toMatchObject({
       providerId: service.getProviderIdentities()[0],
       status: 'available',
       retryAt: undefined,
@@ -681,8 +645,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = failingPrimary;
+  createProviderAdapter: () => failingPrimary,});
 
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
@@ -690,7 +653,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
     await vi.advanceTimersByTimeAsync(29_999);
     await expect(service.call({ messages: [] })).rejects.toThrow();
     expect(primaryAttempts).toBe(1);
-    expect((service as any).providerStates[0]).toMatchObject({
+    expect(providerStatesOf(service)[0]).toMatchObject({
       status: 'waiting',
       consecutiveFailures: 1,
     });
@@ -698,7 +661,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     expect(primaryAttempts).toBe(2);
-    expect((service as any).providerStates[0]).toMatchObject({
+    expect(providerStatesOf(service)[0]).toMatchObject({
       status: 'waiting',
       lastError: { class: 'transient' },
       consecutiveFailures: 2,
@@ -727,8 +690,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = probePrimary;
+  createProviderAdapter: () => probePrimary,});
 
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
@@ -738,7 +700,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
     await expect(service.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
 
     expect(primaryAttempts).toBe(2);
-    expect((service as any).providerStates[0]).toMatchObject({
+    expect(providerStatesOf(service)[0]).toMatchObject({
       providerId: service.getProviderIdentities()[0],
       status: 'available',
       retryAt: undefined,
@@ -766,9 +728,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = badPrimary;
-    (service as any).fallbacks = [badFallback];
+  createProviderAdapter: (config) => [badPrimary, badFallback].find(provider => provider.name === config.name)!,});
 
     await expect(service.call({ messages: [] }))
       .rejects.toBeInstanceOf(LLMAllProvidersFailedError);
@@ -789,9 +749,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     const ac = new AbortController();
     ac.abort();
@@ -821,9 +779,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     const iter = service.stream({ messages: [] });
     const first = await iter.next();
@@ -849,8 +805,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 10_000,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
+  createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
 
     const ac = new AbortController();
 
@@ -877,8 +832,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       retryDelayMs: 10_000,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = primary;
+  createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
 
     const ac = new AbortController();
     setTimeout(() => ac.abort(), ABORT_TRIGGER_DELAY_MS);
@@ -902,8 +856,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = failingAdapter;
+  createProviderAdapter: (config) => [failingAdapter].find(provider => provider.name === config.name)!,});
 
     await expect(svc.call({ messages: [] })).rejects.toThrow();
     expect(emitted.some(e => e.type === 'provider_attempt_failed' || e.type === 'provider_exhausted')).toBe(true);
@@ -925,8 +878,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 100,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = adapter;
+  createProviderAdapter: (config) => [adapter].find(provider => provider.name === config.name)!,});
 
     await svc.call({ messages: [] });
     const retryEvent = emitted.find(e => e.type === 'retry_scheduled');
@@ -950,9 +902,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = primary;
-    (svc as any).fallbacks = [fallback];
+  createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
 
     await svc.call({ messages: [] });
     expect(emitted.some(e => e.type === 'provider_exhausted')).toBe(true);
@@ -971,8 +921,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = primary;
+  createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
 
     const result = await svc.healthCheck();
     expect(result).toBe(false);
@@ -993,8 +942,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = primary;
+  createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
 
     const chunks: any[] = [];
     try {
@@ -1046,9 +994,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = p1;
-    (svc as any).fallbacks = [p2];
+  createProviderAdapter: (config) => [p1, p2].find(provider => provider.name === config.name)!,});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of svc.stream({
@@ -1079,9 +1025,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = p1;
-    (svc as any).fallbacks = [p2];
+  createProviderAdapter: (config) => [p1, p2].find(provider => provider.name === config.name)!,});
 
     await expect(async () => {
       for await (const _ of svc.stream({
@@ -1113,9 +1057,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (svc as any).primary = p1;
-    (svc as any).fallbacks = [p2];
+  createProviderAdapter: (config) => [p1, p2].find(provider => provider.name === config.name)!,});
 
     const userCtrl = new AbortController();
     setTimeout(() => userCtrl.abort(), ABORT_TRIGGER_QUICK_DELAY_MS);
@@ -1147,9 +1089,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = mockProvider1;
-    (service as any).fallbacks = [mockProvider2];
+  createProviderAdapter: (config) => [mockProvider1, mockProvider2].find(provider => provider.name === config.name)!,});
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
@@ -1175,9 +1115,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0,
       events: noopSink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = mockProvider1;
-    (service as any).fallbacks = [mockProvider2];
+  createProviderAdapter: (config) => [mockProvider1, mockProvider2].find(provider => provider.name === config.name)!,});
 
     await expect(async () => {
       for await (const _ of service.stream({ messages: [] })) {}
@@ -1201,9 +1139,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       retryDelayMs: 0,
       events: sink,
     
-  createProviderAdapter: (config) => createMockProvider(config.name ?? 'default'),});
-    (service as any).primary = mockProvider1;
-    (service as any).fallbacks = [mockProvider2];
+  createProviderAdapter: (config) => [mockProvider1, mockProvider2].find(provider => provider.name === config.name)!,});
 
     for await (const _ of service.stream({ messages: [] })) {}
 

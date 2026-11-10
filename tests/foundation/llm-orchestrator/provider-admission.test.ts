@@ -16,16 +16,17 @@ function input(providers: LLMProviderRecoveryState[], nowMs: number): ProviderAd
 }
 
 describe('ProviderAdmission selection', () => {
-  it('checks primary before a valid sticky fallback and uses a strict cache boundary', () => {
+  it('keeps a valid sticky fallback ahead of an available primary and uses a strict cache boundary', () => {
     const fallback: LLMProviderRecoveryState = {
       providerId: 'fallback-a', status: 'available', lastSuccessAt: 100, cacheValidUntil: 1_000,
     };
     expect(admission.choose(input([
       { providerId: 'primary', status: 'available' }, fallback,
-    ], 999))).toMatchObject({ primaryAvailable: true, orderedProviderIds: ['primary', 'fallback-a', 'fallback-b'] });
-    expect(admission.choose(input([
-      { providerId: 'primary', status: 'available' }, fallback,
-    ], 999)).stickyProviderId).toBeUndefined();
+    ], 999))).toEqual({
+      primaryAvailable: true,
+      stickyProviderId: 'fallback-a',
+      orderedProviderIds: ['fallback-a', 'primary', 'fallback-b'],
+    });
 
     const waitingPrimary: LLMProviderRecoveryState = { providerId: 'primary', status: 'waiting', retryAt: 500 };
     expect(admission.choose(input([waitingPrimary, fallback], 999))).toEqual({
@@ -35,6 +36,20 @@ describe('ProviderAdmission selection', () => {
     });
     expect(admission.choose(input([waitingPrimary, fallback], 1_000))).toEqual({
       primaryAvailable: false,
+      orderedProviderIds: ['primary', 'fallback-a', 'fallback-b'],
+    });
+  });
+
+  it('does not revive an older fallback cache when the latest sticky candidate has failed', () => {
+    expect(admission.choose(input([
+      { providerId: 'primary', status: 'available' },
+      { providerId: 'fallback-a', status: 'available', lastSuccessAt: 100, cacheValidUntil: 5_000 },
+      {
+        providerId: 'fallback-b', status: 'waiting', retryAt: 5_000,
+        lastSuccessAt: 200, cacheValidUntil: 5_000,
+      },
+    ], 1_000))).toEqual({
+      primaryAvailable: true,
       orderedProviderIds: ['primary', 'fallback-a', 'fallback-b'],
     });
   });

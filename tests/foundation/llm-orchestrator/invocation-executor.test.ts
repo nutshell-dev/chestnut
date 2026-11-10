@@ -4,7 +4,6 @@ import {
   type InvocationExecutorDeps,
 } from '../../../src/foundation/llm-orchestrator/invocation-executor.js';
 import { LLMProviderAdmission } from '../../../src/foundation/llm-orchestrator/provider-admission.js';
-import { classifyLLMError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { RecoveryFailureInput } from '../../../src/foundation/llm-orchestrator/recovery-ledger.js';
 import type {
   LLMEvent,
@@ -32,47 +31,40 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], ids?: stri
     retryDelayMs: 0,
     events: sink,
   };
-  let currentStreamingProvider: { name: string; model: string; isFallback: boolean } | null = null;
-  const recordProviderSuccess = vi.fn();
-  const recordRecoveryFailures = vi.fn<(failures: readonly RecoveryFailureInput[]) => void>();
+  const noteProviderSuccess = vi.fn();
+  const noteFailure = vi.fn<(failures: readonly RecoveryFailureInput[]) => void>();
   const noteSuccess = vi.fn();
+  const providerIds = ids ?? [primary.name, ...fallbacks.map(adapter => adapter.name)];
+  const providerStates: never[] = [];
   const deps: InvocationExecutorDeps = {
     runtime: {
       primary: () => primary,
       fallbacks: () => fallbacks,
       config: () => config,
-      providerIds: () => ids ?? [primary.name, ...fallbacks.map(adapter => adapter.name)],
-      providerStates: () => [],
+      providerIds: () => providerIds,
+      legacyProviderIds: () => providerIds,
       configGeneration: () => 0,
-      instanceId: () => 'instance-test',
+      prepareReload: () => { throw new Error('not used'); },
+      commitReload: () => {},
+      close: async () => {},
     },
     admission: new LLMProviderAdmission(),
     ledger: {
       noteAttemptStarted: vi.fn(),
       attemptContext: () => ({ probeOnly: false, allowBreakerProbe: false, attemptId: 'attempt-1' }),
       noteSuccess,
-    },
-    host: {
-      isRecoveryBlocking: () => false,
-      setCurrentStreamingProvider: value => { currentStreamingProvider = value; },
-      recordProviderSuccess,
-      recordRecoveryFailures,
-      toRecoveryFailures: failures => failures.map(failure => ({
-        providerId: failure.providerId ?? `unknown:${failure.provider}`,
-        errorClass: classifyLLMError(failure.error),
-        message: failure.error.message,
-      })),
-      noteFailureObserved: vi.fn(),
+      snapshot: () => ({ instanceId: 'instance-test', revision: 0, recovery: {} as never, providers: providerStates }),
+      noteProviderSuccess,
+      noteFailure,
     },
     events: sink,
   };
   return {
     executor: new LLMInvocationExecutor(deps),
     events,
-    recordProviderSuccess,
-    recordRecoveryFailures,
+    noteProviderSuccess,
+    noteFailure,
     noteSuccess,
-    getCurrentStreamingProvider: () => currentStreamingProvider,
   };
 }
 
@@ -94,7 +86,7 @@ describe('InvocationExecutor failover and attempt audit', () => {
     await expect(f.executor.call({ options: { messages: [] }, admission: admitted })).resolves.toBe(RESPONSE);
 
     expect(calls).toEqual(['primary', 'fallback']);
-    expect(f.recordProviderSuccess).toHaveBeenCalledWith(1, fallback, true, 0, true);
+    expect(f.noteProviderSuccess).toHaveBeenCalledWith('fallback', expect.any(Number), true);
     expect(f.noteSuccess).toHaveBeenCalledWith('invocation-1', 'fallback');
     const relevant = f.events.filter(event =>
       event.type === 'provider_attempt_failed'
@@ -110,7 +102,7 @@ describe('InvocationExecutor failover and attempt audit', () => {
     ]);
     expect(relevant[1]).toMatchObject({ outcome: 'failure', provider: 'primary', attemptIndex: 0 });
     expect(relevant[3]).toMatchObject({ outcome: 'success', provider: 'fallback', attemptIndex: 1 });
-    expect(f.recordRecoveryFailures).toHaveBeenCalledTimes(1);
+    expect(f.noteFailure).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -130,7 +122,7 @@ describe('InvocationExecutor stream provider positions', () => {
     }
 
     expect(chunks.at(-1)).toMatchObject({ type: 'done' });
-    expect(f.recordProviderSuccess).toHaveBeenCalledWith(1, fallback, true, 0, true);
+    expect(f.noteProviderSuccess).toHaveBeenCalledWith('duplicate-id', expect.any(Number), true);
     expect(f.noteSuccess).toHaveBeenCalledWith('invocation-1', 'duplicate-id');
   });
 });
@@ -154,12 +146,12 @@ describe('InvocationExecutor stream cleanup', () => {
     });
 
     expect((await stream.next()).value).toMatchObject({ type: 'text_delta', delta: 'partial' });
-    expect(f.getCurrentStreamingProvider()).toMatchObject({ name: 'primary' });
+    expect(f.executor.getProviderInfo()).toMatchObject({ name: 'primary' });
     expect((await stream.return()).done).toBe(true);
 
     expect(providerFinally).toBe(1);
-    expect(f.getCurrentStreamingProvider()).toBeNull();
-    expect(f.recordProviderSuccess).not.toHaveBeenCalled();
+    expect(f.executor.getProviderInfo()).toMatchObject({ name: 'primary' });
+    expect(f.noteProviderSuccess).not.toHaveBeenCalled();
     expect(f.noteSuccess).not.toHaveBeenCalled();
   });
 });

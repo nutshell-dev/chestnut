@@ -11,6 +11,7 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
 function createSink() {
   const emitted: LLMEvent[] = [];
@@ -29,7 +30,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       events: sink,
     });
 
-    const beforePrimary = (orch as any).primary;
+    const beforePrimary = internalsOf(orch).providerRuntime.primary();
     expect(beforePrimary.name).toBe('p1');
 
     orch.reloadConfig({
@@ -39,7 +40,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       events: sink,
     });
 
-    const afterPrimary = (orch as any).primary;
+    const afterPrimary = internalsOf(orch).providerRuntime.primary();
     expect(afterPrimary.name).toBe('p2');
     expect(afterPrimary).not.toBe(beforePrimary);
   });
@@ -64,7 +65,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     });
 
     expect(ref.llm).toBe(orch);
-    expect((ref.llm as any).primary.name).toBe('p2');
+    expect(internalsOf(ref.llm).providerRuntime.primary().name).toBe('p2');
   });
 
   it('fallbacks 数量变更：1 → 0', () => {
@@ -80,7 +81,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       events: sink,
     });
 
-    expect((orch as any).fallbacks.length).toBe(1);
+    expect(internalsOf(orch).providerRuntime.fallbacks().length).toBe(1);
 
     orch.reloadConfig({
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
@@ -89,7 +90,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       events: sink,
     });
 
-    expect((orch as any).fallbacks.length).toBe(0);
+    expect(internalsOf(orch).providerRuntime.fallbacks().length).toBe(0);
   });
 
   it('provider 身份视图重建：reload 后 providerIds 数 = 1 + fallbacks 数，且不重建 breaker', () => {
@@ -103,7 +104,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
     });
 
-    expect((orch as any).providerIds).toHaveLength(1);
+    expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(1);
     expect((orch as any).breakers).toBeUndefined();
 
     orch.reloadConfig({
@@ -118,7 +119,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
     });
 
-    expect((orch as any).providerIds).toHaveLength(3);
+    expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(3);
     expect((orch as any).breakers).toBeUndefined();
   });
 
@@ -152,9 +153,9 @@ describe('phase 320 Step A: reloadConfig', () => {
     });
     const orch = new LLMOrchestratorImpl({
       lifecycle: { mode: 'ephemeral' }, ...resolveLLMConfig(cfgA), events: sink });
-    expect((orch as any).providerIds).toHaveLength(1);
-    expect((orch as any).config.circuitBreaker.failureThreshold).toBe(3);
-    expect((orch as any).config.circuitBreaker.resetTimeoutMs).toBe(60_000);
+    expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(1);
+    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.failureThreshold).toBe(3);
+    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.resetTimeoutMs).toBe(60_000);
     expect((orch as any).breakers).toBeUndefined();
 
     const cfgB = createGlobalConfigSchema().parse({
@@ -166,7 +167,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       },
     });
     orch.reloadConfig({ ...resolveLLMConfig(cfgB), events: sink });
-    expect((orch as any).providerIds).toHaveLength(2);
+    expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(2);
     expect((orch as any).breakers).toBeUndefined();
   });
 
@@ -182,8 +183,8 @@ describe('phase 320 Step A: reloadConfig', () => {
       retryDelayMs: 0,
       events: sink,
     });
-    const pA = (orch as any).primary;
-    const cache: Map<string, unknown> = (orch as any).sdkClientCache;
+    const pA = internalsOf(orch).providerRuntime.primary();
+    const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
 
     orch.reloadConfig({
       primary: cfgB,
@@ -191,7 +192,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       retryDelayMs: 0,
       events: sink,
     });
-    const pB = (orch as any).primary;
+    const pB = internalsOf(orch).providerRuntime.primary();
     expect(pB).not.toBe(pA);
     // 旧 provider 应从 cache 移除
     expect(Array.from(cache.values()).includes(pA)).toBe(false);
@@ -203,7 +204,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       retryDelayMs: 0,
       events: sink,
     });
-    const pA2 = (orch as any).primary;
+    const pA2 = internalsOf(orch).providerRuntime.primary();
     expect(pA2).not.toBe(pA);
 
     const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
@@ -230,24 +231,24 @@ describe('Phase 2027 selective runtime reload', () => {
   it('只改 fallback B 时保留 primary/A 的 waiting 与 lastError', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
-    const ids = [...(orch as any).providerIds] as string[];
+    const ids = [...internalsOf(orch).providerRuntime.providerIds()] as string[];
     const records = ids.map((providerId, i) => ({
       providerId,
       status: 'waiting',
       retryAt: i + 1,
       lastError: { class: 'transient', at: i + 1, message: `offline-${i}` },
     }));
-    (orch as any).providerStates = records;
+    replaceProviderStates(orch, records);
 
     orch.reloadConfig({
       ...baseConfig(sink),
       fallbacks: [fallbackA, { ...fallbackB, model: 'mb-new' }],
     });
 
-    expect((orch as any).providerStates).toHaveLength(2);
-    expect((orch as any).providerStates[0]).toEqual(records[0]);
-    expect((orch as any).providerStates[1]).toEqual(records[1]);
-    expect((orch as any).providerStates.some((provider: { providerId: string }) =>
+    expect(providerStatesOf(orch)).toHaveLength(2);
+    expect(providerStatesOf(orch)[0]).toEqual(records[0]);
+    expect(providerStatesOf(orch)[1]).toEqual(records[1]);
+    expect(providerStatesOf(orch).some((provider: { providerId: string }) =>
       provider.providerId === ids[2])).toBe(false);
     expect((orch as any).breakers).toBeUndefined();
   });
@@ -255,8 +256,8 @@ describe('Phase 2027 selective runtime reload', () => {
   it('只改 temperature 时保留故障身份与 waiting/lastError、清成功 cache，但创建新 adapter', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
-    const id = (orch as any).providerIds[0];
-    const adapter = (orch as any).primary;
+    const id = internalsOf(orch).providerRuntime.providerIds()[0];
+    const adapter = internalsOf(orch).providerRuntime.primary();
     const record = {
       providerId: id,
       status: 'waiting',
@@ -265,43 +266,43 @@ describe('Phase 2027 selective runtime reload', () => {
       lastSuccessAt: 1,
       cacheValidUntil: 2,
     };
-    (orch as any).providerStates = [record];
+    replaceProviderStates(orch, [record]);
 
     orch.reloadConfig({ ...baseConfig(sink), primary: { ...primary, temperature: 1 } });
 
-    expect((orch as any).providerIds[0]).toBe(id);
-    expect((orch as any).providerStates[0]).toMatchObject({
+    expect(internalsOf(orch).providerRuntime.providerIds()[0]).toBe(id);
+    expect(providerStatesOf(orch)[0]).toMatchObject({
       providerId: id,
       status: 'waiting',
       retryAt: 1,
       lastError: record.lastError,
     });
-    expect((orch as any).providerStates[0]).not.toHaveProperty('lastSuccessAt');
-    expect((orch as any).providerStates[0]).not.toHaveProperty('cacheValidUntil');
-    expect((orch as any).lastSuccessProvider).toBeNull();
-    expect((orch as any).primary).not.toBe(adapter);
+    expect(providerStatesOf(orch)[0]).not.toHaveProperty('lastSuccessAt');
+    expect(providerStatesOf(orch)[0]).not.toHaveProperty('cacheValidUntil');
+    expect(lastSuccessProviderOf(orch)).toBeNull();
+    expect(internalsOf(orch).providerRuntime.primary()).not.toBe(adapter);
   });
 
   it('breaker 策略变化只更新配置，providerStates 仍按身份保留', () => {
     const { sink } = createSink();
     const orch = new LLMOrchestratorImpl(baseConfig(sink));
-    const ids = [...(orch as any).providerIds] as string[];
+    const ids = [...internalsOf(orch).providerRuntime.providerIds()] as string[];
     const record = {
       providerId: ids[0],
       status: 'waiting',
       retryAt: 1,
       lastError: { class: 'transient', at: 1, message: 'offline' },
     };
-    (orch as any).providerStates = [record];
+    replaceProviderStates(orch, [record]);
 
     orch.reloadConfig({
       ...baseConfig(sink),
       circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 2_000 },
     });
 
-    expect((orch as any).config.circuitBreaker.failureThreshold).toBe(5);
-    expect((orch as any).config.circuitBreaker.resetTimeoutMs).toBe(2_000);
-    expect((orch as any).providerStates[0]).toEqual(record);
+    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.failureThreshold).toBe(5);
+    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.resetTimeoutMs).toBe(2_000);
+    expect(providerStatesOf(orch)[0]).toEqual(record);
     expect((orch as any).breakers).toBeUndefined();
   });
 
@@ -328,13 +329,13 @@ describe('Phase 2027 selective runtime reload', () => {
     const stream = orch.stream({});
     expect((await stream.next()).value).toMatchObject({ type: 'text_delta' });
     const pending = stream.next();
-    const generation = (orch as any).configGeneration;
+    const generation = internalsOf(orch).providerRuntime.configGeneration();
 
     orch.reloadConfig(config);
-    expect((orch as any).configGeneration).toBe(generation + 1);
+    expect(internalsOf(orch).providerRuntime.configGeneration()).toBe(generation + 1);
     releaseDone();
     expect((await pending).value).toMatchObject({ type: 'done' });
     expect((await stream.next()).done).toBe(true);
-    expect((orch as any).lastSuccessProvider).toBeNull();
+    expect(lastSuccessProviderOf(orch)).toBeNull();
   });
 });

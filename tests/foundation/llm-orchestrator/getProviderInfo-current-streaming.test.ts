@@ -15,6 +15,7 @@ import type {
   LLMEvent,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
+import { providerStatesOf, lastSuccessProviderOf } from './test-internals.js';
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];
@@ -33,9 +34,9 @@ function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[
     maxAttempts: 1,
     retryDelayMs: 0,
     events: sink,
+    createProviderAdapter: config => [primary, ...fallbacks].find(adapter =>
+      adapter.name === config.name && adapter.model === config.model)!,
   });
-  (orchestrator as any).primary = primary;
-  (orchestrator as any).fallbacks = fallbacks;
   return orchestrator;
 }
 
@@ -87,7 +88,7 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     // getProviderInfo 回落到由最新 providerStates 成功事实派生的 lastSuccessProvider。
     const info = orchestrator.getProviderInfo();
     expect(info).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
-    const successState = (orchestrator as any).providerStates.find(
+    const successState = providerStatesOf(orchestrator).find(
       (state: any) => state.providerId === orchestrator.getProviderIdentities()[0],
     );
     expect(successState).toMatchObject({
@@ -193,8 +194,8 @@ describe('Phase 2027 last-success provider identity', () => {
 
     await orchestrator.call({});
     const secondProviderId = orchestrator.getProviderIdentities()[2];
-    expect((orchestrator as any).lastSuccessProvider.providerId).toBe(secondProviderId);
-    expect((orchestrator as any).providerStates).toContainEqual(expect.objectContaining({
+    expect(lastSuccessProviderOf(orchestrator).providerId).toBe(secondProviderId);
+    expect(providerStatesOf(orchestrator)).toContainEqual(expect.objectContaining({
       providerId: secondProviderId,
       status: 'available',
       lastSuccessAt: expect.any(Number),

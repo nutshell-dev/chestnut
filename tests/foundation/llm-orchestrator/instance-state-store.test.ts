@@ -61,6 +61,19 @@ describe('InstanceStateStore commits', () => {
     expect(committed).toEqual({ kind: 'durable', revision: 1 });
     expect(store.revision).toBe(1);
     expect(store.state.providers[0]).toMatchObject({ providerId: 'provider-a', lastSuccessAt: 10 });
+    const snapshot = store.snapshot();
+    expect(snapshot).toMatchObject({
+      instanceId: store.state.instanceId, revision: 1,
+      recovery: store.state.recovery,
+      providers: [{ providerId: 'provider-a', lastSuccessAt: 10 }],
+    });
+    snapshot.providers[0]!.lastSuccessAt = 999;
+    snapshot.recovery.invocations.push({
+      invocationId: 'mutated', attemptId: 'mutated', started: false,
+      requestKey: 'mutated', triggerKind: 'automatic',
+    });
+    expect(store.state.providers[0]?.lastSuccessAt).toBe(10);
+    expect(store.state.recovery.invocations).toEqual([]);
     expect(store.commit('unchanged', {
       providers: store.state.providers,
       recovery: store.state.recovery,

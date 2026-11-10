@@ -83,8 +83,8 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       maxAttempts: 2,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: () => primary,
     });
-    (service as any).primary = primary;
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
@@ -133,9 +133,8 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
@@ -186,8 +185,8 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: () => primary,
     });
-    (service as any).primary = primary;
 
     const chunks: LLMStreamChunk[] = [];
     await expect(async () => {
@@ -241,8 +240,8 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       maxAttempts: 2,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: () => primary,
     });
-    (service as any).primary = primary;
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
@@ -288,9 +287,8 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
@@ -351,8 +349,8 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       maxAttempts: 2,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: () => primary,
     });
-    (service as any).primary = primary;
 
     const promise = (async () => {
       const chunks: LLMStreamChunk[] = [];
@@ -462,8 +460,8 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      createProviderAdapter: () => realPrimaryAdapter(3000),
     });
-    (service as any).primary = realPrimaryAdapter(3000);
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 15000 })) {
@@ -500,10 +498,9 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      // provider timeoutMs 远大于 idleMs：若触发 idle 路径，必为 orchestrator idle watchdog 所为
+      createProviderAdapter: config => config.name === 'fallback' ? fallback : realPrimaryAdapter(5_000),
     });
-    // provider timeoutMs 远大于 idleMs：若触发 idle 路径，必为 orchestrator idle watchdog 所为
-    (service as any).primary = realPrimaryAdapter(5_000);
-    (service as any).fallbacks = [fallback];
 
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 150, streamIdleProbeTimeoutMs: 200 })) {

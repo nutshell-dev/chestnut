@@ -37,6 +37,7 @@ import {
   LLMNetworkError,
   LLMRateLimitError,
 } from '../../../src/foundation/llm-provider/errors.js';
+import { internalsOf } from './test-internals.js';
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -606,7 +607,7 @@ describe('Phase2055 Step C: public candidates execute with unified admission', (
     await expect(owner.call(OPTIONS)).resolves.toBe(OK_RESPONSE);
     expect(p.calls()).toBe(1);
     expect(f.calls()).toBe(0);
-    expect((owner as unknown as { recoveryState: { failures: unknown[] } }).recoveryState.failures).toHaveLength(0);
+    expect(internalsOf(owner).recoveryController.snapshot().recovery.failures).toHaveLength(0);
     expect(emitted.some(
       event => event.type === 'call_attempt_result' && event.outcome === 'skipped'
         && event.reason === 'rate_limit_blocked',

@@ -9,6 +9,7 @@ import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js'
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMEvent, LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
+import { providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const dirs: string[] = [];
@@ -207,8 +208,9 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     expect(selection).toMatchObject({ providerId: fallbackId });
 
     primaryFails = false;
-    const cached = (f.owner as unknown as { providerStates: Array<{ lastSuccessAt?: number; cacheValidUntil?: number }> }).providerStates[1]!;
-    cached.cacheValidUntil = cached.lastSuccessAt;
+    replaceProviderStates(f.owner, providerStatesOf(f.owner).map((provider, index) =>
+      index === 1 ? { ...provider, cacheValidUntil: provider.lastSuccessAt } : provider
+    ));
     await f.owner.call({
       messages: [{ role: 'user', content: 'primary-wins' }],
       recoveryFacts: { interventionIds: ['manual-retry'] },

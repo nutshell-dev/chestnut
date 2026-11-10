@@ -49,8 +49,8 @@ function buildOrchestrator(primary: ProviderAdapter) {
     maxAttempts: 1,
     retryDelayMs: 0,
     events: sink,
+    createProviderAdapter: () => primary,
   });
-  (orchestrator as any).primary = primary;
   return orchestrator;
 }
 

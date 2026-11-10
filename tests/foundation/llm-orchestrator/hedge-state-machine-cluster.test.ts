@@ -15,6 +15,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 function createMockProvider(
   name: string,
@@ -93,13 +94,13 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
 
 function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
   const now = Date.now();
-  (service as any).providerStates = [{
-    providerId: (service as any).providerIds[index],
+  replaceProviderStates(service, [{
+    providerId: internalsOf(service).providerRuntime.providerIds()[index],
     status: 'waiting',
     retryAt: now + 60_000,
     lastError: { class: cause, at: now, message: 'forced provider failure' },
     consecutiveFailures: 1,
-  }];
+  }]);
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -129,7 +130,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
       const emitted = attachEventSpy(service);
-      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
+      const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
       let caught: unknown;
       try {
@@ -138,7 +139,7 @@ describe('hedge state machine cluster (phase 991)', () => {
         caught = error;
       }
       expect(caught).toBe(providerError);
-      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
+      expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
       expect(emitted.some(e => e.type === 'hedge_fallback_committed')).toBe(false);
       expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'selected')).toBe(false);
       expect(emitted.some(e => e.type === 'call_selection' && e.outcome === 'exhausted')).toBe(false);
@@ -189,7 +190,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
-      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
+      const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -211,7 +212,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       expect(chunks.some(ch => (ch as any).delta === 'c4')).toBe(false);
       expect(chunks.some(ch => ch.type === 'done')).toBe(false);
       // user abort is not a provider failure
-      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
+      expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
     });
 
     it('B-error-then-A-win drain loop throws AbortError when user aborts mid-drain', async () => {
@@ -261,7 +262,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
-      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
+      const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
       // Abort mid-race, before either 100ms track settles
       const ABORT_DELAY_MS = 10; // derive: enough for track promise to start but not resolve (>0, <100ms track delay)
@@ -274,7 +275,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       clearTimeout(abortTimer);
 
       // user abort must not be wrapped as all-providers-failed
-      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
+      expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
     });
 
     it('does not record provider failure when user aborts during A-win drain catch', async () => {
@@ -306,7 +307,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
-      const primaryStateBefore = structuredClone((service as any).providerStates[0]);
+      const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -325,7 +326,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       expect(caught).toBeDefined();
       expect(caught!.name).toBe('AbortError');
       // provider recovery state must not change for user abort
-      expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
+      expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
       // stream_reset must not be emitted for user abort
       expect(events.some(e => e.type === 'stream_reset')).toBe(false);
       expect(chunks.some(c => c.type === 'reset')).toBe(false);
@@ -343,13 +344,13 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
 
-      const failuresBefore = (service as any).providerStates[0].consecutiveFailures;
+      const failuresBefore = providerStatesOf(service)[0].consecutiveFailures;
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
       }).rejects.toThrow(LLMAllProvidersFailedError);
 
-      const primaryState = (service as any).providerStates[0];
+      const primaryState = providerStatesOf(service)[0];
       expect(primaryState.status).toBe('waiting');
       expect(primaryState.retryAt).toEqual(expect.any(Number));
       expect(primaryState.consecutiveFailures).toBe(failuresBefore + 1);
@@ -368,13 +369,13 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
 
-      const failuresBefore = (service as any).providerStates[0].consecutiveFailures;
+      const failuresBefore = providerStatesOf(service)[0].consecutiveFailures;
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
       }).rejects.toThrow(LLMAllProvidersFailedError);
 
-      const primaryState = (service as any).providerStates[0];
+      const primaryState = providerStatesOf(service)[0];
       expect(primaryState.status).toBe('waiting');
       expect(primaryState.retryAt).toEqual(expect.any(Number));
       expect(primaryState.consecutiveFailures).toBe(failuresBefore + 1);

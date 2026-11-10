@@ -16,6 +16,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 function createMockProvider(
   name: string,
@@ -87,13 +88,13 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
 
 function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
   const now = Date.now();
-  (service as any).providerStates = [{
-    providerId: (service as any).providerIds[index],
+  replaceProviderStates(service, [{
+    providerId: internalsOf(service).providerRuntime.providerIds()[index],
     status: 'waiting',
     retryAt: now + 60_000,
     lastError: { class: cause, at: now, message: 'forced provider failure' },
     consecutiveFailures: 1,
-  }];
+  }]);
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -144,7 +145,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       { type: 'done', stopReason: 'end_turn' },
     ]);
     expect(service.getProviderInfo()?.name).toBe('primary');
-    expect((service as any).providerStates[0]).toMatchObject({
+    expect(providerStatesOf(service)[0]).toMatchObject({
       status: 'available',
       retryAt: undefined,
       consecutiveFailures: 0,

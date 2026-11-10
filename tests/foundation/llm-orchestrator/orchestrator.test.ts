@@ -25,6 +25,7 @@ import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../..
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { resolveLLMConfig } from '../../../src/assembly/config/config-load.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
+import { providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];
@@ -105,14 +106,14 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
 
 function providerState(service: LLMOrchestratorImpl, index: number) {
   const providerId = service.getProviderIdentities()[index];
-  return (service as any).providerStates.find((state: any) => state.providerId === providerId);
+  return providerStatesOf(service).find((state: any) => state.providerId === providerId);
 }
 
 function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
   const now = Date.now();
   const providerId = service.getProviderIdentities()[index];
   const previous = providerState(service, index);
-  const states = (service as any).providerStates.filter((state: any) => state.providerId !== providerId);
+  const states = providerStatesOf(service).filter((state: any) => state.providerId !== providerId);
   states.push({
     ...previous,
     providerId,
@@ -121,7 +122,7 @@ function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause
     lastError: { class: cause, at: now, message: `forced ${cause} failure` },
     consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1,
   });
-  (service as any).providerStates = states;
+  replaceProviderStates(service, states);
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -171,7 +172,7 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
 
     expect(service.getProviderIdentities()).toHaveLength(3);
     // 缺失的 provider state 即 available；第一次真实失败后由 owner 统一记账。
-    expect((service as any).providerStates).toEqual([]);
+    expect(providerStatesOf(service)).toEqual([]);
     await service.call({ messages: [{ role: 'user', content: 'hi' }] });
     expect(providerState(service, 0)).toMatchObject({
       providerId: service.getProviderIdentities()[0],
@@ -507,7 +508,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       cacheValidUntil: expect.any(Number),
     });
     expect(successState.cacheValidUntil - successState.lastSuccessAt).toBe(300_000);
-    expect((service as any).lastSuccessProvider).toMatchObject({ name: 'primary', generation: 0 });
+    expect(lastSuccessProviderOf(service)).toMatchObject({ name: 'primary', generation: 0 });
   });
 
   it('keeps legal tool-use streams as valid content', async () => {
@@ -624,9 +625,9 @@ describe('phase 1776 Step B/D: permanent/quota provider recovery', () => {
     await expect(service.call(request)).rejects.toBeDefined();
     const waiting = providerState(service, 0);
     expect(waiting).toMatchObject({ status: 'waiting', consecutiveFailures: 1 });
-    (service as any).providerStates = (service as any).providerStates.map((state: any) =>
+    replaceProviderStates(service, providerStatesOf(service).map((state: any) =>
       state.providerId === waiting.providerId ? { ...state, retryAt: Date.now() - 1 } : state
-    );
+    ));
 
     await expect(service.call(request)).resolves.toMatchObject({
       content: [{ type: 'text', text: 'recovered' }],

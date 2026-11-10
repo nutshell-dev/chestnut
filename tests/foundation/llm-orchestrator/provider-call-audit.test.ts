@@ -29,6 +29,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
+import { replaceProviderStates } from './test-internals.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -274,23 +275,13 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
     });
     // fb1 waiting（index 1 = 第一个 fallback）
-    const internal = h.service as unknown as {
-      providerIds: string[];
-      providerStates: Array<{
-        providerId: string;
-        status: 'waiting';
-        retryAt: number;
-        consecutiveFailures: number;
-        lastError: { class: 'transient'; at: number; message: string };
-      }>;
-    };
-    internal.providerStates = [{
-      providerId: internal.providerIds[1],
+    replaceProviderStates(h.service, [{
+      providerId: h.service.getProviderIdentities()[1]!,
       status: 'waiting',
       retryAt: Date.now() + 60_000,
       consecutiveFailures: 1,
       lastError: { class: 'transient', at: Date.now(), message: 'offline' },
-    }];
+    }]);
 
     await h.service.call(CALL);
 

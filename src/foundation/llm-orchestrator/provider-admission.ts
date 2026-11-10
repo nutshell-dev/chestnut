@@ -20,7 +20,7 @@ export interface ProviderAdmissionInput {
 export interface ProviderDecision {
   /** primary 没有 waiting 事实；retryAt 到点不会自行清除该事实。 */
   primaryAvailable: boolean;
-  /** primary waiting 且最新成功事实为严格未过期 fallback cache 时的 sticky 候选。 */
+  /** 最新成功事实为可用且严格未过期 fallback cache 时的 sticky 候选。 */
   stickyProviderId?: string;
   /** stream 的候选顺序；call 使用 stickyProviderId 保留其专门审计路径。 */
   orderedProviderIds: string[];
@@ -63,9 +63,9 @@ export class LLMProviderAdmission implements ProviderAdmission {
       }
     }
     const primaryId = input.providerIds[0];
-    const stickyProviderId = !primaryAvailable
-      && latestSuccess !== undefined
+    const stickyProviderId = latestSuccess !== undefined
       && latestSuccess.providerId !== primaryId
+      && latestSuccess.status === 'available'
       && latestSuccess.cacheValidUntil! > input.nowMs
       && input.providerIds.includes(latestSuccess.providerId)
       ? latestSuccess.providerId

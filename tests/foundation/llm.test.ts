@@ -17,6 +17,7 @@ import {
   LLMAllProvidersFailedError,
 } from '../../src/foundation/llm-orchestrator/errors.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
+import { providerStatesOf } from './llm-orchestrator/test-internals.js';
 
 /**
  * Phase 1925 Step C: LLMOrchestratorImpl 测试的 fetch 级 anthropic-messages SSE
@@ -364,7 +365,7 @@ function createAnthropicSseResponse(text: string): Response {
       expect(chunks.some(c => c.type === 'done')).toBe(true);
 
       // 0-chunk 统一记为 primary 的 unknown 恢复事实，不再发射 breaker 事件。
-      const primaryState = (service as any).providerStates.find(
+      const primaryState = providerStatesOf(service).find(
         (state: any) => state.providerId === service.getProviderIdentities()[0],
       );
       expect(primaryState).toMatchObject({

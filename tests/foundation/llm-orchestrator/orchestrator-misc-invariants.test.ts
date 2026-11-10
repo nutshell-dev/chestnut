@@ -35,17 +35,18 @@ import type {
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 function providerState(service: LLMOrchestratorImpl, index: number) {
   const providerId = service.getProviderIdentities()[index];
-  return (service as any).providerStates.find((state: any) => state.providerId === providerId);
+  return providerStatesOf(service).find((state: any) => state.providerId === providerId);
 }
 
 function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
   const now = Date.now();
   const providerId = service.getProviderIdentities()[index];
   const previous = providerState(service, index);
-  const states = (service as any).providerStates.filter((state: any) => state.providerId !== providerId);
+  const states = providerStatesOf(service).filter((state: any) => state.providerId !== providerId);
   states.push({
     ...previous,
     providerId,
@@ -54,7 +55,7 @@ function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause
     lastError: { class: cause, at: now, message: `forced ${cause} failure` },
     consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1,
   });
-  (service as any).providerStates = states;
+  replaceProviderStates(service, states);
 }
 
 
@@ -1598,12 +1599,12 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       async call() { return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse; },
     };
     const orchestrator = makeOrchestrator(primary, sink, 2, fallback);
-    (orchestrator as any).config.retryDelayMs = 0;
+    internalsOf(orchestrator).providerRuntime.config().retryDelayMs = 0;
     await orchestrator.call({});
     expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(0);
-    (orchestrator as any).config.retryDelayMs = 30_000;
-    expect((orchestrator as any).computeAttemptDelayMs(0)).toBeGreaterThanOrEqual(22_500);
-    expect((orchestrator as any).computeAttemptDelayMs(0)).toBeLessThanOrEqual(30_000);
+    internalsOf(orchestrator).providerRuntime.config().retryDelayMs = 30_000;
+    expect(internalsOf(orchestrator).invocationExecutor.computeAttemptDelayMs(0)).toBeGreaterThanOrEqual(22_500);
+    expect(internalsOf(orchestrator).invocationExecutor.computeAttemptDelayMs(0)).toBeLessThanOrEqual(30_000);
     await orchestrator.close();
   });
 });

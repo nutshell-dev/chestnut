@@ -6,6 +6,7 @@ import { formatErr, newUuid } from '../node-utils/index.js';
 import type { LLMEvent, LLMRecoveryFacts } from './types.js';
 import type { LLMErrorClass } from './errors.js';
 import type { ProviderAdmission } from './provider-admission.js';
+import type { InstanceStateStore } from './instance-state-store.js';
 import {
   LLM_RECOVERY_ACCEPTED_IDS_MAX,
   LLM_RECOVERY_FAILURE_EVIDENCE_MAX,
@@ -44,24 +45,29 @@ export type LLMRecoveryAdmission =
   | { kind: 'waiting'; schedule: LLMRecoverySchedule; factsAccepted: boolean };
 
 export interface RecoveryLedgerSnapshot {
-  recovery: LLMInstanceRecoveryState;
-  revision: number;
-  providers: readonly LLMProviderRecoveryState[];
+  readonly instanceId: string;
+  readonly recovery: LLMInstanceRecoveryState;
+  readonly revision: number;
+  readonly providers: readonly LLMProviderRecoveryState[];
 }
 
 export interface RecoveryLedgerDeps {
-  instanceId: string;
+  store: InstanceStateStore;
   providerIds: readonly string[];
   legacyProviderIds: readonly string[];
-  read(): RecoveryLedgerSnapshot;
-  /** 同步 durable commit；成功返回已提交 revision，失败必须 throw 且不得发布候选。 */
-  commit(next: LLMInstanceRecoveryState, context: string, providers?: readonly LLMProviderRecoveryState[]): number;
   emit(event: LLMEvent): void;
   admission: ProviderAdmission;
   now?: () => number;
 }
 
 export interface RecoveryLedger {
+  snapshot(): RecoveryLedgerSnapshot;
+  canProbe(providerId: string, nowMs: number): boolean;
+  subscribeCommits(listener: (context: string) => void): () => void;
+  noteProviderSuccess(providerId: string, nowMs: number, updateSelection: boolean): void;
+  noteAttemptStarted(invocationId: string): void;
+  attemptContext(invocationId: string): { probeOnly: boolean; allowBreakerProbe: boolean; attemptId: string };
+  noteSuccess(invocationId: string, winnerProviderId: string): void;
   inspect(): Promise<LLMRecoverySchedule>;
   begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission>;
   finish(
@@ -164,18 +170,17 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
   private readonly instanceId: string;
   private providerIds: readonly string[];
   private legacyProviderIds: readonly string[];
-  private readonly read: RecoveryLedgerDeps['read'];
-  private readonly commit: RecoveryLedgerDeps['commit'];
+  private readonly store: InstanceStateStore;
+  private readonly commitListeners = new Set<(context: string) => void>();
   private readonly emitEvent: RecoveryLedgerDeps['emit'];
   private readonly admission: ProviderAdmission;
   private readonly now: () => number;
 
   constructor(deps: RecoveryLedgerDeps) {
-    this.instanceId = deps.instanceId;
+    this.instanceId = deps.store.snapshot().instanceId;
     this.providerIds = [...deps.providerIds];
     this.legacyProviderIds = [...deps.legacyProviderIds];
-    this.read = deps.read;
-    this.commit = deps.commit;
+    this.store = deps.store;
     this.emitEvent = deps.emit;
     this.admission = deps.admission;
     this.now = deps.now ?? Date.now;
@@ -184,22 +189,50 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     this.recoverInvocationsAfterRestart();
   }
 
-  /** reload 只同步窄身份视图，不重跑构造期迁移或 restart recovery。 */
-  setProviderIdentities(providerIds: readonly string[], legacyProviderIds: readonly string[]): void {
+  snapshot(): RecoveryLedgerSnapshot {
+    return this.store.snapshot();
+  }
+
+  canProbe(providerId: string, nowMs: number): boolean {
+    const state = this.getProviders().find(provider => provider.providerId === providerId);
+    return state === undefined || this.admission.canProbe(state, nowMs);
+  }
+
+  subscribeCommits(listener: (context: string) => void): () => void {
+    this.commitListeners.add(listener);
+    return () => { this.commitListeners.delete(listener); };
+  }
+
+  /** Persist the next identity filter before either Runtime or this view switches. */
+  reloadProviderIdentities(providerIds: readonly string[], legacyProviderIds: readonly string[]): void {
+    const current = new Set(providerIds);
+    const providers = this.getProviders()
+      .filter(provider => current.has(provider.providerId))
+      .map(provider => {
+        const { lastSuccessAt: _lastSuccessAt, cacheValidUntil: _cacheValidUntil, ...retained } = provider;
+        return retained;
+      });
+    const result = this.store.commit('reload_config', {
+      providers: [...providers],
+      recovery: this.getState(),
+    }, { providerIds, force: true });
+    if (result.kind === 'failed') {
+      throw new Error('LLM instance state persistence failed during reloadConfig', { cause: result.error });
+    }
     this.providerIds = [...providerIds];
     this.legacyProviderIds = [...legacyProviderIds];
   }
 
   private getState(): LLMInstanceRecoveryState {
-    return this.read().recovery;
+    return this.store.snapshot().recovery;
   }
 
   private getRevision(): number {
-    return this.read().revision;
+    return this.store.snapshot().revision;
   }
 
   private getProviders(): readonly LLMProviderRecoveryState[] {
-    return this.read().providers;
+    return this.store.snapshot().providers;
   }
 
   async inspect(): Promise<LLMRecoverySchedule> {
@@ -449,6 +482,26 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     };
   }
 
+  noteProviderSuccess(providerId: string, nowMs: number, updateSelection: boolean): void {
+    const providers = this.getProviders().map(provider => ({ ...provider }));
+    const index = providers.findIndex(provider => provider.providerId === providerId);
+    const previous: LLMProviderRecoveryState = index >= 0
+      ? providers[index]!
+      : { providerId, status: 'available' };
+    const next = this.admission.recordSuccess(previous, { nowMs, updateSelection });
+    if (index >= 0) providers[index] = next;
+    else providers.push(next);
+    const context = updateSelection ? 'provider_success' : 'probe_provider_health_clear';
+    const result = this.store.commit(context, {
+      providers,
+      recovery: this.getState(),
+    }, { providerIds: this.providerIds });
+    if (result.kind === 'failed') {
+      throw new Error('LLM instance state persistence failed during provider success', { cause: result.error });
+    }
+    if (updateSelection) this.notifyCommit(context);
+  }
+
   noteAttemptStarted(invocationId: string): void {
     const state = this.getState();
     const active = state.invocations.find(invocation => invocation.invocationId === invocationId);
@@ -525,8 +578,12 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
       providerCount: providers.length,
       failureCount: next.failures.length,
     });
+    this.notifyCommit('noteFailure');
   }
 
+  private notifyCommit(context: string): void {
+    for (const listener of this.commitListeners) listener(context);
+  }
 
   private pushFailure(state: LLMInstanceRecoveryState, evidence: LLMRecoveryFailureEvidence): void {
     state.failures.push(evidence);
@@ -554,7 +611,14 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
     providers?: readonly LLMProviderRecoveryState[],
   ): number {
     try {
-      return this.commit(next, context, providers);
+      const result = this.store.commit(context, {
+        providers: [...(providers ?? this.getProviders())],
+        recovery: next,
+      }, { providerIds: this.providerIds });
+      if (result.kind === 'failed') {
+        throw new Error(`LLM instance state persistence failed during ${context}`, { cause: result.error });
+      }
+      return result.revision;
     } catch (error) {
       this.emit({
         type: 'recovery_state_write_failed', orchestratorInstance: this.instanceId,

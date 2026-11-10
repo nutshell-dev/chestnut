@@ -16,6 +16,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 
 
@@ -93,13 +94,13 @@ describe('hedge-post-first-chunk-failure', () => {
 
   function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
     const now = Date.now();
-    (service as any).providerStates = [{
-      providerId: (service as any).providerIds[index],
+    replaceProviderStates(service, [{
+      providerId: internalsOf(service).providerRuntime.providerIds()[index],
       status: 'waiting',
       retryAt: now + 60_000,
       lastError: { class: cause, at: now, message: 'forced provider failure' },
       consecutiveFailures: 1,
-    }];
+    }]);
   }
 
   function attachEventSpy(service: LLMOrchestratorImpl) {
@@ -141,7 +142,7 @@ describe('hedge-post-first-chunk-failure', () => {
       forceProviderWaiting(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const failuresBefore = (service as any).providerStates[0].consecutiveFailures;
+      const failuresBefore = providerStatesOf(service)[0].consecutiveFailures;
 
       const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
@@ -164,7 +165,7 @@ describe('hedge-post-first-chunk-failure', () => {
       expect(caught!.message).toContain('ECONNRESET');
 
       // 候选提交后，统一 provider 状态恰好增加一次失败并保留错误分类。
-      const primaryState = (service as any).providerStates[0];
+      const primaryState = providerStatesOf(service)[0];
       expect(primaryState.status).toBe('waiting');
       expect(primaryState.retryAt).toEqual(expect.any(Number));
       expect(primaryState.consecutiveFailures).toBe(failuresBefore + 1);
@@ -255,13 +256,13 @@ describe('hedge-double-fail-generator-cleanup', () => {
 
   function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
     const now = Date.now();
-    (service as any).providerStates = [{
-      providerId: (service as any).providerIds[index],
+    replaceProviderStates(service, [{
+      providerId: internalsOf(service).providerRuntime.providerIds()[index],
       status: 'waiting',
       retryAt: now + 60_000,
       lastError: { class: cause, at: now, message: 'forced provider failure' },
       consecutiveFailures: 1,
-    }];
+    }]);
   }
 
   /**
@@ -436,13 +437,13 @@ describe('hedge-bwins-cleanup', () => {
 
   function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
     const now = Date.now();
-    (service as any).providerStates = [{
-      providerId: (service as any).providerIds[index],
+    replaceProviderStates(service, [{
+      providerId: internalsOf(service).providerRuntime.providerIds()[index],
       status: 'waiting',
       retryAt: now + 60_000,
       lastError: { class: cause, at: now, message: 'forced provider failure' },
       consecutiveFailures: 1,
-    }];
+    }]);
   }
 
   /**

@@ -1,8 +1,8 @@
 /**
  * Single-invocation execution control flow.
  *
- * Provider recovery persistence remains behind the narrow host callbacks; this
- * module owns retry/failover/stream/hedge/idle-probe mechanics only.
+ * Provider recovery persistence remains behind the narrow ledger capability; this
+ * module owns retry/failover/stream/hedge/idle-probe mechanics and invocation-local facts.
  */
 import {
   LLMError,
@@ -19,7 +19,9 @@ import {
 } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
+  LLMCircuitBreakerOpenError,
   classifyLLMError,
+  getQuotaResetAtMs,
   getRetryAfterSec,
   getUserActionHint,
   type LLMErrorClass,
@@ -28,12 +30,16 @@ import {
 import type {
   LLMCallOptions,
   LLMEventSink,
+  LLMInstanceSnapshot,
   LLMOrchestratorConfig,
+  LLMProviderHealthSnapshot,
+  LLMProviderSnapshotEntry,
   LLMStreamChunk,
 } from './types.js';
 import type { LLMProviderRecoveryState } from './instance-state.js';
 import type { ProviderAdmission } from './provider-admission.js';
-import type { LLMRecoveryAdmission, RecoveryFailureInput } from './recovery-ledger.js';
+import type { ProviderRuntime } from './provider-runtime.js';
+import type { RecoveryLedger, LLMRecoveryAdmission, RecoveryFailureInput } from './recovery-ledger.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   LLM_PROBE_MAX_TOKENS,
@@ -48,47 +54,15 @@ import {
   wrapResponseAsStream,
 } from './utils.js';
 
-/** Dynamic provider/config projection; no invocation-wide provider snapshot. */
-export interface InvocationRuntimeView {
-  primary(): LLMProvider;
-  fallbacks(): readonly LLMProvider[];
-  config(): LLMOrchestratorConfig;
-  providerIds(): readonly string[];
-  providerStates(): readonly LLMProviderRecoveryState[];
-  configGeneration(): number;
-  instanceId(): string;
-}
-
-export interface InvocationRecoveryLedger {
-  noteAttemptStarted(invocationId: string): void;
-  attemptContext(invocationId: string): { probeOnly: boolean; allowBreakerProbe: boolean; attemptId: string };
-  noteSuccess(invocationId: string, winnerProviderId: string): void;
-}
-
-export interface InvocationExecutorHost {
-  isRecoveryBlocking(index: number, allowRecoveryProbe: boolean): boolean;
-  setCurrentStreamingProvider(provider: { name: string; model: string; isFallback: boolean } | null): void;
-  recordProviderSuccess(
-    providerIndex: number,
-    adapter: LLMProvider,
-    isFallback: boolean,
-    generation: number,
-    updateSelection?: boolean,
-  ): void;
-  recordRecoveryFailures(failures: readonly RecoveryFailureInput[]): void;
-  toRecoveryFailures(
-    failures: ReadonlyArray<LLMProviderFailure>,
-    invocationId?: string,
-    attemptId?: string,
-  ): RecoveryFailureInput[];
-  noteFailureObserved(error: Error): void;
-}
+export interface InvocationRecoveryLedger extends Pick<
+  RecoveryLedger,
+  'snapshot' | 'noteAttemptStarted' | 'attemptContext' | 'noteSuccess' | 'noteProviderSuccess' | 'noteFailure'
+> {}
 
 export interface InvocationExecutorDeps {
-  runtime: InvocationRuntimeView;
+  runtime: ProviderRuntime;
   admission: ProviderAdmission;
   ledger: InvocationRecoveryLedger;
-  host: InvocationExecutorHost;
   events: LLMEventSink;
 }
 
@@ -116,6 +90,10 @@ export interface InvocationExecutor {
     userSignal?: AbortSignal,
   ): Promise<{ ok: true } | { ok: false; reason: 'network_timeout' | 'auth_or_model'; error: Error }>;
   computeAttemptDelayMs(attempt: number): number;
+  snapshot(): LLMInstanceSnapshot;
+  getProviderHealthSnapshot(): LLMProviderHealthSnapshot;
+  getProviderInfo(): { name: string; model: string; isFallback: boolean };
+  healthCheck(): Promise<boolean>;
 }
 
 /**
@@ -163,17 +141,17 @@ interface CallPathAudit {
 
 
 export class LLMInvocationExecutor implements InvocationExecutor {
-  private readonly runtime: InvocationRuntimeView;
+  private readonly runtime: ProviderRuntime;
   private readonly providerAdmission: ProviderAdmission;
   private readonly recoveryController: InvocationRecoveryLedger;
-  private readonly host: InvocationExecutorHost;
   private readonly events: LLMEventSink;
+  private readonly failureObservedAtMs = new WeakMap<Error, number>();
+  private currentStreamingProvider: { name: string; model: string; isFallback: boolean } | null = null;
 
   constructor(deps: InvocationExecutorDeps) {
     this.runtime = deps.runtime;
     this.providerAdmission = deps.admission;
     this.recoveryController = deps.ledger;
-    this.host = deps.host;
     this.events = deps.events;
   }
 
@@ -181,29 +159,38 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private get fallbacks(): readonly LLMProvider[] { return this.runtime.fallbacks(); }
   private get config(): LLMOrchestratorConfig { return this.runtime.config(); }
   private get providerIds(): readonly string[] { return this.runtime.providerIds(); }
-  private get providerStates(): readonly LLMProviderRecoveryState[] { return this.runtime.providerStates(); }
+  private get providerStates(): readonly LLMProviderRecoveryState[] { return this.recoveryController.snapshot().providers; }
   private get configGeneration(): number { return this.runtime.configGeneration(); }
-  private get instanceId(): string { return this.runtime.instanceId(); }
-  private set currentStreamingProvider(value: { name: string; model: string; isFallback: boolean } | null) {
-    this.host.setCurrentStreamingProvider(value);
-  }
+  private get instanceId(): string { return this.recoveryController.snapshot().instanceId; }
 
   private isRecoveryBlocking(index: number, allowRecoveryProbe: boolean): boolean {
-    return this.host.isRecoveryBlocking(index, allowRecoveryProbe);
+    if (allowRecoveryProbe) return false;
+    const providerId = this.providerIds[index];
+    const state = this.providerStates.find(provider => provider.providerId === providerId);
+    return state !== undefined && !this.providerAdmission.canProbe(state, Date.now());
   }
 
   private recordProviderSuccess(
     providerIndex: number,
     adapter: LLMProvider,
-    isFallback: boolean,
+    _isFallback: boolean,
     generation: number,
     updateSelection = true,
   ): void {
-    this.host.recordProviderSuccess(providerIndex, adapter, isFallback, generation, updateSelection);
+    if (generation !== this.configGeneration) return;
+    this.recoveryController.noteProviderSuccess(
+      this.identityAt(providerIndex, adapter.name),
+      Date.now(),
+      updateSelection,
+    );
   }
 
   private recordRecoveryFailures(failures: readonly RecoveryFailureInput[]): void {
-    this.host.recordRecoveryFailures(failures);
+    this.recoveryController.noteFailure(failures);
+  }
+
+  private noteFailureObserved(error: Error): void {
+    this.failureObservedAtMs.set(error, Date.now());
   }
 
   private toRecoveryFailures(
@@ -211,7 +198,31 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     invocationId?: string,
     attemptId?: string,
   ): RecoveryFailureInput[] {
-    return this.host.toRecoveryFailures(failures, invocationId, attemptId);
+    return failures.map(failure => {
+      const retryAfterSec = getRetryAfterSec(failure.error);
+      const resetAtMs = getQuotaResetAtMs(failure.error);
+      const localSkip = failure.localSkip === true || failure.error instanceof LLMCircuitBreakerOpenError;
+      return {
+        providerId: failure.providerId ?? this.providerIdOf(failure.provider),
+        providerLabel: failure.provider,
+        configRevision: this.configGeneration,
+        ...(invocationId !== undefined ? { invocationId } : {}),
+        ...(attemptId !== undefined ? { attemptId } : {}),
+        ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
+        errorClass: classifyLLMError(failure.error),
+        message: failure.error.message,
+        ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
+        ...(resetAtMs !== undefined ? { resetAtMs } : {}),
+        occurredAtMs: this.failureObservedAtMs.get(failure.error) ?? Date.now(),
+        ...(localSkip ? { localSkip } : {}),
+      };
+    });
+  }
+
+  private providerIdOf(providerName: string): string {
+    const adapters = [this.primary, ...this.fallbacks];
+    const index = adapters.findIndex(provider => provider.name === providerName);
+    return index >= 0 ? this.identityAt(index, providerName) : `unknown:${providerName}`;
   }
 
   /**
@@ -230,6 +241,88 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   /** 普通轮内重试退避；typed Retry-After 在调用路径直接切换候选，不在此等待。 */
   computeAttemptDelayMs(attempt: number): number {
     return this.computeBackoffMs(attempt);
+  }
+
+  snapshot(): LLMInstanceSnapshot {
+    const adapters = [this.primary, ...this.fallbacks];
+    const providers: LLMProviderSnapshotEntry[] = adapters.map((adapter, index) => {
+      const providerId = this.providerIds[index];
+      const state = this.providerStates.find(provider => provider.providerId === providerId);
+      const waiting = state?.status === 'waiting';
+      return {
+        provider: adapter.name,
+        isFallback: index > 0,
+        breakerOpen: waiting,
+        openCause: waiting ? state?.lastError?.class ?? 'unknown' : null,
+        consecutiveFailures: state?.consecutiveFailures ?? 0,
+        ...(waiting && state?.retryAt !== undefined ? { probeAllowedAtMs: state.retryAt } : {}),
+      };
+    });
+    return { takenAtMs: Date.now(), providers };
+  }
+
+  getProviderHealthSnapshot(): LLMProviderHealthSnapshot {
+    const snapshot = this.recoveryController.snapshot();
+    return {
+      revision: snapshot.revision,
+      providers: this.providerIds.map(providerId => {
+        const state = snapshot.providers.find(provider => provider.providerId === providerId);
+        const errorClass = state?.status === 'waiting' ? state.lastError?.class ?? 'unknown' : undefined;
+        return {
+          providerId,
+          healthKey: errorClass === undefined ? 'healthy' : `blocked:${errorClass}`,
+        };
+      }),
+    };
+  }
+
+  getProviderInfo(): { name: string; model: string; isFallback: boolean } {
+    if (this.currentStreamingProvider) return this.currentStreamingProvider;
+    const latest = this.lastSuccessProvider;
+    if (latest) return { name: latest.name, model: latest.model, isFallback: latest.isFallback };
+    return { name: this.primary.name, model: this.primary.model, isFallback: false };
+  }
+
+  private get lastSuccessProvider(): {
+    name: string;
+    model: string;
+    isFallback: boolean;
+    providerId: string;
+    generation: number;
+    lastUsedAt: number;
+    cacheValidUntil: number;
+  } | null {
+    let latest: LLMProviderRecoveryState | undefined;
+    for (const provider of this.providerStates) {
+      if (provider.lastSuccessAt === undefined || provider.cacheValidUntil === undefined) continue;
+      if (latest === undefined || provider.lastSuccessAt > latest.lastSuccessAt!) latest = provider;
+    }
+    if (!latest) return null;
+    const index = this.providerIds.indexOf(latest.providerId);
+    const adapter = index >= 0 ? [this.primary, ...this.fallbacks][index] : undefined;
+    if (!adapter || index < 0) return null;
+    return {
+      name: adapter.name,
+      model: adapter.model,
+      isFallback: index > 0,
+      providerId: latest.providerId,
+      generation: this.configGeneration,
+      lastUsedAt: latest.lastSuccessAt!,
+      cacheValidUntil: latest.cacheValidUntil!,
+    };
+  }
+
+  async healthCheck(): Promise<boolean> {
+    for (const adapter of [this.primary, ...this.fallbacks]) {
+      const result = await this.minimalProbe(adapter, 10_000);
+      if (result.ok) return true;
+      this.events.emit({
+        type: 'healthcheck_failed',
+        provider: adapter.name,
+        error: result.error.message,
+      });
+    }
+    return false;
   }
 
   /**
@@ -287,7 +380,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       } catch (error) {
         cleanupSignal();
         lastError = error as Error;
-        this.host.noteFailureObserved(lastError);
+        this.noteFailureObserved(lastError);
 
         if (options.signal?.aborted) {
           throw makeExternalAbortError(options.signal.reason);
@@ -525,6 +618,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       nowMs: Date.now(),
     });
     const failures: LLMProviderFailure[] = [];
+    const attemptedProviderIds = new Set<string>();
 
     {
       // 统一 TTL 内保持上次成功的可用 fallback；到期或失败后从 primary 重评
@@ -537,6 +631,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           if (this.isRecoveryBlocking(stickyIdx + 1, allowBreakerProbe)) {
             this.noteCandidateSkipped(inv, failures, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name), 'provider_recovery_floor');
           } else {
+            attemptedProviderIds.add(this.identityAt(stickyIdx + 1, stickyFb.name));
             try {
               const response = await this.tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
               this.noteCandidateSuccess(inv, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name));
@@ -557,6 +652,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       if (this.isRecoveryBlocking(0, allowBreakerProbe)) {
         this.noteCandidateSkipped(inv, failures, this.primary.name, this.identityAt(0, this.primary.name), 'provider_recovery_floor');
       } else {
+        attemptedProviderIds.add(this.identityAt(0, this.primary.name));
         try {
           const response = await this.tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
@@ -576,15 +672,17 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // the forensic payload point at a provider that never ran.
       for (let i = 0; i < this.fallbacks.length; i++) {
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
-        if (i === stickyIdx) {
-          // Phase 1968 Step B：sticky 已在最前实际尝试过——重复位置只记跳过事实，不进聚合失败。
-          this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), 'already_attempted');
+        const providerId = this.identityAt(i + 1, this.fallbacks[i].name);
+        if (attemptedProviderIds.has(providerId)) {
+          // Phase 2064 Step B：sticky/前序候选已实际尝试过——重复身份只记跳过事实，不进聚合失败。
+          this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, providerId, 'already_attempted');
           continue;
         }
         if (this.isRecoveryBlocking(i + 1, allowBreakerProbe)) {
-          this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), 'provider_recovery_floor');
+          this.noteCandidateSkipped(inv, failures, this.fallbacks[i].name, providerId, 'provider_recovery_floor');
           continue;
         }
+        attemptedProviderIds.add(providerId);
         try {
           this.events.emit({
             type: 'fallback_switched',
@@ -593,14 +691,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             reason: primaryFailed ? 'primary_exhausted' : 'primary_breaker_open',
           });
           const response = await this.tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
-          this.noteCandidateSuccess(inv, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name));
+          this.noteCandidateSuccess(inv, this.fallbacks[i].name, providerId);
           return response;
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
           if (classifyLLMError(err) === 'context_exceeded') throw err;
           // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
-          this.noteCandidateFailure(inv, failures, this.fallbacks[i].name, this.identityAt(i + 1, this.fallbacks[i].name), err as Error);
+          this.noteCandidateFailure(inv, failures, this.fallbacks[i].name, providerId, err as Error);
         }
       }
 
@@ -654,7 +752,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       return;
     }
 
-    // primary 已由 probe 恢复时立即优先；否则由统一策略在 TTL 内保持可用 fallback。
+    // 有效 fallback cache 期间保持 sticky；到期后按配置顺序从 primary 重评。
     // 候选按位置构造，重复 identity 的不同 adapter 仍各自执行一次。
     const providers: Array<{ adapter: LLMProvider; breakerIndex: number; isFallback: boolean }> = [
       { adapter: this.primary, breakerIndex: 0, isFallback: false },
@@ -802,7 +900,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         } catch (error) {
           const err = error as Error;
           lastError = err;
-          this.host.noteFailureObserved(err);
+          this.noteFailureObserved(err);
           const isUserAbort = options.signal?.aborted;
           const isIdleTimeout = idleCtrl?.signal.aborted && !isUserAbort;
 
@@ -1166,11 +1264,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             // skip metadata chunks (done/reset/thinking_signature/etc.)
           }
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without content chunk');
-          this.host.noteFailureObserved(error);
+          this.noteFailureObserved(error);
           return { winner: 'A-error', error };
         } catch (e) {
           const error = e as Error;
-          this.host.noteFailureObserved(error);
+          this.noteFailureObserved(error);
           return { winner: 'A-error', error };
         }
       })();
@@ -1209,7 +1307,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             }
             if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
             const e = err as Error;
-            this.host.noteFailureObserved(e);
+            this.noteFailureObserved(e);
             const errClass = classifyLLMError(e);
             this.events.emit({
               type: 'provider_attempt_failed',
@@ -1255,7 +1353,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             yield chunk;
           }
         } catch (err) {
-          this.host.noteFailureObserved(err as Error);
+          this.noteFailureObserved(err as Error);
           // User abort is not a provider failure — don't trip breaker or emit stream_reset
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
@@ -1289,7 +1387,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           // Clean EOF without done → truncated stream, treat as provider failure
           this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
-          this.host.noteFailureObserved(error);
+          this.noteFailureObserved(error);
           this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), error, 'transient');
           yield { type: 'reset', provider: this.primary.name };
           yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
@@ -1433,7 +1531,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             yield chunk;
           }
         } catch (err) {
-          this.host.noteFailureObserved(err as Error);
+          this.noteFailureObserved(err as Error);
           // User abort is not a provider failure — don't trip breaker or emit stream_reset
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason);
@@ -1463,7 +1561,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           // Clean EOF without done → truncated stream, treat as provider failure
           this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
           const error = new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
-          this.host.noteFailureObserved(error);
+          this.noteFailureObserved(error);
           this.noteCandidateFailure(inv, [], this.primary.name, this.identityAt(0, this.primary.name), error, 'transient');
           yield { type: 'reset', provider: this.primary.name };
           yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };

@@ -9,6 +9,7 @@ import { LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-
 import type { LLMResponse, ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
+import { providerStatesOf } from './test-internals.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
@@ -119,7 +120,7 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     expect(state.providers.map((provider: { consecutiveFailures: number }) => provider.consecutiveFailures)).toEqual([1, 1]);
     expect(state.recovery.providers).toEqual([]);
     expect(state.recovery.budget).toMatchObject({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
-    const internal = f.owner as unknown as { providerStates: Array<{ consecutiveFailures: number }> };
+    const internal = { providerStates: providerStatesOf(f.owner) };
     expect(internal.providerStates.map(provider => provider.consecutiveFailures)).toEqual([1, 1]);
     await f.owner.close();
   });
@@ -138,7 +139,7 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     expect(f.events.filter(event =>
       event.type === 'call_attempt_result' && event.outcome === 'failure'
     )).toHaveLength(2);
-    const internal = f.owner as unknown as { providerStates: Array<{ consecutiveFailures: number }> };
+    const internal = { providerStates: providerStatesOf(f.owner) };
     expect(internal.providerStates).toHaveLength(2);
     expect(internal.providerStates.map(provider => provider.consecutiveFailures)).toEqual([1, 1]);
     await f.owner.close();

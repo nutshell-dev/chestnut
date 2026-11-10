@@ -8,17 +8,24 @@ import {
   type ProviderConfig,
 } from '../llm-provider/index.js';
 import type { LLMEventSink, LLMOrchestratorConfig } from './types.js';
-import { providerCacheKey } from './provider-identity.js';
+import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
 
 export interface PreparedProviderReload {
+  readonly config: LLMOrchestratorConfig;
   readonly primary: LLMProvider;
   readonly fallbacks: readonly LLMProvider[];
+  readonly providerIds: readonly string[];
+  readonly legacyProviderIds: readonly string[];
   readonly oldKeys: ReadonlySet<string>;
 }
 
 export interface ProviderRuntime {
   primary(): LLMProvider;
   fallbacks(): readonly LLMProvider[];
+  config(): LLMOrchestratorConfig;
+  providerIds(): readonly string[];
+  legacyProviderIds(): readonly string[];
+  configGeneration(): number;
   prepareReload(config: LLMOrchestratorConfig): PreparedProviderReload;
   commitReload(prepared: PreparedProviderReload): void;
   close(): Promise<void>;
@@ -32,16 +39,24 @@ export class LLMProviderRuntime implements ProviderRuntime {
   private readonly auditLogIdMap = new WeakMap<AuditSink, string>();
   private nextAuditLogId = 0;
   private pendingClose: LLMProvider[] = [];
+  private activeConfig: LLMOrchestratorConfig;
   private activePrimary: LLMProvider;
   private activeFallbacks: LLMProvider[];
+  private activeProviderIds: readonly string[];
+  private activeLegacyProviderIds: readonly string[];
+  private activeConfigGeneration = 0;
   private closed = false;
 
   constructor(config: LLMOrchestratorConfig) {
     this.events = config.events;
     this.createProviderAdapter = config.createProviderAdapter;
     this.credentialStore = config.credentialStore;
+    this.activeConfig = config;
     this.activePrimary = this.getSdkClient(config.primary);
     this.activeFallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
+    const providers = [config.primary, ...(config.fallbacks ?? [])];
+    this.activeProviderIds = providers.map(providerIdentity);
+    this.activeLegacyProviderIds = providers.map(legacyProviderIdentity);
   }
 
   primary(): LLMProvider {
@@ -52,7 +67,23 @@ export class LLMProviderRuntime implements ProviderRuntime {
     return this.activeFallbacks;
   }
 
-  /** Actual cache reference for the Facade's legacy white-box compatibility getter. */
+  config(): LLMOrchestratorConfig {
+    return this.activeConfig;
+  }
+
+  providerIds(): readonly string[] {
+    return this.activeProviderIds;
+  }
+
+  legacyProviderIds(): readonly string[] {
+    return this.activeLegacyProviderIds;
+  }
+
+  configGeneration(): number {
+    return this.activeConfigGeneration;
+  }
+
+  /** Actual cache reference for runtime lifecycle tests. */
   get clientCache(): Map<string, LLMProvider> {
     return this.sdkClientCache;
   }
@@ -86,13 +117,25 @@ export class LLMProviderRuntime implements ProviderRuntime {
     const oldKeys = new Set(this.sdkClientCache.keys());
     const primary = this.getSdkClient(config.primary);
     const fallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
-    return { primary, fallbacks, oldKeys };
+    const providers = [config.primary, ...(config.fallbacks ?? [])];
+    return {
+      config,
+      primary,
+      fallbacks,
+      providerIds: providers.map(providerIdentity),
+      legacyProviderIds: providers.map(legacyProviderIdentity),
+      oldKeys,
+    };
   }
 
   /** Activate only after V3 commit; superseded adapters remain open until close. */
   commitReload(prepared: PreparedProviderReload): void {
+    this.activeConfig = prepared.config;
     this.activePrimary = prepared.primary;
     this.activeFallbacks = [...prepared.fallbacks];
+    this.activeProviderIds = [...prepared.providerIds];
+    this.activeLegacyProviderIds = [...prepared.legacyProviderIds];
+    this.activeConfigGeneration += 1;
     const newProviders = new Set([prepared.primary, ...prepared.fallbacks]);
     for (const key of prepared.oldKeys) {
       const provider = this.sdkClientCache.get(key);

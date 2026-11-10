@@ -6,31 +6,42 @@ import {
   type LLMInstanceStateV3,
 } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { InstanceStateStore } from '../../../src/foundation/llm-orchestrator/instance-state-store.js';
 
 function fixture(initial: LLMInstanceStateV3 = createEmptyLLMInstanceState('instance-a')) {
   let state = structuredClone(initial);
   const events: LLMEvent[] = [];
   const contexts: string[] = [];
   let failCommits = false;
+  const store: InstanceStateStore = {
+    load: () => state,
+    snapshot: () => structuredClone({
+      instanceId: state.instanceId,
+      recovery: state.recovery,
+      revision: state.revision,
+      providers: state.providers,
+    }),
+    get revision() { return state.revision; },
+    get state() { return state; },
+    commit: (context, candidate) => {
+      contexts.push(context);
+      if (failCommits) return { kind: 'failed', error: new Error('commit failed') };
+      state = {
+        ...state,
+        revision: state.revision + 1,
+        recovery: candidate.recovery,
+        providers: [...candidate.providers],
+      };
+      return { kind: 'ephemeral', revision: state.revision };
+    },
+  };
   const controller = new LLMRecoveryControllerImpl({
-    instanceId: state.instanceId,
+    store,
     providerIds: ['current'],
     legacyProviderIds: ['legacy'],
     admission: new LLMProviderAdmission(),
     now: () => 10_000,
-    read: () => ({ recovery: state.recovery, revision: state.revision, providers: state.providers }),
     emit: event => { events.push(event); },
-    commit: (recovery, context, providers) => {
-      contexts.push(context);
-      if (failCommits) throw new Error('commit failed');
-      state = {
-        ...state,
-        revision: state.revision + 1,
-        recovery,
-        providers: [...(providers ?? state.providers)],
-      };
-      return state.revision;
-    },
   });
   return {
     controller, events, contexts,
@@ -139,10 +150,49 @@ describe('RecoveryLedger failure evidence', () => {
     f.failCommits();
     expect(() => f.controller.noteFailure([{
       providerId: 'current', errorClass: 'transient', message: 'offline', occurredAtMs: 10_000,
-    }])).toThrow('commit failed');
+    }])).toThrow('persistence failed during noteFailure');
     expect(f.read()).toEqual(before);
     expect(f.events).toEqual([expect.objectContaining({
-      type: 'recovery_state_write_failed', context: 'noteFailure', reason: 'commit failed',
+      type: 'recovery_state_write_failed', context: 'noteFailure',
+      reason: expect.stringContaining('LLM instance state persistence failed during noteFailure'),
     })]);
+  });
+});
+
+
+describe('RecoveryLedger provider facts', () => {
+  it('commits business selection separately from probe health and exposes a detached snapshot', () => {
+    const f = fixture();
+    const commits: string[] = [];
+    f.controller.subscribeCommits(context => commits.push(context));
+
+    f.controller.noteProviderSuccess('current', 20_000, true);
+    expect(f.controller.snapshot()).toMatchObject({
+      instanceId: 'instance-a', revision: 1,
+      providers: [{ providerId: 'current', status: 'available', lastSuccessAt: 20_000 }],
+    });
+    const snapshot = f.controller.snapshot();
+    (snapshot.providers[0] as { lastSuccessAt?: number }).lastSuccessAt = 1;
+    expect(f.controller.snapshot().providers[0]?.lastSuccessAt).toBe(20_000);
+
+    f.controller.noteProviderSuccess('current', 30_000, false);
+    expect(f.controller.snapshot().providers[0]).toMatchObject({
+      lastSuccessAt: 20_000, cacheValidUntil: 320_000, consecutiveFailures: 0,
+    });
+    expect(commits).toEqual(['provider_success']);
+  });
+
+  it('persists reload filtering and clears selection before publishing new identities', () => {
+    const initial = createEmptyLLMInstanceState('instance-a');
+    initial.providers = [
+      { providerId: 'current', status: 'waiting', retryAt: 50_000, lastSuccessAt: 1, cacheValidUntil: 2 },
+      { providerId: 'removed', status: 'available', lastSuccessAt: 3, cacheValidUntil: 4 },
+    ];
+    const f = fixture(initial);
+    f.controller.reloadProviderIdentities(['current'], ['legacy-current']);
+    expect(f.controller.snapshot().providers).toEqual([{
+      providerId: 'current', status: 'waiting', retryAt: 50_000,
+    }]);
+    expect(f.contexts).toEqual(['reload_config']);
   });
 });

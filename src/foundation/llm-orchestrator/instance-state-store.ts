@@ -30,12 +30,18 @@ export type InstanceStateCommitResult =
 export interface InstanceStateCommitOptions {
   providerIds?: readonly string[];
   force?: boolean;
-  /** Store 提交成功后、degraded 事件前同步 facade 只读投影。 */
-  publish?: () => void;
+}
+
+export interface InstanceStateSnapshot {
+  readonly instanceId: string;
+  readonly recovery: LLMInstanceRecoveryState;
+  readonly revision: number;
+  readonly providers: readonly LLMProviderRecoveryState[];
 }
 
 export interface InstanceStateStore {
-  load(publish?: (state: LLMInstanceStateV3) => void): LLMInstanceStateV3;
+  load(): LLMInstanceStateV3;
+  snapshot(): InstanceStateSnapshot;
   readonly revision: number;
   readonly state: LLMInstanceStateV3;
   commit(
@@ -76,10 +82,19 @@ export class LLMInstanceStateStore implements InstanceStateStore {
     return this.current;
   }
 
-  load(publish?: (state: LLMInstanceStateV3) => void): LLMInstanceStateV3 {
+  /** A detached read view: callers cannot mutate the Store's committed state. */
+  snapshot(): InstanceStateSnapshot {
+    return structuredClone({
+      instanceId: this.current.instanceId,
+      recovery: this.current.recovery,
+      revision: this.current.revision,
+      providers: this.current.providers,
+    });
+  }
+
+  load(): LLMInstanceStateV3 {
     if (this.options.mode === 'ephemeral') {
       this.current = createEmptyLLMInstanceState();
-      publish?.(this.current);
       return this.current;
     }
 
@@ -90,7 +105,6 @@ export class LLMInstanceStateStore implements InstanceStateStore {
     if (loaded.kind === 'ok') {
       // V3 存在即唯一权威；即使旧文件仍存在，也不再读取或合并。
       this.current = loaded.state;
-      publish?.(this.current);
       return this.current;
     }
 
@@ -127,7 +141,6 @@ export class LLMInstanceStateStore implements InstanceStateStore {
     // 初始迁移保持原语义：rename 前失败拒绝启动；rename 后降级仍发布并留证。
     const result = saveLLMInstanceState(this.options.fs, migrated, this.options.stateDir);
     this.current = migrated;
-    publish?.(this.current);
     if (result.kind !== 'durable') {
       this.events.emit({
         type: 'instance_state_write_degraded',
@@ -156,7 +169,6 @@ export class LLMInstanceStateStore implements InstanceStateStore {
 
     if (!persistentChanged) {
       this.current = this.project(candidate, providerIds, this.current.revision, this.current.updatedAt);
-      options.publish?.();
       return { kind: 'unchanged', revision: this.current.revision };
     }
 
@@ -168,7 +180,6 @@ export class LLMInstanceStateStore implements InstanceStateStore {
     );
     if (this.options.mode === 'ephemeral') {
       this.current = next;
-      options.publish?.();
       return { kind: 'ephemeral', revision: next.revision };
     }
 
@@ -185,7 +196,6 @@ export class LLMInstanceStateStore implements InstanceStateStore {
 
     // rename 已提交后才发布候选；degraded 事件仍在调用方后续恢复事件之前。
     this.current = next;
-    options.publish?.();
     if (durability.kind !== 'durable') {
       this.events.emit({
         type: 'instance_state_write_degraded',

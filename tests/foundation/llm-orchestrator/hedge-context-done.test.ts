@@ -4,6 +4,7 @@ import { classifyStreamDone } from '../../../src/foundation/llm-orchestrator/uti
 import type { LLMEvent, LLMEventSink, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';
 import { LLMError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
 interface MockProviderOptions {
   streamChunks?: ProviderStreamChunk[];
@@ -59,13 +60,13 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     createProviderAdapter: findAdapter,
   });
   const now = Date.now();
-  (service as any).providerStates = [{
-    providerId: (service as any).providerIds[0],
+  replaceProviderStates(service, [{
+    providerId: internalsOf(service).providerRuntime.providerIds()[0],
     status: 'waiting',
     retryAt: now + 60_000,
     lastError: { class: 'transient', at: now, message: 'forced provider failure' },
     consecutiveFailures: 1,
-  }];
+  }]);
   return { service, events };
 }
 
@@ -144,15 +145,15 @@ describe('hedge primary context-done', () => {
       primaryRaw.provider,
       [fallback.provider, secondFallback.provider],
     );
-    const primaryStateBefore = structuredClone((service as any).providerStates[0]);
+    const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
     const result = await collectStream(service);
 
     expectContextFailure(result, events);
     expect(fallback.callSpy).toHaveBeenCalledTimes(1);
     expect(secondFallback.callSpy).not.toHaveBeenCalled();
-    expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
-    expect((service as any).lastSuccessProvider).toBeNull();
+    expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
+    expect(lastSuccessProviderOf(service)).toBeNull();
     expect(returnSpy).toHaveBeenCalled();
   });
 
@@ -169,14 +170,14 @@ describe('hedge primary context-done', () => {
       callError: new LLMNetworkError('fallback', new Error('offline')),
     });
     const { service, events } = createOrchestrator(primaryRaw.provider, [fallback.provider]);
-    const primaryStateBefore = structuredClone((service as any).providerStates[0]);
+    const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
 
     const result = await collectStream(service);
 
     expectContextFailure(result, events);
     expect(fallback.callSpy).toHaveBeenCalledTimes(1);
-    expect((service as any).providerStates[0]).toEqual(primaryStateBefore);
-    expect((service as any).lastSuccessProvider).toBeNull();
+    expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
+    expect(lastSuccessProviderOf(service)).toBeNull();
     expect(returnSpy).toHaveBeenCalled();
   });
 
@@ -198,7 +199,7 @@ describe('hedge primary context-done', () => {
       { type: 'done', stopReason: 'end_turn' },
     ]);
     expect(events.some(event => event.type === 'hedge_primary_recovered')).toBe(true);
-    expect((service as any).providerStates[0]).toMatchObject({
+    expect(providerStatesOf(service)[0]).toMatchObject({
       status: 'available',
       retryAt: undefined,
       consecutiveFailures: 0,

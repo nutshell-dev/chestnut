@@ -11,6 +11,7 @@ import type {
   LLMEventSink,
   LLMEvent,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import { internalsOf } from './test-internals.js';
 
 function createSink() {
   const emitted: LLMEvent[] = [];
@@ -30,7 +31,7 @@ describe('LLMOrchestratorImpl.close', () => {
     });
 
     // 触发 cache 写入：模 cache.set
-    const cache: Map<string, unknown> = (orch as unknown as { sdkClientCache: Map<string, unknown> }).sdkClientCache;
+    const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
     cache.set('test-key', { close: () => undefined });
     expect(cache.size).toBeGreaterThanOrEqual(1);
 
@@ -49,7 +50,7 @@ describe('LLMOrchestratorImpl.close', () => {
     });
 
     let closeCalled = false;
-    const cache: Map<string, unknown> = (orch as unknown as { sdkClientCache: Map<string, unknown> }).sdkClientCache;
+    const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
     cache.set('test-key', { close: () => { closeCalled = true; } });
 
     await orch.close();
@@ -66,7 +67,7 @@ describe('LLMOrchestratorImpl.close', () => {
       events: sink,
     });
 
-    const cache: Map<string, unknown> = (orch as unknown as { sdkClientCache: Map<string, unknown> }).sdkClientCache;
+    const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
     cache.set('test-key', { /* no close */ });
 
     await expect(orch.close()).resolves.not.toThrow();
@@ -138,7 +139,7 @@ describe('LLMOrchestratorImpl.close', () => {
     });
 
     const goodClose = vi.fn().mockResolvedValue(undefined);
-    const cache: Map<string, unknown> = (orch as unknown as { sdkClientCache: Map<string, unknown> }).sdkClientCache;
+    const cache: Map<string, unknown> = internalsOf(orch).providerRuntime.clientCache;
     cache.set('bad', { close: async () => { throw new Error('bad close'); } });
     cache.set('good', { close: goodClose });
 

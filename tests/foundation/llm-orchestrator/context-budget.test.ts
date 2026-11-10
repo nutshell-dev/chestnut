@@ -26,6 +26,7 @@ import {
   type LLMCallOptions,
   type LLMResponse,
 } from '../../../src/foundation/llm-provider/index.js';
+import { replaceProviderStates } from './test-internals.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -197,7 +198,7 @@ describe('Phase 1969: no preflight admission', () => {
       if (mode === 'sticky') {
         const now = Date.now();
         const [primaryId, fallbackId] = owner.getProviderIdentities();
-        (owner as any).providerStates = [
+        replaceProviderStates(owner, [
           {
             providerId: primaryId,
             status: 'waiting',
@@ -212,7 +213,7 @@ describe('Phase 1969: no preflight admission', () => {
             cacheValidUntil: now + 300_000,
             consecutiveFailures: 0,
           },
-        ];
+        ]);
       }
 
       let caught: unknown;

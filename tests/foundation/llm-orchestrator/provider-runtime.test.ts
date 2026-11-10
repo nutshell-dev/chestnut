@@ -43,13 +43,22 @@ describe('ProviderRuntime cache and reload lifecycle', () => {
     expect(runtime.fallbacks()[0]).toBe(original);
     expect(created).toHaveLength(1);
 
+    const generation = runtime.configGeneration();
+    const identities = runtime.providerIds();
     const prepared = runtime.prepareReload(config(nextConfig, eventSink.sink, factory));
     const next = prepared.primary;
     expect(runtime.primary()).toBe(original);
+    expect(runtime.configGeneration()).toBe(generation);
+    expect(runtime.providerIds()).toBe(identities);
+    expect(runtime.config().primary.name).toBe('primary');
     expect(next).not.toBe(original);
 
     runtime.commitReload(prepared);
     expect(runtime.primary()).toBe(next);
+    expect(runtime.configGeneration()).toBe(generation + 1);
+    expect(runtime.providerIds()).toEqual(prepared.providerIds);
+    expect(runtime.legacyProviderIds()).toEqual(prepared.legacyProviderIds);
+    expect(runtime.config().primary.name).toBe('next');
     expect([...runtime.clientCache.values()]).toEqual([next]);
 
     const restored = runtime.prepareReload(config(primaryConfig, eventSink.sink, factory));

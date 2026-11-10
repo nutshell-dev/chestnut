@@ -17,6 +17,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { internalsOf, replaceProviderStates } from './test-internals.js';
 
 
 function createDeferredMockProvider(
@@ -94,13 +95,13 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
 
 function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause: 'transient' | 'permanent' | 'rate_limit') {
   const now = Date.now();
-  (service as any).providerStates = [{
-    providerId: (service as any).providerIds[index],
+  replaceProviderStates(service, [{
+    providerId: internalsOf(service).providerRuntime.providerIds()[index],
     status: 'waiting',
     retryAt: now + 60_000,
     lastError: { class: cause, at: now, message: 'forced provider failure' },
     consecutiveFailures: 1,
-  }];
+  }]);
 }
 
 function attachEventSpy(service: LLMOrchestratorImpl) {
