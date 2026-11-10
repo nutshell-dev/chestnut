@@ -8,7 +8,7 @@
  * raw-wire 负断言同步指向新路径；presentation 同词允许规则继续适用。
  *
  * 单一职责：contract_cancelled persisted guidance state 的 schema 归 ContractSystem 独占——
- *  - 两个 production writer（Assembly contract-notification-adapter 与
+ *  - 两个 production writer（Assembly contract-cancellation-delivery 与
  *    contract-observer cron）必须经 owner encoder 写 v1 wire；
  *  - 唯一 consumer（Assembly contract-cancelled typed binding）必须经 owner decoder 取
  *    typed refs，不得再出现 raw owner dialect（source_claw / contract_id / reason /
@@ -27,7 +27,7 @@ import * as path from 'node:path';
 
 const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
 
-const ADAPTER = path.join(srcRoot, 'assembly', 'contract-notification-adapter.ts');
+const DELIVERY = path.join(srcRoot, 'assembly', 'contract-cancellation-delivery.ts');
 const OBSERVER = path.join(srcRoot, 'core', 'contract', 'jobs', 'contract-observer.ts');
 const BINDING = path.join(srcRoot, 'assembly', 'guidance', 'bindings', 'contract-cancelled.ts');
 const CODEC = path.join(srcRoot, 'core', 'contract', 'contract-cancelled-guidance.ts');
@@ -53,7 +53,7 @@ const CONSUMER_RAW_WIRE_ACCESS = new RegExp([
 
 describe('phase 1262 Step B + phase 1267 Step A: contract cancelled guidance owner boundary', () => {
   it('两个 production writer 必须引用 owner encoder', () => {
-    for (const file of [ADAPTER, OBSERVER]) {
+    for (const file of [DELIVERY, OBSERVER]) {
       const text = fs.readFileSync(file, 'utf8');
       expect(text, path.relative(srcRoot, file)).toContain('encodeContractCancelledGuidance');
     }
@@ -83,11 +83,11 @@ describe('phase 1262 Step B + phase 1267 Step A: contract cancelled guidance own
   });
 
   it('writer 不得手写 v1/legacy owner wire key（contract_cancelled 投递 block）', () => {
-    // adapter 的 contract_cancelled block：只经 owner encoder 写 extraFields；
-    // toLegacyNotifyData 的 stream legacy payload（contractId/reason）不在本 block 范围
-    const adapter = fs.readFileSync(ADAPTER, 'utf8');
-    const cancelledBlock = adapter.split("event.type === 'contract_cancelled'")[1]
-      .split('};')[0];
+    // 专用 delivery 的 notifyAsync block：只经 owner encoder 写 extraFields；
+    // 观察 adapter 不再是 production writer，其 stream legacy payload 不在本 ratchet 范围。
+    const delivery = fs.readFileSync(DELIVERY, 'utf8');
+    const cancelledBlock = delivery.split('await deps.notifyAsync')[1]
+      .split('});')[0];
     expect(cancelledBlock).not.toMatch(WRITER_OWNER_WIRE_KEYS);
     expect(cancelledBlock).not.toContain('contract_id');
     expect(cancelledBlock).not.toContain('reason');

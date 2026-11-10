@@ -826,7 +826,7 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
       expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
       expect(await listDirSafe(target.clawDir)).not.toContain('read-state.json');
     } finally {
-      await fs.chmod(deniedFile, 0o600).catch(() => {});
+      await fs.chmod(deniedFile, 0o600).catch(() => { /* silent: cleanup */ });
     }
   });
 

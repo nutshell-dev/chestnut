@@ -56,11 +56,11 @@ describe('phase 1261 Step B: contract events guidance owner boundary', () => {
   });
 
   it('writer 不得手写 v1/legacy owner wire key（contract_events 路径）', () => {
-    // contract_events single path 不再写 legacy keys extraFields；
-    // adapter 的 contract_cancelled path 保留自家 legacy keys（本 phase 不治理）
+    // contract_events single path 不再写 legacy keys extraFields；block 以本次
+    // notifyInbox 调用结束为界，不能依赖 Phase2091 已删除的 cancelled 分支。
     const adapter = fs.readFileSync(ADAPTER, 'utf8');
     const completedBlock = adapter.split("event.type === 'contract_completed'")[1]
-      .split("event.type === 'contract_cancelled'")[0];
+      .split('}, deps.auditWriter);')[0];
     expect(completedBlock).not.toMatch(OWNER_WIRE_KEYS);
     expect(completedBlock).not.toContain('contract_id');
 

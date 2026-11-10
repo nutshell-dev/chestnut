@@ -598,7 +598,7 @@ describe('exec-context-narrow-audit-invariant', () => {
   ]);
   /** D3 ExecutionInfra */
   const D3_FIELDS = new Set([
-    'fs', 'fsFactory', 'llm', 'registry', 'taskSystem',
+    'fs', 'fsFactory', 'llm', 'registry', 'taskSystem', 'toolOutput',
   ]);
   /** D4 ExecutionControl */
   const D4_FIELDS = new Set([
