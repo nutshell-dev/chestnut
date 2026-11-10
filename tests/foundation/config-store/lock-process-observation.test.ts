@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import {
   ConfigStoreError,
   isConfigStoreError,
@@ -18,8 +19,8 @@ import type {
 } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
-const OLD = new Date(Date.now() - 120_000).toISOString();
-const FAST = { acquireTimeoutMs: 80, staleMs: 0, pollMs: 5 } as const;
+// Epoch fixture + staleMs: 0 makes the holder immediately eligible for inspection.
+const OLD = new Date(0).toISOString();
 const EVIDENCE: ProcessEvidence = { version: 1, atMs: 0, facts: [] };
 const SELF_CAPTURE = {
   kind: 'captured', value: 'self-ref' as ProcessRef, evidence: EVIDENCE,
@@ -34,11 +35,14 @@ beforeEach(async () => {
   tempDir = await createTrackedTempDir('config-lock-observation-');
   configPath = path.join(tempDir, 'config.yaml');
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  vi.setSystemTime(new Date(0));
   vi.spyOn(processExec, 'captureCurrentProcessRef').mockReturnValue(SELF_CAPTURE);
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   await cleanupTempDir(tempDir);
 });
 
@@ -47,7 +51,19 @@ async function catchStoreError(
   code: ConfigStoreErrorCode,
 ): Promise<ConfigStoreError> {
   try {
-    await promise;
+    // Attach rejection handling before driving polling; disk writes remain real.
+    let settled = false;
+    const result = promise.then(
+      value => { settled = true; return { kind: 'returned' as const, value }; },
+      error => { settled = true; return { kind: 'threw' as const, error }; },
+    );
+    while (!settled) {
+      // Real asynchronous rename can schedule another poll after the timer queue empties.
+      await setImmediate();
+      await vi.advanceTimersToNextTimerAsync();
+    }
+    const outcome = await result;
+    if (outcome.kind === 'threw') throw outcome.error;
   } catch (error) {
     expect(isConfigStoreError(error)).toBe(true);
     expect(error).toBeInstanceOf(ConfigStoreError);
@@ -95,8 +111,8 @@ function mockOutcome(outcome: ProcessRefObservation) {
 
 function runLock(fn: () => void, asyncEntry = false): Promise<unknown> {
   return asyncEntry
-    ? withYamlConfigLockAsync(deps, configPath, async () => { fn(); }, FAST)
-    : withYamlConfigLock(deps, configPath, fn, FAST);
+    ? withYamlConfigLockAsync(deps, configPath, async () => { fn(); }, { staleMs: 0 })
+    : withYamlConfigLock(deps, configPath, fn, { staleMs: 0 });
 }
 
 type StoredRecord = {
@@ -406,24 +422,46 @@ describe('ConfigStore persisted holder observations', () => {
     expect(readRecords()).toHaveLength(1);
   });
 
+  it('times out before observing a holder when self capture exhausts the budget', async () => {
+    const raw = '[]';
+    writeLock(raw);
+    const decode = vi.spyOn(processExec, 'decodeProcessRef');
+    const inspect = vi.spyOn(processExec, 'inspectProcessRef');
+    vi.spyOn(processExec, 'captureCurrentProcessRef').mockImplementation(() => {
+      vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER);
+      return SELF_CAPTURE;
+    });
+    const mutation = vi.fn();
+
+    await catchStoreError(runLock(mutation), 'lock_timeout');
+
+    expect(mutation).not.toHaveBeenCalled();
+    expect(decode).not.toHaveBeenCalled();
+    expect(inspect).not.toHaveBeenCalled();
+    expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(raw);
+    expect(readRecords()).toEqual([]);
+    const capture = observationEntries().find(entry => entry.name === '000001.json');
+    expect(JSON.parse(nodeFs.readSync(capture!.path))).toMatchObject({
+      event: 'self_capture', capture: SELF_CAPTURE,
+    });
+  });
+
   it('persists a late gone observation but does not reclaim after the original deadline', async () => {
     const raw = legacyRaw();
     writeLock(raw);
-    const initialNow = Date.now();
-    let now = initialNow;
-    vi.spyOn(Date, 'now').mockImplementation(() => now);
     vi.spyOn(processExec, 'decodeProcessRef').mockReturnValue({
       kind: 'decoded', value: 'decoded-opaque-ref' as ProcessRef,
     });
     vi.spyOn(processExec, 'inspectProcessRef').mockImplementation(() => {
-      now += 100;
+      // Cross the finite deadline without depending on an elapsed wall-clock duration.
+      vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER);
       return { kind: 'gone', reason: 'absent', evidence: EVIDENCE };
     });
     let calls = 0;
 
     const error = await catchStoreError(withYamlConfigLock(deps, configPath, () => {
       calls += 1;
-    }, { acquireTimeoutMs: 50, staleMs: 0, pollMs: 5 }), 'lock_timeout');
+    }, { staleMs: 0 }), 'lock_timeout');
 
     expect(calls).toBe(0);
     expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(raw);
@@ -468,9 +506,9 @@ describe('ConfigStore persisted holder observations', () => {
     const syncError = new Error('sync business failure');
     const asyncError = new Error('async business failure');
 
-    await expect(withYamlConfigLock(deps, configPath, () => { throw syncError; }, FAST))
+    await expect(withYamlConfigLock(deps, configPath, () => { throw syncError; }, { staleMs: 0 }))
       .rejects.toBe(syncError);
-    await expect(withYamlConfigLockAsync(deps, configPath, async () => { throw asyncError; }, FAST))
+    await expect(withYamlConfigLockAsync(deps, configPath, async () => { throw asyncError; }, { staleMs: 0 }))
       .rejects.toBe(asyncError);
     expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
   });

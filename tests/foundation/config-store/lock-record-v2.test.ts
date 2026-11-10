@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import {
   ConfigStoreError,
   isConfigStoreError,
@@ -17,8 +18,8 @@ import type {
 } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
-const FAST = { acquireTimeoutMs: 80, staleMs: 0, pollMs: 5 } as const;
-const OLD = new Date(Date.now() - 120_000).toISOString();
+// Epoch fixture + staleMs: 0 makes the holder immediately eligible for inspection.
+const OLD = new Date(0).toISOString();
 const EVIDENCE: ProcessEvidence = {
   version: 1,
   atMs: 123,
@@ -48,21 +49,23 @@ beforeEach(async () => {
   tempDir = await createTrackedTempDir('config-lock-record-v2-');
   configPath = path.join(tempDir, 'config.yaml');
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  vi.setSystemTime(new Date(0));
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   await cleanupTempDir(tempDir);
 });
 
 function runLock(
   asyncEntry: boolean,
   fn: () => void,
-  opts: { acquireTimeoutMs: number; staleMs: number; pollMs: number } = FAST,
 ): Promise<unknown> {
   return asyncEntry
-    ? withYamlConfigLockAsync(deps, configPath, async () => { fn(); }, opts)
-    : withYamlConfigLock(deps, configPath, fn, opts);
+    ? withYamlConfigLockAsync(deps, configPath, async () => { fn(); }, { staleMs: 0 })
+    : withYamlConfigLock(deps, configPath, fn, { staleMs: 0 });
 }
 
 async function catchStoreError(
@@ -70,7 +73,18 @@ async function catchStoreError(
   code: ConfigStoreErrorCode,
 ): Promise<ConfigStoreError> {
   try {
-    await promise;
+    // Drive scheduled polls, not a fixed wall-clock wait; keep real filesystem I/O.
+    let settled = false;
+    const result = promise.then(
+      value => { settled = true; return { kind: 'returned' as const, value }; },
+      error => { settled = true; return { kind: 'threw' as const, error }; },
+    );
+    while (!settled) {
+      await setImmediate();
+      await vi.advanceTimersToNextTimerAsync();
+    }
+    const outcome = await result;
+    if (outcome.kind === 'threw') throw outcome.error;
   } catch (error) {
     expect(isConfigStoreError(error)).toBe(true);
     expect(error).toBeInstanceOf(ConfigStoreError);
@@ -259,28 +273,23 @@ describe('ConfigStore v2 lock records', () => {
     stage,
     asyncEntry,
   ) => {
-    const initialNow = Date.now();
-    let now = initialNow;
-    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    // Numeric boundary beyond the finite deadline; no elapsed-duration fixture.
+    const exhaustBudget = () => vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER);
     vi.spyOn(processExec, 'captureCurrentProcessRef').mockImplementation(() => {
-      if (stage === 'capture') now += 100;
+      if (stage === 'capture') exhaustBudget();
       return CAPTURED;
     });
     if (stage === 'record') {
       const originalWrite = nodeFs.writeAtomicSync.bind(nodeFs);
       vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation((relativePath, content) => {
         const result = originalWrite(relativePath, content);
-        if (relativePath.endsWith('000001.json')) now += 100;
+        if (relativePath.endsWith('000001.json')) exhaustBudget();
         return result;
       });
     }
     let calls = 0;
 
-    await catchStoreError(runLock(asyncEntry, () => { calls += 1; }, {
-      acquireTimeoutMs: 50,
-      staleMs: 0,
-      pollMs: 1,
-    }), 'lock_timeout');
+    await catchStoreError(runLock(asyncEntry, () => { calls += 1; }), 'lock_timeout');
 
     expect(calls).toBe(0);
     expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
