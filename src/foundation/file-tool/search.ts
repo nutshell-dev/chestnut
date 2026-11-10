@@ -360,15 +360,18 @@ type OverflowResult =
 
 async function persistOverflow(ctx: ExecContext, fullContent: string): Promise<OverflowResult> {
   try {
+    // phase 2092 Step B：产物写 caller 的输出面（跨 claw 时 ctx.fs 已重绑到 target）。
+    // 扫描读取仍用 ctx.fs / ctx.workspaceDir；2086 的三态与有界预览预算完全保留。
+    const writeSide = ctx.toolOutput ?? ctx;
     const id = newShortUuid();
     const fullPath = nodePath.join(
-      ctx.syncDir,
+      writeSide.syncDir,
       TASKS_SYNC_SEARCH_DIR.split('/').pop()!,
       `${id}.md`,
     );
     const frontmatter = `---\nsource: search_overflow\ncontent_length: ${fullContent.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    const written = await ctx.fs.writeAtomic(fullPath, frontmatter + fullContent);
-    const relPath = nodePath.relative(ctx.workspaceDir, fullPath);
+    const written = await writeSide.fs.writeAtomic(fullPath, frontmatter + fullContent);
+    const relPath = nodePath.relative(writeSide.workspaceDir, fullPath);
     if (written.kind === 'durable') return { kind: 'durable', relPath };
     // 已提交但耐久性未确认：artifact 已在 relPath 可见 → 不重写、不删除，只显式交付状态
     const error = formatErr(written.error);

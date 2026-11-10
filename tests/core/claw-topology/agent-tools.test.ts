@@ -1,14 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
+import { promises as fs } from 'fs';
+import * as fsSync from 'fs';
 import {
   createCrossClawReadTool,
   createCrossClawLsTool,
   createCrossClawSearchTool,
 } from '../../../src/core/claw-topology/agent-tools.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../../src/core/claw-topology/audit-events.js';
+import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 import { readTool, lsTool, searchTool } from '../../../src/foundation/file-tool/index.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ExecContext } from '../../../src/foundation/tools/index.js';
+import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import type { FileSystem } from '../../../src/foundation/fs/index.js';
+import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeMockAudit } from '../../helpers/audit.js';
+import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { CrossTargetAccess } from '../../../src/core/claw-topology/agent-tools.js';
 
@@ -488,5 +497,409 @@ describe('createCrossClawSearchTool broadcast', () => {
     expect(result.success).toBe(false);
     expect(result.content).toContain('failed');
     expect(result.content).not.toContain('No matches');
+  });
+});
+
+/* ========================================================================
+ * phase 2092 Step B：跨 claw 输出能力与取回基准（真实 NodeFileSystem + 真实工具 + 真实权限 checker）
+ *
+ * 语义：读目标不变、权限不变；溢出产物写 caller.syncDir、提示路径相对 caller.workspaceDir，
+ * caller 用不带 claw 参数的普通 read 即可取回；target 侧不得新增产物或 read-state。
+ * ====================================================================== */
+
+describe('phase 2092 B: cross-claw overflow output ownership', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
+
+  interface ClawLayout {
+    readonly clawDir: string;
+    readonly workspaceDir: string;
+    readonly syncDir: string;
+  }
+
+  function makeClawRoot(rel: string, workspaceSubdir?: string): ClawLayout {
+    const clawDir = path.join(tempDir, rel);
+    const workspaceDir = workspaceSubdir
+      ? path.join(clawDir, workspaceSubdir)
+      : path.join(clawDir, 'clawspace');
+    for (const dir of [workspaceDir, path.join(clawDir, 'tasks/sync')]) {
+      fsSync.mkdirSync(dir, { recursive: true });
+    }
+    return { clawDir, workspaceDir, syncDir: path.join(clawDir, 'tasks/sync') };
+  }
+
+  function makeRealCtx(
+    layout: ClawLayout,
+    clawId: string,
+    extra?: Record<string, unknown>,
+  ): ExecContext {
+    return new ExecContextImpl({
+      clawId,
+      clawDir: layout.clawDir,
+      workspaceDir: layout.workspaceDir,
+      syncDir: layout.syncDir,
+      profile: 'full',
+      fs: new NodeFileSystem({ baseDir: layout.clawDir }),
+      fsFactory: (baseDir: string) => new NodeFileSystem({ baseDir }),
+      permissionChecker: createClawPermissionChecker({
+        audit: makeMockAudit(),
+        clawDir: layout.clawDir,
+        strict: true,
+        fs: new NodeFileSystem({ baseDir: layout.clawDir }),
+      }),
+      auditWriter: makeMockAudit(),
+      ...extra,
+    } as never);
+  }
+
+  const realAccess: CrossTargetAccess = {
+    grantedBy: 'test-cross-target',
+    createChecker: ({ clawDir }) => createClawPermissionChecker({
+      audit: makeMockAudit(),
+      clawDir,
+      strict: true,
+      fs: new NodeFileSystem({ baseDir: clawDir }),
+    }),
+  };
+
+  function makeTopology(dirs: Record<string, string>) {
+    return {
+      enumerate: () => Object.keys(dirs).map((id) => makeClawId(id)),
+      resolve: (id: string) => ({ kind: 'local' as const, clawDir: dirs[id]! }),
+    } as unknown as ClawTopology;
+  }
+
+  async function listDirSafe(dir: string): Promise<string[]> {
+    try {
+      return (await fs.readdir(dir)).sort();
+    } catch {
+      return [];
+    }
+  }
+
+  async function fileCountDeep(dir: string): Promise<number> {
+    const out: string[] = [];
+    const walk = async (d: string): Promise<void> => {
+      for (const entry of await listDirSafe(d)) {
+        const full = path.join(d, entry);
+        const st = await fs.stat(full);
+        if (st.isDirectory()) await walk(full);
+        else out.push(full);
+      }
+    };
+    try { await walk(dir); } catch { /* dir missing = 0 */ }
+    return out.length;
+  }
+
+  /** read 工具提示：read: { "path": "<rel>", "offset": 1, ... } */
+  function parseReadHint(content: string): string | undefined {
+    const m = /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content);
+    return m?.[1];
+  }
+
+  /** search footer：Full results saved at <rel>. Use `read` to view: read({ "path": "<rel>", ... }) */
+  function parseSearchHint(content: string): string | undefined {
+    const m = /Full results saved at (.+?)\. Use `read` to view: read\(\{ "path": "(.+?)", "offset": 1, "limit": 200 \}\)/.exec(content);
+    return m?.[2];
+  }
+
+  const BIG_LINE = (i: number): string => `row-${String(i).padStart(5, '0')} ${'x'.repeat(90)}`;
+  const BIG_ROWS = 2500;                         // ≈ 250KB > 100KB read 字节上限
+  const SEARCH_HITS = 30;                        // > 20 条预览上限，必然落盘
+
+  async function seedTarget(workspaceDir: string, marker: string): Promise<void> {
+    const big = Array.from({ length: BIG_ROWS }, (_, i) => BIG_LINE(i)).join('\n');
+    await fs.writeFile(path.join(workspaceDir, 'big.txt'), `${big}\n${marker}\n`);
+    await fs.writeFile(
+      path.join(workspaceDir, 'hits.txt'),
+      Array.from({ length: SEARCH_HITS }, (_, i) => `needle-${marker}-${String(i).padStart(3, '0')}`).join('\n'),
+    );
+  }
+
+  it('B1 跨目标 read + search overflow：产物归 caller，target 零新增产物/read-state，源文件不变', async () => {
+    const caller = makeClawRoot('a/caller');
+    const target = makeClawRoot('b/deep/target');
+    await seedTarget(target.workspaceDir, 'TARGET-MARKER-B1');
+    const bigPath = path.join(target.workspaceDir, 'big.txt');
+    const sourceBefore = await fs.readFile(bigPath, 'utf-8');
+
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+    const readFileStateBefore = new Map(callerCtx.readFileState);
+    const tools = {
+      read: createCrossClawReadTool({ topology: makeTopology({ 'target-claw': target.clawDir }), crossTargetAccess: realAccess }),
+      search: createCrossClawSearchTool({ topology: makeTopology({ 'target-claw': target.clawDir }), crossTargetAccess: realAccess }),
+    };
+
+    const readResult = await tools.read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
+    const searchResult = await tools.search.execute({ text: 'needle', claw: 'target-claw' }, callerCtx);
+
+    // caller 侧取得产物
+    const callerReadArtifacts = await listDirSafe(path.join(caller.syncDir, 'read'));
+    const callerSearchArtifacts = await listDirSafe(path.join(caller.syncDir, 'search'));
+    expect(callerReadArtifacts).toHaveLength(1);
+    expect(callerSearchArtifacts).toHaveLength(1);
+    expect(readResult.success).toBe(true);
+    expect(readResult.content).not.toContain('overflow persist failed');
+    expect(parseReadHint(readResult.content)).toBeDefined();
+    expect(searchResult.success).toBe(true);
+    expect(parseSearchHint(searchResult.content)).toBeDefined();
+
+    // artifact 正文完整
+    const readArtifact = await fs.readFile(path.join(caller.syncDir, 'read', callerReadArtifacts[0]!), 'utf-8');
+    expect(readArtifact).toContain('TARGET-MARKER-B1');
+    expect(readArtifact).toContain(BIG_LINE(0));
+    const searchArtifact = await fs.readFile(path.join(caller.syncDir, 'search', callerSearchArtifacts[0]!), 'utf-8');
+    expect(searchArtifact.match(/needle-TARGET-MARKER-B1-\d{3}/g)).toHaveLength(SEARCH_HITS);
+
+    // target 侧零新增产物（sync 目录、read-state.json 均无）
+    expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
+    expect(await listDirSafe(path.join(target.clawDir))).not.toContain('read-state.json');
+
+    // 源文件未变；caller read-state 未被 target 路径污染
+    expect(await fs.readFile(bigPath, 'utf-8')).toBe(sourceBefore);
+    expect(callerCtx.readFileState).toEqual(readFileStateBefore);
+  });
+
+  it('B2 提示路径用 caller 普通 read（不带 claw 参数）可取回完整 artifact', async () => {
+    const caller = makeClawRoot('caller-side/nest/caller');
+    const target = makeClawRoot('unrelated/elsewhere/target');
+    await seedTarget(target.workspaceDir, 'TARGET-MARKER-B2');
+
+    const topology = makeTopology({ 'target-claw': target.clawDir });
+    const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
+    const search = createCrossClawSearchTool({ topology, crossTargetAccess: realAccess });
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+
+    const readResult = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
+    const searchResult = await search.execute({ text: 'needle', claw: 'target-claw' }, callerCtx);
+
+    const readRel = parseReadHint(readResult.content);
+    const searchRel = parseSearchHint(searchResult.content);
+    expect(readRel).toBeDefined();
+    expect(searchRel).toBeDefined();
+
+    // caller 普通 context + 不带 claw 参数的 read 取回
+    const readBackRead = await readTool.execute({ path: readRel!, offset: 1, limit: 400 }, callerCtx);
+    expect(readBackRead.success).toBe(true);
+    expect(readBackRead.content).toContain('source: read_overflow');
+    expect(readBackRead.content).toContain('row-00000');
+    // artifact 正文完整（marker 在文件尾部，超出 400 行窗口 → 直接读文件核验）
+    const readArtifactAbs = path.resolve(caller.workspaceDir, readRel!);
+    expect(await fs.readFile(readArtifactAbs, 'utf-8')).toContain('TARGET-MARKER-B2');
+
+    const readBackSearch = await readTool.execute({ path: searchRel!, offset: 1, limit: 200 }, callerCtx);
+    expect(readBackSearch.success).toBe(true);
+    expect(readBackSearch.content).toContain('source: search_overflow');
+    expect(readBackSearch.content).toContain('needle-TARGET-MARKER-B2-000');
+  });
+
+  it('B3 caller.workspaceDir 为子代理子目录：提示路径按 caller 基准生成且可取回', async () => {
+    const caller = makeClawRoot('caller-side', path.join('tasks', 'subagents', 'task-abc'));
+    const target = makeClawRoot('target-side');
+    await seedTarget(target.workspaceDir, 'TARGET-MARKER-B3');
+
+    const topology = makeTopology({ 'target-claw': target.clawDir });
+    const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+
+    const result = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
+    const rel = parseReadHint(result.content);
+    expect(rel).toBeDefined();
+    // 基准是 caller.workspaceDir（子代理目录），而非 clawDir、也不是 target
+    expect(path.resolve(caller.workspaceDir, rel!)).toBe(
+      path.resolve(path.join(caller.syncDir, 'read'), path.basename(rel!)),
+    );
+    expect(rel!.startsWith('..')).toBe(true);
+
+    const readBack = await readTool.execute({ path: rel!, offset: 1, limit: 400 }, callerCtx);
+    expect(readBack.success).toBe(true);
+    expect(readBack.content).toContain('source: read_overflow');
+    expect(await fs.readFile(path.resolve(caller.workspaceDir, rel!), 'utf-8')).toContain('TARGET-MARKER-B3');
+  });
+
+  it('B4 同 claw 省略 claw 参数：旧输出/持久化/权限不变，ctx.toolOutput 可缺省', async () => {
+    const caller = makeClawRoot('same-claw');
+    await seedTarget(caller.workspaceDir, 'SAME-CLAW-MARKER');
+    const topology = makeTopology({ 'target-claw': caller.clawDir });
+    const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
+    const search = createCrossClawSearchTool({ topology, crossTargetAccess: realAccess });
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+    expect((callerCtx as { toolOutput?: unknown }).toolOutput).toBeUndefined();
+
+    const readResult = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10 }, callerCtx);
+    const searchResult = await search.execute({ text: 'needle' }, callerCtx);
+
+    expect(readResult.success).toBe(true);
+    expect(searchResult.success).toBe(true);
+    expect(await listDirSafe(path.join(caller.syncDir, 'read'))).toHaveLength(1);
+    expect(await listDirSafe(path.join(caller.syncDir, 'search'))).toHaveLength(1);
+    const rel = parseReadHint(readResult.content)!;
+    expect(rel.startsWith('..')).toBe(true);
+    const readBack = await readTool.execute({ path: rel, offset: 1, limit: 400 }, callerCtx);
+    expect(readBack.content).toContain('source: read_overflow');
+    expect(await fs.readFile(path.resolve(caller.workspaceDir, rel), 'utf-8')).toContain('SAME-CLAW-MARKER');
+  });
+
+  it('B5 broadcast：两个目标各触发 overflow → 两份 artifact 均归 caller 且正文对应各自目标', async () => {
+    const caller = makeClawRoot('caller-b');
+    const targetA = makeClawRoot('target-a');
+    const targetB = makeClawRoot('target-b');
+    await seedTarget(targetA.workspaceDir, 'MARKER-A');
+    await seedTarget(targetB.workspaceDir, 'MARKER-B');
+
+    const topology = makeTopology({
+      motion: makeClawRoot('motion-root').clawDir,
+      'claw-a': targetA.clawDir,
+      'claw-b': targetB.clawDir,
+    });
+    const search = createCrossClawSearchTool({
+      topology,
+      broadcast: { grantedTo: makeClawId('motion') },
+      crossTargetAccess: realAccess,
+    });
+    const motionCtx = makeRealCtx(caller, 'motion');
+
+    const result = await search.execute({ text: 'needle', claw: '*' }, motionCtx);
+    expect(result.success).toBe(true);
+
+    const artifacts = await listDirSafe(path.join(caller.syncDir, 'search'));
+    expect(artifacts).toHaveLength(2);
+    const bodies = await Promise.all(
+      artifacts.map((f) => fs.readFile(path.join(caller.syncDir, 'search', f), 'utf-8')),
+    );
+    const joined = bodies.join('\n---\n');
+    expect(joined).toContain('needle-MARKER-A-000');
+    expect(joined).toContain('needle-MARKER-B-000');
+    // 两份 artifact 各自只含对应目标
+    const aBody = bodies.find((b) => b.includes('needle-MARKER-A-000'))!;
+    const bBody = bodies.find((b) => b.includes('needle-MARKER-B-000'))!;
+    expect(aBody).not.toContain('needle-MARKER-B-000');
+    expect(bBody).not.toContain('needle-MARKER-A-000');
+
+    // 两个 target 都不留下任何产物
+    expect(await fileCountDeep(path.join(targetA.clawDir, 'tasks'))).toBe(0);
+    expect(await fileCountDeep(path.join(targetB.clawDir, 'tasks'))).toBe(0);
+  });
+
+  it('B6 target 侧拒绝依旧拒绝（EACCES / symlink 逃逸），不被 output 写能力放宽且不产生 artifact', async () => {
+    const caller = makeClawRoot('caller-c');
+    const target = makeClawRoot('target-c');
+    const outside = path.join(tempDir, 'outside-secret.txt');
+    await fs.writeFile(outside, 'outside secret');
+    // (a) OS 级权限拒绝：文件 chmod 0000
+    const deniedFile = path.join(target.workspaceDir, 'denied.txt');
+    await fs.writeFile(deniedFile, 'should not be readable');
+    await fs.chmod(deniedFile, 0o000);
+    // (b) 路径守卫拒绝：clawspace 内 symlink 指向 claw 外部
+    await fs.symlink(outside, path.join(target.workspaceDir, 'escape.txt'));
+
+    const topology = makeTopology({ 'target-claw': target.clawDir });
+    const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+
+    try {
+      // 既有语义：readTool.execute 内部抛出的拒绝（async rejection）不会被包装器吞成 success，
+      // 也不存在「靠 output 写能力把拒绝变成成功」的路径——本轮不改该失败语义。
+      // (a) OS 级拒绝：read 既有行为返回 success=false（不改该语义）
+      const eacces = await read.execute({ path: 'denied.txt', claw: 'target-claw' }, callerCtx);
+      expect(eacces.success).toBe(false);
+      expect(eacces.content).toMatch(/EACCES|permission denied/i);
+
+      // (b) 权限面/路径守卫拒绝：既有行为是 execute 内抛出（async rejection）→ 不得变成功
+
+      const escapeErr = await read
+        .execute({ path: 'escape.txt', claw: 'target-claw' }, callerCtx)
+        .then(() => null, (e: unknown) => e as Error);
+      expect(escapeErr).not.toBeNull();
+      expect(String(escapeErr?.message)).toMatch(/not within claw root|Symlink traversal|resolves outside base root/i);
+      expect(String(escapeErr?.message)).not.toContain('outside secret');
+
+      // 拒绝不得因 output 写能力变成落盘
+      expect(await fileCountDeep(caller.syncDir)).toBe(0);
+      expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
+      expect(await listDirSafe(target.clawDir)).not.toContain('read-state.json');
+    } finally {
+      await fs.chmod(deniedFile, 0o600).catch(() => {});
+    }
+  });
+
+  it('B6b output.writeAtomic 失败：沿既有各工具错误出口与 audit 传递，不谎报 saved', async () => {
+    const caller = makeClawRoot('caller-d');
+    const target = makeClawRoot('target-d');
+    await seedTarget(target.workspaceDir, 'MARKER-D');
+
+    const failingFs = new Proxy(new NodeFileSystem({ baseDir: caller.clawDir }), {
+      get(t, prop) {
+        if (prop === 'writeAtomic') {
+          return async () => { throw new Error('output disk full injection'); };
+        }
+        const v = Reflect.get(t, prop, t);
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+      },
+    }) as FileSystem;
+
+    const callerAudit = makeMockAudit();
+    const callerCtx = makeRealCtx(caller, 'caller-claw', { fs: failingFs, auditWriter: callerAudit });
+    const topology = makeTopology({ 'target-claw': target.clawDir });
+    const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
+    const search = createCrossClawSearchTool({ topology, crossTargetAccess: realAccess });
+
+    const searchResult = await search.execute({ text: 'needle', claw: 'target-claw' }, callerCtx);
+    expect(searchResult.success).toBe(false);
+    expect(searchResult.content).toContain('overflow persist failed');
+    expect(searchResult.content).not.toContain('Full results saved at');
+
+    const readResult = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
+    expect(readResult.content).toContain('overflow persist failed');
+    expect(parseReadHint(readResult.content)).toBeUndefined();
+
+    const auditTypes = (callerAudit.write as unknown as { mock: { calls: Array<[string]> } }).mock.calls.map((c) => c[0]);
+    expect(auditTypes).toContain('search_overflow_persist_failed');
+    expect(auditTypes).toContain('read_overflow_persist_failed');
+    // 失败也不写 target
+    expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
+  });
+
+  it('B7 已有 toolOutput 时保留同一能力对象、不被二次 target 化（产物落原 syncDir）', async () => {
+    const caller = makeClawRoot('caller-e');
+    const target = makeClawRoot('target-e');
+    await seedTarget(target.workspaceDir, 'MARKER-E');
+
+    const outerSync = path.join(caller.clawDir, 'outer-sync');
+    fsSync.mkdirSync(outerSync, { recursive: true });
+    const outerOutput = {
+      fs: new NodeFileSystem({ baseDir: caller.clawDir }),
+      syncDir: outerSync,
+      workspaceDir: caller.workspaceDir,
+    };
+    const callerCtx = makeRealCtx(caller, 'caller-claw');
+    // 计划的「不改 ExecContextImplOptions/构造器」：toolOutput 由包装器后续注入
+    Object.assign(callerCtx, { toolOutput: outerOutput });
+
+    const read = createCrossClawReadTool({
+      topology: makeTopology({ 'target-claw': target.clawDir }),
+      crossTargetAccess: realAccess,
+    });
+    const result = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
+
+    // 落在既有 toolOutput.syncDir（不是 caller.syncDir、也不是 target）
+    expect(await listDirSafe(path.join(outerSync, 'read'))).toHaveLength(1);
+    expect(await listDirSafe(path.join(caller.syncDir, 'read'))).toHaveLength(0);
+    expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
+
+    // 同一对象不被替换（能力对象身份守恒）
+    expect((callerCtx as unknown as { toolOutput: unknown }).toolOutput).toBe(outerOutput);
+    const rel = parseReadHint(result.content);
+    expect(rel).toBeDefined();
+    const readBack = await readTool.execute({ path: rel!, offset: 1, limit: 400 }, callerCtx);
+    expect(readBack.content).toContain('source: read_overflow');
+    expect(await fs.readFile(path.resolve(caller.workspaceDir, rel!), 'utf-8')).toContain('MARKER-E');
   });
 });

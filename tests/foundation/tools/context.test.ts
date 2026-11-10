@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'path';
 import { ExecContextImpl, cloneExecContext } from '../../../src/foundation/tools/context.js';
+import type { ExecContext } from '../../../src/foundation/tools/types.js';
 
 describe('ExecContextImpl', () => {
   beforeEach(() => {
@@ -114,5 +115,90 @@ describe('ExecContextImpl', () => {
       clone.requestStop();
       expect((fixture as unknown as { requestStop: ReturnType<typeof vi.fn> }).requestStop).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+/* ========================================================================
+ * phase 2092 Step B：cloneExecContext 对可��输出能力（toolOutput）的透传关系
+ * ====================================================================== */
+
+describe('phase 2092 B: cloneExecContext.toolOutput 透传', () => {
+  type OutputCapability = {
+    fs: { writeAtomic: (p: string, c: string) => Promise<{ kind: 'durable' }> };
+    syncDir: string;
+    workspaceDir: string;
+  };
+
+  const outputCapability: OutputCapability = {
+    fs: { writeAtomic: async () => ({ kind: 'durable' as const }) },
+    syncDir: '/p/tasks/sync',
+    workspaceDir: '/p/clawspace',
+  };
+
+  it('保留 toolOutput 同一对象，且既有字段与引用不变', () => {
+    const auditWriter = { write: () => {} } as unknown as ExecContext['auditWriter'];
+    const fsStub = {} as ExecContext['fs'];
+    const readFileState = new Map();
+    const base = {
+      clawId: 'p',
+      clawDir: '/p',
+      workspaceDir: '/p/clawspace',
+      syncDir: '/p/tasks/sync',
+      profile: 'claw',
+      fs: fsStub,
+      auditWriter,
+      readFileState,
+      stopRequested: false,
+      toolOutput: outputCapability,
+    } as unknown as ExecContext;
+
+    const cloned = cloneExecContext(base, { profile: 'subagent' });
+
+    // 新字段：同一对象透传（不是拷贝、不是二次 target 化）
+    expect((cloned as { toolOutput?: OutputCapability }).toolOutput).toBe(outputCapability);
+    // 原字段不变
+    expect(cloned.clawId).toBe('p');
+    expect(cloned.clawDir).toBe('/p');
+    expect(cloned.workspaceDir).toBe('/p/clawspace');
+    expect(cloned.syncDir).toBe('/p/tasks/sync');
+    expect(cloned.fs).toBe(fsStub);
+    expect(cloned.auditWriter).toBe(auditWriter);
+    expect(cloned.readFileState).toBe(readFileState);
+    expect(cloned.profile).toBe('subagent');
+  });
+
+  it('ctx 无 toolOutput 时 clone 也保持 undefined（same-claw 兼容，不虚构能力）', () => {
+    const base = {
+      clawId: 'p',
+      clawDir: '/p',
+      workspaceDir: '/p/clawspace',
+      syncDir: '/p/tasks/sync',
+      profile: 'claw',
+      fs: {} as ExecContext['fs'],
+      stopRequested: false,
+    } as unknown as ExecContext;
+
+    const cloned = cloneExecContext(base, {});
+    expect((cloned as { toolOutput?: unknown }).toolOutput).toBeUndefined();
+    expect(cloned.workspaceDir).toBe('/p/clawspace');
+  });
+
+  it('ExecContextImpl 实例（构造器不携带 toolOutput）clone 后仍无该字段且原字段不变', () => {
+    const parent = new ExecContextImpl({
+      clawId: 'impl-claw',
+      clawDir: '/tmp/impl-claw',
+      workspaceDir: '/tmp/impl-claw/clawspace',
+      syncDir: '/tmp/impl-claw/tasks/sync',
+      profile: 'claw',
+      fs: {} as never,
+    });
+    expect((parent as { toolOutput?: unknown }).toolOutput).toBeUndefined();
+
+    const cloned = cloneExecContext(parent, { profile: 'subagent' });
+    expect((cloned as { toolOutput?: unknown }).toolOutput).toBeUndefined();
+    expect(cloned.clawId).toBe('impl-claw');
+    expect(cloned.clawDir).toBe('/tmp/impl-claw');
+    expect(cloned.workspaceDir).toBe('/tmp/impl-claw/clawspace');
+    expect(cloned.syncDir).toBe('/tmp/impl-claw/tasks/sync');
   });
 });

@@ -59,11 +59,20 @@ function buildTargetCtx(
     throw new Error('Cross-claw access requires fsFactory in ExecContext');
   }
   const targetFs = baseCtx.fsFactory(targetClawDir);
+  // phase 2092 Step B：在**任何 target 替换之前**捕获 caller 的输出能力——读侧归 target，
+  // 溢出产物仍归 caller（syncDir + 取回基准 + writeAtomic 面）。已有能力（嵌套包装）原样透传，
+  // 不被二次 target 化。
+  const callerToolOutput = baseCtx.toolOutput ?? {
+    fs: baseCtx.fs,
+    syncDir: baseCtx.syncDir,
+    workspaceDir: baseCtx.workspaceDir,
+  };
   return {
     ...baseCtx,
     clawDir: targetClawDir,
     workspaceDir: path.join(targetClawDir, CLAWSPACE_DIR),
     fs: targetFs,
+    toolOutput: callerToolOutput,
     // phase 1864 Step G（CT-D10）：permission 面显式替换为 target 面 capability——
     // 不继承 caller 的 claw-scoped checker。
     permissionChecker: access.createChecker({ clawDir: targetClawDir, fs: targetFs }),

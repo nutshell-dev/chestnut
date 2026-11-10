@@ -61,11 +61,14 @@ type ReadInput = z.infer<typeof ReadInputSchema>;
 
 async function persistOverflow(ctx: ExecContext, output: string): Promise<string | null> {
   try {
+    // phase 2092 Step B：产物写 caller 的输出面（跨 claw 时 ctx.fs 已重绑到 target）。
+    // 源文件读取仍用 ctx.fs / ctx.workspaceDir；这里只换写入与提示基准。
+    const writeSide = ctx.toolOutput ?? ctx;
     const id = newShortUuid();
-    const fullPath = nodePath.join(ctx.syncDir, TASKS_SYNC_READ_DIR.split('/').pop()!, `${id}.md`);
+    const fullPath = nodePath.join(writeSide.syncDir, TASKS_SYNC_READ_DIR.split('/').pop()!, `${id}.md`);
     const frontmatter = `---\nsource: read_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    await ctx.fs.writeAtomic(fullPath, frontmatter + output);
-    return nodePath.relative(ctx.workspaceDir, fullPath);
+    await writeSide.fs.writeAtomic(fullPath, frontmatter + output);
+    return nodePath.relative(writeSide.workspaceDir, fullPath);
   } catch (err) {
     ctx.auditWriter?.write(FILE_TOOL_AUDIT_EVENTS.READ_OVERFLOW_PERSIST_FAILED, `reason=${formatErr(err)}`);
     return null;

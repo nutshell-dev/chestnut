@@ -85,6 +85,22 @@ export interface ToolPermissions {
 export interface ExecutionInfra {
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
+  /**
+   * phase 2092 Step B：**工具结果的输出能力**（写入 + 取回基准），与上面读侧 `fs` 解耦。
+   *
+   * 跨 claw 读取时 `buildTargetCtx` 会把 `fs` / `workspaceDir` / `clawDir` 重绑到 target
+   * （读目标与权限面必须归 target），但溢出产物属于 **caller 的生命周期**：必须写回
+   * caller 的 syncDir 并由 caller 的 workspaceDir 计算提示路径。包装器在重绑前捕获该能力
+   * 并注入本字段；FileTool 的 persistOverflow 用 `ctx.toolOutput ?? ctx` 选择写入面。
+   *
+   * same-claw 上下文不需要该字段（undefined 时行为与既有完全一致）。
+   * 只描述写入 / 取回基准，不含 clawId、拓扑服务、权限 checker 或清理动作。
+   */
+  readonly toolOutput?: {
+    readonly fs: Pick<FileSystem, 'writeAtomic'>;
+    readonly syncDir: string;
+    readonly workspaceDir: string;
+  };
   llm?: LLMOrchestrator;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
