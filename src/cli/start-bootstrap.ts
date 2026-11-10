@@ -191,6 +191,8 @@ export async function ensureOnboardingAndNotify(
       priority: 'high',
       body: onboardingContractCreatedBody({ contractId: result.contractId }),
       idPrefix: 'start',
+      // phase 2094 Step B: 让排队中的工作指令带可查询契约身份（Runtime 侧 owner 识别入口消费）
+      metadata: { contract_id: result.contractId },
     });
   } else {
     const status = onboarding.state === 'not_found' ? getOnboardingStatus(motionDir, deps) : onboarding;
@@ -203,6 +205,8 @@ export async function ensureOnboardingAndNotify(
         pendingSubtasks: status.pending ?? [],
       }),
       idPrefix: 'start',
+      // phase 2094 Step B: resume 同样补齐契约身份（body/priority/发送时机不变）
+      metadata: { contract_id: result.contractId },
     });
   }
   return { state: result.created ? 'created' : 'resumed', contractId: result.contractId };

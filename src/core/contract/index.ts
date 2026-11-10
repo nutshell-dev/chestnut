@@ -120,6 +120,10 @@ export {
 export { listArchiveContractLocations, archiveContainerDir } from './locations.js';
 export { CONTRACT_FILE_ROUTING } from './audit-events.js';
 
+// phase 2094 Step B: owner 侧最小工作消息身份识别纯入口
+// （只导出纯函数；内部来源/类型常量与结构类型不外泄，避免长出第二套消息协议）
+export { getContractWorkMessageId } from './work-message-reference.js';
+
 // phase 1846 Step B: read-only terminal fact query (directory location is the lifecycle authority)
 export { readContractTerminalFact } from './terminal-fact.js';
 export type { ContractTerminalFact } from './terminal-fact.js';
