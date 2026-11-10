@@ -30,3 +30,10 @@ export {
   LLMConfigIdentityMismatchError,
 } from './identity.js';
 export type { LLMConfigSnapshot } from './identity.js';
+export {
+  isCredentialReference,
+  deriveCredentialRef,
+  storeCredentialInput,
+  resolveCredentialReference,
+} from './key-input.js';
+export type { StoredCredentialInput } from './key-input.js';

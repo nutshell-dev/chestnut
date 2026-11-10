@@ -16,12 +16,9 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
-import { createLocalCredentials } from '../../src/core/llm-configuration/index.js';
+import { createLocalCredentials, deriveCredentialRef } from '../../src/core/llm-configuration/index.js';
 import { setupApiKeyPrompt } from '../../src/templates/messages/index.js';
-import {
-  storeKeyAsCredential,
-  deriveCredentialRef,
-} from '../../src/cli/credentials-prompt.js';
+import { storeKeyAsCredential } from '../../src/cli/credentials-prompt.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 

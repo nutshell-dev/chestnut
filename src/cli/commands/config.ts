@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
-import { createLegacyAuthenticationStore } from '../../core/llm-configuration/index.js';
+import { createLegacyAuthenticationStore, resolveCredentialReference } from '../../core/llm-configuration/index.js';
 import {
   PRESETS,
   presetAuthProfile,
@@ -48,7 +48,7 @@ import {
 } from '../../templates/messages/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 // Phase 1925 Step B：明文 key 不落 root config —— 经 Credentials owner 落用户级凭据文件、配置写 `${REF}`。
-import { storeKeyAsCredential, resolveCredentialReference } from '../credentials-prompt.js';
+import { storeKeyAsCredential } from '../credentials-prompt.js';
 import {
   SETUP_PROVIDER_CATALOG,
   describeEffectiveThinking,

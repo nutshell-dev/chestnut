@@ -20,6 +20,8 @@ import {
 import {
   createLegacyAuthenticationStore,
   createLocalCredentials,
+  isCredentialReference,
+  resolveCredentialReference,
   snapshotLLMConfigInput,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
@@ -49,11 +51,7 @@ import {
   type LLMRepairAction,
   type VerifiedLLMConfig,
 } from './llm-connection-check.js';
-import {
-  storeKeyAsCredential,
-  resolveCredentialReference,
-  isCredentialReference,
-} from './credentials-prompt.js';
+import { storeKeyAsCredential } from './credentials-prompt.js';
 import {
   SETUP_PROVIDER_CATALOG,
   describeEffectiveThinking,
