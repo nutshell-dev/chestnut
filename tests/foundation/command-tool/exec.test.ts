@@ -179,6 +179,83 @@ describe('phase 2107 exec UTF-8 overflow preview', () => {
   });
 });
 
+describe('phase 2110 exec UTF-8 byte threshold', () => {
+  const cases = [
+    { name: 'ASCII 1999B', output: 'a'.repeat(1999), overflows: false },
+    { name: 'ASCII 2000B', output: 'a'.repeat(2000), overflows: false },
+    { name: 'ASCII 2001B', output: 'a'.repeat(2001), overflows: true },
+    { name: 'Chinese exactly 2000B', output: `${'中'.repeat(666)}ab`, overflows: false },
+    { name: 'Chinese 2001B', output: '中'.repeat(667), overflows: true },
+    { name: 'emoji exactly 2000B', output: '😀'.repeat(500), overflows: false },
+    { name: 'emoji 2004B', output: '😀'.repeat(501), overflows: true },
+  ];
+
+  it.each(cases)('$name: formatter persists only strictly over 2000 bytes', async ({ output, overflows }) => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace');
+      const syncDir = path.join(tempDir, 'tasks', 'sync');
+      await fs.promises.mkdir(workspaceDir, { recursive: true });
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir,
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+      });
+
+      const content = await formatExecOutputForToolResult(ctx, output);
+      const overflowDir = path.join(syncDir, 'exec');
+      const files = await fs.promises.readdir(overflowDir).catch(() => []);
+
+      if (!overflows) {
+        expect(Buffer.byteLength(output, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+        expect(content).toBe(output);
+        expect(files).toHaveLength(0);
+        return;
+      }
+
+      expect(Buffer.byteLength(output, 'utf8')).toBeGreaterThan(EXEC_MAX_OUTPUT);
+      expect(files).toHaveLength(1);
+      expect(content).toContain(`Full output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
+      const artifact = await fs.promises.readFile(path.join(overflowDir, files[0]), 'utf8');
+      expect(artifact.endsWith(output)).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+
+  it('真实 createExecTool 将 2001B 中文 stdin→stdout 完整保存', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace');
+      const syncDir = path.join(tempDir, 'tasks', 'sync');
+      await fs.promises.mkdir(workspaceDir, { recursive: true });
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir,
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+      });
+      const output = '中'.repeat(667);
+      const command = `"${process.execPath}" -e "process.stdin.pipe(process.stdout)"`;
+
+      const result = await createExecTool().execute({ command, stdin: output }, ctx);
+
+      expect(Buffer.byteLength(output, 'utf8')).toBeGreaterThan(EXEC_MAX_OUTPUT);
+      expect(output.length).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('Full output (2001 bytes) saved.');
+      const overflowDir = path.join(syncDir, 'exec');
+      const files = await fs.promises.readdir(overflowDir);
+      expect(files).toHaveLength(1);
+      const artifact = await fs.promises.readFile(path.join(overflowDir, files[0]), 'utf8');
+      expect(artifact.endsWith(output)).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+});
+
 describe('processExecErrorToToolResult', () => {
   it('maps a killed timeout to a failed ToolResult with command and output', () => {
     const error = new ProcessExecError({

@@ -117,7 +117,7 @@ function truncate(str: string, maxLen: number): string {
 
 // phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts。
 // EXEC_MAX_OUTPUT === HEAD + TAIL = 2000B（业务 truncation 协议）。
-// caller 均在 `if (output.length > EXEC_MAX_OUTPUT)` 内调用、无需 helper 内重复阈值判。
+// caller 均在 UTF-8 byte length > EXEC_MAX_OUTPUT 时调用、无需 helper 内重复阈值判。
 
 function formatNoOutput(command: string): string {
   const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
@@ -205,7 +205,7 @@ async function persistOverflow(
 }
 
 /**
- * exec 输出呈现协议单实现（phase 1750）：LLM 边界统一截断——超 EXEC_MAX_OUTPUT
+ * exec 输出呈现协议单实现（phase 1750）：LLM 边界统一截断——UTF-8 字节数超 EXEC_MAX_OUTPUT
  * 完整落盘 tasks/sync/exec/<uuid>.md（frontmatter 记 content_length）+ head/tail
  * 截断 + relPath read 提示；落盘失败退化为纯 truncate（内容不丢但无文件）。
  * createExecTool（subagent）与 async-exec-wrapper（主 agent）共同调用，
@@ -215,7 +215,7 @@ export async function formatExecOutputForToolResult(
   ctx: ExecContext,
   output: string,
 ): Promise<string> {
-  if (output.length <= EXEC_MAX_OUTPUT) return output;
+  if (Buffer.byteLength(output, 'utf8') <= EXEC_MAX_OUTPUT) return output;
   const relPath = await persistOverflow(ctx, output);
   return relPath ? truncateHeadTail(output, relPath) : truncate(output, EXEC_MAX_OUTPUT);
 }
@@ -309,7 +309,7 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
           if (error.termination !== undefined) {
             auditExecTermination(ctx, error.termination);
           }
-          if (error.output.length > EXEC_MAX_OUTPUT) {
+          if (Buffer.byteLength(error.output, 'utf8') > EXEC_MAX_OUTPUT) {
             const relPath = await persistOverflow(ctx, error.output);
             const truncated = relPath
               ? truncateHeadTail(error.output, relPath)

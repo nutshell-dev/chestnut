@@ -835,6 +835,28 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     expect(match![2]).toBe(bigExpected);
   });
 
+  it('phase 2110: explicit timeout persists 2001B Unicode output through the shared formatter', async () => {
+    const output = '中'.repeat(667);
+    const child = spawn(process.execPath, ['-e', '']);
+    const handle: ExecHandle = {
+      child,
+      promise: Promise.resolve({ output, stdout: output, exitCode: 0 }),
+      terminate: async () => { throw new Error('explicit timeout success must not terminate'); },
+    };
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('Full output (2001 bytes) saved.');
+    const overflowFiles = await readOverflowFiles();
+    expect(overflowFiles).toHaveLength(1);
+    expect(overflowFiles[0].endsWith(output)).toBe(true);
+  });
+
   it('pure sync (timeoutMs set) small output → unchanged content, no overflow file', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
