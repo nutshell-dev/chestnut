@@ -1,6 +1,7 @@
 import type { FileSystem } from '../fs/index.js';
 import { newUuid } from '../node-utils/index.js';
 import type {
+  ProcessRefCapture,
   ProcessRefDecode,
   ProcessRefObservation,
 } from '../process-exec/index.js';
@@ -51,7 +52,16 @@ export type BeforeIoFailureRecord = {
   decision: 'stop';
 };
 
-type ObservationRecord = DecisionRecord | BeforeIoFailureRecord;
+export type SelfCaptureRecord = {
+  version: 1;
+  event: 'self_capture';
+  attemptId: string;
+  sequence: number;
+  atMs: number;
+  capture: ProcessRefCapture;
+};
+
+type ObservationRecord = DecisionRecord | BeforeIoFailureRecord | SelfCaptureRecord;
 
 const OBSERVATION_DIR = 'state-lock-observations';
 const MAX_DIRECTORY_CLAIMS = 3;
@@ -102,8 +112,8 @@ export class StateLockObservationWriter {
           operation: pendingRecord.event === 'observation_before_io_failure' ? 'stat' : 'observation_write',
           attemptId: this.currentAttemptId,
           attemptDir: this.location,
-          lockRaw: pendingRecord.lockRaw,
-          processFacts: pendingRecord.process,
+          ...('lockRaw' in pendingRecord && { lockRaw: pendingRecord.lockRaw }),
+          ...('process' in pendingRecord && { processFacts: pendingRecord.process }),
           pendingRecord,
           recordPath,
           targetPath,
@@ -179,6 +189,17 @@ export class StateLockObservationWriter {
     this.writeJson(recordPath, record, record, recordPath, statError);
     this.sequence = record.sequence;
     this.currentRecordPath = recordPath;
+  }
+
+  recordCapture(capture: ProcessRefCapture): void {
+    this.persist(() => ({
+      version: 1,
+      event: 'self_capture',
+      attemptId: this.currentAttemptId,
+      sequence: this.sequence + 1,
+      atMs: Date.now(),
+      capture,
+    }));
   }
 
   recordDecision(input: Omit<DecisionRecord, 'version' | 'event' | 'attemptId' | 'sequence' | 'atMs'>): void {

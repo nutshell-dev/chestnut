@@ -3,6 +3,12 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import {
+  decodeProcessRef,
+  inspectProcessRef,
+  type ProcessRef,
+  type ProcessRefCapture,
+} from '../../../src/foundation/process-exec/index.js';
 import { withSkillStateLock } from '../../../src/foundation/skill-system/state-lock.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
@@ -38,12 +44,13 @@ type EvidenceRecord = {
   event: string;
   attemptId: string;
   sequence: number;
-  lockRaw: string;
-  process: {
+  lockRaw?: string;
+  process?: {
     decoded?: { kind: string; value?: string };
     observed?: { kind: string; reason?: string; evidence?: unknown };
   };
-  decision: { kind: string; reason: string } | 'stop';
+  decision?: { kind: string; reason: string } | 'stop';
+  capture?: ProcessRefCapture;
 };
 
 let bundleDir: string;
@@ -86,11 +93,11 @@ afterAll(async () => {
   await cleanupTempDir(bundleDir);
 });
 
-function startHolder(mode: 'hold' | 'exit-with-lock'): ChildHandle {
+function startHolder(mode: 'hold' | 'exit-with-lock', format: 'legacy' | 'v2'): ChildHandle {
   const barrierDir = path.join(tempDir, `barrier-${mode}`);
   fs.mkdirSync(barrierDir, { recursive: true });
   const scenarioPath = path.join(barrierDir, 'scenario.json');
-  fs.writeFileSync(scenarioPath, JSON.stringify({ stateDir, barrierDir, mode }));
+  fs.writeFileSync(scenarioPath, JSON.stringify({ stateDir, barrierDir, mode, format }));
   const proc = spawn(process.execPath, [fixtureBundle, scenarioPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, NODE_ENV: 'test' },
@@ -161,9 +168,38 @@ async function waitForEvidence(predicate: (records: EvidenceRecord[]) => boolean
   }
 }
 
-describe.skipIf(!supported)('SkillSystem real child legacy state lock', () => {
+type V2LockPayload = {
+  lock_version: number;
+  at: number;
+  observationAttemptId: string;
+  holder: { kind: 'reference'; ref: string } | { kind: 'unknown' };
+};
+
+function readV2Reference(raw: string): { payload: V2LockPayload; ref: ProcessRef } {
+  const payload = JSON.parse(raw) as V2LockPayload;
+  expect(Object.keys(payload).sort()).toEqual([
+    'at', 'holder', 'lock_version', 'observationAttemptId',
+  ]);
+  expect(payload).toMatchObject({ lock_version: 2, holder: { kind: 'reference' } });
+  expect(payload).not.toHaveProperty('pid');
+  if (payload.holder.kind !== 'reference') throw new Error(`expected v2 reference: ${raw}`);
+  const decoded = decodeProcessRef(payload.holder.ref);
+  expect(decoded.kind, JSON.stringify(decoded)).toBe('decoded');
+  if (decoded.kind !== 'decoded') throw new Error(JSON.stringify(decoded));
+  return { payload, ref: decoded.value };
+}
+
+function selfCaptureFor(attemptId: string): EvidenceRecord {
+  const record = readEvidence().find(candidate =>
+    candidate.event === 'self_capture' && candidate.attemptId === attemptId);
+  expect(record, JSON.stringify(readEvidence())).toBeDefined();
+  if (!record) throw new Error(`missing self capture for ${attemptId}`);
+  return record;
+}
+
+describe.skipIf(!supported)('SkillSystem real child state locks', () => {
   it('a live old-format holder excludes a competitor; release permits acquisition and preserves evidence', async () => {
-    const holder = startHolder('hold');
+    const holder = startHolder('hold', 'legacy');
     const ready = await waitForReady(holder, 'hold');
     expect(ready.pid).toBe(holder.proc.pid);
     expect(JSON.parse(ready.lockRaw)).toMatchObject({ pid: ready.pid });
@@ -174,10 +210,10 @@ describe.skipIf(!supported)('SkillSystem real child legacy state lock', () => {
 
     const observed = await waitForEvidence(records => records.some(record =>
       record.event === 'holder_decision' && record.decision !== 'stop'
-      && record.decision.kind === 'wait' && record.process.observed?.kind === 'unknown'));
+      && record.decision?.kind === 'wait' && record.process?.observed?.kind === 'unknown'));
     expect(competingCalls).toBe(0);
     expect(fs.readFileSync(path.join(stateDir, 'state.lock'), 'utf8')).toBe(ready.lockRaw);
-    expect(observed[0].lockRaw).toBe(ready.lockRaw);
+    expect(observed.find(record => record.event === 'holder_decision')?.lockRaw).toBe(ready.lockRaw);
 
     releaseHolder();
     await holder.done;
@@ -191,7 +227,7 @@ describe.skipIf(!supported)('SkillSystem real child legacy state lock', () => {
   });
 
   it('takes over only after child close, and a fresh FileSystem can reread retained gone evidence', async () => {
-    const holder = startHolder('exit-with-lock');
+    const holder = startHolder('exit-with-lock', 'legacy');
     const ready = await waitForReady(holder, 'exit-with-lock');
     await holder.done;
     expect(holder.result.code, childDetail(holder)).toBe(0);
@@ -203,15 +239,15 @@ describe.skipIf(!supported)('SkillSystem real child legacy state lock', () => {
       calls += 1;
       replacementRaw = fs.readFileSync(path.join(stateDir, 'state.lock'), 'utf8');
       expect(replacementRaw).not.toBe(ready.lockRaw);
-      expect(JSON.parse(replacementRaw)).toMatchObject({ pid: process.pid });
-      expect(JSON.parse(replacementRaw)).not.toHaveProperty('lock_version');
+      expect(JSON.parse(replacementRaw)).toMatchObject({ lock_version: 2 });
+      expect(JSON.parse(replacementRaw)).not.toHaveProperty('pid');
     });
 
     expect(calls).toBe(1);
     expect(fs.existsSync(path.join(stateDir, 'state.lock'))).toBe(false);
     const records = readEvidence();
     const gone = records.find(record => record.event === 'holder_decision'
-      && record.decision !== 'stop' && record.decision.kind === 'takeover'
+      && record.decision !== 'stop' && record.decision?.kind === 'takeover'
       && record.decision.reason === 'process_gone');
     expect(gone, JSON.stringify(records)).toBeDefined();
     expect(gone).toMatchObject({
@@ -222,9 +258,77 @@ describe.skipIf(!supported)('SkillSystem real child legacy state lock', () => {
       },
       decision: { kind: 'takeover', reason: 'process_gone' },
     });
-    expect(gone?.process.decoded?.value).toContain(`"pid":${ready.pid}`);
-    expect(gone?.process.observed?.evidence).toBeDefined();
+    expect(gone?.process?.decoded?.value).toContain(`"pid":${ready.pid}`);
+    expect(gone?.process?.observed?.evidence).toBeDefined();
     // Successful release of the replacement generation does not clean observations.
     expect(readEvidence()).toEqual(records);
+  });
+
+  it('a live v2 holder excludes a competitor; normal release preserves capture and decisions', async () => {
+    const holder = startHolder('hold', 'v2');
+    const ready = await waitForReady(holder, 'hold');
+    expect(ready.pid).toBe(holder.proc.pid);
+    const { payload, ref } = readV2Reference(ready.lockRaw);
+    const alive = inspectProcessRef(ref);
+    expect(alive.kind, JSON.stringify(alive)).toBe('alive');
+    const childCapture = selfCaptureFor(payload.observationAttemptId);
+    expect(childCapture.capture).toMatchObject({ kind: 'captured', value: ref });
+    let competingCalls = 0;
+    const competitor = withSkillStateLock(new NodeFileSystem({ baseDir: stateDir }), async () => {
+      competingCalls += 1;
+    });
+
+    const observed = await waitForEvidence(records => records.some(record =>
+      record.event === 'holder_decision' && record.decision !== 'stop'
+      && record.decision?.kind === 'wait' && record.process?.observed?.kind === 'alive'));
+    expect(competingCalls).toBe(0);
+    expect(fs.readFileSync(path.join(stateDir, 'state.lock'), 'utf8')).toBe(ready.lockRaw);
+    expect(observed.some(record => record.lockRaw === ready.lockRaw)).toBe(true);
+
+    releaseHolder();
+    await holder.done;
+    await competitor;
+    expect(holder.result.code, childDetail(holder)).toBe(0);
+    expect(competingCalls).toBe(1);
+    expect(fs.existsSync(path.join(stateDir, 'state.lock'))).toBe(false);
+    expect(selfCaptureFor(payload.observationAttemptId)).toEqual(childCapture);
+    expect(readEvidence()).toEqual(expect.arrayContaining(observed));
+  });
+
+  it('reclaims an exited v2 holder through L1 and retains both generations of evidence', async () => {
+    const holder = startHolder('exit-with-lock', 'v2');
+    const ready = await waitForReady(holder, 'exit-with-lock');
+    const { payload: oldPayload, ref: oldRef } = readV2Reference(ready.lockRaw);
+    const childCapture = selfCaptureFor(oldPayload.observationAttemptId);
+    await holder.done;
+    expect(holder.result.code, childDetail(holder)).toBe(0);
+    expect(inspectProcessRef(oldRef)).toMatchObject({ kind: 'gone', reason: 'absent' });
+    let calls = 0;
+    let newAttemptId = '';
+
+    await withSkillStateLock(new NodeFileSystem({ baseDir: stateDir }), async () => {
+      calls += 1;
+      const current = readV2Reference(fs.readFileSync(path.join(stateDir, 'state.lock'), 'utf8'));
+      newAttemptId = current.payload.observationAttemptId;
+      expect(newAttemptId).not.toBe(oldPayload.observationAttemptId);
+    });
+
+    expect(calls).toBe(1);
+    const records = readEvidence();
+    const gone = records.find(record => record.event === 'holder_decision'
+      && record.decision !== 'stop' && record.decision?.kind === 'takeover'
+      && record.decision.reason === 'process_gone');
+    expect(gone, JSON.stringify(records)).toMatchObject({
+      lockRaw: ready.lockRaw,
+      process: {
+        decoded: { kind: 'decoded', value: oldRef },
+        observed: { kind: 'gone', reason: 'absent' },
+      },
+      decision: { kind: 'takeover', reason: 'process_gone' },
+    });
+    expect(selfCaptureFor(newAttemptId).capture).toMatchObject({ kind: 'captured' });
+    expect(readEvidence()).toEqual(expect.arrayContaining([
+      gone!, childCapture, selfCaptureFor(newAttemptId),
+    ]));
   });
 });

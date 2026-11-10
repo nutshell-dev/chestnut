@@ -7,6 +7,7 @@ import * as processExec from '../../../src/foundation/process-exec/index.js';
 import type {
   ProcessEvidence,
   ProcessRef,
+  ProcessRefCapture,
   ProcessRefDecode,
   ProcessRefObservation,
 } from '../../../src/foundation/process-exec/index.js';
@@ -17,6 +18,9 @@ import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 const NOW = 1_800_000_000_000;
 const EVIDENCE: ProcessEvidence = { version: 1, atMs: 0, facts: [] };
 const REF = 'decoded-ref' as ProcessRef;
+const SELF_CAPTURE: ProcessRefCapture = {
+  kind: 'captured', value: 'self-ref' as ProcessRef, evidence: EVIDENCE,
+};
 
 type StoredRecord = {
   version: number;
@@ -36,6 +40,7 @@ let nodeFs: NodeFileSystem;
 beforeEach(async () => {
   tempDir = await createTrackedTempDir('skill-state-lock-');
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
+  vi.spyOn(processExec, 'captureCurrentProcessRef').mockReturnValue(SELF_CAPTURE);
 });
 
 afterEach(async () => {
@@ -74,7 +79,8 @@ function readRecords(): StoredRecord[] {
     .listSync('state-lock-observations', { recursive: true })
     .filter(entry => entry.isFile && /^\d{6}\.json$/.test(entry.name))
     .sort((left, right) => left.path.localeCompare(right.path))
-    .map(entry => JSON.parse(nodeFs.readSync(entry.path)) as StoredRecord);
+    .map(entry => JSON.parse(nodeFs.readSync(entry.path)) as StoredRecord)
+    .filter(record => record.event !== 'self_capture');
 }
 
 async function catchStoreError(promise: Promise<unknown>): Promise<SkillVersionError> {
@@ -113,8 +119,14 @@ describe('SkillSystem state lock persisted observations', () => {
     await withSkillStateLock(nodeFs, async () => {
       calls += 1;
       const current = JSON.parse(nodeFs.readSync('state.lock')) as Record<string, unknown>;
-      expect(Object.keys(current).sort()).toEqual(['at', 'pid']);
-      expect(current.pid).toBe(process.pid);
+      expect(Object.keys(current).sort()).toEqual([
+        'at', 'holder', 'lock_version', 'observationAttemptId',
+      ]);
+      expect(current).toMatchObject({
+        lock_version: 2,
+        holder: { kind: 'reference', ref: SELF_CAPTURE.kind === 'captured' ? SELF_CAPTURE.value : '' },
+      });
+      expect(current).not.toHaveProperty('pid');
     });
 
     expect(calls).toBe(1);
@@ -124,7 +136,7 @@ describe('SkillSystem state lock persisted observations', () => {
     expect(readRecords()[0]).toMatchObject({
       version: 1,
       event: 'holder_decision',
-      sequence: 1,
+      sequence: 2,
       lockRaw: raw,
       process: { decoded: { kind: 'decoded', value: REF }, observed },
       decision: { kind: 'takeover', reason: 'process_gone' },
@@ -156,7 +168,7 @@ describe('SkillSystem state lock persisted observations', () => {
     expect(decode).toHaveBeenCalledWith('opaque-ref');
     const records = readRecords();
     expect(records).toHaveLength(2);
-    expect(records.map(record => record.sequence)).toEqual([1, 2]);
+    expect(records.map(record => record.sequence)).toEqual([2, 3]);
     for (const record of records) {
       expect(record).toMatchObject({
         lockRaw: raw,
@@ -413,7 +425,7 @@ describe('SkillSystem state lock persisted observations', () => {
       lockRaw: raw,
       processFacts: { decoded: { kind: 'decoded', value: REF }, observed },
       error: original,
-      recordPath: expect.stringMatching(/000001\.json$/),
+      recordPath: expect.stringMatching(/000002\.json$/),
     });
     expect(readRecords()[0]).toMatchObject({
       event: 'observation_before_io_failure',
@@ -485,7 +497,7 @@ describe('SkillSystem state lock persisted observations', () => {
         lockRaw: raw,
         decision: { kind: 'takeover', reason: 'process_gone' },
       },
-      recordPath: expect.stringMatching(/000001\.json$/),
+      recordPath: expect.stringMatching(/000002\.json$/),
       error: original,
     });
     expect(error.evidence[0]).toContain('state-lock-observations/');
@@ -516,7 +528,7 @@ describe('SkillSystem state lock persisted observations', () => {
 
     expect(calls).toBe(0);
     expect(deletion).not.toHaveBeenCalled();
-    expect(write).toHaveBeenCalledTimes(2); // index + one committed decision; no retry
+    expect(write).toHaveBeenCalledTimes(3); // index + capture + one committed decision; no retry
     expect(error.cause).toMatchObject({
       pendingRecord: { lockRaw: raw },
       writeResult,
@@ -548,7 +560,7 @@ describe('SkillSystem state lock persisted observations', () => {
     });
   });
 
-  it('rethrows fn errors unchanged and still releases the legacy writer lock', async () => {
+  it('rethrows fn errors unchanged and still releases the v2 writer lock', async () => {
     const original = new Error('critical section failure');
 
     const actual = await withSkillStateLock(nodeFs, async () => { throw original; }).catch(error => error);

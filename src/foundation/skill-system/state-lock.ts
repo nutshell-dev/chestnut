@@ -1,7 +1,9 @@
 import { isFileNotFound, type FileSystem } from '../fs/index.js';
 import {
+  captureCurrentProcessRef,
   decodeProcessRef,
   inspectProcessRef,
+  type ProcessRefCapture,
   type ProcessRefDecode,
 } from '../process-exec/index.js';
 import { SkillVersionError } from './version-types.js';
@@ -230,8 +232,8 @@ async function observeExistingLock(
 }
 
 /**
- * state.json critical section. The writer intentionally remains legacy {pid,at};
- * v2 writing/self-capture belongs to Phase2081 Step D.
+ * state.json critical section. Self capture is persisted before publishing a v2
+ * reference; legacy locks remain readable through the L1 v0 adapter.
  * 100 attempts with 10ms waits are a retry policy, not a 1s wall-clock bound:
  * synchronous L1 OS queries and evidence I/O have their own existing costs.
  */
@@ -240,11 +242,29 @@ export async function withSkillStateLock<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const observations = new StateLockObservationWriter(stateFs);
+  let captured: ProcessRefCapture;
+  try {
+    captured = captureCurrentProcessRef();
+  } catch (error) {
+    throw new SkillVersionError(
+      'store_error',
+      `State lock self capture failed; evidence location ${observations.location}`,
+      { cause: { operation: 'capture', error }, evidence: [observations.location] },
+    );
+  }
+  observations.recordCapture(captured);
   for (let attempt = 0; ; attempt++) {
     try {
       await stateFs.writeExclusive(
         STATE_LOCK_FILE,
-        JSON.stringify({ pid: process.pid, at: Date.now() }),
+        JSON.stringify({
+          lock_version: 2,
+          at: Date.now(),
+          observationAttemptId: observations.attemptId,
+          holder: captured.kind === 'captured'
+            ? { kind: 'reference', ref: captured.value }
+            : { kind: 'unknown' },
+        } satisfies LockV2),
       );
       break;
     } catch (error) {

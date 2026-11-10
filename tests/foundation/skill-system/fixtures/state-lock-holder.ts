@@ -7,6 +7,7 @@ interface Scenario {
   stateDir: string;
   barrierDir: string;
   mode: 'hold' | 'exit-with-lock';
+  format: 'legacy' | 'v2';
 }
 
 // Readiness and release are file barriers; these timers are only hang bounds.
@@ -27,12 +28,28 @@ async function waitForRelease(): Promise<void> {
   }
 }
 
+async function withLegacyLock(fn: () => Promise<void>): Promise<void> {
+  const lockPath = path.join(scenario.stateDir, 'state.lock');
+  fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, at: Date.now() }), { flag: 'wx' });
+  try {
+    await fn();
+  } finally {
+    try { fs.unlinkSync(lockPath); } catch { /* retain the legacy best-effort release behavior */ }
+  }
+}
+
 try {
-  await withSkillStateLock(new NodeFileSystem({ baseDir: scenario.stateDir }), async () => {
-    fs.writeFileSync(readyPath, JSON.stringify({
+  const withLock = scenario.format === 'legacy'
+    ? withLegacyLock
+    : (fn: () => Promise<void>) => withSkillStateLock(
+        new NodeFileSystem({ baseDir: scenario.stateDir }), fn,
+      );
+  await withLock(async () => {
+    fs.writeFileSync(`${readyPath}.tmp`, JSON.stringify({
       pid: process.pid,
       lockRaw: fs.readFileSync(path.join(scenario.stateDir, 'state.lock'), 'utf8'),
     }));
+    fs.renameSync(`${readyPath}.tmp`, readyPath);
     if (scenario.mode === 'exit-with-lock') process.exit(0);
     await waitForRelease();
     fs.writeFileSync(path.join(scenario.barrierDir, 'completed'), 'completed');
