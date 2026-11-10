@@ -51,6 +51,7 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
 
   program.command('stop').action(actionSpy);
   program.command('start').action(actionSpy);
+  program.command('init').action(actionSpy);
 
   const contract = program.command('contract');
   contract.command('status').option('--claw <id>').action(actionSpy);
@@ -217,6 +218,24 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
         .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
       expect(action).not.toHaveBeenCalled();
     });
+  });
+
+  it.each(['alice', 'task-123', ''])('rejects caller=%s before workspace initialization', async (caller) => {
+    expect(await runCli(['init'], caller)).toEqual({ actionCalls: 0, exitCode: 1 });
+  });
+  it.each([undefined, 'motion'])('allows caller=%s to initialize the workspace', async (caller) => {
+    expect(await runCli(['init'], caller)).toEqual({ actionCalls: 1, exitCode: undefined });
+  });
+
+  it('allows init help without invoking initialization', async () => {
+    const action = vi.fn();
+    const program = buildProgram(action);
+    program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+    vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
+    captureCliCallerIdentity();
+    await expect(program.parseAsync(['node', 'chestnut', 'init', '--help']))
+      .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
+    expect(action).not.toHaveBeenCalled();
   });
 
   // ── wiring source-scan：CLI 唯一入口必须 capture + 注册钩子 ────────────────

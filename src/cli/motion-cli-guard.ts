@@ -57,8 +57,8 @@ function commandTargetsMotion(command: Command): boolean {
   // Both families read or affect motion without an explicit --claw option.
   // Launcher setup also changes the global configuration used by motion.
   if (path[0] === MOTION_CLAW_ID || path[0] === 'launcher') return true;
-  // 顶层 stop / start
-  if (path.length === 1 && (path[0] === 'stop' || path[0] === 'start')) return true;
+  // 初始化会发布 motion 共用的全局配置与 Watchdog 布局。
+  if (path.length === 1 && (path[0] === 'stop' || path[0] === 'start' || path[0] === 'init')) return true;
 
   // Watchdog start/stop directly control motion supervision.
   if (path[0] === 'watchdog') return true;
