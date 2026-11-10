@@ -47,6 +47,26 @@ async function seedActiveContract(): Promise<string> {
   return manager.create(makeContractYaml());
 }
 
+function makeFailingInboxFsFactory(failure: Error) {
+  return (dir: string): FileSystem => {
+    const nodeFs = new NodeFileSystem({ baseDir: dir });
+    return new Proxy(nodeFs as unknown as FileSystem, {
+      get(target, prop) {
+        if (prop === 'writeAtomicSync') {
+          return (relativePath: string, content: string) => {
+            if (relativePath.includes(`${path.sep}inbox${path.sep}pending${path.sep}`)) {
+              throw failure;
+            }
+            return nodeFs.writeAtomicSync(relativePath, content);
+          };
+        }
+        const value = Reflect.get(target as object, prop);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  };
+}
+
 beforeEach(async () => {
   prevRoot = process.env.CHESTNUT_ROOT;
   workspaceRoot = await createTrackedTempDir('phase1471-cancel-');
@@ -174,23 +194,7 @@ describe('contractCancelCommand (phase 1471)', () => {
     const contractId = await seedActiveContract();
     const audit = makeMockAudit();
     const failure = new Error('INBOX_WRITE_EIO');
-    const failingFsFactory = (dir: string): FileSystem => {
-      const nodeFs = new NodeFileSystem({ baseDir: dir });
-      return new Proxy(nodeFs as unknown as FileSystem, {
-        get(target, prop) {
-          if (prop === 'writeAtomicSync') {
-            return (relativePath: string, content: string) => {
-              if (relativePath.includes(`${path.sep}inbox${path.sep}pending${path.sep}`)) {
-                throw failure;
-              }
-              return nodeFs.writeAtomicSync(relativePath, content);
-            };
-          }
-          const value = Reflect.get(target as object, prop);
-          return typeof value === 'function' ? value.bind(target) : value;
-        },
-      });
-    };
+    const failingFsFactory = makeFailingInboxFsFactory(failure);
 
     let caught: unknown;
     try {
@@ -206,9 +210,10 @@ describe('contractCancelCommand (phase 1471)', () => {
     }
 
     expect(caught).toBeInstanceOf(CliError);
-    expect((caught as Error).message).toBe(
+    expect((caught as Error).message).toContain(
       `Contract cancelled: ${contractId}; cancellation notification delivery failed`,
     );
+    expect((caught as Error).message).toContain('cancellation_delivery: INBOX_WRITE_EIO');
     expect((caught as Error).message).not.toContain('Failed to cancel');
     expect((caught as Error & { cause?: unknown }).cause).toBe(failure);
     expect(logSpy).not.toHaveBeenCalledWith(
@@ -228,10 +233,135 @@ describe('contractCancelCommand (phase 1471)', () => {
     expect(pendingFiles).toHaveLength(0);
   });
 
+  it('reports a real committed cancellation and pending message when owner audit fails', async () => {
+    const contractId = await seedActiveContract();
+    const auditError = new Error('OWNER_CANCELLED_AUDIT_EIO');
+    const realCreate = assembly.createContractActionContext;
+    let dispose: ReturnType<typeof vi.spyOn> | undefined;
+    vi.spyOn(assembly, 'createContractActionContext').mockImplementation(async (deps, id) => {
+      const action = await realCreate(deps, id);
+      const originalWrite = action.audit.write.bind(action.audit);
+      action.audit.write = (type, ...cols) => {
+        if (type === 'contract_cancelled') throw auditError;
+        return originalWrite(type, ...cols);
+      };
+      dispose = vi.spyOn(action, 'dispose');
+      return action;
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    let caught: unknown;
+    try {
+      await contractCancelCommand({ fsFactory }, CLAW_ID, 'keep real delivery', contractId);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(CliError);
+    expect((caught as Error).message).toContain(`Contract cancelled: ${contractId}`);
+    expect((caught as Error).message).toContain('cancellation notification delivered');
+    expect((caught as Error).message).toContain('cancelled_audit');
+    expect((caught as Error).message).toContain('OWNER_CANCELLED_AUDIT_EIO');
+    expect((caught as Error).message).not.toContain('Failed to cancel');
+    expect((caught as Error & { cause?: unknown }).cause).toBe(auditError);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await expect(fs.access(path.join(
+      clawDir, 'contract', 'archive', 'cancelled', contractId,
+    ))).resolves.toBeUndefined();
+    const pendingDir = path.join(clawDir, 'inbox', 'pending');
+    const pendingFiles = await fs.readdir(pendingDir);
+    expect(pendingFiles).toHaveLength(1);
+    const message = await fs.readFile(path.join(pendingDir, pendingFiles[0]), 'utf8');
+    expect(message).toContain(
+      `cancelled_contract_refs: "[{\\"claw_id\\":\\"${CLAW_ID}\\",\\"contract_id\\":\\"${contractId}\\"}]"`,
+    );
+    expect(message).toContain('取消原因：keep real delivery');
+    expect(stderr.mock.calls.map(call => String(call[0])).join('')).toContain('OWNER_CANCELLED_AUDIT_EIO');
+  });
+
+  it('preserves delivery and CLI audit errors together and disposes', async () => {
+    const contractId = await seedActiveContract();
+    const deliveryError = new Error('INBOX_AND_CLI_EIO');
+    const cliAuditError = new Error('CLI_AUDIT_EIO');
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === 'cli_contract_cancel') throw cliAuditError;
+    });
+    const realCreate = assembly.createContractActionContext;
+    let dispose: ReturnType<typeof vi.spyOn> | undefined;
+    vi.spyOn(assembly, 'createContractActionContext').mockImplementation(async (deps, id) => {
+      const action = await realCreate(deps, id);
+      dispose = vi.spyOn(action, 'dispose');
+      return action;
+    });
+
+    let caught: unknown;
+    try {
+      await contractCancelCommand(
+        { fsFactory: makeFailingInboxFsFactory(deliveryError) },
+        CLAW_ID,
+        'both reporting paths fail',
+        contractId,
+        { audit },
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(CliError);
+    expect((caught as Error).message).toContain(`Contract cancelled: ${contractId}`);
+    expect((caught as Error).message).toContain('cancellation notification delivery failed');
+    expect((caught as Error).message).toContain('INBOX_AND_CLI_EIO');
+    expect((caught as Error).message).toContain('cli_audit');
+    expect((caught as Error).message).toContain('CLI_AUDIT_EIO');
+    const cause = (caught as Error & { cause?: unknown }).cause;
+    expect(cause).toBeInstanceOf(AggregateError);
+    expect((cause as AggregateError).errors).toEqual([deliveryError, cliAuditError]);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await expect(fs.access(path.join(
+      clawDir, 'contract', 'archive', 'cancelled', contractId,
+    ))).resolves.toBeUndefined();
+  });
+
+  it('reports already-cancelled with unchecked delivery and a CLI audit failure', async () => {
+    const contractId = await seedActiveContract();
+    const cliAuditError = new Error('ALREADY_CLI_AUDIT_EIO');
+    const audit = makeMockAudit();
+    await contractCancelCommand({ fsFactory }, CLAW_ID, 'first', contractId, { audit });
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === 'cli_contract_cancel') throw cliAuditError;
+    });
+    const realCreate = assembly.createContractActionContext;
+    let dispose: ReturnType<typeof vi.spyOn> | undefined;
+    vi.spyOn(assembly, 'createContractActionContext').mockImplementation(async (deps, id) => {
+      const action = await realCreate(deps, id);
+      dispose = vi.spyOn(action, 'dispose');
+      return action;
+    });
+
+    let caught: unknown;
+    try {
+      await contractCancelCommand({ fsFactory }, CLAW_ID, 'second', contractId, { audit });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(CliError);
+    expect((caught as Error).message).toContain(`Contract already cancelled: ${contractId}`);
+    expect((caught as Error).message).toContain('notification delivery not checked');
+    expect((caught as Error).message).toContain('cli_audit');
+    expect((caught as Error).message).toContain('ALREADY_CLI_AUDIT_EIO');
+    expect((caught as Error & { cause?: unknown }).cause).toBe(cliAuditError);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    const pendingFiles = await fs.readdir(path.join(clawDir, 'inbox', 'pending'));
+    expect(pendingFiles).toHaveLength(1);
+  });
+
   it('treats committed plus not_attempted as a defensive error and always disposes', async () => {
     const dispose = vi.fn();
     const cancel = vi.fn(async () => ({
       commit: { kind: 'committed' },
+      cancellationFailures: [],
       cancellationDelivery: { kind: 'not_attempted' },
     }));
     vi.spyOn(assembly, 'createContractActionContext').mockResolvedValueOnce({
