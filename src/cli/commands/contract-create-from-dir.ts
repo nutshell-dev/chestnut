@@ -15,12 +15,12 @@ import { makeContractId } from '../../core/contract/index.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 import { CliError } from '../errors.js';
 
-// phase 324 H10: 拷贝硬化常量。
-const COPY_ALLOWED_EXTENSIONS = new Set(['.sh', '.md', '.txt', '.json', '.yaml', '.yml']);
+// phase 324 H10: 拷贝硬化常量；脚本资产宿主中立发布，执行支持由 L1 裁决。
+const COPY_ALLOWED_EXTENSIONS = new Set(['.sh', '.cmd', '.bat', '.md', '.txt', '.json', '.yaml', '.yml']);
 
 /**
  * contract dir copy 单 file 大小上限（默 1 MB）.
- * Derivation: 1 * 1024 * 1024 = 1_048_576 byte / 覆盖典型 contract template (.sh/.md/.yaml 等) 平均 < 10KB /
+ * Derivation: 1 * 1024 * 1024 = 1_048_576 byte / 覆盖典型 contract template (.sh/.cmd/.bat/.md/.yaml 等) 平均 < 10KB /
  * 1MB 留足极大 spec 余量 / env CHESTNUT_CONTRACT_DIR_COPY_MAX_BYTES 覆盖.
  */
 const COPY_MAX_FILE_BYTES_DEFAULT = 1 * 1024 * 1024;
@@ -49,7 +49,7 @@ export async function contractCreateFromDirCommand(
   // ContractSystem owner 将其落 durable staging 并在 publish 前移入
   // verification/；合同 publish/created 通知只对含资产的完整快照发出。
   // phase 324 H10: 硬化校验防 attacker-controlled tarball 用 symlink / 危险扩展 /
-  // 超大文件 / realpath 越界注入 .sh 到 verifier 可执行处。
+  // 超大文件 / realpath 越界注入宿主脚本到 verifier 可执行处。
   const srcDir = srcFs.existsSync('verification') ? 'verification' : srcFs.existsSync('acceptance') ? 'acceptance' : undefined;
   const assets: VerificationAssetInput[] = [];
   const auditContractRef = contract.id ?? '(auto)';

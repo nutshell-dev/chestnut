@@ -49,12 +49,25 @@ escalation:
 
 ### 验收脚本示例
 
-脚本从 `clawDir`（`.chestnut/claws/{clawId}/`）运行，用相对路径：
+脚本从 `clawDir`（`.chestnut/claws/{clawId}/`）运行，用相对路径。脚本退出码为 0 表示验收通过，非零表示验收未通过。
 
-```bash
-#!/bin/bash
+POSIX 主机的 `script_file` 使用 `.sh`，由 `sh` 执行（不要求 Bash 特性）：
+
+```sh
+#!/bin/sh
 if [ -f "clawspace/<contract-slug>/report.md" ]; then exit 0; else exit 1; fi
 ```
+
+Windows 主机的 `script_file` 使用 `.cmd` 或 `.bat`，由 `cmd.exe` 执行。路径按 cmd 规则引用：
+
+```bat
+@echo off
+if exist "clawspace\<contract-slug>\report.md" (exit /b 0) else (exit /b 1)
+```
+
+以上 POSIX 与 Windows 示例是**替代关系**：按目标宿主选择其中一种，不要为同一个 subtask 同时配置两条 acceptance。扩展名必须与目标宿主匹配；系统不会模拟另一 OS 的脚本、翻译脚本内容或自动选择 PowerShell，`.ps1` 当前不支持。
+
+不支持的脚本类型或宿主组合会形成 `execution_unavailable`，表示本次无法取得验收结论，不等同于 verifier 否决；超时、启动或 I/O 故障也不应伪装成普通非零退出。
 
 ### LLM 验收提示词示例
 

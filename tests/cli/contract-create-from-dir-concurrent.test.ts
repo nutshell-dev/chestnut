@@ -76,7 +76,7 @@ function activeDirOf(contractId: string): string {
   return path.join(clawDir, 'contract', 'active', contractId);
 }
 
-/** 源目录：contract.yaml + verification/（含一个白名单外文件）。 */
+/** 源目录：contract.yaml + verification/（含分平台脚本及白名单外文件）。 */
 function makeSourceDir(): string {
   const src = path.join(testDir, 'src-contract');
   fs.mkdirSync(path.join(src, 'verification'), { recursive: true });
@@ -87,8 +87,12 @@ function makeSourceDir(): string {
     verification: [{ subtask_id: 't1', type: 'script', script_file: 'verification/check.sh' }],
   })));
   fs.writeFileSync(path.join(src, 'verification', 'check.sh'), '#!/bin/sh\nexit 0\n');
+  fs.writeFileSync(path.join(src, 'verification', 'check.cmd'), '@echo off\r\nexit /b 0\r\n');
+  fs.writeFileSync(path.join(src, 'verification', 'check.bat'), '@echo off\r\nexit /b 0\r\n');
+  fs.writeFileSync(path.join(src, 'verification', 'uppercase.CMD'), '@echo off\r\nexit /b 0\r\n');
   fs.writeFileSync(path.join(src, 'verification', 'notes.md'), '# notes\n');
   fs.writeFileSync(path.join(src, 'verification', 'evil.exe'), 'MZ'); // 扩展白名单外 → skip
+  fs.writeFileSync(path.join(src, 'verification', 'extensionless'), '#!/bin/sh\nexit 0\n');
   return src;
 }
 
@@ -108,9 +112,20 @@ describe('contract-create-from-dir asset-consistent publish (phase 1911 Step F)'
     expect(contracts).toHaveLength(1);
     const root = activeDirOf(contracts[0]);
     // 资产随 publish 一致可见；白名单外文件被过滤
-    expect(fs.readFileSync(path.join(root, 'verification', 'check.sh'), 'utf-8')).toContain('exit 0');
+    expect(fs.readFileSync(path.join(root, 'verification', 'check.sh'), 'utf-8')).toBe('#!/bin/sh\nexit 0\n');
+    for (const scriptName of ['check.cmd', 'check.bat', 'uppercase.CMD']) {
+      expect(fs.readFileSync(path.join(root, 'verification', scriptName), 'utf-8'))
+        .toBe('@echo off\r\nexit /b 0\r\n');
+    }
     expect(fs.readFileSync(path.join(root, 'verification', 'notes.md'), 'utf-8')).toBe('# notes\n');
     expect(fs.existsSync(path.join(root, 'verification', 'evil.exe'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'verification', 'extensionless'))).toBe(false);
+    expect(audit.write).toHaveBeenCalledWith(
+      'cli_contract_create', 'claw=alice', 'contract=(auto)', 'skip=ext_not_allowed', 'entry=evil.exe', 'ext=.exe',
+    );
+    expect(audit.write).toHaveBeenCalledWith(
+      'cli_contract_create', 'claw=alice', 'contract=(auto)', 'skip=ext_not_allowed', 'entry=extensionless', 'ext=',
+    );
     // 无 claim / staging 残留
     expect(fs.existsSync(path.join(root, CREATION_CLAIM_FILE))).toBe(false);
     expect(fs.existsSync(path.join(root, CREATION_ASSETS_STAGING_DIR))).toBe(false);
