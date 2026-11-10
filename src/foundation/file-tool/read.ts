@@ -205,11 +205,17 @@ export const readTool: Tool = {
 
       // Byte cap: persist overflow + head/tail preview (resource safety, independent of line cap)
       let byteCapTriggered = false;
+      // phase 2098 Step B: 溢出保存失败 = 本次 read 未能完整交付所选输出 → 工具业务失败。
+      // 只在 kind === 'failed'（无任何产物）置位；durable / committed 两态仍成功（2095）。
+      let overflowPersistFailed = false;
       if (content.length > READ_OUTPUT_HARD_CAP_BYTES) {
         byteCapTriggered = true;
         const overflow = await persistOverflow(ctx, content);
         throwIfFileToolAborted(ctx.signal);
         if (overflow.kind === 'failed') {
+          // 不得提前 return：保留预览交给调用方，并让后续 recordReadResult 照常把
+          // 旧 isFullRead=true 降级为 false（否则覆盖门会放行伪全文状态）。
+          overflowPersistFailed = true;
           content = content.slice(0, READ_OUTPUT_HARD_CAP_BYTES) + '\n[truncated - overflow persist failed]';
         } else {
           content = truncateHeadTail(content, overflow.relPath);
@@ -231,7 +237,7 @@ export const readTool: Tool = {
       }
 
       return {
-        success: true,
+        success: !overflowPersistFailed,
         content,
       };
     } catch (error) {

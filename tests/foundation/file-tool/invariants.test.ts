@@ -16,6 +16,8 @@ import { searchTool } from '../../../src/foundation/file-tool/search.js';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
+import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
+import { createToolExecutor } from '../../../src/foundation/tools/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
@@ -627,19 +629,90 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
     expect(event?.join(' ')).toContain('EIO');
   });
 
-  it('rename 前 EIO：无产物、无 saved 路径，保留失败提示和非全文状态', async () => {
-    const error = Object.assign(new Error('synthetic pre-rename EIO'), { code: 'EIO' });
-    const { ctx, events, writes } = makeHarness({ writeThrows: error });
-    const result = await readTool.execute({ path: 'big.txt', limit: 2000 }, ctx);
+  // phase 2098 Step B：提交前保存失败（无任何产物）必须如实返回 success=false，
+  // 但保留可交付的部分内容与失败说明；EIO / ENOSPC 同通道。
+  it.each(['EIO', 'ENOSPC'] as const)(
+    'rename 前 %s：success=false、无产物、无 saved 路径，保留预览与失败提示和非全文状态',
+    async (code) => {
+      const error = Object.assign(new Error(`synthetic pre-rename ${code}`), { code });
+      const { ctx, events, writes } = makeHarness({ writeThrows: error });
+      const result = await readTool.execute({ path: 'big.txt', limit: 2000 }, ctx);
 
-    expect(result.success).toBe(true);
-    expect(result.content).toContain('[truncated - overflow persist failed]');
-    expect(result.content).not.toContain('durability unconfirmed');
-    expect(parseReadHint(result.content)).toBeUndefined();
+      expect(result.success).toBe(false);
+      // 可交付的部分内容仍保留（预览首部可辨识）+ 固定失败说明
+      expect(result.content).toContain('overflow-0000');
+      expect(result.content).toContain('[truncated - overflow persist failed]');
+      expect(result.content).not.toContain('durability unconfirmed');
+      expect(parseReadHint(result.content)).toBeUndefined();
+      expect(writes()).toBe(1);
+      expect(await artifactFiles()).toEqual([]);
+      expect(events.find((entry) => entry[0] === OVERFLOW_FAILED)?.join(' ')).toContain(code);
+      expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+    },
+  );
+
+  // phase 2098 Step B：真实 ToolExecutor 消费链——业务失败进入 tool_exec=err，
+  // 且后续短读仍可执行（不终止 turn）。
+  it('真实 ToolExecutor：保存失败记为 tool_exec=err，随后短读成功记 ok，只尝试一次保存', async () => {
+    await fs.writeFile(path.join(workspaceDir, 'small.txt'), 'small body');
+    const error = Object.assign(new Error('synthetic executor-path EIO'), { code: 'EIO' });
+    const { ctx, events, writes } = makeHarness({ writeThrows: error });
+    const registry = new ToolRegistryImpl();
+    registry.register(readTool);
+    const executor = createToolExecutor(registry, 60_000);
+
+    const failed = await executor.execute({ toolName: 'read', args: { path: 'big.txt', limit: 2000 }, ctx });
+    expect(failed.success).toBe(false);
+    expect(failed.content).toContain('overflow-0000');
+    expect(failed.content).toContain('[truncated - overflow persist failed]');
+    expect(parseReadHint(failed.content)).toBeUndefined();
     expect(writes()).toBe(1);
     expect(await artifactFiles()).toEqual([]);
-    expect(events.find((entry) => entry[0] === OVERFLOW_FAILED)?.join(' ')).toContain('EIO');
-    expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
+
+    const failedExec = events.filter((entry) => entry[0] === 'tool_exec');
+    expect(failedExec).toHaveLength(1);
+    expect(failedExec[0]).toContain('read');
+    expect(failedExec[0]).toContain('err');
+
+    const ok = await executor.execute({ toolName: 'read', args: { path: 'small.txt' }, ctx });
+    expect(ok).toEqual({ success: true, content: 'small body' });
+    const okExec = events.filter((entry) => entry[0] === 'tool_exec');
+    expect(okExec).toHaveLength(2);
+    expect(okExec[1]).toContain('read');
+    expect(okExec[1]).toContain('ok');
+    expect(writes()).toBe(1);
+  });
+
+  // phase 2098 Step B：失败分支不得提前 return——旧 isFullRead=true 必须被本次
+  // 失败读取降级，否则后续 write 会沿用伪全文状态放行。
+  it('旧 full-read 状态被降级：保存失败 read 后写入必须因未全文读被拒、源文件不变', async () => {
+    const growPath = path.join(workspaceDir, 'grow.txt');
+    await fs.writeFile(growPath, 'grow-line-0\ngrow-line-1\n');
+    const error = Object.assign(new Error('synthetic grow EIO'), { code: 'EIO' });
+    const { ctx, writes } = makeHarness({ writeThrows: error });
+
+    const first = await readTool.execute({ path: 'grow.txt' }, ctx);
+    expect(first.success).toBe(true);
+    expect(ctx.readFileState.get('clawspace/grow.txt')?.isFullRead).toBe(true);
+
+    const bigVersion = Array.from(
+      { length: 1500 },
+      (_, i) => `grow-${String(i).padStart(4, '0')} ${'g'.repeat(90)}`,
+    ).join('\n');
+    await fs.writeFile(growPath, bigVersion);
+
+    const second = await readTool.execute({ path: 'grow.txt', limit: 2000 }, ctx);
+    expect(second.success).toBe(false);
+    expect(second.content).toContain('grow-0000');
+    expect(second.content).toContain('[truncated - overflow persist failed]');
+    expect(writes()).toBe(1);
+    expect(ctx.readFileState.get('clawspace/grow.txt')?.isFullRead).toBe(false);
+
+    const writeAttempt = await writeTool.execute({ path: 'grow.txt', content: 'REPLACEMENT' }, ctx);
+    expect(writeAttempt.success).toBe(false);
+    expect(writeAttempt.content).toContain('has not been fully read');
+    expect(writeAttempt.content).toContain('grow.txt');
+    expect(await fs.readFile(growPath, 'utf8')).toBe(bigVersion);
   });
 
   it('短读：零 overflow 写，正文和 full-read 状态不变', async () => {

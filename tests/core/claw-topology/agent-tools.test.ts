@@ -851,14 +851,22 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     const read = createCrossClawReadTool({ topology, crossTargetAccess: realAccess });
     const search = createCrossClawSearchTool({ topology, crossTargetAccess: realAccess });
 
+    const callerReadStateBefore = new Map(callerCtx.readFileState);
+
     const searchResult = await search.execute({ text: 'needle', claw: 'target-claw' }, callerCtx);
     expect(searchResult.success).toBe(false);
     expect(searchResult.content).toContain('overflow persist failed');
     expect(searchResult.content).not.toContain('Full results saved at');
 
+    // phase 2098 Step B：跨 claw read 的保存失败同样如实失败，且保留部分内容/失败说明、
+    // 不给取回提示（无 artifact）、caller 侧零产物、caller 读取状态不被 target 污染。
     const readResult = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
+    expect(readResult.success).toBe(false);
+    expect(readResult.content).toContain(BIG_LINE(0));
     expect(readResult.content).toContain('overflow persist failed');
     expect(parseReadHint(readResult.content)).toBeUndefined();
+    expect(await fileCountDeep(caller.syncDir)).toBe(0);
+    expect(callerCtx.readFileState).toEqual(callerReadStateBefore);
 
     const auditTypes = (callerAudit.write as unknown as { mock: { calls: Array<[string]> } }).mock.calls.map((c) => c[0]);
     expect(auditTypes).toContain('search_overflow_persist_failed');
