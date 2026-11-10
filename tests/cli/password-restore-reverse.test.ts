@@ -74,6 +74,9 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-init-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
+  vi.stubEnv('CHESTNUT_HOME', path.join(tempDir, 'credentials'));
+  vi.stubEnv('ANTHROPIC_API_KEY', undefined);
+  vi.stubEnv('OPENAI_API_KEY', undefined);
 }
 function teardownTempDir() {
   vi.unstubAllEnvs();
@@ -99,11 +102,15 @@ describe('passwordQuestion reverse — _writeToOutput restored after password pr
     await initCommand(commandDeps, true);
     // wrapper 包含 muted 变量，恢复后的 original 不包含
     expect(mockRl._writeToOutput.toString()).not.toContain('muted');
+    const stored = fs.readFileSync(path.join(tempDir, 'credentials', 'credentials.yaml'), 'utf8');
+    expect(stored).toContain('sk-ant-xxx');
   });
 
   it('Other 高级路径：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
     rlAnswers.queue = ['12', '2', 'https://api.openai.com/v1', 'sk-test', 'gpt-4o', 'y'];
     await initCommand(commandDeps, true);
     expect(mockRl._writeToOutput.toString()).not.toContain('muted');
+    const stored = fs.readFileSync(path.join(tempDir, 'credentials', 'credentials.yaml'), 'utf8');
+    expect(stored).toContain('sk-test');
   });
 });
