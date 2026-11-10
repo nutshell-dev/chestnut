@@ -185,6 +185,43 @@ describe('outboxSkipCommand', () => {
     expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
   });
 
+  it('rejects claim preparation failure without skipping, marking done, or reporting empty', async () => {
+    const pending = seedPending(root, 'busy', 1);
+    const clawDir = path.join(root, '.chestnut', 'claws', 'busy');
+    const storageError = new Error('claim record storage unavailable');
+    const failingFactory = (dir: string) => {
+      const real = new NodeFileSystem({ baseDir: dir });
+      const writeAtomic = real.writeAtomic.bind(real);
+      vi.spyOn(real, 'writeAtomic').mockImplementation(async (targetPath, content) => {
+        if (targetPath.includes('processing-claims')) throw storageError;
+        return writeAtomic(targetPath, content);
+      });
+      return real;
+    };
+    const markSkipped = vi.spyOn(OutboxReader.prototype, 'markSkipped');
+    const { audit, calls } = makeAuditSpy();
+
+    await expect(outboxSkipCommand(
+      { fsFactory: failingFactory },
+      'busy',
+      undefined,
+      { audit },
+    )).rejects.toMatchObject({
+      code: 'CLAIM_PREPARATION_FAILED',
+      stage: 'write_index',
+      cause: storageError,
+    });
+
+    expect(markSkipped).not.toHaveBeenCalled();
+    expect(calls.map(call => call.event)).not.toContain('outbox_skipped');
+    expect(calls.map(call => call.event)).not.toContain('outbox_delivered');
+    expect(listMd(pending)).toEqual(['msg0.md']);
+    expect(listMd(path.join(clawDir, 'outbox', 'processing'))).toEqual([]);
+    expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
+    expect(logs.some(l => l.startsWith('- '))).toBe(false);
+    expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
+  });
+
   it('rejects an unavailable mclaim_ record during init before claimNext or empty output', async () => {
     const pending = seedPending(root, 'busy', 1);
     const clawDir = path.join(root, '.chestnut', 'claws', 'busy');

@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import { decodeProcessRef, getProcessStartTime, inspectProcessRef } from '../process-exec/index.js';
+import { decodeProcessRef, inspectProcessRef } from '../process-exec/index.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitOutboxClaimFailed,
@@ -47,6 +47,7 @@ import {
   loadClaimDescriptor,
   type ClaimRecordEvidence,
 } from './claim-record.js';
+import { prepareClaimRecord } from './claim-record-store.js';
 
 type ClaimResult =
   | { status: 'empty' }
@@ -709,11 +710,10 @@ export class OutboxReader {
     const fileName = listResult.value[0]; // oldest first
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
-    const startTime = getProcessStartTime(process.pid);
-    const startTimeHex = startTime ? Buffer.from(startTime).toString('hex') : '0';
-    const claimToken = `cli_${process.pid}_${startTimeHex}_${newShortUuid()}`;
+    const prepared = await prepareClaimRecord(this.fs, processingDir, 'outbox', fileName);
     const relPendingPath = path.join(pendingDir, fileName);
-    const relClaimedPath = path.join(processingDir, `${claimToken}_${fileName}`);
+    const relClaimedPath = path.join(processingDir, prepared.claimName);
+    const claimPath = path.join(OUTBOX_PROCESSING_DIR, prepared.claimName);
 
     // Atomic claim
     try {
@@ -773,16 +773,13 @@ export class OutboxReader {
             status: 'recovery_required',
             readError: reason,
             rollbackError: rollbackReason,
-            claimPath: path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`),
+            claimPath,
             filename: fileName,
           };
         }
         return { status: 'io_error', error: reason };
       }
     }
-
-    // Build claimPath relative to clawDir (for markDone/markSkipped to use)
-    const claimPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
 
     return { status: 'claimed', claimPath, filename: fileName, content };
   }

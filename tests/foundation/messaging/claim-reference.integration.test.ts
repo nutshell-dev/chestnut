@@ -3,8 +3,10 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
+import { OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
 import type { ClaimDescriptor } from '../../../src/foundation/messaging/claim-record.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
+import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import {
   decodeProcessRef,
@@ -13,8 +15,8 @@ import {
 } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
-const CHANNEL = 'inbox';
-type Channel = typeof CHANNEL;
+const CHANNELS = ['inbox', 'outbox'] as const;
+type Channel = typeof CHANNELS[number];
 type ReadyFile = {
   pid: number;
   claimName: string;
@@ -45,7 +47,6 @@ const noopAudit = { write: () => { /* audit is outside this process integration 
 let bundleDir: string;
 let fixtureBundle: string;
 let tempDir: string;
-let messageBytes: Buffer;
 let children: ChildHandle[];
 
 function resolveEsbuildBin(): string {
@@ -60,12 +61,14 @@ function resolveEsbuildBin(): string {
 
 function fixtureSource(): string {
   const inboxReader = path.resolve(process.cwd(), 'src/foundation/messaging/inbox-reader.ts');
+  const outboxReader = path.resolve(process.cwd(), 'src/foundation/messaging/outbox-reader.ts');
   const nodeFs = path.resolve(process.cwd(), 'src/foundation/fs/node-fs.ts');
   const processExec = path.resolve(process.cwd(), 'src/foundation/process-exec/index.ts');
   return `
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { InboxReader } from ${JSON.stringify(inboxReader)};
+import { OutboxReader } from ${JSON.stringify(outboxReader)};
 import { NodeFileSystem } from ${JSON.stringify(nodeFs)};
 import { captureCurrentProcessRef } from ${JSON.stringify(processExec)};
 
@@ -84,36 +87,51 @@ async function waitForRelease() {
 }
 
 try {
-  if (scenario.channel !== 'inbox') throw new Error('unsupported channel: ' + scenario.channel);
   const selfCapture = captureCurrentProcessRef();
   if (selfCapture.kind !== 'captured') {
     throw new Error('real current-process capture failed: ' + JSON.stringify(selfCapture));
   }
   const fileSystem = new NodeFileSystem({ baseDir: scenario.rootDir });
-  const reader = new InboxReader(
-    scenario.pendingDir,
-    scenario.doneDir,
-    scenario.failedDir,
-    fileSystem,
-    { write: () => { /* no audit sink needed in the child */ } },
-    scenario.inflightDir,
-  );
-  const drained = await reader.drainAndDeliver();
-  if (drained.kind !== 'complete') {
-    throw new Error('drainAndDeliver failed: ' + JSON.stringify(drained) + '; error=' + String(drained.error));
+  const audit = { write: () => { /* no audit sink needed in the child */ } };
+  let claimName;
+  if (scenario.channel === 'inbox') {
+    const reader = new InboxReader(
+      scenario.pendingDir,
+      scenario.doneDir,
+      scenario.failedDir,
+      fileSystem,
+      audit,
+      scenario.inflightDir,
+    );
+    const drained = await reader.drainAndDeliver();
+    if (drained.kind !== 'complete') {
+      throw new Error('drainAndDeliver failed: ' + JSON.stringify(drained) + '; error=' + String(drained.error));
+    }
+    if (drained.entries.length !== 1 || drained.handles.length !== 1) {
+      throw new Error('expected one entry/handle: ' + JSON.stringify(drained));
+    }
+    const entry = drained.entries[0];
+    const handle = drained.handles[0];
+    if (entry.message.id !== scenario.messageId || entry.message.content !== scenario.messageBody) {
+      throw new Error('delivered message changed: ' + JSON.stringify(entry.message));
+    }
+    if (handle.originalFileName !== scenario.originalName || handle.filePath !== entry.filePath) {
+      throw new Error('entry/handle identity mismatch: ' + JSON.stringify({ entry, handle }));
+    }
+    claimName = path.basename(handle.filePath);
+  } else if (scenario.channel === 'outbox') {
+    const reader = new OutboxReader(fileSystem, audit);
+    const claimed = await reader.claimNext(scenario.clawDir);
+    if (claimed.status !== 'claimed') {
+      throw new Error('claimNext failed: ' + JSON.stringify(claimed));
+    }
+    if (claimed.filename !== scenario.originalName || claimed.content !== scenario.messageRaw) {
+      throw new Error('claimed message changed: ' + JSON.stringify(claimed));
+    }
+    claimName = path.basename(claimed.claimPath);
+  } else {
+    throw new Error('unsupported channel: ' + scenario.channel);
   }
-  if (drained.entries.length !== 1 || drained.handles.length !== 1) {
-    throw new Error('expected one entry/handle: ' + JSON.stringify(drained));
-  }
-  const entry = drained.entries[0];
-  const handle = drained.handles[0];
-  if (entry.message.id !== scenario.messageId || entry.message.content !== scenario.messageBody) {
-    throw new Error('delivered message changed: ' + JSON.stringify(entry.message));
-  }
-  if (handle.originalFileName !== scenario.originalName || handle.filePath !== entry.filePath) {
-    throw new Error('entry/handle identity mismatch: ' + JSON.stringify({ entry, handle }));
-  }
-  const claimName = path.basename(handle.filePath);
   const match = /^mclaim_1_([0-9a-f-]+)\.md$/i.exec(claimName);
   if (match === null) throw new Error('production claim is not mclaim_1: ' + claimName);
   const recordPath = path.join(scenario.inflightDir + '-claims', match[1], 'record.json');
@@ -141,27 +159,42 @@ function dirs(channel: Channel) {
     case 'inbox': {
       const base = path.join(tempDir, 'inbox');
       return {
+        clawDir: tempDir,
         pendingDir: path.join(base, 'pending'),
         doneDir: path.join(base, 'done'),
         failedDir: path.join(base, 'failed'),
         inflightDir: path.join(base, 'inflight'),
       };
     }
+    case 'outbox': {
+      const clawDir = path.join(tempDir, 'claw');
+      const base = path.join(clawDir, 'outbox');
+      return {
+        clawDir,
+        pendingDir: path.join(base, 'pending'),
+        doneDir: path.join(base, 'done'),
+        failedDir: path.join(base, 'failed'),
+        inflightDir: path.join(base, 'processing'),
+      };
+    }
   }
 }
 
-function makeReader(channel: Channel): InboxReader {
+async function initReader(channel: Channel) {
   const layout = dirs(channel);
+  const fileSystem = new NodeFileSystem({ baseDir: tempDir });
   switch (channel) {
     case 'inbox':
       return new InboxReader(
         layout.pendingDir,
         layout.doneDir,
         layout.failedDir,
-        new NodeFileSystem({ baseDir: tempDir }),
+        fileSystem,
         noopAudit,
         layout.inflightDir,
-      );
+      ).init();
+    case 'outbox':
+      return new OutboxReader(fileSystem, noopAudit).init(layout.clawDir);
   }
 }
 
@@ -170,7 +203,7 @@ function childDetail(holder: ChildHandle): string {
     + `stdout=${holder.result.stdout}\nstderr=${holder.result.stderr}`;
 }
 
-function startHolder(channel: Channel): ChildHandle {
+function startHolder(channel: Channel, messageRaw: string): ChildHandle {
   const layout = dirs(channel);
   const barrierDir = path.join(tempDir, `barrier-${channel}`);
   fs.mkdirSync(barrierDir, { recursive: true });
@@ -183,6 +216,7 @@ function startHolder(channel: Channel): ChildHandle {
     originalName: ORIGINAL_NAME,
     messageId: MESSAGE_ID,
     messageBody: MESSAGE_BODY,
+    messageRaw,
   }));
   const child = spawn(process.execPath, [fixtureBundle, scenarioPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -234,11 +268,11 @@ function mdFiles(dir: string): string[] {
   return fs.readdirSync(dir).filter(name => name.endsWith('.md')).sort();
 }
 
-function descriptorFrom(ready: ReadyFile): ClaimDescriptor {
+function descriptorFrom(ready: ReadyFile, channel: Channel): ClaimDescriptor {
   const descriptor = JSON.parse(ready.recordRaw) as ClaimDescriptor;
   expect(descriptor).toMatchObject({
     version: 1,
-    channel: CHANNEL,
+    channel,
     originalName: ORIGINAL_NAME,
     claimName: ready.claimName,
   });
@@ -263,20 +297,25 @@ beforeAll(async () => {
 beforeEach(async () => {
   tempDir = await createTrackedTempDir('messaging-claim-reference-process-');
   children = [];
-  messageBytes = Buffer.from(encodeInbox({
+});
+
+function seedPending(channel: Channel): Buffer {
+  const common = {
     id: MESSAGE_ID,
-    type: 'message',
     from: 'phase2096-integration',
-    to: 'claw',
     content: MESSAGE_BODY,
-    priority: 'normal',
+    priority: 'normal' as const,
     timestamp: '2026-11-10T12:00:00.000Z',
     metadata: { trace: 'real-process-claim' },
-  }));
-  const layout = dirs(CHANNEL);
+  };
+  const messageBytes = Buffer.from(channel === 'inbox'
+    ? encodeInbox({ ...common, type: 'message', to: 'claw' })
+    : encodeOutbox({ ...common, type: 'report', to: 'motion' }));
+  const layout = dirs(channel);
   fs.mkdirSync(layout.pendingDir, { recursive: true });
   fs.writeFileSync(path.join(layout.pendingDir, ORIGINAL_NAME), messageBytes);
-});
+  return messageBytes;
+}
 
 afterEach(async () => {
   for (const holder of children) {
@@ -293,16 +332,17 @@ afterAll(async () => {
 });
 
 describe('Messaging mclaim real process reference', () => {
-  it('retains a live inbox claim, then restores its original name, exact bytes, and record after normal exit', async () => {
-    const layout = dirs(CHANNEL);
-    const holder = startHolder(CHANNEL);
+  it.each(CHANNELS)('retains a live %s claim, then restores its original name, exact bytes, and record after normal exit', async channel => {
+    const messageBytes = seedPending(channel);
+    const layout = dirs(channel);
+    const holder = startHolder(channel, messageBytes.toString('utf8'));
     const ready = await waitForReady(holder);
     expect(ready.pid).toBe(holder.child.pid);
     const claimPath = path.join(layout.inflightDir, ready.claimName);
     expect(mdFiles(layout.pendingDir)).toEqual([]);
     expect(mdFiles(layout.inflightDir)).toEqual([ready.claimName]);
     expect(fs.readFileSync(claimPath)).toEqual(messageBytes);
-    const descriptor = descriptorFrom(ready);
+    const descriptor = descriptorFrom(ready, channel);
     if (descriptor.capture.kind !== 'captured') {
       throw new Error(`production claim was not captured: ${ready.recordRaw}`);
     }
@@ -322,8 +362,8 @@ describe('Messaging mclaim real process reference', () => {
       startTime: JSON.parse(decoded.value).startTime,
     });
 
-    const liveInit = await makeReader(CHANNEL).init();
-    expect(liveInit).toEqual({ kind: 'ready', recovered: 0 });
+    const liveInit = await initReader(channel);
+    if (channel === 'inbox') expect(liveInit).toEqual({ kind: 'ready', recovered: 0 });
     expect(mdFiles(layout.pendingDir)).toEqual([]);
     expect(mdFiles(layout.inflightDir)).toEqual([ready.claimName]);
     expect(fs.readFileSync(claimPath)).toEqual(messageBytes);
@@ -336,12 +376,12 @@ describe('Messaging mclaim real process reference', () => {
     expect(holder.result.stdout, childDetail(holder)).toContain('CLAIM_HOLDER|ok');
     expect(inspectProcessRef(decoded.value)).toMatchObject({ kind: 'gone', reason: 'absent' });
 
-    const recoveredInit = await makeReader(CHANNEL).init();
-    expect(recoveredInit).toEqual({ kind: 'ready', recovered: 1 });
+    const recoveredInit = await initReader(channel);
+    if (channel === 'inbox') expect(recoveredInit).toEqual({ kind: 'ready', recovered: 1 });
     expect(mdFiles(layout.inflightDir)).toEqual([]);
     expect(mdFiles(layout.pendingDir)).toEqual([ORIGINAL_NAME]);
     expect(fs.readFileSync(path.join(layout.pendingDir, ORIGINAL_NAME))).toEqual(messageBytes);
     expect(fs.readFileSync(ready.recordPath, 'utf8')).toBe(ready.recordRaw);
-    expect(descriptorFrom(ready)).toEqual(descriptor);
+    expect(descriptorFrom(ready, channel)).toEqual(descriptor);
   }, 60_000);
 });

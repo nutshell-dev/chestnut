@@ -13,6 +13,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { OutboxReader } from '../../src/foundation/messaging/outbox-reader.js';
+import type { AuditLog } from '../../src/foundation/audit/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -123,6 +124,49 @@ describe('outboxCommand', () => {
     expect(fs.readdirSync(pending).filter(f => f.endsWith('.md'))).toEqual(['msg0.md']);
     expect(fs.readFileSync(path.join(processing, claimName), 'utf8')).toBe('orphan content');
     expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
+    expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
+  });
+
+  it('rejects claim preparation failure without delivering, marking done, or reporting empty', async () => {
+    const pending = seedPending(root, 'busy', 1);
+    const clawDir = path.join(root, '.chestnut', 'claws', 'busy');
+    const storageError = new Error('claim record storage unavailable');
+    const failingFactory = (dir: string) => {
+      const real = new NodeFileSystem({ baseDir: dir });
+      const writeAtomic = real.writeAtomic.bind(real);
+      vi.spyOn(real, 'writeAtomic').mockImplementation(async (targetPath, content) => {
+        if (targetPath.includes('processing-claims')) throw storageError;
+        return writeAtomic(targetPath, content);
+      });
+      return real;
+    };
+    const markDone = vi.spyOn(OutboxReader.prototype, 'markDone');
+    const auditWrite = vi.fn();
+    const audit = {
+      write: auditWrite,
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    } as unknown as AuditLog;
+
+    await expect(outboxCommand(
+      { fsFactory: failingFactory },
+      'busy',
+      undefined,
+      { audit },
+    )).rejects.toMatchObject({
+      code: 'CLAIM_PREPARATION_FAILED',
+      stage: 'write_index',
+      cause: storageError,
+    });
+
+    expect(markDone).not.toHaveBeenCalled();
+    expect(auditWrite.mock.calls.some(([event]) => event === 'outbox_delivered')).toBe(false);
+    expect(listMd(pending)).toEqual(['msg0.md']);
+    expect(listMd(path.join(clawDir, 'outbox', 'processing'))).toEqual([]);
+    expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
+    expect(logs).not.toContain('message 0');
+    expect(logs).not.toContain('---');
     expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
   });
 

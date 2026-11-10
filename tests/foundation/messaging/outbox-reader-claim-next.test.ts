@@ -86,15 +86,14 @@ describe('OutboxReader.claimNext + markDone', () => {
     if (claimed.status !== 'claimed') throw new Error('unreachable');
     expect(claimed.filename).toBe(`${t1}_normal_aaa.md`);
     expect(claimed.content).toContain('earlier');
-    expect(claimed.claimPath.startsWith('outbox/processing/cli_')).toBe(true);
-    expect(claimed.claimPath.endsWith(`_${t1}_normal_aaa.md`)).toBe(true);
+    expect(claimed.claimPath).toMatch(/^outbox\/processing\/mclaim_1_[0-9a-f-]+\.md$/);
 
     // pending oldest gone, processing has claimed file
     const pendingFiles = (await fsAsync.readdir(pendingDir)).sort();
     expect(pendingFiles).toEqual([`${t2}_normal_bbb.md`]);
     const processingFiles = await fsAsync.readdir(processingDir);
     expect(processingFiles.length).toBe(1);
-    expect(processingFiles[0]).toMatch(/^cli_.*_1717480000000_normal_aaa\.md$/);
+    expect(processingFiles[0]).toMatch(/^mclaim_1_[0-9a-f-]+\.md$/);
   });
 
   it('anchors the claimed file mtime at claim time', async () => {
@@ -203,13 +202,14 @@ function makeMockOutboxFs(overrides?: {
   utimes?: () => Promise<void>;
   writeExclusiveSync?: (path: string, content: string) => void;
   deleteSync?: (path: string) => void;
+  mkdirExclusiveSync?: (path: string) => void;
 }): FileSystem {
   return {
     list: overrides?.list ?? vi.fn().mockResolvedValue([{ name: '1717480000000_normal_aaa.md', path: '/outbox/pending/1717480000000_normal_aaa.md' }]),
     read: overrides?.read ?? vi.fn().mockResolvedValue(encodeOutbox(makeMsg('x', '2026-06-04T10:00:00Z'))),
     move: overrides?.move ?? vi.fn().mockResolvedValue(undefined),
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    writeAtomic: vi.fn(),
+    writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
     append: vi.fn(),
     delete: vi.fn(),
     removeDir: vi.fn(),
@@ -220,6 +220,7 @@ function makeMockOutboxFs(overrides?: {
     utimes: overrides?.utimes ?? vi.fn().mockResolvedValue(undefined),
     writeExclusiveSync: overrides?.writeExclusiveSync ?? vi.fn(),
     deleteSync: overrides?.deleteSync ?? vi.fn(),
+    mkdirExclusiveSync: overrides?.mkdirExclusiveSync ?? vi.fn(),
   } as unknown as FileSystem;
 }
 
@@ -315,7 +316,7 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
     expect(result.readError).toContain('EIO read');
     expect(result.rollbackError).toContain('EPERM rollback');
     expect(result.filename).toBe('1717480000000_normal_aaa.md');
-    expect(result.claimPath).toMatch(/^outbox\/processing\/cli_.*_1717480000000_normal_aaa\.md$/);
+    expect(result.claimPath).toMatch(/^outbox\/processing\/mclaim_1_[0-9a-f-]+\.md$/);
     // claim move + failed rollback move, nothing else (no deletion of the stuck file)
     expect(fs.move).toHaveBeenCalledTimes(2);
     expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=read'))).toBe(true);
