@@ -6,8 +6,11 @@
 import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId } from './types.js';
-import { exec as defaultExec } from '../../foundation/process-exec/index.js';
-import { ProcessExecError } from '../../foundation/process-exec/index.js';
+import {
+  exec as defaultExec,
+  ProcessExecError,
+  resolveHostScript,
+} from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
@@ -61,12 +64,16 @@ export async function runScriptVerification(
   if (!resolved) {
     return { passed: false, feedback: scriptFilePathRejectedFeedback() };
   }
+  // Resolve the realpath after containment so a symlink alias cannot disguise
+  // an unsupported script type. Unsupported errors propagate before started/exec
+  // and follow the existing execution_unavailable pipeline.
+  const hostScript = resolveHostScript(resolved);
   emitContractVerificationScriptStarted(
     ctx.audit,
     { script: scriptFile, cwd: ctx.clawDir },
   );
   try {
-    await (ctx.exec ?? defaultExec)('sh', [resolved], {
+    await (ctx.exec ?? defaultExec)(hostScript.executable, hostScript.args, {
       cwd: ctx.clawDir,
       timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
       signal: ctx.signal, // Phase 963: propagate cancellation to script execution

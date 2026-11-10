@@ -1308,7 +1308,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       const aRaw = a as unknown as Record<string, unknown>;
       if (a.type === 'script' && typeof aRaw.script_file !== 'string') {
         throw new ContractValidationError('verification', 'config_missing_field',
-          `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
+          `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (POSIX: ./path.sh; Windows: ./path.cmd or ./path.bat; yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
           { subtaskId: a.subtask_id, configType: 'script', missingField: 'script_file' });
       }
       if (a.type === 'llm' && typeof aRaw.prompt_file !== 'string') {

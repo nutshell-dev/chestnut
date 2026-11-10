@@ -29,6 +29,7 @@ import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { completeSubtask } from '../helpers/contract-subtask.js';
+import { hostScriptFile, hostScriptSource } from '../helpers/host-script.js';
 // phase 1351: vi.mock(child_process) removed (was no-op passthrough)
 
 let testDir: string;
@@ -409,15 +410,15 @@ describe('ContractSystem', () => {
   });
 
   describe('runScriptVerification', () => {
-    it('runScriptVerification passes for script without shebang', async () => {
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'contract-shebang-'));
+    it('passes a current-host script without requiring executable mode', async () => {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'contract-host-script-'));
       const testClawDir = path.join(tempDir, 'claws', 'test-claw');
       await fs.mkdir(testClawDir, { recursive: true });
 
-      // 创建无 shebang 的验收脚本
-      const scriptPath = path.join(testClawDir, 'verification', 'task-1.sh');
+      const scriptName = hostScriptFile('task-1');
+      const scriptPath = path.join(testClawDir, 'verification', scriptName);
       await fs.mkdir(path.dirname(scriptPath), { recursive: true });
-      await fs.writeFile(scriptPath, 'echo ok\n', { mode: 0o644 });
+      await fs.writeFile(scriptPath, hostScriptSource(0), { mode: 0o644 });
 
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({
@@ -430,7 +431,7 @@ describe('ContractSystem', () => {
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       // @ts-expect-error - runScriptVerification is private
-      const result = await testManager.runScriptVerification('task-1.sh', path.join(testClawDir, 'verification'));
+      const result = await testManager.runScriptVerification(scriptName, path.join(testClawDir, 'verification'));
 
       expect(result.passed).toBe(true);
 

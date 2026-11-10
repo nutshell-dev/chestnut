@@ -118,6 +118,11 @@ describe('ContractValidationError (phase 67)', () => {
       expect(e.context?.subtaskId).toBe('task-1');
       expect(e.context?.configType).toBe('script');
       expect(e.context?.missingField).toBe('script_file');
+      expect(e.message).toContain('.sh');
+      expect(e.message).toContain('.cmd');
+      expect(e.message).toContain('.bat');
+      expect(e.message).toContain('POSIX');
+      expect(e.message).toContain('Windows');
     }
   });
 

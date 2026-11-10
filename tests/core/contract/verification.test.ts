@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as nodeFs from 'fs';
 import * as path from 'path';
 import { makeMockAudit } from '../../helpers/audit.js';
+import { expectedHostScriptInvocation, hostScriptFile } from '../../helpers/host-script.js';
 import { formatRejectionFeedback, runScriptVerification, runLLMVerification, runVerificationInBackground, runVerificationPipeline } from '../../../src/core/contract/verification.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
@@ -16,6 +17,7 @@ import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { VerificationContext } from '../../../src/core/contract/verification.js';
 
 const mockExec = vi.fn();
+const HOST_SCRIPT = hostScriptFile();
 
 function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
   return {
@@ -94,7 +96,7 @@ describe('runScriptVerification (phase 990)', () => {
   it('returns passed when script exits 0', async () => {
     mockExec.mockResolvedValue(undefined);
     const ctx = makeCtx();
-    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract');
     expect(result.passed).toBe(true);
     expect(result.feedback).toContain('passed');
   });
@@ -103,7 +105,7 @@ describe('runScriptVerification (phase 990)', () => {
     const err = new ProcessExecError({ message: 'sh failed', output: 'first bad line\nsecond line', exitCode: 1 });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
-    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('first bad line');
   });
@@ -114,7 +116,7 @@ describe('runScriptVerification (phase 990)', () => {
     const err = new ProcessExecError({ message: 'timeout', output: 'took too long', exitCode: null, killed: true });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
-    await expect(runScriptVerification(ctx, 'check.sh', '/tmp/contract')).rejects.toBe(err);
+    await expect(runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract')).rejects.toBe(err);
   });
 
   it('rejects script path that is a symlink outside contract dir', async () => {
@@ -140,8 +142,13 @@ describe('runScriptVerification (phase 990)', () => {
     const signal = new AbortController().signal;
     const mockExecWithSignal = vi.fn().mockResolvedValue(undefined);
     const ctx = makeCtx({ exec: mockExecWithSignal, signal });
-    await runScriptVerification(ctx, 'test.sh', '/tmp/contract');
-    expect(mockExecWithSignal).toHaveBeenCalledWith('sh', [expect.any(String)], expect.objectContaining({ signal }));
+    await runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract');
+    const invocation = expectedHostScriptInvocation(path.resolve('/tmp/contract', HOST_SCRIPT));
+    expect(mockExecWithSignal).toHaveBeenCalledWith(
+      invocation.executable,
+      invocation.args,
+      expect.objectContaining({ signal }),
+    );
   });
 });
 

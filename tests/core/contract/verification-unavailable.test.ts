@@ -27,6 +27,7 @@ import { ProcessExecError } from '../../../src/foundation/process-exec/index.js'
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
+import { hostScriptFile } from '../../helpers/host-script.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { VerificationContext } from '../../../src/core/contract/verification.js';
@@ -71,6 +72,7 @@ const CONTRACT_YAML = {
   verification_attempts: 3,
 } as any;
 const LLM_CFG = { subtask_id: 'st1', type: 'llm' as const, prompt_file: 'prompt.md' };
+const HOST_SCRIPT = hostScriptFile();
 
 describe('execution unavailable — 正常链（执行阶段 catch）', () => {
   it('① provider all-failed → execution_unavailable 事实 + unavailable 释放，零 reject/零预算', async () => {
@@ -122,6 +124,53 @@ describe('execution unavailable — 正常链（执行阶段 catch）', () => {
     expect(body).toContain('all providers failed');
     expect(body).not.toContain('本次验收未通过');
     expect(body).not.toContain('记为完成');
+  });
+
+  it('①b 宿主脚本 unsupported → execution_unavailable，零 started/exec/reject/retry', async () => {
+    const subtask: any = { status: 'in_progress', verification_attempt_id: 'a1' };
+    const progress: any = { status: 'running', subtasks: { st1: subtask } };
+    const transitionVerificationAttempt = vi.fn().mockImplementation((_c: any, _s: any, t: any) => {
+      if (t.kind === 'unavailable') {
+        subtask.status = 'todo';
+        delete subtask.verification_attempt_id;
+      }
+      return { kind: 'updated', progress };
+    });
+    const persistVerificationOutcome = vi.fn().mockResolvedValue('persisted');
+    const audit = makeMockAudit();
+    const exec = vi.fn();
+    let ctx: VerificationContext;
+    ctx = makeCtx({
+      audit,
+      exec,
+      transitionVerificationAttempt,
+      persistVerificationOutcome,
+      getProgress: vi.fn().mockResolvedValue(progress),
+      runScriptVerification: vi.fn((scriptFile: string, contractAbsDir: string) => (
+        runScriptVerification(ctx, scriptFile, contractAbsDir)
+      )),
+    } as Partial<VerificationContext>);
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      CONTRACT_YAML,
+      { subtask_id: 'st1', type: 'script' as const, script_file: 'check.ps1' },
+    );
+
+    expect(exec).not.toHaveBeenCalled();
+    expect(vi.mocked(audit.write).mock.calls.some(
+      ([event]) => event === CONTRACT_AUDIT_EVENTS.VERIFICATION_SCRIPT_STARTED,
+    )).toBe(false);
+    expect(persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    const outcome = persistVerificationOutcome.mock.calls[0][0] as any;
+    expect(outcome.kind).toBe('execution_unavailable');
+    expect(outcome.error.name).toBe('UnsupportedHostScriptError');
+    expect(outcome.error.message).toContain('[HOST_SCRIPT_UNSUPPORTED]');
+    expect(transitionVerificationAttempt.mock.calls.map(([, , t]: any) => t.kind)).toEqual(['unavailable']);
+    expect(subtask.status).toBe('todo');
+    expect(subtask.retry_count).toBeUndefined();
+    expect(subtask.force_accepted).toBeUndefined();
   });
 
   it('② 外层 catch 链（getContractRoot 故障 → unspecified）同样 execution_unavailable，无 reject', async () => {
@@ -379,21 +428,21 @@ describe('verification-execution 系统失败上抛', () => {
     const err = new ProcessExecError({ message: 'timeout', output: 'took too long', exitCode: null, killed: true });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx({ exec: mockExec } as Partial<VerificationContext>);
-    await expect(runScriptVerification(ctx, 'check.sh', '/tmp/contract')).rejects.toBe(err);
+    await expect(runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract')).rejects.toBe(err);
   });
 
   it('⑦b spawn 故障（非 ProcessExecError）原样上抛', async () => {
     const spawnErr = Object.assign(new Error('spawn sh EIO'), { code: 'EIO' });
     mockExec.mockRejectedValue(spawnErr);
     const ctx = makeCtx({ exec: mockExec } as Partial<VerificationContext>);
-    await expect(runScriptVerification(ctx, 'check.sh', '/tmp/contract')).rejects.toBe(spawnErr);
+    await expect(runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract')).rejects.toBe(spawnErr);
   });
 
   it('⑦c script 非零退出仍是真实否决', async () => {
     const err = new ProcessExecError({ message: 'sh failed', output: 'first bad line', exitCode: 1 });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx({ exec: mockExec } as Partial<VerificationContext>);
-    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, HOST_SCRIPT, '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('first bad line');
   });
