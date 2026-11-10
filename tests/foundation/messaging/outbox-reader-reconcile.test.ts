@@ -2,15 +2,47 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { makeProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
+import { encodeProcessEvidence } from '../../../src/foundation/process-exec/process-evidence.js';
 
 vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
   return {
     ...actual,
-    isAlive: vi.fn(),
+    inspectProcessRef: vi.fn(),
   };
 });
+
+function aliveObservation() {
+  return {
+    kind: 'alive' as const,
+    evidence: encodeProcessEvidence(1_700_000_000_000, [
+      { operation: 'inspect', outcome: 'start' },
+      { operation: 'decision', outcome: { kind: 'alive' } },
+    ]),
+  };
+}
+
+function goneObservation() {
+  return {
+    kind: 'gone' as const,
+    reason: 'absent' as const,
+    evidence: encodeProcessEvidence(1_700_000_000_000, [
+      { operation: 'signal0', outcome: 'error', error: { code: 'ESRCH' } },
+      { operation: 'decision', outcome: { kind: 'gone', reason: 'absent' } },
+    ]),
+  };
+}
+
+function unknownObservation() {
+  return {
+    kind: 'unknown' as const,
+    reason: 'identity_unverifiable' as const,
+    evidence: encodeProcessEvidence(1_700_000_000_000, [
+      { operation: 'signal0', outcome: 'alive' },
+      { operation: 'decision', outcome: { kind: 'unknown', reason: 'identity_unverifiable' } },
+    ]),
+  };
+}
 
 function makeAudit(): { audit: AuditLog; events: Array<[string, ...unknown[]]> } {
   const events: Array<[string, ...unknown[]]> = [];
@@ -35,13 +67,15 @@ function makeMockFs(overrides: {
   stat?: (path: string) => Promise<{ mtime: Date; ctime: Date; size: number; isDirectory: boolean; isFile: boolean }>;
   move?: (src: string, dest: string) => Promise<void>;
   writeExclusiveSync?: (path: string, content: string) => void;
+  mkdirExclusiveSync?: (path: string) => void;
+  writeAtomic?: (path: string, content: string) => Promise<{ kind: 'durable' }>;
 } = {}): FileSystem {
   return {
     list: overrides.list ?? vi.fn().mockResolvedValue([]),
     read: overrides.read ?? vi.fn().mockRejectedValue(enoent('default')),
     move: overrides.move ?? vi.fn().mockResolvedValue(undefined),
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    writeAtomic: vi.fn(),
+    writeAtomic: overrides.writeAtomic ?? vi.fn().mockResolvedValue({ kind: 'durable' }),
     append: vi.fn(),
     delete: vi.fn(),
     removeDir: vi.fn(),
@@ -60,6 +94,7 @@ function makeMockFs(overrides: {
     moveSync: vi.fn(),
     existsSync: vi.fn(),
     ensureDirSync: vi.fn(),
+    mkdirExclusiveSync: overrides.mkdirExclusiveSync ?? vi.fn(),
     listSync: vi.fn(),
     removeDirSync: vi.fn(),
     realpathSync: vi.fn(),
@@ -82,8 +117,8 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
   });
 
   it('skips processing files owned by an alive process', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(true);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(aliveObservation());
 
     const pid = process.pid;
     const recentMtime = new Date();
@@ -103,8 +138,8 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
   });
 
   it('reclaims processing files owned by a dead process via stage + O_EXCL publish', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     const fs = makeMockFs({
       list: vi.fn().mockImplementation((dir: string) => {
@@ -133,8 +168,8 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
   });
 
   it('reclaims via mtime lease when startTime is unavailable (startTimeHex=0)', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(true);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(aliveObservation());
 
     const staleMtime = new Date(Date.now() - 6 * 60 * 1000);
     const fs = makeMockFs({
@@ -161,8 +196,8 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
   });
 
   it('keeps processing file when startTime is unavailable but mtime lease has not expired', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(true);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(aliveObservation());
 
     const recentMtime = new Date(Date.now() - 1 * 60 * 1000);
     const fs = makeMockFs({
@@ -177,13 +212,13 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
 
     await reader.init('/claw');
 
-    expect(isAlive).toHaveBeenCalledWith(process.pid);
+    expect(inspectProcessRef).toHaveBeenCalledWith(JSON.stringify({ version: 0, pid: process.pid }));
     expect(fs.move).not.toHaveBeenCalled();
   });
 
   it('reclaims old-token processing file via mtime lease even when PID is alive', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(true);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(aliveObservation());
 
     const staleMtime = new Date(Date.now() - 6 * 60 * 1000);
     const fs = makeMockFs({
@@ -209,29 +244,32 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'msg content');
   });
 
-  it('reclaims when PID is alive but startTime differs', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    const wrongStartTime = makeProcessStartTime('Mon Jan 01 00:00:00 2020');
-    vi.mocked(isAlive).mockImplementation((_pid: number, startTime?: unknown) => startTime !== wrongStartTime);
+  it('retains a stale claim when the legacy startTime cannot verify identity', async () => {
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(unknownObservation());
 
-    const wrongHex = Buffer.from(wrongStartTime).toString('hex');
+    const oldStartTime = 'Mon Jan 01 00:00:00 2020';
+    const oldHex = Buffer.from(oldStartTime).toString('hex');
+    const staleMtime = new Date(Date.now() - 6 * 60 * 1000);
     const fs = makeMockFs({
       list: vi.fn().mockImplementation((dir: string) => {
-        if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${process.pid}_${wrongHex}_abc123_msg.md` }]);
+        if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${process.pid}_${oldHex}_abc123_msg.md` }]);
         return Promise.resolve([]);
       }),
-      read: vi.fn().mockImplementation((p: string) => {
-        if (p.includes('.staging')) return Promise.resolve('msg content');
-        return Promise.reject(enoent(p));
-      }),
+      stat: vi.fn().mockResolvedValue({ mtime: staleMtime, ctime: staleMtime, size: 0, isDirectory: false, isFile: true }),
     });
     const { audit } = makeAudit();
     const reader = new OutboxReader(fs, audit);
 
     await reader.init('/claw');
 
-    expect(isAlive).toHaveBeenCalledWith(process.pid, wrongStartTime);
-    expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'msg content');
+    expect(inspectProcessRef).toHaveBeenCalledWith(JSON.stringify({
+      version: 0,
+      pid: process.pid,
+      startTime: oldStartTime,
+    }));
+    expect(fs.move).not.toHaveBeenCalled();
+    expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
   });
 
   it('aborts reconcile when pending list fails', async () => {
@@ -251,8 +289,8 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
   });
 
   it('archives staging copy when pending target already has identical content (dedupe)', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     const fs = makeMockFs({
       list: vi.fn().mockImplementation((dir: string) => {
@@ -276,8 +314,8 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
   });
 
   it('moves staging copy to DLQ when pending target has different content (conflict)', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     const fs = makeMockFs({
       list: vi.fn().mockImplementation((dir: string) => {
@@ -315,8 +353,8 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
   });
 
   it('target appears after the snapshot (EEXIST) with different content → staging to DLQ, target untouched', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     let targetAppeared = false;
     const fs = makeMockFs({
@@ -356,8 +394,8 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
   });
 
   it('target appears after the snapshot (EEXIST) with identical content → staging archived to done (dedupe)', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     let targetAppeared = false;
     const fs = makeMockFs({
@@ -389,8 +427,8 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
   });
 
   it('source vanished before staging (race-lost) → skip without touching pending', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     const fs = makeMockFs({
       list: deadOwnerList(),
@@ -406,8 +444,8 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
   });
 
   it('non-ENOENT staging failure is audited and does not touch pending target', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     const fs = makeMockFs({
       list: deadOwnerList(),
@@ -570,8 +608,8 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
 
 describe('OutboxReader startTime-less claim lease (Phase 2049 Step D)', () => {
   it('reclaims a dead PID immediately even when the mtime lease is fresh', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(isAlive).mockReturnValue(false);
+    const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
     const pid = 424242;
     const recentMtime = new Date();
@@ -590,7 +628,7 @@ describe('OutboxReader startTime-less claim lease (Phase 2049 Step D)', () => {
 
     await reader.init('/claw');
 
-    expect(isAlive).toHaveBeenCalledWith(pid);
+    expect(inspectProcessRef).toHaveBeenCalledWith(JSON.stringify({ version: 0, pid }));
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'msg content');
   });
 });

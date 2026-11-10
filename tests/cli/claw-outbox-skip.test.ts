@@ -72,6 +72,7 @@ describe('outboxSkipCommand', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (prevRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = prevRoot;
     console.log = origLog;
@@ -149,5 +150,37 @@ describe('outboxSkipCommand', () => {
 
   it('throws clear error when claw directory does not exist', async () => {
     await expect(outboxSkipCommand({ fsFactory }, 'never-existed')).rejects.toThrow(/Claw directory not found/);
+  });
+
+  it('rejects observation persistence failure before claiming or reporting empty', async () => {
+    const pending = seedPending(root, 'busy', 1);
+    const clawDir = path.join(root, '.chestnut', 'claws', 'busy');
+    const processing = path.join(clawDir, 'outbox', 'processing');
+    fs.mkdirSync(processing, { recursive: true });
+    const startTimeHex = Buffer.from('Mon Jan 01 00:00:00 2020').toString('hex');
+    const claimName = `cli_${process.pid}_${startTimeHex}_abc123_orphan.md`;
+    fs.writeFileSync(path.join(processing, claimName), 'orphan content');
+    const storageError = new Error('observation storage unavailable');
+    const failingFactory = (dir: string) => {
+      const real = new NodeFileSystem({ baseDir: dir });
+      const writeAtomic = real.writeAtomic.bind(real);
+      vi.spyOn(real, 'writeAtomic').mockImplementation(async (targetPath, content) => {
+        if (targetPath.includes('processing-observations') && content.includes('"event":"process_observed"')) {
+          throw storageError;
+        }
+        return writeAtomic(targetPath, content);
+      });
+      return real;
+    };
+
+    await expect(outboxSkipCommand({ fsFactory: failingFactory }, 'busy')).rejects.toMatchObject({
+      code: 'CLAIM_OBSERVATION_PERSISTENCE_FAILED',
+      cause: storageError,
+    });
+
+    expect(listMd(pending)).toEqual(['msg0.md']);
+    expect(fs.readFileSync(path.join(processing, claimName), 'utf8')).toBe('orphan content');
+    expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
+    expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
   });
 });

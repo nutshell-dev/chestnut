@@ -6,7 +6,7 @@
  * orphan notifications except by hallucinating unrelated explanations.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -54,6 +54,7 @@ describe('outboxCommand', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (prevRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = prevRoot;
     console.log = origLog;
@@ -91,4 +92,40 @@ describe('outboxCommand', () => {
 
     expect(logs.some(l => l.includes('(3 more unread message(s))'))).toBe(true);
   });
+
+  it('rejects observation persistence failure before claiming or reporting empty', async () => {
+    const pending = seedPending(root, 'busy', 1);
+    const clawDir = path.join(root, '.chestnut', 'claws', 'busy');
+    const processing = path.join(clawDir, 'outbox', 'processing');
+    fs.mkdirSync(processing, { recursive: true });
+    const startTimeHex = Buffer.from('Mon Jan 01 00:00:00 2020').toString('hex');
+    const claimName = `cli_${process.pid}_${startTimeHex}_abc123_orphan.md`;
+    fs.writeFileSync(path.join(processing, claimName), 'orphan content');
+    const storageError = new Error('observation storage unavailable');
+    const failingFactory = (dir: string) => {
+      const real = new NodeFileSystem({ baseDir: dir });
+      const writeAtomic = real.writeAtomic.bind(real);
+      vi.spyOn(real, 'writeAtomic').mockImplementation(async (targetPath, content) => {
+        if (targetPath.includes('processing-observations') && content.includes('"event":"process_observed"')) {
+          throw storageError;
+        }
+        return writeAtomic(targetPath, content);
+      });
+      return real;
+    };
+
+    await expect(outboxCommand({ fsFactory: failingFactory }, 'busy')).rejects.toMatchObject({
+      code: 'CLAIM_OBSERVATION_PERSISTENCE_FAILED',
+      cause: storageError,
+    });
+
+    expect(fs.readdirSync(pending).filter(f => f.endsWith('.md'))).toEqual(['msg0.md']);
+    expect(fs.readFileSync(path.join(processing, claimName), 'utf8')).toBe('orphan content');
+    expect(listMd(path.join(clawDir, 'outbox', 'done'))).toEqual([]);
+    expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
+  });
 });
+
+function listMd(dir: string): string[] {
+  return fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+}

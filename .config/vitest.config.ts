@@ -174,6 +174,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/messaging/claim-process-observation.test.ts',
   'tests/foundation/messaging/inbox-claim-observation.test.ts',
+  'tests/foundation/messaging/outbox-claim-observation.test.ts',
   'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // vi.mock process-exec inspectProcessRef
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
   // 'tests/foundation/process-manager/isready-stale-self-cleanup.test.ts',
@@ -307,6 +308,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/foundation/config-store/lock-process-observation.integration.test.ts',
   // Phase 2081 Step C: real legacy SkillSystem holder exit/reclaim and evidence
   'tests/foundation/skill-system/state-lock.integration.test.ts',
+  // Phase 2089 Step B/C: real legacy Messaging holder exit/reclaim and evidence
+  'tests/foundation/messaging/claim-observation.integration.test.ts',
 ];
 
 /**

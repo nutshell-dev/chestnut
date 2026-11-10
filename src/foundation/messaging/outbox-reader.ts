@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
+import { getProcessStartTime } from '../process-exec/index.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitOutboxClaimFailed,
@@ -36,6 +36,12 @@ import {
   OUTBOX_FAILED_DIR,
 } from './dirs.js';
 import { newShortUuid } from '../node-utils/index.js';
+import { observeLegacyClaim } from './claim-process-observation.js';
+import {
+  ClaimObservationStore,
+  type ClaimDecision,
+  type ClaimLease,
+} from './claim-observation-store.js';
 
 type ClaimResult =
   | { status: 'empty' }
@@ -112,80 +118,103 @@ export class OutboxReader {
     }
 
     let revertedCount = 0;
+    let observationStore: ClaimObservationStore | undefined;
+    const getObservationStore = (): ClaimObservationStore => {
+      observationStore ??= new ClaimObservationStore(this.fs, processingDir);
+      return observationStore;
+    };
 
     const CLAIM_TOKEN_RE = /^cli_(\d+)_([0-9a-f]+)_[0-9a-z]+_(.+\.md)$/i;
     const OLD_TOKEN_RE = /^cli_(\d+)_[0-9a-z]+_(.+\.md)$/i;
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
-    // phase 929: mtime lease fallback when PID startTime is unavailable (prevents PID-reuse false negatives)
-    const OUTBOX_MTIME_LEASE_MS = 5 * 60 * 1000;
 
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
 
-      let originalName: string;
-      let shouldReclaim = false;
       const newMatch = entry.name.match(CLAIM_TOKEN_RE);
       const oldMatch = !newMatch ? entry.name.match(OLD_TOKEN_RE) : null;
-      if (!newMatch && !oldMatch) {
-        // Legacy format (pre-Phase 908): no PID, use mtime-based heuristic.
-        originalName = entry.name.replace(/^cli_[^_]+_/, '');
-        const sourcePath = path.join(processingDir, entry.name);
-        let mtime: number;
-        try {
-          const stat = await this.fs.stat(sourcePath);
-          mtime = stat.mtime.getTime();
-        } catch (err) {
-          emitOutboxClaimFailed(this.audit, {
-            file: entry.name,
-            op: 'reconcile_stat',
-            reason: formatErr(err),
-          });
-          continue;
-        }
-        if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
-          shouldReclaim = true;
-        }
-      } else {
-        // phase 929: both new and old token formats need mtime for fallback lease
-        const sourcePath = path.join(processingDir, entry.name);
-        let mtime: number;
-        try {
-          const stat = await this.fs.stat(sourcePath);
-          mtime = stat.mtime.getTime();
-        } catch (err) {
-          emitOutboxClaimFailed(this.audit, {
-            file: entry.name,
-            op: 'reconcile_stat',
-            reason: formatErr(err),
-          });
-          continue;
-        }
-
-        if (newMatch) {
-          const pid = parseInt(newMatch[1], 10);
-          const startTimeHex = newMatch[2];
-          originalName = newMatch[3];
-          if (startTimeHex === '0') {
-            // No start-time anchor: dead PIDs are reclaimed immediately; live PIDs
-            // still retain the mtime lease as protection against PID reuse.
-            shouldReclaim = !isAlive(pid) || Date.now() - mtime >= OUTBOX_MTIME_LEASE_MS;
-          } else {
-            const startTime = makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
-            if (!isAlive(pid, startTime)) shouldReclaim = true;
-          }
-        } else {
-          // Old token format (pre-Phase 928): PID + shortUuid, no startTime.
-          const pid = parseInt(oldMatch![1], 10);
-          originalName = oldMatch![2];
-          if (!isAlive(pid) || Date.now() - mtime >= OUTBOX_MTIME_LEASE_MS) {
-            shouldReclaim = true;
-          }
-        }
+      const originalName = newMatch
+        ? newMatch[3]
+        : oldMatch
+          ? oldMatch[2]
+          : entry.name.replace(/^cli_[^_]+_/, '');
+      const sourcePath = path.join(processingDir, entry.name);
+      let mtime: number;
+      try {
+        const stat = await this.fs.stat(sourcePath);
+        mtime = stat.mtime.getTime();
+      } catch (err) {
+        emitOutboxClaimFailed(this.audit, {
+          file: entry.name,
+          op: 'reconcile_stat',
+          reason: formatErr(err),
+        });
+        await getObservationStore().recordDecision({
+          rawName: entry.name,
+          originalName,
+          decision: { kind: 'skip', reason: isFileNotFound(err) ? 'source_absent' : 'stat_failed' },
+        }, { originalStatError: err });
+        continue;
       }
 
-      if (!shouldReclaim) continue;
+      const observedAtMs = Date.now();
+      const lease: ClaimLease = {
+        thresholdMs: STALE_THRESHOLD_MS,
+        observedAtMs,
+        ...(Number.isFinite(mtime) ? { valueMs: mtime } : { valueMsText: String(mtime) }),
+      };
+      const leaseElapsed = Number.isFinite(mtime) && observedAtMs - mtime >= STALE_THRESHOLD_MS;
+      let decision: ClaimDecision;
 
-      const sourcePath = path.join(processingDir, entry.name);
+      if (!newMatch && !oldMatch) {
+        // Legacy format (pre-Phase 908): no PID, use mtime-based heuristic only.
+        decision = leaseElapsed
+          ? { kind: 'reclaim', reason: 'lease_elapsed' }
+          : { kind: 'retain', reason: 'lease_active' };
+        await getObservationStore().recordDecision({
+          rawName: entry.name,
+          originalName,
+          lease,
+          decision,
+        });
+      } else {
+        const pid = parseInt((newMatch ?? oldMatch)![1], 10);
+        const startTimeHex = newMatch?.[2];
+        const facts = observeLegacyClaim(
+          pid,
+          startTimeHex === undefined || startTimeHex === '0'
+            ? undefined
+            : Buffer.from(startTimeHex, 'hex').toString('utf8'),
+        );
+        const store = getObservationStore();
+        await store.recordObservation({ rawName: entry.name, originalName, process: facts });
+
+        const leaseEligible = oldMatch !== null || startTimeHex === '0';
+        if (facts.decoded.kind !== 'decoded') {
+          decision = { kind: 'retain', reason: 'invalid_reference' };
+        } else if (facts.observed?.kind === 'gone') {
+          decision = { kind: 'reclaim', reason: 'process_gone' };
+        } else if (leaseEligible && leaseElapsed) {
+          decision = { kind: 'reclaim', reason: 'lease_elapsed' };
+        } else if (leaseEligible) {
+          decision = { kind: 'retain', reason: 'lease_active' };
+        } else {
+          decision = {
+            kind: 'retain',
+            reason: facts.observed?.kind === 'alive' ? 'alive' : 'unknown',
+          };
+        }
+        await store.recordDecision({
+          rawName: entry.name,
+          originalName,
+          process: facts,
+          lease,
+          decision,
+        });
+      }
+
+      if (decision.kind !== 'reclaim') continue;
+
       const targetPath = path.join(pendingDir, originalName);
       const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
 
