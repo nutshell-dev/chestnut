@@ -44,14 +44,22 @@ export async function attemptCancellationDelivery(
     } catch (auditError) {
       cause = new AggregateError(
         [deliveryError, auditError],
-        'Cancellation delivery failed and its failure audit also failed',
+        `Cancellation delivery failed: ${formatErr(deliveryError)}; failure audit: ${formatErr(auditError)}`,
       );
-      process.stderr.write(
-        `[contract] cancellation delivery failure audit error: ${JSON.stringify({
-          deliveryError: formatErr(deliveryError),
-          auditError: formatErr(auditError),
-        })}\n`,
-      );
+      try {
+        process.stderr.write(
+          `[contract] cancellation delivery failure audit error: ${JSON.stringify({
+            deliveryError: formatErr(deliveryError),
+            auditError: formatErr(auditError),
+          })}\n`,
+        );
+      } catch (diagnosticError) {
+        // The caller receives every original cause even when the fallback cannot write.
+        cause = new AggregateError(
+          [deliveryError, auditError, diagnosticError],
+          `Cancellation delivery failed: ${formatErr(deliveryError)}; failure audit: ${formatErr(auditError)}; diagnostic output: ${formatErr(diagnosticError)}`,
+        );
+      }
     }
     return { kind: 'failed', cause };
   }

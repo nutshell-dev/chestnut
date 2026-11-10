@@ -153,6 +153,35 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     expect(diagnostics).toContain('AUDIT_EIO');
   });
 
+  it('retains all three delivery failures when the diagnostic output also throws', async () => {
+    const deliveryError = new Error('DELIVERY_EIO');
+    const auditError = new Error('AUDIT_EIO');
+    const diagnosticError = new Error('STDERR_EIO');
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED) throw auditError;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => { throw diagnosticError; });
+    const observer = vi.fn();
+    const deliver = vi.fn(async () => { throw deliveryError; });
+    const manager = makeManager({ deliverCancellation: deliver, audit, onNotify: observer });
+    const id = await manager.create(makeContractYaml());
+    observer.mockClear();
+
+    const outcome = await manager.cancel(makeContractId(id), 'stop');
+
+    expect(outcome.commit.kind).toBe('committed');
+    expect(outcome.cancellationDelivery.kind).toBe('failed');
+    if (outcome.cancellationDelivery.kind !== 'failed') throw new Error('expected failed delivery');
+    expect(outcome.cancellationDelivery.cause).toBeInstanceOf(AggregateError);
+    expect((outcome.cancellationDelivery.cause as AggregateError).errors).toEqual([
+      deliveryError, auditError, diagnosticError,
+    ]);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledTimes(1);
+    await expect(fs.access(path.join(clawDir, 'contract/archive/cancelled', id))).resolves.toBeUndefined();
+  });
+
   it('preserves a cancelled-audit failure and a stderr fallback failure while delivering', async () => {
     const auditError = new Error('CANCELLED_AUDIT_EIO');
     const diagnosticError = new Error('STDERR_EIO');
