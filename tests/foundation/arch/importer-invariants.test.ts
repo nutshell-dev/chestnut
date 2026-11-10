@@ -8,7 +8,8 @@ import * as path from 'node:path';
  * Expected: tmpdir用法仅 foundation/audit/{writer,reader}.ts (fallback dump path)；
  * Phase 1925 Step B 起 foundation/credentials/paths.ts 经 os.homedir() 定位用户级
  * 凭据根目录（~/.chestnut，非 tmpdir 用法）；Phase 2073 Step B 起宿主主目录
- * 查询归 foundation/fs/host-home.ts。其他 src 不直 import node:os。
+ * 查询归 foundation/fs/host-home.ts。Phase 2071 Step B 仅允许
+ * process-exec/process-reference.ts 读取进程时间来源的 hostname。
  */
 describe('os importer ratchet (phase 498)', () => {
   const expected = [
@@ -16,9 +17,10 @@ describe('os importer ratchet (phase 498)', () => {
     'foundation/audit/writer.ts',
     'foundation/credentials/paths.ts',
     'foundation/fs/host-home.ts',
+    'foundation/process-exec/process-reference.ts',
   ];
 
-  it('node:os direct importers match the explicit owner list', () => {
+  it('node:os direct importers match the sorted explicit owner list', () => {
     const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
     const cmd = `grep -rEln "from ['\\\\\\\"](node:)?os['\\\\\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });

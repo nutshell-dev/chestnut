@@ -28,6 +28,19 @@ export { isPidArgvMatching } from './argv-verify.js';
 export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
 export {
+  captureCurrentProcessRef,
+  decodeProcessRef,
+  inspectProcessRef,
+} from './process-reference.js';
+export type {
+  ProcessRef,
+  ProcessRefCapture,
+  ProcessRefDecode,
+  ProcessRefObservation,
+  ProcessUnavailableReason,
+} from './process-reference.js';
+export type { ProcessEvidence, ProcessEvidenceValue } from './process-evidence.js';
+export {
   ProcessExecError,
   ProcessListUnavailable,
   UnsupportedHostScriptError,
