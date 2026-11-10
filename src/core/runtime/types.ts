@@ -153,12 +153,18 @@ export interface RuntimeDependencies {
   readonly guidanceCompose?: GuidanceCompose;
 
   /**
-   * phase 1869 (Step G): 契约终态事实只读查询（1846 `readContractTerminalFact`）。
-   * Runtime.prepareInbox 消费适用性判定用：execution_recovery 提醒的契约已终态 →
-   * 不交付（ack 到 done/ + 审计）。目录为生命周期权威，只读、无缓存。
-   * 生产装配必注入；未注入 = 判定面关闭（照常交付，测试/无契约查询场景）。
-   * 查询失败 fail-open（照常交付 + FATAL 留证）——误丢唤醒机会代价大于一次
-   * 可能过期的交付。
+   * phase 1869 (Step G) / phase 2094 Step C: 契约终态事实只读查询
+   * （1846 `readContractTerminalFact`）。
+   *
+   * Runtime.prepareInbox 消费适用性判定用，判定范围：
+   * - `execution_recovery` 提醒（1869 原有范围，保持不变）；
+   * - `contract_created` / `contract_resume` 工作指令（2094 新增，身份由 owner 侧
+   *   `getContractWorkMessageId` 判定：system 来源 + 非空 metadata.contract_id）。
+   * 契约已终态（completed / failed / cancelled）→ 不交付（ack 到 done/ + 审计）。
+   *
+   * 保留的失败兼容边界（不变）：查询抛错 fail-open（照常交付 + 留证）——误丢唤醒
+   * 机会的代价大于一次可能过期的交付；未注入 = 判定面关闭。目录为生命周期权威，
+   * 只读、无缓存。字段签名与可选性均未变。
    */
   readonly contractTerminalFact?: (contractId: string) => Promise<ContractTerminalFact>;
 }

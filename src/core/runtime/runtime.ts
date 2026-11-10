@@ -40,6 +40,7 @@ import {
   EXECUTION_RECOVERY_MESSAGE_TYPE,
   EXECUTION_RECOVERY_DELIVERY_META_KEY,
 } from './inbox-message-types.js';
+import { getContractWorkMessageId } from '../contract/index.js';
 import type { ContractTerminalFact } from '../contract/index.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
 import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
@@ -137,6 +138,23 @@ function computeConfigRevision(config: LLMOrchestratorConfig): string {
 /**
  * Runtime - fully assembled Claw runtime instance
  */
+/**
+ * Phase 2094 Step C：判定面候选 ID 选择（唯一入口，纯函数）。
+ *
+ * - execution_recovery：沿用 1869 语义，只认 metadata.contract_id；
+ * - contract_created / contract_resume：交给 owner 侧
+ *   `getContractWorkMessageId`（system 来源 + 类型 + 非空 metadata.contract_id，
+ *   不读正文）；
+ * - 其他一律 undefined（含 contract_cancelled 等终态通知、非 system 来源消息）。
+ */
+function selectJudgedContractId(message: InboxEntry['message']): string | undefined {
+  if (message.type === EXECUTION_RECOVERY_MESSAGE_TYPE) {
+    const id = message.metadata?.contract_id;
+    return typeof id === 'string' && id.length > 0 ? id : undefined;
+  }
+  return getContractWorkMessageId(message);
+}
+
 export class Runtime {
   protected options: RuntimeOptions;
   protected initialized = false;
@@ -791,7 +809,11 @@ export class Runtime {
   /**
    * phase 1869 (Step G): 领取后、格式化前的消费适用性判定。
    *
-   * 判定对象：type=execution_recovery 且 metadata.contract_id 存在的消息；
+   * 判定对象（phase 2094 Step C 扩展候选 ID 选择，复用同一 query / 审计 / ack 路径）：
+   * - type=execution_recovery 且 metadata.contract_id 存在（1869 原有范围，保持不变）；
+   * - type=contract_created / contract_resume 且 from=system 且 metadata.contract_id
+   *   非空（owner 侧唯一识别入口 `getContractWorkMessageId`，不读正文、不从正文猜引用）。
+   * 其余消息（含 contract_cancelled 等终态通知、非 system 来源的同名字段消息）不判定。
    * 只读查询契约终态事实（1846 readContractTerminalFact，目录为生命周期权威，
    * 不读契约内部目录；不召回、不删除已写消息）。
    * - 终态（completed/failed/cancelled）→ 不交付：ack 到 done/（正文保留）
@@ -809,9 +831,8 @@ export class Runtime {
     handle: InboxHandle,
   ): Promise<boolean> {
     const message = entry.message;
-    if (message.type !== EXECUTION_RECOVERY_MESSAGE_TYPE) return true;
-    const contractId = message.metadata?.contract_id;
-    if (typeof contractId !== 'string' || contractId.length === 0) return true;
+    const contractId = selectJudgedContractId(message);
+    if (contractId === undefined) return true;
     const query = this.options.dependencies.contractTerminalFact;
     if (!query) return true;
 
@@ -829,7 +850,10 @@ export class Runtime {
     }
     if (fact.kind !== 'terminal') return true;
 
-    const deliveryId = message.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY];
+    // delivery_id 只属于 execution_recovery 提醒协议；工作指令没有该键则不写该列。
+    const deliveryId = message.type === EXECUTION_RECOVERY_MESSAGE_TYPE
+      ? message.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]
+      : undefined;
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL,
       `file=${handle.originalFileName}`,
@@ -838,6 +862,8 @@ export class Runtime {
       `reason=contract_terminal`,
       ...(typeof deliveryId === 'string' && deliveryId.length > 0 ? [`delivery_id=${deliveryId}`] : []),
     );
+    // ack 失败由 ackHandles 逐项留证（INBOX_ACK_FAILED）且不抛出：原消息保留在
+    // inflight、不入本轮交付批次，且此处已从 ownedHandles 移除 —— 不会被重新 nack。
     await this.ackHandles([handle], 'contract_terminal');
     return false;
   }
