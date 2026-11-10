@@ -29,6 +29,7 @@ import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createSkillVersions, SkillSystem, type SkillVersions } from '../../src/foundation/skill-system/index.js';
 import { newUuid } from '../../src/foundation/node-utils/index.js';
 import { makeAudit } from '../helpers/audit.js';
+import { userCliEnv } from '../helpers/user-cli-env.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const gitAvailable = (() => {
@@ -391,7 +392,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     const runCli = (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> =>
       new Promise((resolve, reject) => {
         const child = spawn('node', [CLI_ENTRY, ...args], {
-          env: { ...process.env, CHESTNUT_ROOT: tmpDir, NODE_ENV: 'test', GIT_CONFIG_NOSYSTEM: '1' },
+          env: userCliEnv(tmpDir),
           cwd: tmpDir,
         });
         let stdout = '';
