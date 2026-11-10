@@ -163,12 +163,12 @@ export function writeYamlConfig(
   deps: LoaderDeps,
   configPath: string,
   config: unknown,
-): void {
+): ReturnType<FileSystem['writeAtomicSync']> {
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
   const basename = path.basename(configPath);
   const content = yaml.dump(config);
-  fs.writeAtomicSync(basename, content);
+  return fs.writeAtomicSync(basename, content);
 }
 
 /**
@@ -183,7 +183,7 @@ export function patchYamlConfig(
   deps: LoaderDeps,
   configPath: string,
   patcher: (cfg: Record<string, unknown>) => void,
-): void {
+): ReturnType<FileSystem['writeAtomicSync']> {
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
   const basename = path.basename(configPath);
@@ -208,7 +208,7 @@ export function patchYamlConfig(
   const cfg = loaded as Record<string, unknown>;
   patcher(cfg);
   const dumped = yaml.dump(cfg);
-  fs.writeAtomicSync(basename, dumped);
+  return fs.writeAtomicSync(basename, dumped);
 }
 
 /**
