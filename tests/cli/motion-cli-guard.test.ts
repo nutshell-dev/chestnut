@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { Command } from 'commander';
+import { createConfigCommand } from '../../src/cli/commands/config.js';
 import {
   captureCliCallerIdentity,
   registerMotionCliGuard,
@@ -69,6 +70,20 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
   skill.command('install').option('--claw <id>').action(actionSpy);
   skill.command('list').option('--claw <id>').action(actionSpy);
 
+  const config = createConfigCommand({
+    fsFactory: vi.fn(),
+    rootConfig: {
+      isInitialized: vi.fn(), loadGlobal: vi.fn(), saveGlobal: vi.fn(),
+      mutateGlobalLocked: vi.fn(), patchPrimary: vi.fn(),
+    },
+  });
+  // Keep the production catalog and Commander argument shapes; never invoke mutations here.
+  for (const provider of config.commands) {
+    for (const leaf of provider.commands) {
+      leaf.exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} }).action(actionSpy);
+    }
+  }
+  program.addCommand(config);
   return program;
 }
 
@@ -236,6 +251,37 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
     await expect(program.parseAsync(['node', 'chestnut', 'init', '--help']))
       .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
     expect(action).not.toHaveBeenCalled();
+  });
+
+  describe('shared provider configuration', () => {
+    const mutations = [
+      ['add'], ['remove', 'sample'], ['set-primary', 'sample'],
+      ['move', 'sample', '1'], ['login', 'sample'], ['logout', 'sample'],
+    ];
+    for (const args of mutations) {
+      it.each(['alice', 'task-123', ''])('rejects ' + args[0] + ' from caller=%s', async (caller) => {
+        expect(await runCli(['config', 'provider', ...args], caller))
+          .toEqual({ actionCalls: 0, exitCode: 1 });
+      });
+      it.each([undefined, 'motion'])('allows ' + args[0] + ' from caller=%s', async (caller) => {
+        expect(await runCli(['config', 'provider', ...args], caller))
+          .toEqual({ actionCalls: 1, exitCode: undefined });
+      });
+      it('allows help for ' + args[0], async () => {
+        const action = vi.fn();
+        const program = buildProgram(action);
+        program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+        vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
+        captureCliCallerIdentity();
+        await expect(program.parseAsync(['node', 'chestnut', 'config', 'provider', ...args, '--help']))
+          .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
+        expect(action).not.toHaveBeenCalled();
+      });
+    }
+    it.each([undefined, 'motion', 'alice', 'task-123', ''])('allows shared list for caller=%s', async (caller) => {
+      expect(await runCli(['config', 'provider', 'list'], caller))
+        .toEqual({ actionCalls: 1, exitCode: undefined });
+    });
   });
 
   // ── wiring source-scan：CLI 唯一入口必须 capture + 注册钩子 ────────────────

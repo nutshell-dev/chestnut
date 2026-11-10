@@ -5,7 +5,15 @@ import * as path from 'node:path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 describe('workspace CLI caller access', () => {
-  it.each([['init']])('rejects %j before workspace or credential effects', async (...args) => {
+  it.each([
+    ['init'],
+    ['config', 'provider', 'add'],
+    ['config', 'provider', 'remove', 'sample'],
+    ['config', 'provider', 'set-primary', 'sample'],
+    ['config', 'provider', 'move', 'sample', '1'],
+    ['config', 'provider', 'login', 'sample'],
+    ['config', 'provider', 'logout', 'sample'],
+  ])('rejects %j before workspace or credential effects', async (...args) => {
     const root = await createTrackedTempDir('workspace-access-');
     try {
       const result = spawnSync(process.execPath, [path.resolve('dist/cli.js'), ...args], {

@@ -63,6 +63,10 @@ function commandTargetsMotion(command: Command): boolean {
   // Watchdog start/stop directly control motion supervision.
   if (path[0] === 'watchdog') return true;
 
+  // Provider 写操作改变 motion 共用的配置或凭据；只读 list 仍可共享。
+  if (path.length === 3 && path[0] === 'config' && path[1] === 'provider'
+    && ['add', 'remove', 'set-primary', 'move', 'login', 'logout'].includes(path[2]!)) return true;
+
   // 任意命令的 --claw motion（contract / skill / audit / 未来命令）
   const opts = command.opts() as { claw?: unknown };
   if (opts.claw === MOTION_CLAW_ID) return true;
