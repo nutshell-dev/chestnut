@@ -94,18 +94,15 @@ export interface ConfigSchema<T> {
 }
 
 /**
- * Load YAML config file + parse via caller-supplied schema.
- * Returns typed result; expected failures throw ConfigStoreError
- * （not_found / read_failed / invalid_yaml / missing_env / invalid_schema），
- * 业务措辞由 caller 按 code 决定。
+ * Read a YAML document without expanding environment references or applying a schema.
+ * Returns the parsed YAML value (including scalar, array, null, or undefined for an
+ * empty document) and never writes to disk.
  */
-export function loadYamlConfig<T>(
-  deps: LoaderDeps,
+export function readYamlDocument(
+  deps: { fsFactory(baseDir: string): FileSystem },
   configPath: string,
-  schema: ConfigSchema<T>,
-): T {
-  const dir = path.dirname(configPath);
-  const fs = deps.fsFactory(dir);
+): unknown {
+  const fs = deps.fsFactory(path.dirname(configPath));
   const basename = path.basename(configPath);
 
   if (!fs.existsSync(basename)) {
@@ -119,12 +116,25 @@ export function loadYamlConfig<T>(
     throw new ConfigStoreError('read_failed', `Failed to read config: ${formatUnknownError(err)}`, { cause: err });
   }
 
-  let parsed: unknown;
   try {
-    parsed = yaml.load(content);
+    return yaml.load(content);
   } catch (err) {
     throw new ConfigStoreError('invalid_yaml', `Invalid YAML in config: ${formatUnknownError(err)}`, { cause: err });
   }
+}
+
+/**
+ * Load YAML config file + parse via caller-supplied schema.
+ * Returns typed result; expected failures throw ConfigStoreError
+ * （not_found / read_failed / invalid_yaml / missing_env / invalid_schema），
+ * 业务措辞由 caller 按 code 决定。
+ */
+export function loadYamlConfig<T>(
+  deps: LoaderDeps,
+  configPath: string,
+  schema: ConfigSchema<T>,
+): T {
+  const parsed = readYamlDocument(deps, configPath);
 
   let expanded: unknown;
   try {

@@ -6,6 +6,7 @@
  * 跨模块 import 必经本 barrel，禁止 deep-import ./store.js / ./errors.js。
  */
 export {
+  readYamlDocument,
   loadYamlConfig,
   writeYamlConfig,
   writeYamlConfigExclusive,

@@ -122,6 +122,33 @@ describe('config-store: loadYamlConfig', () => {
     });
   });
 
+  it('原始读取复用后仍展开 resolver 结果并保留 schema default', () => {
+    fs.writeFileSync(configPath, 'name: ${CS_RESOLVED_NAME}\n');
+    const schemaWithDefault: ConfigSchema<Required<TestConfig>> = {
+      parse(data: unknown): Required<TestConfig> {
+        const cfg = testSchema.parse(data);
+        return { ...cfg, retries: cfg.retries ?? 7 };
+      },
+    };
+
+    expect(loadYamlConfig(
+      { fsFactory, resolveEnvVar: (name) => name === 'CS_RESOLVED_NAME' ? 'resolved' : undefined },
+      configPath,
+      schemaWithDefault,
+    )).toEqual({ name: 'resolved', retries: 7 });
+  });
+
+  it('原始读取复用后 resolver 自身异常仍按同一实例传播', () => {
+    fs.writeFileSync(configPath, 'name: ${CS_RESOLVER_ERROR}\n');
+    const resolverError = new Error('resolver failed');
+
+    expect(() => loadYamlConfig(
+      { fsFactory, resolveEnvVar: () => { throw resolverError; } },
+      configPath,
+      testSchema,
+    )).toThrow(resolverError);
+  });
+
   it('missing env: code missing_env，变量名保留在 message 与 cause', () => {
     fs.writeFileSync(configPath, 'name: ${CS_DEFINITELY_UNSET_VAR}\n');
     const err = catchStoreError(
