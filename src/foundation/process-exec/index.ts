@@ -11,6 +11,8 @@
 export { exec, execWithHandle } from './exec.js';
 export { resolveHostCommand } from './host-command.js';
 export type { ResolvedHostCommand } from './host-command.js';
+export { resolveHostScript } from './host-script.js';
+export type { ResolvedHostScript } from './host-script.js';
 export type {
   ExecHandle,
   ProcessInfo,
@@ -25,7 +27,11 @@ export { findByPattern } from './find-by-pattern.js';
 export { isPidArgvMatching } from './argv-verify.js';
 export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
-export { ProcessExecError, ProcessListUnavailable } from './errors.js';
+export {
+  ProcessExecError,
+  ProcessListUnavailable,
+  UnsupportedHostScriptError,
+} from './errors.js';
 export {
   PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
   // Needed by command-tool to render the overflow message with the same

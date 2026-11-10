@@ -50,6 +50,33 @@ export class ProcessExecError extends Error {
   }
 }
 
+/** Thrown when the current host has no supported interpreter for a script file. */
+export class UnsupportedHostScriptError extends Error {
+  readonly code = 'HOST_SCRIPT_UNSUPPORTED' as const;
+  readonly platform: NodeJS.Platform;
+  readonly scriptPath: string;
+  readonly extension: string;
+  readonly allowedExtensions: readonly string[];
+
+  constructor(options: {
+    platform: NodeJS.Platform;
+    scriptPath: string;
+    extension: string;
+    allowedExtensions: readonly string[];
+  }) {
+    const extension = options.extension || '<none>';
+    super(
+      `Unsupported host script on ${options.platform}: ${options.scriptPath} `
+      + `(extension: ${extension}; allowed: ${options.allowedExtensions.join(', ')})`,
+    );
+    this.name = 'UnsupportedHostScriptError';
+    this.platform = options.platform;
+    this.scriptPath = options.scriptPath;
+    this.extension = options.extension;
+    this.allowedExtensions = options.allowedExtensions;
+  }
+}
+
 /**
  * Thrown when pgrep / process listing binary is unavailable.
  */
