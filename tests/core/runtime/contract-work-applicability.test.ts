@@ -7,7 +7,9 @@
  *   getContractWorkMessageId 取 metadata.contract_id；其余一律不判定；
  * - 终态（completed / failed / cancelled）→ 不交付：ack 到 done/（正文保留）
  *   + runtime_inbox_contract_terminal 留证（reason=contract_terminal）；
- * - unconfirmed / corrupted / 未知 kind / 查询抛错 → fail-open 照常交付；
+ * - 真实终态 = { kind: 'terminal', state } 且 state ∈ {completed, cancelled, corrupted, failed}
+ *   （ARCHIVE_STATE_DIRS_TUPLE），corrupted 同样必须过滤；
+ * - unconfirmed / 非法 kind（owner 不产生的防御分支） / 查询抛错 → fail-open 照常交付；
  * - 取消通知（contract_cancelled）不是工作指令：即使带 metadata.contract_id 也照常交付；
  * - 混合批次只过滤目标消息，普通用户消息与非 system 同名字段消息照常交付；
  * - ack 失败：原消息保留在 inflight、发 INBOX_ACK_FAILED，**不入本轮批次、不重新 nack**。
@@ -19,6 +21,7 @@ import { Runtime } from '../../../src/core/runtime/runtime.js';
 import {
   createInboxReader,
   writeInboxAsync,
+  decodeInbox,
   createInboxMessageTypeRegistry,
 } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -27,6 +30,7 @@ import {
   EXECUTION_RECOVERY_MESSAGE_TYPE,
   EXECUTION_RECOVERY_DELIVERY_META_KEY,
 } from '../../../src/core/runtime/inbox-message-types.js';
+import { makeContractId, readContractTerminalFact } from '../../../src/core/contract/index.js';
 import type { ContractTerminalFact } from '../../../src/core/contract/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -134,8 +138,10 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     return fs.readdirSync(dir).filter(f => f.endsWith('.md'));
   }
 
-  it('矩阵：created/resume × cancelled/completed/failed 全部过滤，各留一条终态证据', async () => {
-    const states = ['cancelled', 'completed', 'failed'] as const;
+  it('矩阵：created/resume × cancelled/completed/failed/corrupted 全部过滤，各留一条终态证据', async () => {
+    // phase 2094 Step R：corrupted 是 ArchiveState 的合法成员，事实形态为
+    // { kind: 'terminal', state: 'corrupted' } —— 必须与其余终态一样被过滤。
+    const states = ['cancelled', 'completed', 'failed', 'corrupted'] as const;
     const types = ['contract_created', 'contract_resume'] as const;
     let n = 0;
     for (const state of states) {
@@ -147,20 +153,22 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     // 每个 contract 状态不同 → 用单一 factQuery 按 id 返回
     factQuery.mockImplementation(async (cid: string) => ({
       kind: 'terminal',
-      state: cid.replace('c-', '') as 'cancelled' | 'completed' | 'failed',
+      state: cid.replace('c-', '') as 'cancelled' | 'completed' | 'failed' | 'corrupted',
     }));
 
     const runtime = makeRuntime();
     const prepared = await runtime.testPrepareInbox();
 
     expect(prepared.entries).toHaveLength(0);
-    expect(doneFiles()).toHaveLength(6);
-    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(6);
+    expect(doneFiles()).toHaveLength(8);
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(8);
     const rowTexts = rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL).map(r => r.map(String).join(' '));
     for (const state of states) {
       expect(rowTexts.some(t => t.includes(`state=${state}`))).toBe(true);
     }
     expect(rowTexts.every(t => t.includes('reason=contract_terminal'))).toBe(true);
+    // corrupted 走与 cancelled/completed/failed 完全相同的过滤路径（不留特例）
+    expect(rowTexts.filter(t => t.includes('state=corrupted'))).toHaveLength(2);
     // 正文保留：done/ 里仍有原 content
     for (const f of doneFiles()) {
       const raw = fs.readFileSync(path.join(doneDir, f), 'utf8');
@@ -168,11 +176,13 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     }
   });
 
-  it('矩阵：corrupted / unconfirmed / 未知 kind 均照常交付且不 ack', async () => {
+  it('非法查询结果防御：kind 非 terminal/unconfirmed（owner 不产生的形态）照常交付且不 ack', async () => {
+    // 说明（phase 2094 Step R 纠正）：{ kind: 'corrupted' } 不是 corrupted 语义——
+    // corrupted 的真实形态是 { kind: 'terminal', state: 'corrupted' }，已在上方终态矩阵覆盖。
+    // 本用例只防御 owner 永不产生的非法联合成员，不承担 corrupted 语义。
     const cases: Array<[string, ContractTerminalFact]> = [
-      ['c-corrupted', { kind: 'corrupted' } as never],
+      ['c-illegal', { kind: 'something-else' } as never],
       ['c-unconfirmed', { kind: 'unconfirmed' }],
-      ['c-unknown', { kind: 'something-else' } as never],
     ];
     for (const [i, [cid]] of cases.entries()) {
       await writeMsg({ id: `w-${i}`, type: 'contract_created', contractId: cid });
@@ -182,7 +192,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     const runtime = makeRuntime();
     const prepared = await runtime.testPrepareInbox();
 
-    expect(prepared.entries.map(e => e.message.id)).toEqual(['w-0', 'w-1', 'w-2']);
+    expect(prepared.entries.map(e => e.message.id)).toEqual(['w-0', 'w-1']);
     expect(doneFiles()).toHaveLength(0);
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(0);
   });
@@ -291,4 +301,207 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(prepared.entries.map(e => e.message.id)).toEqual(['w-1']);
     expect(factQuery).not.toHaveBeenCalled();
   });
+
+  /* ==================================================================
+   * phase 2094 Step R：句柄与恢复矩阵（计划 §设计细节「句柄与恢复矩阵」）
+   * ================================================================== */
+
+  it('恢复①：ack→done move 失败后 inflight 保留；恢复 FS + 过期 claim 重启重领 → 真实终态查询落到 done', async () => {
+    factQuery.mockResolvedValue({ kind: 'terminal', state: 'completed' });
+    await writeMsg({ id: 'w-recover', type: 'contract_created', contractId: 'c-1' });
+
+    const runtime = makeRuntime();
+    const realMove = fsImpl.move.bind(fsImpl);
+    const moveSpy = vi.spyOn(fsImpl, 'move').mockImplementation(async (src: string, dst: string) => {
+      if (String(dst).includes('/done/')) throw Object.assign(new Error('EIO move'), { code: 'EIO' });
+      return realMove(src, dst);
+    });
+    const prepared1 = await runtime.testPrepareInbox();
+    moveSpy.mockRestore();
+
+    // 本轮不交付、原消息留在 inflight、失败留证
+    expect(prepared1.entries).toHaveLength(0);
+    expect(doneFiles()).toHaveLength(0);
+    expect(inflightFiles()).toHaveLength(1);
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED)).toHaveLength(1);
+
+    // 模拟进程崩死后的残留：claim 改为 startTime=0（身份不可确立）+ mtime 回溯过期租约
+    const inflightDir = path.join(inboxBaseDir, 'inflight');
+    const inflightName = inflightFiles()[0];
+    const originalName = inflightName.replace(/^\d+_[0-9a-f]+_/i, '');
+    const stalePath = path.join(inflightDir, `${process.pid}_0_${originalName}`);
+    fs.renameSync(path.join(inflightDir, inflightName), stalePath);
+    const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
+    fs.utimesSync(stalePath, oldMtime, oldMtime);
+
+    // 重启：init reconcile 把过期 inflight 残留回 pending → 重新领取 → 再次真实判定 → ack 到 done
+    const reader2 = createInboxReader(fsImpl, audit, inboxBaseDir);
+    await reader2.init();
+    const runtime2 = makeRuntime();
+    runtime2.injectForTest({ inboxReader: reader2, auditWriter: audit });
+    const prepared2 = await runtime2.testPrepareInbox();
+
+    expect(prepared2.entries).toHaveLength(0);
+    expect(doneFiles()).toHaveLength(1);
+    // 幂等重判：再次留证，无重复交付、无消息丢失
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(2);
+    const decodedDone = decodeInbox(fs.readFileSync(path.join(doneDir, doneFiles()[0]), 'utf8'));
+    expect(decodedDone.id).toBe('w-recover');
+    expect(decodedDone.content).toBe('work w-recover');
+  }, 30_000);
+
+  it('恢复②：首次 unconfirmed 交付后 nack 回 pending；状态转终态后第二次 prepare 必须重新查询并过滤', async () => {
+    // 第一次查询 unconfirmed，第二次起 terminal —— 若实现缓存了上次结果，第二次会误交付
+    factQuery
+      .mockResolvedValueOnce({ kind: 'unconfirmed' })
+      .mockResolvedValue({ kind: 'terminal', state: 'cancelled' });
+    await writeMsg({ id: 'w-requery', type: 'contract_created', contractId: 'c-1' });
+
+    const runtime = makeRuntime();
+    const prepared1 = await runtime.testPrepareInbox();
+    expect(prepared1.entries.map(e => e.message.id)).toEqual(['w-requery']);
+    expect(factQuery).toHaveBeenCalledTimes(1);
+
+    // 未处理句柄用 nack 归还原 pending（不删除、不重建消息）
+    await runtime.nackHandles(
+      prepared1.entries.map(e => e.handle),
+      'test_requeue',
+      'test_requeue',
+    );
+    const pendingAfterNack = fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
+    expect(pendingAfterNack).toHaveLength(1);
+    // 归还的是同一条消息（内容未改写）
+    const requeued = decodeInbox(fs.readFileSync(path.join(pendingDir, pendingAfterNack[0]), 'utf8'));
+    expect(requeued.id).toBe('w-requery');
+    expect(requeued.content).toBe('work w-requery');
+
+    // 第二次 prepare：必须重新查询（次数 +1），拿到 terminal 后过滤
+    const runtime2 = makeRuntime();
+    const prepared2 = await runtime2.testPrepareInbox();
+    expect(factQuery).toHaveBeenCalledTimes(2);
+    expect(prepared2.entries).toHaveLength(0);
+    expect(doneFiles()).toHaveLength(1);
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(1);
+  }, 30_000);
+
+  it('恢复③：前项已 ack 到 done 后，后项查询失败且错误审计抛出 → 整体 catch 只回队后项，不 nack 已处置前项', async () => {
+    factQuery.mockImplementation(async (cid: string) => {
+      if (cid === 'c-term') return { kind: 'terminal', state: 'failed' };
+      throw new Error('EIO query boom');
+    });
+    await writeMsg({ id: 'w-first', type: 'contract_created', contractId: 'c-term' });
+    await writeMsg({ id: 'w-second', type: 'contract_resume', contractId: 'c-fail' });
+
+    const runtime = makeRuntime();
+    const reader = (runtime as unknown as { inboxReader: { nack: (h: unknown, r: string) => Promise<void> } }).inboxReader;
+    const nackSpy = vi.spyOn(reader, 'nack');
+
+    // 让「查询失败」审计本身抛出，触发 prepareInbox 的整体 catch
+    const realWrite = audit.write;
+    const auditSpy = vi.spyOn(audit, 'write').mockImplementation((type: string, ...cols: unknown[]) => {
+      if (type === RUNTIME_AUDIT_EVENTS.INBOX_TERMINAL_QUERY_FAILED) {
+        throw Object.assign(new Error('audit sink down'), { code: 'EIO' });
+      }
+      return realWrite(type, ...cols);
+    });
+
+    await expect(runtime.testPrepareInbox()).rejects.toThrow(/audit sink down/);
+    auditSpy.mockRestore();
+
+    // 前项已 ack：在 done/，且从未被 nack（句柄已结算、已从 ownedHandles 移除）
+    const doneNames = doneFiles();
+    expect(doneNames).toHaveLength(1);
+    const decodedDone = decodeInbox(fs.readFileSync(path.join(doneDir, doneNames[0]), 'utf8'));
+    expect(decodedDone.id).toBe('w-first');
+    const nackedFiles = nackSpy.mock.calls.map(c => String((c[0] as { originalFileName?: string })?.originalFileName ?? ''));
+    expect(nackedFiles.some(f => f.includes('w-first'))).toBe(false);
+
+    // 后项仍被持有的句柄回队：pending 里有 w-second，无 w-first
+    const pendingNames = fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
+    const pendingIds = pendingNames.map(f => decodeInbox(fs.readFileSync(path.join(pendingDir, f), 'utf8')).id);
+    expect(pendingIds).toEqual(['w-second']);
+    expect(nackedFiles.length).toBeGreaterThan(0);
+    nackSpy.mockRestore();
+  }, 30_000);
+
+  it('恢复④：坏路径 contract_id 被真实 owner 查询拒绝 → query_failed 且仍交付；工作消息不输出恢复专用 delivery_id 列', async () => {
+    // 真实 owner 查询（1846）：非单目录名在 stat 前就被拒绝
+    const realQuery = (cid: string) => readContractTerminalFact(fsImpl, makeContractId(cid));
+    const runtime = new TestRuntime({
+      clawId: 'test-claw',
+      clawDir: rootDir,
+      idleTimeoutMs: 0,
+      llmConfig: {
+        primary: { name: 'mock', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+        maxAttempts: 1,
+        retryDelayMs: 0,
+      },
+      dependencies: {
+        contractTerminalFact: realQuery,
+        formatterRegistry: createInboxMessageTypeRegistry(),
+      },
+    } as never);
+    const reader = createInboxReader(fsImpl, audit, inboxBaseDir);
+    runtime.injectForTest({ inboxReader: reader, auditWriter: audit });
+
+    // 坏路径 id + 恢复专用 delivery_id 键（工作消息不该输出该列）
+    await writeInboxAsync(fsImpl, pendingDir, {
+      id: 'w-badid',
+      type: 'contract_created',
+      from: 'system',
+      to: '',
+      priority: 'normal',
+      content: 'work w-badid',
+      timestamp: new Date().toISOString(),
+      metadata: { contract_id: '../escape', [EXECUTION_RECOVERY_DELIVERY_META_KEY]: 'rec-bad' },
+    }, audit);
+
+    const prepared = await runtime.testPrepareInbox();
+
+    // 查询被拒 → fail-open 交付，留 query_failed 证据
+    expect(prepared.entries.map(e => e.message.id)).toEqual(['w-badid']);
+    expect(doneFiles()).toHaveLength(0);
+    const failedRows = rows(RUNTIME_AUDIT_EVENTS.INBOX_TERMINAL_QUERY_FAILED);
+    expect(failedRows).toHaveLength(1);
+    const failedText = failedRows[0].map(String).join(' ');
+    expect(failedText).toContain('contract=../escape');
+    expect(failedText).toContain('not a single directory name');
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(0);
+  }, 30_000);
+
+  it('恢复④b：工作消息命中终态时不输出 delivery_id 列，execution_recovery 同目录消息仍输出（列语义按来源区分）', async () => {
+    factQuery.mockResolvedValue({ kind: 'terminal', state: 'cancelled' });
+    await writeInboxAsync(fsImpl, pendingDir, {
+      id: 'w-work',
+      type: 'contract_created',
+      from: 'system',
+      to: '',
+      priority: 'normal',
+      content: 'work w-work',
+      timestamp: new Date().toISOString(),
+      metadata: { contract_id: 'c-1', [EXECUTION_RECOVERY_DELIVERY_META_KEY]: 'rec-work' },
+    }, audit);
+    await writeInboxAsync(fsImpl, pendingDir, {
+      id: 'w-recovery',
+      type: EXECUTION_RECOVERY_MESSAGE_TYPE,
+      from: 'test-claw',
+      to: '',
+      priority: 'normal',
+      content: 'recovery w-recovery',
+      timestamp: new Date().toISOString(),
+      metadata: { contract_id: 'c-1', [EXECUTION_RECOVERY_DELIVERY_META_KEY]: 'rec-recovery' },
+    }, audit);
+
+    const runtime = makeRuntime();
+    const prepared = await runtime.testPrepareInbox();
+
+    expect(prepared.entries).toHaveLength(0);
+    const terminalRows = rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL).map(r => r.map(String).join(' '));
+    expect(terminalRows).toHaveLength(2);
+    // 工作消息行：无 delivery_id 列
+    const workRowMatch = terminalRows.find(t => t.includes('rec-work'));
+    expect(workRowMatch).toBeUndefined();
+    // execution_recovery 行：保留 delivery_id 列
+    expect(terminalRows.some(t => t.includes('delivery_id=rec-recovery'))).toBe(true);
+  }, 30_000);
 });

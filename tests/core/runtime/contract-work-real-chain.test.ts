@@ -1,92 +1,122 @@
 /**
- * Phase 2094 Step C：真实 CLI 契约创建 / 取消链 → 交付前边界（不跑 provider）。
+ * Phase 2094 Step C / R：真实 CLI 生产链 → 交付前边界（不跑 provider、不跑 Runtime 循环）。
  *
- * 本用例用**真实**生产件，不 mock 业务语义：
- * - 真实 `ContractSystem`（CLI contract create/cancel 的同一 core，真实 NodeFileSystem
- *   落盘 archive/cancelled/<id>）；
- * - 真实 `readContractTerminalFact`（1846 目录即生命周期权威的只读查询）；
- * - 真实 Messaging `createInboxReader` + `writeInboxAsync` + `decodeInbox`；
- * - 真实 `Runtime.prepareInbox` 交付前边界。
- *
- * 断言只覆盖「系统控制的交付前边界」：已取消契约的排队工作指令不进入本轮批次、
- * 原消息保留在 done/ 且可解码比对 id/type/content/contract_id；取消通知（终态事件、
- * 非工作指令）照常交付。**不固定随机文件名**——一律从磁盘实际文件名解码比对。
+ * Step R 修正：创建侧改走真实 `notifyContractCreated`（createClawNotifier + 真实
+ * 目标 resolver + 真实落盘），onboarding 续作侧走真实 `ensureOnboardingAndNotify`，
+ * 取消侧走真实 cancellation delivery。消息全部由生产代码写出，测试只负责断言。
  */
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import * as fs from 'fs';
+import * as fsSync from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { makeAudit } from '../../helpers/audit.js';
+import { makeContractYaml } from '../../helpers/contract-yaml.js';
+import {
+  ContractSystem,
+  ONBOARDING_CONTRACT_ID,
+  type ContractTerminalFact,
+  type QueryAuditSink,
+} from '../../../src/core/contract/index.js';
+import { makeClawNotifyTargetResolver, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
+import { makeClawId, makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
+import { decodeInbox, encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
-import { ContractSystem } from '../../../src/core/contract/manager.js';
-import { readContractTerminalFact, makeContractId } from '../../../src/core/contract/index.js';
 import {
   createInboxReader,
-  writeInboxAsync,
-  decodeInbox,
   createInboxMessageTypeRegistry,
 } from '../../../src/foundation/messaging/index.js';
-import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
-import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeContractYaml } from '../../helpers/contract-yaml.js';
-import { makeAudit } from '../../helpers/audit.js';
+import type { RuntimeDeps } from '../../../src/core/runtime/types.js';
+import { createContractCancellationDelivery } from '../../../src/assembly/contract-cancellation-delivery.js';
+import { notifyContractCreated } from '../../../src/cli/commands/contract-helpers.js';
+import { ensureOnboardingAndNotify } from '../../../src/cli/start-bootstrap.js';
 
-class TestRuntime extends Runtime {
-  injectForTest(opts: { inboxReader: unknown; auditWriter: unknown }) {
+type Prepared = Awaited<ReturnType<Runtime['prepareInbox']>>;
+
+interface TestRuntime {
+  prepareInbox: (opts?: { messageType?: string; deliveryId?: string }) => Promise<Prepared>;
+}
+
+/** 与既有 applicability 测试同形的 Runtime 子类：注入 reader/auditWriter 后直接调 prepareInbox。 */
+class RealChainTestRuntime extends Runtime {
+  injectForTest(opts: { inboxReader: unknown; auditWriter: unknown }): void {
     (this as unknown as Record<string, unknown>).inboxReader = opts.inboxReader;
     (this as unknown as Record<string, unknown>).auditWriter = opts.auditWriter;
     (this as unknown as Record<string, unknown>).execContext = { trace_id: undefined };
   }
-  async testPrepareInbox() {
-    return this.prepareInbox();
-  }
 }
 
-describe('phase 2094 Step C: 真实创建/取消链的交付前边界', () => {
-  let rootDir: string;
-  let inboxBaseDir: string;
-  let pendingDir: string;
-  let doneDir: string;
-  let fsImpl: NodeFileSystem;
-  let audit: ReturnType<typeof makeAudit>['audit'];
-  let events: ReturnType<typeof makeAudit>['events'];
+describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前边界', () => {
+  let tempDir: string;
+  let chestnutRoot: string;
+  let motionDir: string;
+  let clawspaceDir: string;
+  let savedRoot: string | undefined;
 
-  beforeEach(async () => {
-    rootDir = await createTempDir();
-    inboxBaseDir = path.join(rootDir, 'inbox');
-    pendingDir = path.join(inboxBaseDir, 'pending');
-    doneDir = path.join(inboxBaseDir, 'done');
-    fsImpl = new NodeFileSystem({ baseDir: rootDir });
-    await fsImpl.ensureDir(pendingDir);
-    await fsImpl.ensureDir(doneDir);
-    const made = makeAudit();
-    audit = made.audit;
-    events = made.events;
+  beforeEach(() => {
+    savedRoot = process.env.CHESTNUT_ROOT;
+    tempDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'phase2094-realchain-'));
+    process.env.CHESTNUT_ROOT = tempDir;
+    chestnutRoot = makeChestnutRoot(tempDir);
+    motionDir = path.join(chestnutRoot, MOTION_CLAW_ID);
+    clawspaceDir = path.join(chestnutRoot, 'claws', 'wjc');
+    fsSync.mkdirSync(path.join(motionDir, 'inbox', 'pending'), { recursive: true });
+    fsSync.mkdirSync(path.join(clawspaceDir, 'contract', 'active'), { recursive: true });
   });
 
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await cleanupTempDir(rootDir);
+  afterEach(() => {
+    if (savedRoot === undefined) delete process.env.CHESTNUT_ROOT;
+    else process.env.CHESTNUT_ROOT = savedRoot;
+    fsSync.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  const fsFactory = (dir: string): NodeFileSystem => new NodeFileSystem({ baseDir: dir });
+
+  /** 真实 ContractSystem（motion 侧，带真实取消投递）。 */
   function makeSystem(): ContractSystem {
     return new ContractSystem({
-      clawDir: rootDir,
-      clawId: 'test-motion',
-      fs: fsImpl,
-      audit,
-      toolRegistry: createToolRegistry(),
-      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      clawsDir: path.join(rootDir, 'claws'),
-      deliverCancellation: async () => {},
-      notifyClaw: vi.fn(),
+      clawDir: motionDir,
+      clawId: makeClawId(MOTION_CLAW_ID),
+      fs: fsFactory(motionDir),
+      fsFactory,
+      audit: makeAudit().audit,
+      toolRegistry: new Map(),
+      verbs: new Map(),
+      rootConfig: { get: () => ({}), has: () => false } as never,
+      snapshot: { schedule: () => {} } as never,
+      snapshotService: undefined as never,
+      clawsDir: path.join(chestnutRoot, 'claws'),
+      deliverCancellation: createContractCancellationDelivery({
+        clawId: MOTION_CLAW_ID,
+        notifyAsync: createClawNotifier({
+          fs: fsFactory(motionDir),
+          audit: makeAudit().audit,
+          resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+        }).notifyAsync,
+      }),
     } as never);
   }
 
-  function makeRuntime(): TestRuntime {
-    const runtime = new TestRuntime({
-      clawId: 'test-motion',
-      clawDir: rootDir,
+  /** 真实 owner 侧终态事实查询 + 审计 sink（与 Runtime 同一调用形态）。 */
+  function makeFactQuery(): { factQuery: QueryAuditSink; sink: ReturnType<typeof makeAudit> } {
+    const sink = makeAudit();
+    const nodeFs = fsFactory(motionDir);
+    return {
+      sink,
+      factQuery: async (contractId: string): Promise<ContractTerminalFact> => {
+        const { readContractTerminalFact } = await import('../../../src/core/contract/terminal-fact.js');
+        return readContractTerminalFact(nodeFs, contractId);
+      },
+    };
+  }
+
+  function makePreparer(sink: ReturnType<typeof makeAudit>, factQuery: QueryAuditSink): TestRuntime {
+    const fsImpl = fsFactory(motionDir);
+    const runtime = new RealChainTestRuntime({
+      clawId: 'motion',
+      clawDir: motionDir,
       idleTimeoutMs: 0,
       llmConfig: {
         primary: { name: 'mock', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
@@ -94,113 +124,139 @@ describe('phase 2094 Step C: 真实创建/取消链的交付前边界', () => {
         retryDelayMs: 0,
       },
       dependencies: {
-        // 真实 1846 查询（目录为权威），不是 mock
-        contractTerminalFact: (contractId: string) =>
-          readContractTerminalFact(fsImpl, makeContractId(contractId)),
+        contractTerminalFact: factQuery,
         formatterRegistry: createInboxMessageTypeRegistry(),
       },
     } as never);
-    const reader = createInboxReader(fsImpl, audit, inboxBaseDir);
-    runtime.injectForTest({ inboxReader: reader, auditWriter: audit });
-    return runtime;
+    const reader = createInboxReader(fsImpl, sink.audit, path.join(motionDir, 'inbox'));
+    runtime.injectForTest({ inboxReader: reader, auditWriter: sink.audit });
+    return runtime as unknown as TestRuntime;
   }
 
-  it('已取消契约：排队工作指令不进批次、落 done/ 可解码；取消通知照常交付', async () => {
-    const system = makeSystem();
-    const contractId = await system.create({ contract: makeContractYaml({ title: 'Chain contract' }) });
-    expect(typeof contractId).toBe('string');
+  function pendingNames(): string[] {
+    return fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending')).filter(n => n.endsWith('.md'));
+  }
 
-    // 真实取消（CLI contract cancel 的同一 core 路径）
-    const outcome = await system.cancel(makeContractId(contractId), 'test cancel for phase 2094');
+  function doneNames(): string[] {
+    return fsSync.readdirSync(path.join(motionDir, 'inbox', 'done')).filter(n => n.endsWith('.md'));
+  }
+
+  function decodeAll(names: string[], dir: string): ReturnType<typeof decodeInbox>[] {
+    return names.map(n => decodeInbox(fsSync.readFileSync(path.join(motionDir, 'inbox', dir, n), 'utf8')));
+  }
+
+  it('创建 → 取消全链：cancel 后 created 工作消息不再交付，取消通知照常交付', async () => {
+    await fsSync.promises.mkdir(path.join(clawspaceDir, 'contract', 'active'), { recursive: true });
+    const system = makeSystem();
+    const contractId = await system.create({
+      contract: makeContractYaml({ id: 'real-chain', title: 'Real chain' }),
+    } as never);
+    expect(contractId).toBe('real-chain');
+
+    // 真实 CLI 创建通知落盘（生产 helper → 真实 notifier → 真实 resolver）
+    await notifyContractCreated(
+      { fsFactory, audit: makeAudit().audit } as never,
+      motionDir,
+      MOTION_CLAW_ID,
+      contractId,
+      makeContractYaml({ id: 'real-chain', title: 'Real chain' }),
+      chestnutRoot,
+    );
+    const createdFiles = pendingNames();
+    expect(createdFiles).toHaveLength(1);
+    const createdMsg = decodeAll(createdFiles, 'pending')[0];
+    expect(createdMsg.type).toBe('contract_created');
+    expect(createdMsg.metadata?.contract_id).toBe('real-chain');
+
+    // 真实取消（带真实取消投递 → 真实取消通知落盘）
+    const outcome = await system.cancel(contractId, 'phase2094 real chain');
+    expect(outcome.commit.kind).toBe('committed');
+    expect(await fsSync.promises.readdir(path.join(motionDir, 'contract', 'archive', 'cancelled')))
+      .toContain('real-chain');
+
+    const pendingAfterCancel = pendingNames();
+    expect(pendingAfterCancel).toHaveLength(2);
+    const cancelledMsg = decodeAll(pendingAfterCancel, 'pending').find(m => m.type === 'contract_cancelled');
+    expect(cancelledMsg, '真实取消投递未落盘').toBeDefined();
+    expect(String(cancelledMsg!.content)).toContain('real-chain');
+    // 取消通知不是工作消息：身份走 guidance extraMeta（`__` 前缀），不进 metadata。
+
+    // 交付前边界：created 被过滤，取消通知（非工作消息）照常交付
+    const { factQuery, sink } = makeFactQuery();
+    const runtime = makePreparer(sink, factQuery);
+    const prepared = await runtime.prepareInbox();
+
+    expect(prepared.entries.map(e => e.message.id)).toEqual([cancelledMsg!.id]);
+    expect(prepared.entries[0].message.type).toBe('contract_cancelled');
+    // created 被过滤 → ack 到 done/（正文保留）；被交付的取消通知已 claim 进 inflight
+    expect(doneNames()).toHaveLength(1);
+    expect(decodeAll(doneNames(), 'done')[0].id).toBe(createdMsg.id);
+    expect(pendingNames()).toHaveLength(0);
+    // 终态证据一行（execution_recovery 才带 delivery_id 列，工作消息只带 contract_id）
+    const terminalRows = sink.events.filter(e => e[0] === 'runtime_inbox_contract_terminal');
+    expect(terminalRows).toHaveLength(1);
+    const cols = terminalRows[0].slice(1).map(String).join(' ');
+    expect(cols).toContain('contract=real-chain');
+    expect(cols).toContain('state=cancelled');
+    expect(cols).not.toContain('delivery_id=');
+  }, 30_000);
+
+  it('续作链：真实 ensureOnboardingAndNotify 产出 contract_resume → 取消后同样被过滤', async () => {
+    const system = makeSystem();
+    // 生产侧 onboarding 契约（id 必须来自 yaml.id，create 不接受外部 id 参数）
+    const contractId = await system.create({
+      contract: makeContractYaml({ id: ONBOARDING_CONTRACT_ID, title: 'Onboarding' }),
+    } as never);
+    expect(contractId).toBe(ONBOARDING_CONTRACT_ID);
+
+    // 真实续作入口（scheduler 触发的就是这条）
+    const result = await ensureOnboardingAndNotify(
+      { fsFactory, audit: makeAudit().audit, rootConfig: { get: () => ({}), has: () => false } as never } as never,
+      {
+        motionDir,
+        onboarding: { state: 'in_progress', contractId: ONBOARDING_CONTRACT_ID } as never,
+        firstRun: false,
+        language: 'zh',
+        clawNotifier: createClawNotifier({
+          fs: fsFactory(motionDir),
+          audit: makeAudit().audit,
+          resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+        }),
+      },
+    );
+    expect(result.contractId).toBe(ONBOARDING_CONTRACT_ID);
+
+    const resumeMsg = decodeAll(pendingNames(), 'pending').find(m => m.type === 'contract_resume');
+    expect(resumeMsg, '真实续作入口未写出 contract_resume').toBeDefined();
+    expect(resumeMsg!.from).toBe('system');
+    expect(resumeMsg!.metadata?.contract_id).toBe(ONBOARDING_CONTRACT_ID);
+    expect(resumeMsg!.content).toContain(ONBOARDING_CONTRACT_ID);
+
+    // 未终态前：续作消息照常交付（守卫：过滤只在已确认终态后发生）
+    const before = makeFactQuery();
+    const beforePrepared = await makePreparer(before.sink, before.factQuery).prepareInbox();
+    expect(beforePrepared.entries.map(e => e.message.id)).toEqual([resumeMsg!.id]);
+
+    // 取消（真实取消链，onboarding 契约已过期/未推进也不影响取消）
+    const outcome = await system.cancel(ONBOARDING_CONTRACT_ID, 'phase2094 resume chain');
     expect(outcome.commit.kind).toBe('committed');
 
-    // 终态事实由真实目录给出
-    const fact = await readContractTerminalFact(fsImpl, makeContractId(contractId));
-    expect(fact).toEqual({ kind: 'terminal', state: 'cancelled' });
-
-    // 真实写入两条真实消息：工作指令（created）与取消通知（终态事件）
-    const createdContent = `合同「Chain contract」已创建（id: ${contractId}），请开始执行。`;
-    await writeInboxAsync(fsImpl, pendingDir, {
-      id: 'w-created-1',
-      type: 'contract_created',
+    // 补一条新的 resume 工作消息（模拟取消落地后才被 scheduler 写出的排队指令）
+    const late = encodeInbox({
+      id: 'w-late-resume',
       from: 'system',
-      to: '',
+      to: MOTION_CLAW_ID,
+      type: 'contract_resume',
       priority: 'high',
-      content: createdContent,
       timestamp: new Date().toISOString(),
-      metadata: { contract_id: contractId },
-    }, audit);
-    const cancelContent = `合同 ${contractId} 已取消（reason: test cancel for phase 2094）。`;
-    await writeInboxAsync(fsImpl, pendingDir, {
-      id: 'w-cancelled-1',
-      type: 'contract_cancelled',
-      from: 'system',
-      to: '',
-      priority: 'high',
-      content: cancelContent,
-      timestamp: new Date().toISOString(),
-      metadata: { contract_id: contractId },
-    }, audit);
+      content: 'Resume onboarding',
+      metadata: { contract_id: ONBOARDING_CONTRACT_ID },
+    } as never);
+    await fsSync.promises.writeFile(path.join(motionDir, 'inbox', 'pending', 'w-late-resume.md'), late, 'utf8');
 
-    const runtime = makeRuntime();
-    const prepared = await runtime.testPrepareInbox();
-
-    // 只有取消通知进入本轮批次；工作指令被过滤
-    expect(prepared.entries.map(e => e.message.id)).toEqual(['w-cancelled-1']);
-
-    // done/ 里恰是那条工作指令：不固定文件名，解码后逐字段比对
-    const doneFiles = fs.readdirSync(doneDir).filter(f => f.endsWith('.md'));
-    expect(doneFiles).toHaveLength(1);
-    const decodedDone = decodeInbox(fs.readFileSync(path.join(doneDir, doneFiles[0]), 'utf8'));
-    expect(decodedDone.id).toBe('w-created-1');
-    expect(decodedDone.type).toBe('contract_created');
-    expect(decodedDone.from).toBe('system');
-    expect(decodedDone.content).toBe(createdContent);
-    expect(decodedDone.metadata?.contract_id).toBe(contractId);
-
-    // 取消通知仍在 inflight（待交付），内容未被改写
-    const inflightDir = path.join(inboxBaseDir, 'inflight');
-    const inflightFiles = fs.readdirSync(inflightDir).filter(f => f.endsWith('.md'));
-    expect(inflightFiles).toHaveLength(1);
-    const decodedInflight = decodeInbox(
-      fs.readFileSync(path.join(inflightDir, inflightFiles[0]), 'utf8'),
-    );
-    expect(decodedInflight.id).toBe('w-cancelled-1');
-    expect(decodedInflight.type).toBe('contract_cancelled');
-    expect(decodedInflight.metadata?.contract_id).toBe(contractId);
-
-    // 留证：终态过滤恰一条，且指向该契约
-    const terminalRows = events.filter(e => e[0] === RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL);
-    expect(terminalRows).toHaveLength(1);
-    const rowText = terminalRows[0].map(String).join(' ');
-    expect(rowText).toContain(`contract=${contractId}`);
-    expect(rowText).toContain('state=cancelled');
-    expect(rowText).toContain('reason=contract_terminal');
-  });
-
-  it('活动契约：工作指令照常交付（过滤边界不误伤）', async () => {
-    const system = makeSystem();
-    const contractId = await system.create({ contract: makeContractYaml({ title: 'Active contract' }) });
-
-    const fact = await readContractTerminalFact(fsImpl, makeContractId(contractId));
-    expect(fact.kind).toBe('unconfirmed');
-
-    await writeInboxAsync(fsImpl, pendingDir, {
-      id: 'w-created-2',
-      type: 'contract_created',
-      from: 'system',
-      to: '',
-      priority: 'high',
-      content: `合同「Active contract」已创建（id: ${contractId}），请开始执行。`,
-      timestamp: new Date().toISOString(),
-      metadata: { contract_id: contractId },
-    }, audit);
-
-    const runtime = makeRuntime();
-    const prepared = await runtime.testPrepareInbox();
-
-    expect(prepared.entries.map(e => e.message.id)).toEqual(['w-created-2']);
-    expect(fs.readdirSync(doneDir).filter(f => f.endsWith('.md'))).toHaveLength(0);
-    expect(events.filter(e => e[0] === RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(0);
-  });
+    const after = makeFactQuery();
+    const afterPrepared = await makePreparer(after.sink, after.factQuery).prepareInbox();
+    expect(afterPrepared.entries.map(m => m.message.id)).not.toContain('w-late-resume');
+    expect(pendingNames()).not.toContain('w-late-resume.md');
+  }, 30_000);
 });
