@@ -13,7 +13,7 @@
  * - `PiAiCredentialBackend.modify` 是完整跨进程 RMW 事务（由装配根以
  *   Credentials owner 的锁内 modify 实现）——read→refresh/login 决策→写/删
  *   全部在 owner 锁内，迟到 writer 不可能覆盖另一进程的提交；
- * - CredentialStore 实例由装配根（Assembly/CLI）创建并经实例依赖注入
+ * - CredentialStore 实例由 L4 LLMConfiguration 固定绑定并经实例依赖注入
  *   （createPiAiEndpoint options / Models 构造），backend 在 store 生命周期内
  *   固定，不因另一次 config load 改变。
  *

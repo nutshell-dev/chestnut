@@ -16,7 +16,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
-import { createLocalCredentials } from '../../src/foundation/credentials/index.js';
+import { createLocalCredentials } from '../../src/core/llm-configuration/index.js';
 import { setupApiKeyPrompt } from '../../src/templates/messages/index.js';
 import {
   storeKeyAsCredential,

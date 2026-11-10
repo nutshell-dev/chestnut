@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import type { ClawGlobalConfig } from '../../assembly/index.js';
-import { createUserPiAiCredentialStore } from '../../assembly/index.js';
+import { createLegacyAuthenticationStore } from '../../core/llm-configuration/index.js';
 import {
   PRESETS,
   presetAuthProfile,
@@ -393,7 +393,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         { label, ...(apiKey !== undefined && { apiKey }), model },
         {
           resolveKey: (ref) => resolveCredentialReference(deps, ref),
-          credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+          credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
         },
       );
       const outcome = await probeSetupCandidates(probeCandidates, async (candidate: SetupProbeCandidate) => {
@@ -425,7 +425,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         providerConfigRuntime.apiKey = resolvedKey;
       }
       const probe = await checkLLMConnectionFor(providerConfigRuntime, {
-        credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+        credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
       });
       if (!probe.ok) {
         formatLLMError({
@@ -691,7 +691,7 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
   await runProviderLogin({
     piAiProvider,
     type,
-    credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+    credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_login', `label=${label}`, `type=${type}`);
   notifyRunningDaemons(deps, 'login');
@@ -711,7 +711,7 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
   }
   await runProviderLogout({
     piAiProvider,
-    credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+    credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_logout', `label=${label}`);
   notifyRunningDaemons(deps, 'logout');

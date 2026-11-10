@@ -1,6 +1,6 @@
 /**
- * @module L2a.Credentials
- * @layer L2 基础层
+ * @module L4.LLMConfiguration.LegacyCredentials
+ * @layer L4 业务层
  *
  * 本地 Credentials owner 实现（Phase 1925 Step B）。
  *
@@ -20,8 +20,8 @@
 
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import type { FileSystem } from '../fs/index.js';
-import { withYamlConfigLock, withYamlConfigLockAsync } from '../config-store/index.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
+import { withYamlConfigLock, withYamlConfigLockAsync } from '../../../foundation/config-store/index.js';
 import type {
   CredentialInfo,
   CredentialsOwner,

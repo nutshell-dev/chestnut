@@ -1,5 +1,5 @@
 /**
- * @module L2a.Credentials
+ * @module L4.LLMConfiguration.LegacyCredentials
  *
  * Credentials 路径原语（Phase 1925 Step B）。
  *

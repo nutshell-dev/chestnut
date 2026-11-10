@@ -1,5 +1,5 @@
 /**
- * @module L2a.Credentials
+ * @module L4.LLMConfiguration.LegacyCredentials
  *
  * 极简 `.env` 解析（Phase 1925 Step B）。
  *

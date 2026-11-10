@@ -8,7 +8,8 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import { snapshotLLMConfig, createUserPiAiCredentialStore, type RootConfigAdmin } from '../assembly/index.js';
+import { snapshotLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
+import { createLegacyAuthenticationStore } from '../core/llm-configuration/index.js';
 import type { LLMConfigSnapshot } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
@@ -175,7 +176,7 @@ export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
   { ok: true; model: string; identity: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string; identity: string }
 > {
   // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
-  const credentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
+  const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
   return probeLLMConnection(snapshotLLMConfig(deps.rootConfig.loadGlobal()), { credentials });
 }
 
@@ -343,7 +344,7 @@ export async function promptReconfigure(
     console.log('Testing connection...');
     const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
     // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
-    const credentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
+    const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
     const result = await probeLLMConnection(snapshot, { credentials });
     if (result.ok) {
       console.log('✓ Connection successful!');

@@ -1,6 +1,6 @@
 /**
- * @module L2a.Credentials
- * @layer L2 基础层
+ * @module L4.LLMConfiguration.LegacyCredentials
+ * @layer L4 业务层
  *
  * 用户级 Credentials owner 类型契约（Phase 1925 Step B）。
  *

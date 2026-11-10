@@ -17,9 +17,9 @@ import type { RootConfigAdmin } from '../assembly/index.js';
 import {
   GlobalConfigAlreadyExistsError,
   snapshotLLMConfigInput,
-  createUserPiAiCredentialStore,
   type LLMConfigSnapshot,
 } from '../assembly/index.js';
+import { createLegacyAuthenticationStore, createLocalCredentials } from '../core/llm-configuration/index.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,
@@ -31,7 +31,6 @@ import { PRESETS, isCatalogProvider } from '../foundation/llm-provider/index.js'
 import { FORMAT_MAP } from './provider-format-map.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/index.js';
 import { HEARTBEAT_DEFAULT_INTERVAL_MS } from '../core/heartbeat/index.js';
-import { createLocalCredentials } from '../foundation/credentials/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
@@ -238,7 +237,7 @@ async function probeDraft(
   );
   const t0 = Date.now();
   const probe = await probeLLMConnection(snapshot, {
-    credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+    credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
   const latencyMs = Date.now() - t0;
 
@@ -500,7 +499,7 @@ async function selectSetupEndpoint(
     { label: draft.choice.label, ...(draft.apiKey !== undefined && { apiKey: draft.apiKey }), model: draft.model },
     {
       resolveKey: (ref) => resolveCredentialReference(deps, ref),
-      credentials: createUserPiAiCredentialStore({ fsFactory: deps.fsFactory }),
+      credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
     },
   );
 

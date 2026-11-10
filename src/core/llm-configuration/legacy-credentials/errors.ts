@@ -1,5 +1,5 @@
 /**
- * @module L2a.Credentials
+ * @module L4.LLMConfiguration.LegacyCredentials
  *
  * Credentials typed failure protocol（Phase 1925 Step B）。
  *

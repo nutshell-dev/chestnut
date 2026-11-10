@@ -11,7 +11,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import {
   createLocalCredentials,
   isCredentialsError,
-} from '../foundation/credentials/index.js';
+} from '../core/llm-configuration/index.js';
 import { CliError } from './errors.js';
 
 /** `${VAR}` 字面引用判定（整串恰为一个引用）。 */

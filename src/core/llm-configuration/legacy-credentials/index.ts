@@ -1,5 +1,5 @@
 /**
- * @module L2a.Credentials
+ * @module L4.LLMConfiguration.LegacyCredentials
  *
  * Credentials public barrel（Phase 1925 Step B）。
  * 跨模块 import 必经本 barrel，禁止 deep-import ./local.js / ./errors.js 等。

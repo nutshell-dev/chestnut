@@ -27,7 +27,7 @@ import {
 } from '../../foundation/config-store/index.js';
 import { getGlobalConfigPath } from './global-config-path.js';
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { createLocalCredentials, isCredentialsError } from '../../foundation/credentials/index.js';
+import { createLocalCredentials, isCredentialsError } from '../../core/llm-configuration/index.js';
 import {
   loadWorkspaceAuditConfig,
   initWorkspaceAuditConfig,
@@ -41,11 +41,6 @@ import {
 import { toProviderConfig } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ProviderConfig } from '../../foundation/llm-provider/index.js';
-import {
-  createPiAiCredentialStore,
-  type PiAiCredentialBackend,
-  type PiAiCredentialStore,
-} from '../../foundation/llm-provider/index.js';
 import { sha256Hex } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
@@ -69,23 +64,6 @@ function makeEnvVarResolver(deps: { fsFactory: (baseDir: string) => FileSystem }
       throw err;
     }
   };
-}
-
-/**
- * Phase 1927 Step E：pi-ai stored credential（OAuth login/refresh、stored api key）
- * 的固定 CredentialStore 工厂。装配根（daemon Assembly / CLI probe/login 链）调用
- * 一次并把实例注入 orchestrator/Models——backend 在 store 生命周期内不漂移
- * （取代 Phase 1926 Step D 的 loadGlobalConfig 全局注册副作用）。
- * modify 是唯一写路径：Credentials owner 的跨进程锁内 RMW 事务；secret 只经
- * owner 链路（~/.chestnut/credentials.yaml，0600），不进 YAML/audit/log。
- */
-export function createUserPiAiCredentialStore(deps: { fsFactory: (baseDir: string) => FileSystem }): PiAiCredentialStore {
-  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
-  const backend: PiAiCredentialBackend = {
-    read: (ref) => Promise.resolve(credentials.resolve(ref)?.value),
-    modify: (ref, fn) => credentials.modify(ref, fn),
-  };
-  return createPiAiCredentialStore(backend);
 }
 
 /**

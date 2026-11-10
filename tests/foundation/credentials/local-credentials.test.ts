@@ -15,7 +15,7 @@ import {
   isCredentialsError,
   isCredentialRefName,
   CredentialsError,
-} from '../../../src/foundation/credentials/index.js';
+} from '../../../src/core/llm-configuration/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTrackedTempDirSync } from '../../utils/temp.js';
 

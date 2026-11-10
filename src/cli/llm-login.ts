@@ -5,7 +5,7 @@
  * manual_code 与 api_key 交互流）；凭证由 pi-ai 自动经 CredentialStore 持久化——
  * 本仓桥接到用户级 Credentials owner（见 pi-ai-credentials.ts），secret 不进
  * YAML/audit/log。Phase 1927 Step E：CredentialStore 由调用方显式注入（装配根
- * 经 createUserPiAiCredentialStore 固定创建），本模块不持任何全局状态。
+ * 经 createLegacyAuthenticationStore 固定创建），本模块不持任何全局状态。
  *
  * 本模块独立成缝：`config provider login/logout` 与 init OAuth 引导共用；
  * 测试 mock 本模块即可覆盖 CLI 编排（不 mock pi-ai 本身）。

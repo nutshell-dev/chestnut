@@ -28,7 +28,8 @@ import {
   deriveCatalogAuthProfile,
 } from '../foundation/llm-provider/index.js';
 import type { RootConfigAdmin } from '../assembly/index.js';
-import { snapshotLLMConfig, createUserPiAiCredentialStore, type LLMConfigSnapshot } from '../assembly/index.js';
+import { snapshotLLMConfig, type LLMConfigSnapshot } from '../assembly/index.js';
+import { createLegacyAuthenticationStore } from '../core/llm-configuration/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { CliError } from './errors.js';
@@ -221,7 +222,7 @@ async function probeUntilStable(
 ): Promise<{ verified: VerifiedLLMConfig } | { failure: ProbeFailure }> {
   let current = snapshot;
   // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore（整轮重验共用同一实例）
-  const credentials = createUserPiAiCredentialStore({ fsFactory: deps.fsFactory });
+  const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
   for (let attempt = 0; attempt < MAX_SNAPSHOT_DRIFT_ATTEMPTS; attempt++) {
     audit?.write(CLI_AUDIT_EVENTS.START_PROBE_ATTEMPTED);
     const probe = await probeLLMConnection(current, { credentials });

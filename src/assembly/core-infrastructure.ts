@@ -12,7 +12,8 @@ import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { createLLMOrchestrator, type LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
-import { resolveLLMConfig, createUserPiAiCredentialStore } from './config/config-load.js';
+import { resolveLLMConfig } from './config/config-load.js';
+import { createLegacyAuthenticationStore } from '../core/llm-configuration/index.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
@@ -245,7 +246,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       const llmEvents = createLLMEventSink(auditWriter, streamWriter);
       // Phase 1927 Step E：pi-ai CredentialStore 装配期固定创建一次注入——backend
       // 在 orchestrator 生命周期内不漂移（取代 loadGlobalConfig 的全局注册副作用）。
-      const credentialStore = createUserPiAiCredentialStore({ fsFactory });
+      const credentialStore = createLegacyAuthenticationStore({ fsFactory });
       llm = createLLMOrchestrator({
         ...llmConfig,
         primary: { ...llmConfig.primary, auditLog },

@@ -2,7 +2,7 @@
  * Phase 1925 Step B: .env 极简解析边界测试。
  */
 import { describe, it, expect } from 'vitest';
-import { parseDotEnv } from '../../../src/foundation/credentials/index.js';
+import { parseDotEnv } from '../../../src/core/llm-configuration/index.js';
 
 describe('parseDotEnv', () => {
   it('解析 KEY=VALUE、忽略注释与空行、剥引号、忽略 export 前缀', () => {

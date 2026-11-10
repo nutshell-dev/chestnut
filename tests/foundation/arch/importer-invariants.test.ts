@@ -6,16 +6,16 @@ import * as path from 'node:path';
  * phase 498: ratchet test for node:os direct importers.
  *
  * Expected: tmpdir用法仅 foundation/audit/{writer,reader}.ts (fallback dump path)；
- * Phase 1925 Step B 起 foundation/credentials/paths.ts 经 os.homedir() 定位用户级
- * 凭据根目录（~/.chestnut，非 tmpdir 用法）；Phase 2073 Step B 起宿主主目录
+ * Phase 2097 Step B 起 core/llm-configuration/legacy-credentials/paths.ts 经
+ * os.homedir() 定位用户级凭据根目录（~/.chestnut，非 tmpdir 用法）；Phase 2073 Step B 起宿主主目录
  * 查询归 foundation/fs/host-home.ts。Phase 2071 Step B 仅允许
  * process-exec/process-reference.ts 读取进程时间来源的 hostname。
  */
 describe('os importer ratchet (phase 498)', () => {
   const expected = [
+    'core/llm-configuration/legacy-credentials/paths.ts',
     'foundation/audit/reader.ts',
     'foundation/audit/writer.ts',
-    'foundation/credentials/paths.ts',
     'foundation/fs/host-home.ts',
     'foundation/process-exec/process-reference.ts',
   ];

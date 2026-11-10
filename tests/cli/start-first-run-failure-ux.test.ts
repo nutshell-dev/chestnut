@@ -19,7 +19,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createRootConfig, snapshotLLMConfig } from '../../src/assembly/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import { START_GATE_EXIT_CODE } from '../../src/cli/start-llm-gate.js';
-import { createLocalCredentials } from '../../src/foundation/credentials/index.js';
+import { createLocalCredentials } from '../../src/core/llm-configuration/index.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
