@@ -9,6 +9,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { clearCliCredentialEnv } from '../helpers/cli-credential-env.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
@@ -73,6 +74,7 @@ const { loadGlobalConfig } = await import('../../src/assembly/config/config-load
 let tempDir: string;
 
 function setupTempDir() {
+  clearCliCredentialEnv();
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tempDir = path.join(tmpdir(), `chestnut-init-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
@@ -85,25 +87,33 @@ function teardownTempDir() {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
-const knownVars = [
-  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY',
-  'MOONSHOT_API_KEY', 'KIMI_API_KEY', 'MINIMAX_API_KEY', 'GEMINI_API_KEY',
-  'OLLAMA_API_KEY', 'XAI_API_KEY', 'OPENROUTER_API_KEY', 'ZAI_API_KEY',
-  'DASHSCOPE_API_KEY',
-];
-
-function clearKnownVars(): void {
-  knownVars.forEach(v => vi.stubEnv(v, undefined as unknown as string));
-}
-
 function resetAnswers(next: string[]) {
   rlAnswers.queue = next;
   mockRl.question.mockClear();
   mockRl.close.mockClear();
 }
 
+describe('clearCliCredentialEnv', () => {
+  it('清理动态派生名，并在 unstubAllEnvs 后恢复外层值', () => {
+    const syntheticRef = 'CHESTNUT_PHASE2075_HELPER_API_KEY';
+    const hadOriginal = Object.prototype.hasOwnProperty.call(process.env, syntheticRef);
+    const originalValue = process.env[syntheticRef];
+    try {
+      process.env[syntheticRef] = 'phase2075-synthetic-outer';
+      clearCliCredentialEnv();
+      expect(process.env[syntheticRef]).toBeUndefined();
+      vi.unstubAllEnvs();
+      expect(process.env[syntheticRef]).toBe('phase2075-synthetic-outer');
+    } finally {
+      vi.unstubAllEnvs();
+      if (hadOriginal) process.env[syntheticRef] = originalValue as string;
+      else delete process.env[syntheticRef];
+    }
+  });
+});
+
 describe('initCommand — 默认配置', () => {
-  beforeEach(() => { setupTempDir(); clearKnownVars(); });
+  beforeEach(setupTempDir);
   afterEach(teardownTempDir);
 
   it('生成配置包含默认 circuit_breaker 段', async () => {
@@ -122,7 +132,7 @@ describe('initCommand — 默认配置', () => {
 });
 
 describe('initCommand — 服务目录与凭据', () => {
-  beforeEach(() => { setupTempDir(); clearKnownVars(); });
+  beforeEach(setupTempDir);
   afterEach(teardownTempDir);
 
   it('Anthropic：环境变量已设置时按 Enter 使用 ${ANTHROPIC_API_KEY}', async () => {

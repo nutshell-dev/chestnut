@@ -9,6 +9,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { clearCliCredentialEnv } from '../helpers/cli-credential-env.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const configDeps = {
@@ -101,6 +102,7 @@ function questionPrompts(): string[] {
 }
 
 function setupTempDir() {
+  clearCliCredentialEnv();
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tempDir = path.join(tmpdir(), `chestnut-config-add-probe-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
@@ -421,12 +423,9 @@ describe('config provider add — 多端点候选 probe（Phase 1973）', () => 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledTimes(3);
-    // 每个候选 probe 使用用户 key（解析后非空）/model + 候选 baseUrl。
-    // 注意：本机进程环境可能已设 KIMI_API_KEY（分层解析 env 优先），
-    // 故不断言具体 key 值，只断言解析成功且 model 为用户输入。
+    // 每个候选 probe 使用用户 key/model + 候选 baseUrl。
     for (const call of connMock.checkLLMConnectionFor.mock.calls) {
-      expect(typeof call[0].apiKey).toBe('string');
-      expect(call[0].apiKey.length).toBeGreaterThan(0);
+      expect(call[0].apiKey).toBe('sk-kimi-key');
       expect(call[0].model).toBe('k3-256k');
     }
     expect(connMock.checkLLMConnectionFor.mock.calls.map(c => c[0].baseUrl)).toEqual([
