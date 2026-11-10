@@ -1,26 +1,14 @@
-/**
- * Phase 1800: LLM message wire/canonical 分层（Message 元数据耦合治理）。
- *
- * - llm-provider 不再声明含上层元数据的 Message；wire 类型 ProviderWireMessage 仅 role+content。
- * - canonical Message 归 DialogStore（origin/systemSubtype/addedAt/trimmed 唯一声明点）。
- * - Phase 2076：运行时 ratchet 直接验证生产 pi-ai-wire.buildPiAiContext，
- *   覆盖 canonical 元数据剥离、合法内容保留、thinking 策略与输入不可变性。
- */
+/** Phase 1800/2076: wire/canonical 分层及生产 buildPiAiContext 投影 ratchet。 */
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 import { buildPiAiContext } from '../../../src/foundation/llm-provider/pi-ai-wire.js';
-import {
-  loadPiAiRuntime,
-  resolvePiAiModel,
-} from '../../../src/foundation/llm-provider/pi-ai-support.js';
+import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 
-const TYPES_SRC = readFileSync(
-  new URL('../../../src/foundation/llm-provider/types.ts', import.meta.url), 'utf8');
-const CANONICAL_SRC = readFileSync(
-  new URL('../../../src/foundation/dialog-store/canonical-message.ts', import.meta.url), 'utf8');
+const TYPES_SRC = readFileSync(new URL('../../../src/foundation/llm-provider/types.ts', import.meta.url), 'utf8');
+const CANONICAL_SRC = readFileSync(new URL('../../../src/foundation/dialog-store/canonical-message.ts', import.meta.url), 'utf8');
 
 const METADATA_KEYS = ['origin', 'systemSubtype', 'addedAt', 'trimmed'];
 const TOOL_INPUT = {
@@ -38,8 +26,7 @@ function projectionConfig(): ProviderConfig {
     model: 'test-model',
     baseUrl: 'https://api.test.invalid/v1',
     apiKey: 'synthetic-key',
-    temperature: 0,
-    timeoutMs: 60_000,
+    temperature: 0, timeoutMs: 60_000,
   };
 }
 
@@ -49,10 +36,7 @@ function withMetadata(message: Message, marker: string): Message {
     origin: 'system',
     systemSubtype: `PHASE2076_META_SUBTYPE_${marker}`,
     addedAt: `PHASE2076_META_ADDED_${marker}`,
-    trimmed: {
-      trimmedAt: `PHASE2076_META_TRIMMED_${marker}`,
-      originalContentBytes: 1,
-    },
+    trimmed: { trimmedAt: `PHASE2076_META_TRIMMED_${marker}`, originalContentBytes: 1 },
   };
 }
 
@@ -60,9 +44,7 @@ function projectionMessages(): Message[] {
   return [
     withMetadata({ role: 'system', content: 'SYSTEM_TEXT' }, 'system'),
     withMetadata({ role: 'user', content: 'USER_STRING' }, 'user-string'),
-    withMetadata({
-      role: 'user', content: [{ type: 'text', text: 'USER_BLOCK' }],
-    }, 'user-block'),
+    withMetadata({ role: 'user', content: [{ type: 'text', text: 'USER_BLOCK' }] }, 'user-block'),
     withMetadata({
       role: 'assistant',
       content: [
@@ -92,17 +74,13 @@ describe('llm message projection (phase 1800)', () => {
     const m = TYPES_SRC.match(/export\s+interface\s+ProviderWireMessage\s*\{([\s\S]*?)\n\}/);
     expect(m).not.toBeNull();
     const body = m![1].replace(/\/\/[^\n]*/g, '');
-    for (const meta of ['origin', 'systemSubtype', 'addedAt', 'trimmed']) {
-      expect(body).not.toContain(meta);
-    }
+    for (const meta of ['origin', 'systemSubtype', 'addedAt', 'trimmed']) expect(body).not.toContain(meta);
   });
 
   it('canonical Message 唯一声明点 = dialog-store/canonical-message.ts（4 元数据字段）', () => {
     const m = CANONICAL_SRC.match(/export\s+interface\s+Message\s+extends\s+ProviderWireMessage\s*\{([\s\S]*?)\n\}/);
     expect(m).not.toBeNull();
-    for (const meta of ['origin?:', 'systemSubtype?:', 'addedAt?:', 'trimmed?:']) {
-      expect(m![1]).toContain(meta);
-    }
+    for (const meta of ['origin?:', 'systemSubtype?:', 'addedAt?:', 'trimmed?:']) expect(m![1]).toContain(meta);
   });
 
   it('生产 buildPiAiContext 剥离顶层元数据并保留完整角色内容与工具业务键', async () => {
@@ -121,9 +99,7 @@ describe('llm message projection (phase 1800)', () => {
     }
     expect(JSON.stringify(context)).not.toContain('PHASE2076_META_');
     expect(context.messages[0]).toMatchObject({ role: 'user', content: 'USER_STRING' });
-    expect(context.messages[1]).toMatchObject({
-      role: 'user', content: [{ type: 'text', text: 'USER_BLOCK' }],
-    });
+    expect(context.messages[1]).toMatchObject({ role: 'user', content: [{ type: 'text', text: 'USER_BLOCK' }] });
     expect(context.messages[2]).toMatchObject({
       role: 'assistant',
       api: 'openai-completions',
@@ -137,9 +113,7 @@ describe('llm message projection (phase 1800)', () => {
       { type: 'thinking', thinking: 'THINKING_TEXT', thinkingSignature: 'thinking-signature' },
       { type: 'toolCall', id: 'call_projection', name: 'projection_tool', arguments: TOOL_INPUT },
     ]);
-    expect(context.messages[3]).toMatchObject({
-      role: 'user', content: [{ type: 'text', text: 'MIXED_USER_TEXT' }],
-    });
+    expect(context.messages[3]).toMatchObject({ role: 'user', content: [{ type: 'text', text: 'MIXED_USER_TEXT' }] });
     expect(context.messages[4]).toMatchObject({
       role: 'toolResult',
       toolCallId: 'call_projection',
