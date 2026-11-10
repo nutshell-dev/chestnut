@@ -54,8 +54,9 @@ export function assertMotionCliAccessAllowed(command: Command): void {
 function commandTargetsMotion(command: Command): boolean {
   const path = commandPath(command);
 
-  // 顶层 motion 家族
-  if (path[0] === MOTION_CLAW_ID) return true;
+  // Both families read or affect motion without an explicit --claw option.
+  // Launcher setup also changes the global configuration used by motion.
+  if (path[0] === MOTION_CLAW_ID || path[0] === 'launcher') return true;
   // 顶层 stop / start
   if (path.length === 1 && (path[0] === 'stop' || path[0] === 'start')) return true;
 

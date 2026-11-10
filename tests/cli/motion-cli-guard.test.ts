@@ -37,6 +37,11 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
   program.enablePositionalOptions();
   registerMotionCliGuard(program);
 
+  const launcher = program.command('launcher');
+  for (const verb of ['setup', 'status', 'start', 'send', 'stream']) {
+    launcher.command(verb).option('--json').action(actionSpy);
+  }
+
   const motion = program.command('motion');
   motion.command('inbox').action(actionSpy);
 
@@ -161,6 +166,30 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
     const result = await runCli(argv, undefined);
     expect(result.exitCode).toBeUndefined();
     expect(result.actionCalls).toBe(1);
+  });
+
+  describe('Launcher targets motion without an explicit --claw option', () => {
+    const verbs = ['setup', 'status', 'start', 'send', 'stream'];
+    it.each(verbs.flatMap(verb => ['alice', 'task-123', ''].map(caller => ({ verb, caller }))))(
+      'rejects $caller before launcher $verb action', async ({ verb, caller }) => {
+        expect(await runCli(['launcher', verb, '--json'], caller)).toEqual({ actionCalls: 0, exitCode: 1 });
+      },
+    );
+    it.each(verbs.flatMap(verb => [undefined, 'motion'].map(caller => ({ verb, caller }))))(
+      'allows $caller to invoke launcher $verb', async ({ verb, caller }) => {
+        expect(await runCli(['launcher', verb, '--json'], caller)).toEqual({ actionCalls: 1, exitCode: undefined });
+      },
+    );
+    it.each(verbs)('allows help for launcher %s without executing its action', async (verb) => {
+      const action = vi.fn();
+      const program = buildProgram(action);
+      program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+      vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
+      captureCliCallerIdentity();
+      await expect(program.parseAsync(['node', 'chestnut', 'launcher', verb, '--help']))
+        .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
+      expect(action).not.toHaveBeenCalled();
+    });
   });
 
   // ── wiring source-scan：CLI 唯一入口必须 capture + 注册钩子 ────────────────
