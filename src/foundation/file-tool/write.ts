@@ -85,9 +85,13 @@ export const writeTool: Tool = {
     const guarded = await checker.prepareWrite(resolved);
 
     // overwrite gate — phase 1430 hash + mtime + isFullRead, granular reason since phase 1457 followup
+    // phase 2093 Step B: 记录「覆盖前是否已存在」——用于区分备份结果 absent 的两种语义
+    // （确定新建 vs 已确认存在但备份前消失）。
+    let targetExistedBeforeBackup = false;
     if (!append) {
       const exists = await ctx.fs.exists(resolved);
       throwIfFileToolAborted(ctx.signal);
+      targetExistedBeforeBackup = exists;
       if (exists) {
         const gate = await enforceFullReadGate(ctx, resolved, filePath);
         throwIfFileToolAborted(ctx.signal);
@@ -109,8 +113,30 @@ export const writeTool: Tool = {
     try {
       let backupPath: string | null = null;
       if (!append) {
-        backupPath = await backupToSync(ctx, resolved, 'file_backup');
+        const backup = await backupToSync(ctx, resolved, 'file_backup');
         throwIfFileToolAborted(ctx.signal);
+        if (backup.kind === 'failed') {
+          // phase 2093 Step B: 明确备份失败 → fail-closed，不进 guarded.write、
+          // 不动 readFileState、不谎报成功（BACKUP_FAILED 已由 helper 审计）。
+          return {
+            success: false,
+            content: `Error: Write to '${filePath}' refused because the pre-write backup failed (${backup.error}). This tool did not modify the original file.`,
+          };
+        }
+        if (backup.kind === 'absent' && targetExistedBeforeBackup) {
+          // 已确认存在却拿不到备份 → 目标在备份前消失；未获得可用备份，不重建覆盖。
+          ctx.auditWriter?.write(
+            FILE_TOOL_AUDIT_EVENTS.BACKUP_FAILED,
+            `source=file_backup`,
+            `path=${resolved}`,
+            `reason=target_disappeared`,
+          );
+          return {
+            success: false,
+            content: `Error: Write to '${filePath}' refused because the target disappeared before the backup could be created. Re-read the file and retry.`,
+          };
+        }
+        backupPath = backup.kind === 'created' ? backup.path : null;
       }
 
       throwIfFileToolAborted(ctx.signal);

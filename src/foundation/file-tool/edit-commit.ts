@@ -97,9 +97,10 @@ export async function editCommit(
     } as EditCommitResult;
   }
 
-  // 3. Fail-closed backup.
-  const backupPath = await backupToSync(ctx, resolved, backupSource);
-  if (!backupPath) {
+  // 3. Fail-closed backup — phase 2093 Step B: 只有 created 才进入提交；
+  // absent（复用前置读取已确认存在却消失）与 failed 一律沿原 backup-failed 返回。
+  const backup = await backupToSync(ctx, resolved, backupSource);
+  if (backup.kind !== 'created') {
     const reason = `backup failed for ${tool} on ${resolved}`;
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.FILE_EDIT_BACKUP_FAILED,
@@ -114,6 +115,7 @@ export async function editCommit(
       content: `Error: Edit failed because the backup could not be created for '${path}'. The original file was not modified.`,
     } as EditCommitResult;
   }
+  const backupPath = backup.path;
 
   // 4. Atomic write — phase 1817: 经 GuardedWrite 绑定 canonical target，不用裸 path
   await guardedWrite.write(candidate);
