@@ -12,6 +12,7 @@ export interface LegacyReleaseInput {
   providerIds: readonly string[];
   configurationChanged: boolean;
   hasFreshIntervention: boolean;
+  entryScheduleKind: LLMRecoverySchedule['kind'];
 }
 
 export interface LegacyReleaseResult {
@@ -50,7 +51,6 @@ export function applyLegacyRecoveryRelease(
 
   if (input.configurationChanged) {
     const currentIds = new Set(input.providerIds);
-    const entrySchedule = deriveLegacyRecoverySchedule({ providers: next }, 0, input.providerIds);
     let released = false;
     next = next.flatMap(fact => {
       const providerChanged = fact.identityMigrationPending === true || !currentIds.has(fact.providerId);
@@ -66,7 +66,7 @@ export function applyLegacyRecoveryRelease(
     const stillBlocked = next.some(fact =>
       fact.blocking && (fact.errorClass === 'permanent' || fact.rateLimitBlocked === true),
     );
-    if (released && entrySchedule.kind === 'on_change' && !stillBlocked) {
+    if (released && input.entryScheduleKind === 'on_change' && !stillBlocked) {
       next = next.map(fact => ({ ...fact, blocking: false, retryAt: undefined }));
     }
   } else {

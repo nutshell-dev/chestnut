@@ -304,6 +304,7 @@ export class LLMRecoveryControllerImpl implements RecoveryLedger {
       providerIds: this.providerIds,
       configurationChanged,
       hasFreshIntervention: freshIds.length > 0,
+      entryScheduleKind: entrySchedule.kind,
     });
     next.providers = legacyRelease.providers;
     if (legacyRelease.changed) stateChanged = true;

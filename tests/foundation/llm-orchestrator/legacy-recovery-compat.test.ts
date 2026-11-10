@@ -48,7 +48,10 @@ describe('legacy recovery release adapter', () => {
         rateLimitFailures: 10,
       }),
     ];
-    const input = { providerIds: ['current'], configurationChanged: true, hasFreshIntervention: false };
+    const input = {
+      providerIds: ['current'], configurationChanged: true, hasFreshIntervention: false,
+      entryScheduleKind: 'on_change' as const,
+    };
     const released = applyLegacyRecoveryRelease(providers, input);
 
     expect(released.changed).toBe(true);
@@ -65,6 +68,62 @@ describe('legacy recovery release adapter', () => {
     expect(replay.changed).toBe(false);
   });
 
+  it.each(['ready', 'at'] as const)(
+    'does not release remaining facts from the legacy schedule when current entry is %s',
+    entryScheduleKind => {
+      const retryAt = '2026-11-10T00:05:00.000Z';
+      const providers = [
+        fact('retired', { errorClass: 'permanent' }),
+        fact('current', { retryAt }),
+      ];
+      const before = structuredClone(providers);
+
+      const result = applyLegacyRecoveryRelease(providers, {
+        providerIds: ['current'], configurationChanged: true, hasFreshIntervention: false,
+        entryScheduleKind,
+      });
+
+      expect(result.providers).toEqual([expect.objectContaining({
+        providerId: 'current', blocking: true, retryAt,
+      })]);
+      expect(providers).toEqual(before);
+    },
+  );
+
+  it('uses a current on_change entry to clear remaining blocking and retryAt after release', () => {
+    const result = applyLegacyRecoveryRelease([
+      fact('retired', { errorClass: 'permanent', retryAt: '2026-11-10T00:01:00.000Z' }),
+      fact('current', { retryAt: '2026-11-10T00:05:00.000Z' }),
+    ], {
+      providerIds: ['current'], configurationChanged: true, hasFreshIntervention: false,
+      entryScheduleKind: 'on_change',
+    });
+
+    expect(result.providers).toEqual([expect.objectContaining({
+      providerId: 'current', blocking: false, retryAt: undefined,
+    })]);
+  });
+
+  it('does not release all facts without a release or while a permanent fact remains', () => {
+    const unchanged = applyLegacyRecoveryRelease([fact('current')], {
+      providerIds: ['current'], configurationChanged: true, hasFreshIntervention: false,
+      entryScheduleKind: 'on_change',
+    });
+    expect(unchanged.providers[0]).toMatchObject({ blocking: true });
+
+    const stillBlocked = applyLegacyRecoveryRelease([
+      fact('retired', { errorClass: 'permanent' }),
+      fact('current', { errorClass: 'permanent', retryAt: '2026-11-10T00:05:00.000Z' }),
+    ], {
+      providerIds: ['current'], configurationChanged: true, hasFreshIntervention: false,
+      entryScheduleKind: 'on_change',
+    });
+    expect(stillBlocked.providers).toEqual([expect.objectContaining({
+      providerId: 'current', errorClass: 'permanent',
+      blocking: true, retryAt: '2026-11-10T00:05:00.000Z',
+    })]);
+  });
+
   it('releases legacy rate-limit blocks only for a fresh intervention', () => {
     const providers = [fact('current', {
       rateLimitBlocked: true,
@@ -73,12 +132,14 @@ describe('legacy recovery release adapter', () => {
     })];
     const unchanged = applyLegacyRecoveryRelease(providers, {
       providerIds: ['current'], configurationChanged: false, hasFreshIntervention: false,
+      entryScheduleKind: 'ready',
     });
     expect(unchanged.providers).toEqual(providers);
     expect(unchanged.changed).toBe(false);
 
     const released = applyLegacyRecoveryRelease(providers, {
       providerIds: ['current'], configurationChanged: false, hasFreshIntervention: true,
+      entryScheduleKind: 'ready',
     });
     expect(released.providers[0]).toMatchObject({ rateLimitFailures: 0, blocking: true });
     expect(released.providers[0]).not.toHaveProperty('rateLimitBlocked');

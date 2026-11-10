@@ -117,6 +117,41 @@ describe('RecoveryLedger construction and admission', () => {
     expect(f.read().recovery.invocations[0]?.resumedFromRestart).toBeUndefined();
     expect(f.events.at(-1)).toMatchObject({ type: 'recovery_attempt_admitted', trigger: 'resumed' });
   });
+  it('passes the current entry schedule to legacy release and persists the unchanged blocking fact', async () => {
+    const initial = createEmptyLLMInstanceState('instance-a');
+    initial.providers = [{ providerId: 'current', status: 'available' }];
+    initial.recovery.providers = [
+      {
+        providerId: 'retired', errorClass: 'permanent', at: '1970-01-01T00:00:01.000Z',
+        consecutiveFailures: 3, detail: 'retired', blocking: true,
+      },
+      {
+        providerId: 'current', errorClass: 'transient', at: '1970-01-01T00:00:02.000Z',
+        consecutiveFailures: 2, detail: 'current failure', blocking: true,
+      },
+    ];
+    const before = structuredClone(initial);
+    const f = fixture(initial);
+
+    const admission = await f.controller.begin({
+      requestKey: 'request-current-entry',
+      facts: { interventionIds: [], configurationRevision: 'config-current-entry' },
+    });
+
+    expect(admission.kind).toBe('admitted');
+    if (admission.kind !== 'admitted') return;
+    expect(f.read().revision).toBe(1);
+    expect(f.read().providers).toEqual(before.providers);
+    expect(f.read().recovery.providers).toEqual([expect.objectContaining({
+      providerId: 'current', errorClass: 'transient', blocking: true,
+    })]);
+    expect(f.read().recovery.acceptedConfigRevisions).toEqual(['config-current-entry']);
+    expect(f.read().recovery.acceptedFactBatches).toEqual([{
+      revision: 1, interventionIds: [], configurationRevision: 'config-current-entry',
+      attemptId: admission.attemptId, invocationId: admission.invocationId,
+    }]);
+    expect(f.contexts).toEqual(['begin']);
+  });
 });
 
 describe('RecoveryLedger failure evidence', () => {
