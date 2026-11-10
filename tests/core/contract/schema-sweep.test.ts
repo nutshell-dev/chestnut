@@ -60,6 +60,7 @@ describe('getProgress schema check', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await manager.create(makeContractYaml({
@@ -94,6 +95,7 @@ describe('getProgress schema check', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await manager.create({

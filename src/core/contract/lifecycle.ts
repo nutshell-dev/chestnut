@@ -134,11 +134,6 @@ export async function cancelContract(
   }
   emitContractCancelled(ctx.audit, { contractId, reason });
   emitted.push(CONTRACT_AUDIT_EVENTS.CANCELLED);
-  safeNotify(ctx, {
-    type: 'contract_cancelled',
-    contractId,
-    reason,
-  } satisfies ContractNotification);
   return { contractId, commit, postCommit: { verifierAbort, emitted } };
 }
 

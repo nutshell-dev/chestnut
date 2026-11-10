@@ -59,6 +59,7 @@ describe('Phase 188 Step C: init integration — archive sweep on boot', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: () => {},
     });
   }

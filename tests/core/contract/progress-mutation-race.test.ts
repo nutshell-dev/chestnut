@@ -53,6 +53,7 @@ async function setup(overrides?: { onNotify?: (event: ContractNotification) => v
     clawId: 'race-claw',
     fs,
     audit,
+    deliverCancellation: async () => {},
     notifyClaw: () => {},
     toolRegistry: createToolRegistry(),
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),

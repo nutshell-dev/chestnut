@@ -71,6 +71,7 @@ const mockMemorySystem = {
 // Mutable state shared across the heavy assemble-graph describe blocks,
 // referenced by module-level vi.mock factories.
 let capturedContractCallback: ((contractId: string) => Promise<void>) | undefined;
+let capturedContractBridgeCreateReader: ((clawId: string, clawDir: string) => Promise<unknown>) | undefined;
 let createContractSystemCalls: any[][] = [];
 const capturedContractSystems: any[] = [];
 // phase 1869 Step G: RuntimeDependencies 捕获（装配面接线锁定）。
@@ -222,6 +223,10 @@ vi.mock('../../src/core/memory/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/core/memory/index.js')>()),
   createMemorySystem: vi.fn(function () {
     return mockMemorySystem;
+  }),
+  createClawContractBridge: vi.fn(function (deps: any) {
+    capturedContractBridgeCreateReader = deps.createReader;
+    return { getContractProgress: vi.fn(), dispose: vi.fn() };
   }),
   memorySearchTool: { name: 'memory_search' },
   MEMORY_DIR: 'memory',
@@ -559,6 +564,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
     capturedContractCallback = undefined;
+    capturedContractBridgeCreateReader = undefined;
     capturedContractObserverDeps = undefined;
     createContractSystemCalls = [];
   });
@@ -586,6 +592,17 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
     const factoryCall = createContractSystemCalls.find((args) => args[0].clawDir !== baseConfig.clawDir && args[0].toolRegistry !== undefined);
     expect(factoryCall).toBeDefined();
     const factoryRegistry = factoryCall![0].toolRegistry;
+
+    // Phase 2091: daemon 与 per-worker factory 都必须注入真实取消投递能力。
+    expect(mainCall![0].deliverCancellation).toEqual(expect.any(Function));
+    expect(factoryCall![0].deliverCancellation).toEqual(expect.any(Function));
+
+    // motion-addons 的 memory bridge 绑定实际 worker，而非 motion 自身。
+    expect(capturedContractBridgeCreateReader).toBeDefined();
+    await capturedContractBridgeCreateReader!('worker-1', '/tmp/worker-1');
+    const bridgeCall = createContractSystemCalls.find((args) => args[0].clawId === 'worker-1');
+    expect(bridgeCall).toBeDefined();
+    expect(bridgeCall![0].deliverCancellation).toEqual(expect.any(Function));
 
     // The factory must pass the SAME main registry instance (not a new empty one)
     expect(factoryRegistry).toBe(mainRegistry);

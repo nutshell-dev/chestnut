@@ -295,6 +295,7 @@ describe('ContractSystem Acceptance Flow', () => {
       fsFactory,
       runVerifier: mockRunSubagent,
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: (targetClawId, message) => createClawNotifier({ fs: nodeFs, audit: mockAudit as any, resolveTarget: makeClawNotifyTargetResolver(path.resolve(clawDir, '..', '..')) }).notify(targetClawId, message),
     });
   });
@@ -521,6 +522,7 @@ describe('ContractSystem Acceptance Flow', () => {
         fsFactory,
         runVerifier: mockRunSubagent,
         clawsDir: '/tmp/test/claws',
+        deliverCancellation: async () => {},
         notifyClaw: (targetClawId, message) => createClawNotifier({ fs: nodeFs, audit: mockAudit as any, resolveTarget: makeClawNotifyTargetResolver(path.resolve(clawDir, '..', '..')) }).notify(targetClawId, message),
       });
 

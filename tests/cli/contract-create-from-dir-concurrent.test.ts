@@ -68,6 +68,7 @@ function makeManager() {
     toolRegistry: createToolRegistry(),
     fsFactory,
     clawsDir: path.join(testDir, '.chestnut', 'claws'),
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
   });
 }

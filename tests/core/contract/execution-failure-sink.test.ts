@@ -61,6 +61,7 @@ describe('Phase 1878 Step D: createExecutionFailureSink（窄 capability，0-ful
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      deliverCancellation: async () => {},
       notifyClaw: () => Promise.resolve(),
     });
   });

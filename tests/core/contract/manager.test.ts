@@ -49,6 +49,7 @@ function setupManager() {
     toolRegistry: createToolRegistry(),
     fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
   });
   return { manager, audit, events, emitter };
@@ -217,6 +218,7 @@ describe('ContractSystem manager (phase 956)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
 

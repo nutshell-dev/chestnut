@@ -52,6 +52,7 @@ describe('submitSubtaskTool', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
     submitSubtaskTool = manager.createSubmitSubtaskTool();
   });

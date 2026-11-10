@@ -77,6 +77,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -124,6 +125,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({
@@ -163,6 +165,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({
@@ -196,6 +199,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const onNotifySpy = vi.fn();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
     onNotify: onNotifySpy,});
@@ -242,6 +246,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const onNotifySpy = vi.fn();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
     onNotify: onNotifySpy,});
@@ -308,6 +313,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({

@@ -45,6 +45,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -59,6 +60,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contract1 = await testManager.create(makeContractYaml({
@@ -103,6 +105,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       await expect(failManager.create(makeContractYaml({
@@ -137,6 +140,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
       // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
       onNotify: () => {
@@ -167,6 +171,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
       // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
       onNotify: onNotifySpy,});
@@ -202,6 +207,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       // Create contract with no-op verification (no script_file/prompt_file = no verification)
@@ -238,6 +244,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({

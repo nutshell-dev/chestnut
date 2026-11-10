@@ -79,6 +79,7 @@ describe('ContractSystem — background verification error handling', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = 'typeerror-test-contract';
@@ -143,6 +144,7 @@ describe('ContractSystem — background verification error handling', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = 'business-error-test-contract';

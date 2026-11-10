@@ -73,6 +73,7 @@ describe('Builtin Tools - status tool', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const statusTool = createStatusTool(manager);
 
@@ -92,6 +93,7 @@ describe('Builtin Tools - status tool', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       await manager.create(makeContractYaml({
         title: 'Test Contract',
@@ -124,6 +126,7 @@ describe('Builtin Tools - status tool', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const contractId = await manager.create(makeContractYaml({
         title: 'Mixed Status',
@@ -209,6 +212,7 @@ describe('Builtin Tools - status tool', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const contractId = await manager.create({
         title: 'Mixed Test',

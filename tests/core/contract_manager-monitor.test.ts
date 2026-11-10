@@ -44,6 +44,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -52,6 +53,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
       const mockAudit = makeMockAudit();
       const monitorManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       // 写入损坏的 progress.json
@@ -74,6 +76,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
       const mockAudit = makeMockAudit();
       const monitorManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await monitorManager.create(makeContractYaml({
@@ -110,6 +113,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
       const mockAudit = makeMockAudit();
       const failManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const contractId = `incomplete-${Date.now()}`;
       await expect(failManager.create(makeContractYaml({

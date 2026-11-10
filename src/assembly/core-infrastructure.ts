@@ -24,6 +24,7 @@ import { createSkillSystem as defaultCreateSkillSystem, SkillSystem, SkillSystem
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, ContractAuditor, createContractSystem } from '../core/contract/index.js';
 import { createContractNotificationAdapter } from './contract-notification-adapter.js';
+import { createContractCancellationDelivery } from './contract-cancellation-delivery.js';
 import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
@@ -373,6 +374,10 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         // phase 104: pre-bound notifyClaw (bind fs + chestnutRoot + audit)
         // phase 324 H12: fs 改用 rootFs（chestnut-root-scoped）让绝对 inbox 路径能落。
         notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
+        deliverCancellation: createContractCancellationDelivery({
+          clawId,
+          notifyAsync: (targetClawId, message) => clawNotifier.notifyAsync(targetClawId, message),
+        }),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${formatErr(e)}`);

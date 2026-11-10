@@ -227,6 +227,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await manager.create(makeContractYaml({
@@ -272,6 +273,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await manager.create(makeContractYaml({

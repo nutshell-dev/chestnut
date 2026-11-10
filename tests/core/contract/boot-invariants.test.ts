@@ -69,6 +69,7 @@ describe('ContractSystem.init() boot reconcile', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   }
 
@@ -497,6 +498,7 @@ describe('phase 1405 Fix 3: boot migration archive skipped audit', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),});
   }
 
@@ -577,6 +579,7 @@ describe('CONTRACT_AUDIT_EVENTS.COMPLETED single emit (phase 791 / P0.17)', () =
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -630,6 +633,7 @@ describe('boot replay-then-reset ordering (phase 1201 step C)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   }
@@ -734,6 +738,7 @@ describe('createContractSystem bootReconcile opt-in（phase 1445 Step D）', () 
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
+      deliverCancellation: async () => {},
       ...(bootReconcile !== undefined ? { bootReconcile } : {}),
     };
   }

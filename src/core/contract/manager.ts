@@ -59,6 +59,13 @@ import type {
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
+import {
+  attemptCancellationDelivery,
+  notifyCancellationObserver,
+  type CancellationDelivery,
+  type ContractCancelledEvent,
+  type ContractCancelOutcome,
+} from './cancellation-delivery.js';
 
 import { loadActiveContract, type DiscoveryContext } from './discovery.js';
 import {
@@ -142,6 +149,8 @@ export interface ContractSystemDeps {
   clawId: ClawId;
   /** phase 104: caller (装配期) pre-bound notifyClaw (bind fs + chestnutRoot + audit) */
   notifyClaw: NotifyClawFn;
+  /** Phase 2091: committed 取消的必填 throwing 业务投递能力，独立于可选观察 sink。 */
+  deliverCancellation: CancellationDelivery;
   fs: FileSystem;
   audit: AuditLog;
   llm?: LLMOrchestrator;
@@ -178,6 +187,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   private readonly audit: AuditLog;
   private llm?: LLMOrchestrator;
   private notifyClaw: NotifyClawFn;
+  private readonly deliverCancellation: CancellationDelivery;
   private toolRegistry: ToolRegistry;
   private toolTimeoutMs?: number;
   private fsFactory: (baseDir: string) => FileSystem;
@@ -290,6 +300,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     this.audit = deps.audit;
     this.llm = deps.llm;
     this.notifyClaw = deps.notifyClaw;
+    this.deliverCancellation = deps.deliverCancellation;
     this.toolRegistry = deps.toolRegistry;
     this.toolTimeoutMs = deps.toolTimeoutMs;
     this.fsFactory = deps.fsFactory;
@@ -1142,12 +1153,23 @@ export class ContractSystem implements ContractRuntimeLifecycle {
 
   // Lifecycle
   // phase 1862 Step C (CT-D2): 终态 transition 返回单一 typed outcome（commit + postCommit 事实）。
-  async cancel(contractId: ContractId, reason: string): Promise<TerminalTransitionOutcome> {
+  async cancel(contractId: ContractId, reason: string): Promise<ContractCancelOutcome> {
     const outcome = await cancelContract(this._lifecycleCtx(), contractId, reason);
     // phase 398 Step D (review N9): 终态清 auditorState、防 unbounded growth +
     // contract-id 复用残留。cancel 失败 throw、entry 留待重试。
     this.auditorState.delete(contractId);
-    return outcome;
+    if (outcome.commit.kind !== 'committed') {
+      return { ...outcome, cancellationDelivery: { kind: 'not_attempted' } };
+    }
+
+    const event: ContractCancelledEvent = { type: 'contract_cancelled', contractId, reason };
+    const cancellationDelivery = await attemptCancellationDelivery(
+      event,
+      this.deliverCancellation,
+      this.audit,
+    );
+    notifyCancellationObserver(event, this.onNotify, this.audit);
+    return { ...outcome, cancellationDelivery };
   }
 
   async markCorrupted(

@@ -48,6 +48,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -57,6 +58,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       // Create contract with LLM verification
@@ -117,6 +119,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({
@@ -166,6 +169,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({
@@ -210,6 +214,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({
@@ -232,6 +237,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       // Create contract with script verification (triggers async background verification)
@@ -263,6 +269,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = await testManager.create(makeContractYaml({

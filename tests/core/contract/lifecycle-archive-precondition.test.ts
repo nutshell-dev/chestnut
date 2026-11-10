@@ -48,6 +48,7 @@ describe('Phase 1198 Step E: completed precondition failure preserves request fa
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: path.join(tempDir, 'claws'),
+      deliverCancellation: async () => {},
       notifyClaw: () => Promise.resolve(),
     });
   });

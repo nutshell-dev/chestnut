@@ -6,8 +6,8 @@
  * ContractNotification → transport adapter：接 ContractSystem-owned typed event，
  * exhaustive mapper 显式恢复 legacy stream/inbox shape（camel/snake 历史混排是
  * 持久化观察协议事实，本 adapter 逐字段保持、不归一化），stream system_notify +
- * completed/cancelled self-inbox 发出（phase 1832/1833：inbox 正文改由模板纯呈现
- * typed event 事实，stream payload 形状不变）。
+ * completed self-inbox 发出；取消业务 inbox 由 ContractSystem 的独立投递能力负责
+ * （Phase 2091），本观察 adapter 仅保留取消 stream 映射。
  *
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.4 follow-up）。
  * phase 1260 Step B：物理归位 Assembly（原 core/contract/contract-notify-callback.ts），
@@ -24,12 +24,10 @@ import { notifyInbox } from '../foundation/messaging/index.js';
 import {
   contractCompletedNotificationBody,
   contractCompletedSubtaskLine,
-  contractCancelledNotificationBody,
 } from '../templates/messages/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
   encodeContractEventsGuidance,
-  encodeContractCancelledGuidance,
   NOTIFICATION_CHANNEL,
   type ContractNotification,
   type ContractNotificationSink,
@@ -88,26 +86,6 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
             ),
           }),
           extraFields: encodeContractEventsGuidance([{
-            clawId: makeClawId(deps.clawId),
-            contractId: event.contractId,
-          }]),
-        }, deps.auditWriter);
-      }
-
-      // phase 63: contract_cancelled NEW
-      if (event.type === 'contract_cancelled') {
-        // phase 1262 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
-        // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys）
-        // phase 1833: 取消正文改用 typed event 整体直传纯模板（typed event 只有契约 ID
-        // 与取消事由两字段，不跨模块补标题/进度）；block 内不出现 owner wire key 同名
-        // 字面（arch ratchet 保持严格）。stream 的 toLegacyNotifyData shape 保持不变。
-        notifyInbox(deps.systemFs, {
-          inboxDir: deps.selfInboxDir,
-          type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
-          source: 'system',
-          priority: 'high',
-          body: contractCancelledNotificationBody(deps.clawId, event),
-          extraFields: encodeContractCancelledGuidance([{
             clawId: makeClawId(deps.clawId),
             contractId: event.contractId,
           }]),

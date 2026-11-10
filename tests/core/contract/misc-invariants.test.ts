@@ -192,6 +192,7 @@ describe('maybeAuditStep loadActive silent catch audit emit (phase 160)', () => 
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
       ...(overrides?.auditor ? { auditor: overrides.auditor as any } : {}),
     });
@@ -313,6 +314,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
 
@@ -339,6 +341,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
 
@@ -380,6 +383,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
 
@@ -407,6 +411,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
 

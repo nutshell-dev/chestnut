@@ -119,6 +119,7 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: notifyClaw ?? ((targetClawId: string, message: any) =>
         createClawNotifier({ fs: nodeFs, audit: audit, resolveTarget: makeClawNotifyTargetResolver(rootDir) }).notify(targetClawId, message)),
     });

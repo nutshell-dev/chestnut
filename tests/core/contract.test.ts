@@ -126,6 +126,7 @@ describe('Contract System', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const active = await manager.loadActive();
 
@@ -143,6 +144,7 @@ describe('Contract System', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const active = await manager.loadActive();
 
@@ -160,6 +162,7 @@ describe('Contract System', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const active = await manager.loadActive();
 
@@ -177,6 +180,7 @@ describe('Contract System', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const progress = await manager.getProgress('contract-001');
 
@@ -218,6 +222,7 @@ auth_level: auto
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const result = await completeSubtask(manager, {
         contractId: 'contract-002',
@@ -268,6 +273,7 @@ auth_level: auto
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const result = await completeSubtask(manager, {
         contractId: 'contract-003',
@@ -316,6 +322,7 @@ auth_level: auto
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       const result = await completeSubtask(manager, {
         contractId: 'contract-004',
@@ -364,6 +371,7 @@ auth_level: auto
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       expect(await manager.isComplete('contract-005')).toBe(false);
 
@@ -394,6 +402,7 @@ auth_level: auto
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
       const contractId = 'corrupt-audit-contract';

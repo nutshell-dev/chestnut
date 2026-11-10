@@ -354,6 +354,7 @@ describe('verification pipeline concurrent reject (phase 1371 sub-3 / 1201 step 
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),});
   }
 
@@ -418,6 +419,7 @@ describe('force-accept state transition valid (phase 1399)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),});
   }
 
@@ -494,6 +496,7 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),});
   }
 
@@ -597,6 +600,7 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),});
   }
 

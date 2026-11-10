@@ -202,6 +202,7 @@ describe('ContractSystem progress mutation queue owner wiring (phase 1201 step A
       clawId: 'claw-queue',
       fs,
       audit,
+      deliverCancellation: async () => {},
       notifyClaw: () => Promise.resolve(),
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),

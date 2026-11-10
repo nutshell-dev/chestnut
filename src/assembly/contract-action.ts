@@ -25,6 +25,7 @@ import { createSummonVerifyPolicy, createSummonCreationClaimStore } from '../cor
 import { loadSubAgentTask } from '../core/async-task-system/index.js';
 import { wireClawTopology } from './wire-claw-topology.js';
 import { createCrossTargetAccess } from './cross-target-access.js';
+import { createContractCancellationDelivery } from './contract-cancellation-delivery.js';
 
 export interface ContractActionFsDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -162,6 +163,10 @@ async function buildContractActionContext(
     toolRegistry,
     fsFactory: deps.fsFactory,
     notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
+    deliverCancellation: createContractCancellationDelivery({
+      clawId,
+      notifyAsync: (targetClawId, message) => clawNotifier.notifyAsync(targetClawId, message),
+    }),
   });
   if (summonPolicy) {
     system.registerCreatePolicy('summon-verify', summonPolicy);

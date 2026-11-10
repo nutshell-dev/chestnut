@@ -30,6 +30,7 @@ import type {
 } from '../../../src/core/event-loop/index.js';
 import { createStartupCheckDelivery } from '../../../src/daemon/daemon-loop.js';
 import { createContractNotificationAdapter } from '../../../src/assembly/contract-notification-adapter.js';
+import { createContractCancellationDelivery } from '../../../src/assembly/contract-cancellation-delivery.js';
 import { scanArchivedContracts } from '../../../src/core/contract/jobs/event-collector.js';
 import { lifecycleIntentPath } from '../../../src/core/contract/lifecycle-intent.js';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
@@ -41,6 +42,7 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import type { AsyncTaskSystem as AsyncTaskSystemType } from '../../../src/core/async-task-system/system.js';
 import { renderStandardInboxMessage } from '../../../src/foundation/messaging/formatter-registry.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { SYSTEM_MESSAGE_PREFIX } from '../../../src/templates/messages/index.js';
 import { composer as overflowComposer } from '../../../src/assembly/guidance/composers/task-queue-overflow.js';
 import { renderCliGuidanceDocument, createCliSafeToken } from '../../../src/cli-protocol/guidance.js';
@@ -316,7 +318,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     expect(asserted.has('M03')).toBe(false);
   });
 
-  it('M04 contract notification envelope body', () => {
+  it('M04 contract notification envelope body', async () => {
     const baseDir = tmpDir('p1828-m04-');
     const pendingDir = path.join(baseDir, 'inbox', 'pending');
     fsNative.mkdirSync(pendingDir, { recursive: true });
@@ -336,7 +338,18 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       completedAt: '2026-09-11T00:00:00.000Z',
       subtasks: [{ id: 'st-1', completedAt: '2026-09-11T00:01:00.000Z', forceAccepted: false }],
     } as never);
-    sink({ type: 'contract_cancelled', contractId: 'c-9', reason: 'user manual' } as never);
+    const cancelledEvent = { type: 'contract_cancelled', contractId: 'c-9', reason: 'user manual' } as never;
+    sink(cancelledEvent);
+    const notifier = createClawNotifier({
+      fs: systemFs,
+      audit: auditStub(),
+      resolveTarget: () => ({ clawRoot: baseDir, inboxDir: pendingDir }),
+    });
+    const deliverCancellation = createContractCancellationDelivery({
+      clawId: 'motion',
+      notifyAsync: (target, message) => notifier.notifyAsync(target, message),
+    });
+    await deliverCancellation(cancelledEvent);
     const files = fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
     const messages = files.map(f => decodeInbox(fsNative.readFileSync(path.join(pendingDir, f), 'utf8')));
     const allCases = messages.map(msg => ({

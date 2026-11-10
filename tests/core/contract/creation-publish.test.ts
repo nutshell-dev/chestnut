@@ -48,6 +48,7 @@ describe('Contract creation exclusive publish (Phase 1197 Step B)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   }

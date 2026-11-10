@@ -50,6 +50,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   });
@@ -268,6 +269,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -321,6 +323,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     // Mock runLLMVerification to block on a barrier, simulating slow background verification
@@ -429,6 +432,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
     onNotify: (event) => {
@@ -556,6 +560,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await localManager.create(makeContractYaml({

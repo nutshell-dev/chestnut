@@ -44,6 +44,7 @@ import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
 import type { AssembleConfig } from './types.js';
 import type { ContractId } from '../core/contract/index.js';
+import { createContractCancellationDelivery } from './contract-cancellation-delivery.js';
 
 interface MotionAddonsInput {
   core: CoreInfraOutput;
@@ -214,6 +215,10 @@ export async function createMotionAddons(
             fsFactory,
             // phase 104: pre-bound notifyClaw
             notifyClaw: (notifyTarget, message) => clawNotifier.notify(notifyTarget, message),
+            deliverCancellation: createContractCancellationDelivery({
+              clawId: targetClawId,
+              notifyAsync: (notifyTarget, message) => clawNotifier.notifyAsync(notifyTarget, message),
+            }),
           });
           bridgeContractSystems.push({ clawId: targetClawId, cs });
           return { getProgress: (id) => cs.getProgress(id) };

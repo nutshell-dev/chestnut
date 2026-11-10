@@ -56,6 +56,7 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
       clawsDir: `${tempDir}/claws`,
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   }

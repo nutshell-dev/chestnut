@@ -3,8 +3,8 @@
  * 两路真实生产入口写 inbox → decodeInbox → Runtime.formatInboxMessage
  * （真实 formatter registry + 真实 motion guidance registry）→ sanitizeForLLMCall。
  *
- * 路一（自家 M04）：createContractNotificationAdapter 接 typed contract_cancelled
- *   event → 本 daemon 自家 inbox（typed event 仅 contractId/reason）。
+ * 路一（自家 M04）：ContractSystem 专用投递能力接 typed contract_cancelled
+ *   event → 本 daemon 自家 inbox；观察 adapter 只保留 stream，不重复投递。
  * 路二（observer M05）：真实 archive + 真实 lifecycle-intent 文件（生产
  *   persistLifecycleIntent 写入 / 手工坏文件）→ runContractObserver → 真实
  *   notifyInbox → motion inbox；读取异常经生产 AuditWriter 落盘、AuditReader 读回。
@@ -21,6 +21,7 @@ import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createContractNotificationAdapter } from '../../../src/assembly/contract-notification-adapter.js';
+import { createContractCancellationDelivery } from '../../../src/assembly/contract-cancellation-delivery.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
@@ -32,7 +33,7 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { createClawTopology } from '../../../src/core/claw-topology/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import { notifyInbox } from '../../../src/foundation/messaging/index.js';
+import { createClawNotifier, notifyInbox } from '../../../src/foundation/messaging/index.js';
 import {
   createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
@@ -172,23 +173,36 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
   }
 
   describe('路一：自家 typed cancelled（M04 adapter）', () => {
-    function emitSelfCancelled(clawId: string, event: Parameters<ReturnType<typeof createContractNotificationAdapter>>[0]) {
-      const selfInboxDir = path.join(rootDir, clawId, 'inbox', 'pending');
+    async function emitSelfCancelled(clawId: string, event: Parameters<ReturnType<typeof createContractCancellationDelivery>>[0]) {
+      const clawRoot = path.join(rootDir, clawId);
+      const selfInboxDir = path.join(clawRoot, 'inbox', 'pending');
+      await fs.mkdir(clawRoot, { recursive: true });
       const streamWrite = vi.fn();
       const { audit } = makeAudit();
+      const nodeFs = new NodeFileSystem({ baseDir: rootDir });
       const emit = createContractNotificationAdapter({
         streamWriter: { write: streamWrite } as unknown as StreamWriter,
         clawId,
-        systemFs: new NodeFileSystem({ baseDir: rootDir }),
+        systemFs: nodeFs,
         selfInboxDir,
         auditWriter: audit,
       });
+      const notifier = createClawNotifier({
+        fs: nodeFs,
+        audit,
+        resolveTarget: () => ({ clawRoot, inboxDir: selfInboxDir }),
+      });
+      const deliver = createContractCancellationDelivery({
+        clawId,
+        notifyAsync: (target, message) => notifier.notifyAsync(target, message),
+      });
       emit(event);
+      await deliver(event);
       return { selfInboxDir, streamWrite };
     }
 
     it('motion 自家取消：正文自足 + 真实 guidance 查询用途标签；stream payload 不变', async () => {
-      const { selfInboxDir, streamWrite } = emitSelfCancelled('motion', {
+      const { selfInboxDir, streamWrite } = await emitSelfCancelled('motion', {
         type: 'contract_cancelled',
         contractId: makeContractId('c-self'),
         reason: '用户不需要了',
@@ -219,7 +233,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
     });
 
     it('worker 自家取消（空原因，无 guidanceCompose）：明示未填写原因、正文自足', async () => {
-      const { selfInboxDir } = emitSelfCancelled('worker-1', {
+      const { selfInboxDir } = await emitSelfCancelled('worker-1', {
         type: 'contract_cancelled',
         contractId: makeContractId('c-w'),
         reason: '',

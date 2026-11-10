@@ -59,6 +59,7 @@ describe('Phase 958 corruption isolation', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   }
@@ -202,6 +203,7 @@ describe('Phase 959 corruption isolation follow-up', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   }

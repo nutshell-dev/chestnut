@@ -584,6 +584,7 @@ describe('no verification path', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await manager.create(
@@ -625,6 +626,7 @@ describe('no verification path', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     const contractId = await manager.create(
@@ -688,6 +690,7 @@ describe('no verification path', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
     onNotify: (event) => {
@@ -750,6 +753,7 @@ describe('Phase 961 verification invariants', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   }

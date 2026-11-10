@@ -57,6 +57,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       runContractVerifier: mockRunContractVerifier,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
     mockRunContractVerifier.mockReset();
   });
@@ -173,6 +174,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       runContractVerifier: mockRunContractVerifier,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     // 用 vi.spyOn 包装 close
@@ -241,6 +243,7 @@ describe('phase 1860 (RT-D5) — close() returns typed ContractCloseOutcome', ()
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   });
@@ -268,6 +271,7 @@ describe('phase 1860 (RT-D5) — close() returns typed ContractCloseOutcome', ()
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
       auditor: { close: vi.fn().mockRejectedValue(new Error('auditor boom')) } as any,
     });

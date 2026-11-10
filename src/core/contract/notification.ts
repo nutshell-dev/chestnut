@@ -90,11 +90,11 @@ export type ContractNotification =
 
 /**
  * phase 1862 Step I (CT-D10)：通道归属事实（owner 声明，adapter 纯消费）。
- * - 'terminal_inbox'：终态业务事实 → self-inbox 投递 + stream（viewport 可见）
- * - 'viewport_only'：仅 stream（viewport 可见），无 inbox 决策价值
+ * - 'terminal_inbox'：由观察 adapter 写 self-inbox + stream（viewport 可见）
+ * - 'viewport_only'：观察 adapter 仅写 stream；取消的业务 inbox 由独立投递能力负责
  *
- * 值从 adapter 治理前行为 1:1 提取（contract_failed 仅 stream = viewport_only，
- * 不写 self-inbox）。adapter 不自行枚举内部 transition 阶段做通道分流。
+ * adapter 不自行枚举内部 transition 阶段做通道分流。contract_cancelled 的业务
+ * 投递已归 ContractSystem 独立能力（Phase 2091），观察通道因此仅为 viewport。
  * Record 类型强制穷尽：新增 variant 时编译失败。
  */
 export const NOTIFICATION_CHANNEL: Record<
@@ -103,7 +103,7 @@ export const NOTIFICATION_CHANNEL: Record<
 > = {
   contract_created: 'viewport_only',
   contract_completed: 'terminal_inbox',
-  contract_cancelled: 'terminal_inbox',
+  contract_cancelled: 'viewport_only',
   contract_failed: 'viewport_only',
   subtask_completed: 'viewport_only',
   verification_failed: 'viewport_only',

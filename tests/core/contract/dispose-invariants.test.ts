@@ -94,6 +94,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
     mockRunContractVerifierDispose.mockReset();
   });
@@ -164,6 +165,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
 
     vi.spyOn(cs1, 'close').mockImplementation(async () => {
@@ -231,6 +233,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）——测试经 holder 指向当次收集器。
     onNotify: (event) => onNotifySink?.(event),});
@@ -383,6 +386,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       runContractVerifier: mockRunContractVerifier,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
     mockRunContractVerifier.mockReset();
   });

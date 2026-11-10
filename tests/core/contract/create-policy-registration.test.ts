@@ -47,6 +47,7 @@ describe('phase 1862 Step H (CT-D9): create policy registration surface', () => 
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: `${tempDir}/claws`,
+      deliverCancellation: async () => {},
       notifyClaw: vi.fn(),
     });
   });

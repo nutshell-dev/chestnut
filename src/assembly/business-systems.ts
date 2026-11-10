@@ -73,6 +73,7 @@ import { createClawNotifier } from '../foundation/messaging/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
+import { createContractCancellationDelivery } from './contract-cancellation-delivery.js';
 
 interface BusinessSysInput {
   core: CoreInfraOutput;
@@ -246,6 +247,10 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
           fsFactory,
           // phase 104: pre-bound notifyClaw
           notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
+          deliverCancellation: createContractCancellationDelivery({
+            clawId: id,
+            notifyAsync: (targetClawId, message) => clawNotifier.notifyAsync(targetClawId, message),
+          }),
         });
       },
     };

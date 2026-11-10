@@ -156,14 +156,13 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(content).not.toContain('（）');
   });
 
-  it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（phase 1833 新正文语义）', () => {
+  it('contract_cancelled → 只写 stream，观察 adapter 不再写业务 inbox（Phase 2091）', () => {
     emit({
       type: 'contract_cancelled',
       contractId: makeContractId('c1'),
       reason: 'user cancelled',
     });
 
-    // stream system_notify payload 保持（含 reason）
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
@@ -172,30 +171,10 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       contractId: 'c1',
       reason: 'user cancelled',
     });
-
-    const content = readOnlyInboxFile();
-    expect(content).toContain('type: contract_cancelled');
-    expect(content).toContain('priority: high');
-    // phase 1262 Step B: v1 exact wire（guidance_schema_version + cancelled_contract_refs JSON），无 legacy keys
-    expect(content).toContain('guidance_schema_version: 1');
-    expect(content).toContain(
-      'cancelled_contract_refs: "[{\\"claw_id\\":\\"test-claw\\",\\"contract_id\\":\\"c1\\"}]"',
-    );
-    expect(content).not.toContain('source_claw:');
-    expect(content).not.toMatch(/^contract_id:/m);
-    expect(content).not.toMatch(/^reason:/m);
-    // phase 1833: 正文自足呈现终态/对象/执行者/原 reason（typed event 无标题，不跨模块补）
-    expect(content).toContain(
-      '契约已取消｜c1\n'
-      + '执行者：test-claw\n'
-      + '取消原因：user cancelled',
-    );
-    // 不再携带 legacy 序列化串
-    expect(content).not.toContain('[contract_cancelled]');
-    expect(content).not.toContain('contractId=c1');
+    expect(inboxFiles()).toHaveLength(0);
   });
 
-  it('contract_cancelled（空原因）→ 明示取消请求未填写原因、stream 不变', () => {
+  it('contract_cancelled（空原因）→ stream 保持原值且不写 inbox', () => {
     emit({
       type: 'contract_cancelled',
       contractId: makeContractId('c2'),
@@ -208,14 +187,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       contractId: 'c2',
       reason: '',
     }));
-
-    const content = readOnlyInboxFile();
-    expect(content).toContain(
-      '契约已取消｜c2\n'
-      + '执行者：test-claw\n'
-      + '取消请求未填写原因',
-    );
-    expect(content).not.toContain('取消原因：');
+    expect(inboxFiles()).toHaveLength(0);
   });
 
   it('subtask_completed（普通路径）→ stream camel payload / 无 inbox', () => {

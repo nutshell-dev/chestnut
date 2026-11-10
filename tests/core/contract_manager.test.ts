@@ -63,6 +63,7 @@ describe('ContractSystem', () => {
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   });
 
@@ -350,6 +351,7 @@ describe('ContractSystem', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
     onNotify: onNotifySpy,});
@@ -429,6 +431,7 @@ describe('ContractSystem', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
       // @ts-expect-error - runScriptVerification is private
       const result = await testManager.runScriptVerification(scriptName, path.join(testClawDir, 'verification'));

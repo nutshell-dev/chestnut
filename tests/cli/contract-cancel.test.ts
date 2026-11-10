@@ -40,6 +40,7 @@ async function seedActiveContract(): Promise<string> {
     toolRegistry: createToolRegistry(),
     fsFactory,
     clawsDir: '/tmp/test/claws',
+    deliverCancellation: async () => {},
     notifyClaw: vi.fn(),});
   return manager.create(makeContractYaml());
 }
@@ -107,6 +108,20 @@ describe('contractCancelCommand (phase 1471)', () => {
     // stdout
     expect(logSpy).toHaveBeenCalledWith(
       `Contract cancelled: ${contractId} (reason: user requested abort)`,
+    );
+
+    // Phase 2091: 真实 CLI 装配由 owner 经 throwing Messaging 投递，不依赖 onNotify。
+    const pendingDir = path.join(clawDir, 'inbox', 'pending');
+    const inboxFiles = await fs.readdir(pendingDir);
+    expect(inboxFiles).toHaveLength(1);
+    const message = await fs.readFile(path.join(pendingDir, inboxFiles[0]), 'utf8');
+    expect(message).toContain('id: contract:' + contractId + ':cancelled');
+    expect(message).toContain('type: contract_cancelled');
+    expect(message).toContain('from: "system"');
+    expect(message).toContain('priority: high');
+    expect(message).toContain('取消原因：user requested abort');
+    expect(message).toContain(
+      `cancelled_contract_refs: "[{\\"claw_id\\":\\"${CLAW_ID}\\",\\"contract_id\\":\\"${contractId}\\"}]"`,
     );
   });
 

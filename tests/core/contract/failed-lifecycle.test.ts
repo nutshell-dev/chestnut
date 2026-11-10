@@ -58,6 +58,7 @@ async function setup(overrides?: { makeFs?: (clawDir: string) => NodeFileSystem 
     toolRegistry: createToolRegistry(),
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: path.join(tempDir, 'claws'),
+    deliverCancellation: async () => {},
     notifyClaw: () => Promise.resolve(),
     // phase 1872 Step F: onNotify 构造参数一次固定（setter 退役）
     onNotify: (event) => notifies.push(event),
