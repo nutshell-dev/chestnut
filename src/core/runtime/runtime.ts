@@ -2008,6 +2008,7 @@ export class Runtime {
       const result = await this.llm.prepareInputBudget(request);
       return result.kind === 'available' ? result : { kind: 'unavailable', reason: result.reason };
     } catch {
+      // silent: unavailable model capability is returned to the trim policy as typed state.
       return { kind: 'unavailable', reason: 'capability_failed' };
     }
   }

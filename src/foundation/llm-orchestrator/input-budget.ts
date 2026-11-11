@@ -36,6 +36,7 @@ export async function observeInputBudget(
     });
     return { meter, measurement: meter.measure(options) };
   } catch (error) {
+    // silent: meter failures become an explicit unavailable observation for timeout policy.
     return {
       measurement: {
         kind: 'unavailable',

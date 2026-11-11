@@ -53,6 +53,7 @@ export function createDeepseekV41Meter(descriptor: InputMeterDescriptor): ModelI
         }, 0);
         return { kind: 'counted', tokens, method: 'deepseek-v41-template' };
       } catch (error) {
+        // silent: unsupported projections are returned as an explicit unavailable measurement.
         return { kind: 'unavailable', reason: `deepseek_v41_projection_failed:${String(error)}` };
       }
     },
