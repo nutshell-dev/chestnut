@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
-import { loadGlobalConfig, saveGlobalConfig, isInitialized, clawExists } from '../../src/assembly/config/config-load.js';
+import { loadGlobalConfig, saveGlobalConfigExclusive, isInitialized, clawExists } from '../../src/assembly/config/config-load.js';
 import { getClawDir } from '../../src/foundation/claw-identity/index.js';
 import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
 import { toProviderConfig } from '../../src/foundation/llm-provider/config-adapter.js';
@@ -127,7 +127,7 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig({ fsFactory }, config);
+      saveGlobalConfigExclusive({ fsFactory }, config);
 
       const loaded = loadGlobalConfig({ fsFactory });
 
@@ -182,7 +182,7 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig({ fsFactory }, config);
+      saveGlobalConfigExclusive({ fsFactory }, config);
 
       // 创建两个测试 claw
       const clawDir1 = getClawDir('claw-alpha');
@@ -213,7 +213,7 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig({ fsFactory }, config);
+      saveGlobalConfigExclusive({ fsFactory }, config);
 
       // 执行 list 命令（应该正常返回，提示没有 claws，不抛出错误）
       await expect(listCommand(listDeps)).resolves.toBeUndefined();
@@ -236,7 +236,7 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig({ fsFactory }, config);
+      saveGlobalConfigExclusive({ fsFactory }, config);
 
       // 确保 claws 目录不存在
       const clawsDir = path.join(path.dirname(getGlobalConfigPath()), 'claws');

@@ -55,8 +55,6 @@ export interface LLMConfigurationDocumentStore {
     fn: (fresh: LLMConfigDocument) => LLMConfigDocument,
   ): Promise<LLMConfigurationWriteResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
-  /** Assembly 兼容保存入口；新管理命令应使用带锁 mutate。 */
-  save(source: SharedLLMInput): LLMConfigurationWriteResult;
   /** 独占创建或核验同内容目标；在确认前不得清理迁移源。 */
   createFromSource(
     source: SharedLLMInput,
@@ -313,16 +311,6 @@ export function createLLMConfigurationDocumentStore(deps: {
     return result!;
   };
 
-  const save = (source: SharedLLMInput): AtomicWriteResult => {
-    llmOrchestratorConfigSchema.parse(source);
-    const revision = configExists(deps, configPath) ? read().revision + 1 : 1;
-    return writeYamlConfig(deps, configPath, {
-      ...source,
-      schema_version: DOCUMENT_SCHEMA_VERSION,
-      revision,
-    });
-  };
-
   const patchPrimary = async (
     patch: Readonly<Record<string, unknown>>,
   ): Promise<AtomicWriteResult> => mutate((fresh) => {
@@ -345,7 +333,6 @@ export function createLLMConfigurationDocumentStore(deps: {
     },
     mutate,
     patchPrimary,
-    save,
     createFromSource,
   };
 }

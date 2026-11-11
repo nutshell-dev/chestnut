@@ -308,13 +308,6 @@ export function completeInitialization(deps: { fsFactory: (baseDir: string) => F
   chestnutRootFs.writeAtomicSync(INITIALIZATION_MARKER, `${JSON.stringify(marker, null, 2)}\n`);
 }
 
-export function saveGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, config: ClawGlobalConfigInput): void {
-  const { llm, ...root } = config;
-  const store = createLLMConfigurationDocumentStore(deps);
-  store.save(llm);
-  writeYamlConfig({ fsFactory: deps.fsFactory }, getGlobalConfigPath(), root);
-}
-
 /**
  * Phase 1910 Step D（RACE-CONFIG-INIT-LOST-UPDATE）：workspace 初始化的唯一
  * 提交点。目标已存在（并发 init winner）→ GlobalConfigAlreadyExistsError，

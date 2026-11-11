@@ -59,7 +59,7 @@ describe('LLM configuration document reads', () => {
   it('raw read 保留 ${REF}，且不物化 schema defaults 或写盘', () => {
     const store = makeStore();
     const source = referencedSource();
-    store.save(source);
+    store.createFromSource(source, 'test-seed');
     const before = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
 
     const raw = store.read();
@@ -74,7 +74,7 @@ describe('LLM configuration document reads', () => {
 
   it('resolved read 展开引用并应用 defaults，raw 文档仍保留引用', () => {
     const store = makeStore();
-    store.save(referencedSource());
+    store.createFromSource(referencedSource(), 'test-seed');
 
     const resolved = store.readResolved();
 
@@ -91,7 +91,7 @@ describe('LLM configuration document reads', () => {
 describe('LLM configuration document mutations', () => {
   it('mutate 在锁内重读 fresh、递增 revision，合并且发更新且保留引用', async () => {
     const store = makeStore();
-    store.save(referencedSource());
+    store.createFromSource(referencedSource(), 'test-seed');
     const first = makeStore();
     const second = makeStore();
     const seenRevisions: number[] = [];
@@ -129,7 +129,7 @@ describe('LLM configuration document mutations', () => {
 
   it('patchPrimary 将 undefined patch 值解释为删除键，其余 raw 字段不变', async () => {
     const store = makeStore();
-    store.save(referencedSource());
+    store.createFromSource(referencedSource(), 'test-seed');
 
     await store.patchPrimary({
       label: undefined,
@@ -175,7 +175,7 @@ describe('createFromSource migration', () => {
   it('source 与既有目标冲突时抛错且不覆盖目标', () => {
     const store = makeStore();
     const original = referencedSource();
-    store.save(original);
+    store.createFromSource(original, 'test-seed');
     const beforeDocument = store.read();
     const beforeBytes = fs.readFileSync(getLLMConfigurationPath(), 'utf8');
     const conflicting: SharedLLMInput = {

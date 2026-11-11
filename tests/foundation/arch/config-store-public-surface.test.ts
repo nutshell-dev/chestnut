@@ -58,7 +58,7 @@ const EXPECTED_BARREL_SURFACE = [
 ];
 
 describe('phase 1297: ConfigStore caller 白名单经 barrel', () => {
-  it('ConfigStore 仅由 Assembly 配置读写与 L4 兼容凭据存储通过公开入口调用', () => {
+  it('ConfigStore 仅由 Assembly 配置读写与 L4 配置/凭据 owner 通过公开入口调用', () => {
     // 排除 ConfigStore 模块内部边，只统计外部 caller。
     // Phase 2097：凭据存储迁入 L4，仍复用 withYamlConfigLock 跨进程锁原语
     // （凭据文件写纪律 = 锁内重读 + 原子发布），同样只经 barrel。
@@ -69,7 +69,9 @@ describe('phase 1297: ConfigStore caller 白名单经 barrel', () => {
     expect(deepImports).toEqual([]);
     expect([...new Set(edges.map((e) => e.file))].sort()).toEqual([
       path.join('src', 'assembly', 'config', 'config-load.ts'),
+      path.join('src', 'core', 'llm-configuration', 'document-store.ts'),
       path.join('src', 'core', 'llm-configuration', 'legacy-credentials', 'local.ts'),
+      path.join('src', 'core', 'llm-configuration', 'propagation-store.ts'),
     ]);
   });
 
