@@ -21,7 +21,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { getProcessStartTime, type ProcessStartTime } from '../foundation/process-exec/index.js';
+import { getProcessStartTime, subscribeHostExit, type ProcessStartTime } from '../foundation/process-exec/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
@@ -41,6 +41,7 @@ let uncaughtHandler: ((err: Error) => void | Promise<void>) | null = null;
 let unhandledRejectionHandler: ((reason: unknown) => void | Promise<void>) | null = null;
 let sigtermHandler: (() => void) | null = null;
 let sigintHandler: (() => void) | null = null;
+let unsubscribeHostExit: (() => void) | null = null;
 
 // phase 1124: shutdown 重入 guard（mirror watchdog.ts:87-111）
 let shutdownStarted: string | null = null;
@@ -54,6 +55,7 @@ export function _resetDaemonSignalHandlers(): void {
   if (unhandledRejectionHandler) { process.removeListener('unhandledRejection', unhandledRejectionHandler); unhandledRejectionHandler = null; }
   if (sigtermHandler) { process.removeListener('SIGTERM', sigtermHandler); sigtermHandler = null; }
   if (sigintHandler) { process.removeListener('SIGINT', sigintHandler); sigintHandler = null; }
+  if (unsubscribeHostExit) { unsubscribeHostExit(); unsubscribeHostExit = null; }
   shutdownStarted = null;
 }
 
@@ -444,7 +446,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // shim 让位（移除自身监听 + dispose shimAudit）；此后未捕获错误走内层、不再被 harsh exit 截断。
     deps.shimStandDown?.();
 
-    // shutdown (SIGTERM/SIGINT)
+    // shutdown (SIGTERM/SIGINT) — host signal ownership belongs to ProcessExec.
     const shutdown = async (signal: string): Promise<void> => {
       if (!beginShutdown(signal)) return;  // phase 1124: 重入抑制、首个继续
       await gracefulShutdown(signal, 30_000);
@@ -452,13 +454,11 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       flushAuditBeforeExit();
       process.exit(0);
     };
-    // phase 175: idempotent install
-    if (sigtermHandler) process.removeListener('SIGTERM', sigtermHandler);
-    if (sigintHandler) process.removeListener('SIGINT', sigintHandler);
-    sigtermHandler = () => shutdown('SIGTERM');
-    sigintHandler = () => shutdown('SIGINT');
-    process.on('SIGTERM', sigtermHandler);
-    process.on('SIGINT', sigintHandler);
+    unsubscribeHostExit?.();
+    unsubscribeHostExit = subscribeHostExit(
+      (event) => shutdown(event.evidence.signal),
+      (error) => shutdown(`host-exit-notification-failed: ${formatErr(error)}`),
+    );
 
     await promise;
   };

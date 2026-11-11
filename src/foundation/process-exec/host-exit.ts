@@ -45,7 +45,9 @@ export function subscribeHostExit(
     };
     try {
       void Promise.resolve(onFailure(error, event)).catch(exposeFailure);
-    } catch (reportError) { exposeFailure(reportError); }
+    } catch (reportError) { // silent: exposeFailure schedules the combined error.
+      exposeFailure(reportError);
+    }
   };
   try {
     for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -58,14 +60,16 @@ export function subscribeHostExit(
         };
         try {
           void Promise.resolve(listener(event)).catch(error => reportFailure(error, event));
-        } catch (error) { reportFailure(error, event); }
+        } catch (error) { // silent: reportFailure schedules the observed failure.
+          reportFailure(error, event);
+        }
       };
       process.on(signal, handler);
       installed.set(signal, handler);
     }
   } catch (error) {
     const failures = [error];
-    try { unsubscribe(); } catch (cleanupError) {
+    try { unsubscribe(); } catch (cleanupError) { // silent: retain cleanup failure in typed install error.
       const removalError = cleanupError;
       failures.push(removalError);
     }
