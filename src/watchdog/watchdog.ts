@@ -33,6 +33,7 @@ import {
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
+import { subscribeHostExit } from '../foundation/process-exec/index.js';
 import { type AuditLog, createWorkspaceAudit, createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
@@ -262,6 +263,7 @@ export function acquireWatchdogOwnership(
 let shuttingDown = false;
 let sigtermHandler: (() => void) | null = null;
 let sigintHandler: (() => void) | null = null;
+let unsubscribeHostExit: (() => void) | null = null;
 
 /** Test-only: reset shutdown guard between tests */
 export function _resetShutdownGuard(): void {
@@ -274,6 +276,7 @@ export function _resetShutdownGuard(): void {
     process.removeListener('SIGINT', sigintHandler);
     sigintHandler = null;
   }
+  if (unsubscribeHostExit) { unsubscribeHostExit(); unsubscribeHostExit = null; }
 }
 
 /** 1:1 保 watchdog.ts:100-120 */
@@ -489,19 +492,17 @@ export async function runWatchdogLoop(
 
   // phase 1034: idempotent install / 防 test re-entry 或 production 异常 re-entry 累 listener (Node maxListeners warning)
   // mirror _resetShutdownGuard removeListener pattern (line 60-66) — install 前 cleanup prior
-  if (sigtermHandler) process.removeListener('SIGTERM', sigtermHandler);
-  if (sigintHandler) process.removeListener('SIGINT', sigintHandler);
-
-  sigtermHandler = () => {
-    stopped = true;
-    shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM');
-  };
-  sigintHandler = () => {
-    stopped = true;
-    shutdownWatchdog(fsFactory, auditWriter, 'SIGINT');
-  };
-  process.on('SIGTERM', sigtermHandler);
-  process.on('SIGINT', sigintHandler);
+  unsubscribeHostExit?.();
+  unsubscribeHostExit = subscribeHostExit(
+    (event) => {
+      stopped = true;
+      shutdownWatchdog(fsFactory, auditWriter, event.evidence.signal);
+    },
+    (error) => {
+      stopped = true;
+      shutdownWatchdog(fsFactory, auditWriter, `host-exit-notification-failed:${formatErr(error)}`);
+    },
+  );
 
   const maxRestart = getMaxRestart();
 
