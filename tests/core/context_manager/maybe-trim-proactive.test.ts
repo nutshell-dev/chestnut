@@ -11,7 +11,9 @@ import * as trimAndPersistModule from '../../../src/core/context_manager/trim-an
 import {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_PREVIEW_BYTES,
-  CONTEXT_TRIM_TARGET_RATIO,
+  CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO,
+  CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
+  CONTEXT_TRIM_REACTIVE_TARGET_RATIO,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
 } from '../../../src/core/context_manager/constants.js';
 
@@ -38,8 +40,9 @@ function makeInputs(overrides?: Partial<MaybeTrimProactiveInputs>): MaybeTrimPro
     policy: {
       recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
       previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-      targetRatio: CONTEXT_TRIM_TARGET_RATIO,
-      floorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+      proactiveTriggerRatio: CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO,
+      proactiveTargetRatio: CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
+      reactiveTargetRatio: CONTEXT_TRIM_REACTIVE_TARGET_RATIO,
     },
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
@@ -157,7 +160,7 @@ describe('maybeTrimProactive', () => {
       expect.objectContaining({
         recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
         previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-        policy: expect.objectContaining({ kind: 'proactive', targetCompleteTokens: 1_500 }),
+        policy: expect.objectContaining({ kind: 'proactive', targetCompleteTokens: 740 }),
       }),
     );
   });
@@ -165,7 +168,7 @@ describe('maybeTrimProactive', () => {
   it('9. policy.targetRatio 注入覆盖生效（CM-D1）', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
-    // 默认 ratio 0.75 → target 1500（不触发）；注入 0.5 → target 1000（触发）
+    // 触发率和裁剪目标分离：注入目标 0.5，同时把触发率设为 0.5。
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1_200);
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
@@ -173,8 +176,9 @@ describe('maybeTrimProactive', () => {
     const policy = {
       recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
       previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-      targetRatio: 0.5,
-      floorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+      proactiveTriggerRatio: 0.5,
+      proactiveTargetRatio: 0.5,
+      reactiveTargetRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
     };
     const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000, policy }));
     expect(result).not.toBeNull();

@@ -39,13 +39,7 @@ function baseOpts(overrides?: Partial<TrimV2Options>): TrimV2Options {
   return {
     recentWindowMs: RECENT_WINDOW_MS,
     previewBytes: PREVIEW_BYTES,
-    measureComplete: (messages) => ({
-      kind: 'estimated',
-      tokens: ((overrides as { fixedTokens?: number } | undefined)?.fixedTokens ?? 0)
-        + estimateMessagesTokens(messages),
-      method: 'legacy-cl100k',
-      reason: 'test',
-    }),
+    fixedTokens: 0,
     policy: buildProactiveTrimPolicy(10_000),
     now: NOW,
     // phase 1861 (CM-D3)：audit sink 必填（trim 事实不静默）。
@@ -92,7 +86,7 @@ describe('trimV2', () => {
       makeSystemMsg('[system message] 未读 1 ' + '测'.repeat(500), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 1),
       makeSystemMsg('[system message] 未读 2 ' + '测'.repeat(500), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 2),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
     // newMessages: [collapsed system 1, collapsed system 2, summary, anchor]
     expect(result.outcome.newMessages).toHaveLength(4);
     expect(result.metrics.droppedSystemMessages).toBe(2);
@@ -250,7 +244,7 @@ describe('trimV2', () => {
     const messageCount = 16;
     const messages: Message[] = [];
     for (let i = 0; i < messageCount; i++) {
-      messages.push(makeSystemMsg(`summary ${i} ${'x'.repeat(200)}`, 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - i));
+      messages.push(makeSystemMsg(`summary ${i} ${'x'.repeat(600)}`, 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - i));
     }
     const result = trimV2(withAnchor(messages), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.metrics.droppedSystemMessages).toBe(messageCount);
@@ -284,6 +278,8 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(10), audit }));
+    // 摘要本身也计入上下文；旧 turn 移除后仍可能因摘要+anchor 超过极低目标，
+    // 此时报告 progress 并保留已完成的移除事实。
     expect(result.outcome.status).toBe('progress');
     // 旧 turn 无 user 无 send，整段丢弃；摘要注入在 boundaryIndex=0；anchor 保留
     expect(result.outcome.newMessages).toHaveLength(2);
@@ -345,7 +341,7 @@ describe('trimV2', () => {
       { ...makeSystemMsg('[system message] no addedat 2 ' + '测'.repeat(200), 'claw_outbox_summary', NOW), addedAt: undefined },// olderIdx
       makeTextMsg('latest ' + '测'.repeat(100), { addedAt: new Date(NOW).toISOString() }),                                     // newerIdx (anchor)
     ];
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
     // anchor = NOW、threshold = NOW - RW、addedAt = NOW 进 newerIdx、无 addedAt 进 olderIdx
     expect(result.metrics.summaryMessageInjected).toBe(true);
     expect(result.metrics.droppedSystemMessages).toBe(2);   // 2 条无 addedAt system 消息被折叠
@@ -381,7 +377,7 @@ describe('trimV2', () => {
       makeSystemMsg('[system message] old ' + '测'.repeat(200), 'claw_outbox_summary', old1),       // olderIdx
       makeTextMsg('latest ' + '测'.repeat(100), { addedAt: new Date(NOW).toISOString() }),          // newerIdx (anchor)
     ];
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
     expect(result.metrics.droppedSystemMessages).toBe(1);   // system 消息被折叠
     expect(result.metrics.summaryMessageInjected).toBe(true);
     // newMessages: [collapsed old, summary, latest]
@@ -400,7 +396,7 @@ describe('trimV2', () => {
     const policy = buildReactiveTrimPolicy({ contextWindow: 400, explicitMaxTokens: 50 });
     const result = trimV2(messages, baseOpts({ fixedTokens, policy }));
     expect(result.outcome.status).toBe('target_reached');
-    expect(result.outcome.after).toBeLessThanOrEqual(policy.completeCeilingTokens);
+    expect(result.outcome.after).toBeLessThanOrEqual(policy.targetCompleteTokens);
   });
 
   it('20. reactive: P1-P4 后仍超 ceiling → P5 选择性丢弃最旧 turn', () => {
@@ -421,26 +417,44 @@ describe('trimV2', () => {
     const policy = buildReactiveTrimPolicy({ contextWindow: 120, explicitMaxTokens: 10 });
     const result = trimV2(messages, baseOpts({ fixedTokens, policy }));
     expect(result.outcome.status).toBe('progress');
-    expect(result.droppedMessages.length).toBe(2); // userTurn1 + assistantTurn1
-    // 旧 turn 的 assistant text 被移除，孤立的 userTurn1 因 API 交替约束也被移除
-    expect(result.outcome.newMessages[0].content).toBe('recent');
-    expect(result.outcome.after).toBeGreaterThan(policy.targetCompleteTokens);
+    // 保护用户消息后仍未达目标，但合法 assistant 内容已有净减少。
+    expect(result.outcome.newMessages.some(message => message.content === 'old'.repeat(50))).toBe(true);
+    expect(result.outcome.newMessages.some(message => message.content === 'recent')).toBe(true);
   });
 
-  it('21. reactive: maxTokens 进入 reserve；undefined 按 Phase 194 为 0', () => {
+  it('21. reactive: maxTokens 不改变 75% 裁剪目标', () => {
     const policyWithReserve = buildReactiveTrimPolicy({ contextWindow: 4_000, explicitMaxTokens: 500 });
-    expect(policyWithReserve.completeCeilingTokens).toBe(3_500);
+    expect(policyWithReserve.targetCompleteTokens).toBe(3_000);
     const policyNoReserve = buildReactiveTrimPolicy({ contextWindow: 4_000, explicitMaxTokens: undefined });
-    expect(policyNoReserve.completeCeilingTokens).toBe(4_000);
+    expect(policyNoReserve.targetCompleteTokens).toBe(3_000);
   });
 
-  it('22. reactive: floor > ceiling → empty_legal_interval policy_conflict', () => {
+  it('22. reactive: 目标上下界统一为 75%', () => {
     const policy = buildReactiveTrimPolicy({ contextWindow: 100, explicitMaxTokens: 50 });
-    expect(policy.completeFloorTokens).toBeGreaterThan(policy.completeCeilingTokens);
     const messages: Message[] = [makeTextMsg('x')];
     const result = trimV2(messages, baseOpts({ fixedTokens: 0, policy }));
-    expect(result.outcome.status).toBe('policy_conflict');
-    expect(result.outcome.reason).toBe('empty_legal_interval');
+    expect(result.outcome.status).toBe('no_progress');
+    expect(result.outcome.reason).toBe('already_within_target');
+  });
+
+  it('22b. reactive 旧区缩短达标后立即停止，24h 内消息逐字节不变', () => {
+    const oldSystem = makeSystemMsg(
+      '[system message] ' + '测'.repeat(600),
+      'task_result',
+      NOW - RECENT_WINDOW_MS - 1,
+    );
+    const recent = makeTextMsg('recent ' + '保留'.repeat(80), {
+      addedAt: new Date(NOW - 10).toISOString(),
+    });
+    const anchor = makeTextMsg('anchor', { addedAt: new Date(NOW).toISOString() });
+    const recentBefore = JSON.stringify([recent, anchor]);
+    const policy = buildReactiveTrimPolicy({ contextWindow: 600, explicitMaxTokens: undefined });
+    const result = trimV2([oldSystem, recent, anchor], baseOpts({ policy }));
+
+    expect(result.outcome.status).toBe('target_reached');
+    const recentAfter = result.outcome.newMessages.filter(m => m.content === recent.content || m.content === anchor.content);
+    expect(JSON.stringify(recentAfter)).toBe(recentBefore);
+    expect(result.outcome.newMessages.some(m => typeof m.content === 'string' && m.content.includes('<...>'))).toBe(true);
   });
 
   it('23. reactive: 单条巨大 user 消息无法被选择性 drop，返回 atomic_turn_boundary', () => {
@@ -565,8 +579,8 @@ describe('trimV2', () => {
     const policy = buildReactiveTrimPolicy({ contextWindow: 120, explicitMaxTokens: 10 });
     const result = trimV2(messages, baseOpts({ policy }));
     expect(result.outcome.status).toBe('progress');
-    expect(result.droppedMessages.length).toBeGreaterThan(0);
-    expect(result.outcome.newMessages[0].content).toBe('recent');
+    expect(result.outcome.newMessages.some(message => message.content === 'recent')).toBe(true);
+    expect(result.outcome.newMessages.some(message => message.content === 'old'.repeat(50))).toBe(true);
   });
 
   it('30. 选择性 turn 丢弃保留 user + send，丢弃 text/thinking/其他 tool_use + tool_result', () => {
@@ -638,11 +652,10 @@ describe('trimV2', () => {
       NOW - RECENT_WINDOW_MS - 1,
     );
     const messages = withAnchor([recentMid, oldSystem]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
 
-    // 新窗口只能从 anchor 开始；两条 system 都归 old 并压缩，摘要插在 anchor 前。
-    expect(result.outcome.newMessages[0].content).toContain('<...>');
-    expect(result.outcome.newMessages[1].content).toContain('<...>');
+    // 新窗口只能从 anchor 开始；两条 system 都归 old 并压缩，摘要位于旧区之后。
+    expect(result.outcome.newMessages.filter(m => typeof m.content === 'string' && m.content.includes('<...>')).length).toBe(2);
     expect(result.outcome.newMessages).toHaveLength(4);
     expect(result.outcome.newMessages[2].systemSubtype).toBe('context_trim_summary');
     expect(result.outcome.newMessages[3].content).toBe('anchor');
@@ -671,7 +684,7 @@ describe('trimV2', () => {
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(100) }));
 
     expect(result.droppedMessages).toHaveLength(0);
-    expect(result.outcome.status).toBe('policy_conflict');
+    expect(result.outcome.status).toBe('progress');
     expect(result.outcome.newMessages.some(m => Array.isArray(m.content)
       && m.content.some(b => b.type === 'tool_use' && b.id === 'call_straddle'))).toBe(true);
     expect(result.outcome.newMessages.some(m => Array.isArray(m.content)
@@ -813,10 +826,10 @@ describe('trimV2 UTF-8 preview safety', () => {
 });
 
 describe('trim policy builders — injected ratio boundary values (phase 1861, CM-D1)', () => {
-  it('buildProactiveTrimPolicy defaults to CONTEXT_TRIM_TARGET_RATIO', () => {
+  it('buildProactiveTrimPolicy defaults to 37% proactive target', () => {
     expect(buildProactiveTrimPolicy(2_000)).toEqual({
       kind: 'proactive',
-      targetCompleteTokens: 1_500,
+      targetCompleteTokens: 740,
     });
   });
 
@@ -827,23 +840,21 @@ describe('trim policy builders — injected ratio boundary values (phase 1861, C
     });
   });
 
-  it('buildReactiveTrimPolicy defaults to REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO', () => {
+  it('buildReactiveTrimPolicy defaults to 75% reactive target', () => {
     expect(
       buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: 100 }),
     ).toEqual({
       kind: 'reactive',
-      completeFloorTokens: 1_500,
-      completeCeilingTokens: 1_900,
+      targetCompleteTokens: 1_500,
     });
   });
 
-  it('buildReactiveTrimPolicy honours injected floorRatio', () => {
+  it('buildReactiveTrimPolicy honours injected targetRatio', () => {
     expect(
-      buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: 100 }, { floorRatio: 0.5 }),
+      buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: 100 }, { targetRatio: 0.5 }),
     ).toEqual({
       kind: 'reactive',
-      completeFloorTokens: 1_000,
-      completeCeilingTokens: 1_900,
+      targetCompleteTokens: 1_000,
     });
   });
 });

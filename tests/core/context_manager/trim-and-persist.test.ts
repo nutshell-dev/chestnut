@@ -10,7 +10,10 @@ import * as trimV2Module from '../../../src/core/context_manager/trim-v2.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
-import { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
+import { DialogStore as RealDialogStore } from '../../../src/foundation/dialog-store/store.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { makeAudit as makeRealAudit } from '../../helpers/audit.js';
+import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 const NOW = 1_700_000_000_000;
 const RECENT_WINDOW_MS = 86_400_000;
@@ -47,12 +50,6 @@ function baseInputs(overrides?: Partial<Parameters<typeof trimAndPersist>[0]>): 
     audit: makeAudit(),
     triggerKind: 'reactive_overflow' as TriggerKind,
     policy: buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: undefined }),
-    measureComplete: (messages: readonly Message[]) => ({
-      kind: 'estimated' as const,
-      tokens: estimateMessagesTokens(messages) + estimateTextTokens('sys') + estimateToolsTokens([]),
-      method: 'legacy-cl100k' as const,
-      reason: 'test',
-    }),
     now: NOW,
     ...overrides,
   };
@@ -73,9 +70,9 @@ describe('trimAndPersist', () => {
     const result = await trimAndPersist(inputs);
 
     expect(store.archive).toHaveBeenCalledTimes(1);
-    expect(store.save).toHaveBeenCalledTimes(1);
+    expect(store.save).toHaveBeenCalledTimes(2);
     expect(result.archived).toBe(true);
-    expect(result.newMessages).toEqual((store.save as ReturnType<typeof vi.fn>).mock.calls[0][0].messages);
+    expect(result.newMessages).toEqual((store.save as ReturnType<typeof vi.fn>).mock.calls[1][0].messages);
   });
 
   it('2. no_progress → archive + save 不调', async () => {
@@ -108,13 +105,13 @@ describe('trimAndPersist', () => {
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
       ],
     });
-    await expect(trimAndPersist(inputs)).rejects.toMatchObject({
+    const failure = trimAndPersist(inputs);
+    await expect(failure).rejects.toMatchObject({
       name: 'ContextTrimPersistError',
       stage: 'archive',
       cause: archiveErr,
     });
-    await expect(trimAndPersist(inputs)).rejects.toBeInstanceOf(ContextTrimPersistError);
-    expect(store.save).not.toHaveBeenCalled();
+    expect(store.save).toHaveBeenCalledTimes(1);
     const failed = audit.events.find(e => e[0] === CONTEXT_TRIM_FAILED);
     expect(failed).toBeDefined();
     expect(failed).toContain('stage=archive');
@@ -125,8 +122,13 @@ describe('trimAndPersist', () => {
   it('4. save 失败 → 错上抛（archive 已生效）、emit FAILED(stage=save)', async () => {
     const saveErr = new Error('write failed');
     const audit = makeAudit();
+    let saveCalls = 0;
     const store = makeDialogStore({
-      save: async () => { throw saveErr; },
+      save: async () => {
+        saveCalls++;
+        if (saveCalls === 2) throw saveErr;
+        return { blockIndexPersisted: true, assignedBlockIds: [] };
+      },
     });
     const inputs = baseInputs({
       dialogStore: store,
@@ -144,10 +146,35 @@ describe('trimAndPersist', () => {
       cause: saveErr,
     });
     expect(store.archive).toHaveBeenCalledTimes(1);
+    expect(store.save).toHaveBeenCalledTimes(2);
     const failed = audit.events.find(e => e[0] === CONTEXT_TRIM_FAILED);
     expect(failed).toBeDefined();
     expect(failed).toContain('stage=save');
     expect(failed?.join(' ')).toContain('write failed');
+  });
+
+  it('4b. 裁前 save 失败 → 不归档、不交付候选、emit FAILED(stage=before_save)', async () => {
+    const saveErr = new Error('pre-save failed');
+    const audit = makeAudit();
+    const store = makeDialogStore({ save: async () => { throw saveErr; } });
+    const inputs = baseInputs({
+      dialogStore: store,
+      audit,
+      contextWindow: 1_000,
+      policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
+    });
+    await expect(trimAndPersist(inputs)).rejects.toMatchObject({
+      name: 'ContextTrimPersistError',
+      stage: 'before_save',
+      cause: saveErr,
+    });
+    expect(store.archive).not.toHaveBeenCalled();
+    const failed = audit.events.find(e => e[0] === CONTEXT_TRIM_FAILED);
+    expect(failed?.join(' ')).toContain('stage=before_save');
   });
 
   it('6. invalid progress → ContextTrimPersistError stage=invalid_progress（CM-D7）、emit FAILED(stage=invalid_progress)', async () => {
@@ -225,6 +252,56 @@ describe('trimAndPersist', () => {
     expect(store.save).not.toHaveBeenCalled();
     expect(result.archived).toBe(false);
     expect(result.newMessages.length).toBe(inputs.messages.length);
+  });
+
+  it('10. 真实 DialogStore：archive 保存完整裁前输入，current 只含提交后的候选', async () => {
+    const tempDir = await createTempDir('chestnut-trim-persist-');
+    try {
+      const fs = new NodeFileSystem({ baseDir: tempDir });
+      const { audit } = makeRealAudit();
+      const store = new RealDialogStore(fs, 'dialog', audit, 'current.json', 'trim-test');
+      const oldSystem = {
+        role: 'user' as const,
+        origin: 'system' as const,
+        systemSubtype: 'task_result',
+        content: '[system message] ' + '原文'.repeat(600),
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      };
+      const recent = { role: 'user' as const, content: 'recent', addedAt: new Date(NOW).toISOString() };
+      const injected = { role: 'user' as const, content: 'new injected', addedAt: new Date(NOW).toISOString() };
+      const messages = [oldSystem, recent, injected] as Message[];
+      await store.save({ systemPrompt: 'sys', messages: [oldSystem], toolsForLLM: [] });
+
+      const result = await trimAndPersist({
+        messages,
+        systemPrompt: 'sys',
+        toolsForLLM: [],
+        contextWindow: 1_000,
+        recentWindowMs: RECENT_WINDOW_MS,
+        previewBytes: 100,
+        dialogStore: store,
+        audit,
+        triggerKind: 'proactive_cache_idle',
+        policy: buildProactiveTrimPolicy(1_000),
+        now: NOW,
+      });
+
+      expect(result.archived).toBe(true);
+      const archives = await store.listArchives();
+      expect(archives).toHaveLength(1);
+      const archived = await store.readArchive(archives[0]);
+      expect(archived.messages.map(m => m.content)).toEqual(messages.map(m => m.content));
+
+      const current = await store.load();
+      expect(current.source).toBe('current');
+      if (current.source === 'current') {
+        expect(current.session.messages.some(m => typeof m.content === 'string' && m.content.includes('<...>'))).toBe(true);
+        expect(current.session.messages.some(m => m.content === 'new injected')).toBe(true);
+        expect(current.session.messages.some(m => m.content === oldSystem.content)).toBe(false);
+      }
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
   });
 
   it('7. reactive policy 严格使用显式 maxTokens；undefined=0', async () => {

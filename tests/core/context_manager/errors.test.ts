@@ -10,7 +10,7 @@ describe('ContextManager typed errors', () => {
   });
 
   it('phase 1861 (CM-D6): carries recovery evidence (budget/provider/policy)', () => {
-    const policy = { kind: 'reactive', completeFloorTokens: 1_500, completeCeilingTokens: 1_900 } as const;
+    const policy = { kind: 'reactive', targetCompleteTokens: 1_500 } as const;
     const e = new ContextTrimExhaustedError('trim exhausted', {
       budget: 42,
       provider: 'anthropic',

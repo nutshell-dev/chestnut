@@ -42,11 +42,13 @@ export class ContextTrimExhaustedError extends Error {
 }
 
 /** phase 1861 (CM-D7)：trim 持久化失败阶段（caller 可判 archive/save 语义差异）。 */
-export type ContextTrimPersistStage = 'invalid_progress' | 'archive' | 'save';
+export type ContextTrimPersistStage = 'invalid_progress' | 'before_save' | 'archive' | 'save';
 
 /**
  * phase 1861 (CM-D7)：trim archive/save 失败 typed——阶段可判、不抛普通 Error。
- * stage='archive' → dialog 未动；stage='save' → archive 已生效（下次 load 走 archive fallback）。
+ * stage='before_save' → 裁前快照未提交，dialog 未归档；
+ * stage='archive' → 裁前快照已提交但未归档；
+ * stage='save' → archive 已生效（下次 load 走 archive fallback）。
  */
 export class ContextTrimPersistError extends Error {
   readonly name = 'ContextTrimPersistError';

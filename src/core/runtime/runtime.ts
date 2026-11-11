@@ -80,8 +80,9 @@ import {
   CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_PREVIEW_BYTES,
-  CONTEXT_TRIM_TARGET_RATIO,
-  REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+  CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO,
+  CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
+  CONTEXT_TRIM_REACTIVE_TARGET_RATIO,
   buildReactiveTrimPolicy,
   type ContextTrimOutcome,
   type TrimRuntimePolicy,
@@ -311,8 +312,14 @@ export class Runtime {
     this.contextTrimPolicy = {
       recentWindowMs: options.contextTrimPolicy?.recentWindowMs ?? CONTEXT_TRIM_RECENT_WINDOW_MS,
       previewBytes: options.contextTrimPolicy?.previewBytes ?? CONTEXT_TRIM_PREVIEW_BYTES,
-      targetRatio: options.contextTrimPolicy?.targetRatio ?? CONTEXT_TRIM_TARGET_RATIO,
-      floorRatio: options.contextTrimPolicy?.floorRatio ?? REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+      proactiveTriggerRatio: options.contextTrimPolicy?.proactiveTriggerRatio
+        ?? CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO,
+      proactiveTargetRatio: options.contextTrimPolicy?.proactiveTargetRatio
+        ?? options.contextTrimPolicy?.targetRatio
+        ?? CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
+      reactiveTargetRatio: options.contextTrimPolicy?.reactiveTargetRatio
+        ?? options.contextTrimPolicy?.floorRatio
+        ?? CONTEXT_TRIM_REACTIVE_TARGET_RATIO,
     };
   }
 
@@ -1978,7 +1985,9 @@ export class Runtime {
       },
       trimPolicy: {
         recentWindowMs: this.contextTrimPolicy.recentWindowMs,
-        retentionFloorRatio: this.contextTrimPolicy.floorRatio,
+        proactiveTriggerRatio: this.contextTrimPolicy.proactiveTriggerRatio,
+        proactiveTargetRatio: this.contextTrimPolicy.proactiveTargetRatio,
+        reactiveTargetRatio: this.contextTrimPolicy.reactiveTargetRatio,
         previewBytes: this.contextTrimPolicy.previewBytes,
       },
     };
@@ -2067,7 +2076,8 @@ export class Runtime {
       measureComplete,
       measurementDescriptor: meter?.descriptor,
     });
-    return trimResult ? trimResult.newMessages : messages;
+    // 候选只有在裁前快照、archive、裁后 save 全部成功后才可交付给本轮 LLM。
+    return trimResult?.archived ? trimResult.newMessages : messages;
   }
 
   /**
@@ -2122,7 +2132,7 @@ export class Runtime {
         contextWindow,
         explicitMaxTokens: meter?.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.maxTokens,
       }, {
-        floorRatio: this.contextTrimPolicy.floorRatio,
+        targetRatio: this.contextTrimPolicy.reactiveTargetRatio,
       }),
       measureComplete: this.completeInputMeasurement(meter, session.systemPrompt, tools),
       measurementDescriptor: meter?.descriptor,

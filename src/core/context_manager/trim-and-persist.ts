@@ -7,7 +7,10 @@ import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
 import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
-import type { InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import {
+  estimateTextTokens,
+  estimateToolsTokens,
+} from '../../foundation/llm-provider/index.js';
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
 import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from './audit-events.js';
 import { ContextTrimPersistError } from './errors.js';
@@ -43,8 +46,6 @@ export interface TrimAndPersistInputs {
   audit: AuditWriter;
   triggerKind: TriggerKind;
   policy: TrimPolicy;
-  measureComplete: (messages: readonly Message[]) => InputMeasurement;
-  measurementDescriptor?: Readonly<InputMeterDescriptor>;
   now?: number;
 }
 
@@ -52,31 +53,38 @@ export interface TrimAndPersistInputs {
  * 事件性裁剪 + 持久化同源。
  *
  * 流程：
- * 1. 跑 trimV2（pure function、返回 discriminated outcome）
+ * 1. 跑 trimV2 只读预判（pure function、返回 discriminated outcome）
  * 2. no_progress / policy_conflict → 不持久化，直接返回 outcome
- * 3. target_reached / progress → DialogStore.archive() 备份 current.json
- * 4. DialogStore.save({systemPrompt, messages: newMessages, toolsForLLM})
- * 5. 返回 outcome + archived=true
+ * 3. target_reached / progress → 先保存裁前输入并写回 blockId，确保 archive
+ *    包含本次 turn 的完整原文
+ * 4. 重新基于带 blockId 的原文运行 trimV2，生成可提交候选
+ * 5. archive() 备份精确裁前 current.json，再 save 裁后 snapshot
+ * 6. 仅在 archive + save 成功后返回 archived=true
  *
  * 异常路径：
  * - invalid progress → ContextTrimPersistError('invalid_progress')（phase 1861 CM-D7）
- * - archive 失败 → ContextTrimPersistError('archive')、不调 save、上抛（caller decide failover）
- * - save 失败 → ContextTrimPersistError('save')、archive 已生效但 current.json 内容仍是旧版本（下次 load 走 archive fallback）
+ * - 裁前 save 失败 → ContextTrimPersistError('before_save')、不调 archive、上抛
+ * - archive 失败 → ContextTrimPersistError('archive')、不调裁后 save、上抛
+ * - 裁后 save 失败 → ContextTrimPersistError('save')、archive 已生效（下次 load 走 archive fallback）
  */
 export async function trimAndPersist(
   inputs: TrimAndPersistInputs,
 ): Promise<ContextTrimOutcome> {
   const now = inputs.now ?? Date.now();
 
-  const result = trimV2(inputs.messages, {
+  const fixedTokens = estimateTextTokens(inputs.systemPrompt)
+    + estimateToolsTokens(inputs.toolsForLLM);
+
+  const runTrim = () => trimV2(inputs.messages, {
     recentWindowMs: inputs.recentWindowMs,
     previewBytes: inputs.previewBytes,
-    measureComplete: inputs.measureComplete,
-    measurementDescriptor: inputs.measurementDescriptor,
+    fixedTokens,
     policy: inputs.policy,
     now,
     audit: inputs.audit,
   });
+
+  let result = runTrim();
 
   const outcome = result.outcome;
 
@@ -96,6 +104,46 @@ export async function trimAndPersist(
       `invalid trim progress: ${outcome.after} >= ${outcome.before}`,
     );
   }
+
+  let beforeSaved: DialogSaveResult;
+  try {
+    // 先落盘裁前输入并拿到 blockId。这样 archive 移动的 current.json 是本次
+    // turn 的精确原文；同一批 ID 会被 trim 候选复用，不会因前后两次 save
+    // 产生两套 block 身份。
+    beforeSaved = await inputs.dialogStore.save({
+      systemPrompt: inputs.systemPrompt,
+      messages: inputs.messages,
+      toolsForLLM: inputs.toolsForLLM,
+    });
+    applyBlockIdAssignments(inputs.messages, beforeSaved.assignedBlockIds);
+  } catch (e) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=before_save`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=${formatErr(e)}`,
+    );
+    throw new ContextTrimPersistError('before_save', 'trim pre-save failed', { cause: e });
+  }
+
+  // blockId 会出现在折叠占位符中，因此必须在赋 ID 后重算候选和最终 token 数。
+  result = runTrim();
+  if (result.outcome.status === 'no_progress' || result.outcome.status === 'policy_conflict') {
+    return { ...result.outcome, archived: false };
+  }
+  if (result.outcome.after >= result.outcome.before) {
+    inputs.audit.write(
+      CONTEXT_TRIM_FAILED,
+      `stage=invalid_progress`,
+      `trigger_kind=${inputs.triggerKind}`,
+      `error=invalid trim progress after blockId assignment: ${result.outcome.after} >= ${result.outcome.before}`,
+    );
+    throw new ContextTrimPersistError(
+      'invalid_progress',
+      `invalid trim progress after blockId assignment: ${result.outcome.after} >= ${result.outcome.before}`,
+    );
+  }
+  const outcomeWithIds = result.outcome;
 
   try {
     await inputs.dialogStore.archive();
@@ -117,7 +165,7 @@ export async function trimAndPersist(
   try {
     saved = await inputs.dialogStore.save({
       systemPrompt: inputs.systemPrompt,
-      messages: outcome.newMessages,
+      messages: outcomeWithIds.newMessages,
       toolsForLLM: inputs.toolsForLLM,
     });
   } catch (e) {
@@ -130,7 +178,7 @@ export async function trimAndPersist(
     throw new ContextTrimPersistError('save', 'trim save failed', { cause: e });
   }
   // phase 1850 Step C: 显式回传 blockId 到 outcome.newMessages（该数组被上层继续持有）
-  applyBlockIdAssignments(outcome.newMessages, saved.assignedBlockIds);
+  applyBlockIdAssignments(outcomeWithIds.newMessages, saved.assignedBlockIds);
 
-  return { ...outcome, archived: true };
+  return { ...outcomeWithIds, archived: true };
 }

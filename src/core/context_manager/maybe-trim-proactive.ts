@@ -5,10 +5,18 @@
 
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import {
+  estimateTextTokens,
+  estimateMessagesTokens,
+  estimateToolsTokens,
+} from '../../foundation/llm-provider/index.js';
 import { trimAndPersist, type DialogStoreMutationCapability } from './trim-and-persist.js';
 import type { ContextTrimOutcome } from './trim-v2.js';
 import type { TrimRuntimePolicy } from './constants.js';
+import {
+  CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO,
+  CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
+} from './constants.js';
 import { buildProactiveTrimPolicy } from './trim-v2.js';
 
 import type { AuditWriter } from './trim-v2.js';
@@ -28,10 +36,8 @@ export interface MaybeTrimProactiveInputs {
   /** phase 1861 (CM-D8)：时钟值必传（caller 侧取得）。 */
   now: number;
 
-  /** phase 1861 (CM-D1)：裁剪规则边界值（recentWindowMs/previewBytes/targetRatio 由 caller 注入）。 */
+  /** phase 2100：触发与目标比率分离；旧 targetRatio 仅作兼容别名。 */
   policy: TrimRuntimePolicy;
-  measureComplete: (messages: readonly Message[]) => InputMeasurement;
-  measurementDescriptor?: Readonly<InputMeterDescriptor>;
 }
 
 /**
@@ -52,13 +58,15 @@ export async function maybeTrimProactive(
   // 1. 缓存未失效不触发（失效判据由 caller 计算注入）
   if (!inputs.cacheExpired) return null;
 
-  // 2. 完整输入达到主动目标才触发；固定 prompt 不能从总量中相减。
-  const proactivePolicy = buildProactiveTrimPolicy(inputs.contextWindow, {
-    targetRatio: inputs.policy.targetRatio,
-  });
-  const measurement = inputs.measureComplete(inputs.messages);
-  if (measurement.kind === 'unavailable') return null;
-  if (measurement.tokens < proactivePolicy.targetCompleteTokens) return null;
+  // 2. 算消息历史上限（proactive target 为完整 prompt 上限；减去 fixed 得消息上限）
+  const proactiveTargetRatio = inputs.policy.proactiveTargetRatio ?? inputs.policy.targetRatio ?? CONTEXT_TRIM_PROACTIVE_TARGET_RATIO;
+  const proactiveTriggerRatio = inputs.policy.proactiveTriggerRatio ?? CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO;
+  const fixedTokens = estimateTextTokens(inputs.systemPrompt) + estimateToolsTokens(inputs.toolsForLLM);
+  const triggerTokens = Math.floor(inputs.contextWindow * proactiveTriggerRatio);
+
+  // 3. 占用率 < 0.75 不触发
+  const estimatedTokens = estimateMessagesTokens(inputs.messages);
+  if (fixedTokens + estimatedTokens < triggerTokens) return null;
 
   // 5. 触发顺手裁
   return await trimAndPersist({
@@ -72,10 +80,8 @@ export async function maybeTrimProactive(
     audit: inputs.audit,
     triggerKind: 'proactive_cache_idle',
     policy: buildProactiveTrimPolicy(inputs.contextWindow, {
-      targetRatio: inputs.policy.targetRatio,
+      targetRatio: proactiveTargetRatio,
     }),
-    measureComplete: inputs.measureComplete,
-    measurementDescriptor: inputs.measurementDescriptor,
     now,
   });
 }

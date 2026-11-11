@@ -202,6 +202,22 @@ describe('runtime proactive trim integration', () => {
     expect(runtime.runReactMessages).toEqual([trimmed]);
   });
 
+  it('3b. unarchived proactive result does not leak candidate messages into runReact', async () => {
+    const original = { role: 'user', content: 'original' } as Message;
+    const candidate = { role: 'assistant', content: 'candidate' } as Message;
+    vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue({
+      newMessages: [candidate],
+      archived: false,
+      estimatedTokensAfter: 5,
+    });
+    const runtime = await makeRuntime({ filterSubtypes: new Set() });
+    runtime.fakeBatch = makeFakeBatch([original]);
+
+    await driveLoop(runtime);
+
+    expect(runtime.runReactMessages).toEqual([original]);
+  });
+
   it('4. _runReact onLLMResult callback updates lastLLMCallAt', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runReactSpy = vi.spyOn(loopModule, 'runReact').mockImplementation(async (options) => {
@@ -231,10 +247,10 @@ describe('runtime proactive trim integration', () => {
   it('6. contextTrimPolicy injection flows into maybeTrimProactive inputs (CM-D1)', async () => {
     const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runtime = await makeRuntime(true, {
-      targetRatio: 0.5,
+      proactiveTargetRatio: 0.5,
       recentWindowMs: 1_234,
       previewBytes: 56,
-      floorRatio: 0.6,
+      reactiveTargetRatio: 0.6,
     });
     runtime.fakeBatch = makeFakeBatch([{ role: 'user', content: 'hi' } as Message]);
 
@@ -243,10 +259,11 @@ describe('runtime proactive trim integration', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
         policy: expect.objectContaining({
-          targetRatio: 0.5,
+          proactiveTriggerRatio: 0.75,
+          proactiveTargetRatio: 0.5,
+          reactiveTargetRatio: 0.6,
           recentWindowMs: 1_234,
           previewBytes: 56,
-          floorRatio: 0.6,
         }),
       }),
     );

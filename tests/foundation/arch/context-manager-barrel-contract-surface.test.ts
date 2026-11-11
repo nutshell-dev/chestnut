@@ -34,6 +34,9 @@ describe('ContextManager barrel contract surface (phase 1861, CM-D9)', () => {
     expect(valueExports.sort()).toEqual([
       'CACHE_TTL_MS',
       'CONTEXT_TRIM_PREVIEW_BYTES',
+      'CONTEXT_TRIM_PROACTIVE_TARGET_RATIO',
+      'CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO',
+      'CONTEXT_TRIM_REACTIVE_TARGET_RATIO',
       'CONTEXT_TRIM_RECENT_WINDOW_MS',
       'CONTEXT_TRIM_TARGET_RATIO',
       'ContextInputMeasurementError',
