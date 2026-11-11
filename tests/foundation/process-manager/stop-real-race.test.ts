@@ -42,7 +42,7 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
     ...actual,
     DAEMON_SHUTDOWN_GRACE_MS: 0,
     PROCESS_STOP_POLL_INTERVAL_MS: 10,
-    SIGKILL_DEAD_VERIFY_GRACE_MS: 50,
+    // 保留生产 SIGKILL_DEAD_VERIFY_GRACE_MS(1000)：真实 kernel reap 在满载下可能超过 50ms。
   };
 });
 
