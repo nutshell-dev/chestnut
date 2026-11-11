@@ -1,0 +1,6 @@
+{
+  "recipe": "0.2.0",
+  "commit": "935817c66f5d6e64838f419692545f06787e485f",
+  "tokenizerSha256": "81f64d1248a68ce3663e07ab3ee48b851e5df0e32d27cb98e4c9a268151e8d99",
+  "hfTokenizer": "0.2.0"
+}

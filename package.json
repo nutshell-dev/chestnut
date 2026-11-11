@@ -46,6 +46,7 @@
   "license": "MIT",
   "dependencies": {
     "@earendil-works/pi-ai": "1.4.0",
+    "@huggingface/tokenizers": "0.2.0",
     "@mariozechner/pi-tui": "^0.58.3",
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",

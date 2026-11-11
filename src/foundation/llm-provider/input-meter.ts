@@ -3,6 +3,7 @@ import type * as PiAi from '@earendil-works/pi-ai';
 import { sha256Hex } from '../node-utils/index.js';
 import type { ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
 import { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } from './token-estimator.js';
+import { createDeepseekV41Meter } from './deepseek-v41-meter.js';
 
 export interface CompleteInput {
   messages: readonly ProviderWireMessage[];
@@ -52,6 +53,11 @@ export function createInputMeter(
       dropThinkingBlocks: config.dropThinkingBlocks === true, effective,
     })),
   });
+  if (config.catalogProvider === 'deepseek' && config.catalogModel === 'deepseek-flash'
+    && String(model.api) === 'anthropic-messages'
+    && (model.id === 'deepseek-flash' || model.id === 'deepseek-flash[1m]')) {
+    return createDeepseekV41Meter(descriptor);
+  }
   return {
     descriptor,
     measure(input) {

@@ -1,0 +1,86 @@
+diff --git a/dist/api/anthropic-messages.d.ts b/dist/api/anthropic-messages.d.ts
+index c79e885abfc5046ead5cf49e213ae9738ebba358..a0ae09a6f4f66b2ed0798f7b27482127dfb629f3 100644
+--- a/dist/api/anthropic-messages.d.ts
++++ b/dist/api/anthropic-messages.d.ts
+@@ -69,3 +69,5 @@ export interface AnthropicOptions extends StreamOptions {
+ export declare const stream: StreamFunction<"anthropic-messages", AnthropicOptions>;
+ export declare const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOptions>;
+ //# sourceMappingURL=anthropic-messages.d.ts.map
++/** Chestnut: pure API-key payload projection, sharing streamSimple option mapping. */
++export declare function buildApiKeyRequest(model: import("../types.js").Model<"anthropic-messages">, context: import("../types.js").Context, options?: SimpleStreamOptions): Record<string, unknown>;
+diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
+index 841da8964d2b403c45a18d4d1735c1fabc441a9a..627f994fa68dcc6c2da6066c67f434157f89719c 100644
+--- a/dist/api/anthropic-messages.js
++++ b/dist/api/anthropic-messages.js
+@@ -10,7 +10,7 @@ import { getProviderEnvValue } from "../utils/provider-env.js";
+ import { retryProviderRequest } from "../utils/provider-retry.js";
+ import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
+ import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.js";
+-import { getCurrentTools, getInitialSystemMessage, resolveTranscript, } from "../utils/transcript.js";
++import { getCurrentTools, getInitialSystemMessage, normalizeContext, resolveTranscript, } from "../utils/transcript.js";
+ import { getJsonSchemaToolParameters, resolveJsonSchemaStrictSampling, } from "./constrained-sampling.js";
+ import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
+ import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.js";
+@@ -742,41 +742,52 @@ function mapThinkingLevelToEffort(model, level) {
+             return "high";
+     }
+ }
+-export const streamSimple = (model, context, options) => {
+-    if (!getAnthropicFederation(model, options?.apiKey, options?.headers, options?.env)) {
+-        assertRequestAuth(model.provider, options?.apiKey, options?.headers);
+-    }
++// Chestnut patch: share the exact pure option mapping with offline input measurement.
++function simpleRequestOptions(model, context, options) {
+     const base = {
+         ...buildBaseOptions(model, context, options, options?.apiKey),
+         toolChoice: options?.toolChoice,
+     };
+     if (!options?.reasoning) {
+-        return stream(model, context, {
++        return {
+             ...base,
+             thinkingEnabled: false,
+-        });
++        };
+     }
+     // For models with adaptive thinking: use an effort level.
+     // For older models: use budget-based thinking.
+     if (model.compat?.forceAdaptiveThinking === true) {
+         const effort = mapThinkingLevelToEffort(model, options.reasoning);
+-        return stream(model, context, {
++        return {
+             ...base,
+             thinkingEnabled: true,
+             effort,
+-        });
++        };
+     }
+     // Undefined means the caller did not request an output cap; let the helper use the model cap.
+     // Do not coerce to 0 here, or the thinking budget would become the entire max_tokens value.
+     const adjusted = adjustMaxTokensForThinking(base.maxTokens, model.maxTokens, options.reasoning, options.thinkingBudgets);
+     const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+-    return stream(model, context, {
++    return {
+         ...base,
+         maxTokens,
+         thinkingEnabled: true,
+         thinkingBudgetTokens: Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - 1024)),
+-    });
++    };
++}
++export const streamSimple = (model, context, options) => {
++    if (!getAnthropicFederation(model, options?.apiKey, options?.headers, options?.env)) {
++        assertRequestAuth(model.provider, options?.apiKey, options?.headers);
++    }
++    return stream(model, context, simpleRequestOptions(model, context, options));
+ };
++/** Pure API-key request projection; no auth resolution, client, fetch, or callbacks. */
++export function buildApiKeyRequest(model, context, options) {
++    const transcript = normalizeContext(context);
++    const normalized = resolveTranscript(transcript, getAnthropicCompat(model).supportsMidConvoSystemMessages);
++    return buildParams(model, normalized, false, simpleRequestOptions(model, transcript, options), false).params;
++}
++
+ function isOAuthToken(apiKey) {
+     return apiKey.includes("sk-ant-oat");
+ }

@@ -3,9 +3,12 @@ onlyBuiltDependencies:
   - koffi
 
 patchedDependencies:
+  '@earendil-works/pi-ai@1.4.0': patches/@earendil-works__pi-ai@1.4.0.patch
   '@mariozechner/pi-tui@0.58.3': patches/@mariozechner__pi-tui@0.58.3.patch
   tsup@8.5.1: patches/tsup@8.5.1.patch
 
 allowBuilds:
   '@google/genai': false
+  esbuild: true
+  koffi: true
   protobufjs: false
