@@ -661,53 +661,8 @@ function compressMessages(
   opts: TrimV2Options,
   targetIndices?: Set<number>, // undefined = 全部压缩；顺手裁传 olderIndices
 ): CompressResult {
-  // 1. 构建 tool_use_id → assistant message idx 映射（P2 去重用）
-  const toolUseIdToAssistantIdx = new Map<string, number>();
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (m.role !== 'assistant' || typeof m.content === 'string') continue;
-    for (const block of m.content) {
-      if (block.type === 'tool_use') {
-        toolUseIdToAssistantIdx.set((block as ToolUseBlock).id, i);
-      }
-    }
-  }
-
-  // 2. P2 重复检测（仅在 targetIndices 范围内检测，但需要全量 tool_use_id 映射）
-  const supersededById = new Map<string, string>();
-  {
-    const groups = new Map<string, string[]>();
-    for (let i = 0; i < messages.length; i++) {
-      if (targetIndices !== undefined && !targetIndices.has(i)) continue;
-      const m = messages[i];
-      if (m.role !== 'user' || typeof m.content === 'string') continue;
-      for (const block of m.content) {
-        if (block.type !== 'tool_result') continue;
-        const tr = block as ToolResultBlock;
-        const assistantIdx = toolUseIdToAssistantIdx.get(tr.tool_use_id);
-        if (assistantIdx === undefined) continue;
-        const assistantMsg = messages[assistantIdx];
-        if (typeof assistantMsg.content === 'string') continue;
-        const tuBlock = assistantMsg.content.find(
-          b => b.type === 'tool_use' && (b as ToolUseBlock).id === tr.tool_use_id,
-        ) as ToolUseBlock | undefined;
-        if (!tuBlock) continue;
-        const key = `${tuBlock.name}::${stableHash(tuBlock.input)}`;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(tr.tool_use_id);
-      }
-    }
-    for (const [, tuIds] of groups) {
-      if (tuIds.length > 1) {
-        const newestId = tuIds[tuIds.length - 1];
-        for (let i = 0; i < tuIds.length - 1; i++) {
-          supersededById.set(tuIds[i], newestId);
-        }
-      }
-    }
-  }
-
-  // 3. 逐消息处理
+  // 1. 逐消息处理。每个 tool_result 都按自身正文裁剪；相同调用参数不构成
+  // 结果可替代关系，旧结果必须保留自身内容或自身预览。
   const subtypeStat: SubtypeStat = { preserved: {} };
   const toolStat: ToolStat = { total: 0, byTool: {} };
   let collapsedSystemMessages = 0;
@@ -765,14 +720,8 @@ function compressMessages(
 
     // user role 含 tool_result → 折叠 content（P1a）+ 应用 P2 superseded
     if (m.role === 'user' && typeof m.content !== 'string') {
-      const { newMsg, collapsedCount } = collapseToolResults(m, opts.previewBytes, supersededById, opts.now);
+      const { newMsg, collapsedCount } = collapseToolResults(m, opts.previewBytes, opts.now);
       collapsedToolResults += collapsedCount;
-      // 统计被 superseded 的数量
-      for (const block of (m as Message).content as ContentBlock[]) {
-        if (block.type === 'tool_result' && supersededById.has((block as ToolResultBlock).tool_use_id)) {
-          supersededRedundantResults++;
-        }
-      }
       newMessages.push(newMsg);
       continue;
     }
@@ -864,7 +813,6 @@ function collapseThinkingBlock(block: ThinkingBlock, previewBytes: number): Thin
 function collapseToolResults(
   msg: Message,
   previewBytes: number,
-  supersededById: Map<string, string>,
   nowMs: number,
 ): { newMsg: Message; collapsedCount: number } {
   if (typeof msg.content === 'string') return { newMsg: msg, collapsedCount: 0 };
@@ -872,14 +820,6 @@ function collapseToolResults(
   const newContent: ContentBlock[] = msg.content.map(block => {
     if (block.type !== 'tool_result') return block;
     const tr = block as ToolResultBlock;
-    const supersededBy = supersededById.get(tr.tool_use_id);
-    if (supersededBy !== undefined) {
-      collapsedCount++;
-      return {
-        ...tr,
-        content: `[superseded by tool_use_id=${supersededBy}]`,
-      } as ContentBlock;
-    }
     const c = tr.content;
     const originalBytes = byteLength(c);
     const preview = truncateUtf8Prefix(c, previewBytes);
@@ -1013,15 +953,3 @@ function byteLength(s: string): number {
   return Buffer.byteLength(s, 'utf8');
 }
 
-function stableHash(obj: unknown): string {
-  const sortedKeys = (o: unknown): unknown => {
-    if (o === null || typeof o !== 'object') return o;
-    if (Array.isArray(o)) return o.map(sortedKeys);
-    const sorted: Record<string, unknown> = {};
-    for (const k of Object.keys(o as Record<string, unknown>).sort()) {
-      sorted[k] = sortedKeys((o as Record<string, unknown>)[k]);
-    }
-    return sorted;
-  };
-  return JSON.stringify(sortedKeys(obj));
-}

@@ -151,7 +151,7 @@ describe('trimV2', () => {
     expect(tu.input.content).toContain('1500 bytes');
   });
 
-  it('5. P2 重复检测：同 tool + 同入参旧 result 被 superseded', () => {
+  it('5. 相同 tool + 相同入参的结果各自保留并独立裁剪', () => {
     const id1 = 'call_3_old';
     const id2 = 'call_3_new';
     const messages: Message[] = withAnchor([
@@ -177,11 +177,13 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_500) }));
-    expect(result.metrics.supersededRedundantResults).toBe(1);
-    // newMessages: [tool_use 1, tool_result 1 (superseded), tool_use 2, tool_result 2 (collapsed), summary, anchor]
+    expect(result.metrics.supersededRedundantResults).toBe(0);
+    // 两个结果都来自自身正文，各自折叠，不产生 superseded 引用。
     const old = (result.outcome.newMessages[1].content as [{ type: 'tool_result'; content: string }])[0];
     const newest = (result.outcome.newMessages[3].content as [{ type: 'tool_result'; content: string }])[0];
-    expect(old.content).toBe(`[superseded by tool_use_id=${id2}]`);
+    expect(old.content).toContain('old result');
+    expect(old.content).toContain('<...>');
+    expect(old.content).not.toContain('superseded');
     expect(newest.content).toContain('<...>');
   });
 
