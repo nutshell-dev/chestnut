@@ -7,6 +7,13 @@ import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 describe('workspace CLI caller access', () => {
   it.each([
     ['init'],
+    ['dispatch-skill', 'list'],
+    ['dispatch-skill', 'history', 'sample'],
+    ['dispatch-skill', 'edit', 'begin', 'sample', '--reason', 'test'],
+    ['dispatch-skill', 'edit', 'submit', 'sample'],
+    ['dispatch-skill', 'edit', 'basis', 'sample', '--actor', 'alice', '--reason', 'test'],
+    ['dispatch-skill', 'edit', 'retry', 'sample'],
+    ['dispatch-skill', 'edit', 'status', 'sample'],
     ['config', 'provider', 'add'],
     ['config', 'provider', 'remove', 'sample'],
     ['config', 'provider', 'set-primary', 'sample'],

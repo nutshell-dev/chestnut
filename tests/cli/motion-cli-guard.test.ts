@@ -43,6 +43,14 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
     launcher.command(verb).option('--json').action(actionSpy);
   }
 
+  const dispatch = program.command('dispatch-skill');
+  dispatch.command('list').action(actionSpy);
+  dispatch.command('history <name>').action(actionSpy);
+  const edit = dispatch.command('edit');
+  for (const verb of ['begin', 'submit', 'basis', 'retry', 'status']) {
+    edit.command(verb + ' <id>').action(actionSpy);
+  }
+
   const motion = program.command('motion');
   motion.command('inbox').action(actionSpy);
 
@@ -282,6 +290,31 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
       expect(await runCli(['config', 'provider', 'list'], caller))
         .toEqual({ actionCalls: 1, exitCode: undefined });
     });
+  });
+
+  describe('dispatch skill pool access', () => {
+    for (const args of [
+      ['list'], ['history', 'sample'], ['edit', 'begin', 'sample'],
+      ['edit', 'submit', 'sample'], ['edit', 'basis', 'sample'],
+      ['edit', 'retry', 'sample'], ['edit', 'status', 'sample'],
+    ]) {
+      it.each(['alice', 'task-123', ''])('rejects ' + args.join(' ') + ' for caller=%s', async (caller) => {
+        expect(await runCli(['dispatch-skill', ...args], caller)).toEqual({ actionCalls: 0, exitCode: 1 });
+      });
+      it.each([undefined, 'motion'])('allows ' + args.join(' ') + ' for caller=%s', async (caller) => {
+        expect(await runCli(['dispatch-skill', ...args], caller)).toEqual({ actionCalls: 1, exitCode: undefined });
+      });
+      it('allows help for ' + args.join(' '), async () => {
+        const action = vi.fn();
+        const program = buildProgram(action);
+        program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+        vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
+        captureCliCallerIdentity();
+        await expect(program.parseAsync(['node', 'chestnut', 'dispatch-skill', ...args, '--help']))
+          .rejects.toMatchObject({ code: 'commander.helpDisplayed', exitCode: 0 });
+        expect(action).not.toHaveBeenCalled();
+      });
+    }
   });
 
   // ── wiring source-scan：CLI 唯一入口必须 capture + 注册钩子 ────────────────
