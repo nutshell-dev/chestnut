@@ -9,14 +9,14 @@
  * - deadline 到期自动放行；
  * - 子代理与前台共享统一 owner；成功只清真实 winner 的恢复事实。
  *
- * 计时：恢复 delay 常量在本文件缩到毫秒级（不靠真实分钟 sleep）；墙钟用真实时间，
- * 断言前用短窗口观察「未到点」行为。
+ * 计时：业务 Date 与定时器由测试显式推进；真实文件 I/O 由事件握手同步。
+ * 未主动推进时恢复期限不受机器速度影响。
  */
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as fsNative from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { waitFor } from '../../helpers/wait-for.js';
+import { flushRealEventLoop, TestEventSignal } from './recovery-test-driver.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
@@ -35,17 +35,6 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 
-// 恢复 delay 缩到毫秒（timed-wait 语义不变，长度可测）。
-vi.mock('../../../src/foundation/llm-orchestrator/defaults.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/llm-orchestrator/defaults.js')>();
-  return {
-    ...actual,
-    LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS: 500,
-    LLM_RECOVERY_RETRY_INITIAL_DELAY_MS: 500,
-    LLM_RECOVERY_COOLDOWN_MS: 500,
-  };
-});
-
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
   stop_reason: 'end_turn',
@@ -62,19 +51,45 @@ function providerConfig(): ProviderConfig {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 const cleanupDirs: string[] = [];
 const cleanupOwners: LLMOrchestratorOwner[] = [];
+const runningLoops = new Set<{ eventLoop: EventLoop; promise: Promise<void> }>();
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  vi.setSystemTime(new Date(0));
+});
+
+function runEventLoop(eventLoop: EventLoop): Promise<void> {
+  const promise = eventLoop.run();
+  const running = { eventLoop, promise };
+  runningLoops.add(running);
+  // 保留原始 rejected Promise 给测试/afterEach；此分支只防止提前 unhandled rejection。
+  void promise.catch(() => undefined);
+  return promise;
+}
+
 afterEach(async () => {
-  for (const owner of cleanupOwners.splice(0)) {
-    try { await owner.close(); } catch { /* ignore */ }
+  const errors: unknown[] = [];
+  try {
+    for (const running of runningLoops) running.eventLoop.abort();
+    const results = await Promise.allSettled([...runningLoops].map(running => running.promise));
+    for (const result of results) {
+      if (result.status === 'rejected') errors.push(result.reason);
+    }
+    runningLoops.clear();
+    for (const owner of cleanupOwners.splice(0)) {
+      try { await owner.close(); } catch (error) { errors.push(error); }
+    }
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    for (const dir of cleanupDirs.splice(0)) {
+      try { await cleanupTempDir(dir); } catch (error) { errors.push(error); }
+    }
   }
-  for (const dir of cleanupDirs.splice(0)) {
-    try { await cleanupTempDir(dir); } catch { /* ignore */ }
-  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, 'recovery test cleanup failed');
 });
 
 interface Harness {
@@ -94,6 +109,10 @@ interface Harness {
   setInterventionPeekFailures: (n: number) => void;
   /** EventLoop 已消费 owner 等待安排的次数。 */
   recoveryWaits: () => number;
+  waitForRecoveryWait: (target: number) => Promise<void>;
+  waitForProviderCalls: (target: number) => Promise<void>;
+  waitForInterventionPeeks: (target: number) => Promise<void>;
+  waitForEvent: (predicate: (event: LLMEvent) => boolean, occurrence?: number) => Promise<LLMEvent>;
 }
 
 async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> {
@@ -115,14 +134,15 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
   );
   await inboxReader.init();
 
-  const providerCalls: string[] = [];
+  const providerCallSignal = new TestEventSignal<string>();
+  const providerCalls = providerCallSignal.events;
   let providerError: Error | undefined;
   let fallbackError: Error | undefined;
   const adapter: ProviderAdapter = {
     name: 'primary',
     model: 'model-primary',
     call: async () => {
-      providerCalls.push('primary');
+      providerCallSignal.emit('primary');
       if (providerError) throw providerError;
       return OK_RESPONSE;
     },
@@ -133,15 +153,16 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     name: 'fallback',
     model: 'model-fallback',
     call: async () => {
-      providerCalls.push('fallback');
+      providerCallSignal.emit('fallback');
       if (fallbackError) throw fallbackError;
       return OK_RESPONSE;
     },
     stream: async function* () { throw new Error('stream unused in this suite'); },
   };
 
-  const emitted: LLMEvent[] = [];
-  const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
+  const eventSignal = new TestEventSignal<LLMEvent>();
+  const emitted = eventSignal.events;
+  const sink: LLMEventSink = { emit: (e) => { eventSignal.emit(e); } };
   const owner = createLLMOrchestrator({
     lifecycle: opts?.dualProvider ? { mode: 'durable', fs } : { mode: 'ephemeral' },
     primary: providerConfig(),
@@ -172,6 +193,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
       return { addressed: view.entries.map(e => e.message), controls: [] };
     },
     peekPendingInterventionFacts: async () => {
+      interventionPeekSignal.emit(undefined);
       if (peekFailures > 0) {
         peekFailures -= 1;
         throw new Error('inbox peek failed');
@@ -228,7 +250,8 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     getLLMFailureDisposition: (error: unknown) => owner.getFailureDisposition(error),
   };
 
-  let recoveryWaits = 0;
+  const recoveryWaitSignal = new TestEventSignal<void>();
+  const interventionPeekSignal = new TestEventSignal<void>();
   const eventLoop = new EventLoop({
     runtime: runtime as never,
     fsFactory: (baseDir: string) => new NodeFileSystem({ baseDir }),
@@ -236,7 +259,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     clawId: 'claw-1',
     audit: {
       write: (_type: string, ...cols: Array<string | number>) => {
-        if (cols.includes('type=recovery_wait')) recoveryWaits += 1;
+        if (cols.includes('type=recovery_wait')) recoveryWaitSignal.emit(undefined);
       },
     } as never,
     inbox: { pendingDir, fallbackTimeoutMs: 30 },
@@ -246,6 +269,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
     },
   });
   await eventLoop.initialize();
+  let messageOrder = 0;
 
   return {
     eventLoop,
@@ -261,7 +285,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
         to: msg.to ?? 'claw-1',
         content: msg.content,
         priority: msg.priority ?? 'normal',
-        timestamp: msg.timestamp ?? new Date().toISOString(),
+        timestamp: msg.timestamp ?? new Date(Date.now() + messageOrder++).toISOString(),
       };
       fsNative.writeFileSync(path.join(pendingDir, `${full.id}.md`), encodeInbox(full));
     },
@@ -275,7 +299,11 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
       return state.providers.filter(provider => provider.status === 'waiting').map(provider => provider.providerId);
     },
     setInterventionPeekFailures: (n) => { peekFailures = n; },
-    recoveryWaits: () => recoveryWaits,
+    recoveryWaits: () => recoveryWaitSignal.events.length,
+    waitForRecoveryWait: (target) => recoveryWaitSignal.waitForCount(target),
+    waitForProviderCalls: (target) => providerCallSignal.waitForCount(target),
+    waitForInterventionPeeks: (target) => interventionPeekSignal.waitForCount(target),
+    waitForEvent: (predicate, occurrence) => eventSignal.waitFor(predicate, occurrence),
   };
 }
 
@@ -307,6 +335,11 @@ interface RuntimeHarness {
   listPending: () => string[];
   deletePending: (file: string) => void;
   setProviderError: (error: Error | undefined) => void;
+  waitForProviderCalls: (target: number) => Promise<void>;
+  waitForReload: (target: number) => Promise<void>;
+  waitForEvent: (predicate: (event: LLMEvent) => boolean, occurrence?: number) => Promise<LLMEvent>;
+  waitForPreparation: (target: number) => Promise<void>;
+  waitForBatchComplete: (target: number) => Promise<void>;
 }
 
 async function makeRuntimeHarness(opts?: {
@@ -333,21 +366,23 @@ async function makeRuntimeHarness(opts?: {
   );
   await inboxReader.init();
 
-  const providerCalls: string[] = [];
+  const providerCallSignal = new TestEventSignal<string>();
+  const providerCalls = providerCallSignal.events;
   let providerError: Error | undefined;
   const adapter: ProviderAdapter = {
     name: 'primary',
     model: 'model-primary',
     call: async () => {
-      providerCalls.push('primary');
+      providerCallSignal.emit('primary');
       if (providerError) throw providerError;
       return OK_RESPONSE;
     },
     stream: async function* () { throw new Error('stream unused in this suite'); },
   };
 
-  const emitted: LLMEvent[] = [];
-  const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
+  const eventSignal = new TestEventSignal<LLMEvent>();
+  const emitted = eventSignal.events;
+  const sink: LLMEventSink = { emit: (e) => { eventSignal.emit(e); } };
   const orchestrator = createLLMOrchestrator({
     lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
@@ -358,7 +393,7 @@ async function makeRuntimeHarness(opts?: {
   });
   cleanupOwners.push(orchestrator);
   // 配置提供者（fake）：返回不同身份的 primary → 新配置修订；应用时假装换上可用 key。
-  let reloadCalls = 0;
+  const reloadSignal = new TestEventSignal<void>();
   const fixedConfig = {
     primary: { name: 'primary-fixed', apiKey: 'key-fixed', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const },
     maxAttempts: 1,
@@ -371,7 +406,7 @@ async function makeRuntimeHarness(opts?: {
 
   const runtimeLlm = {
     reloadConfig: (cfg: unknown) => {
-      reloadCalls += 1;
+      reloadSignal.emit(undefined);
       providerError = undefined;   // 修好 key：重新加载后不再按旧错误失败
       orchestrator.reloadConfig({ ...(cfg as never), createProviderAdapter: () => adapter });
     },
@@ -398,6 +433,8 @@ async function makeRuntimeHarness(opts?: {
   runtime.injectForTest({ inboxReader, auditWriter: audit, llm: runtimeLlm });
 
   const turns: RuntimeHarness['turns'] = [];
+  const preparationSignal = new TestEventSignal<void>();
+  const batchCompleteSignal = new TestEventSignal<void>();
   const runtimeAny = runtime as unknown as Record<string, unknown>;
   runtimeAny.computeTurnRequestFingerprint = async () => 'fp-combo';
   // Phase 1847: 真实 Messaging 驱动返回原批次（reload 控制消息仍在此拦截并 ack），
@@ -411,12 +448,14 @@ async function makeRuntimeHarness(opts?: {
     }
     const addressed = result.entries.filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE);
     const handleByPath = new Map(result.handles.map(h => [h.filePath, h]));
-    return {
+    const prepared = {
       entries: addressed.map(e => ({
         message: e.message,
         handle: handleByPath.get(e.filePath)!,
       })),
     };
+    preparationSignal.emit(undefined);
+    return prepared;
   };
   runtimeAny.formatPreparedInbox = async (batch: { entries: ReadonlyArray<{ message: InboxMessage }> }) => ({
     injected: batch.entries.map(e => ({ role: 'user' as const, content: e.message.content })),
@@ -444,6 +483,7 @@ async function makeRuntimeHarness(opts?: {
     }
   };
 
+  let messageOrder = 0;
   const writeMessage = (msg: { id: string; type: string; from: string; content: string }) => {
     fsNative.writeFileSync(path.join(pendingDir, `${msg.id}.md`), encodeInbox({
       id: msg.id,
@@ -452,7 +492,7 @@ async function makeRuntimeHarness(opts?: {
       to: 'claw-1',
       content: msg.content,
       priority: 'normal',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(Date.now() + messageOrder++).toISOString(),
     } as InboxMessage));
   };
 
@@ -463,6 +503,7 @@ async function makeRuntimeHarness(opts?: {
     clawId: 'claw-1',
     audit: { write: () => {} } as never,
     inbox: { pendingDir, fallbackTimeoutMs: 30 },
+    onBatchComplete: async () => { batchCompleteSignal.emit(undefined); },
   });
   await eventLoop.initialize();
 
@@ -472,7 +513,7 @@ async function makeRuntimeHarness(opts?: {
     providerCalls,
     turns,
     emitted,
-    reloadCalls: () => reloadCalls,
+    reloadCalls: () => reloadSignal.events.length,
     writePending: writeMessage,
     writeReload: () => writeMessage({
       id: 'reload-1',
@@ -483,6 +524,11 @@ async function makeRuntimeHarness(opts?: {
     listPending: () => fsNative.readdirSync(pendingDir).filter(n => n.endsWith('.md')),
     deletePending: (file) => { fsNative.rmSync(path.join(pendingDir, file)); },
     setProviderError: (error) => { providerError = error; },
+    waitForProviderCalls: (target) => providerCallSignal.waitForCount(target),
+    waitForReload: (target) => reloadSignal.waitForCount(target),
+    waitForEvent: (predicate, occurrence) => eventSignal.waitFor(predicate, occurrence),
+    waitForPreparation: (target) => preparationSignal.waitForCount(target),
+    waitForBatchComplete: (target) => batchCompleteSignal.waitForCount(target),
   };
 }
 
@@ -493,8 +539,8 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
 
     // 旧消息：首次尝试失败后回队，并直接消费 owner schedule；不再开 waiting-only turn。
     h.writePending({ id: 'm-old', type: 'user_chat', from: 'user', content: 'old instruction' });
-    const firstRun = h.eventLoop.run();
-    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    const firstRun = runEventLoop(h.eventLoop);
+    await h.waitForRecoveryWait(1);
     expect(h.providerCalls.length).toBe(1);
     expect(h.turns.length).toBe(1);
     expect(h.listPending()).toContain('m-old.md');
@@ -504,8 +550,8 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
 
     // 第二条真新用户消息到达：提前尝试（不等 deadline）。失败后同样直接等待 owner。
     h.writePending({ id: 'm-new', type: 'user_chat', from: 'user', content: 'new instruction' });
-    const secondRun = h.eventLoop.run();
-    await waitFor(() => h.recoveryWaits() === 2, 5_000, 10);
+    const secondRun = runEventLoop(h.eventLoop);
+    await h.waitForRecoveryWait(2);
 
     expect(h.providerCalls.length).toBe(2);
     expect(h.turns.length).toBe(2);
@@ -520,8 +566,8 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setProviderError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
-    const firstRun = h.eventLoop.run();
-    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    const firstRun = runEventLoop(h.eventLoop);
+    await h.waitForRecoveryWait(1);
     h.eventLoop.abort();
     await firstRun;
     expect(h.providerCalls.length).toBe(1);
@@ -530,9 +576,9 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
 
     // 系统消息（任务结果）到达：保存为 pending，不触发提前尝试。
     h.writePending({ id: 's-1', type: 'task_result', from: 'system', content: 'task done' });
-    const rerun = h.eventLoop.run();
+    const rerun = runEventLoop(h.eventLoop);
     // 已有 waiting 的新一轮 admission 仍由 typed waiting fallback 收束。
-    await waitFor(() => h.recoveryWaits() === 2, 5_000, 10);
+    await h.waitForRecoveryWait(2);
     expect(h.providerCalls.length).toBe(1);
     expect(h.turns.length).toBe(2);
     const after = await h.owner.inspectRecoverySchedule();
@@ -552,18 +598,26 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setProviderError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
-    const firstRun = h.eventLoop.run();
-    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    const firstRun = runEventLoop(h.eventLoop);
+    await h.waitForRecoveryWait(1);
     h.eventLoop.abort();
     await firstRun;
     expect(h.providerCalls.length).toBe(1);
 
-    // 等到 deadline（500ms 缩放值）后由 EventLoop 自动放行一次。
+    // 只推进 owner 实际安排的 deadline；机器耗时不会自行越过恢复期限。
     h.setProviderError(undefined);
-    const rerun = h.eventLoop.run();
-    // phase 1891: 正断言 waitFor 化（同 phase 1884 模式）——固定 650ms 窗假设
-    // deadline 放行 + 真实调用在窗内完成，CI 满载 tick 延迟下不成立。
-    await waitFor(() => h.providerCalls.length === 2, 5_000, 10);
+    const nextWait = h.waitForRecoveryWait(2);
+    const secondAttempt = h.waitForEvent(event => event.type === 'call_attempt_result', 2);
+    const rerun = runEventLoop(h.eventLoop);
+    await nextWait;
+    await flushRealEventLoop();
+    const schedule = await h.owner.inspectRecoverySchedule();
+    if (schedule.kind !== 'at') throw new Error('expected scheduled recovery');
+    const remaining = Date.parse(schedule.resumeAt) - Date.now();
+    if (remaining < 0) throw new Error('test already passed the deadline');
+    await vi.advanceTimersByTimeAsync(remaining);
+    await secondAttempt;
+    expect(h.emitted.filter(event => event.type === 'call_invocation_started')).toHaveLength(2);
     h.eventLoop.abort();
     await rerun;
   });
@@ -573,19 +627,24 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setProviderError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'first' });
-    const firstRun = h.eventLoop.run();
-    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    const firstRun = runEventLoop(h.eventLoop);
+    await h.waitForRecoveryWait(1);
     h.eventLoop.abort();
     await firstRun;
     expect(h.providerCalls.length).toBe(1);
     expect(h.turns.length).toBe(1);
 
-    // 新一轮 run 在等待 deadline；期间用户新消息到达（唤醒）→ 重新准入一次，
-    // 不允许同时产生第二个并发 turn。
-    const rerun = h.eventLoop.run();
-    await new Promise<void>(resolve => setImmediate(resolve));
+    // 推进到 owner 的真实 deadline，再让新用户消息与到期事实同时进入新一轮 run；
+    // 两种准入原因不得产生两个 turn。
+    const schedule = await h.owner.inspectRecoverySchedule();
+    if (schedule.kind !== 'at') throw new Error('expected scheduled recovery');
+    const remaining = Date.parse(schedule.resumeAt) - Date.now();
+    if (remaining < 0) throw new Error('test already passed the deadline');
+    vi.advanceTimersByTime(remaining);
+    const secondAttempt = h.waitForEvent(event => event.type === 'call_attempt_result', 2);
+    const rerun = runEventLoop(h.eventLoop);
     h.writePending({ id: 'm-2', type: 'user_chat', from: 'user', content: 'second' });
-    await sleep(600);   // 跨过 deadline 与唤醒处理
+    await secondAttempt;
 
     // owner 的自主 probe 也经过同一假 provider；用 invocation 审计区分真实 turn 请求，
     // 仍严格断言本次唤醒只新增一次 admission、一个 turn、一次候选真发。
@@ -607,8 +666,8 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     h.setFallbackError(QUOTA_ERROR());
 
     h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
-    const firstRun = h.eventLoop.run();
-    await waitFor(() => h.recoveryWaits() === 1, 5_000, 10);
+    const firstRun = runEventLoop(h.eventLoop);
+    await h.waitForRecoveryWait(1);
     h.eventLoop.abort();
     await firstRun;
     expect(h.providerCalls).toEqual(['primary', 'fallback']);
@@ -648,18 +707,23 @@ describe('Phase 1827 事实读取失败处理', () => {
 
     // 持续失败窗口：不得用空集合绕过（否则会立即准入并真发）。
     h.setInterventionPeekFailures(Number.POSITIVE_INFINITY);
-    const running = h.eventLoop.run();
-    await sleep(120);   // > fallbackTimeoutMs(30)：若空集合继续准入，这里已经真发
+    const firstPeek = h.waitForInterventionPeeks(1);
+    const secondPeek = h.waitForInterventionPeeks(2);
+    const running = runEventLoop(h.eventLoop);
+    await firstPeek;
+    await flushRealEventLoop();
+    await vi.advanceTimersToNextTimerAsync();
+    await secondPeek;
     expect(h.providerCalls.length).toBe(0);
     expect(h.turns.length).toBe(0);
 
-    // 读取恢复：重读拿到真实用户事实，正常准入一次。
+    // 读取恢复：推进生产已安排的下一次重读，拿到真实用户事实后准入一次。
+    const thirdPeek = h.waitForInterventionPeeks(3);
+    const firstCall = h.waitForProviderCalls(1);
     h.setInterventionPeekFailures(0);
-    // phase 1884: 正断言 waitFor 化——固定 sleep(150) 窗假设重读+准入在 150ms
-    // 内完成，满载下 event-loop tick 调度延迟 → flaky（l5_event_loop §9 #1）；
-    // 改真实时间轮询命中即过（预算 5000ms = 隔离实测 322ms 的 ~15×；
-    // 上方负断言 sleep(120) 固定窗保留——「不得空集合准入」的反向验证不动）
-    await waitFor(() => h.providerCalls.length === 1, 5_000, 10);
+    await vi.advanceTimersToNextTimerAsync();
+    await thirdPeek;
+    await firstCall;
     expect(h.providerCalls.length).toBe(1);
     expect(h.turns.length).toBe(1);
     expect(h.turns[0].map(m => m.content)).toEqual(['hello']);
@@ -675,19 +739,16 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
 
     // 第一次：permanent 失败 → 安排 at；旧用户 id 已被接受记账。
-    await h.eventLoop.run();
+    await runEventLoop(h.eventLoop);
     expect(h.providerCalls.length).toBe(1);
     expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
     expect(h.listPending()).toContain('old-user.md');
 
     // 用户修好配置：reload 控制消息落盘；真实 consumePendingControls 应用并返回新修订。
     h.writeReload();
-    const running = h.eventLoop.run();
-    // D.llm-recovery-z5-second-request-timing 治理（同 phase 1884 在上文「读取失败」
-    // 用例的形态）：固定 sleep(150) 窗假设 reload 消费+恢复准入+第二次真发在 150ms 内
-    // 完成，满载下 event-loop tick 调度延迟 → flaky（N=2，l5_event_loop §9）；改真实
-    // 时间轮询命中即过（预算 5000ms），命中后再 abort。断言面不变。
-    await waitFor(() => h.providerCalls.length === 2, 5_000, 10);
+    const running = runEventLoop(h.eventLoop);
+    // provider 调用事件覆盖 reload 消费、恢复准入和第二次真发；命中后再 abort。
+    await h.waitForProviderCalls(2);
     h.eventLoop.abort();
     await running;
 
@@ -715,21 +776,30 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     const h = await makeRuntimeHarness();
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
-    await h.eventLoop.run();
+    await runEventLoop(h.eventLoop);
     expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
     expect(h.providerCalls.length).toBe(1);
 
     // 本批只有 reload：应用并 ack 控制消息，但没有 LLM invocation 可接收 facts。
     h.deletePending('old-user.md');
     h.writeReload();
-    await h.eventLoop.run();
+    const reloadRun = runEventLoop(h.eventLoop);
+    await h.waitForReload(1);
+    await h.waitForPreparation(2);
+    h.eventLoop.abort();
+    await reloadRun;
     expect(h.reloadCalls()).toBe(1);
     expect(h.providerCalls.length).toBe(1);
     expect(h.listPending()).toHaveLength(0);
 
     // 后续非用户消息不自带提前资格；暂存的配置修订必须仍能触达 owner。
     h.writePending({ id: 'task-result', type: 'task_result', from: 'system', content: 'done' });
-    await h.eventLoop.run();
+    const secondBatch = h.waitForBatchComplete(2);
+    const taskRun = runEventLoop(h.eventLoop);
+    await h.waitForProviderCalls(2);
+    await secondBatch;
+    h.eventLoop.abort();
+    await taskRun;
     expect(h.providerCalls.length).toBe(2);
     expect(h.emitted.some(
       event => event.type === 'recovery_facts_accepted' && event.configurationRevision !== undefined,
@@ -741,12 +811,12 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     const h = await makeRuntimeHarness();
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
-    await h.eventLoop.run();
+    await runEventLoop(h.eventLoop);
     expect(h.providerCalls.length).toBe(1);
 
     h.writeReload();
-    const firstRun = h.eventLoop.run();
-    await waitFor(() => h.reloadCalls() === 1, 5_000, 10);
+    const firstRun = runEventLoop(h.eventLoop);
+    await h.waitForReload(1);
     h.eventLoop.abort();
     await firstRun;
     const reloadsAfterFirst = h.reloadCalls();
@@ -754,8 +824,9 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     expect(reloadsAfterFirst).toBe(1);
 
     // 同一 reload 消息仍在 pending（正常 drain 才消费一次）+ 同一配置身份重送 → 不再 reload。
-    const secondRun = h.eventLoop.run();
-    await new Promise<void>(resolve => setImmediate(resolve));
+    const secondPreparation = h.waitForPreparation(3);
+    const secondRun = runEventLoop(h.eventLoop);
+    await secondPreparation;
     h.eventLoop.abort();
     await secondRun;
     expect(h.reloadCalls()).toBe(reloadsAfterFirst);
@@ -782,18 +853,16 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
     h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
 
     // 第一次：permanent 失败 → 安排 at。
-    await h.eventLoop.run();
+    await runEventLoop(h.eventLoop);
     expect(h.providerCalls.length).toBe(1);
     expect((await h.owner.inspectRecoverySchedule()).kind).toBe('at');
 
     // 用户只改 temperature → reload 落盘并接受新修订，但不发起第二次请求。
     currentTemperature = 0.5;
     h.writeReload();
-    const running = h.eventLoop.run();
-    await waitFor(() => h.emitted.some(
-      event => event.type === 'recovery_facts_accepted'
-        && event.configurationRevision === 'id-primary-0.5',
-    ), 5_000, 10);
+    const running = runEventLoop(h.eventLoop);
+    await h.waitForEvent(event => event.type === 'recovery_facts_accepted'
+      && event.configurationRevision === 'id-primary-0.5');
     h.eventLoop.abort();
     await running;
 

@@ -1126,11 +1126,18 @@ describe('Phase 833: migrated exec stream events', () => {
   let audit: AuditLog;
   let system: AsyncTaskSystem;
   let streamEvents: Array<Record<string, unknown>>;
+  const listeners: Array<(entry: Record<string, unknown>) => void> = [];
 
   beforeEach(async () => {
     streamEvents = [];
+    listeners.length = 0;
     const events = streamEvents;
-    const streamLog = { write: (entry: Record<string, unknown>) => { events.push(entry); } };
+    const streamLog = {
+      write: (entry: Record<string, unknown>) => {
+        events.push(entry);
+        for (const listener of [...listeners]) listener(entry);
+      },
+    };
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `migrated-exec-stream-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
@@ -1149,9 +1156,24 @@ describe('Phase 833: migrated exec stream events', () => {
   });
 
   afterEach(async () => {
+    listeners.length = 0;
     await system.shutdown(1000).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
+
+  function completedFor(fullTaskId: string): Promise<Record<string, unknown>> {
+    const completed = streamEvents.find(entry => entry.type === 'task_completed' && entry.fullTaskId === fullTaskId);
+    if (completed) return Promise.resolve(completed);
+
+    return new Promise(resolve => {
+      const listener = (entry: Record<string, unknown>) => {
+        if (entry.type !== 'task_completed' || entry.fullTaskId !== fullTaskId) return;
+        listeners.splice(listeners.indexOf(listener), 1);
+        resolve(entry);
+      };
+      listeners.push(listener);
+    });
+  }
 
   it('emits task_started when command migrates to background', async () => {
     const execWithHandle = createExecWithHandle();
@@ -1201,14 +1223,14 @@ describe('Phase 833: migrated exec stream events', () => {
     const fullId = result.metadata?.fullTaskId as string;
 
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const completion = completedFor(fullId);
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    const completed = await completion;
 
-    const completed = streamEvents.find(e => e.type === 'task_completed');
-    expect(completed).toBeDefined();
-    expect(completed?.taskId).toBe(shortId);
-    expect(completed?.fullTaskId).toBe(fullId);
-    expect(completed?.taskKind).toBe('exec_migrated');
+    expect(await fs.stat(runningFile).then(() => true).catch(() => false)).toBe(false);
+    expect(completed.taskId).toBe(shortId);
+    expect(completed.fullTaskId).toBe(fullId);
+    expect(completed.taskKind).toBe('exec_migrated');
   });
 
   it('preserves the complete long command in task_started and the running task', async () => {
