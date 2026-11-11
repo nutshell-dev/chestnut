@@ -65,6 +65,8 @@ import {
   type SuccessContextSignal,
 } from './pi-ai-errors.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr, newUuid } from '../node-utils/index.js';
+import { emitInputMeasurement, inputProjectionHash } from './input-measurement-observer.js';
 
 /** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
 export interface PiAiAdapterOptions {
@@ -245,8 +247,37 @@ export class PiAiAdapter implements ProviderAdapter {
     const { models, model } = await this.endpoint();
     const context = buildPiAiContext(this.config, options, model);
     const inputBudget = await this.inputBudgetEvidence(undefined, maxTokensOverride ?? options.maxTokens);
+    const requestId = newUuid();
+    let measuredInputTokens: number | undefined;
+    try {
+      const meter = await this.prepareInputMeter({ maxTokens: maxTokensOverride ?? options.maxTokens, temperature: options.temperature });
+      const measurement = meter.measure(options);
+      measuredInputTokens = measurement.kind === 'counted' || measurement.kind === 'estimated'
+        ? measurement.tokens : undefined;
+      emitInputMeasurement(options.onInputMeasurement, {
+        kind: 'prepared',
+        requestId,
+        provider: this.name,
+        model: model.id,
+        descriptor: meter.descriptor,
+        measurement,
+        inputHash: inputProjectionHash(context),
+        inputSource: 'unlinked',
+      });
+    } catch (error) {
+      // silent: meter failure is represented as an input-measurement fact.
+      emitInputMeasurement(options.onInputMeasurement, {
+        kind: 'failed',
+        requestId,
+        provider: this.name,
+        model: model.id,
+        reason: error instanceof Error ? error.message : 'input_meter_failed',
+      });
+    }
     const timeout = options.timeoutMs ?? this.config.timeoutMs;
     const capture: HttpErrorCapture = {};
+    let terminalObserved = false;
+    let failureObserved = false;
     // Google 退化族：pi-ai 适配器拒绝注入 fetch（G1）——不注入，错误面走文本判定
     const googleFamily = isGoogleFamilyApi(model.api);
     const [abortHandle, cleanup] = withCombinedAbortSignal(options.signal, timeout);
@@ -270,13 +301,62 @@ export class PiAiAdapter implements ProviderAdapter {
           abortHandle.clearInternalTimeout();
         }
         if (event.type === 'error') {
+          failureObserved = true;
           throw await this.constructStreamError(event, capture, options.signal, timeout, inputBudget);
+        }
+        if (event.type === 'done') {
+          terminalObserved = true;
+          const usage = mapUsage(event.message.usage);
+          const totalUsageInputTokens = usage
+            ? usage.inputTokens + (usage.cacheCreationInputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0)
+            : undefined;
+          emitInputMeasurement(options.onInputMeasurement, {
+            kind: 'completed',
+            requestId,
+            provider: this.name,
+            model: model.id,
+            ...(usage && { usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              ...(usage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: usage.cacheCreationInputTokens } : {}),
+              ...(usage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: usage.cacheReadInputTokens } : {}),
+            } }),
+            ...(totalUsageInputTokens !== undefined ? { totalUsageInputTokens } : {}),
+            ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
+            ...(totalUsageInputTokens !== undefined && measuredInputTokens !== undefined ? { deltaTokens: totalUsageInputTokens - measuredInputTokens } : {}),
+            reconciliation: totalUsageInputTokens === undefined
+              ? 'no_usage'
+              : measuredInputTokens === undefined
+                ? 'unavailable'
+                : totalUsageInputTokens === measuredInputTokens ? 'matched' : 'mismatch',
+          });
         }
         yield event;
       }
     } catch (err) {
+      if (!failureObserved && !terminalObserved) {
+        failureObserved = true;
+        emitInputMeasurement(options.onInputMeasurement, {
+          kind: 'failed',
+          requestId,
+          provider: this.name,
+          model: model.id,
+          reason: formatErr(err),
+          ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
+        });
+      }
       throw await this.constructThrownError(err, capture, options.signal, timeout, inputBudget);
     } finally {
+      if (!terminalObserved && !failureObserved) {
+        emitInputMeasurement(options.onInputMeasurement, {
+          kind: 'failed',
+          requestId,
+          provider: this.name,
+          model: model.id,
+          reason: 'stream_ended_without_done',
+          ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
+        });
+      }
       cleanup();
     }
   }

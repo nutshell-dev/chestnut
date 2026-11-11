@@ -8,6 +8,13 @@
 export { THINKING_LEVELS } from './thinking-levels.js';
 export type { ThinkingLevel } from './thinking-levels.js';
 export type { CompleteInput, InputMeterDescriptor, InputMeasurement, ModelInputMeter } from './input-meter.js';
+export {
+  emitInputMeasurement,
+  inputProjectionHash,
+  type InputMeasurementObservation,
+  type InputMeasurementObserver,
+  type InputMeasurementUsage,
+} from './input-measurement-observer.js';
 export { createDeepseekV41Meter } from './deepseek-v41-meter.js';
 export { resolveThinkingDefaults } from './thinking-defaults.js';
 export type { ResolvedThinkingDefaults } from './thinking-defaults.js';

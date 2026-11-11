@@ -83,9 +83,9 @@ void _providerAttemptFailed;
 void _taskStarted;
 
 describe('StreamEvent contract', () => {
-  it('STREAM_EVENT_NAMES 成员数 == 57（phase 2068 +1 旧配置诊断）', () => {
+  it('STREAM_EVENT_NAMES 成员数 == 58（phase 2112 +1 输入计量观察）', () => {
     const keys = Object.keys(STREAM_EVENT_NAMES);
-    expect(keys.length).toBe(57);
+    expect(keys.length).toBe(58);
   });
 
   it('协议层不含上层业务事件（分层拆件：agent 6 / task 3 / daemon 1 归各模块 const）', () => {
@@ -142,6 +142,7 @@ describe('StreamEvent contract', () => {
       'call_attempt_result',
       'call_selection',
       'call_audit_write_failed',
+      'input_measurement',
       // phase 1826: 恢复安排事件（owner = llm-orchestrator）
       'recovery_scheduled',
       'recovery_ready',

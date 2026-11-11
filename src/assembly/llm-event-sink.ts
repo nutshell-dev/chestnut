@@ -335,6 +335,23 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
         `provider=${event.provider ?? 'none'}`, `provider_id=${event.providerId ?? 'none'}`,
         `attempt_index=${event.attemptIndex ?? 'none'}`);
       break;
+    case 'input_measurement': {
+      const observation = event.observation;
+      w(LLM_AUDIT_EVENTS.INPUT_MEASUREMENT,
+        `request=${observation.requestId}`,
+        `phase=${observation.kind}`,
+        `invocation=${event.invocationId ?? 'none'}`,
+        `attempt=${event.attemptId ?? 'none'}`,
+        `provider=${event.provider}`,
+        `model=${event.model}`,
+        ...(observation.kind === 'prepared'
+          ? [`revision=${observation.descriptor.revision}`, `method=${observation.measurement.kind === 'unavailable' ? 'unavailable' : observation.measurement.method}`, `input_tokens=${observation.measurement.kind === 'unavailable' ? 'none' : observation.measurement.tokens}`, `input_hash=${observation.inputHash}`, `input_source=${observation.inputSource}`]
+          : observation.kind === 'completed'
+            ? [`reconciliation=${observation.reconciliation}`, `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`, `usage_input_tokens=${observation.totalUsageInputTokens ?? 'none'}`, `delta_tokens=${observation.deltaTokens ?? 'none'}`]
+            : [`reason=${observation.reason}`, `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`]),
+      );
+      break;
+    }
     // 由本 sink 在审计持久化降级时直接写（LLMOrchestrator 不产生）；case 备完整性。
     case 'call_audit_write_failed':
       w(LLM_AUDIT_EVENTS.CALL_AUDIT_WRITE_FAILED,

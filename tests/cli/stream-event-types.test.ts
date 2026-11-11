@@ -30,9 +30,9 @@ const taskValues = Object.values(STREAM_TASK_EVENTS) as string[];
 const assemblyValues = Object.values(ASSEMBLY_STREAM_EVENTS) as string[];
 
 describe('CLI stream event 汇总', () => {
-  it('4 个 const 并集值集合 == 67（phase 2068 +1 旧配置诊断）', () => {
+  it('4 个 const 并集值集合 == 68（phase 2112 +1 输入计量观察）', () => {
     const allValues = [...protocolValues, ...agentValues, ...taskValues, ...assemblyValues];
-    expect(new Set(allValues).size).toBe(67);
+    expect(new Set(allValues).size).toBe(68);
   });
 
   it('上层 const 与协议层无交集（值级）', () => {

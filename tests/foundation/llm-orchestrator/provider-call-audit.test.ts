@@ -27,7 +27,7 @@ import type {
   LLMEventSink,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { InputMeasurementObservation, ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
 import { replaceProviderStates } from './test-internals.js';
 
@@ -64,6 +64,42 @@ function failProvider(name: string, error: Error): ProviderAdapter {
     name,
     model: 'model-x',
     call: async () => { throw error; },
+    stream: async function* () { throw new Error('stream not enabled in this test'); },
+  };
+}
+
+function observingProvider(name: string): ProviderAdapter {
+  return {
+    name,
+    model: 'model-x',
+    call: async (options) => {
+      const prepared: InputMeasurementObservation = {
+        kind: 'prepared',
+        requestId: 'req-observed',
+        provider: name,
+        model: 'model-x',
+        descriptor: {
+          revision: 'rev-observed', provider: name, model: 'model-x', api: 'openai',
+          contextWindow: 1_000_000, profile: 'test-meter',
+        },
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        inputHash: 'hash-observed',
+        inputSource: 'unlinked',
+      };
+      options.onInputMeasurement?.(prepared);
+      options.onInputMeasurement?.({
+        kind: 'completed',
+        requestId: prepared.requestId,
+        provider: name,
+        model: 'model-x',
+        usage: { inputTokens: 12, outputTokens: 2 },
+        totalUsageInputTokens: 12,
+        measuredInputTokens: 12,
+        deltaTokens: 0,
+        reconciliation: 'matched',
+      });
+      return OK_RESPONSE;
+    },
     stream: async function* () { throw new Error('stream not enabled in this test'); },
   };
 }
@@ -188,6 +224,34 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe('provider 调用路径审计（磁盘重建）', () => {
+  it('input measurement phases retain the request id and invocation attempt correlation', async () => {
+    const dir = await makeDir();
+    const h = makeHarness(dir, {
+      providers: { observed: observingProvider('observed') },
+      primaryName: 'observed',
+    });
+
+    await h.service.call(CALL);
+
+    const rows = await h.readRows();
+    const inv = lastInvocationId(rows);
+    const started = invocationRows(rows, inv).find(row => row.type === 'llm_call_invocation_started');
+    const attemptId = colMap(started!).attempt;
+    const measurements = invocationRows(rows, inv)
+      .filter(row => row.type === 'llm_input_measurement')
+      .map(colMap);
+    expect(measurements).toHaveLength(2);
+    expect(measurements.map(row => row.phase)).toEqual(['prepared', 'completed']);
+    expect(measurements.every(row => row.request === 'req-observed')).toBe(true);
+    expect(measurements.every(row => row.attempt === attemptId)).toBe(true);
+    expect(measurements[0]).toEqual(expect.objectContaining({
+      provider: 'observed', model: 'model-x', method: 'deepseek-v41-template', input_tokens: '12', input_source: 'unlinked',
+    }));
+    expect(measurements[1]).toEqual(expect.objectContaining({
+      reconciliation: 'matched', measured_input_tokens: '12', usage_input_tokens: '12', delta_tokens: '0',
+    }));
+  });
+
   it('primary 成功：started/attempt/selection 关联同一 invocation，最终 provider 明确', async () => {
     const dir = await makeDir();
     const h = makeHarness(dir, {

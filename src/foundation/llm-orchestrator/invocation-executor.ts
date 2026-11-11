@@ -86,6 +86,7 @@ export interface InvocationExecutor {
     estimatedInputTokens: number,
     generation: number,
     updateSelection?: boolean,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
   ): Promise<LLMResponse>;
   minimalProbe(
     provider: LLMProvider,
@@ -206,6 +207,28 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     return timeoutInputTokens(observation);
   }
 
+  private inputMeasurementObserver(
+    adapter: LLMProvider,
+    options: LLMCallOptions,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
+  ) {
+    return (observation: import('../llm-provider/index.js').InputMeasurementObservation): void => {
+      try { options.onInputMeasurement?.(observation); } catch { /* silent: observer contract is non-throwing */ }
+      try {
+        this.events.emit({
+          type: 'input_measurement',
+          ...(correlation?.invocationId !== undefined ? { invocationId: correlation.invocationId } : {}),
+          ...(correlation?.attemptId !== undefined ? { attemptId: correlation.attemptId } : {}),
+          provider: adapter.name,
+          model: adapter.model,
+          observation,
+        });
+      } catch {
+        // silent: LLM event sinks are observational and must not change provider outcome.
+      }
+    };
+  }
+
   async prepareInputBudget(request: InputBudgetRequest): Promise<InputBudgetResult> {
     const adapters = [this.primary, ...this.fallbacks];
     if (request.kind === 'failure') {
@@ -220,6 +243,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
               ? { kind: 'available', meter }
               : { kind: 'unavailable', reason: 'stale_revision' };
           } catch {
+            // silent: stale provider evidence is returned as an explicit unavailable result.
             return { kind: 'unavailable', reason: 'stale_revision' };
           }
         }
@@ -236,6 +260,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     try {
       return { kind: 'available', meter: await selected.prepareInputMeter() };
     } catch {
+      // silent: missing provider capability is returned as an explicit unavailable result.
       return { kind: 'unavailable', reason: 'missing_evidence' };
     }
   }
@@ -386,6 +411,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     estimatedInputTokens: number,
     generation: number,
     updateSelection = true,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
     const candidateInputTokens = await this.inputTokensFor(adapter, options, estimatedInputTokens);
@@ -417,6 +443,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         hardTimeoutMs: undefined,
         streamIdleTimeoutMs: undefined,
         timeoutMs: options.timeoutMs ?? dynamicTimeoutMs,
+        onInputMeasurement: this.inputMeasurementObserver(adapter, options, correlation),
       };
 
       try {
@@ -681,7 +708,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           } else {
             attemptedProviderIds.add(this.identityAt(stickyIdx + 1, stickyFb.name));
             try {
-              const response = await this.tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
+              const response = await this.tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation, true, inv);
               this.noteCandidateSuccess(inv, stickyFb.name, this.identityAt(stickyIdx + 1, stickyFb.name));
               return response;
             } catch (err) {
@@ -702,7 +729,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       } else {
         attemptedProviderIds.add(this.identityAt(0, this.primary.name));
         try {
-          const response = await this.tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
+          const response = await this.tryCallProvider(this.primary, 0, false, options, limits.maxAttempts, estimatedInputTokens, inv.generation, true, inv);
           this.noteCandidateSuccess(inv, this.primary.name, this.identityAt(0, this.primary.name));
           return response;
         } catch (err) {
@@ -738,7 +765,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             to: this.fallbacks[i].name,
             reason: primaryFailed ? 'primary_exhausted' : 'primary_breaker_open',
           });
-          const response = await this.tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation);
+          const response = await this.tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts, estimatedInputTokens, inv.generation, true, inv);
           this.noteCandidateSuccess(inv, this.fallbacks[i].name, providerId);
           return response;
         } catch (err) {
@@ -889,6 +916,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
               this.baseTimeoutFor(adapter, isFallback),
               candidateInputTokens,
             ),
+            onInputMeasurement: this.inputMeasurementObserver(adapter, options, inv),
           };
 
           let pendingDone: ProviderStreamChunk | null = null;

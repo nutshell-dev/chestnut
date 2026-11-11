@@ -14,6 +14,7 @@ import type {
   ProviderAdapter,
   PiAiCredentialStore,
   LLMCallOptions as L1LLMCallOptions,
+  InputMeasurementObservation,
 } from '../llm-provider/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
 import type { ModelInputMeter } from '../llm-provider/index.js';
@@ -115,6 +116,7 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.CALL_INVOCATION_STARTED; orchestratorInstance: string; invocationId: string; attemptId: string; kind: 'call' | 'stream'; configRevision: number; candidates: { name: string; providerId: string }[] }
   | { type: typeof STREAM_EVENT_NAMES.CALL_ATTEMPT_RESULT; invocationId: string; attemptId?: string; attemptIndex: number; provider: string; providerId: string; outcome: 'success' | 'failure' | 'skipped' | 'discarded'; errorClass?: LLMErrorClass; error?: string; reason?: string }
   | { type: typeof STREAM_EVENT_NAMES.CALL_SELECTION; invocationId: string; attemptId?: string; outcome: 'selected' | 'exhausted'; provider?: string; providerId?: string; attemptIndex?: number }
+  | { type: typeof STREAM_EVENT_NAMES.INPUT_MEASUREMENT; invocationId?: string; attemptId?: string; provider: string; model: string; observation: InputMeasurementObservation }
   // 由装配层 sink 在审计持久化降级/失败时产生（LLMOrchestrator 不产生本事件）。
   | { type: typeof STREAM_EVENT_NAMES.CALL_AUDIT_WRITE_FAILED; eventType: string; invocationId?: string; reason: string }
   // 恢复事件只携稳定实例与 invocation/attempt 关联，不再有 scope/turn。

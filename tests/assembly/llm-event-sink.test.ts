@@ -466,6 +466,68 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     ]));
   });
 
+  it('persists input measurement phases with request and call correlation', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'input_measurement',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
+      provider: 'p',
+      model: 'model-x',
+      observation: {
+        kind: 'prepared',
+        requestId: 'req-1',
+        provider: 'p',
+        model: 'model-x',
+        descriptor: {
+          revision: 'rev-1', provider: 'p', model: 'model-x', api: 'openai',
+          contextWindow: 1_000_000, profile: 'deepseek-v41-flash-1017-v1',
+        },
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        inputHash: 'hash-1',
+        inputSource: 'unlinked',
+      },
+    });
+    sink.emit({
+      type: 'input_measurement',
+      invocationId: 'inv-1',
+      attemptId: 'att-1',
+      provider: 'p',
+      model: 'model-x',
+      observation: {
+        kind: 'completed',
+        requestId: 'req-1',
+        provider: 'p',
+        model: 'model-x',
+        usage: { inputTokens: 12, outputTokens: 3 },
+        totalUsageInputTokens: 12,
+        measuredInputTokens: 12,
+        deltaTokens: 0,
+        reconciliation: 'matched',
+      },
+    });
+
+    expect(audit.writes).toEqual([
+      [
+        'llm_input_measurement', 'request=req-1', 'phase=prepared',
+        'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
+        'revision=rev-1', 'method=deepseek-v41-template', 'input_tokens=12', 'input_hash=hash-1', 'input_source=unlinked',
+      ],
+      [
+        'llm_input_measurement', 'request=req-1', 'phase=completed',
+        'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
+        'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=12', 'delta_tokens=0',
+      ],
+    ]);
+    expect(stream.events).toEqual([
+      expect.objectContaining({ type: 'input_measurement', invocationId: 'inv-1', attemptId: 'att-1' }),
+      expect.objectContaining({ type: 'input_measurement', invocationId: 'inv-1', attemptId: 'att-1' }),
+    ]);
+  });
+
   it('fans out provider_close_failed to audit and stream with the original error', () => {
     const audit = makeAudit();
     const stream = makeStream();

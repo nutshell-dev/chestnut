@@ -80,6 +80,7 @@ export const STREAM_EVENT_NAMES = {
   CALL_INVOCATION_STARTED: 'call_invocation_started',
   CALL_ATTEMPT_RESULT: 'call_attempt_result',
   CALL_SELECTION: 'call_selection',
+  INPUT_MEASUREMENT: 'input_measurement',
   CALL_AUDIT_WRITE_FAILED: 'call_audit_write_failed',
   PROBE_TARGET_SELECTED: 'probe_target_selected',
   // context trim 展示（2，phase 1978；EventLoop trim 路径的结构化状态，供 viewport 分流）

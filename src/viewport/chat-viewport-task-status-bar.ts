@@ -220,7 +220,7 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
       case 'context_trim_retry_scheduled': case 'context_trim_blocked':
       case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed': case 'legacy_config_ignored':case 'call_invocation_started': case 'call_attempt_result': case 'call_selection': case 'call_audit_write_failed': case 'probe_target_selected':
       case 'system_notify':
-      case 'session_boundary': case 'daemon_started':
+      case 'session_boundary': case 'daemon_started': case 'input_measurement':
       case 'task_started': case 'task_completed': case 'task_attempt_start':
         return;
 
