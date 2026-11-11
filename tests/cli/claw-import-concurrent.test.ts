@@ -51,7 +51,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  logSpy.mockRestore();
+  vi.restoreAllMocks();
   if (originalRoot === undefined) delete process.env.CHESTNUT_ROOT;
   else process.env.CHESTNUT_ROOT = originalRoot;
   await cleanupTempDir(tmpDir);
@@ -292,9 +292,12 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
     const clawDir = path.join(tmpDir, '.chestnut', 'claws', 'alice');
     const evidenceRoot = path.join(clawDir, 'status', 'cli-import-claims');
     const evidence = fs.readdirSync(evidenceRoot, { recursive: true })
-      .map(String).filter(name => name.endsWith('000001.json'));
-    expect(evidence).toHaveLength(1);
-    const record = JSON.parse(fs.readFileSync(path.join(evidenceRoot, evidence[0]), 'utf8'));
+      .map(String).filter(name => /^\d{6}\.json$/.test(path.basename(name))).sort();
+    expect(evidence).toHaveLength(2);
+    const record = JSON.parse(fs.readFileSync(path.join(
+      evidenceRoot,
+      evidence.find(name => name.endsWith('000002.json'))!,
+    ), 'utf8'));
     expect(record).toMatchObject({
       kind: 'holder_observed', raw, decision: 'retain',
       observed: { kind: 'unknown', reason: 'query_failed' },
@@ -326,7 +329,7 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
     expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
   });
 
-  it('Step B keeps the legacy writer while adding compatible reads', async () => {
+  it('Step C writes one v1 capture into initial and manifest claims', async () => {
     const destParent = clawspaceDir();
     const claimPayloads: Array<Record<string, unknown>> = [];
     const observingFactory = (baseDir: string): FileSystem => {
@@ -347,11 +350,212 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
 
     expect(claimPayloads).toHaveLength(2);
     for (const payload of claimPayloads) {
-      expect(payload).toMatchObject({ pid: process.pid, token: expect.any(String) });
-      expect(payload).not.toHaveProperty('schema_version');
-      expect(payload).not.toHaveProperty('holder');
+      expect(payload).toMatchObject({
+        schema_version: 1,
+        token: claimPayloads[0].token,
+        createdAt: claimPayloads[0].createdAt,
+        holder: { kind: 'captured', value: expect.any(String), evidence: expect.any(Object) },
+      });
+      expect(payload).not.toHaveProperty('pid');
+      expect(payload).not.toHaveProperty('process_start_time');
+      expect(payload.holder).toEqual(claimPayloads[0].holder);
     }
+    expect(claimPayloads[0]).not.toHaveProperty('manifestHash');
     expect(claimPayloads[1]).toMatchObject({ manifestHash: expect.any(String) });
+  });
+
+  it.each([
+    ['EIO', 'unknown'],
+    ['ESRCH', 'gone'],
+  ])('self capture %s (%s) rejects before target placeholder creation', async (code, kind) => {
+    const originalKill = process.kill.bind(process);
+    vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === process.pid) throw Object.assign(new Error(`simulated ${code}`), { code });
+      return originalKill(pid, signal);
+    });
+
+    await expect(
+      importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'capture', published: false,
+      pendingEvent: { kind: 'self_capture', capture: { kind } },
+    });
+
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle'))).toBe(false);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('non-durable initial claim stops before staging or payload publication', async () => {
+    const destParent = clawspaceDir();
+    const atomicResult = {
+      kind: 'committed_durability_unknown',
+      error: new Error('claim directory fsync failed'),
+    };
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(destParent)) {
+        const originalWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (targetPath, content) => {
+          const result = originalWrite(targetPath, content);
+          return targetPath === 'src-bundle/.import-claim' ? atomicResult : result;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'write_claim', published: false, atomicResult,
+    });
+
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', '.import-claim'))).toBe(true);
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', 'a.txt'))).toBe(false);
+    expect(fs.readdirSync(destParent).filter(name => name.startsWith('.import-staging-'))).toEqual([]);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('non-durable manifest claim stops before payload publication and preserves staging', async () => {
+    const destParent = clawspaceDir();
+    const atomicResult = {
+      kind: 'committed_platform_limited' as const,
+      error: new Error('manifest durability unavailable'),
+    };
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(destParent)) {
+        const originalWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (targetPath, content) => {
+          const result = originalWrite(targetPath, content);
+          const isManifest = targetPath === 'src-bundle/.import-claim'
+            && (JSON.parse(content) as { manifestHash?: unknown }).manifestHash !== undefined;
+          return isManifest ? atomicResult : result;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'write_claim', published: false, atomicResult,
+    });
+
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', 'a.txt'))).toBe(false);
+    expect(fs.readFileSync(path.join(destParent, 'src-bundle', '.import-claim'), 'utf8'))
+      .toContain('manifestHash');
+    expect(fs.readdirSync(destParent).filter(name => name.startsWith('.import-staging-')))
+      .toHaveLength(1);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('final token replacement fails before publication_ready', async () => {
+    const destParent = clawspaceDir();
+    const claimPath = path.join(destParent, 'src-bundle', '.import-claim');
+    const racingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(destParent)) {
+        const originalLink = real.linkExclusiveSync.bind(real);
+        real.linkExclusiveSync = (from, to) => {
+          const result = originalLink(from, to);
+          const claim = JSON.parse(fs.readFileSync(claimPath, 'utf8')) as { token: string };
+          claim.token = 'external-replacement';
+          fs.writeFileSync(claimPath, JSON.stringify(claim, null, 2));
+          return result;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(racingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/placeholder identity was lost/);
+
+    const evidenceRoot = path.join(tmpDir, '.chestnut', 'claws', 'alice', 'status', 'cli-import-claims');
+    const events = fs.readdirSync(evidenceRoot, { recursive: true }).map(String)
+      .filter(name => /^\d{6}\.json$/.test(path.basename(name)))
+      .map(name => JSON.parse(fs.readFileSync(path.join(evidenceRoot, name), 'utf8')) as { kind: string });
+    expect(events.some(event => event.kind === 'publication_ready')).toBe(false);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('publication_ready evidence failure keeps the claim and suppresses success output', async () => {
+    const clawDir = path.join(tmpDir, '.chestnut', 'claws', 'alice');
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawDir)) {
+        const originalWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (targetPath, content) => {
+          if (content.includes('"kind":"publication_ready"')) {
+            throw new Error('publication_ready evidence failed');
+          }
+          return originalWrite(targetPath, content);
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'write_event', published: false,
+      pendingEvent: { kind: 'publication_ready' },
+    });
+
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', '.import-claim'))).toBe(true);
+    expect(fs.readFileSync(path.join(clawspaceDir(), 'src-bundle', 'a.txt'), 'utf8')).toBe('alpha');
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('claim delete failure reports unknown publication and preserves the original error', async () => {
+    const destParent = clawspaceDir();
+    const cause = new Error('claim delete failed');
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(destParent)) {
+        real.deleteSync = targetPath => {
+          if (targetPath === 'src-bundle/.import-claim') throw cause;
+          fs.rmSync(path.join(baseDir, targetPath), { force: true });
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'delete_claim', published: 'unknown', originalError: cause,
+    });
+
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', '.import-claim'))).toBe(true);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('committed evidence failure reports published=true without recreating claim or success output', async () => {
+    const clawDir = path.join(tmpDir, '.chestnut', 'claws', 'alice');
+    const cause = new Error('committed evidence failed');
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawDir)) {
+        const originalWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (targetPath, content) => {
+          if (content.includes('"kind":"committed"')) throw cause;
+          return originalWrite(targetPath, content);
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'write_event', published: true,
+      persistenceError: cause, pendingEvent: { kind: 'committed' },
+    });
+
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', '.import-claim'))).toBe(false);
+    expect(fs.readFileSync(path.join(clawspaceDir(), 'src-bundle', 'a.txt'), 'utf8')).toBe('alpha');
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
   });
 
   it('占位被外部删除重建（claim 丢失）→ 提交前身份核验失败，冲突留证', async () => {

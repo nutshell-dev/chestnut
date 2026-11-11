@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as nodeFs from 'node:fs';
 import * as path from 'node:path';
 import {
+  captureImportHolder,
   ImportClaimEvidenceStore,
   ImportClaimStateError,
   observeImportReference,
   readImportClaim,
+  writeImportClaim,
   type ImportClaimContext,
+  type ImportClaimV1,
   type ProcessReferenceOps,
 } from '../../src/cli/commands/claw-import-claim.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -14,6 +17,7 @@ import { decodeProcessRef } from '../../src/foundation/process-exec/index.js';
 import type {
   ProcessEvidence,
   ProcessRef,
+  ProcessRefCapture,
   ProcessRefDecode,
   ProcessRefObservation,
 } from '../../src/foundation/process-exec/index.js';
@@ -238,7 +242,7 @@ describe('directory import claim read rejection', () => {
 
     expect(error.originalError).toBe(observationError);
     expect(error.persistenceError).toBe(persistenceError);
-    expect(error.pendingEvent).toMatchObject({ kind: 'claim_read_failed', raw });
+    expect(error.pendingEvent).toMatchObject({ kind: 'claim_read_failed', raw, decoded: DECODED });
     expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
   });
 });
@@ -348,5 +352,138 @@ describe('observeImportReference', () => {
     expect(facts).toEqual({
       raw: 'exact raw', decoded: DECODED, observed: UNKNOWN, decision: 'retain',
     });
+  });
+});
+
+describe('directory import v1 claim writes', () => {
+  const CAPTURED: ProcessRefCapture = {
+    kind: 'captured', value: REF, evidence: EVIDENCE,
+  };
+
+  function newClaim(): ImportClaimV1 {
+    if (CAPTURED.kind !== 'captured') throw new Error('fixture must be captured');
+    return {
+      schema_version: 1,
+      token: 'new-token',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      source: context.source,
+      target: context.target,
+      holder: CAPTURED,
+    };
+  }
+
+  it('durably stores the complete capture before returning the same reference', () => {
+    const capture = vi.fn().mockReturnValue(CAPTURED);
+    const evidenceStore = store();
+
+    expect(captureImportHolder(evidenceStore, capture)).toBe(CAPTURED);
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(readEvents()[0]).toMatchObject({ kind: 'self_capture', capture: CAPTURED });
+    expect(readEvents()[0].capture).toEqual(CAPTURED);
+  });
+
+  it.each([
+    ['gone', { kind: 'gone', evidence: EVIDENCE }],
+    ['unknown', { kind: 'unknown', reason: 'query_failed', evidence: EVIDENCE }],
+  ] as const)('rejects a %s self capture after preserving it', (_kind, capture) => {
+    const evidenceStore = store();
+
+    const error = catchState(() => captureImportHolder(evidenceStore, () => capture));
+
+    expect(error.published).toBe(false);
+    expect(error.pendingEvent).toMatchObject({ kind: 'self_capture', capture });
+    expect(readEvents()[0].capture).toEqual(capture);
+  });
+
+  it('preserves a capture throw without inventing a capture result', () => {
+    const cause = new Error('capture exploded');
+    const evidenceStore = store();
+
+    const error = catchState(() => captureImportHolder(evidenceStore, () => { throw cause; }));
+
+    expect(error.originalError).toBe(cause);
+    expect(readEvents()[0]).toMatchObject({
+      kind: 'self_capture', outcome: 'throw', error: 'capture exploded',
+    });
+    expect(readEvents()[0]).not.toHaveProperty('capture');
+  });
+
+  it('records exact requested and written bytes around a durable claim write', () => {
+    const evidenceStore = store();
+
+    const raw = writeImportClaim(fs, evidenceStore, claimRel, newClaim());
+
+    expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
+    expect(readEvents().map(event => event.kind)).toEqual([
+      'claim_write_requested', 'claim_written',
+    ]);
+    expect(readEvents()[0].exactRaw).toBe(raw);
+    expect(readEvents()[1].exactRaw).toBe(raw);
+    expect(JSON.parse(raw)).toEqual(newClaim());
+    expect(JSON.parse(raw)).not.toHaveProperty('pid');
+    expect(JSON.parse(raw)).not.toHaveProperty('process_start_time');
+  });
+
+  it('retains the requested raw and original error when the claim write throws', () => {
+    const cause = new Error('claim write exploded');
+    const evidenceStore = store();
+    const realWrite = fs.writeAtomicSync.bind(fs);
+    vi.spyOn(fs, 'writeAtomicSync').mockImplementation((target, content) => {
+      if (target === claimRel) throw cause;
+      return realWrite(target, content);
+    });
+
+    const error = catchState(() => writeImportClaim(fs, evidenceStore, claimRel, newClaim()));
+
+    expect(error.originalError).toBe(cause);
+    expect(error.pendingEvent).toMatchObject({
+      kind: 'claim_write_requested', exactRaw: JSON.stringify(newClaim(), null, 2),
+    });
+    expect(readEvents().map(event => event.kind)).toEqual(['claim_write_requested']);
+  });
+
+  it.each(['committed_platform_limited', 'committed_durability_unknown'] as const)(
+    'stops after a %s claim write without recording success or rewriting',
+    kind => {
+      const result = { kind, error: new Error(kind) };
+      const evidenceStore = store();
+      const realWrite = fs.writeAtomicSync.bind(fs);
+      const write = vi.spyOn(fs, 'writeAtomicSync').mockImplementation((target, content) => {
+        if (target === claimRel) {
+          nodeFs.mkdirSync(path.dirname(path.join(root, target)), { recursive: true });
+          nodeFs.writeFileSync(path.join(root, target), content);
+          return result;
+        }
+        return realWrite(target, content);
+      });
+
+      const error = catchState(() => writeImportClaim(fs, evidenceStore, claimRel, newClaim()));
+
+      expect(error.atomicResult).toBe(result);
+      expect(error.published).toBe(false);
+      expect(readEvents().map(event => event.kind)).toEqual(['claim_write_requested']);
+      expect(write).toHaveBeenCalledTimes(3);
+      expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8'))
+        .toBe(JSON.stringify(newClaim(), null, 2));
+    },
+  );
+
+  it('does not continue when the post-write evidence cannot be persisted', () => {
+    const cause = new Error('claim_written evidence failed');
+    const evidenceStore = store();
+    const realWrite = fs.writeAtomicSync.bind(fs);
+    vi.spyOn(fs, 'writeAtomicSync').mockImplementation((target, content) => {
+      if (content.includes('"kind":"claim_written"')) throw cause;
+      return realWrite(target, content);
+    });
+
+    const error = catchState(() => writeImportClaim(fs, evidenceStore, claimRel, newClaim()));
+
+    expect(error.persistenceError).toBe(cause);
+    expect(error.pendingEvent).toMatchObject({ kind: 'claim_written' });
+    expect(error.published).toBe(false);
+    expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8'))
+      .toBe(JSON.stringify(newClaim(), null, 2));
   });
 });

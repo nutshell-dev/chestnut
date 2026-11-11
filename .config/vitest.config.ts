@@ -313,6 +313,8 @@ const INTEGRATION_PROCESS_FILES = [
   // Phase 2089 Step B/C: real legacy Messaging holder exit/reclaim and evidence
   'tests/foundation/messaging/claim-observation.integration.test.ts',
   'tests/foundation/messaging/claim-reference.integration.test.ts',
+  // Phase 2116 Step C: real directory-import capture, live rejection and exit recovery
+  'tests/cli/claw-import-process-reference.integration.test.ts',
 ];
 
 /**

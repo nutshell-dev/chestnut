@@ -1,6 +1,8 @@
 import {
+  captureCurrentProcessRef,
   decodeProcessRef,
   inspectProcessRef,
+  type ProcessRefCapture,
   type ProcessRefDecode,
   type ProcessRefObservation,
 } from '../../foundation/process-exec/index.js';
@@ -18,6 +20,18 @@ export type ImportClaimContext = {
   source: string;
   target: string;
   claimPath: string;
+};
+
+export type CapturedImportHolder = Extract<ProcessRefCapture, { kind: 'captured' }>;
+
+export type ImportClaimV1 = {
+  schema_version: 1;
+  token: string;
+  createdAt: string;
+  source: string;
+  target: string;
+  manifestHash?: string;
+  holder: CapturedImportHolder;
 };
 
 export type ImportClaim = {
@@ -51,6 +65,7 @@ export type HolderFacts = {
   raw: string;
   decoded?: ProcessRefDecode;
   observed?: ProcessRefObservation;
+  observationError?: unknown;
   decision: 'retain' | 'eligible';
 };
 
@@ -116,7 +131,7 @@ export class ImportClaimEvidenceStore {
 
   constructor(
     private readonly fs: FileSystem,
-    private readonly context: ImportClaimContext,
+    readonly context: ImportClaimContext,
   ) {}
 
   get location(): string {
@@ -251,13 +266,18 @@ export function observeImportReference(
 ): HolderFacts {
   const decoded = ops.decode(input);
   if (decoded.kind !== 'decoded') return { raw, decoded, decision: 'retain' };
-  const observed = ops.inspect(decoded.value);
-  return {
-    raw,
-    decoded,
-    observed,
-    decision: observed.kind === 'gone' ? 'eligible' : 'retain',
-  };
+  try {
+    const observed = ops.inspect(decoded.value);
+    return {
+      raw,
+      decoded,
+      observed,
+      decision: observed.kind === 'gone' ? 'eligible' : 'retain',
+    };
+  } catch (observationError) {
+    // silent: the caller durably records the decoded facts and original throw before rejecting.
+    return { raw, decoded, observationError, decision: 'retain' };
+  }
 }
 
 function validateBusinessClaim(
@@ -309,8 +329,13 @@ export function readImportClaim(
   ops: ProcessReferenceOps = defaultProcessReferenceOps,
 ): ImportClaim {
   let raw: string | undefined;
-  const reject = (reason: string, originalError?: unknown): never => {
+  const reject = (
+    reason: string,
+    originalError?: unknown,
+    availableFacts: Record<string, unknown> = {},
+  ): never => {
     store.append('claim_read_failed', {
+      ...availableFacts,
       ...(raw !== undefined ? { raw } : {}),
       reason,
     }, { originalError });
@@ -352,6 +377,13 @@ export function readImportClaim(
     // silent: the original error is attached to the typed rejection and durable event.
     return reject(`holder observation failed: ${formatErr(error)}`, error);
   }
+  if (facts.observationError !== undefined) {
+    return reject(
+      `holder observation failed: ${formatErr(facts.observationError)}`,
+      facts.observationError,
+      { decoded: facts.decoded },
+    );
+  }
   store.append('holder_observed', facts);
   if (facts.decision !== 'eligible') {
     throw new ImportClaimStateError(
@@ -366,4 +398,107 @@ export function readImportClaim(
     );
   }
   return parsed;
+}
+
+/** Capture exactly once and durably record the result before any target mutation. */
+export function captureImportHolder(
+  store: ImportClaimEvidenceStore,
+  capture: () => ProcessRefCapture = captureCurrentProcessRef,
+): CapturedImportHolder {
+  let result: ProcessRefCapture;
+  try {
+    result = capture();
+  } catch (error) {
+    // A thrown capture has no ProcessRefCapture to invent or persist as a result.
+    store.append('self_capture', {
+      outcome: 'throw',
+      error: formatErr(error),
+    }, { originalError: error });
+    throw new ImportClaimStateError(
+      `Import holder identity capture threw; refusing to start target mutation `
+        + `(claim: ${store.context.claimPath}, evidence: ${store.location})`,
+      {
+        context: store.context,
+        stage: 'capture',
+        evidencePath: store.location,
+        originalError: error,
+        published: false,
+      },
+    );
+  }
+  const event = store.append('self_capture', { capture: result });
+  if (result.kind !== 'captured') {
+    throw new ImportClaimStateError(
+      `Import holder identity unavailable (${result.kind}); refusing to start target mutation `
+        + `(claim: ${store.context.claimPath}, evidence: ${store.location})`,
+      {
+        context: store.context,
+        stage: 'capture',
+        evidencePath: store.location,
+        pendingEvent: event,
+        published: false,
+      },
+    );
+  }
+  return result;
+}
+
+/** Persist exact claim bytes around the atomic write and require durability. */
+export function writeImportClaim(
+  fs: FileSystem,
+  store: ImportClaimEvidenceStore,
+  claimRel: string,
+  claim: ImportClaimV1,
+): string {
+  const context = store.context;
+  let raw: string;
+  try {
+    raw = JSON.stringify(claim, null, 2);
+  } catch (error) {
+    throw new ImportClaimStateError(
+      `Import claim serialization failed (claim: ${claimRel}, evidence: ${store.location})`,
+      {
+        context,
+        stage: 'serialize_claim',
+        evidencePath: store.location,
+        originalError: error,
+        published: false,
+      },
+    );
+  }
+  const requested = store.append('claim_write_requested', { exactRaw: raw });
+  let result: AtomicWriteResult;
+  try {
+    result = fs.writeAtomicSync(claimRel, raw);
+  } catch (error) {
+    throw new ImportClaimStateError(
+      `Import claim write failed without assuming the previous bytes were replaced `
+        + `(claim: ${claimRel}, evidence: ${store.location})`,
+      {
+        context,
+        stage: 'write_claim',
+        evidencePath: store.location,
+        pendingEvent: requested,
+        originalError: error,
+        published: false,
+      },
+    );
+  }
+  if (result.kind !== 'durable') {
+    throw new ImportClaimStateError(
+      `Import claim durability unavailable (${result.kind}); committed data must not be overwritten `
+        + `(claim: ${claimRel}, evidence: ${store.location})`,
+      {
+        context,
+        stage: 'write_claim',
+        evidencePath: store.location,
+        pendingEvent: requested,
+        originalError: result.error,
+        atomicResult: result,
+        published: false,
+      },
+    );
+  }
+  store.append('claim_written', { exactRaw: raw });
+  return raw;
 }

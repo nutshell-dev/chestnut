@@ -13,16 +13,19 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
-import { getProcessStartTime } from '../../foundation/process-exec/index.js';
 import { isFileNotFound, type FileSystem, type StatInfo } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 import {
+  captureImportHolder,
   ImportClaimEvidenceStore,
+  ImportClaimStateError,
   readImportClaim,
+  writeImportClaim,
   type ImportClaim,
+  type ImportClaimV1,
 } from './claw-import-claim.js';
 
 /** import 提交态 claim 文件名（owner 单一定义，读侧门控共用）。 */
@@ -181,7 +184,7 @@ export async function importCommand(
     // 目标路径全程由本调用占有，任何阶段都不替换外部字节：
     //   1. mkdirExclusiveSync(srcName) —— 占有裁决点；任何已存在目标（文件/
     //      空目录/非空目录）→ typed 冲突，目标原样保留；
-    //   2. claim `<target>/.import-claim`（token+pid+startTime+source）——
+    //   2. claim `<target>/.import-claim`（token+完整进程引用+source）——
     //      中断窗口可区分「中断的 import」与「用户既有目录」，死 holder 可判；
     //   3. 隐藏 staging 复制并计算 manifest（每文件 bytes+sha256，manifestHash
     //      写回 claim）——source 快照事实；
@@ -206,16 +209,20 @@ export async function importCommand(
 
     interface ImportManifestEntry { path: string; bytes: number; sha256: string }
 
+    const holder = captureImportHolder(evidenceStore);
+    const claimBase: ImportClaimV1 = {
+      schema_version: 1,
+      token: myToken,
+      createdAt: new Date().toISOString(),
+      source: srcAbs,
+      target: displayRel,
+      holder,
+    };
     const writeClaim = (manifestHash?: string): void => {
-      destParentFs.writeAtomicSync(claimRel, JSON.stringify({
-        token: myToken,
-        pid: process.pid,
-        process_start_time: getProcessStartTime(process.pid),
-        createdAt: new Date().toISOString(),
-        source: srcAbs,
-        target: displayRel,
+      writeImportClaim(destParentFs, evidenceStore, claimRel, {
+        ...claimBase,
         ...(manifestHash !== undefined ? { manifestHash } : {}),
-      } satisfies ImportClaim, null, 2));
+      });
     };
 
     const readClaim = (): ImportClaim => readImportClaim(
@@ -339,8 +346,28 @@ export async function importCommand(
       );
     }
 
-    // 6. 提交：删 claim（claim 缺席即已提交）+ 清 staging
-    destParentFs.deleteSync(claimRel);
+    // 6. 提交：ready 证据先于删 claim；删除返回后发布事实已成立。
+    evidenceStore.append('publication_ready', { exactRaw: finalClaimRaw, token: myToken });
+    try {
+      destParentFs.deleteSync(claimRel);
+    } catch (error) {
+      evidenceStore.append('claim_delete_failed', {
+        exactRaw: finalClaimRaw,
+        error: formatErr(error),
+      }, { originalError: error, published: 'unknown' });
+      throw new ImportClaimStateError(
+        `Import claim deletion failed; publication state must be checked on disk `
+          + `(claim: ${claimRel}, evidence: ${evidenceStore.location})`,
+        {
+          context: claimContext,
+          stage: 'delete_claim',
+          evidencePath: evidenceStore.location,
+          originalError: error,
+          published: 'unknown',
+        },
+      );
+    }
+    evidenceStore.append('committed', { exactRaw: finalClaimRaw }, { published: true });
     await destParentFs.removeDir(stageName).catch(() => {
       // silent: staging 清理失败不影响已提交事实；残留 `.import-staging-*` 可人工删
     });
