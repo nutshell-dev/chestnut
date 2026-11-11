@@ -181,8 +181,10 @@ describe('Task System + SubAgent', () => {
       });
       const fullTaskId = ctx.taskSystem.resolveFullTaskId(taskId);
 
-      // 1. scheduleSubAgent writes the pending file by its persistence fullId
-      expect(await ctx.mockFs.exists(`tasks/queues/pending/${fullTaskId}.json`)).toBe(true);
+      // 1. persistence fullId 必须已落盘；快速 watcher 可在断言前先移到 running。
+      const pendingAtReturn = await ctx.mockFs.exists(`tasks/queues/pending/${fullTaskId}.json`);
+      const runningAtReturn = await ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`);
+      expect(pendingAtReturn || runningAtReturn).toBe(true);
 
       // 2. watcher → ingest → dispatch moves it to running/ (async, generous budget)
       await waitFor(async () => {
