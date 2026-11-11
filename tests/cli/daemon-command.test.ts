@@ -603,11 +603,14 @@ describe('daemonCommand - A4d shutdown signal', () => {
     const cmdPromise = daemonCommand('test-claw');
     const sigtermHandler = await waitForProcessOn('SIGTERM');
 
-    await expect(async () => {
-      await sigtermHandler!();
-    }).rejects.toThrow('process.exit(0)');
+    // subscribeHostExit owns the listener Promise; assert the async shutdown effects
+    // instead of expecting the host notification wrapper itself to reject.
+    sigtermHandler!();
+    await vi.waitFor(() => {
+      expect(mockState.mockDispose).toHaveBeenCalledWith('SIGTERM');
+      expect(process.exit).toHaveBeenCalledWith(0);
+    });
 
-    expect(mockState.mockDispose).toHaveBeenCalledWith('SIGTERM');
     expect(instances.processManager.retireGeneration).toHaveBeenCalledWith(
       expect.stringContaining('test-claw'),
       { generationId: TEST_GENERATION_ID },
@@ -624,11 +627,12 @@ describe('daemonCommand - A4d shutdown signal', () => {
     const cmdPromise = daemonCommand('test-claw');
     const sigintHandler = await waitForProcessOn('SIGINT');
 
-    await expect(async () => {
-      await sigintHandler!();
-    }).rejects.toThrow('process.exit(0)');
+    sigintHandler!();
+    await vi.waitFor(() => {
+      expect(mockState.mockDispose).toHaveBeenCalledWith('SIGINT');
+      expect(process.exit).toHaveBeenCalledWith(0);
+    });
 
-    expect(mockState.mockDispose).toHaveBeenCalledWith('SIGINT');
 
     await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
