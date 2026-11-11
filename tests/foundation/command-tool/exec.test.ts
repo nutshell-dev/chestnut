@@ -25,6 +25,13 @@ import {
 
 const execTool = createExecTool();
 
+function parseReadHint(content: string): string | undefined {
+  const json = /^  read: (\{.*\})$/m.exec(content)?.[1];
+  return json === undefined
+    ? undefined
+    : (JSON.parse(json) as { path: string }).path;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -174,8 +181,37 @@ describe('phase 2107 exec UTF-8 overflow preview', () => {
       expect(content).toContain(`${'z'.repeat(1399)}\nFull output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
       expect(() => assertWellFormedUnicode(content)).not.toThrow();
       expect(content).not.toContain('\uFFFD');
-      const relPath = /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
+      const relPath = parseReadHint(content);
       expect(relPath).toBeDefined();
+      const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
+      expect(artifact.endsWith(output)).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+});
+
+describe('phase 2126 exec overflow path serialization', () => {
+  it.runIf(!IS_WINDOWS)('特殊字符与长路径提示可解析并读回真实 artifact', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace');
+      const longSegments = Array.from({ length: 5 }, (_, i) => `${i}-${'p'.repeat(120)}`);
+      const syncDir = path.join(tempDir, 'tasks', 'sync"\\\nphase2126', ...longSegments);
+      await fs.promises.mkdir(workspaceDir, { recursive: true });
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir,
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+      });
+      const output = 'x'.repeat(EXEC_MAX_OUTPUT + 1);
+
+      const content = await formatExecOutputForToolResult(ctx, output);
+      const relPath = parseReadHint(content);
+
+      expect(relPath).toBeDefined();
+      expect(Buffer.byteLength(relPath!, 'utf8')).toBeGreaterThan(600);
       const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
       expect(artifact.endsWith(output)).toBe(true);
     } finally {
@@ -315,7 +351,7 @@ describe('phase 2120 exec overflow durability results', () => {
       const content = await formatExecOutputForToolResult(ctx, output);
 
       expect(write).toHaveBeenCalledTimes(1);
-      const relPath = /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
+      const relPath = parseReadHint(content);
       expect(relPath).toBeDefined();
       const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
       expect(artifact.endsWith(output)).toBe(true);

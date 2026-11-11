@@ -27,7 +27,7 @@ export function truncateHeadTail(content: string, relPath?: string): string {
   const tail = bytes.subarray(tailStart).toString('utf8');
   const truncatedBytes = totalBytes - headBytes - Buffer.byteLength(tail, 'utf8');
   const readHint = relPath
-    ? `\nFull output (${totalBytes} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`
+    ? `\nFull output (${totalBytes} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": ${JSON.stringify(relPath)}, "offset": 1, "limit": 200 }`
     : '';
   return truncatedBytes === 0
     ? content + readHint

@@ -81,7 +81,10 @@ describe('phase 2102: read UTF-8 byte budget', () => {
   }
 
   function parseReadHint(content: string): string | undefined {
-    return /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
+    const json = /^  read: (\{.*\})$/m.exec(content)?.[1];
+    return json === undefined
+      ? undefined
+      : (JSON.parse(json) as { path: string }).path;
   }
 
   function parseFullOutputBytes(content: string): number | undefined {
@@ -169,6 +172,28 @@ describe('phase 2102: read UTF-8 byte budget', () => {
     expect(head.content).toContain(source.split('\n')[0]!);
     expect(tail).toEqual({ success: true, content: source.split('\n').at(-1)! });
     expect(await artifactFiles()).toEqual(files);
+  });
+
+  it.runIf(process.platform !== 'win32')('phase 2126：特殊字符与长路径提示可解析并读回真实 artifact', async () => {
+    const longSegments = Array.from({ length: 5 }, (_, i) => `${i}-${'p'.repeat(120)}`);
+    syncDir = path.join(tempDir, 'tasks', 'sync"\\\nphase2126', ...longSegments);
+    const source = Array.from({ length: 2000 }, (_, i) => `${i}:${'x'.repeat(80)}`).join('\n');
+    await writeSource(source);
+    const { ctx } = makeCtx();
+
+    const result = await readTool.execute({ path: 'data.txt', limit: 3000 }, ctx);
+    const relPath = parseReadHint(result.content);
+
+    expect(result.success).toBe(true);
+    expect(relPath).toBeDefined();
+    expect(Buffer.byteLength(relPath!, 'utf8')).toBeGreaterThan(600);
+    const artifact = await fs.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
+    expect(artifact.endsWith(source)).toBe(true);
+
+    const head = await readTool.execute({ path: relPath!, offset: 1, limit: 6 }, ctx);
+    expect(head.success).toBe(true);
+    expect(head.content).toContain('source: read_overflow');
+    expect(head.content).toContain(source.split('\n')[0]!);
   });
 
   it('大文件只选一个短行时不按整份文件大小触发 overflow', async () => {

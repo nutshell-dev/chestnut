@@ -19,6 +19,12 @@ function parsePreview(preview: string) {
   return { head, tail, hint, omitted: Number(marker![1]) };
 }
 
+function parseReadHint(hint: string): string {
+  const json = /read: (\{.*\})/.exec(hint)?.[1];
+  expect(json).toBeDefined();
+  return (JSON.parse(json!) as { path: string }).path;
+}
+
 function expectByteConservation(input: string, preview: string) {
   const parsed = parsePreview(preview);
   expect(Buffer.byteLength(parsed.head, 'utf8')).toBeLessThanOrEqual(600);
@@ -86,6 +92,18 @@ describe('truncateHeadTail UTF-8 preview', () => {
     expect(parsed.hint).toBe(
       `\nFull output (${Buffer.byteLength(input, 'utf8')} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "../tasks/sync/exec/full.md", "offset": 1, "limit": 200 }`,
     );
+  });
+
+  it.each([
+    ['双引号', '../tasks/sync/read/"full".md'],
+    ['反斜杠', '..\\tasks\\sync\\read\\full.md'],
+    ['换行', '../tasks/sync/read/full\nname.md'],
+    ['长路径', `../tasks/sync/read/${'nested/'.repeat(100)}full.md`],
+  ])('路径提示序列化：%s解析后保持原路径', (_name, relPath) => {
+    const input = 'x'.repeat(2001);
+    const parsed = expectByteConservation(input, truncateHeadTail(input, relPath));
+
+    expect(parseReadHint(parsed.hint)).toBe(relPath);
   });
 
   it.each(['x\uD800', 'x\uDC00'])('非法 Unicode 显式抛错：%j', (input) => {
