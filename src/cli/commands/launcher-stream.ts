@@ -52,26 +52,56 @@ export async function runLauncherStream(
     }
   }, audit, { persistent: true });
 
+  let interval: ReturnType<typeof setInterval> | undefined;
   let shutdownPromise: Promise<void> | undefined;
+  const signalHandler = () => { requestShutdown('stopped'); };
   const shutdown = (reason: 'stopped' | 'protocol_error', error?: unknown): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
-    shutdownPromise = (async () => {
+    // Publish the latch before any output/cleanup can re-enter shutdown.
+    shutdownPromise = Promise.resolve().then(async () => {
+      const failures: unknown[] = [];
+      const recordShutdownError = (cause: unknown): void => {
+        failures.push(cause);
+        process.exitCode = 1;
+      };
       process.exitCode = reason === 'protocol_error' ? 1 : 0;
+      if (interval !== undefined) clearInterval(interval);
+      process.removeListener('SIGINT', signalHandler);
+      process.removeListener('SIGTERM', signalHandler);
       if (error !== undefined) {
-        writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'error', {
-          class: 'stream_failed', detail: formatErr(error), retryable: reason !== 'protocol_error',
-        }));
+        try {
+          writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'error', {
+            class: 'stream_failed', detail: formatErr(error), retryable: reason !== 'protocol_error',
+          }));
+        } catch (outputError) { recordShutdownError(outputError); }
       }
-      writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'terminal', { reason }));
+      try {
+        writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'terminal', { reason }));
+      } catch (outputError) { recordShutdownError(outputError); }
       try {
         await reader.stop();
-      } catch (err) {
-        process.stderr.write(`[launcher stream] shutdown failed: ${formatErr(err)}\n`);
+      } catch (stopError) { recordShutdownError(stopError); }
+      if (failures.length > 0) {
         process.exitCode = 1;
+        const causes = error === undefined ? failures : [error, ...failures];
+        const detail = causes.map(cause => formatErr(cause)).join('; ');
+        try {
+          process.stderr.write(`[launcher stream] shutdown failed: ${detail}\n`);
+        } catch (diagnosticError) {
+          throw new AggregateError([...causes, diagnosticError],
+            `Launcher stream shutdown and diagnostic output failed: ${detail}; ${formatErr(diagnosticError)}`,
+            { cause: causes[0] });
+        }
       }
-      // The stopped reader and unref'd interval let the CLI exit naturally.
-    })();
+    });
     return shutdownPromise;
+  };
+  const requestShutdown = (reason: 'stopped' | 'protocol_error', error?: unknown): void => {
+    if (shutdownPromise) return;
+    void shutdown(reason, error).catch(failure => {
+      // Both output channels failed. Keep the combined cause visible to the process boundary.
+      queueMicrotask(() => { throw failure; });
+    });
   };
 
   try {
@@ -80,17 +110,16 @@ export async function runLauncherStream(
     await shutdown('protocol_error', err);
     return;
   }
-  process.on('SIGINT', () => { void shutdown('stopped'); });
-  process.on('SIGTERM', () => { void shutdown('stopped'); });
+  process.on('SIGINT', signalHandler);
+  process.on('SIGTERM', signalHandler);
 
-  const interval = setInterval(() => {
+  interval = setInterval(() => {
     const previous = daemon;
     daemon = readLauncherDaemon(deps);
     if (daemon.state === previous.state && daemon.detail === previous.detail) return;
     writeLauncherV2Envelope(process.stdout, makeLauncherV2Envelope(nextSeq(), 'daemon', daemon));
     if (previous.state === 'running' && daemon.state !== 'running') {
-      clearInterval(interval);
-      void shutdown('stopped');
+      requestShutdown('stopped');
     }
   }, DAEMON_LIVENESS_POLL_MS);
   interval.unref();

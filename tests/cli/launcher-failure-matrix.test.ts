@@ -69,10 +69,11 @@ describe('launcher v2 failure matrix', () => {
       verified: {}, daemon: { state: 'running' }, onboarding: { state: 'created', contractId: 'onboarding' },
     });
     mocks.reader.start.mockReset();
-    mocks.reader.stop.mockClear();
+    mocks.reader.stop.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
+    process.exitCode = undefined;
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.clearAllMocks();
@@ -134,4 +135,76 @@ describe('launcher v2 failure matrix', () => {
     expect(envelopes()[2]).toMatchObject({ kind: 'terminal', sequence: 3, payload: { reason: 'stopped' } });
     expect(mocks.reader.start).not.toHaveBeenCalled();
   });
+
+  it('releases its timer and both signal handlers exactly once after a signal', async () => {
+    vi.mocked(readLauncherDaemon).mockReturnValue(daemon('running'));
+    const remove = vi.spyOn(process, 'removeListener');
+    await runLauncherStream(deps, {});
+    const registrations = vi.mocked(process.on).mock.calls.filter(([event]) => event === 'SIGINT' || event === 'SIGTERM');
+    expect(registrations).toHaveLength(2);
+    const interrupt = registrations.find(([event]) => event === 'SIGINT')![1];
+    const terminate = registrations.find(([event]) => event === 'SIGTERM')![1];
+    interrupt();
+    terminate();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.reader.stop).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    for (const [event, handler] of registrations) expect(remove).toHaveBeenCalledWith(event, handler);
+    expect(envelopes().filter(envelope => envelope.kind === 'terminal')).toHaveLength(1);
+  });
+
+  it('still stops the reader when terminal output fails during startup rollback', async () => {
+    vi.mocked(readLauncherDaemon).mockReturnValue(daemon('running'));
+    mocks.reader.start.mockImplementation(() => { throw new Error('start failed'); });
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stdout.mockImplementation((data) => {
+      if (JSON.parse(String(data)).kind === 'terminal') throw new Error('terminal output failed');
+      return true;
+    });
+    await expect(runLauncherStream(deps, {})).resolves.toBeUndefined();
+    expect(mocks.reader.stop).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(diagnostic.mock.calls.flat().join('')).toContain('terminal output failed');
+    expect(process.exitCode).toBe(1);
+  });
+
+
+  it('preserves startup, output, stop and diagnostic failures together after cleanup', async () => {
+    vi.mocked(readLauncherDaemon).mockReturnValue(daemon('running'));
+    const startError = new Error('start failure');
+    const outputError = new Error('output failure');
+    const stopError = new Error('stop failure');
+    const diagnosticError = new Error('diagnostic failure');
+    mocks.reader.start.mockImplementation(() => { throw startError; });
+    mocks.reader.stop.mockRejectedValueOnce(stopError);
+    stdout.mockImplementation((data) => {
+      if (JSON.parse(String(data)).kind === 'terminal') throw outputError;
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => { throw diagnosticError; });
+    const result = await runLauncherStream(deps, {}).catch((error: unknown) => error);
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors).toEqual([startError, outputError, stopError, diagnosticError]);
+    expect(mocks.reader.stop).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('leaves unrelated signal listeners installed after stream shutdown', async () => {
+    const other = vi.fn();
+    process.addListener('SIGINT', other);
+    try {
+      vi.mocked(readLauncherDaemon).mockReturnValue(daemon('running'));
+      await runLauncherStream(deps, {});
+      const handler = vi.mocked(process.on).mock.calls.find(([event]) => event === 'SIGINT')![1];
+      handler();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(process.listeners('SIGINT')).toContain(other);
+      expect(other).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      process.removeListener('SIGINT', other);
+    }
+  });
+
 });
