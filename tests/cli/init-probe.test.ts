@@ -175,7 +175,7 @@ describe('initCommand — 失败后留在向导内修复', () => {
     const failEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_failed');
     expect(failEntry?.some(s => s.includes('auth'))).toBe(true);
     // 配置只存 ${REF}，load 时展开为用户级凭据值
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('sk-ant-good');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('sk-ant-good');
@@ -250,7 +250,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
     await initCommand(commandDeps, true, { audit: mockAudit });
 
     // 配置引用派生 ref，不再引用被 env 遮蔽的 ${ANTHROPIC_API_KEY}
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${CHESTNUT_ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('${ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('typed-key');
@@ -274,7 +274,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('env-key');
     // 空输入不写凭据文件
@@ -293,7 +293,7 @@ describe('initCommand — API Key 输入矩阵（Phase 1984 Step C）', () => {
 
     await initCommand(commandDeps, true, { audit: mockAudit });
 
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
     // env 不可用时不显示 env 说明

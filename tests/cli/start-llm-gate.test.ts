@@ -147,12 +147,16 @@ function makeGlobal(model: string) {
 
 /** 门控 deps：loadGlobal 每次调用经 globalOf 取当前配置（可脚本化漂移）。 */
 function makeGateDeps(globalOf: () => ReturnType<typeof makeGlobal>) {
+  const llmConfiguration = {
+    loadGlobal: vi.fn(() => globalOf()),
+    patchPrimary: vi.fn(async () => {}),
+  };
   return {
     fsFactory,
+    llmConfiguration,
     rootConfig: {
-      loadGlobal: vi.fn(() => globalOf()),
+      ...llmConfiguration,
       saveGlobalExclusive: vi.fn(),
-      patchPrimary: vi.fn(async () => {}),
       completeInitialization: vi.fn(),
     },
   };
@@ -544,6 +548,10 @@ describe('start command gate wiring', () => {
   function startDeps() {
     return {
       fsFactory,
+      llmConfiguration: {
+        loadGlobal: vi.fn(() => makeGlobal('claude-x')),
+        patchPrimary: vi.fn(async () => {}),
+      },
       rootConfig: {
         isInitialized: () => true,
         loadGlobal: vi.fn(() => makeGlobal('claude-x')),
@@ -743,7 +751,7 @@ describe('start command gate wiring', () => {
     // daemon 热重载成功 → active 事实已被更新为「已应用」身份（model-y）
     mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
     const deps = startDeps();
-    deps.rootConfig.loadGlobal = vi.fn(() => makeGlobal('model-y'));
+    deps.llmConfiguration.loadGlobal = vi.fn(() => makeGlobal('model-y'));
     const { startCommand } = await import('../../src/cli/commands/start.js');
 
     await startCommand(deps, { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
@@ -760,7 +768,7 @@ describe('start command gate wiring', () => {
     // 事实仍是出生身份（claude-x）；本次 start 验证的是新配置（model-y）
     mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).identity);
     const deps = startDeps();
-    deps.rootConfig.loadGlobal = vi.fn(() => makeGlobal('model-y'));
+    deps.llmConfiguration.loadGlobal = vi.fn(() => makeGlobal('model-y'));
     const { startCommand } = await import('../../src/cli/commands/start.js');
 
     const err = await startCommand(deps, { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {

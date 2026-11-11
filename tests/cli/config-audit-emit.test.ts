@@ -12,11 +12,13 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const configDeps = {
   fsFactory,
   rootConfig: createRootConfig({ fsFactory }),
+  llmConfiguration: createLLMConfiguration({ fsFactory }),
 };
 
 // config provider commands use action('required') → ensureWatchdog at CLI boundary;

@@ -5,8 +5,16 @@
 import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
-import type { ClawGlobalConfig } from '../../assembly/index.js';
-import { createLegacyAuthenticationStore, resolveCredentialReference } from '../../core/llm-configuration/index.js';
+import type { RootConfigAdmin } from '../../assembly/index.js';
+import type {
+  LLMConfigurationAdmin,
+  LLMGlobalConfigView,
+} from '../../core/llm-configuration/index.js';
+import {
+  createLegacyAuthenticationStore,
+  createLLMNotificationStore,
+  resolveCredentialReference,
+} from '../../core/llm-configuration/index.js';
 import {
   PRESETS,
   presetAuthProfile,
@@ -26,8 +34,8 @@ import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.
 import { FORMAT_MAP } from '../provider-format-map.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
+import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { RootConfigAdmin } from '../../assembly/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
@@ -74,11 +82,33 @@ import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderL
  * - daemon 不存活 → silent skip（下次启动自然读新配置）
  * - notifyClaw 失败 silent（按现有 messaging 语义、不阻 CLI）
  */
-export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => FileSystem }, source: string): void {
+export async function notifyRunningDaemons(
+  deps: {
+    fsFactory: (baseDir: string) => FileSystem;
+    llmConfiguration: Pick<LLMConfigurationAdmin, 'readRevision'>;
+  },
+  source: string,
+): Promise<void> {
   const chestnutRoot = getChestnutRoot();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: chestnutRoot });
   const rootFs = deps.fsFactory(chestnutRoot);
   const audit = actionAuditFor(chestnutRoot, deps);
+  const revision = deps.llmConfiguration.readRevision().id;
+  const notifications = createLLMNotificationStore(deps);
+  const recordNotification = (
+    target: string,
+    status: 'pending' | 'sent' | 'failed' | 'offline',
+    error?: unknown,
+  ): void => {
+    try {
+      notifications.record({ revision, target, status, ...(error !== undefined ? { error } : {}) });
+    } catch (persistenceError) {
+      // 配置与消息发送结果均不因记账失败被伪装成未提交；明确显示独立故障。
+      console.error(
+        `LLM notification fact persistence failed for ${target}: ${formatErr(persistenceError)}`,
+      );
+    }
+  };
 
   const candidates: string[] = [MOTION_CLAW_ID];
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
@@ -88,7 +118,6 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   }
 
   let notified = 0;
-  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
   const clawNotifier = createClawNotifier({
     fs: rootFs,
     audit,
@@ -96,16 +125,26 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   });
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
-    if (!pm.isAlive(resolveClawDaemonDir(clawId))) continue;
-    clawNotifier.notify(id, {
-      type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
-      // source must not contain '/'; it goes into the inbox file name
-      source: `cli-${source}`,
-      priority: 'high',
-      // phase 1909 Step B（M14）：正文呈现归 templates/messages 单源
-      body: CONFIG_RELOAD_NOTICE,
-    });
-    notified++;
+    if (!pm.isAlive(resolveClawDaemonDir(clawId))) {
+      recordNotification(id, 'offline');
+      continue;
+    }
+    recordNotification(id, 'pending');
+    try {
+      await clawNotifier.notifyAsync(id, {
+        type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
+        source: `cli-${source}`,
+        priority: 'high',
+        body: CONFIG_RELOAD_NOTICE,
+        messageId: `llm-reload-${revision}-${sha256Hex(id).slice(0, 16)}`,
+        metadata: { llm_revision: revision },
+      });
+      recordNotification(id, 'sent');
+      notified++;
+    } catch (error) {
+      // silent: 保存已成功且通知失败已持久化，daemon 启动仍会从 saved revision 重放应用。
+      recordNotification(id, 'failed', error);
+    }
   }
 
   if (notified > 0) {
@@ -173,7 +212,7 @@ async function selectPreset(rl: readline.Interface): Promise<{ kind: 'preset'; i
 }
 
 // Find provider by label in config
-function findProviderIndex(config: ClawGlobalConfig, label: string): { type: 'primary' | 'fallback'; index: number } | null {
+function findProviderIndex(config: LLMGlobalConfigView, label: string): { type: 'primary' | 'fallback'; index: number } | null {
   if (config.llm.primary.label === label || config.llm.primary.preset === label || config.llm.primary.provider_id === label) {
     return { type: 'primary', index: -1 };
   }
@@ -212,7 +251,9 @@ async function selectSetupService(
 }
 
 async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
   const rl = createRL();
 
   try {
@@ -440,7 +481,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       verifiedModel = probe.model;
     }
 
-    await deps.rootConfig.mutateGlobalLocked((fresh) => {
+    await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
       if (findProviderIndex(fresh, label)) {
         throw new CliError(`A provider with label "${label}" already exists`);
       }
@@ -461,7 +502,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       console.log(`\n✓ Provider "${label}" added as fallback`);
     }
     configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
-    notifyRunningDaemons(deps, 'add');
+    await notifyRunningDaemons(deps, 'add');
     console.log(`✓ ${verifiedModel}`);
 
   } finally {
@@ -478,7 +519,9 @@ function formatApiKey(apiKey: string): string {
 
 // provider list command
 async function providerList(deps: ConfigCommandDeps): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
 
   const primary = config.llm.primary;
   const fallbacks = config.llm.fallbacks ?? [];
@@ -515,7 +558,9 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
 
 // provider remove command
 async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
   
   const found = findProviderIndex(config, label);
   if (!found) {
@@ -527,7 +572,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   }
 
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
-  await deps.rootConfig.mutateGlobalLocked((fresh) => {
+  await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
     const freshFound = findProviderIndex(fresh, label);
     if (!freshFound) {
       throw new CliError(`Provider "${label}" not found`);
@@ -539,12 +584,14 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_remove', `label=${label}`);
   console.log(`✓ Removed "${label}" from fallbacks`);
-  notifyRunningDaemons(deps, 'remove');
+  await notifyRunningDaemons(deps, 'remove');
 }
 
 // provider set-primary command
 async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
   
   const found = findProviderIndex(config, label);
   if (!found) {
@@ -569,7 +616,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   }
 
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于确认提示）
-  await deps.rootConfig.mutateGlobalLocked((fresh) => {
+  await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
     const freshFound = findProviderIndex(fresh, label);
     if (!freshFound) {
       throw new CliError(`Provider "${label}" not found`);
@@ -585,7 +632,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_set_primary', `label=${label}`);
   console.log(`✓ "${label}" is now primary`);
-  notifyRunningDaemons(deps, 'set-primary');
+  await notifyRunningDaemons(deps, 'set-primary');
 
   // phase 451: 改 primary 必 probe
   console.log('\nTesting new primary connection...');
@@ -612,7 +659,9 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
 
 // provider move command
 async function providerMove(deps: ConfigCommandDeps, label: string, position: string): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
   
   const found = findProviderIndex(config, label);
   if (!found) {
@@ -631,7 +680,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   }
 
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
-  await deps.rootConfig.mutateGlobalLocked((fresh) => {
+  await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
     const freshFound = findProviderIndex(fresh, label);
     if (!freshFound) {
       throw new CliError(`Provider "${label}" not found`);
@@ -646,7 +695,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_move', `label=${label}`, `position=${newPos + 1}`);
   console.log(`✓ "${label}" moved to fallback #${newPos + 1}`);
-  notifyRunningDaemons(deps, 'move');
+  await notifyRunningDaemons(deps, 'move');
 }
 
 /**
@@ -656,7 +705,9 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
  * loadGlobal 先执行（Credentials owner backend 注册同点，见 config-load.ts）。
  */
 async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { type?: string }): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
   const hit = findProviderIndex(config, label);
   if (!hit) {
     throw new CliError(`Provider "${label}" not found (check "chestnut config provider list")`);
@@ -694,11 +745,13 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
     credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_login', `label=${label}`, `type=${type}`);
-  notifyRunningDaemons(deps, 'login');
+  await notifyRunningDaemons(deps, 'login');
 }
 
 async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<void> {
-  const config = deps.rootConfig.loadGlobal();
+  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  await deps.rootConfig.migrateLLMConfiguration();
+  const config = deps.llmConfiguration.loadGlobal();
   const hit = findProviderIndex(config, label);
   if (!hit) {
     throw new CliError(`Provider "${label}" not found (check "chestnut config provider list")`);
@@ -714,13 +767,17 @@ async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<v
     credentials: createLegacyAuthenticationStore({ fsFactory: deps.fsFactory }),
   });
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_logout', `label=${label}`);
-  notifyRunningDaemons(deps, 'logout');
+  await notifyRunningDaemons(deps, 'logout');
 }
 
 // Build the config command
 interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'mutateGlobalLocked' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'migrateLLMConfiguration'>;
+  llmConfiguration: Pick<
+    LLMConfigurationAdmin,
+    'loadGlobal' | 'mutateGlobalLocked' | 'patchPrimary' | 'readRevision'
+  >;
 }
 
 // phase 1874 Step L（族 3b）: 形状经 CLIProtocol catalog 投影

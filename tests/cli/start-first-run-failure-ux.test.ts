@@ -317,7 +317,7 @@ describe('first-run wizard — 失败矩阵与恢复动作', () => {
     expect(outcome.kind).toBe('verified');
     expect(conn.probeCalls).toBe(2);
     // 配置只存 ${REF}；load 时展开为用户级凭据值
-    const rawYaml = fs.readFileSync(configPath(), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tmpDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('sk-good-key');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('sk-good-key');

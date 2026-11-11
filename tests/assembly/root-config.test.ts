@@ -16,15 +16,24 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { getClawConfigPath } from '../../src/foundation/claw-identity/index.js';
 import { createRootConfig, type RootConfigAdmin } from '../../src/assembly/index.js';
-import { resolveLLMConfig } from '../../src/core/llm-configuration/index.js';
+import {
+  createLLMConfiguration,
+  resolveLLMConfig,
+  type LLMConfigurationAdmin,
+} from '../../src/core/llm-configuration/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 let tempDir: string;
 let admin: RootConfigAdmin;
+let llmAdmin: LLMConfigurationAdmin;
 
 function globalConfigPath(): string {
   return path.join(tempDir, '.chestnut', 'config.yaml');
+}
+
+function llmConfigPath(): string {
+  return path.join(tempDir, '.chestnut', 'llm', 'config.yaml');
 }
 
 function writeGlobalConfig(extraLlmYaml = '') {
@@ -47,6 +56,7 @@ beforeEach(() => {
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
   admin = createRootConfig({ fsFactory });
+  llmAdmin = createLLMConfiguration({ fsFactory });
 });
 
 afterEach(() => {
@@ -75,7 +85,7 @@ describe('RootConfigReader/Admin: global load/save', () => {
   });
 
   it('saveGlobal 后可回读，invalid YAML 错误文本与旧 wrapper 一致', () => {
-    admin.saveGlobal({
+    admin.saveGlobalExclusive({
       version: '1',
       llm: { primary: { preset: 'anthropic', api_key: 'sk-save', model: 'claude-save' } },
     });
@@ -106,8 +116,9 @@ describe('RootConfigReader/Admin: claw load/save', () => {
 describe('RootConfigAdmin: patchPrimary', () => {
   it('目标字段变化、未知字段保留、caller patch 对象不被修改', async () => {
     writeGlobalConfig(`  fallbacks:\n    - preset: openai\n      api_key: sk-fb\n      model: gpt-fb\n`);
+    admin.loadGlobal();
     const patch: Readonly<Record<string, unknown>> = Object.freeze({ model: 'claude-new' });
-    await admin.patchPrimary(patch);
+    await llmAdmin.patchPrimary(patch);
 
     const cfg = admin.loadGlobal();
     expect(cfg.llm.primary.model).toBe('claude-new');
@@ -123,8 +134,8 @@ describe('RootConfig: 无缓存语义', () => {
     expect(admin.loadGlobal().llm.primary.model).toBe('claude-test');
 
     fs.writeFileSync(
-      globalConfigPath(),
-      fs.readFileSync(globalConfigPath(), 'utf8').replace('claude-test', 'claude-external'),
+      llmConfigPath(),
+      fs.readFileSync(llmConfigPath(), 'utf8').replace('claude-test', 'claude-external'),
     );
     expect(admin.loadGlobal().llm.primary.model).toBe('claude-external');
   });
@@ -133,7 +144,8 @@ describe('RootConfig: 无缓存语义', () => {
 describe('RootConfig: 方法绑定（不依赖 this）', () => {
   it('解构方法后直接调用成功', async () => {
     writeGlobalConfig();
-    const { isInitialized, loadGlobal, loadClaw, patchPrimary } = admin;
+    const { isInitialized, loadGlobal, loadClaw } = admin;
+  const { patchPrimary } = llmAdmin;
     expect(isInitialized()).toBe(true);
     expect(loadGlobal().llm.primary.model).toBe('claude-test');
     expect(loadClaw(getClawConfigPath('missing'))).toBeUndefined();
@@ -190,35 +202,38 @@ describe('RootConfigAdmin: saveGlobalExclusive (Phase 1910 Step D)', () => {
 describe('RootConfigAdmin: mutateGlobalLocked (Phase 1910 Step D)', () => {
   it('两个并发 mutation 的字段都落盘（锁内重读，不丢更新）', async () => {
     writeGlobalConfig();
+    admin.loadGlobal();
     await Promise.all([
-      admin.mutateGlobalLocked((cfg) => { cfg.llm.primary.model = 'model-a'; }),
-      admin.mutateGlobalLocked((cfg) => { cfg.llm.retry_attempts = 9; }),
+      llmAdmin.mutateGlobalLocked((cfg) => { cfg.llm.primary.model = 'model-a'; }),
+      llmAdmin.mutateGlobalLocked((cfg) => { cfg.llm.retry_attempts = 9; }),
     ]);
     const cfg = admin.loadGlobal();
     expect(cfg.llm.primary.model).toBe('model-a');
     expect(cfg.llm.retry_attempts).toBe(9);
     // 锁文件已释放
-    expect(fs.existsSync(`${globalConfigPath()}.lock`)).toBe(false);
+    expect(fs.existsSync(`${llmConfigPath()}.lock`)).toBe(false);
   });
 
   it('mutator 业务错误原样传播且不提交', async () => {
     writeGlobalConfig();
+    admin.loadGlobal();
     const boom = new Error('business reject');
-    await expect(admin.mutateGlobalLocked(() => { throw boom; })).rejects.toBe(boom);
+    await expect(llmAdmin.mutateGlobalLocked(() => { throw boom; })).rejects.toBe(boom);
     expect(admin.loadGlobal().llm.primary.model).toBe('claude-test');
-    expect(fs.existsSync(`${globalConfigPath()}.lock`)).toBe(false);
+    expect(fs.existsSync(`${llmConfigPath()}.lock`)).toBe(false);
   });
 
   it('mutateGlobalLocked 与 patchPrimary 互斥：并发不丢更新', async () => {
     writeGlobalConfig();
+    admin.loadGlobal();
     await Promise.all([
-      admin.mutateGlobalLocked((cfg) => { cfg.llm.retry_delay_ms = 1234; }),
-      admin.patchPrimary({ model: 'claude-patched' }),
+      llmAdmin.mutateGlobalLocked((cfg) => { cfg.llm.retry_delay_ms = 1234; }),
+      llmAdmin.patchPrimary({ model: 'claude-patched' }),
     ]);
     const cfg = admin.loadGlobal();
     expect(cfg.llm.retry_delay_ms).toBe(1234);
     expect(cfg.llm.primary.model).toBe('claude-patched');
     expect(cfg.llm.primary.api_key).toBe('sk-test');
-    expect(fs.existsSync(`${globalConfigPath()}.lock`)).toBe(false);
+    expect(fs.existsSync(`${llmConfigPath()}.lock`)).toBe(false);
   });
 });

@@ -38,6 +38,11 @@ export function createGlobalConfigSchema() {
   });
 }
 
+/** 根文档磁盘 schema：共享 LLM 已迁出，legacy llm 仅用于一次性迁移。 */
+export function createStoredGlobalConfigSchema() {
+  return createGlobalConfigSchema().extend({ llm: llmOrchestratorConfigSchema.optional() });
+}
+
 export function getClawConfigSchema() {
   return clawConfigSchema;
 }

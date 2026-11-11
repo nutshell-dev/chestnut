@@ -1,4 +1,4 @@
-import type { RootConfigAdmin } from '../../assembly/index.js';
+import type { LLMConfigurationAdmin } from '../../core/llm-configuration/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -18,7 +18,7 @@ import { readLauncherDaemon, type LauncherCommandDeps } from './launcher-runtime
 const DEFAULT_LAUNCHER_START_TIMEOUT_MS = 30_000;
 
 export interface LauncherStartDeps extends LauncherCommandDeps {
-  rootConfig: LauncherCommandDeps['rootConfig'] & Pick<RootConfigAdmin, 'patchPrimary'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
 export async function executeLauncherStart(

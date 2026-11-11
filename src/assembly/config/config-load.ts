@@ -9,13 +9,14 @@
  */
 import * as path from 'path';
 import {
-  createGlobalConfigSchema,
+  createStoredGlobalConfigSchema,
   getClawConfigSchema,
   type ClawGlobalConfig,
   type ClawGlobalConfigInput,
   type ClawConfig,
 } from './compose-config.js';
 import {
+  readYamlDocument,
   loadYamlConfig,
   writeYamlConfig,
   writeYamlConfigExclusive,
@@ -27,7 +28,18 @@ import {
 } from '../../foundation/config-store/index.js';
 import { getGlobalConfigPath } from './global-config-path.js';
 import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { createLocalCredentials, isCredentialsError } from '../../core/llm-configuration/index.js';
+import {
+  createLLMConfiguration,
+  createLLMConfigurationDocumentStore,
+  createLocalCredentials,
+  getLLMConfigurationPath,
+  isCredentialsError,
+  llmConfigurationSourceDigest,
+  recordLLMMigrationSourceCleanup,
+  recordLLMMigrationSourceCleanupFailure,
+  LLMConfigurationMigrationError,
+  type SharedLLMInput,
+} from '../../core/llm-configuration/index.js';
 import {
   loadWorkspaceAuditConfig,
   initWorkspaceAuditConfig,
@@ -121,15 +133,87 @@ function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Er
   }
 }
 
+function rootMigrationId(source: SharedLLMInput): string {
+  return `root-${llmConfigurationSourceDigest(source).slice(0, 24)}`;
+}
+
+function readRawRootLLM(deps: { fsFactory: (baseDir: string) => FileSystem }): SharedLLMInput | undefined {
+  const raw = readYamlDocument(deps, getGlobalConfigPath());
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  return (raw as Record<string, unknown>).llm as SharedLLMInput | undefined;
+}
+
+/** 目标确认后才按 sourceDigest 清源；目标损坏/冲突时绝不回退旧段。 */
+function migrateRootLLM(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  source: SharedLLMInput,
+): void {
+  const store = createLLMConfigurationDocumentStore(deps);
+  const migrationId = rootMigrationId(source);
+  const result = store.createFromSource(source, migrationId);
+  if (result.kind !== 'durable') {
+    throw new LLMConfigurationMigrationError(
+      `LLM migration target write was not confirmed durable; source preserved: ${migrationId}`,
+      migrationId,
+    );
+  }
+  const sourceDigest = llmConfigurationSourceDigest(source);
+  try {
+    const cleanup = patchYamlConfig(deps, getGlobalConfigPath(), (root) => {
+      if (root.llm === undefined) return;
+      if (llmConfigurationSourceDigest(root.llm as SharedLLMInput) !== sourceDigest) {
+        throw new LLMConfigurationMigrationError(
+          `LLM migration source changed before cleanup; root preserved: ${migrationId}`,
+          migrationId,
+        );
+      }
+      delete root.llm;
+    });
+    recordLLMMigrationSourceCleanup(deps, migrationId, cleanup);
+  } catch (error) {
+    try {
+      recordLLMMigrationSourceCleanupFailure(deps, migrationId, error);
+    } catch {
+      // silent: 原始清源错误优先；目标与源均保留，下次恢复仍会重试。
+    }
+    throw error;
+  }
+}
+
+/** 管理命令的迁移入口：root 锁内复核 sourceDigest，目标确认后才清源。 */
+export async function migrateRootLLMConfigLocked(deps: {
+  fsFactory: (baseDir: string) => FileSystem;
+}): Promise<void> {
+  await withYamlConfigLock(deps, getGlobalConfigPath(), () => {
+    const legacy = readRawRootLLM(deps);
+    if (legacy !== undefined) migrateRootLLM(deps, legacy);
+  });
+}
+
 export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }): ClawGlobalConfig {
   const configPath = getGlobalConfigPath();
-  const schema = createGlobalConfigSchema();
   try {
-    return loadYamlConfig<ClawGlobalConfig>(
+    const stored = loadYamlConfig<Omit<ClawGlobalConfig, 'llm'> & { llm?: ClawGlobalConfig['llm'] }>(
       { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
       configPath,
-      schema,
+      createStoredGlobalConfigSchema(),
     );
+    const store = createLLMConfigurationDocumentStore(deps);
+    if (configExists(deps, getLLMConfigurationPath())) {
+      const legacy = readRawRootLLM(deps);
+      if (legacy !== undefined) migrateRootLLM(deps, legacy);
+      return { ...stored, llm: store.readResolved() } as ClawGlobalConfig;
+    }
+    const legacy = readRawRootLLM(deps);
+    if (legacy === undefined) {
+      // 另一并发读取可能已在两次磁盘观察之间完成迁移并清源。
+      if (configExists(deps, getLLMConfigurationPath())) {
+        return { ...stored, llm: store.readResolved() } as ClawGlobalConfig;
+      }
+      throw new Error('Invalid global config: missing llm section');
+    }
+    migrateRootLLM(deps, legacy);
+    return { ...stored, llm: store.readResolved() } as ClawGlobalConfig;
   } catch (err) {
     if (isConfigStoreError(err)) {
       throw mapConfigStoreError(err, 'global');
@@ -203,6 +287,8 @@ export function getInitializationState(deps: { fsFactory: (baseDir: string) => F
  * 覆盖三条路径：fresh init winner、并发 loser 协助收敛、崩溃/legacy 恢复。
  */
 export function completeInitialization(deps: { fsFactory: (baseDir: string) => FileSystem }): void {
+  // fresh staging、legacy workspace 与 target-written/source-not-cleared 崩溃窗口统一收敛。
+  loadGlobalConfig(deps);
   const chestnutRootFs = deps.fsFactory(getChestnutRoot());
   initWorkspaceAuditConfig(chestnutRootFs);
   publishAuditLayout(chestnutRootFs);
@@ -223,12 +309,10 @@ export function completeInitialization(deps: { fsFactory: (baseDir: string) => F
 }
 
 export function saveGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, config: ClawGlobalConfigInput): void {
-  const configPath = getGlobalConfigPath();
-  writeYamlConfig(
-    { fsFactory: deps.fsFactory },
-    configPath,
-    config,
-  );
+  const { llm, ...root } = config;
+  const store = createLLMConfigurationDocumentStore(deps);
+  store.save(llm);
+  writeYamlConfig({ fsFactory: deps.fsFactory }, getGlobalConfigPath(), root);
 }
 
 /**
@@ -269,23 +353,11 @@ export async function mutateGlobalConfigLocked(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   mutator: (config: ClawGlobalConfig) => void,
 ): Promise<void> {
-  const configPath = getGlobalConfigPath();
-  try {
-    await withYamlConfigLock({ fsFactory: deps.fsFactory }, configPath, () => {
-      const fresh = loadYamlConfig<ClawGlobalConfig>(
-        { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
-        configPath,
-        createGlobalConfigSchema(),
-      );
-      mutator(fresh);
-      writeYamlConfig({ fsFactory: deps.fsFactory }, configPath, fresh);
-    });
-  } catch (err) {
-    if (isConfigStoreError(err)) {
-      throw mapConfigStoreError(err, 'global');
-    }
-    throw err;
-  }
+  // 兼容旧 Assembly 调用方面；实际 LLM RMW 已归 L4，root 不再承载业务写。
+  loadGlobalConfig(deps);
+  await createLLMConfiguration(deps).mutateGlobalLocked((fresh) => {
+    mutator(fresh as ClawGlobalConfig);
+  });
 }
 
 export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string): ClawConfig | undefined {
@@ -307,40 +379,12 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
 }
 
 export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, patch: Record<string, unknown>): Promise<void> {
-  const configPath = getGlobalConfigPath();
-  try {
-    // Phase 1910 Step D：raw patch 同样走 per-path 锁，与全量 mutation 互斥。
-    await withYamlConfigLock({ fsFactory: deps.fsFactory }, configPath, () => {
-      patchYamlConfig(
-        { fsFactory: deps.fsFactory },
-        configPath,
-        (cfg) => {
-          const llm = cfg.llm as Record<string, unknown> | undefined;
-          if (!llm || typeof llm !== 'object') {
-            throw new Error('Invalid global config: missing llm section');
-          }
-          const primary = llm.primary as Record<string, unknown> | undefined;
-          if (!primary || typeof primary !== 'object') {
-            throw new Error('Invalid global config: missing llm.primary section');
-          }
-          for (const [k, v] of Object.entries(patch)) {
-            // Phase 1927 Step D：undefined = 删键（preset/provider_id 互斥字段的换边清除；
-            // 既有调用方从不写 undefined 值，语义收窄安全）
-            if (v === undefined) {
-              delete primary[k];
-            } else {
-              primary[k] = v;
-            }
-          }
-        },
-      );
-    });
-  } catch (err) {
-    if (isConfigStoreError(err)) {
-      throw mapConfigStoreError(err, 'global');
-    }
-    throw err;
+  const raw = readYamlDocument(deps, getGlobalConfigPath());
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`config parse failed: expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`);
   }
+  loadGlobalConfig(deps);
+  await createLLMConfiguration(deps).patchPrimary(patch);
 }
 
 export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string, config: ClawConfig): void {

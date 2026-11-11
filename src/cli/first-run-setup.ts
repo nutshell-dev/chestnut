@@ -3,7 +3,8 @@
  *
  * 语义顺序（probe-before-commit）：
  *   交互收集内存 draft → （高风险草稿）脱敏确认 → 多端点候选选择 → 对 draft
- *   做一次身份绑定 probe → 身份复核 → 独占提交 root config → 发布 ready。
+ *   做一次身份绑定 probe → 身份复核 → 独占提交 root staging → L4 收敛独立
+ *   LLM 文档并清理 root.llm → 发布 ready。
  *
  * 失败留在向导内修复（retry / 改 key / 改 model / 换服务 / 取消）；失败或
  * 取消不发布 root config 与 ready marker。取消退出码由 start 决定（3）。
@@ -273,7 +274,7 @@ async function probeDraft(
  * 已验证身份不再代表将要写入的配置 → fail-closed（不发布未验证配置）。
  */
 interface FirstRunCommitState {
-  /** root config 已独占提交：此后异常不得清理已绑定凭据。 */
+  /** root staging 已独占提交：此后异常不得清理已绑定凭据；L4 由完成初始化收敛。 */
   rootConfigWritten?: boolean;
 }
 

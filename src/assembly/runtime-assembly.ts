@@ -20,8 +20,13 @@ import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 // phase 320: LLM hot-reload — reloader 每次调时重读磁盘
-import { loadGlobalConfig, loadClawConfig } from './config/config-load.js';
-import { resolveLLMConfig, llmConfigIdentity } from '../core/llm-configuration/index.js';
+import { loadClawConfig } from './config/config-load.js';
+import {
+  createLLMApplicationStore,
+  createLLMConfiguration,
+  resolveLLMConfig,
+  llmConfigIdentity,
+} from '../core/llm-configuration/index.js';
 import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
@@ -171,11 +176,13 @@ export async function createRuntimeAssembly(
   // phase 320: configReloader — 每次调时重读磁盘 globalConfig + clawConfig，
   // 由 Runtime._drainOwnInbox 收到 reload_llm_config 消息时调用。
   // **不 capture 起步态 globalConfig/clawConfig**（CLOSURE 反模式：那样永远拿不到新配置）。
+  const llmConfiguration = createLLMConfiguration({ fsFactory });
   const configReloader = () => {
-    const fresh = loadGlobalConfig({ fsFactory });
-    if (isMotion) return resolveLLMConfig(fresh);
+    const fresh = llmConfiguration.loadSnapshot();
+    const revision = fresh.revision.id;
+    if (isMotion) return { config: resolveLLMConfig(fresh), revision };
     const freshClawCfg = loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
-    return resolveLLMConfig(fresh, freshClawCfg!);
+    return { config: resolveLLMConfig(fresh, freshClawCfg!), revision };
   };
 
   // Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份。daemonDir 推导与
@@ -185,6 +192,37 @@ export async function createRuntimeAssembly(
     core.processManager,
     resolveClawDaemonDir(makeClawId(clawId)),
   );
+
+  const llmApplicationStore = createLLMApplicationStore({ fsFactory });
+  const configApplicationStore = {
+    read: (targetClawId: string) => {
+      const fact = llmApplicationStore.read(targetClawId);
+      return fact === undefined ? undefined : {
+        processId: fact.process_id,
+        revision: fact.revision,
+        identity: fact.identity,
+        outcome: fact.outcome,
+        publishPending: fact.publish_pending,
+      };
+    },
+    record: (input: {
+      clawId: string;
+      processId: number;
+      revision: string;
+      identity: string;
+      outcome: 'applied' | 'failed';
+      publishPending: boolean;
+      error?: unknown;
+    }) => llmApplicationStore.record({
+      clawId: input.clawId,
+      processId: input.processId,
+      revision: input.revision,
+      identity: input.identity,
+      outcome: input.outcome,
+      publishPending: input.publishPending,
+      ...(input.error !== undefined ? { error: input.error } : {}),
+    }),
+  };
 
   // --- Runtime 构造（deps 注入） ---
   let runtime: Runtime;
@@ -199,6 +237,7 @@ export async function createRuntimeAssembly(
       idleTimeoutMs,
       configReloader,
       configIdentityOf: (c) => llmConfigIdentity(c),
+      configApplicationStore,
       ...(appliedLLMIdentityPublisher !== undefined ? { appliedLLMIdentityPublisher } : {}),
       dependencies,
       contextTrimmingEnabled: true,

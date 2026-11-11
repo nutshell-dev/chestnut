@@ -181,6 +181,25 @@ export interface AppliedLLMIdentityPublishOutcome {
 }
 
 /** 1:1 保 runtime.ts:74-101 body */
+export interface RuntimeConfigReloadSnapshot {
+  config: LLMOrchestratorConfig;
+  /** L4 持久保存修订；与配置 identity 短指纹分离。 */
+  revision: string;
+}
+
+export interface RuntimeConfigApplicationFact {
+  processId: number;
+  revision: string;
+  identity: string;
+  outcome: 'applied' | 'failed';
+  publishPending: boolean;
+}
+
+export interface RuntimeConfigApplicationStore {
+  read(clawId: string): RuntimeConfigApplicationFact | undefined;
+  record(input: RuntimeConfigApplicationFact & { clawId: string; error?: unknown }): Promise<unknown>;
+}
+
 export interface RuntimeOptions {
   clawId: string;
   clawDir: string;
@@ -196,7 +215,7 @@ export interface RuntimeOptions {
    * inbox 收到 `reload_llm_config` 消息时由 drainInbox 拦截路径调用、传给 llm.reloadConfig。
    * undefined → 拦截路径 silent skip + audit LLM_RELOAD_SKIPPED。
    */
-  configReloader?: () => LLMOrchestratorConfig;
+  configReloader?: () => LLMOrchestratorConfig | RuntimeConfigReloadSnapshot;
 
   /**
    * Phase 1945 Step C：从 configReloader 返回的同一 resolved object 派生配置身份
@@ -212,6 +231,9 @@ export interface RuntimeOptions {
    * 不伪装成 reload 失败，下一条 reload 命中 already_applied 时补偿重试）。
    */
   appliedLLMIdentityPublisher?: (identity: string) => Promise<AppliedLLMIdentityPublishOutcome>;
+
+  /** L4 持久应用事实；注入后启动无需 inbox 也会对账 saved revision。 */
+  configApplicationStore?: RuntimeConfigApplicationStore;
 
   dependencies: RuntimeDependencies;  // 必传（phase155B 起，字段随 phase155C 扩展）
 

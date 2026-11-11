@@ -9,12 +9,14 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 import { clearCliCredentialEnv } from '../helpers/cli-credential-env.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const configDeps = {
   fsFactory,
   rootConfig: createRootConfig({ fsFactory }),
+  llmConfiguration: createLLMConfiguration({ fsFactory }),
 };
 
 // ── readline mock ──────────────────────────────────────────────────────────────
@@ -299,7 +301,7 @@ describe('config provider add — API Key 输入矩阵（Phase 1984 Step C）', 
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     // 配置引用派生 ref（seed=label），加载后 = 用户输入值
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${CHESTNUT_KIMI_TYPED_API_KEY}');
     expect(rawYaml).not.toContain('${KIMI_API_KEY}');
     const config = loadGlobalConfig({ fsFactory });
@@ -322,7 +324,7 @@ describe('config provider add — API Key 输入矩阵（Phase 1984 Step C）', 
     const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'env-anthropic');

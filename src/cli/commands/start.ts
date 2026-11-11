@@ -35,7 +35,7 @@ export {
 
 type StartCommandDeps = StartBootstrapDeps & {
   rootConfig: StartBootstrapDeps['rootConfig'] & Pick<RootConfigAdmin,
-    'isInitialized' | 'saveGlobal' | 'saveGlobalExclusive' | 'completeInitialization'>;
+    'isInitialized' | 'saveGlobalExclusive' | 'completeInitialization'>;
 };
 interface StartCommandRuntime {
   audit?: AuditLog;

@@ -27,7 +27,7 @@ import {
   isCatalogProvider,
   deriveCatalogAuthProfile,
 } from '../foundation/llm-provider/index.js';
-import type { RootConfigAdmin } from '../assembly/index.js';
+import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createLegacyAuthenticationStore,
   snapshotLLMConfig,
@@ -71,7 +71,7 @@ export const START_GATE_EXIT_CODE = 3;
 
 interface GateDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
 /** 给了配置参数但缺 --non-interactive → 用法错误（不猜意图、不静默忽略参数）。 */
@@ -175,7 +175,7 @@ export async function applyStartLLMOptions(
       { code: START_USAGE_EXIT_CODE },
     );
   }
-  const presetId = setup?.target.preset ?? opts.provider ?? deps.rootConfig.loadGlobal().llm.primary.preset;
+  const presetId = setup?.target.preset ?? opts.provider ?? deps.llmConfiguration.loadGlobal().llm.primary.preset;
   if (!presetId) {
     throw new CliError('--provider is required (no existing primary preset)', { code: START_USAGE_EXIT_CODE });
   }
@@ -198,13 +198,13 @@ export async function applyStartLLMOptions(
   if (opts.baseUrl) patch.base_url = opts.baseUrl;
   if (apiKey) patch.api_key = apiKey;
   if (Object.keys(patch).length > 0) {
-    await deps.rootConfig.patchPrimary(patch);
+    await deps.llmConfiguration.patchPrimary(patch);
   }
 }
 
 /** 读取当前有效配置为不可变快照（resolve 与 identity 同源派生）。 */
-function readLLMSnapshot(deps: Pick<GateDeps, 'rootConfig'>): LLMConfigSnapshot {
-  return snapshotLLMConfig(deps.rootConfig.loadGlobal());
+function readLLMSnapshot(deps: Pick<GateDeps, 'llmConfiguration'>): LLMConfigSnapshot {
+  return snapshotLLMConfig(deps.llmConfiguration.loadGlobal());
 }
 
 /** probe 成功后配置持续漂移的有界重验预算；耗尽 fail-closed（不猜身份）。 */

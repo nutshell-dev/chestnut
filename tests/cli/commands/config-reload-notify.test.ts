@@ -17,6 +17,10 @@ import { makeDaemonDir } from '../../../src/foundation/process-manager/index.js'
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const deps = {
+  fsFactory,
+  llmConfiguration: { readRevision: () => ({ id: '7', revision: 7 }) },
+};
 
 function writeActiveGeneration(rootDir: string, agentSubpath: string, pid: number) {
   const daemonDir = makeDaemonDir(path.join(rootDir, '.chestnut', agentSubpath));
@@ -50,10 +54,10 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
     await cleanupTempDir(tmpDir);
   });
 
-  it('motion 存活 → reload 消息写入 motion inbox', () => {
+  it('motion 存活 → reload 消息写入 motion inbox', async () => {
     writeActiveGeneration(tmpDir, 'motion', process.pid);
 
-    notifyRunningDaemons({ fsFactory }, 'set-primary');
+    await notifyRunningDaemons(deps, 'set-primary');
 
     const motionInbox = listInbox(tmpDir, 'motion');
     expect(motionInbox.length).toBe(1);
@@ -66,29 +70,29 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
     expect(fileBody).toContain('priority: high');
   });
 
-  it('motion 不存活（无 pid 文件）→ silent skip、无 inbox 消息、无 throw', () => {
-    expect(() => notifyRunningDaemons({ fsFactory }, 'remove')).not.toThrow();
+  it('motion 不存活（无 pid 文件）→ silent skip、无 inbox 消息、无 throw', async () => {
+    await expect(notifyRunningDaemons(deps, 'remove')).resolves.toBeUndefined();
     expect(listInbox(tmpDir, 'motion')).toEqual([]);
   });
 
-  it('motion + 2 claws 都存活 → 三方 inbox 各有 1 条 reload 消息', () => {
+  it('motion + 2 claws 都存活 → 三方 inbox 各有 1 条 reload 消息', async () => {
     writeActiveGeneration(tmpDir, 'motion', process.pid);
     writeActiveGeneration(tmpDir, 'claws/foo', process.pid);
     writeActiveGeneration(tmpDir, 'claws/bar', process.pid);
 
-    notifyRunningDaemons({ fsFactory }, 'set-primary');
+    await notifyRunningDaemons(deps, 'set-primary');
 
     expect(listInbox(tmpDir, 'motion').length).toBe(1);
     expect(listInbox(tmpDir, 'claws/foo').length).toBe(1);
     expect(listInbox(tmpDir, 'claws/bar').length).toBe(1);
   });
 
-  it('混合：motion 存活、1 claw 死 → 仅 motion 收到', () => {
+  it('混合：motion 存活、1 claw 死 → 仅 motion 收到', async () => {
     writeActiveGeneration(tmpDir, 'motion', process.pid);
     // 写一个 dead pid（isAlive 会返回 false）
     writeActiveGeneration(tmpDir, 'claws/dead', 999999);
 
-    notifyRunningDaemons({ fsFactory }, 'add');
+    await notifyRunningDaemons(deps, 'add');
 
     expect(listInbox(tmpDir, 'motion').length).toBe(1);
     expect(listInbox(tmpDir, 'claws/dead').length).toBe(0);

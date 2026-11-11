@@ -80,9 +80,10 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
 
   const config = createConfigCommand({
     fsFactory: vi.fn(),
-    rootConfig: {
-      isInitialized: vi.fn(), loadGlobal: vi.fn(), saveGlobal: vi.fn(),
-      mutateGlobalLocked: vi.fn(), patchPrimary: vi.fn(),
+    rootConfig: { migrateLLMConfiguration: vi.fn() },
+    llmConfiguration: {
+      loadGlobal: vi.fn(), mutateGlobalLocked: vi.fn(), patchPrimary: vi.fn(),
+      readRevision: vi.fn(),
     },
   });
   // Keep the production catalog and Commander argument shapes; never invoke mutations here.

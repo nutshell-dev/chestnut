@@ -71,7 +71,7 @@ describe('launcher setup.v1', () => {
     expect(response.kind).toBe('committed');
     expect(JSON.stringify(response)).not.toContain(secret);
     expect(fs.existsSync(sessionPath())).toBe(false);
-    expect(fs.readFileSync(path.join(root, '.chestnut', 'config.yaml'), 'utf8')).not.toContain(secret);
+    expect(fs.readFileSync(path.join(root, '.chestnut', 'llm', 'config.yaml'), 'utf8')).not.toContain(secret);
     expect(probe.fn).toHaveBeenCalledOnce();
     expect((await executeLauncherSetup(deps, request('status'))).payload.phase).toBe('committed');
   });
@@ -97,7 +97,7 @@ describe('launcher setup.v1', () => {
     const response = await executeLauncherSetup(deps, request('cancel'));
     expect(response.payload.phase).toBe('needs_provider');
     expect(fs.existsSync(sessionPath())).toBe(false);
-    expect(fs.existsSync(path.join(root, '.chestnut', 'config.yaml'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.chestnut', 'llm', 'config.yaml'))).toBe(false);
     const credentials = path.join(process.env.CHESTNUT_HOME!, '.chestnut', 'credentials.json');
     if (fs.existsSync(credentials)) expect(fs.readFileSync(credentials, 'utf8')).not.toContain('sk-cancel-secret');
   });
@@ -129,7 +129,7 @@ describe('launcher setup.v1', () => {
     });
     const response = await executeLauncherSetup(deps, request('submit', { model: 'loser-model', apiKey: 'sk-race' }));
     expect(response).toMatchObject({ kind: 'committed', payload: { concurrent: true } });
-    expect(fs.readFileSync(path.join(root, '.chestnut', 'config.yaml'), 'utf8')).toContain('winner-model');
-    expect(fs.readFileSync(path.join(root, '.chestnut', 'config.yaml'), 'utf8')).not.toContain('loser-model');
+    expect(fs.readFileSync(path.join(root, '.chestnut', 'llm', 'config.yaml'), 'utf8')).toContain('winner-model');
+    expect(fs.readFileSync(path.join(root, '.chestnut', 'llm', 'config.yaml'), 'utf8')).not.toContain('loser-model');
   });
 });

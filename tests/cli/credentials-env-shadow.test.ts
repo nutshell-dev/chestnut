@@ -16,6 +16,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createRootConfig } from '../../src/assembly/index.js';
+import { createLLMConfiguration } from '../../src/core/llm-configuration/index.js';
 import { createLocalCredentials, deriveCredentialRef } from '../../src/core/llm-configuration/index.js';
 import { setupApiKeyPrompt } from '../../src/templates/messages/index.js';
 import { storeKeyAsCredential } from '../../src/cli/credentials-prompt.js';
@@ -153,7 +154,8 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
   });
 
   function deps() {
-    return { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
+    createRootConfig({ fsFactory }).loadGlobal();
+    return { fsFactory, llmConfiguration: createLLMConfiguration({ fsFactory }) };
   }
 
   it('env 已设置 + typed key → 派生 ref，patchPrimary 收到 ${CHESTNUT_<seed>_API_KEY}', async () => {
@@ -166,7 +168,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     const snapshot = await promptReconfigure(deps(), rl, 'auth');
 
     expect(snapshot).not.toBeNull();
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${CHESTNUT_ANTHROPIC_API_KEY}');
     expect(rawYaml).not.toContain('typed-key');
     // 加载后 key = 用户输入值（env 不遮蔽派生 ref）
@@ -187,7 +189,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     const snapshot = await promptReconfigure(deps(), rl, 'auth');
 
     expect(snapshot).not.toBeNull();
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
     expect(loadGlobalConfig({ fsFactory }).llm.primary.api_key).toBe('typed-key');
   });
@@ -202,7 +204,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
       /Unset CHESTNUT_ANTHROPIC_API_KEY/,
     );
     // 配置保持 ${ANTHROPIC_API_KEY} 不被改写
-    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
   });
 });

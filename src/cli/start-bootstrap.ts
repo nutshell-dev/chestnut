@@ -1,5 +1,6 @@
 import * as path from 'path';
 import type { RootConfigAdmin } from '../assembly/index.js';
+import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import { createMotionContractActionContext } from '../assembly/index.js';
 import { createDaemonSpawnOptions, ensureMotionLLMIdentity } from '../daemon/index.js';
 import {
@@ -42,7 +43,8 @@ import { initCommand as motionInitCommand } from './commands/motion.js';
 
 export interface StartBootstrapDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary' | 'getInitializationState'>;
+  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'getInitializationState'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
 export interface StartBootstrapRuntime {

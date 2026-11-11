@@ -392,6 +392,12 @@ vi.mock('../../src/core/llm-configuration/index.js', () => {
   return {
     resolveLLMConfig: llmConfigFn,
     createLegacyAuthenticationStore: vi.fn(function () { return undefined; }),
+    createLLMConfiguration: vi.fn(() => ({
+      loadGlobal: vi.fn(),
+      loadSnapshot: vi.fn(),
+      readRevision: vi.fn(() => ({ id: '1', revision: 1 })),
+    })),
+    createLLMApplicationStore: vi.fn(() => ({ read: vi.fn(), record: vi.fn() })),
     llmConfigIdentity: vi.fn(() => 'test-llm-identity'),
   };
 });

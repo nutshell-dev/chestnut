@@ -22,7 +22,13 @@ export { createLocalCredentials, parseDotEnv } from './legacy-credentials/index.
 export type { LocalCredentialsDeps } from './legacy-credentials/index.js';
 export { createLegacyAuthenticationStore } from './authentication-store.js';
 export { resolveLLMConfig } from './selection.js';
-export type { LLMGlobalConfigView, LLMClawConfigView, LLMConfigInput } from './selection.js';
+export type {
+  LLMGlobalConfigView,
+  LLMClawConfigView,
+  LLMConfigInput,
+  SharedLLM,
+  SharedLLMInput,
+} from './selection.js';
 export {
   snapshotLLMConfig,
   snapshotLLMConfigInput,
@@ -37,3 +43,34 @@ export {
   resolveCredentialReference,
 } from './key-input.js';
 export type { StoredCredentialInput } from './key-input.js';
+export {
+  createLLMConfiguration,
+  createLLMConfigurationDocumentStore,
+  getLLMConfigurationPath,
+  llmConfigurationSourceDigest,
+  newLLMMigrationId,
+  readLLMMigrationRecord,
+  recordLLMMigrationSourceCleanup,
+  recordLLMMigrationSourceCleanupFailure,
+  LLMConfigurationNotFoundError,
+  LLMConfigurationMigrationError,
+} from './document-store.js';
+export {
+  createLLMApplicationStore,
+  createLLMNotificationStore,
+} from './propagation-store.js';
+export type {
+  LLMApplicationFact,
+  LLMApplicationStore,
+  RecordLLMApplicationInput,
+  LLMNotificationFact,
+  LLMNotificationStore,
+} from './propagation-store.js';
+export type {
+  LLMConfigDocument,
+  ResolvedLLMConfigDocument,
+  LLMConfigurationAdmin,
+  LLMConfigurationDocumentStore,
+  LLMConfigurationRevision,
+  LLMConfigurationWriteResult,
+} from './document-store.js';

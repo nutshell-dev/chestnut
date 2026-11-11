@@ -8,7 +8,7 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import type { RootConfigAdmin } from '../assembly/index.js';
+import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createLegacyAuthenticationStore,
   snapshotLLMConfig,
@@ -45,7 +45,7 @@ export interface VerifiedLLMConfig {
 
 interface LLMConfigDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
 export function classifyLLMErrorForDisplay(err: unknown): LLMErrorType {
@@ -180,7 +180,7 @@ export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
 > {
   // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
   const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
-  return probeLLMConnection(snapshotLLMConfig(deps.rootConfig.loadGlobal()), { credentials });
+  return probeLLMConnection(snapshotLLMConfig(deps.llmConfiguration.loadGlobal()), { credentials });
 }
 
 /**
@@ -252,7 +252,7 @@ export async function promptReconfigure(
       // Phase 1925 Step B：ref 优先取当前 primary preset 的 envVar 约定名
       // Phase 1984 Step B：env 同名已设置时，typed key 改用派生 ref 保存（不被 env
       // 遮蔽）；派生 ref 仍被遮蔽则 loud 失败，不静默回退为环境变量。
-      const currentPrimary = deps.rootConfig.loadGlobal().llm.primary;
+      const currentPrimary = deps.llmConfiguration.loadGlobal().llm.primary;
       const currentPreset = currentPrimary.preset ? PRESETS[currentPrimary.preset] : undefined;
       const envVar = currentPreset?.envVar;
       const envReady = Boolean(envVar && process.env[envVar]);
@@ -260,13 +260,13 @@ export async function promptReconfigure(
       const stored = await storeKeyAsCredential(deps, raw, envReady
         ? { seed, onShadowedEnv: 'error' as const }
         : { envVar, seed, onShadowedEnv: 'error' as const });
-      await deps.rootConfig.patchPrimary({ api_key: stored });
+      await deps.llmConfiguration.patchPrimary({ api_key: stored });
 
     } else if (choice === '2') {
       const raw = await question('New model (b = back, "auto" = preset default)');
       if (raw === 'b') continue;
       if (!raw) { console.log('Model is required. Type "auto" to use preset default.'); continue; }
-      await deps.rootConfig.patchPrimary({ model: raw });
+      await deps.llmConfiguration.patchPrimary({ model: raw });
 
     } else if (choice === '3') {
       type FmtStep = 'pick' | 'customFormat' | 'baseUrl' | 'done';
@@ -300,14 +300,14 @@ export async function promptReconfigure(
             chosenPreset = p.id;
             chosenBaseUrl = p.defaultBaseUrl ?? '';
             // provider 换边清除互斥的 provider_id（patch 语义：undefined = 删键）
-            await deps.rootConfig.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl || undefined });
+            await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl || undefined });
             console.log(`✓ Set provider to ${p.displayName}`);
             step = 'done';
           } else if (idx >= catalogStart && idx < customIdx) {
             const providerId = catalogOnly[idx - catalogStart];
             const modelRaw = await question(`Model (required for ${providerId})`);
             if (!modelRaw || modelRaw === 'b') { console.log('Model is required.'); continue; }
-            await deps.rootConfig.patchPrimary({ provider_id: providerId, preset: undefined, model: modelRaw, base_url: undefined });
+            await deps.llmConfiguration.patchPrimary({ provider_id: providerId, preset: undefined, model: modelRaw, base_url: undefined });
             console.log(`✓ Set provider to ${providerId} (catalog), model ${modelRaw}`);
             step = 'done';
           } else if (idx === customIdx) {
@@ -332,7 +332,7 @@ export async function promptReconfigure(
           if (raw === 'b') { step = 'customFormat'; continue; }
           if (!raw) { console.log('Base URL is required.'); continue; }
           chosenBaseUrl = raw;
-          await deps.rootConfig.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl });
+          await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl });
           step = 'done';
         }
       }
@@ -345,7 +345,7 @@ export async function promptReconfigure(
     }
 
     console.log('Testing connection...');
-    const snapshot = snapshotLLMConfig(deps.rootConfig.loadGlobal());
+    const snapshot = snapshotLLMConfig(deps.llmConfiguration.loadGlobal());
     // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
     const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
     const result = await probeLLMConnection(snapshot, { credentials });

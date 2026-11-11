@@ -410,6 +410,9 @@ export class Runtime {
     //    archive 入口保留在 regime-switch 真有 session 实体断裂语义的场景）。
     await this.repairSessionIfNeeded(opts?.interruptionMessage);
 
+    // 在恢复任务分发前完成 saved revision 对账，避免旧配置执行新恢复任务。
+    await this._recoverConfigApplication();
+
     // 4. AsyncTaskSystem 业务动作（M#2 归属消费者 / Assembly 只构造不调）
     try {
       await this.taskSystem.initialize();
@@ -436,7 +439,20 @@ export class Runtime {
     // Missing / corrupt file → empty Map + audit (fail-safe: claw must re-read).
     this.execContext.readFileState = await loadReadFileState(this.systemFs, this.auditWriter);
 
+    // L4 saved revision 是恢复权威：通知丢失、通知已 ack 但 apply 失败、或 publisher
+    // 失败后，重启都在首次驱动前对账。初始装配配置先建立本进程基线，避免升级后
+    // 对相同配置做一次无意义 reload；装配至 initialize 间的真实漂移仍会 apply。
     this.initialized = true;
+  }
+
+  private async _recoverConfigApplication(): Promise<void> {
+    if (!this.options.configApplicationStore || !this.options.configReloader) return;
+    const previous = this.options.configApplicationStore.read(this.options.clawId);
+    this.appliedIdentityPublishPending = previous?.publishPending ?? false;
+    const initial = this._deriveAppliedConfigIdentity(this.options.llmConfig).identity;
+    this.appliedConfigIdentity = initial;
+    this.appliedConfigRevision = initial?.slice(0, 16) ?? computeConfigRevision(this.options.llmConfig);
+    await this._applyConfigReload(0);
   }
 
   private async repairSessionIfNeeded(interruptionMessage?: string): Promise<void> {
@@ -1014,29 +1030,29 @@ export class Runtime {
     }
 
     let newConfig: LLMOrchestratorConfig;
+    let savedRevision: string | undefined;
     try {
-      newConfig = this.options.configReloader();
+      const loaded = this.options.configReloader();
+      if ('config' in loaded && 'revision' in loaded) {
+        newConfig = loaded.config;
+        savedRevision = loaded.revision;
+      } else {
+        newConfig = loaded;
+      }
     } catch (err) {
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
-        `reason=${formatErr(err)}`,
-      );
+      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED, `reason=${formatErr(err)}`);
       return undefined;
     }
 
-    // 同一 newConfig 对象只派生一次（不二次读盘、不从另一对象派生——TOCTOU 会
-    // 判定/发布未应用的身份）。
     const derived = this._deriveAppliedConfigIdentity(newConfig);
     const identity = derived.identity;
-
-    // 判定与 revision 同一投影：生产路径两者都用 identity（revision 是其短指纹）；
-    // 仅未注入时回退旧投影。
     const revision = identity !== undefined
       ? identity.slice(0, 16)
       : computeConfigRevision(newConfig);
     const alreadyApplied = identity !== undefined
       ? identity === this.appliedConfigIdentity
       : revision === this.appliedConfigRevision;
+    const applicationStore = this.options.configApplicationStore;
 
     if (alreadyApplied) {
       this.auditWriter.write(
@@ -1045,9 +1061,28 @@ export class Runtime {
         `reason=already_applied`,
         `revision=${revision}`,
       );
-      // Phase 1945 补偿语义不变：上次发布失败时重试；只发「真正 apply 过」的身份。
+      // 同 identity 的新 saved revision 只推进持久事实，不重复 reset orchestrator。
+      if (applicationStore && savedRevision !== undefined && identity !== undefined) {
+        const previous = applicationStore.read(this.options.clawId);
+        if (previous?.revision !== savedRevision || previous.outcome !== 'applied') {
+          await this._recordConfigApplication({
+            revision: savedRevision,
+            identity,
+            outcome: 'applied',
+            publishPending: this.appliedIdentityPublishPending,
+          });
+        }
+      }
       if (this.appliedIdentityPublishPending && this.appliedConfigIdentity !== undefined) {
-        await this._publishAppliedLLMIdentity(this.appliedConfigIdentity);
+        const outcome = await this._publishAppliedLLMIdentity(this.appliedConfigIdentity);
+        if (outcome !== undefined && applicationStore && savedRevision !== undefined) {
+          await this._recordConfigApplication({
+            revision: savedRevision,
+            identity: this.appliedConfigIdentity,
+            outcome: 'applied',
+            publishPending: false,
+          });
+        }
       }
       return revision;
     }
@@ -1055,22 +1090,43 @@ export class Runtime {
     try {
       this.llm.reloadConfig(newConfig);
     } catch (err) {
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
-        `reason=${formatErr(err)}`,
-      );
+      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED, `reason=${formatErr(err)}`);
+      if (applicationStore && savedRevision !== undefined && identity !== undefined) {
+        await this._recordConfigApplication({
+          revision: savedRevision,
+          identity,
+          outcome: 'failed',
+          publishPending: false,
+          error: err,
+        });
+      }
       return undefined;
     }
 
-    // apply 已成功——此后只有「发布」可失败，不回滚配置、不伪装 reload 失败。
+    // apply 已成功；先记录应用事实，再发布对外 ready identity。
     this.appliedConfigRevision = revision;
     this.appliedConfigIdentity = identity;
+    if (applicationStore && savedRevision !== undefined && identity !== undefined) {
+      await this._recordConfigApplication({
+        revision: savedRevision,
+        identity,
+        outcome: 'applied',
+        publishPending: this.options.appliedLLMIdentityPublisher !== undefined,
+      });
+    }
 
     let publishOutcome: AppliedLLMIdentityPublishOutcome | undefined;
     if (identity !== undefined) {
       publishOutcome = await this._publishAppliedLLMIdentity(identity);
+      if (publishOutcome !== undefined && applicationStore && savedRevision !== undefined) {
+        await this._recordConfigApplication({
+          revision: savedRevision,
+          identity,
+          outcome: 'applied',
+          publishPending: false,
+        });
+      }
     } else if (this.options.appliedLLMIdentityPublisher) {
-      // 身份不可得但 publisher 已注入：不静默，留证并登记补偿。
       this.appliedIdentityPublishPending = true;
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.LLM_IDENTITY_PUBLISH_FAILED,
@@ -1094,6 +1150,32 @@ export class Runtime {
       ...(publishOutcome !== undefined ? [`previous_fact=${publishOutcome.previousFact}`] : []),
     );
     return revision;
+  }
+
+  private async _recordConfigApplication(input: {
+    revision: string;
+    identity: string;
+    outcome: 'applied' | 'failed';
+    publishPending: boolean;
+    error?: unknown;
+  }): Promise<void> {
+    const store = this.options.configApplicationStore;
+    if (!store) return;
+    try {
+      await store.record({
+        clawId: this.options.clawId,
+        processId: process.pid,
+        ...input,
+      });
+    } catch (error) {
+      // apply 与事实落盘不是同一原子事务；保留失败证据，重启按 saved revision 重放。
+      this.appliedIdentityPublishPending = input.outcome === 'applied';
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+        `reason=application_fact_write_failed:${formatErr(error)}`,
+        `revision=${input.revision}`,
+      );
+    }
   }
 
   /**

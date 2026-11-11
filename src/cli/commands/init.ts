@@ -15,7 +15,7 @@ import { runFirstRunSetup } from '../first-run-setup.js';
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'saveGlobalExclusive' | 'patchPrimary' | 'getInitializationState' | 'completeInitialization'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobalExclusive' | 'getInitializationState' | 'completeInitialization'>;
 }
 
 /**

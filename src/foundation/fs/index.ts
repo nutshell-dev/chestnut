@@ -9,6 +9,7 @@
 
 // Types and interfaces
 export type {
+  AtomicWriteResult,
   FileEntry,
   FileSystem,
   StatInfo,
