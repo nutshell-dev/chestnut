@@ -8,7 +8,7 @@
 import type { ApiFormat, AuthProfile } from './presets.js';
 import type { ToolUseId } from './tool-use-id.js';
 import type { ThinkingLevel } from './thinking-levels.js';
-import type { ModelInputMeter } from './input-meter.js';
+import type { ModelInputMeter } from './input-meter-types.js';
 
 // phase 692 Step A: 删 AuditLog import + re-export
 // L1 LLMProvider 收窄至 AuditSink (L1 owned duck-typed)、不知 L2a AuditLog 业务概念。

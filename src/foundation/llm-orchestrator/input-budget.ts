@@ -1,5 +1,7 @@
 import type { LLMCallOptions } from './types.js';
 import type { LLMProvider, InputMeasurement, ModelInputMeter } from '../llm-provider/index.js';
+import { LLMAllProvidersFailedError } from './errors.js';
+import type { InputBudgetEvidence } from '../llm-provider/index.js';
 
 export interface InputBudgetObservation {
   readonly meter?: ModelInputMeter;
@@ -47,4 +49,12 @@ export function timeoutInputTokens(observation: InputBudgetObservation): number 
   return observation.measurement.kind === 'counted' || observation.measurement.kind === 'estimated'
     ? observation.measurement.tokens
     : 0;
+}
+
+export function inputBudgetEvidence(error: unknown): readonly InputBudgetEvidence[] {
+  if (error instanceof LLMAllProvidersFailedError) {
+    return error.failures.flatMap(failure => inputBudgetEvidence(failure.error));
+  }
+  const evidence = (error as { inputBudget?: InputBudgetEvidence } | null)?.inputBudget;
+  return evidence ? [evidence] : [];
 }

@@ -3,7 +3,7 @@
  * phase 1190 三层分类裁剪策略：Tier 1 不裁 / Tier 2 尽量不裁 / Tier 3 可裁。
  */
 
-import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
+import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   classifyMessage,
@@ -11,8 +11,8 @@ import {
   findToolPairSafeInsertionIndex,
   type ContextTrimSummaryStats,
 } from '../../foundation/dialog-store/index.js';
-import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
+import { ContextInputMeasurementError } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
@@ -21,7 +21,6 @@ import {
   CONTEXT_TRIM_TARGET_RATIO,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
 } from './constants.js';
-
 export type AuditWriter = { write(event: string, ...details: string[]): void };
 
 type TrimCandidateOutcome =
@@ -56,18 +55,14 @@ export type ContextTrimOutcome =
       archived: false;
     });
 
-export type TrimPolicy =
-  | { kind: 'proactive'; targetCompleteTokens: number }
-  | {
-      kind: 'reactive';
-      completeFloorTokens: number;
-      completeCeilingTokens: number;
-    };
+import type { TrimPolicy } from './trim-policy.js';
+export type { TrimPolicy } from './trim-policy.js';
 
 export interface TrimV2Options {
   recentWindowMs: number;
   previewBytes: number;
-  fixedTokens: number;
+  measureComplete: (messages: readonly Message[]) => InputMeasurement;
+  measurementDescriptor?: Readonly<InputMeterDescriptor>;
   policy: TrimPolicy;
   now: number;
   /** phase 1861 (CM-D3)：audit sink 必填——trim 事实不允许静默。 */
@@ -98,6 +93,14 @@ interface CompressResult {
   supersededRedundantResults: number;
   /** 在 proactive 场景下，摘要应插入此位置（处理过的 target 消息之后、未处理的非 target 消息之前）。reactive 时为 messages.length。 */
   boundaryIndex: number;
+}
+
+function completeTokens(messages: readonly Message[], opts: TrimV2Options): number {
+  const measurement = opts.measureComplete(messages);
+  if (measurement.kind === 'unavailable') {
+    throw new ContextInputMeasurementError(measurement.reason, opts.measurementDescriptor);
+  }
+  return measurement.tokens;
 }
 
 type SubtypeStat = ContextTrimSummaryStats['subtypeStat'];
@@ -145,13 +148,13 @@ export function buildProactiveTrimPolicy(
  * 输出：discriminated outcome + dropped messages + metrics。
  */
 export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV2Result {
-  const before = opts.fixedTokens + estimateMessagesTokens(messages);
+  const before = completeTokens(messages, opts);
 
   const targetLabel =
     opts.policy.kind === 'proactive'
       ? `target=${opts.policy.targetCompleteTokens}`
       : `floor=${opts.policy.completeFloorTokens},ceiling=${opts.policy.completeCeilingTokens}`;
-  opts.audit.write(CONTEXT_TRIM_STARTED, `before=${before}`, `fixed=${opts.fixedTokens}`, targetLabel);
+  opts.audit.write(CONTEXT_TRIM_STARTED, `before=${before}`, targetLabel);
 
   let result: TrimV2Result;
 
@@ -175,15 +178,17 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
       }, opts.policy, false);
     } else {
       const compressed = compressMessages(messages, opts, new Set(olderIndices));
-      const compressedAfter = opts.fixedTokens + estimateMessagesTokens(compressed.messages);
+      const compressedAfter = completeTokens(compressed.messages, opts);
 
       if (compressedAfter <= opts.policy.targetCompleteTokens) {
         // 压缩够用 → 注入摘要，完成（仅当确实发生压缩时才注入摘要）
         const didCompress = compressedAfter < before;
         const withSummary = didCompress ? injectSummaryAtBoundary(compressed, opts.now) : compressed.messages;
-        const withSummaryAfter = opts.fixedTokens + estimateMessagesTokens(withSummary);
+        const withSummaryAfter = completeTokens(withSummary, opts);
         result = makeTrimResult(
-          withSummaryAfter < before ? 'target_reached' : 'no_progress',
+          withSummaryAfter < before
+            ? (withSummaryAfter <= opts.policy.targetCompleteTokens ? 'target_reached' : 'progress')
+            : 'no_progress',
           before,
           withSummaryAfter,
           { ...compressed, messages: withSummary, boundaryIndex: didCompress ? compressed.boundaryIndex + 1 : compressed.boundaryIndex },
@@ -197,22 +202,32 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
         const dropped = dropTurnsSelective(compressed, before, opts, {
           onlyBeforeIndex: compressed.boundaryIndex,
         });
-        const newBoundaryIndex = Math.max(0, compressed.boundaryIndex - dropped.droppedMessages.length);
-        const finalMessages = injectSummaryAtBoundary(
-          { ...compressed, messages: dropped.outcome.newMessages, boundaryIndex: newBoundaryIndex },
-          opts.now,
-        );
-        result = {
-          outcome: { ...dropped.outcome, newMessages: finalMessages },
-          droppedMessages: dropped.droppedMessages,
-          metrics: { ...dropped.metrics, summaryMessageInjected: true },
-        };
+        if (dropped.droppedMessages.length === 0 && dropped.outcome.status === 'policy_conflict') {
+          result = dropped;
+        } else {
+          const newBoundaryIndex = Math.max(0, compressed.boundaryIndex - dropped.droppedMessages.length);
+          const finalMessages = injectSummaryAtBoundary(
+            { ...compressed, messages: dropped.outcome.newMessages, boundaryIndex: newBoundaryIndex },
+            opts.now,
+          );
+          const finalAfter = completeTokens(finalMessages, opts);
+          result = {
+            outcome: {
+              ...dropped.outcome,
+              status: finalAfter <= opts.policy.targetCompleteTokens ? 'target_reached' : 'progress',
+              after: finalAfter,
+              newMessages: finalMessages,
+            },
+            droppedMessages: dropped.droppedMessages,
+            metrics: { ...dropped.metrics, summaryMessageInjected: true },
+          };
+        }
       }
     }
   } else {
     // === 触底裁：压缩全部消息（Tier 3 + Tier 2）===
     const compressed = compressMessages(messages, opts);
-    const compressedAfter = opts.fixedTokens + estimateMessagesTokens(compressed.messages);
+    const compressedAfter = completeTokens(compressed.messages, opts);
 
     if (opts.policy.completeFloorTokens > opts.policy.completeCeilingTokens) {
       result = makePolicyConflict(
@@ -226,9 +241,11 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
       // 压缩够用 → 注入摘要（在最后一条被压缩消息之后，即消息末尾），仅当确实发生压缩时
       const didCompress = compressedAfter < before;
       const withSummary = didCompress ? injectSummaryAtEnd(compressed, opts.now) : compressed.messages;
-      const withSummaryAfter = opts.fixedTokens + estimateMessagesTokens(withSummary);
+      const withSummaryAfter = completeTokens(withSummary, opts);
       result = makeTrimResult(
-        withSummaryAfter < before ? 'target_reached' : 'no_progress',
+        withSummaryAfter < before
+          ? (withSummaryAfter <= opts.policy.completeCeilingTokens ? 'target_reached' : 'progress')
+          : 'no_progress',
         before,
         withSummaryAfter,
         { ...compressed, messages: withSummary },
@@ -238,15 +255,25 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     } else {
       // 压缩不够 → 先选择性丢弃最旧 turn，再注入摘要（在末尾）
       const dropped = dropTurnsSelective(compressed, before, opts);
-      const finalMessages = injectSummaryAtEnd(
-        { ...compressed, messages: dropped.outcome.newMessages },
-        opts.now,
-      );
-      result = {
-        outcome: { ...dropped.outcome, newMessages: finalMessages },
-        droppedMessages: dropped.droppedMessages,
-        metrics: { ...dropped.metrics, summaryMessageInjected: true },
-      };
+      if (dropped.droppedMessages.length === 0 && dropped.outcome.status === 'policy_conflict') {
+        result = dropped;
+      } else {
+        const finalMessages = injectSummaryAtEnd(
+          { ...compressed, messages: dropped.outcome.newMessages },
+          opts.now,
+        );
+        const finalAfter = completeTokens(finalMessages, opts);
+        result = {
+          outcome: {
+            ...dropped.outcome,
+            status: finalAfter <= opts.policy.completeCeilingTokens ? 'target_reached' : 'progress',
+            after: finalAfter,
+            newMessages: finalMessages,
+          },
+          droppedMessages: dropped.droppedMessages,
+          metrics: { ...dropped.metrics, summaryMessageInjected: true },
+        };
+      }
     }
   }
 
@@ -517,7 +544,7 @@ function dropTurnsSelective(
       : 0;
 
   let bestMessages = result.messages;
-  let bestAfter = opts.fixedTokens + estimateMessagesTokens(bestMessages);
+  let bestAfter = completeTokens(bestMessages, opts);
   const allDropped: Message[] = [];
 
   // 从最旧 turn 开始逐个处理
@@ -536,10 +563,13 @@ function dropTurnsSelective(
       continue;
     }
 
-    // 增量估算 token：只计算本 turn 丢前/丢后的差值，避免每轮全量重算
-    const beforeTurn = estimateMessagesTokens(turnMsgs);
-    const afterTurn = estimateMessagesTokens(kept);
-    const after = bestAfter - beforeTurn + afterTurn;
+    // 每个候选都对完整消息重新计量；模板编码可能使消息差值不可加。
+    const candidate = [
+      ...bestMessages.slice(0, seg.start),
+      ...kept,
+      ...bestMessages.slice(seg.endExclusive),
+    ];
+    const after = completeTokens(candidate, opts);
 
     // reactive 必须保留 >= floor；若 dropping 后低于 floor，则此 turn 不能丢
     if (opts.policy.kind === 'reactive' && after < floorTokens) {
@@ -547,12 +577,6 @@ function dropTurnsSelective(
     }
 
     // 重建 messages 数组
-    const candidate = [
-      ...bestMessages.slice(0, seg.start),
-      ...kept,
-      ...bestMessages.slice(seg.endExclusive),
-    ];
-
     allDropped.push(...dropped);
     bestMessages = candidate;
     bestAfter = after;
@@ -585,7 +609,7 @@ function dropTurnsSelective(
   }
 
   // 所有 eligible turn 都处理后仍超标 → policy_conflict
-  const fixedExceeds = opts.fixedTokens > targetTokens;
+  const fixedExceeds = completeTokens([], opts) > targetTokens;
   return makePolicyConflict(
     { ...result, messages: bestMessages },
     before,

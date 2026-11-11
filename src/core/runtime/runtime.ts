@@ -12,7 +12,7 @@ import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition, LLMO
 import { LLMRecoveryWaitRequiredError } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
-import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition, InputMeasurement, ModelInputMeter } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import type { InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';
@@ -1991,6 +1991,41 @@ export class Runtime {
    * Phase 1218 Step D: this is a public mutation operation and must acquire the
    * dialog operation authority.
    */
+  private async prepareTrimMeter(request: { kind: 'preview' } | { kind: 'failure'; error: unknown }): Promise<ModelInputMeter | undefined> {
+    if (typeof this.llm.prepareInputBudget !== 'function') return undefined;
+    try {
+      const result = await this.llm.prepareInputBudget(request);
+      return result.kind === 'available' ? result.meter : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async prepareTrimBudget(error: unknown): Promise<{ kind: 'available'; meter: ModelInputMeter } | { kind: 'unavailable'; reason: string }> {
+    const request = error === undefined ? { kind: 'preview' as const } : { kind: 'failure' as const, error };
+    if (typeof this.llm.prepareInputBudget !== 'function') return { kind: 'unavailable', reason: 'capability_missing' };
+    try {
+      const result = await this.llm.prepareInputBudget(request);
+      return result.kind === 'available' ? result : { kind: 'unavailable', reason: result.reason };
+    } catch {
+      return { kind: 'unavailable', reason: 'capability_failed' };
+    }
+  }
+
+  private completeInputMeasurement(
+    meter: ModelInputMeter | undefined,
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+  ): (messages: readonly Message[]) => InputMeasurement {
+    return (messages) => meter
+      ? meter.measure({
+          messages: messages.map(message => ({ role: message.role, content: message.content })),
+          system: systemPrompt,
+          tools: toolsForLLM,
+        })
+      : { kind: 'unavailable', reason: 'input_meter_unavailable' };
+  }
+
   async proactiveTrimIfNeeded(
     messages: Message[],
     systemPrompt: string,
@@ -2011,7 +2046,10 @@ export class Runtime {
       return messages;
     }
     const providerInfo = this.llm.getProviderInfo?.();
-    const contextWindow = resolveContextWindow(providerInfo?.name, providerInfo?.model);
+    const meter = await this.prepareTrimMeter({ kind: 'preview' });
+    const contextWindow = meter?.descriptor.contextWindow
+      ?? resolveContextWindow(providerInfo?.name, providerInfo?.model);
+    const measureComplete = this.completeInputMeasurement(meter, systemPrompt, toolsForLLM);
     // phase 1861 (CM-D2+D8)：缓存失效判据归 caller——TTL 比较与「非首次」在此计算注入。
     const now = Date.now();
     const trimResult = await maybeTrimProactive({
@@ -2025,6 +2063,8 @@ export class Runtime {
       policy: this.contextTrimPolicy,
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
+      measureComplete,
+      measurementDescriptor: meter?.descriptor,
     });
     return trimResult ? trimResult.newMessages : messages;
   }
@@ -2035,12 +2075,12 @@ export class Runtime {
    * Phase 1218 Step A: this is an independent public mutation operation and must
    * acquire the dialog operation authority.
    */
-  async reactiveTrim(): Promise<ContextTrimOutcome> {
-    return this._withDialogOperation(() => this._reactiveTrimImpl());
+  async reactiveTrim(error?: unknown): Promise<ContextTrimOutcome> {
+    return this._withDialogOperation(() => this._reactiveTrimImpl(error));
   }
 
   /** Phase 1218 Step A: internal reactive trim implementation. */
-  private async _reactiveTrimImpl(): Promise<ContextTrimOutcome> {
+  private async _reactiveTrimImpl(error?: unknown): Promise<ContextTrimOutcome> {
     if (!this.contextTrimmingEnabled || !this.sessionManager) {
       return {
         status: 'no_progress',
@@ -2058,7 +2098,10 @@ export class Runtime {
     const { session } = loadResult;
     const tools = this.getToolsForLLM();
     const providerInfo = this.llm.getProviderInfo?.();
-    const contextWindow = resolveContextWindow(providerInfo?.name, providerInfo?.model);
+    const budget = await this.prepareTrimBudget(error);
+    const meter = budget.kind === 'available' ? budget.meter : undefined;
+    const contextWindow = meter?.descriptor.contextWindow
+      ?? resolveContextWindow(providerInfo?.name, providerInfo?.model);
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_TRIGGERED,
       `provider=${providerInfo?.name ?? 'unknown'}`,
@@ -2076,10 +2119,12 @@ export class Runtime {
       triggerKind: 'reactive_overflow',
       policy: buildReactiveTrimPolicy({
         contextWindow,
-        explicitMaxTokens: this.options.llmConfig.primary.maxTokens,
+        explicitMaxTokens: meter?.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.maxTokens,
       }, {
         floorRatio: this.contextTrimPolicy.floorRatio,
       }),
+      measureComplete: this.completeInputMeasurement(meter, session.systemPrompt, tools),
+      measurementDescriptor: meter?.descriptor,
     });
     if (outcome.status === 'no_progress' || outcome.status === 'policy_conflict') {
       this.auditWriter.write(

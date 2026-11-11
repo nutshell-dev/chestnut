@@ -2,7 +2,8 @@
 import { Tokenizer } from '@huggingface/tokenizers';
 import tokenizerSpec from './tokenizers/deepseek-v41.tokenizer.json' with { type: 'json' };
 import { renderDeepseekV41 } from './deepseek-v41-renderer.js';
-import type { CompleteInput, InputMeasurement, InputMeterDescriptor, ModelInputMeter } from './input-meter.js';
+import type { CompleteInput, InputMeasurement, InputMeterDescriptor, ModelInputMeter } from './input-meter-types.js';
+import type { ProviderWireMessage, ToolDefinition } from './types.js';
 
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 32_768;
@@ -39,9 +40,9 @@ export function createDeepseekV41Meter(descriptor: InputMeterDescriptor): ModelI
     measure(input: CompleteInput): InputMeasurement {
       try {
         const segments = renderDeepseekV41({
-          messages: input.messages,
+          messages: input.messages as ProviderWireMessage[],
           ...(input.system !== undefined && { system: input.system }),
-          ...(input.tools !== undefined && { tools: input.tools }),
+          ...(input.tools !== undefined && { tools: input.tools as ToolDefinition[] }),
           thinking: { type: 'enabled' },
           output_config: { effort: 'high' },
         });

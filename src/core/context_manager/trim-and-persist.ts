@@ -7,10 +7,7 @@ import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
 import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
-import {
-  estimateTextTokens,
-  estimateToolsTokens,
-} from '../../foundation/llm-provider/index.js';
+import type { InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
 import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from './audit-events.js';
 import { ContextTrimPersistError } from './errors.js';
@@ -46,6 +43,8 @@ export interface TrimAndPersistInputs {
   audit: AuditWriter;
   triggerKind: TriggerKind;
   policy: TrimPolicy;
+  measureComplete: (messages: readonly Message[]) => InputMeasurement;
+  measurementDescriptor?: Readonly<InputMeterDescriptor>;
   now?: number;
 }
 
@@ -69,13 +68,11 @@ export async function trimAndPersist(
 ): Promise<ContextTrimOutcome> {
   const now = inputs.now ?? Date.now();
 
-  const fixedTokens = estimateTextTokens(inputs.systemPrompt)
-    + estimateToolsTokens(inputs.toolsForLLM);
-
   const result = trimV2(inputs.messages, {
     recentWindowMs: inputs.recentWindowMs,
     previewBytes: inputs.previewBytes,
-    fixedTokens,
+    measureComplete: inputs.measureComplete,
+    measurementDescriptor: inputs.measurementDescriptor,
     policy: inputs.policy,
     now,
     audit: inputs.audit,

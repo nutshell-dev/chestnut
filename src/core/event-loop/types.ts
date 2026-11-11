@@ -86,7 +86,7 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
     reuseTraceId?: TraceId,
     recoveryFacts?: LLMRecoveryFacts,
   ): Promise<TurnResult>;
-  reactiveTrim(): Promise<ContextTrimOutcome>;
+  reactiveTrim(error?: unknown): Promise<ContextTrimOutcome>;
   /**
    * Phase 1944 Step B：LLM 失败处置事实查询（Runtime 转发 LLMOrchestrator
    * capability 的只读结论）。post-drain catch 的唯一 LLM 策略事实来源；

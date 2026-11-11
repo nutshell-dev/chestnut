@@ -2,34 +2,10 @@
 import type * as PiAi from '@earendil-works/pi-ai';
 import { sha256Hex } from '../node-utils/index.js';
 import type { ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
+import type { ModelInputMeter } from './input-meter-types.js';
 import { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } from './token-estimator.js';
 import { createDeepseekV41Meter } from './deepseek-v41-meter.js';
-
-export interface CompleteInput {
-  messages: readonly ProviderWireMessage[];
-  system?: string;
-  tools?: ToolDefinition[];
-}
-
-export interface InputMeterDescriptor {
-  revision: string;
-  provider: string;
-  model: string;
-  api: string;
-  contextWindow: number;
-  explicitMaxTokens?: number;
-  profile: string;
-}
-
-export type InputMeasurement =
-  | { kind: 'counted'; tokens: number; method: 'deepseek-v41-template' }
-  | { kind: 'estimated'; tokens: number; method: 'legacy-cl100k'; reason: string }
-  | { kind: 'unavailable'; reason: string };
-
-export interface ModelInputMeter {
-  readonly descriptor: Readonly<InputMeterDescriptor>;
-  measure(input: CompleteInput): InputMeasurement;
-}
+export type { CompleteInput, InputMeterDescriptor, InputMeasurement, ModelInputMeter } from './input-meter-types.js';
 
 /** Metadata and effective request options, never credentials, define the counting revision. */
 export function createInputMeter(
@@ -65,8 +41,8 @@ export function createInputMeter(
         kind: 'estimated',
         method: 'legacy-cl100k',
         reason: 'unsupported_model_or_protocol',
-        tokens: estimateMessagesTokens([...input.messages])
-          + estimateTextTokens(input.system ?? '') + estimateToolsTokens(input.tools ?? []),
+        tokens: estimateMessagesTokens(input.messages as ProviderWireMessage[])
+          + estimateTextTokens(input.system ?? '') + estimateToolsTokens(input.tools as ToolDefinition[] ?? []),
       };
     },
   };

@@ -12,7 +12,18 @@
  * 消费方（Runtime/CLI/audit）从错误对象直接判因，不解析 message 文本。
  * 证据可得性如实：不可得字段由抛出点省略，不为填而填。
  */
-import type { TrimPolicy } from './trim-v2.js';
+import type { TrimPolicy } from './trim-policy.js';
+import type { InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+
+export class ContextInputMeasurementError extends Error {
+  readonly name = 'ContextInputMeasurementError';
+  constructor(
+    readonly reason: string,
+    readonly descriptor?: Readonly<InputMeterDescriptor>,
+  ) {
+    super(`complete input measurement unavailable: ${reason}`);
+  }
+}
 
 export interface ContextTrimExhaustedEvidence {
   /** 裁剪后可用的消息预算（token）。 */

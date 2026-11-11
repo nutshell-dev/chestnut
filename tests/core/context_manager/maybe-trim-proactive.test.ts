@@ -44,6 +44,14 @@ function makeInputs(overrides?: Partial<MaybeTrimProactiveInputs>): MaybeTrimPro
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
     now: NOW,
+    measureComplete: (messages) => ({
+      kind: 'estimated' as const,
+      tokens: tokenEstimator.estimateMessagesTokens(messages)
+        + tokenEstimator.estimateTextTokens('sys')
+        + tokenEstimator.estimateToolsTokens([]),
+      method: 'legacy-cl100k' as const,
+      reason: 'test',
+    }),
     ...overrides,
   };
 }

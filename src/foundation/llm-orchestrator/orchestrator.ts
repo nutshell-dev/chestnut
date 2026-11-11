@@ -13,6 +13,8 @@ import type {
   LLMRuntimeCapability,
   LLMFailureDisposition,
   LLMStreamChunk,
+  InputBudgetRequest,
+  InputBudgetResult,
 } from './types.js';
 import {
   LLMRecoveryControllerImpl,
@@ -214,6 +216,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       default:
         return 'unknown';
     }
+  }
+
+  prepareInputBudget(request: InputBudgetRequest): Promise<InputBudgetResult> {
+    return this.invocationExecutor.prepareInputBudget(request);
   }
 
   async healthCheck(): Promise<boolean> {

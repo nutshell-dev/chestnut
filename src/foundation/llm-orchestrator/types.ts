@@ -16,6 +16,7 @@ import type {
   LLMCallOptions as L1LLMCallOptions,
 } from '../llm-provider/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
+import type { ModelInputMeter } from '../llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
 import type { FileSystem } from '../fs/index.js';
@@ -192,6 +193,14 @@ export type LLMFailureDisposition =
   | 'abort'
   | 'unknown';
 
+export type InputBudgetRequest =
+  | { kind: 'preview' }
+  | { kind: 'failure'; error: unknown };
+
+export type InputBudgetResult =
+  | { kind: 'available'; meter: ModelInputMeter }
+  | { kind: 'unavailable'; reason: 'missing_evidence' | 'stale_revision' | 'ambiguous_target' };
+
 /**
  * phase 1860 (RT-D1)：Runtime 私有消费面——仅 Runtime 实际调用集（M#7 最小）。
  * 签名 1:1 取自 LLMOrchestrator（orchestrator.ts 实现）；Runtime 侧宽持有收窄后
@@ -205,6 +214,7 @@ export interface LLMRuntimeCapability {
    * 对原始失败求值，本方法不展开 AggregateError 内部因果。
    */
   getFailureDisposition(error: unknown): LLMFailureDisposition;
+  prepareInputBudget(request: InputBudgetRequest): Promise<InputBudgetResult>;
   close(): Promise<void>;
   /**
    * phase 320: 原地替换内部 primary/fallbacks/breakers，对象引用不变。

@@ -6,7 +6,7 @@ const root = process.cwd();
 const read = (relative: string): string => fs.readFileSync(path.join(root, relative), 'utf8');
 
 describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
-  it('owner defines LLMRuntimeCapability with exactly the five consumed operations', () => {
+  it('owner defines LLMRuntimeCapability with exactly the six consumed operations', () => {
     const types = read('src/foundation/llm-orchestrator/types.ts');
     const orchestrator = read('src/foundation/llm-orchestrator/orchestrator.ts');
     const barrel = read('src/foundation/llm-orchestrator/index.ts');
@@ -15,9 +15,9 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
     )?.groups?.body;
 
     expect(body).toBeDefined();
-    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\??\(/gm)).toHaveLength(5);
+    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\??\(/gm)).toHaveLength(6);
     // Phase 1944 Step B: getFailureDisposition；Phase 2056：已提交健康投影用于 gate release。
-    for (const member of ['getProviderInfo(', 'getFailureDisposition(', 'reloadConfig(', 'close(', 'getProviderHealthSnapshot?(']) {
+    for (const member of ['getProviderInfo(', 'getFailureDisposition(', 'prepareInputBudget(', 'reloadConfig(', 'close(', 'getProviderHealthSnapshot?(']) {
       expect(body).toContain(member);
     }
     expect(orchestrator).toContain('implements LLMOrchestrator, LLMOrchestratorOwner, LLMRuntimeCapability');
@@ -46,7 +46,7 @@ describe('phase 1860 (RT-D1a): Runtime llm capability boundary', () => {
 
     expect(consumed.size).toBeGreaterThan(0);
     for (const method of consumed) {
-      expect(['getProviderInfo', 'getFailureDisposition', 'reloadConfig', 'close', 'getProviderHealthSnapshot']).toContain(method);
+      expect(['getProviderInfo', 'getFailureDisposition', 'prepareInputBudget', 'reloadConfig', 'close', 'getProviderHealthSnapshot']).toContain(method);
     }
   });
 

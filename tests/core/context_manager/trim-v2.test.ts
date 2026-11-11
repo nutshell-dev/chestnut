@@ -39,7 +39,13 @@ function baseOpts(overrides?: Partial<TrimV2Options>): TrimV2Options {
   return {
     recentWindowMs: RECENT_WINDOW_MS,
     previewBytes: PREVIEW_BYTES,
-    fixedTokens: 0,
+    measureComplete: (messages) => ({
+      kind: 'estimated',
+      tokens: ((overrides as { fixedTokens?: number } | undefined)?.fixedTokens ?? 0)
+        + estimateMessagesTokens(messages),
+      method: 'legacy-cl100k',
+      reason: 'test',
+    }),
     policy: buildProactiveTrimPolicy(10_000),
     now: NOW,
     // phase 1861 (CM-D3)：audit sink 必填（trim 事实不静默）。
@@ -276,7 +282,7 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(10), audit }));
-    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.status).toBe('progress');
     // 旧 turn 无 user 无 send，整段丢弃；摘要注入在 boundaryIndex=0；anchor 保留
     expect(result.outcome.newMessages).toHaveLength(2);
     expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
@@ -412,11 +418,11 @@ describe('trimV2', () => {
     const fixedTokens = 0;
     const policy = buildReactiveTrimPolicy({ contextWindow: 120, explicitMaxTokens: 10 });
     const result = trimV2(messages, baseOpts({ fixedTokens, policy }));
-    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.status).toBe('progress');
     expect(result.droppedMessages.length).toBe(2); // userTurn1 + assistantTurn1
     // 旧 turn 的 assistant text 被移除，孤立的 userTurn1 因 API 交替约束也被移除
     expect(result.outcome.newMessages[0].content).toBe('recent');
-    expect(result.outcome.after).toBeLessThanOrEqual(policy.completeCeilingTokens);
+    expect(result.outcome.after).toBeGreaterThan(policy.completeCeilingTokens);
   });
 
   it('21. reactive: maxTokens 进入 reserve；undefined 按 Phase 194 为 0', () => {
@@ -514,7 +520,7 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
-    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.status).toBe('progress');
     // newMessages: [old user, summary, send tool_use, anchor]
     expect(result.outcome.newMessages).toHaveLength(4);
     expect(result.outcome.newMessages[0].content).toBe('old user');
@@ -541,7 +547,7 @@ describe('trimV2', () => {
     const messages: Message[] = [userTurn1, assistantTurn1, userTurn2, assistantTurn2];
     const policy = buildReactiveTrimPolicy({ contextWindow: 120, explicitMaxTokens: 10 });
     const result = trimV2(messages, baseOpts({ policy }));
-    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.status).toBe('progress');
     expect(result.droppedMessages.length).toBeGreaterThan(0);
     expect(result.outcome.newMessages[0].content).toBe('recent');
   });
@@ -566,7 +572,7 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
-    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.status).toBe('progress');
     // newMessages: [old user, summary, send tool_use, anchor]
     expect(result.outcome.newMessages[0].content).toBe('old user');
     expect(result.outcome.newMessages[1].systemSubtype).toBe('context_trim_summary');
@@ -595,7 +601,7 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(10) }));
-    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.status).toBe('progress');
     // 旧 turn 无 user 无 send 被整体丢弃；摘要注入在 boundaryIndex=0；anchor 保留
     expect(result.outcome.newMessages).toHaveLength(2);
     expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');

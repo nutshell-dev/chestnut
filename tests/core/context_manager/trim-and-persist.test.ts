@@ -10,6 +10,7 @@ import * as trimV2Module from '../../../src/core/context_manager/trim-v2.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
+import { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
 
 const NOW = 1_700_000_000_000;
 const RECENT_WINDOW_MS = 86_400_000;
@@ -46,6 +47,12 @@ function baseInputs(overrides?: Partial<Parameters<typeof trimAndPersist>[0]>): 
     audit: makeAudit(),
     triggerKind: 'reactive_overflow' as TriggerKind,
     policy: buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: undefined }),
+    measureComplete: (messages: readonly Message[]) => ({
+      kind: 'estimated' as const,
+      tokens: estimateMessagesTokens(messages) + estimateTextTokens('sys') + estimateToolsTokens([]),
+      method: 'legacy-cl100k' as const,
+      reason: 'test',
+    }),
     now: NOW,
     ...overrides,
   };

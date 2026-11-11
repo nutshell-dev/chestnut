@@ -19,6 +19,7 @@ import {
   type TrimPolicy,
 } from '../../../src/core/context_manager/trim-v2.js';
 import { makeAudit } from '../../helpers/audit.js';
+import { estimateMessagesTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
 
 const NOW = Date.UTC(2026, 9, 22, 12, 0, 0);
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -28,7 +29,12 @@ function trimOpts(policy: TrimPolicy) {
   return {
     recentWindowMs: RECENT_WINDOW_MS,
     previewBytes: PREVIEW_BYTES,
-    fixedTokens: 0,
+    measureComplete: (messages: readonly Message[]) => ({
+      kind: 'estimated' as const,
+      tokens: estimateMessagesTokens(messages),
+      method: 'legacy-cl100k' as const,
+      reason: 'test',
+    }),
     policy,
     now: NOW,
     audit: { write: vi.fn() },

@@ -55,6 +55,7 @@ import {
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks, LlmGateReleaseFact, LlmGateReleaseBaseline } from './types.js';
 import type { PreparedInboxBatch, PreparedInboxEntry } from '../runtime/index.js';
+import { ContextInputMeasurementError, type ContextTrimOutcome } from '../context_manager/index.js';
 
 /**
  * Phase 1869 (Step C): 合并分组内「最新一条」——按 message.timestamp 比较
@@ -464,7 +465,27 @@ export class EventLoop {
       return;
     }
 
-    const outcome = await this.runtime.reactiveTrim();
+    let outcome: ContextTrimOutcome;
+    try {
+      outcome = await this.runtime.reactiveTrim(error);
+    } catch (trimError) {
+      if (!(trimError instanceof ContextInputMeasurementError)) throw trimError;
+      await this._enterLlmRequestBlocked({
+        version: 2,
+        reason: 'recovery_required',
+        requestFingerprint: failedRequestFingerprint,
+        detail: `context input measurement unavailable: ${trimError.reason}`,
+        blockedAt: new Date().toISOString(),
+      });
+      this._emitStreamEvent({
+        ts: Date.now(),
+        type: STREAM_EVENT_NAMES.CONTEXT_TRIM_BLOCKED,
+        reason: 'recovery_required',
+        detail: trimError.reason,
+      });
+      this._resetContextTrimRetryState();
+      return;
+    }
     switch (outcome.status) {
       case 'target_reached':
       case 'progress':

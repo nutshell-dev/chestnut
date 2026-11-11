@@ -35,6 +35,8 @@ import type {
   LLMProviderHealthSnapshot,
   LLMProviderSnapshotEntry,
   LLMStreamChunk,
+  InputBudgetRequest,
+  InputBudgetResult,
 } from './types.js';
 import type { LLMProviderRecoveryState } from './instance-state.js';
 import type { ProviderAdmission } from './provider-admission.js';
@@ -53,7 +55,7 @@ import {
   mergeSignals,
   wrapResponseAsStream,
 } from './utils.js';
-import { observeInputBudget, timeoutInputTokens } from './input-budget.js';
+import { inputBudgetEvidence, observeInputBudget, timeoutInputTokens } from './input-budget.js';
 
 export interface InvocationRecoveryLedger extends Pick<
   RecoveryLedger,
@@ -95,6 +97,7 @@ export interface InvocationExecutor {
   getProviderHealthSnapshot(): LLMProviderHealthSnapshot;
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
   healthCheck(): Promise<boolean>;
+  prepareInputBudget(request: InputBudgetRequest): Promise<InputBudgetResult>;
 }
 
 /**
@@ -201,6 +204,40 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   ): Promise<number> {
     const observation = await observeInputBudget(adapter, options, legacyEstimate);
     return timeoutInputTokens(observation);
+  }
+
+  async prepareInputBudget(request: InputBudgetRequest): Promise<InputBudgetResult> {
+    const adapters = [this.primary, ...this.fallbacks];
+    if (request.kind === 'failure') {
+      const evidence = inputBudgetEvidence(request.error);
+      if (evidence.length === 0) return { kind: 'unavailable', reason: 'missing_evidence' };
+      for (const candidate of adapters) {
+        for (const target of evidence) {
+          if (candidate.name !== target.descriptor.provider || candidate.model !== target.descriptor.model) continue;
+          try {
+            const meter = await candidate.prepareInputMeter();
+            return meter.descriptor.revision === target.descriptor.revision
+              ? { kind: 'available', meter }
+              : { kind: 'unavailable', reason: 'stale_revision' };
+          } catch {
+            return { kind: 'unavailable', reason: 'stale_revision' };
+          }
+        }
+      }
+      return { kind: 'unavailable', reason: 'ambiguous_target' };
+    }
+
+    const selected = this.currentStreamingProvider
+      ? adapters.find(candidate => candidate.name === this.currentStreamingProvider!.name && candidate.model === this.currentStreamingProvider!.model)
+      : this.lastSuccessProvider
+        ? adapters.find(candidate => candidate.name === this.lastSuccessProvider!.name && candidate.model === this.lastSuccessProvider!.model)
+        : this.primary;
+    if (!selected) return { kind: 'unavailable', reason: 'ambiguous_target' };
+    try {
+      return { kind: 'available', meter: await selected.prepareInputMeter() };
+    } catch {
+      return { kind: 'unavailable', reason: 'missing_evidence' };
+    }
   }
 
   private toRecoveryFailures(

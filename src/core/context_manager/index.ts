@@ -40,6 +40,7 @@ export {
 export {
   ContextTrimExhaustedError,
   ContextTrimPersistError,
+  ContextInputMeasurementError,
   type ContextTrimExhaustedEvidence,
   type ContextTrimPersistStage,
 } from './errors.js';
