@@ -25,7 +25,7 @@ import { exec, execWithHandle, resolveHostCommand } from '../process-exec/index.
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_MAX_BUFFER } from '../process-exec/index.js';
 import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index.js';
-import { formatErr } from '../node-utils/index.js';
+import { formatErr, truncateUtf8Prefix } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
@@ -115,6 +115,17 @@ function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '\n[truncated]';
 }
 
+const TRUNCATION_NOTICE = '\n[truncated]';
+
+/** Keep error diagnostics intact and fit only their output preview into the shared byte budget. */
+function formatErrorContent(prefix: string, outputSuffix: string, output: string): string {
+  const fixed = `${prefix}${outputSuffix}`;
+  const outputBudget = Math.max(0, EXEC_MAX_OUTPUT - Buffer.byteLength(fixed, 'utf8'));
+  if (Buffer.byteLength(output, 'utf8') <= outputBudget) return fixed + output;
+  const previewBudget = Math.max(0, outputBudget - Buffer.byteLength(TRUNCATION_NOTICE, 'utf8'));
+  return `${fixed}${truncateUtf8Prefix(output, previewBudget)}${TRUNCATION_NOTICE}`;
+}
+
 // phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts。
 // EXEC_MAX_OUTPUT === HEAD + TAIL = 2000B（业务 truncation 协议）。
 // caller 均在 UTF-8 byte length > EXEC_MAX_OUTPUT 时调用、无需 helper 内重复阈值判。
@@ -171,20 +182,21 @@ export function processExecErrorToToolResult(
     const cleanupSuffix = error.termination !== undefined
       ? `\n[cleanup]: ${formatTerminationCleanup(error.termination)}`
       : '';
-    const outputSuffix = error.output
-      ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
-      : '';
+    const prefix = `Error: ${error.message}\n[command]: ${short}${cleanupSuffix}`;
     return {
       success: false,
-      content: `Error: ${error.message}\n[command]: ${short}${cleanupSuffix}${outputSuffix}`,
+      content: error.output
+        ? formatErrorContent(prefix, '\n[output]: ', error.output)
+        : prefix,
     };
   }
 
   // 纯非零退出码：command 自己语义信号、tool 已完成契约
-  const body = error.output
-    ? `[command]: ${short}\n${truncate(error.output, EXEC_MAX_OUTPUT)}`
-    : formatNoOutput(command);
-  return { success: true, content: `[exit ${error.exitCode}]\n${body}` };
+  const prefix = `[exit ${error.exitCode}]\n[command]: ${short}`;
+  const content = error.output
+    ? formatErrorContent(prefix, '\n', error.output)
+    : `[exit ${error.exitCode}]\n${formatNoOutput(command)}`;
+  return { success: true, content };
 }
 
 type AtomicWriteResult = Awaited<ReturnType<ExecContext['fs']['writeAtomic']>>;
@@ -335,17 +347,18 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
           }
           if (Buffer.byteLength(error.output, 'utf8') > EXEC_MAX_OUTPUT) {
             const persisted = await persistOverflow(ctx, error.output);
-            const truncated = persisted
-              ? formatPersistedOverflow(error.output, persisted)
-              : truncate(error.output, EXEC_MAX_OUTPUT);
-            return { success: false, content: `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit.\n[output]: ${truncated}` };
+            const prefix = `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit.`;
+            const content = persisted
+              ? `${prefix}\n[output]: ${formatPersistedOverflow(error.output, persisted)}`
+              : formatErrorContent(prefix, '\n[output]: ', error.output);
+            return { success: false, content };
           }
-          const partial = error.output
-            ? `\n[partial output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
-            : '';
+          const prefix = `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit. Use head/tail to truncate, or redirect to a file.`;
           return {
             success: false,
-            content: `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit. Use head/tail to truncate, or redirect to a file.${partial}`,
+            content: error.output
+              ? formatErrorContent(prefix, '\n[partial output]: ', error.output)
+              : prefix,
           };
         }
 

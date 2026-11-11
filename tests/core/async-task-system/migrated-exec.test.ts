@@ -20,6 +20,8 @@ import { executeToolTask } from '../../../src/core/async-task-system/tool-execut
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { createExecWithHandle, createExecTool, EXEC_TOOL_NAME, type ExecWithHandleArgs } from '../../../src/foundation/command-tool/exec.js';
+import { EXEC_MAX_OUTPUT } from '../../../src/foundation/command-tool/constants.js';
+import { assertWellFormedUnicode, truncateUtf8Prefix } from '../../../src/foundation/node-utils/utf8.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createPerTaskRegistry } from '../../../src/core/subagent/registry-helper.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
@@ -890,6 +892,38 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const overflowFiles = await readOverflowFiles();
     expect(overflowFiles).toHaveLength(1);
     expect(overflowFiles[0].endsWith(output)).toBe(true);
+  });
+
+  it('phase 2122: async sync errors propagate the UTF-8-byte-budgeted failure preview', async () => {
+    const output = '😀'.repeat(501);
+    const child = spawn(process.execPath, ['-e', '']);
+    const handle: ExecHandle = {
+      child,
+      promise: Promise.reject(new ProcessExecError({
+        message: 'Command timed out after 1000ms',
+        output,
+        exitCode: null,
+        killed: true,
+      })),
+      terminate: async () => { throw new Error('sync error must not terminate again'); },
+    };
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
+
+    const prefix = 'Error: Command timed out after 1000ms\n[command]: unused\n[output]: ';
+    const previewBudget = EXEC_MAX_OUTPUT
+      - Buffer.byteLength(prefix, 'utf8')
+      - Buffer.byteLength('\n[truncated]', 'utf8');
+    const preview = truncateUtf8Prefix(output, previewBudget);
+    expect(result.success).toBe(false);
+    expect(result.content).toBe(`${prefix}${preview}\n[truncated]`);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+    expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+    expect(await readOverflowFiles()).toHaveLength(0);
   });
 
   it('pure sync (timeoutMs set) small output → unchanged content, no overflow file', async () => {

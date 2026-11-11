@@ -13,7 +13,7 @@ import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS, EXEC_M
 import { COMMAND_TOOL_AUDIT_EVENTS } from '../../../src/foundation/command-tool/audit-events.js';
 import { ProcessExecError, resolveHostCommand } from '../../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
+import { assertWellFormedUnicode, truncateUtf8Prefix } from '../../../src/foundation/node-utils/utf8.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { cleanupTempDir, createTempDir } from '../../utils/temp.js';
 import {
@@ -402,6 +402,70 @@ describe('phase 2120 exec overflow durability results', () => {
 });
 
 describe('processExecErrorToToolResult', () => {
+  const outputByteCases = [
+    { name: 'Chinese real failure', output: '中'.repeat(1001), exitCode: null, killed: true, success: false },
+    { name: 'emoji real failure', output: '😀'.repeat(501), exitCode: null, killed: true, success: false },
+    { name: 'Chinese non-zero exit', output: '中'.repeat(1001), exitCode: 1, killed: false, success: true },
+    { name: 'emoji non-zero exit', output: '😀'.repeat(501), exitCode: 1, killed: false, success: true },
+  ];
+
+  it.each(outputByteCases)('$name keeps the complete prefix and a UTF-8-safe output preview', ({ output, exitCode, killed, success }) => {
+    const result = processExecErrorToToolResult(new ProcessExecError({
+      message: 'Command failed',
+      output,
+      exitCode,
+      killed,
+    }), 'sleep 5');
+    const prefix = success
+      ? '[exit 1]\n[command]: sleep 5\n'
+      : 'Error: Command failed\n[command]: sleep 5\n[output]: ';
+    const previewBudget = EXEC_MAX_OUTPUT
+      - Buffer.byteLength(prefix, 'utf8')
+      - Buffer.byteLength('\n[truncated]', 'utf8');
+    const preview = truncateUtf8Prefix(output, previewBudget);
+
+    expect(result.success).toBe(success);
+    expect(result.content).toBe(`${prefix}${preview}\n[truncated]`);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+    expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+    expect(result.content).not.toContain('\uFFFD');
+  });
+
+  it('keeps complete diagnostics and an explicit truncation notice when the prefix exceeds the budget', () => {
+    const message = 'x'.repeat(EXEC_MAX_OUTPUT + 100);
+    const result = processExecErrorToToolResult(new ProcessExecError({
+      message,
+      output: '中'.repeat(1001),
+      exitCode: null,
+      killed: true,
+      termination: {
+        status: 'gone',
+        trigger: 'timeout',
+        termSent: true,
+        killSent: false,
+      },
+    }), 'sleep 5');
+    const prefix = `Error: ${message}\n[command]: sleep 5\n[cleanup]: gone after SIGTERM\n[output]: `;
+
+    expect(result.success).toBe(false);
+    expect(result.content).toBe(`${prefix}\n[truncated]`);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeGreaterThan(EXEC_MAX_OUTPUT);
+  });
+
+  it('keeps short non-zero output unchanged and successful', () => {
+    const result = processExecErrorToToolResult(new ProcessExecError({
+      message: 'Command exited with code 1',
+      output: 'partial output',
+      exitCode: 1,
+      killed: false,
+    }), 'exit 1');
+
+    expect(result).toEqual({
+      success: true,
+      content: '[exit 1]\n[command]: exit 1\npartial output',
+    });
+  });
+
   it('maps a killed timeout to a failed ToolResult with command and output', () => {
     const error = new ProcessExecError({
       message: 'Command timed out after 1000ms',
