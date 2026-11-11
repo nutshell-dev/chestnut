@@ -15,6 +15,7 @@ import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { importCommand } from '../../src/cli/commands/claw-import.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { sha256Hex } from '../../src/foundation/node-utils/index.js';
+import { captureCurrentProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
@@ -263,6 +264,94 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
 
     expect(fs.existsSync(path.join(target, '.import-claim'))).toBe(true);
     expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
+  });
+
+  it('legacy holder signal0 EIO is unknown: no takeover, original claim bytes preserved', async () => {
+    const target = path.join(clawspaceDir(), 'src-bundle');
+    fs.mkdirSync(target, { recursive: true });
+    const raw = JSON.stringify({
+      token: 'unknown-holder',
+      pid: 424242,
+      createdAt: new Date().toISOString(),
+      source: path.join(tmpDir, 'src-bundle'),
+      target: 'src-bundle',
+    }, null, 2);
+    fs.writeFileSync(path.join(target, '.import-claim'), raw);
+    const originalKill = process.kill.bind(process);
+    vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === 424242) throw Object.assign(new Error('simulated EIO'), { code: 'EIO' });
+      return originalKill(pid, signal);
+    });
+
+    await expect(
+      importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/holder is not proven gone/);
+
+    expect(fs.readFileSync(path.join(target, '.import-claim'), 'utf8')).toBe(raw);
+    expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
+    const clawDir = path.join(tmpDir, '.chestnut', 'claws', 'alice');
+    const evidenceRoot = path.join(clawDir, 'status', 'cli-import-claims');
+    const evidence = fs.readdirSync(evidenceRoot, { recursive: true })
+      .map(String).filter(name => name.endsWith('000001.json'));
+    expect(evidence).toHaveLength(1);
+    const record = JSON.parse(fs.readFileSync(path.join(evidenceRoot, evidence[0]), 'utf8'));
+    expect(record).toMatchObject({
+      kind: 'holder_observed', raw, decision: 'retain',
+      observed: { kind: 'unknown', reason: 'query_failed' },
+    });
+    expect(fs.existsSync(path.join(clawspaceDir(), 'status'))).toBe(false);
+  });
+
+  it('live v1 holder is retained through the real import chain', async () => {
+    const capture = captureCurrentProcessRef();
+    expect(capture.kind).toBe('captured');
+    if (capture.kind !== 'captured') throw new Error('capture unavailable');
+    const target = path.join(clawspaceDir(), 'src-bundle');
+    fs.mkdirSync(target, { recursive: true });
+    const raw = JSON.stringify({
+      schema_version: 1,
+      token: 'live-v1',
+      createdAt: new Date().toISOString(),
+      source: path.join(tmpDir, 'src-bundle'),
+      target: 'src-bundle',
+      holder: capture,
+    }, null, 2);
+    fs.writeFileSync(path.join(target, '.import-claim'), raw);
+
+    await expect(
+      importCommand(makeClawCommandDeps(fsFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/holder is not proven gone/);
+
+    expect(fs.readFileSync(path.join(target, '.import-claim'), 'utf8')).toBe(raw);
+    expect(fs.existsSync(path.join(target, 'a.txt'))).toBe(false);
+  });
+
+  it('Step B keeps the legacy writer while adding compatible reads', async () => {
+    const destParent = clawspaceDir();
+    const claimPayloads: Array<Record<string, unknown>> = [];
+    const observingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(destParent)) {
+        const originalWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (targetPath, content) => {
+          if (targetPath === 'src-bundle/.import-claim') {
+            claimPayloads.push(JSON.parse(content) as Record<string, unknown>);
+          }
+          return originalWrite(targetPath, content);
+        };
+      }
+      return real;
+    };
+
+    await importCommand(makeClawCommandDeps(observingFactory), path.join(tmpDir, 'src-bundle'), 'alice');
+
+    expect(claimPayloads).toHaveLength(2);
+    for (const payload of claimPayloads) {
+      expect(payload).toMatchObject({ pid: process.pid, token: expect.any(String) });
+      expect(payload).not.toHaveProperty('schema_version');
+      expect(payload).not.toHaveProperty('holder');
+    }
+    expect(claimPayloads[1]).toMatchObject({ manifestHash: expect.any(String) });
   });
 
   it('占位被外部删除重建（claim 丢失）→ 提交前身份核验失败，冲突留证', async () => {

@@ -153,14 +153,17 @@ describe('claw-ls 读侧发布门控（Phase 1913 Step B：RACE-PUBLISH-PRECOMMI
   });
 
   /** 构造未提交 import 目标：占位目录 + claim + 部分落位文件。 */
-  function writeUnpublishedTarget(name: string, opts?: { corruptClaim?: boolean }): void {
+  function writeUnpublishedTarget(
+    name: string,
+    opts?: { corruptClaim?: boolean; claim?: unknown },
+  ): void {
     const target = path.join(clawspace, name);
     fs.mkdirSync(target, { recursive: true });
     fs.writeFileSync(
       path.join(target, '.import-claim'),
       opts?.corruptClaim === true
         ? 'not-json{'
-        : JSON.stringify({ token: 'holder', createdAt: new Date().toISOString() }),
+        : JSON.stringify(opts?.claim ?? { token: 'holder', createdAt: new Date().toISOString() }),
     );
     // 半成品：只有首文件落位
     fs.writeFileSync(path.join(target, 'first.txt'), 'partial');
@@ -214,6 +217,17 @@ describe('claw-ls 读侧发布门控（Phase 1913 Step B：RACE-PUBLISH-PRECOMMI
 
     await expect(
       lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', 'importing-dir/sub', {}),
+    ).rejects.toThrow(/not published yet/);
+  });
+
+  it.each([
+    ['v1', { schema_version: 1, holder: { kind: 'captured', value: '{}', evidence: {} } }],
+    ['future schema', { schema_version: 99, pid: process.pid }],
+  ])('%s claim 仍阻断未发布目录', async (_kind, claim) => {
+    writeUnpublishedTarget('importing-dir', { claim });
+
+    await expect(
+      lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', 'importing-dir', {}),
     ).rejects.toThrow(/not published yet/);
   });
 

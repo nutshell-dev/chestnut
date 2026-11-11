@@ -13,12 +13,17 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
-import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
+import { getProcessStartTime } from '../../foundation/process-exec/index.js';
 import { isFileNotFound, type FileSystem, type StatInfo } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import {
+  ImportClaimEvidenceStore,
+  readImportClaim,
+  type ImportClaim,
+} from './claw-import-claim.js';
 
 /** import 提交态 claim 文件名（owner 单一定义，读侧门控共用）。 */
 export const IMPORT_CLAIM_FILE = '.import-claim';
@@ -192,15 +197,13 @@ export async function importCommand(
     const stageName = `.import-staging-${newShortUuid()}`;
     const myToken = newShortUuid();
 
-    interface ImportClaim {
-      token: string;
-      pid?: number;
-      process_start_time?: string;
-      createdAt: string;
-      source: string;
-      target: string;
-      manifestHash?: string;
-    }
+    const claimContext = {
+      source: srcAbs,
+      target: displayRel,
+      claimPath: path.join(destParent, claimRel),
+    };
+    const evidenceStore = new ImportClaimEvidenceStore(deps.fsFactory(clawDir), claimContext);
+
     interface ImportManifestEntry { path: string; bytes: number; sha256: string }
 
     const writeClaim = (manifestHash?: string): void => {
@@ -215,36 +218,17 @@ export async function importCommand(
       } satisfies ImportClaim, null, 2));
     };
 
-    const readClaim = (): ImportClaim => {
-      let claim: ImportClaim;
-      try {
-        claim = JSON.parse(destParentFs.readSync(claimRel)) as ImportClaim;
-      } catch {
-        throw new CliError(
-          `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
-          `(claim evidence: ${claimRel}); inspect and remove it to retry`,
-        );
-      }
-      // holder 活性：证死才允许接管；探测不确定 → fail-closed 视为进行中
-      const holderAlive = typeof claim.pid === 'number'
-        ? isAlive(claim.pid, typeof claim.process_start_time === 'string' && claim.process_start_time !== ''
-          ? makeProcessStartTime(claim.process_start_time)
-          : undefined)
-        : undefined;
-      if (holderAlive !== false) {
-        throw new CliError(
-          `"${displayRel}" import is already in progress or was interrupted in ${clawName}/clawspace/ ` +
-          `(claim evidence: ${claimRel}, pid=${claim.pid ?? 'unknown'}); inspect and remove it to retry`,
-        );
-      }
-      return claim;
-    };
+    const readClaim = (): ImportClaim => readImportClaim(
+      destParentFs,
+      evidenceStore,
+      claimRel,
+      claimContext,
+    );
 
     // 1. 占有裁决
     let resumedClaim: ImportClaim | null = null;
     try {
       destParentFs.mkdirExclusiveSync(srcName);
-      writeClaim();
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
       // 目标已存在：无 claim → 用户既有目标（拒绝语义不变）；有 claim → 恢复判读。
@@ -261,6 +245,9 @@ export async function importCommand(
       }
       resumedClaim = readClaim();
     }
+    // Only mkdir EEXIST is recovery arbitration; claim/evidence write errors must
+    // not be misclassified as target competition.
+    if (resumedClaim === null) writeClaim();
 
     // 2. staging 复制 + manifest（源快照事实）
     try {

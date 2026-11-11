@@ -81,6 +81,21 @@ describe('claw-read (Phase 1913 Step B)', () => {
     expect(writes.join('')).not.toContain('partial-bytes');
   });
 
+  it.each([
+    ['v1', { schema_version: 1, holder: { kind: 'captured', value: '{}', evidence: {} } }],
+    ['future schema', { schema_version: 99, pid: process.pid }],
+  ])('%s claim 仍阻断未发布文件', async (_kind, claim) => {
+    const target = path.join(clawspace, 'importing-dir');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, '.import-claim'), JSON.stringify(claim));
+    fs.writeFileSync(path.join(target, 'first.txt'), 'partial-bytes');
+
+    await expect(
+      readCommand(makeClawCommandDeps(fsFactory), 'test-claw', 'importing-dir/first.txt'),
+    ).rejects.toThrow(/not published yet/);
+    expect(writes.join('')).not.toContain('partial-bytes');
+  });
+
   it('claim 损坏（不可解析）→ invalid typed 结果', async () => {
     const target = path.join(clawspace, 'importing-dir');
     fs.mkdirSync(target, { recursive: true });
