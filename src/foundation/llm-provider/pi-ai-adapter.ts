@@ -34,6 +34,7 @@ import {
   LLMNetworkError,
   LLMOutputBudgetExceededError,
   LLMTimeoutError,
+  type InputBudgetEvidence,
 } from './errors.js';
 import { makeToolUseId } from './tool-use-id.js';
 import {
@@ -138,7 +139,20 @@ export class PiAiAdapter implements ProviderAdapter {
   }
 
   /** 成功响应 context 检查（call/stream 共用）：所有 overflow kind 都抛 typed error。 */
-  private async guardSuccessfulContext(message: PiAi.AssistantMessage): Promise<void> {
+  private async inputBudgetEvidence(inputTokens?: number, requestedMaxTokens?: number): Promise<InputBudgetEvidence | undefined> {
+    try {
+      const meter = await this.prepareInputMeter({ maxTokens: requestedMaxTokens });
+      return {
+        descriptor: meter.descriptor,
+        ...(inputTokens !== undefined ? { inputTokens } : {}),
+        ...(requestedMaxTokens !== undefined ? { requestedMaxTokens } : {}),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async guardSuccessfulContext(message: PiAi.AssistantMessage, options: LLMCallOptions): Promise<void> {
     const runtime = await loadPiAiRuntime();
     const signal = inspectSuccessfulMessage(
       runtime.isContextOverflow,
@@ -153,7 +167,12 @@ export class PiAiAdapter implements ProviderAdapter {
     const detail = signal.kind === 'length_stop_no_output'
       ? `length-stop with zero output (input ${signal.inputTokens} at/over 99% of ${signal.contextWindow})`
       : `successful ${message.stopReason} response over context window (input ${signal.inputTokens} > ${signal.contextWindow})`;
-    throw new LLMContextExceededError(this.name, 0, detail);
+    throw new LLMContextExceededError(
+      this.name,
+      0,
+      detail,
+      await this.inputBudgetEvidence(signal.inputTokens, options.maxTokens),
+    );
   }
 
   private async callOnce(options: LLMCallOptions, maxTokensOverride: number | undefined): Promise<LLMResponse> {
@@ -167,7 +186,7 @@ export class PiAiAdapter implements ProviderAdapter {
       throw new LLMEmptyResponseError(this.name);
     }
     // context overflow 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
-    await this.guardSuccessfulContext(finalMessage);
+    await this.guardSuccessfulContext(finalMessage, options);
     if (finalMessage.content.length === 0) {
       throw new LLMEmptyResponseError(this.name);
     }
@@ -196,7 +215,7 @@ export class PiAiAdapter implements ProviderAdapter {
     const state = createEventTranslationState();
     for await (const event of this.runEvents('stream', options, maxTokensOverride)) {
       if (event.type === 'done') {
-        await this.guardSuccessfulContext(event.message);
+        await this.guardSuccessfulContext(event.message, options);
       }
       const chunks = translatePiAiEvent(event, state);
       if (!chunks) continue; // error 事件已由 runEvents 抛错
@@ -225,6 +244,7 @@ export class PiAiAdapter implements ProviderAdapter {
   ): AsyncGenerator<PiAi.AssistantMessageEvent> {
     const { models, model } = await this.endpoint();
     const context = buildPiAiContext(this.config, options, model);
+    const inputBudget = await this.inputBudgetEvidence(undefined, maxTokensOverride ?? options.maxTokens);
     const timeout = options.timeoutMs ?? this.config.timeoutMs;
     const capture: HttpErrorCapture = {};
     // Google 退化族：pi-ai 适配器拒绝注入 fetch（G1）——不注入，错误面走文本判定
@@ -250,12 +270,12 @@ export class PiAiAdapter implements ProviderAdapter {
           abortHandle.clearInternalTimeout();
         }
         if (event.type === 'error') {
-          throw await this.constructStreamError(event, capture, options.signal, timeout);
+          throw await this.constructStreamError(event, capture, options.signal, timeout, inputBudget);
         }
         yield event;
       }
     } catch (err) {
-      throw await this.constructThrownError(err, capture, options.signal, timeout);
+      throw await this.constructThrownError(err, capture, options.signal, timeout, inputBudget);
     } finally {
       cleanup();
     }
@@ -265,6 +285,7 @@ export class PiAiAdapter implements ProviderAdapter {
   private async classifyCapturedFailure(
     capture: HttpErrorCapture,
     eventError: PiAi.AssistantMessage | undefined,
+    inputBudget?: InputBudgetEvidence,
   ): Promise<Error | undefined> {
     return classifyCapturedHttpError(
       this.name,
@@ -272,17 +293,19 @@ export class PiAiAdapter implements ProviderAdapter {
       capture,
       eventError,
       (await this.endpoint()).model.contextWindow,
+      inputBudget,
     );
   }
 
   /** 退化族文本分类（Google / 无 status）：共享 pi-ai predicate，替换本地 context 正则。 */
-  private async classifyTextualFailure(message: string): Promise<Error> {
+  private async classifyTextualFailure(message: string, inputBudget?: InputBudgetEvidence): Promise<Error> {
     const runtime = await loadPiAiRuntime();
     return classifyTextualError(
       this.name,
       this.model,
       message,
       (provider, text) => isPiAiContextOverflowText(runtime.isContextOverflow, provider, text),
+      inputBudget,
     );
   }
 
@@ -292,15 +315,16 @@ export class PiAiAdapter implements ProviderAdapter {
     capture: HttpErrorCapture,
     signal: AbortSignal | undefined,
     timeoutMs: number,
+    inputBudget?: InputBudgetEvidence,
   ): Promise<Error> {
     if (event.reason === 'aborted') {
       if (signal?.aborted) return makeExternalAbortError(signal.reason);
       return this.timeoutOrAbortError(timeoutMs);
     }
     const message = event.error.errorMessage ?? 'unknown provider error';
-    const captured = await this.classifyCapturedFailure(capture, event.error);
+    const captured = await this.classifyCapturedFailure(capture, event.error, inputBudget);
     if (captured) return captured;
-    return this.classifyTextualFailure(message);
+    return this.classifyTextualFailure(message, inputBudget);
   }
 
   /** 事件循环抛出的异常 → typed error（abort/网络/已分类透传）。 */
@@ -309,6 +333,7 @@ export class PiAiAdapter implements ProviderAdapter {
     capture: HttpErrorCapture,
     signal: AbortSignal | undefined,
     timeoutMs: number,
+    inputBudget?: InputBudgetEvidence,
   ): Promise<Error> {
     if (err instanceof LLMError) return err;
     // ExternalAbortError 非 LLMError 子类：constructStreamError 已分类的外部中止
@@ -316,7 +341,7 @@ export class PiAiAdapter implements ProviderAdapter {
     if (err instanceof ExternalAbortError) return err;
     const abortClassified = classifyFetchAbortError(err, signal, timeoutMs, this.name);
     if (abortClassified) return abortClassified;
-    const captured = await this.classifyCapturedFailure(capture, undefined);
+    const captured = await this.classifyCapturedFailure(capture, undefined, inputBudget);
     if (captured) return captured;
     return new LLMNetworkError(
       this.name,

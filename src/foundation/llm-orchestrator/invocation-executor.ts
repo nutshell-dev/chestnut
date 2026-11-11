@@ -53,6 +53,7 @@ import {
   mergeSignals,
   wrapResponseAsStream,
 } from './utils.js';
+import { observeInputBudget, timeoutInputTokens } from './input-budget.js';
 
 export interface InvocationRecoveryLedger extends Pick<
   RecoveryLedger,
@@ -191,6 +192,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
   private noteFailureObserved(error: Error): void {
     this.failureObservedAtMs.set(error, Date.now());
+  }
+
+  private async inputTokensFor(
+    adapter: LLMProvider,
+    options: LLMCallOptions,
+    legacyEstimate: number,
+  ): Promise<number> {
+    const observation = await observeInputBudget(adapter, options, legacyEstimate);
+    return timeoutInputTokens(observation);
   }
 
   private toRecoveryFailures(
@@ -341,6 +351,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     updateSelection = true,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
+    const candidateInputTokens = await this.inputTokensFor(adapter, options, estimatedInputTokens);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
@@ -349,7 +360,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       // caller 的 hardTimeoutMs 仍是显式上限。
       const dynamicTimeoutMs = computeDynamicCallTimeoutMs(
         options.timeoutMs ?? this.baseTimeoutFor(adapter, isFallback),
-        estimatedInputTokens,
+        candidateInputTokens,
       );
       const hardTimeoutMs = options.hardTimeoutMs ?? dynamicTimeoutMs;
       let providerSignal: AbortSignal | undefined;
@@ -799,6 +810,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
 
       let firstChunkAnnounced = false;  // phase 686: 本 provider 内 fallback_switched + currentStreamingProvider 只首 chunk 一次
 
+      const candidateInputTokens = await this.inputTokensFor(adapter, options, estimatedInputTokens);
+
 
       // Retry loop (aligns with call())
       let success = false;
@@ -837,7 +850,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             streamIdleTimeoutMs: undefined,
             timeoutMs: options.timeoutMs ?? computeDynamicCallTimeoutMs(
               this.baseTimeoutFor(adapter, isFallback),
-              estimatedInputTokens,
+              candidateInputTokens,
             ),
           };
 

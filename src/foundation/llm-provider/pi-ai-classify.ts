@@ -25,6 +25,7 @@ import {
   LLMNetworkError,
   LLMContextExceededError,
   LLMOutputBudgetExceededError,
+  type InputBudgetEvidence,
 } from './errors.js';
 import { LLMInvalidRequestError } from './request-unicode.js';
 import { throwHttpErrorResponse, parseOutputBudgetError } from './_helpers.js';
@@ -93,6 +94,7 @@ export async function classifyCapturedHttpError(
   capture: HttpErrorCapture,
   eventError?: PiAi.AssistantMessage,
   contextWindow?: number,
+  inputBudget?: InputBudgetEvidence,
 ): Promise<Error | undefined> {
   if (capture.status === undefined && capture.networkError !== undefined) {
     return new LLMNetworkError(
@@ -115,13 +117,14 @@ export async function classifyCapturedHttpError(
         budget.inputTokens,
         budget.requestedMaxTokens,
         body,
+        inputBudget && { ...inputBudget, inputTokens: budget.inputTokens, requestedMaxTokens: budget.requestedMaxTokens },
       );
     }
   }
 
   // 2) 413 的 status 是权威事实，先于 event 文本判定
   if (status === 413) {
-    return new LLMContextExceededError(provider, 413, body || 'Request Entity Too Large');
+    return new LLMContextExceededError(provider, 413, body || 'Request Entity Too Large', inputBudget);
   }
 
   // 3) pi-ai 官方 predicate（error event 完整消息；display form 先归一化）
@@ -131,7 +134,7 @@ export async function classifyCapturedHttpError(
       ? eventError
       : { ...eventError, errorMessage: normalizeProviderErrorText(rawText) };
     if (runtime.isContextOverflow(probe, contextWindow)) {
-      return new LLMContextExceededError(provider, status ?? 0, rawText ?? 'context overflow');
+      return new LLMContextExceededError(provider, status ?? 0, rawText ?? 'context overflow', inputBudget);
     }
   }
 
@@ -141,7 +144,7 @@ export async function classifyCapturedHttpError(
   if (status === 400 || status === undefined) {
     const text = extractProviderErrorText(body);
     if (text !== '' && isPiAiContextOverflowText(runtime.isContextOverflow, provider, text)) {
-      return new LLMContextExceededError(provider, status ?? DEFAULT_CONTEXT_OVERFLOW_STATUS, body);
+      return new LLMContextExceededError(provider, status ?? DEFAULT_CONTEXT_OVERFLOW_STATUS, body, inputBudget);
     }
   }
 
@@ -152,7 +155,7 @@ export async function classifyCapturedHttpError(
     headers: capture.retryAfter ? { 'retry-after': capture.retryAfter } : {},
   });
   try {
-    await throwHttpErrorResponse(provider, model, synthetic, body);
+    await throwHttpErrorResponse(provider, model, synthetic, body, inputBudget);
   } catch (err) {
     // silent: throw→return 形态转换（typed error 作为返回值上抛给调用方，非吞错）
     return err as Error;
@@ -183,6 +186,7 @@ export function classifyTextualError(
   model: string,
   message: string,
   isOverflowText: (provider: string, text: string) => boolean,
+  inputBudget?: InputBudgetEvidence,
 ): Error {
   if (TEXT_QUOTA_RE.test(message)) {
     return new LLMQuotaError(provider, message);
@@ -197,7 +201,7 @@ export function classifyTextualError(
     return new LLMModelNotFoundError(provider, model, message);
   }
   if (isOverflowText(provider, normalizeProviderErrorText(message))) {
-    return new LLMContextExceededError(provider, 400, message);
+    return new LLMContextExceededError(provider, 400, message, inputBudget);
   }
   if (TEXT_INVALID_JSON_RE.test(message)) {
     return new LLMInvalidRequestError(provider, 'provider_json_parse_rejected');

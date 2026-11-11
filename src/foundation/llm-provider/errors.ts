@@ -10,6 +10,14 @@
  */
 
 import { formatErr } from '../node-utils/index.js';
+import type { InputMeterDescriptor } from './input-meter.js';
+
+/** Non-secret evidence identifying the model budget used for one request. */
+export interface InputBudgetEvidence {
+  descriptor: Readonly<InputMeterDescriptor>;
+  inputTokens?: number;
+  requestedMaxTokens?: number;
+}
 
 type LLMErrorCode =
   | 'LLM_CALL_FAILED'
@@ -145,14 +153,16 @@ export class LLMContextExceededError extends LLMError {
   readonly provider: string;
   readonly status: number;
   readonly providerMessage: string;
-  constructor(provider: string, status: number, providerMessage: string) {
+  readonly inputBudget?: InputBudgetEvidence;
+  constructor(provider: string, status: number, providerMessage: string, inputBudget?: InputBudgetEvidence) {
     super(
       `LLM context exceeded for ${provider} (HTTP ${status}): ${providerMessage.slice(0, 200)}`,
-      { provider, status },
+      { provider, status, ...(inputBudget ? { inputBudget } : {}) },
     );
     this.provider = provider;
     this.status = status;
     this.providerMessage = providerMessage;
+    this.inputBudget = inputBudget;
   }
 }
 
@@ -162,6 +172,7 @@ export class LLMOutputBudgetExceededError extends LLMError {
   readonly contextLimit: number;
   readonly inputTokens: number;
   readonly requestedMaxTokens: number;
+  readonly inputBudget?: InputBudgetEvidence;
 
   constructor(
     provider: string,
@@ -169,15 +180,17 @@ export class LLMOutputBudgetExceededError extends LLMError {
     inputTokens: number,
     requestedMaxTokens: number,
     message: string,
+    inputBudget?: InputBudgetEvidence,
   ) {
     super(
       message,
-      { provider, contextLimit, inputTokens, requestedMaxTokens },
+      { provider, contextLimit, inputTokens, requestedMaxTokens, ...(inputBudget ? { inputBudget } : {}) },
     );
     this.provider = provider;
     this.contextLimit = contextLimit;
     this.inputTokens = inputTokens;
     this.requestedMaxTokens = requestedMaxTokens;
+    this.inputBudget = inputBudget;
   }
 }
 

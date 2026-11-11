@@ -4,7 +4,7 @@
  */
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
-import { LLMError, LLMRateLimitError, LLMQuotaError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError } from './errors.js';
+import { LLMError, LLMRateLimitError, LLMQuotaError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError, type InputBudgetEvidence } from './errors.js';
 import { LLMInvalidRequestError } from './request-unicode.js';
 
 const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid json request body/i;
@@ -59,6 +59,7 @@ export async function throwHttpErrorResponse(
   model: string,
   response: Response,
   errorText?: string,
+  inputBudget?: InputBudgetEvidence,
 ): Promise<never> {
   const status = response.status;
   let resolvedErrorText: string;
@@ -109,7 +110,7 @@ export async function throwHttpErrorResponse(
 
   // Phase 1960: 413 的 status 是权威事实，归 context_exceeded（用户拍板）
   if (status === 413) {
-    throw new LLMContextExceededError(provider, status, resolvedErrorText);
+    throw new LLMContextExceededError(provider, status, resolvedErrorText, inputBudget);
   }
 
   // Phase 1154: deterministic provider-side JSON parse rejection → permanent invalid request
