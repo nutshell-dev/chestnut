@@ -43,7 +43,8 @@ import {
   withCombinedAbortSignal,
 } from './abort-helper.js';
 import { createPiAiEndpoint, loadPiAiRuntime, type PiAiEndpoint } from './pi-ai-support.js';
-import { resolveContextWindow } from './model-context-windows.js';
+import { createInputMeter, type ModelInputMeter } from './input-meter.js';
+import { buildEffectiveCallOptions } from './pi-ai-call-options.js';
 import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import { buildPiAiContext } from './pi-ai-wire.js';
 import {
@@ -63,7 +64,6 @@ import {
   type SuccessContextSignal,
 } from './pi-ai-errors.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
-import type { ThinkingLevel } from './thinking-levels.js';
 
 /** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
 export interface PiAiAdapterOptions {
@@ -92,18 +92,9 @@ export class PiAiAdapter implements ProviderAdapter {
     return this.endpointPromise;
   }
 
-  /**
-   * thinking/reasoning 配置 → pi-ai reasoning 档位（undefined = 不启用）。
-   * Phase 1979 优先级：reasoningEffort > thinkingMode > thinking > thinkingEffort；
-   * `thinking: false` 是显式关闭（压过 mode/effort）。实际档位由 pi-ai 按模型 clamp。
-   */
-  private reasoningLevel(): ThinkingLevel | undefined {
-    if (this.config.reasoningEffort) return this.config.reasoningEffort;
-    if (this.config.thinking === false) return undefined;
-    if (this.config.thinkingMode) return this.config.thinkingEffort ?? 'high';
-    if (this.config.thinking) return this.config.thinkingEffort ?? 'high';
-    if (this.config.thinkingEffort !== undefined) return this.config.thinkingEffort;
-    return undefined;
+  async prepareInputMeter(options: Pick<LLMCallOptions, 'maxTokens' | 'temperature'> = {}): Promise<ModelInputMeter> {
+    const { model } = await this.endpoint();
+    return createInputMeter(this.config, model, buildEffectiveCallOptions(this.config, options));
   }
 
   async call(options: LLMCallOptions): Promise<LLMResponse> {
@@ -152,7 +143,7 @@ export class PiAiAdapter implements ProviderAdapter {
     const signal = inspectSuccessfulMessage(
       runtime.isContextOverflow,
       message,
-      resolveContextWindow(this.name, this.model),
+      (await this.endpoint()).model.contextWindow,
     );
     if (!signal) return;
 
@@ -239,7 +230,6 @@ export class PiAiAdapter implements ProviderAdapter {
     // Google 退化族：pi-ai 适配器拒绝注入 fetch（G1）——不注入，错误面走文本判定
     const googleFamily = isGoogleFamilyApi(model.api);
     const [abortHandle, cleanup] = withCombinedAbortSignal(options.signal, timeout);
-    const reasoning = this.reasoningLevel();
 
     try {
       const stream = models.streamSimple(model, context, {
@@ -247,12 +237,7 @@ export class PiAiAdapter implements ProviderAdapter {
         apiKey: this.config.apiKey,
         ...(googleFamily ? {} : { fetch: createCapturingFetch(capture) }),
         ...(this.config.extraHeaders && { headers: this.config.extraHeaders }),
-        maxTokens: maxTokensOverride ?? options.maxTokens ?? this.config.maxTokens,
-        temperature: options.temperature ?? this.config.temperature,
-        ...(reasoning && { reasoning }),
-        ...(reasoning && this.config.thinkingBudgetTokens && {
-          thinkingBudgets: { [reasoning]: this.config.thinkingBudgetTokens },
-        }),
+        ...buildEffectiveCallOptions(this.config, options, maxTokensOverride),
       });
 
       let firstEventPending = mode === 'stream';
@@ -286,7 +271,7 @@ export class PiAiAdapter implements ProviderAdapter {
       this.model,
       capture,
       eventError,
-      resolveContextWindow(this.name, this.model),
+      (await this.endpoint()).model.contextWindow,
     );
   }
 
