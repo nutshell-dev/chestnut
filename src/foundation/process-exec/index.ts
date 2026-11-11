@@ -51,3 +51,6 @@ export {
   // limit that L1 enforces (phase 1271 F6).
   PROCESS_EXEC_DEFAULT_MAX_BUFFER,
 } from './constants.js';
+
+export { subscribeHostExit, HostExitSubscriptionError } from './host-exit.js';
+export type { HostExitEvent } from './host-exit.js';
