@@ -506,16 +506,6 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
     kept.push(m);
   }
 
-  // API validity：若保留后只剩 1 条孤立的 user 消息（无后续 assistant），
-  // 则这条 user 消息也会造成 user→user 或 user→EOF 违规 → 一并丢弃
-  if (kept.length === 1 && kept[0].role === 'user') {
-    const { origin } = classifyMessage(kept[0]);
-    if (origin === 'user') {
-      dropped.push(kept[0]);
-      return { kept: [], dropped, modified: true };
-    }
-  }
-
   const modified = dropped.length > 0 || kept.some((m, i) => m !== turnMessages[i]);
   return { kept, dropped, modified };
 }

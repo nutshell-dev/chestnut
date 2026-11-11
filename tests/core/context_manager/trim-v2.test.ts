@@ -424,7 +424,7 @@ describe('trimV2', () => {
     expect(result.droppedMessages.length).toBe(2); // userTurn1 + assistantTurn1
     // 旧 turn 的 assistant text 被移除，孤立的 userTurn1 因 API 交替约束也被移除
     expect(result.outcome.newMessages[0].content).toBe('recent');
-    expect(result.outcome.after).toBeGreaterThan(policy.completeCeilingTokens);
+    expect(result.outcome.after).toBeGreaterThan(policy.targetCompleteTokens);
   });
 
   it('21. reactive: maxTokens 进入 reserve；undefined 按 Phase 194 为 0', () => {
@@ -507,6 +507,21 @@ describe('trimV2', () => {
     const assistant = findMessageWithToolUse(result.outcome.newMessages, 'call_send')!;
     const tu = (assistant.content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
     expect(tu.input.content).toBe(longContent);
+  });
+
+  it('27a. 用户消息即使在旧区也逐字节保留', () => {
+    const userContent = '用户原文：' + '测'.repeat(500);
+    const messages: Message[] = withAnchor([
+      makeTextMsg(userContent, { addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString() }),
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'assistant noise ' + '测'.repeat(500) }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const preserved = result.outcome.newMessages.find(message => message.origin === 'user');
+    expect(preserved?.content).toBe(userContent);
   });
 
   it('28. proactive 压缩不足 → 选择性丢弃旧 turn 但保留 user 消息与 send', () => {
