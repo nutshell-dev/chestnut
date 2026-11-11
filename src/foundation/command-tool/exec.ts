@@ -187,21 +187,45 @@ export function processExecErrorToToolResult(
   return { success: true, content: `[exit ${error.exitCode}]\n${body}` };
 }
 
+type AtomicWriteResult = Awaited<ReturnType<ExecContext['fs']['writeAtomic']>>;
+
+interface PersistedOverflow {
+  relPath: string;
+  writeResult: AtomicWriteResult;
+}
+
 async function persistOverflow(
   ctx: ExecContext,
   output: string,
-): Promise<string | null> {
+): Promise<PersistedOverflow | null> {
   try {
     const id = newShortUuid();
     // exec_overflow scratch 写到 tasks/sync/exec/ 子目录（phase 511 / phase772 const 归正 / phase 1475 常量化消 non-null assertion）
     const fullPath = path.join(ctx.syncDir, EXEC_OVERFLOW_DIR_NAME, `${id}.md`);
     const frontmatter = `---\nsource: exec_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    await ctx.fs.writeAtomic(fullPath, frontmatter + output);
-    return path.relative(ctx.workspaceDir, fullPath);
+    const writeResult = await ctx.fs.writeAtomic(fullPath, frontmatter + output);
+    const relPath = path.relative(ctx.workspaceDir, fullPath);
+    if (writeResult.kind !== 'durable') {
+      ctx.auditWriter?.write(
+        COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED,
+        'stage=durability',
+        `commit=${writeResult.kind}`,
+        `path=${relPath}`,
+        `reason=${formatErr(writeResult.error)}`,
+      );
+    }
+    return { relPath, writeResult };
   } catch (err) {
     ctx.auditWriter?.write(COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED, `reason=${formatErr(err)}`);
     return null;
   }
+}
+
+function formatPersistedOverflow(output: string, persisted: PersistedOverflow): string {
+  const preview = truncateHeadTail(output, persisted.relPath);
+  if (persisted.writeResult.kind === 'durable') return preview;
+  return `${preview}\n[artifact committed but durability unconfirmed: ${persisted.writeResult.kind}]` +
+    `\n[reason]: ${formatErr(persisted.writeResult.error)}\n[path]: ${persisted.relPath}`;
 }
 
 /**
@@ -216,8 +240,8 @@ export async function formatExecOutputForToolResult(
   output: string,
 ): Promise<string> {
   if (Buffer.byteLength(output, 'utf8') <= EXEC_MAX_OUTPUT) return output;
-  const relPath = await persistOverflow(ctx, output);
-  return relPath ? truncateHeadTail(output, relPath) : truncate(output, EXEC_MAX_OUTPUT);
+  const persisted = await persistOverflow(ctx, output);
+  return persisted ? formatPersistedOverflow(output, persisted) : truncate(output, EXEC_MAX_OUTPUT);
 }
 
 export const EXEC_TOOL_NAME = 'exec' as const;
@@ -310,9 +334,9 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
             auditExecTermination(ctx, error.termination);
           }
           if (Buffer.byteLength(error.output, 'utf8') > EXEC_MAX_OUTPUT) {
-            const relPath = await persistOverflow(ctx, error.output);
-            const truncated = relPath
-              ? truncateHeadTail(error.output, relPath)
+            const persisted = await persistOverflow(ctx, error.output);
+            const truncated = persisted
+              ? formatPersistedOverflow(error.output, persisted)
               : truncate(error.output, EXEC_MAX_OUTPUT);
             return { success: false, content: `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit.\n[output]: ${truncated}` };
           }

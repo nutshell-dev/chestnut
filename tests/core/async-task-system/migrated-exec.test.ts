@@ -857,6 +857,41 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     expect(overflowFiles[0].endsWith(output)).toBe(true);
   });
 
+  it('phase 2120: async sync success propagates committed durability without changing success', async () => {
+    const output = 'x'.repeat(2001);
+    const child = spawn(process.execPath, ['-e', '']);
+    const handle: ExecHandle = {
+      child,
+      promise: Promise.resolve({ output, stdout: output, exitCode: 0 }),
+      terminate: async () => { throw new Error('sync success must not terminate'); },
+    };
+    const outcome = {
+      kind: 'committed_platform_limited' as const,
+      error: Object.assign(new Error('async directory sync unsupported'), { code: 'ENOTSUP' }),
+    };
+    const realWrite = nodeFs.writeAtomic.bind(nodeFs);
+    const write = vi.spyOn(nodeFs, 'writeAtomic').mockImplementation(async (file, content) => {
+      await realWrite(file, content);
+      return outcome;
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('Full output (2001 bytes) saved.');
+    expect(result.content).toContain('[artifact committed but durability unconfirmed: committed_platform_limited]');
+    expect(result.content).toContain('async directory sync unsupported');
+    expect(result.content).toContain('[path]: .sync/exec/');
+    expect(write).toHaveBeenCalledTimes(1);
+    const overflowFiles = await readOverflowFiles();
+    expect(overflowFiles).toHaveLength(1);
+    expect(overflowFiles[0].endsWith(output)).toBe(true);
+  });
+
   it('pure sync (timeoutMs set) small output → unchanged content, no overflow file', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({

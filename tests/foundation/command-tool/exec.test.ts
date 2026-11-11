@@ -3,13 +3,14 @@
  *
  * 验证空 output 时 placeholder 附加运行命令、长命令截断。
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
 import { createExecTool, formatExecOutputForToolResult, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
 import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS, EXEC_MAX_OUTPUT } from '../../../src/foundation/command-tool/constants.js';
+import { COMMAND_TOOL_AUDIT_EVENTS } from '../../../src/foundation/command-tool/audit-events.js';
 import { ProcessExecError, resolveHostCommand } from '../../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
@@ -23,6 +24,10 @@ import {
 } from './platform-commands.js';
 
 const execTool = createExecTool();
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // vitest 以进程 cwd 解析相对路径——source 路径用绝对路径（phase 1452 教训）
 const EXEC_SOURCE = path.join(
@@ -254,6 +259,146 @@ describe('phase 2110 exec UTF-8 byte threshold', () => {
       await cleanupTempDir(tempDir);
     }
   });
+});
+
+describe('phase 2120 exec overflow durability results', () => {
+  const outcomes: Array<Awaited<ReturnType<NodeFileSystem['writeAtomic']>>> = [
+    { kind: 'durable' },
+    {
+      kind: 'committed_platform_limited',
+      error: Object.assign(new Error('directory sync unsupported'), { code: 'ENOTSUP' }),
+    },
+    {
+      kind: 'committed_durability_unknown',
+      error: Object.assign(new Error('directory sync failed'), { code: 'EIO' }),
+    },
+  ];
+
+  async function makeContext(tempDir: string) {
+    const workspaceDir = path.join(tempDir, 'clawspace');
+    const syncDir = path.join(tempDir, 'tasks', 'sync');
+    await fs.promises.mkdir(workspaceDir, { recursive: true });
+    const events: Array<[string, ...(string | number)[]]> = [];
+    const ctx = makeExecContext({
+      clawDir: tempDir,
+      workspaceDir,
+      syncDir,
+      fs: new NodeFileSystem({ baseDir: tempDir }),
+      auditWriter: {
+        write: (type: string, ...cols: (string | number)[]) => { events.push([type, ...cols]); },
+        preview: (value: string) => value,
+        message: (value: string) => value,
+        summary: (value: string) => value,
+      },
+    });
+    return { ctx, events, workspaceDir, syncDir };
+  }
+
+  function injectWriteResult(
+    ctx: ReturnType<typeof makeExecContext>,
+    outcome: Awaited<ReturnType<NodeFileSystem['writeAtomic']>>,
+  ) {
+    const realWrite = ctx.fs.writeAtomic.bind(ctx.fs);
+    return vi.spyOn(ctx.fs, 'writeAtomic').mockImplementation(async (file, content) => {
+      await realWrite(file, content);
+      return outcome;
+    });
+  }
+
+  it.each(outcomes)('preserves one real artifact and reports $kind without retrying', async outcome => {
+    const tempDir = await createTempDir();
+    try {
+      const { ctx, events, workspaceDir } = await makeContext(tempDir);
+      const write = injectWriteResult(ctx, outcome);
+      const output = 'x'.repeat(EXEC_MAX_OUTPUT + 1);
+
+      const content = await formatExecOutputForToolResult(ctx, output);
+
+      expect(write).toHaveBeenCalledTimes(1);
+      const relPath = /read: \{ "path": "(.+?)", "offset": 1, "limit": 200 \}/.exec(content)?.[1];
+      expect(relPath).toBeDefined();
+      const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
+      expect(artifact.endsWith(output)).toBe(true);
+      expect(content).toContain(`Full output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
+      const durabilityEvents = events.filter(event =>
+        event[0] === COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED);
+      if (outcome.kind === 'durable') {
+        expect(content).not.toContain('artifact committed but durability unconfirmed');
+        expect(durabilityEvents).toHaveLength(0);
+      } else {
+        expect(content).toContain(`[artifact committed but durability unconfirmed: ${outcome.kind}]`);
+        expect(content).toContain(`[reason]: `);
+        expect(content).toContain(outcome.error.message);
+        expect(content).toContain(`[path]: ${relPath}`);
+        expect(content).not.toContain('durable');
+        expect(durabilityEvents).toEqual([[
+          COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED,
+          'stage=durability',
+          `commit=${outcome.kind}`,
+          `path=${relPath}`,
+          expect.stringContaining(`reason=`),
+        ]]);
+        expect(String(durabilityEvents[0][4])).toContain(outcome.error.message);
+      }
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+
+  it('keeps the existing failure fallback without a fake artifact path', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const { ctx, events, syncDir } = await makeContext(tempDir);
+      const writeError = new Error('injected pre-commit failure');
+      const write = vi.spyOn(ctx.fs, 'writeAtomic').mockRejectedValue(writeError);
+      const output = 'x'.repeat(EXEC_MAX_OUTPUT + 1);
+
+      const content = await formatExecOutputForToolResult(ctx, output);
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(content).toContain('[truncated]');
+      expect(content).not.toContain('Full output');
+      expect(content).not.toContain('read:');
+      expect(events).toEqual([[
+        COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED,
+        expect.stringContaining(writeError.message),
+      ]]);
+      expect(await fs.promises.readdir(path.join(syncDir, 'exec')).catch(() => [])).toHaveLength(0);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+
+  it('keeps maxBuffer failure classification while disclosing committed durability', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const { ctx, events, syncDir } = await makeContext(tempDir);
+      const outcome = outcomes[2];
+      const write = injectWriteResult(ctx, outcome);
+      const outputLength = 1024 * 1024 + 128;
+      const command = `"${process.execPath}" -e "process.stdout.write('x'.repeat(${outputLength}))"`;
+
+      const result = await createExecTool().execute({ command }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('Error: command output exceeded 1 MB limit.');
+      expect(result.content).toContain('[artifact committed but durability unconfirmed: committed_durability_unknown]');
+      expect(result.content).toContain('directory sync failed');
+      expect(result.content).toContain('[path]: ');
+      expect(write).toHaveBeenCalledTimes(1);
+      const files = await fs.promises.readdir(path.join(syncDir, 'exec'));
+      expect(files).toHaveLength(1);
+      const artifact = await fs.promises.readFile(path.join(syncDir, 'exec', files[0]), 'utf8');
+      // L1 maxBuffer 只交付终止前实际捕获的 1 MiB；overflow 必须完整保留这批
+      // captured bytes，不能把终止后未观察到的命令输出也算作 artifact 契约。
+      expect(artifact.endsWith('x'.repeat(1024 * 1024))).toBe(true);
+      expect(events.some(event =>
+        event[0] === COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED &&
+        event.includes('commit=committed_durability_unknown'))).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  }, 15_000);
 });
 
 describe('processExecErrorToToolResult', () => {
