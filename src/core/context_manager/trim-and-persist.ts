@@ -81,6 +81,8 @@ export async function trimAndPersist(
     recentWindowMs: inputs.recentWindowMs,
     previewBytes: inputs.previewBytes,
     fixedTokens,
+    measureComplete: inputs.measureComplete,
+    measurementDescriptor: inputs.measurementDescriptor,
     policy: inputs.policy,
     now,
     audit: inputs.audit,

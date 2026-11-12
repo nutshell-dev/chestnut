@@ -3,7 +3,7 @@
  * phase 1190 三层分类裁剪策略：Tier 1 不裁 / Tier 2 尽量不裁 / Tier 3 可裁。
  */
 
-import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
+import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   classifyMessage,
@@ -13,6 +13,7 @@ import {
 } from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
+import { ContextInputMeasurementError } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
@@ -64,10 +65,23 @@ export interface TrimV2Options {
   recentWindowMs: number;
   previewBytes: number;
   fixedTokens: number;
+  measureComplete?: (messages: readonly Message[]) => InputMeasurement;
+  measurementDescriptor?: Readonly<InputMeterDescriptor>;
   policy: TrimPolicy;
   now: number;
   /** phase 1861 (CM-D3)：audit sink 必填——trim 事实不允许静默。 */
   audit: AuditWriter;
+}
+
+function completeTokens(messages: readonly Message[], opts: TrimV2Options): number {
+  if (opts.measureComplete) {
+    const measurement = opts.measureComplete(messages);
+    if (measurement.kind === 'unavailable') {
+      throw new ContextInputMeasurementError(measurement.reason, opts.measurementDescriptor);
+    }
+    return measurement.tokens;
+  }
+  return opts.fixedTokens + estimateMessagesTokens(messages);
 }
 
 interface TrimV2Result {
@@ -139,7 +153,7 @@ export function buildProactiveTrimPolicy(
  * 输出：discriminated outcome + dropped messages + metrics。
  */
 export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV2Result {
-  const before = opts.fixedTokens + estimateMessagesTokens(messages);
+  const before = completeTokens(messages, opts);
 
   const targetLabel =
     opts.policy.kind === 'proactive'
@@ -164,7 +178,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 
   if (opts.policy.kind === 'proactive') {
     if (initialSplit.olderIndices.length > 0 &&
-        opts.fixedTokens + estimateMessagesTokens(compressed.messages) > targetTokens) {
+        completeTokens(compressed.messages, opts) > targetTokens) {
       const dropped = dropTurnsSelective(compressed, before, opts, {
         onlyBeforeIndex: initialSplit.olderIndices.length,
       });
@@ -174,18 +188,18 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
   } else {
     // reactive 顺序固定为：旧缩短 → 旧移除 → 新缩短 → 新移除；每个阶段
     // 都在每个合法候选后重算完整输入，达到目标立即停止。
-    if (opts.fixedTokens + estimateMessagesTokens(compressed.messages) > targetTokens) {
+    if (completeTokens(compressed.messages, opts) > targetTokens) {
       const droppedOld = dropTurnsSelective(compressed, before, opts, {
         onlyBeforeIndex: initialSplit.olderIndices.length,
       });
       compressed = { ...compressed, messages: droppedOld.outcome.newMessages };
       droppedMessages.push(...droppedOld.droppedMessages);
     }
-    if (opts.fixedTokens + estimateMessagesTokens(compressed.messages) > targetTokens) {
+    if (completeTokens(compressed.messages, opts) > targetTokens) {
       const split = splitBy24h(compressed.messages, opts.recentWindowMs, opts.now);
       compressed = compressSequential(compressed.messages, opts, split.newerIndices, targetTokens, split.olderIndices.length);
     }
-    if (opts.fixedTokens + estimateMessagesTokens(compressed.messages) > targetTokens) {
+    if (completeTokens(compressed.messages, opts) > targetTokens) {
       const split = splitBy24h(compressed.messages, opts.recentWindowMs, opts.now);
       const droppedRecent = dropTurnsSelective(compressed, before, opts, {
         onlyAfterIndex: split.olderIndices.length,
@@ -195,14 +209,14 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     }
   }
 
-  const afterBeforeSummary = opts.fixedTokens + estimateMessagesTokens(compressed.messages);
+  const afterBeforeSummary = completeTokens(compressed.messages, opts);
   const changed = afterBeforeSummary < before || droppedMessages.length > 0;
   const withSummary = changed
     ? opts.policy.kind === 'proactive'
       ? injectSummaryAtBoundary({ ...compressed, boundaryIndex: splitBy24h(compressed.messages, opts.recentWindowMs, opts.now).olderIndices.length }, opts.now)
       : injectSummaryAtEnd(compressed, opts.now)
     : compressed.messages;
-  const after = opts.fixedTokens + estimateMessagesTokens(withSummary);
+  const after = completeTokens(withSummary, opts);
   const reached = after <= targetTokens;
   if (!changed) {
     if (before <= targetTokens) {
@@ -346,11 +360,11 @@ function compressSequential(
   boundaryIndex: number,
 ): CompressResult {
   let result = emptyCompressResult(messages, boundaryIndex);
-  let currentTokens = opts.fixedTokens + estimateMessagesTokens(result.messages);
+  let currentTokens = completeTokens(result.messages, opts);
   for (const index of [...targetIndices].sort((a, b) => a - b)) {
     if (currentTokens <= targetTokens) break;
     const candidate = compressMessages(result.messages, opts, new Set([index]));
-    const candidateTokens = opts.fixedTokens + estimateMessagesTokens(candidate.messages);
+    const candidateTokens = completeTokens(candidate.messages, opts);
     if (candidateTokens >= currentTokens) continue;
     result = mergeCompressResult(result, candidate, boundaryIndex);
     currentTokens = candidateTokens;
@@ -520,7 +534,7 @@ function dropTurnsSelective(
 
   const segments = completeTurnSegments(result.messages);
   let bestMessages = result.messages;
-  let bestAfter = opts.fixedTokens + estimateMessagesTokens(bestMessages);
+  let bestAfter = completeTokens(bestMessages, opts);
   const allDropped: Message[] = [];
 
   // 从最旧 turn 开始逐个处理
