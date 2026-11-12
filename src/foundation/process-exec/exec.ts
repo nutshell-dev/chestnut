@@ -123,18 +123,12 @@ class BufferCollector {
 
   private pushChunk(stream: Buffer[], chunk: Buffer): void {
     const remaining = this.maxBytes - this.totalSize;
-    if (remaining <= 0) {
-      if (!this.overflowed) {
-        this.overflowed = true;
-        this.onOverflow();
-      }
-      return;
-    }
-    const toPush = chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
+    const overflowed = chunk.length > remaining;
+    const toPush = overflowed ? chunk.subarray(0, remaining) : chunk;
     stream.push(toPush);
     this.combined.push(toPush);
     this.totalSize += toPush.length;
-    if (this.totalSize > this.maxBytes && !this.overflowed) {
+    if (overflowed && !this.overflowed) {
       this.overflowed = true;
       this.onOverflow();
     }

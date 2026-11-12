@@ -108,3 +108,49 @@ describe('exec success result stdout channel (phase 1935 Step B)', () => {
     expect(Object.hasOwn(pe, 'stdout')).toBe(false);
   });
 });
+
+describe('exec maxBuffer chunk boundaries (phase 2128 Step B)', () => {
+  async function expectExecError(body: string, maxBuffer: number): Promise<ProcessExecError> {
+    const err = await exec(process.execPath, nodeScript(body), { cwd: CWD, maxBuffer }).then(
+      () => { throw new Error('expected rejection'); },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ProcessExecError);
+    return err as ProcessExecError;
+  }
+
+  it('单个 chunk 超过上限时立即终止并保留截断前缀', async () => {
+    const maxBuffer = 64;
+    const err = await expectExecError(
+      `process.stdout.write('x'.repeat(${maxBuffer + 1}));`,
+      maxBuffer,
+    );
+
+    expect(err.maxBufferExceeded).toBe(true);
+    expect(err.output).toBe('x'.repeat(maxBuffer));
+    expect(err.termination?.trigger).toBe('max_buffer');
+  });
+
+  it('单个 chunk 恰好等于上限时成功，不误触发终止', async () => {
+    const maxBuffer = 64;
+    const result = await exec(process.execPath, nodeScript(
+      `process.stdout.write('x'.repeat(${maxBuffer}));`,
+    ), { cwd: CWD, maxBuffer });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('x'.repeat(maxBuffer));
+  });
+
+  it('stdout 与 stderr 累计超过上限时触发 max_buffer', async () => {
+    const maxBuffer = 32;
+    const err = await expectExecError(
+      "process.stdout.write('o'.repeat(24)); process.stderr.write('e'.repeat(24));",
+      maxBuffer,
+    );
+
+    expect(err.maxBufferExceeded).toBe(true);
+    expect(Buffer.byteLength(err.output, 'utf8')).toBe(maxBuffer);
+    expect(err.output).toMatch(/^[oe]+$/);
+    expect(err.termination?.trigger).toBe('max_buffer');
+  });
+});
