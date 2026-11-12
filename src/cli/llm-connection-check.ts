@@ -157,6 +157,7 @@ export async function probeLLMConnection(
     lifecycle: { mode: 'ephemeral' },
     ...(options?.credentials && { credentialStore: options.credentials }),
   });
+  let callFailure: { error: unknown } | undefined;
   try {
     await svc.call({
       messages: [{ role: 'user', content: 'Hi' }],
@@ -164,7 +165,21 @@ export async function probeLLMConnection(
     });
     return { ok: true, model: snapshot.config.primary.model, identity: snapshot.identity };
   } catch (err) {
+    callFailure = { error: err };
     return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: snapshot.config.primary.name, identity: snapshot.identity };
+  } finally {
+    try {
+      await svc.close();
+    } catch (closeErr) {
+      if (callFailure) {
+        throw new AggregateError(
+          [callFailure.error, closeErr],
+          'LLM connection probe and orchestrator close failed',
+          { cause: callFailure.error },
+        );
+      }
+      throw closeErr;
+    }
   }
 }
 
@@ -202,6 +217,7 @@ export async function checkLLMConnectionFor(
     lifecycle: { mode: 'ephemeral' },
     ...(options?.credentials && { credentialStore: options.credentials }),
   });
+  let callFailure: { error: unknown } | undefined;
   try {
     await svc.call({
       messages: [{ role: 'user', content: 'Hi' }],
@@ -209,7 +225,21 @@ export async function checkLLMConnectionFor(
     });
     return { ok: true, model: provider.model };
   } catch (err) {
+    callFailure = { error: err };
     return { ok: false, errorType: classifyLLMErrorForDisplay(err), message: formatErr(err), provider: provider.name };
+  } finally {
+    try {
+      await svc.close();
+    } catch (closeErr) {
+      if (callFailure) {
+        throw new AggregateError(
+          [callFailure.error, closeErr],
+          'LLM connection probe and orchestrator close failed',
+          { cause: callFailure.error },
+        );
+      }
+      throw closeErr;
+    }
   }
 }
 

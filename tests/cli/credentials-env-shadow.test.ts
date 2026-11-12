@@ -44,7 +44,10 @@ vi.mock('../../src/foundation/llm-orchestrator/index.js', async (importOriginal)
     await importOriginal<typeof import('../../src/foundation/llm-orchestrator/index.js')>();
   return {
     ...orig,
-    createLLMOrchestrator: () => ({ call: vi.fn().mockResolvedValue({ content: 'ok' }) }),
+    createLLMOrchestrator: () => ({
+      call: vi.fn().mockResolvedValue({ content: 'ok' }),
+      close: vi.fn().mockResolvedValue(undefined),
+    }),
   };
 });
 

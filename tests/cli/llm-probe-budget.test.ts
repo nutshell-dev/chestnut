@@ -8,13 +8,13 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LLMModelNotFoundError, type ProviderConfig } from '../../src/foundation/llm-provider/index.js';
 
-const mocks = vi.hoisted(() => ({ call: vi.fn() }));
+const mocks = vi.hoisted(() => ({ call: vi.fn(), close: vi.fn() }));
 
 vi.mock('../../src/foundation/llm-orchestrator/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/llm-orchestrator/index.js')>();
   return {
     ...actual,
-    createLLMOrchestrator: () => ({ call: mocks.call }),
+    createLLMOrchestrator: () => ({ call: mocks.call, close: mocks.close }),
   };
 });
 
@@ -36,6 +36,7 @@ function providerConfig(): ProviderConfig {
 describe('Phase 1979 probe budget', () => {
   beforeEach(() => {
     mocks.call.mockReset().mockResolvedValue({ content: [], stop_reason: 'end_turn' });
+    mocks.close.mockReset().mockResolvedValue(undefined);
   });
 
   it('LLM_PROBE_MAX_TOKENS = 64', () => {

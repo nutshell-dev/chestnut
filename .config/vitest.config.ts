@@ -68,6 +68,7 @@ const VI_MOCK_FILES = [
   'tests/cli/start-launcher-parity.test.ts',  // phase 2016: shared bootstrap adapter mocks
   'tests/cli/launcher-setup-protocol.test.ts',  // phase 2011: vi.mock probe + process-global CHESTNUT_ROOT/HOME
   'tests/cli/llm-probe-budget.test.ts',  // phase 1979 Step D: vi.mock orchestrator barrel（probe 预算断言）
+  'tests/cli/llm-connection-lifecycle.test.ts',  // phase 2134 Step B: vi.mock orchestrator barrel（probe close 生命周期）
   'tests/cli/motion-steps-action-error.test.ts',
   'tests/cli/motion-home-directory.test.ts',  // phase 2073 Step B: vi.mock FileSystem barrel
   'tests/cli/password-restore-reverse.test.ts',
