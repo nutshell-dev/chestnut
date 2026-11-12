@@ -36,6 +36,7 @@ describe('ContextManager barrel contract surface (phase 1861, CM-D9)', () => {
       'CONTEXT_TRIM_PREVIEW_BYTES',
       'CONTEXT_TRIM_RECENT_WINDOW_MS',
       'CONTEXT_TRIM_TARGET_RATIO',
+      'ContextInputMeasurementError',
       'ContextTrimExhaustedError',
       'ContextTrimPersistError',
       'REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO',
