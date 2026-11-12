@@ -3,7 +3,7 @@
  * 事件性裁剪 + 持久化同源（phase 421 ratify、phase 440 实施、phase 1153 区分 proactive/reactive）。
  */
 
-import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition, InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
 import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
@@ -46,6 +46,8 @@ export interface TrimAndPersistInputs {
   audit: AuditWriter;
   triggerKind: TriggerKind;
   policy: TrimPolicy;
+  measureComplete?: (messages: readonly Message[]) => InputMeasurement;
+  measurementDescriptor?: Readonly<InputMeterDescriptor>;
   now?: number;
 }
 

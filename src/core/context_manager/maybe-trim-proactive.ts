@@ -3,7 +3,7 @@
  * 顺手裁触发：turn 入口判断「占用率 ≥ 0.75 AND 缓存已失效」、满足则调 trimAndPersist。
  */
 
-import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition, InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   estimateTextTokens,
@@ -38,6 +38,8 @@ export interface MaybeTrimProactiveInputs {
 
   /** phase 2100：触发与目标比率分离；旧 targetRatio 仅作兼容别名。 */
   policy: TrimRuntimePolicy;
+  measureComplete?: (messages: readonly Message[]) => InputMeasurement;
+  measurementDescriptor?: Readonly<InputMeterDescriptor>;
 }
 
 /**
