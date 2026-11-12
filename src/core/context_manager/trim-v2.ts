@@ -84,6 +84,89 @@ function completeTokens(messages: readonly Message[], opts: TrimV2Options): numb
   return opts.fixedTokens + estimateMessagesTokens(messages);
 }
 
+interface MessageTokenEntry {
+  message: Message;
+  tokens: number;
+}
+
+interface MessageTokenReplacement {
+  entries: MessageTokenEntry[];
+  total: number;
+}
+
+/**
+ * legacy-cl100k 是消息级可加模型。ledger 仅存活于一次 trimV2 调用，
+ * 所有变更都经显式 replacement 提交；跨调用的内容、blockId、fixed context
+ * 或 estimator revision 变化都会建立新 ledger，不复用旧计数。
+ */
+class MessageTokenLedger {
+  private entries: MessageTokenEntry[];
+  private currentTotal: number;
+  private readonly initialMessages: number;
+  private candidateMessages = 0;
+  private candidates = 0;
+
+  constructor(messages: readonly Message[], fixedTokens: number) {
+    this.entries = messages.map(message => ({
+      message,
+      tokens: estimateMessagesTokens([message]),
+    }));
+    this.initialMessages = messages.length;
+    this.currentTotal = fixedTokens + this.entries.reduce((sum, entry) => sum + entry.tokens, 0);
+  }
+
+  get total(): number {
+    return this.currentTotal;
+  }
+
+  get auditDetails(): string[] {
+    return [
+      'token_count_mode=message_ledger',
+      `token_count_initial_messages=${this.initialMessages}`,
+      `token_count_candidate_messages=${this.candidateMessages}`,
+      `token_count_candidates=${this.candidates}`,
+      'token_count_full_candidate_scans=0',
+    ];
+  }
+
+  measureReplacement(
+    start: number,
+    endExclusive: number,
+    messages: readonly Message[],
+  ): MessageTokenReplacement {
+    let oldAffectedTotal = 0;
+    for (let i = start; i < endExclusive; i++) {
+      oldAffectedTotal += this.entries[i].tokens;
+    }
+    const entries = messages.map(message => ({
+      message,
+      tokens: estimateMessagesTokens([message]),
+    }));
+    const newAffectedTotal = entries.reduce((sum, entry) => sum + entry.tokens, 0);
+    this.candidateMessages += messages.length;
+    this.candidates++;
+    return { entries, total: this.currentTotal - oldAffectedTotal + newAffectedTotal };
+  }
+
+  commitReplacement(start: number, endExclusive: number, replacement: MessageTokenReplacement): void {
+    this.entries.splice(start, endExclusive - start, ...replacement.entries);
+    this.currentTotal = replacement.total;
+  }
+
+  insert(index: number, message: Message): void {
+    const replacement = this.measureReplacement(index, index, [message]);
+    this.commitReplacement(index, index, replacement);
+  }
+}
+
+function currentTokens(
+  messages: readonly Message[],
+  opts: TrimV2Options,
+  ledger: MessageTokenLedger | undefined,
+): number {
+  return ledger?.total ?? completeTokens(messages, opts);
+}
+
 interface TrimV2Result {
   outcome: TrimCandidateOutcome;
   droppedMessages: Message[];
@@ -153,7 +236,8 @@ export function buildProactiveTrimPolicy(
  * 输出：discriminated outcome + dropped messages + metrics。
  */
 export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV2Result {
-  const before = completeTokens(messages, opts);
+  const ledger = opts.measureComplete ? undefined : new MessageTokenLedger(messages, opts.fixedTokens);
+  const before = currentTokens(messages, opts, ledger);
 
   const targetLabel =
     opts.policy.kind === 'proactive'
@@ -173,50 +257,51 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     opts.policy.kind === 'proactive' ? initialSplit.olderIndices : initialSplit.olderIndices,
     targetTokens,
     initialSplit.olderIndices.length,
+    ledger,
   );
   let droppedMessages: Message[] = [];
 
   if (opts.policy.kind === 'proactive') {
     if (initialSplit.olderIndices.length > 0 &&
-        completeTokens(compressed.messages, opts) > targetTokens) {
+        currentTokens(compressed.messages, opts, ledger) > targetTokens) {
       const dropped = dropTurnsSelective(compressed, before, opts, {
         onlyBeforeIndex: initialSplit.olderIndices.length,
-      });
+      }, ledger);
       compressed = { ...compressed, messages: dropped.outcome.newMessages };
       droppedMessages = dropped.droppedMessages;
     }
   } else {
     // reactive 顺序固定为：旧缩短 → 旧移除 → 新缩短 → 新移除；每个阶段
-    // 都在每个合法候选后重算完整输入，达到目标立即停止。
-    if (completeTokens(compressed.messages, opts) > targetTokens) {
+    // 都在每个合法候选后更新完整输入计数，达到目标立即停止。
+    if (currentTokens(compressed.messages, opts, ledger) > targetTokens) {
       const droppedOld = dropTurnsSelective(compressed, before, opts, {
         onlyBeforeIndex: initialSplit.olderIndices.length,
-      });
+      }, ledger);
       compressed = { ...compressed, messages: droppedOld.outcome.newMessages };
       droppedMessages.push(...droppedOld.droppedMessages);
     }
-    if (completeTokens(compressed.messages, opts) > targetTokens) {
+    if (currentTokens(compressed.messages, opts, ledger) > targetTokens) {
       const split = splitBy24h(compressed.messages, opts.recentWindowMs, opts.now);
-      compressed = compressSequential(compressed.messages, opts, split.newerIndices, targetTokens, split.olderIndices.length);
+      compressed = compressSequential(compressed.messages, opts, split.newerIndices, targetTokens, split.olderIndices.length, ledger);
     }
-    if (completeTokens(compressed.messages, opts) > targetTokens) {
+    if (currentTokens(compressed.messages, opts, ledger) > targetTokens) {
       const split = splitBy24h(compressed.messages, opts.recentWindowMs, opts.now);
       const droppedRecent = dropTurnsSelective(compressed, before, opts, {
         onlyAfterIndex: split.olderIndices.length,
-      });
+      }, ledger);
       compressed = { ...compressed, messages: droppedRecent.outcome.newMessages };
       droppedMessages.push(...droppedRecent.droppedMessages);
     }
   }
 
-  const afterBeforeSummary = completeTokens(compressed.messages, opts);
+  const afterBeforeSummary = currentTokens(compressed.messages, opts, ledger);
   const changed = afterBeforeSummary < before || droppedMessages.length > 0;
   const withSummary = changed
     ? opts.policy.kind === 'proactive'
-      ? injectSummaryAtBoundary({ ...compressed, boundaryIndex: splitBy24h(compressed.messages, opts.recentWindowMs, opts.now).olderIndices.length }, opts.now)
-      : injectSummaryAtEnd(compressed, opts.now)
+      ? injectSummaryAtBoundary({ ...compressed, boundaryIndex: splitBy24h(compressed.messages, opts.recentWindowMs, opts.now).olderIndices.length }, opts.now, ledger)
+      : injectSummaryAtEnd(compressed, opts.now, ledger)
     : compressed.messages;
-  const after = completeTokens(withSummary, opts);
+  const after = currentTokens(withSummary, opts, ledger);
   const reached = after <= targetTokens;
   if (!changed) {
     if (before <= targetTokens) {
@@ -272,6 +357,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
       `tool_use_fields_collapsed=${result.metrics.collapsedToolUseFields}`,
       `redundant_results_superseded=${result.metrics.supersededRedundantResults}`,
       `summary_message_injected=${result.metrics.summaryMessageInjected ? 1 : 0}`,
+      ...(ledger?.auditDetails ?? ['token_count_mode=complete_measurement']),
     );
   }
 
@@ -279,7 +365,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 }
 
 /** 在 24h 边界处注入摘要消息（顺手裁用：摘要放在 Tier 3 和 Tier 2 之间） */
-function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message[] {
+function injectSummaryAtBoundary(result: CompressResult, nowMs: number, ledger?: MessageTokenLedger): Message[] {
   const insertAt = findToolPairSafeInsertionIndex(result.messages, result.boundaryIndex);
   const processedCount = Math.max(0, insertAt);
   const summary = buildContextTrimSummaryMessage({
@@ -291,11 +377,12 @@ function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message
 
   const newMessages = [...result.messages];
   newMessages.splice(insertAt, 0, summary);
+  ledger?.insert(insertAt, summary);
   return newMessages;
 }
 
 /** 在消息列表末尾注入摘要消息（触底裁用：全部消息都参与了压缩） */
-function injectSummaryAtEnd(result: CompressResult, nowMs: number): Message[] {
+function injectSummaryAtEnd(result: CompressResult, nowMs: number, ledger?: MessageTokenLedger): Message[] {
   const insertAt = findToolPairSafeInsertionIndex(result.messages, result.messages.length);
   const processedCount = Math.max(0, insertAt);
   const summary = buildContextTrimSummaryMessage({
@@ -307,6 +394,7 @@ function injectSummaryAtEnd(result: CompressResult, nowMs: number): Message[] {
 
   const newMessages = [...result.messages];
   newMessages.splice(insertAt, 0, summary);
+  ledger?.insert(insertAt, summary);
   return newMessages;
 }
 
@@ -358,16 +446,21 @@ function compressSequential(
   targetIndices: readonly number[],
   targetTokens: number,
   boundaryIndex: number,
+  ledger?: MessageTokenLedger,
 ): CompressResult {
   let result = emptyCompressResult(messages, boundaryIndex);
-  let currentTokens = completeTokens(result.messages, opts);
+  let compressedTokens = currentTokens(result.messages, opts, ledger);
   for (const index of [...targetIndices].sort((a, b) => a - b)) {
-    if (currentTokens <= targetTokens) break;
+    if (compressedTokens <= targetTokens) break;
     const candidate = compressMessages(result.messages, opts, new Set([index]));
-    const candidateTokens = completeTokens(candidate.messages, opts);
-    if (candidateTokens >= currentTokens) continue;
+    const replacement = ledger?.measureReplacement(index, index + 1, [candidate.messages[index]]);
+    const candidateTokens = replacement?.total ?? completeTokens(candidate.messages, opts);
+    if (candidateTokens >= compressedTokens) continue;
+    if (ledger && replacement) {
+      ledger.commitReplacement(index, index + 1, replacement);
+    }
     result = mergeCompressResult(result, candidate, boundaryIndex);
-    currentTokens = candidateTokens;
+    compressedTokens = candidateTokens;
   }
   return result;
 }
@@ -526,6 +619,7 @@ function dropTurnsSelective(
   before: number,
   opts: TrimV2Options,
   options?: { onlyBeforeIndex?: number; onlyAfterIndex?: number },
+  ledger?: MessageTokenLedger,
 ): TrimV2Result {
   const targetTokens =
     opts.policy.kind === 'proactive'
@@ -534,7 +628,7 @@ function dropTurnsSelective(
 
   const segments = completeTurnSegments(result.messages);
   let bestMessages = result.messages;
-  let bestAfter = completeTokens(bestMessages, opts);
+  let bestAfter = currentTokens(bestMessages, opts, ledger);
   const allDropped: Message[] = [];
 
   // 从最旧 turn 开始逐个处理
@@ -559,21 +653,22 @@ function dropTurnsSelective(
       continue;
     }
 
-    // 增量估算 token：只计算本 turn 丢前/丢后的差值，避免每轮全量重算
-    const beforeTurn = estimateMessagesTokens(turnMsgs);
-    const afterTurn = estimateMessagesTokens(kept);
-    const after = bestAfter - beforeTurn + afterTurn;
-
-    // 目标是上限；低于目标仍然合法，不再因为输出预算制造下限。
-
-    // 重建 messages 数组
+    // 重建 messages 数组。legacy 路径只重算本 turn 保留的消息；
+    // 自定义 provider measurement 仍测量完整候选，不假设其消息级可加。
     const candidate = [
       ...bestMessages.slice(0, seg.start),
       ...kept,
       ...bestMessages.slice(seg.endExclusive),
     ];
+    const replacement = ledger?.measureReplacement(seg.start, seg.endExclusive, kept);
+    const after = replacement?.total ?? completeTokens(candidate, opts);
+
+    // 目标是上限；低于目标仍然合法，不再因为输出预算制造下限。
 
     allDropped.push(...dropped);
+    if (ledger && replacement) {
+      ledger.commitReplacement(seg.start, seg.endExclusive, replacement);
+    }
     bestMessages = candidate;
     bestAfter = after;
 

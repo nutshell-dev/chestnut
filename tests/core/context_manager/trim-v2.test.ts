@@ -7,6 +7,8 @@ import {
   buildReactiveTrimPolicy,
 } from '../../../src/core/context_manager/trim-v2.js';
 import { estimateMessagesTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
+import * as llmProvider from '../../../src/foundation/llm-provider/index.js';
+import { CONTEXT_TRIM_COMPLETED } from '../../../src/core/context_manager/audit-events.js';
 import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
@@ -59,6 +61,21 @@ function baseOpts(overrides?: Partial<TrimV2Options>): TrimV2Options {
 function withAnchor(messages: Message[]): Message[] {
   const anchor: Message = makeTextMsg('anchor', { addedAt: new Date(NOW).toISOString() });
   return [...messages, anchor];
+}
+
+function makeMultiTurnTrimFixture(): Message[] {
+  const messages: Message[] = [];
+  for (let i = 0; i < 6; i++) {
+    const addedAt = new Date(NOW - RECENT_WINDOW_MS - 100 + i).toISOString();
+    messages.push(makeTextMsg(`old request ${i}`, { addedAt }));
+    messages.push({
+      role: 'assistant',
+      content: [{ type: 'text', text: `assistant ${i} ${'测'.repeat(400)}` }],
+      addedAt,
+    });
+  }
+  messages.push(makeTextMsg('anchor'));
+  return messages;
 }
 
 function findMessageWithToolUse(messages: readonly Message[], id: string): Message | undefined {
@@ -856,5 +873,74 @@ describe('trim policy builders — injected ratio boundary values (phase 1861, C
       kind: 'reactive',
       targetCompleteTokens: 1_000,
     });
+  });
+});
+
+
+describe('trimV2 message token ledger (phase 2132)', () => {
+  it('matches the full-measurement baseline across compression, multiple turn drops and summary insertion', () => {
+    const policy = buildProactiveTrimPolicy(200);
+    const incremental = trimV2(makeMultiTurnTrimFixture(), baseOpts({ policy }));
+    const baseline = trimV2(makeMultiTurnTrimFixture(), baseOpts({
+      policy,
+      measureComplete: messages => ({
+        kind: 'estimated',
+        tokens: estimateMessagesTokens(messages),
+        method: 'legacy-cl100k',
+      }),
+    }));
+
+    expect(incremental.droppedMessages.length).toBeGreaterThan(0);
+    expect(incremental.metrics.summaryMessageInjected).toBe(true);
+    expect(incremental).toEqual(baseline);
+    expect(incremental.outcome.after).toBe(estimateMessagesTokens(incremental.outcome.newMessages));
+  });
+
+  it('estimates only initial and affected messages, never a full candidate array', () => {
+    const audit = { write: vi.fn() } satisfies AuditWriter;
+    const estimator = vi.spyOn(llmProvider, 'estimateMessagesTokens');
+    let measuredArrayLengths: number[];
+    let result: ReturnType<typeof trimV2>;
+    try {
+      result = trimV2(makeMultiTurnTrimFixture(), baseOpts({
+        policy: buildProactiveTrimPolicy(200),
+        audit,
+      }));
+      measuredArrayLengths = estimator.mock.calls.map(([messages]) => messages.length);
+    } finally {
+      estimator.mockRestore();
+    }
+
+    expect(measuredArrayLengths!.length).toBeGreaterThan(13);
+    expect(measuredArrayLengths!.every(length => length === 1)).toBe(true);
+    expect(result!.outcome.after).toBe(estimateMessagesTokens(result!.outcome.newMessages));
+    const completed = audit.write.mock.calls.find(([event]) => event === CONTEXT_TRIM_COMPLETED);
+    expect(completed).toContain('token_count_mode=message_ledger');
+    expect(completed).toContain('token_count_full_candidate_scans=0');
+    expect(completed?.some(detail => /^token_count_candidate_messages=[1-9]\d*$/.test(detail))).toBe(true);
+  });
+
+  it('rebuilds counts between calls after content, blockId and fixed context changes', () => {
+    const assistant: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: `before ${'测'.repeat(400)}` }],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+    };
+    const messages = withAnchor([assistant]);
+    const first = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const text = (assistant.content as [{ type: 'text'; text: string; blockId?: string }])[0];
+    text.text = `after ${'改'.repeat(450)}`;
+    text.blockId = 'phase2132-assigned-block';
+
+    const second = trimV2(messages, baseOpts({
+      fixedTokens: 17,
+      policy: buildProactiveTrimPolicy(1_000),
+    }));
+
+    expect(second.outcome.before).not.toBe(first.outcome.before);
+    expect(second.outcome.before).toBe(17 + estimateMessagesTokens(messages));
+    expect(second.outcome.after).toBe(17 + estimateMessagesTokens(second.outcome.newMessages));
+    expect(second.outcome.newMessages.some(message => Array.isArray(message.content)
+      && message.content.some(block => block.type === 'text' && block.text.includes('phase21')))).toBe(true);
   });
 });
