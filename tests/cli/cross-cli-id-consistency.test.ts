@@ -87,8 +87,8 @@ describe('cross-CLI id consistency (phase 152 §5.B SoT guard)', () => {
   });
 
   afterAll(async () => {
-    await fixture.tearDown();
     vi.restoreAllMocks();
+    await fixture.tearDown();
   });
 
   beforeEach(() => {

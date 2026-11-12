@@ -5,12 +5,14 @@
  * 列名 / 列顺序 / 列值），即「以 sink 替换直写」对审计行 0 漂移。
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 const AGENT_ID = 'agent-eq';
+
+afterEach(() => vi.restoreAllMocks());
 
 function makeSink() {
   const calls: unknown[][] = [];

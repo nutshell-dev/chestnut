@@ -14,7 +14,7 @@
  * audit 写故障不再转化为 rejection（② 的触发改用模块 mock：直接测 agent 侧 catch 契约）。
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 
 const { completenessMock } = vi.hoisted(() => ({ completenessMock: vi.fn() }));
@@ -33,6 +33,8 @@ import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+
+afterEach(() => vi.restoreAllMocks());
 
 class CollectingStreamWriter {
   events: StreamEvent[] = [];

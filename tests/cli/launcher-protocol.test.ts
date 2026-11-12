@@ -73,9 +73,9 @@ describe('send launcher.v1 envelope', () => {
 
   afterEach(() => {
     delete process.env.CHESTNUT_ROOT;
-    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
     stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
+    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   it('成功：stdout 唯一 ack envelope，字段齐全，requestId 回带', async () => {

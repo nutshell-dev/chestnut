@@ -114,6 +114,8 @@ describe('getProcessStartTime catch filter', () => {
  * Covers degraded behaviour when the `ps` companion command fails.
  */
 describe('findByPattern', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('writes stderr when ps fails with non-ENOENT', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 

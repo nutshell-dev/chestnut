@@ -99,6 +99,7 @@ describe('EvolutionSystem legacy state read failure（phase 1934 Step G）', () 
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     if (tmpBase) {
       await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       tmpBase = undefined;

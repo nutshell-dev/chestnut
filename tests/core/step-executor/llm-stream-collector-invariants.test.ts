@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { makeStepEventSink } from '../../helpers/step-event-sink.js';
 import {
   collectStreamResponse,
@@ -19,6 +19,8 @@ import {
   LLMTimeoutError,
   type LLMResponse,
 } from '../../../src/foundation/llm-provider/index.js';
+
+afterEach(() => vi.restoreAllMocks());
 
 function makeLLM(chunks: LLMStreamChunk[], errToThrow: Error): LLMOrchestrator {
   return {

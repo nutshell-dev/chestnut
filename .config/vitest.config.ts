@@ -374,7 +374,43 @@ const ARCH_COMPILE_FILES = [
   'tests/foundation/arch/messaging-message-kind-surface.test.ts',
 ];
 
-const ISOLATED_FILES = [...VI_MOCK_FILES, ...VI_DOMOCK_FILES, ...VI_GLOBALS_FILES];
+/**
+ * phase 2133: tests that replace process-global stdout/stderr.write.
+ * fast shares workers with isolate:false, so these files must run with isolate:true.
+ * Keep this list in sync with tests/design/invariants.test.ts's process-output audit.
+ */
+const PROCESS_OUTPUT_FILES = [
+  'tests/cli-protocol/claw-command-catalog.test.ts',
+  'tests/cli/clawspace-command-root-config.test.ts',
+  'tests/cli/commands/claw-ls.test.ts',
+  'tests/cli/commands/claw-read.test.ts',
+  'tests/cli/contract-cancel.test.ts',
+  'tests/cli/dispatch-skill-list.test.ts',
+  'tests/cli/skill-edit.test.ts',
+  'tests/cli/skill-install-scope.test.ts',
+  'tests/cli/skill-list.test.ts',
+  'tests/core/agent-executor/step-event-sink.test.ts',
+  'tests/core/contract/cancellation-delivery.test.ts',
+  'tests/core/contract/verification-invariants.test.ts',
+  'tests/core/evolution-system/legacy-read-failure.test.ts',
+  'tests/core/evolution-system/retro-skill-edit-flow.test.ts',
+  'tests/core/step-executor/llm-stream-collector-invariants.test.ts',
+  'tests/core/subagent/agent-degraded-evidence.test.ts',
+  'tests/core/subagent/lifecycle-sink-equivalence.test.ts',
+  'tests/foundation/audit/reader-invariants.test.ts',
+  'tests/foundation/audit/reader.test.ts',
+  'tests/foundation/dialog-store/lookup.test.ts',
+  'tests/foundation/messaging/notify-claw.test.ts',
+  'tests/foundation/snapshot/git-output-channels.test.ts',
+  'tests/foundation/snapshot/version-output-channels.test.ts',
+];
+
+const ISOLATED_FILES = [...new Set([
+  ...VI_MOCK_FILES,
+  ...VI_DOMOCK_FILES,
+  ...VI_GLOBALS_FILES,
+  ...PROCESS_OUTPUT_FILES,
+])];
 
 export default defineConfig({
   /**
@@ -538,4 +574,11 @@ export default defineConfig({
 });
 
 // phase 1006: export project file lists for invariant tests
-export { INTEGRATION_PROCESS_FILES, INTEGRATION_IO_FILES, INFRA_FILES, ARCH_COMPILE_FILES };
+export {
+  INTEGRATION_PROCESS_FILES,
+  INTEGRATION_IO_FILES,
+  INFRA_FILES,
+  ARCH_COMPILE_FILES,
+  ISOLATED_FILES,
+  PROCESS_OUTPUT_FILES,
+};

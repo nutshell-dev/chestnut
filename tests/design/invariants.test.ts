@@ -19,7 +19,19 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { INTEGRATION_PROCESS_FILES, INTEGRATION_IO_FILES, INFRA_FILES } from '../../.config/vitest.config.js';
+import {
+  INTEGRATION_PROCESS_FILES,
+  INTEGRATION_IO_FILES,
+  INFRA_FILES,
+  ARCH_COMPILE_FILES,
+  ISOLATED_FILES,
+  PROCESS_OUTPUT_FILES,
+} from '../../.config/vitest.config.js';
+import {
+  detectProcessOutputReplacements,
+  matchesTestPattern,
+  scanProcessOutputGlobalState,
+} from '../../scripts/stream-output-global-state-audit.mjs';
 
 describe('shadow-signal-omit-anchor', () => {
   /**
@@ -893,5 +905,81 @@ describe('vi-mock-list-consistency-invariant', () => {
       const realUseSites = loadRealViMockUseSites();
       expect(realUseSites.size).toBeGreaterThanOrEqual(80);
     });
+  });
+});
+
+
+describe('process-output-global-state-isolation-invariant', () => {
+  /**
+   * phase 2133: fast uses shared workers (isolate:false), therefore a test that
+   * replaces process.stdout/stderr.write must belong to an isolate:true project.
+   */
+  const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+  it('recognizes multiline spies, direct assignments and stream aliases only in executable code', () => {
+    expect(detectProcessOutputReplacements(
+      "vi\n  .spyOn(process.stdout, 'write')\n  .mockImplementation(() => true);",
+    )).toHaveLength(1);
+    expect(detectProcessOutputReplacements(
+      'process.stderr.' + 'write = vi.fn();',
+    )).toHaveLength(1);
+    expect(detectProcessOutputReplacements(
+      "const output = process.stdout;\nvi.spyOn(output, 'write').mockImplementation(() => true);",
+    )).toHaveLength(1);
+    expect(detectProcessOutputReplacements(
+      'const output = process.stderr;\noutput.write = vi.fn();',
+    )).toHaveLength(1);
+    expect(detectProcessOutputReplacements(
+      'const { stdout } = process;\nstdout.' + 'write = vi.fn();',
+    )).toHaveLength(1);
+    expect(detectProcessOutputReplacements(
+      'const { stdout: out, stderr: err } = process;\nout.' + 'write = vi.fn();\nerr.' + 'write = vi.fn();',
+    )).toHaveLength(2);
+    expect(detectProcessOutputReplacements(
+      'const out = process.stdout as NodeJS.WriteStream;\nout.' + 'write = vi.fn();',
+    )).toHaveLength(1);
+    expect(detectProcessOutputReplacements(
+      'const childScript = "process.stdout.write = vi.fn();";\nprocess.stdout.write(\'ok\');',
+    )).toHaveLength(0);
+    expect(detectProcessOutputReplacements(
+      'const fixture = /process.stdout.' + 'write = vi.fn()/;',
+    )).toHaveLength(0);
+  });
+
+  it('every process-global output replacement is isolated and PROCESS_OUTPUT_FILES has no stale entries', async () => {
+    const result = await scanProcessOutputGlobalState(REPO_ROOT);
+    const isolatedPatterns = [
+      ...ISOLATED_FILES,
+      ...INTEGRATION_PROCESS_FILES,
+      ...INTEGRATION_IO_FILES,
+      ...INFRA_FILES,
+      ...ARCH_COMPILE_FILES,
+    ];
+    const unisolated = result.hits
+      .filter((hit) => !isolatedPatterns.some((pattern) =>
+        pattern === hit.file || (pattern.includes('*') && matchesTestPattern(hit.file, pattern))))
+      .map((hit) => hit.file);
+    const candidates = new Set(result.hits.map((hit) => hit.file));
+    const staleProcessOutputEntries = PROCESS_OUTPUT_FILES.filter((file) => !candidates.has(file));
+    const otherIsolatedProjectPatterns = [
+      ...INTEGRATION_PROCESS_FILES,
+      ...INTEGRATION_IO_FILES,
+      ...INFRA_FILES,
+      ...ARCH_COMPILE_FILES,
+    ];
+    const duplicateProjectEntries = PROCESS_OUTPUT_FILES.filter((file) =>
+      otherIsolatedProjectPatterns.some((pattern) =>
+        pattern === file || (pattern.includes('*') && matchesTestPattern(file, pattern))));
+
+    expect({
+      unisolated,
+      staleProcessOutputEntries,
+      duplicateProjectEntries,
+    }, `phase 2133: add new output-global tests to PROCESS_OUTPUT_FILES; remove entries after capture is removed\n${JSON.stringify(result.hits, null, 2)}`).toEqual({
+      unisolated: [],
+      staleProcessOutputEntries: [],
+      duplicateProjectEntries: [],
+    });
+    expect(candidates.has('tests/core/contract/cancellation-delivery.test.ts')).toBe(true);
   });
 });

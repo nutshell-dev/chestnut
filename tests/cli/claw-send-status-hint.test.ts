@@ -71,10 +71,10 @@ describe('cli claw send status hint (phase 232)', () => {
 
   afterEach(() => {
     delete process.env.CHESTNUT_ROOT;
-    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
     consoleLogSpy.mockRestore();
     stderrWriteSpy.mockRestore();
     stdoutWriteSpy.mockRestore();
+    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   function stderrText(): string {

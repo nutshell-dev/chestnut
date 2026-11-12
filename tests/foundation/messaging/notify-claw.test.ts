@@ -31,6 +31,7 @@ describe('notify_claw tool', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await cleanupTempDir(tempDir);
   });
 

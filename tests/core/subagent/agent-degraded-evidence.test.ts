@@ -12,7 +12,7 @@
  * ⑤ log append 失败 → degraded 含 log 项、run 正常
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { SubAgent } from '../../../src/core/subagent/agent.js';
 import type { ToolExecutor } from '../../../src/foundation/tools/index.js';
@@ -22,6 +22,8 @@ import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+
+afterEach(() => vi.restoreAllMocks());
 
 class CollectingStreamWriter {
   events: StreamEvent[] = [];

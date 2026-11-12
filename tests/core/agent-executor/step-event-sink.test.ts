@@ -5,7 +5,7 @@
  * 迁移前模块内直写一致，contract_id/trace_id 绑定在 adapter）。
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createStepExecutorEventSink } from '../../../src/core/step-executor/index.js';
 import type { StepCallbacks } from '../../../src/core/step-executor/index.js';
 
@@ -21,6 +21,8 @@ function makeAudit() {
 }
 
 const BINDING = { contractId: 'c-1', traceId: 't-9' };
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('phase 1857 Step I: step-event-sink adapter 等价矩阵', () => {
   it('toolInputParseFailed → 展示 onToolInputParseError + 审计行逐列保持', () => {
