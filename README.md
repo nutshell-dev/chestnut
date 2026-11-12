@@ -60,11 +60,12 @@ Contributing, Acknowledgements, License).
 ```bash
 git clone https://github.com/nutshell-dev/chestnut
 cd chestnut
-pnpm install && pnpm build
+corepack enable
+pnpm install --frozen-lockfile && pnpm build
 npm link
 ```
 
-**Requires**: Node.js ≥ 22, [pnpm](docs/install-pnpm.md)
+**Requires**: Node.js ≥ 22, pnpm 10.28.1 via [Corepack](docs/install-pnpm.md)
 
 ---
 

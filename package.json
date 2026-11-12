@@ -2,6 +2,7 @@
   "name": "chestnut",
   "version": "0.1.0",
   "description": "Chestnut - AI Agent Orchestration System",
+  "packageManager": "pnpm@10.28.1",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

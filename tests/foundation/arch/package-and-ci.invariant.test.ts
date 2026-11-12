@@ -211,49 +211,48 @@ describe('CI workflow pnpm script ref invariant (phase 623)', () => {
 describe('ci-workflow-pnpm-version-consistency-invariant', () => {
 
 /**
- * phase 626: invariant that every `pnpm/action-setup` block in
- * .github/workflows/*.yml uses the same `version: N` value.
+ * phase 626/2129: invariant that package.json packageManager is the single
+ * pnpm version source and every pnpm/action-setup block reads it by omitting
+ * an explicit version override.
  *
  * Rationale (ML#3 single-source toolchain): pnpm version is part of the
- * build toolchain — must be uniform across CI. Drift breaks invisibly:
- * - one CI runs pnpm v10 to parse lockfile, another v11 → same PR exhibits
- *   different behavior (one passes, one fails) for the same source
- * - debugging CI failures becomes unrepeatable (depends which workflow ran)
- *
- * Doesn't lock a specific version — only that all workflows agree.
- * Project can upgrade by editing all 3 in one commit; this invariant
- * stops the half-finished upgrade.
- *
- * Matches the YAML pattern:
- *   uses: pnpm/action-setup@vN
- *     ...
- *     with:
- *       version: N
+ * build toolchain — must be uniform across local development and CI. Keeping
+ * a second version literal in each workflow can silently reintroduce drift.
  *
  * Pairs with phase 625 (action version pinning), phase 624 (post-merge),
  * phase 623 (CI script ref).
  */
-describe('CI workflow pnpm version consistency invariant (phase 626)', () => {
-  it('every pnpm/action-setup invocation uses same version', () => {
-    const wfDir = path.resolve(__dirname, '../../../.github/workflows');
+describe('CI workflow pnpm version consistency invariant (phase 626/2129)', () => {
+  it('every pnpm/action-setup invocation reads the packageManager version', () => {
+    const repoRoot = path.resolve(__dirname, '../../..');
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8')) as {
+      packageManager?: string;
+    };
+    expect(pkg.packageManager).toMatch(/^pnpm@\d+\.\d+\.\d+$/);
+
+    const wfDir = path.join(repoRoot, '.github/workflows');
     const files = fs.readdirSync(wfDir).filter(f => f.endsWith('.yml')).sort();
     expect(files.length).toBeGreaterThan(0);
 
-    // Find each pnpm/action-setup block, then capture the next `version:` value.
-    // YAML matters: under `with:` block of pnpm/action-setup.
-    const blockRe = /uses:\s+pnpm\/action-setup@v\d+[\s\S]*?version:\s+(\S+)/g;
-    const versions: Array<{ file: string; version: string }> = [];
+    const actionRe = /uses:\s+pnpm\/action-setup@v\d+/g;
+    const offenders: string[] = [];
+    let invocationCount = 0;
     for (const f of files) {
       const text = fs.readFileSync(path.join(wfDir, f), 'utf-8');
       let m: RegExpExecArray | null;
-      while ((m = blockRe.exec(text)) !== null) {
-        versions.push({ file: f, version: m[1] });
+      while ((m = actionRe.exec(text)) !== null) {
+        invocationCount += 1;
+        const blockStart = m.index + m[0].length;
+        const nextUses = text.indexOf('uses:', blockStart);
+        const block = text.slice(blockStart, nextUses === -1 ? text.length : nextUses);
+        if (/^\s+version:\s+/m.test(block)) {
+          offenders.push(`${f}: explicit pnpm version overrides packageManager`);
+        }
       }
-      blockRe.lastIndex = 0;
+      actionRe.lastIndex = 0;
     }
-    expect(versions.length).toBeGreaterThan(0);
-    const uniqueVersions = new Set(versions.map(v => v.version));
-    expect(uniqueVersions.size).toBe(1);
+    expect(invocationCount).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
   });
 });
 });
