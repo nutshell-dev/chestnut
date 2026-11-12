@@ -28,6 +28,7 @@ import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index
 import { formatErr, truncateUtf8Prefix } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
+import { rejectLongBlockingExec } from './blocking-policy.js';
 
 function toSafeNumber(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(String(v));
@@ -314,6 +315,9 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
           return { success: false, content: result.reason };
         }
       }
+
+      const longBlockingRejection = rejectLongBlockingExec(command, timeoutMs, ctx);
+      if (longBlockingRejection) return longBlockingRejection;
 
       // phase 1280: allow/deny reject 路径已 REFRAMED-OUT by-design 2026-05-25 user ratify
       // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup

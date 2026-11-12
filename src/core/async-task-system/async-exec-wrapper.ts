@@ -17,6 +17,7 @@ import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
 import { formatExecOutputForToolResult } from '../../foundation/command-tool/index.js';
+import { rejectLongBlockingExec } from '../../foundation/command-tool/index.js';
 import { executeToolTask } from './tool-executor.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
 import type { SendToolResult, SendFallbackResult, WriteInboxAsync } from './result-delivery-types.js';
@@ -195,6 +196,15 @@ export function createAsyncExecWrapper(
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
+
+      // phase 2135 Step C: only explicit pure-sync calls can exceed the turn
+      // budget here; omitted timeoutMs retains the existing async migration.
+      const longBlockingRejection = rejectLongBlockingExec(
+        command,
+        args.timeoutMs as number | undefined,
+        ctx,
+      );
+      if (longBlockingRejection) return longBlockingRejection;
 
       // --- phase 1863 (AT-D9/H1): 命令侧声明不可迁移 → 超时即终止 ----------------
       // 复用显式 timeout 语义：以声明/装配预算为命令时限，超时由 L1 终止并归类为

@@ -10,7 +10,7 @@
  */
 
 export { EventLoop } from './event-loop.js';
-export type { EventLoopRuntime, EventLoopTraceSource, EventLoopExecutionRecoveryDeps, TurnStartCallback, EventLoopStreamCallbacks } from './types.js';
+export type { EventLoopRuntime, EventLoopTraceSource, EventLoopExecutionRecoveryDeps, EventLoopTurnStateSink, TurnStartCallback, EventLoopStreamCallbacks } from './types.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';
 // phase 1869 Step H: 呈现显式装配（execution_recovery rendering declaration）
 export { EVENTLOOP_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';

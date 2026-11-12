@@ -27,3 +27,6 @@ export type { ExecWithHandleArgs, PreExecGuard, AsyncMigrationPolicy } from './e
 export { EXEC_ASYNC_MIGRATION } from './exec.js';
 export { processExecErrorToToolResult } from './exec.js';
 export { formatExecOutputForToolResult } from './exec.js';
+
+// Phase 2135 Step C: shared by the L4 async wrapper; policy ownership stays here.
+export { rejectLongBlockingExec } from './blocking-policy.js';

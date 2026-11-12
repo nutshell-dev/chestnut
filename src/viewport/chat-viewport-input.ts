@@ -56,7 +56,21 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
     if (data === '\x1b') {
       const semantics = createLauncherUiSemantics();
       const turnActive = deps.turnTracker.isActive();
+      const auditEsc = (fileWritten?: boolean, failure?: unknown): void => {
+        try {
+          deps.audit.write(
+            VIEWPORT_AUDIT_EVENTS.INTERRUPT_ESC,
+            'pressed=true',
+            `turn_active=${turnActive}`,
+            ...(fileWritten === undefined ? [] : [`file_written=${fileWritten}`]),
+            ...(failure === undefined ? [] : [`failure=${formatErr(failure)}`]),
+          );
+        } catch { /* audit self-failure tolerated */ }
+      };
+      auditEsc();
       if (!isUiActionEnabled(semantics.actions['chat.interrupt'], { 'turn.active': turnActive })) {
+        deps.mainUI.appendToBuffer('当前没有活动轮次，无法中断。');
+        deps.mainUI.flushStreamingNormal();
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
         return { consume: true };
@@ -65,6 +79,7 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
       try {
         deps.fs.writeAtomicSync(interruptFile, '');
       } catch (err) {
+        auditEsc(false, err);
         try {
           deps.audit.write(
             VIEWPORT_AUDIT_EVENTS.INTERRUPT_PERSIST_FAILED,
@@ -74,6 +89,7 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
         } catch { /* audit self-failure tolerated */ }
         return { consume: true };
       }
+      auditEsc(true);
       deps.turnTracker.requestInterrupt('esc');
       return { consume: true };
     }

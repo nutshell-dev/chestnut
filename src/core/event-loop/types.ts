@@ -11,6 +11,16 @@ import type { LLMFailureDisposition, LLMRecoveryFacts, LLMRecoverySchedule } fro
 // 不新增对 Runtime 类的运行依赖）。
 import type { PreparedInboxBatch, FormattedInboxBatch } from '../runtime/index.js';
 
+/** Phase 2135 Step B：consumer-owned turn 持久事实写面；实现归 Daemon。 */
+export interface EventLoopTurnStateSink {
+  turnStart(): void;
+  turnEnd(): void;
+  turnInterrupted(): void;
+  turnError(): void;
+  /** processTurn finally 的兜底收束；与 terminal callback 重复调用须幂等。 */
+  turnFinish(): void;
+}
+
 /** Consumer-owned trace capability used by EventLoop stream projection. */
 export interface EventLoopTraceSource {
   getCurrentTraceId(): TraceId | undefined;
@@ -193,6 +203,7 @@ export interface EventLoopOptions {
   audit: AuditLog;
   inbox: { pendingDir: string; fallbackTimeoutMs?: number };
   streamWriter?: StreamWriter;
+  turnState?: EventLoopTurnStateSink;
   onBatchComplete?: () => Promise<void>;
   executionRecovery?: EventLoopExecutionRecoveryDeps;
 }

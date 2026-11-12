@@ -29,6 +29,19 @@ export type { DaemonSpawnOptionsInput } from './spawn-options.js';
 export { DAEMON_HEARTBEAT_FILE, readDaemonHeartbeat } from './heartbeat-fact.js';
 export type { DaemonHeartbeatFact, DaemonHeartbeatRead } from './heartbeat-fact.js';
 
+// Phase 2135 Step B: daemon-owned turn 状态协议（EventLoop 写入 / motion viewport 只读恢复）
+export {
+  DAEMON_TURN_STATE_FILE,
+  createDaemonTurnStateStore,
+  readDaemonTurnState,
+} from './turn-state.js';
+export type {
+  DaemonTurnState,
+  DaemonTurnStateRead,
+  DaemonTurnStateStore,
+  DaemonTurnStateStoreOptions,
+} from './turn-state.js';
+
 // Phase 1927 Step C: motion daemon LLM 身份 ready 业务事实协议（daemon 发布 / start 消费）
 export {
   MOTION_LLM_READY_FACT_SCHEMA_VERSION,

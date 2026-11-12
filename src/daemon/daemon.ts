@@ -30,6 +30,7 @@ import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
 import { encodeMotionLLMReadyFact, createMotionLLMReadyFactPublisher } from './llm-ready-fact.js';
 import { createDaemonSpawnOptions } from './spawn-options.js';
 import { readDaemonHeartbeat } from './heartbeat-fact.js';
+import { createDaemonTurnStateStore } from './turn-state.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
@@ -108,6 +109,12 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
     const preAssembleFs = deps.fsFactory(dir);
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
+    // 同一 store 注入 Assembly/EventLoop；启动 reconcile 由 Daemon 在驱动前显式执行。
+    const turnState = createDaemonTurnStateStore({
+      fs: preAssembleFs,
+      clawId,
+      daemonPid: process.pid,
+    });
 
     // Phase 1926 Step C：start 携带的已验证 LLM 配置身份复核（motion 专属协议；
     // 与下方 assemble 消费同一 globalConfig object，复核事实即装配事实）。
@@ -165,6 +172,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
           clawDir: dir,
           globalConfig,
           processGenerationId,
+          turnState,
           ...(createAppliedLLMIdentityPublisher !== undefined
             ? { createAppliedLLMIdentityPublisher }
             : {}),
@@ -189,6 +197,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
           globalConfig,
           clawConfig,
           processGenerationId,
+          turnState,
         };
       }
       instances = await deps.assemble(assembleConfig);
@@ -310,6 +319,25 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       return;
     }
 
+    // Phase 2135 Step B：activation + Runtime 初始化均成功后、驱动前收束上次 active。
+    // 不在装配期写；旁路事实失败只审计，不阻断 daemon 启动。
+    try {
+      const previous = turnState.reconcileIdle();
+      if (previous.kind === 'corrupt') {
+        auditWriter.write(
+          DAEMON_AUDIT_EVENTS.TURN_STATE_RECONCILE_DEGRADED,
+          `reason=${previous.error}`,
+        );
+      }
+    } catch (error) {
+      try {
+        auditWriter.write(
+          DAEMON_AUDIT_EVENTS.TURN_STATE_RECONCILE_FAILED,
+          `reason=${formatErr(error)}`,
+        );
+      } catch { /* silent: 启动继续；audit 自身失败不升级为 daemon 失败 */ }
+    }
+
     // 清理残留心跳（上次 daemon 的遗留，重启后无需立即巡查）
     // phase 1804: Messaging owner capability —— daemon 不见目录/文件名/删除动作；
     // typed identity（解码 meta.type）替代 '_heartbeat_' 文件名 substring 判断。
@@ -368,6 +396,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       clawId: clawId,
       label: isMotion ? '[motion daemon]' : '[daemon]',
       audit: auditWriter,
+      turnState,
       motion: isMotion ? { heartbeat: heartbeat ?? undefined } : undefined,
       // phase 1873 Step I: fatal 恢复预算耗尽 → 走既有 teardown 语义（gracefulShutdown
       // 的 dispose→retire 链）后退出，交 Watchdog 重启接管。

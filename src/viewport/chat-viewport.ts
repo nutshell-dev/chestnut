@@ -42,6 +42,7 @@ import { createTuiInputHandler, type ShutdownReason } from './chat-viewport-inpu
 import { loadViewportDraft, persistViewportDraft } from './chat-viewport-draft.js';
 
 import { createTurnTracker } from './chat-viewport-turn-tracker.js';
+import { recoverMotionTurnState } from './chat-viewport-turn-recovery.js';
 import { createDisplay } from './chat-viewport-display.js';
 import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-panel.js';
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
@@ -270,6 +271,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   // Single turn tracker instance shared across the viewport
   const turnTracker = createTurnTracker({ mainUI, INTERRUPT_CLEANUP_TIMEOUT_MS });
+  // motion 只消费 daemon 固定事实；必须在下方 streamReader.start 前完成恢复。
+  if (isMotion) recoverMotionTurnState({ fs, clawId: options.clawId, turnTracker, audit: options.audit });
 
   // Task stream watching (for dispatch/spawn subagent progress)
   const taskWatchMap = new Map<string, TaskWatch>();
@@ -547,8 +550,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   initOwnStateFromHistory({ isMotion, fs, fsFactory: options.fsFactory, streamPath, turnTracker, audit: options.audit });
 
-  // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
-  if (turnTracker.isActive()) {
+  // 旧 PID 校正仅限非 motion；motion 已由 turn-state + heartbeat 完成 fail-closed 校验。
+  if (!isMotion && turnTracker.isActive()) {
     try {
       if (!pm.isAlive(resolveClawDaemonDir(options.clawId))) {
         turnTracker.forceReset();

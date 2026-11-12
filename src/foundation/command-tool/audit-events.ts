@@ -3,6 +3,8 @@
 
 export const COMMAND_TOOL_AUDIT_EVENTS = {
   EXEC_GUARD_REJECTED: 'exec_guard_rejected',
+  // NEW phase 2135 Step C: structured long-blocking exec policy disposition
+  EXEC_LONG_BLOCKING_REJECTED: 'exec_long_blocking_rejected',
   // NEW phase 272 Step B: raw audit emit migration to const SoT
   OVERFLOW_PERSIST_FAILED: 'overflow_persist_failed',
   // NEW phase 1269 Step D: structured exec termination conclusion (L1 facts)
@@ -14,6 +16,7 @@ export const COMMAND_TOOL_AUDIT_EVENTS = {
  */
 export const COMMAND_TOOL_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   exec_guard_rejected: 'audit',
+  exec_long_blocking_rejected: 'audit',
   overflow_persist_failed: 'audit',
   exec_termination: 'audit',
 } as const;

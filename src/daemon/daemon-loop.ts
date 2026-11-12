@@ -25,6 +25,7 @@ import {
   LOOP_FATAL_BACKOFF_MAX_MS,
 } from './constants.js';
 import { writeDaemonHeartbeat } from './heartbeat-fact.js';
+import type { DaemonTurnStateStore } from './turn-state.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox, createInboxReader } from '../foundation/messaging/index.js';
@@ -184,6 +185,8 @@ interface DaemonLoopOptions {
 
   // motion 专用扩展（claw 整体省略）
   motion?: DaemonMotionExtensions;
+  /** Phase 2135 Step B：liveness 成功时刷新长 turn 的持久状态新鲜度。 */
+  turnState?: Pick<DaemonTurnStateStore, 'refreshActive'>;
 
   /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
   createWatcher?: WatcherFactory;
@@ -234,6 +237,14 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const writeHeartbeatFact = () => {
     try {
       writeDaemonHeartbeat(agentFs, Date.now());
+      try {
+        options.turnState?.refreshActive();
+      } catch (refreshErr) {
+        audit.write(
+          DAEMON_AUDIT_EVENTS.TURN_STATE_REFRESH_FAILED,
+          `error=${formatErr(refreshErr)}`,
+        );
+      }
     } catch (err) {
       audit.write(
         DAEMON_AUDIT_EVENTS.HEARTBEAT_WRITE_FAILED,
@@ -363,7 +374,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
                 interruptErrCount = 0;
                 audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${backoff}`);
                 interruptWatcher = createInterruptWatcher({
-                  agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher,
+                  agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher, audit,
                 });
                 audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERED);
                 backoff = INITIAL_BACKOFF;
@@ -386,7 +397,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         };
 
         interruptWatcher = createInterruptWatcher({
-          agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher,
+          agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher, audit,
         });
 
         try {

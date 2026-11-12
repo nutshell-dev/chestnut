@@ -8,7 +8,7 @@ import type { ExecutorHeartbeatRead } from '../core/contract/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import type { AppliedLLMIdentityPublishOutcome } from '../core/runtime/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
-import type { EventLoopExecutionRecoveryDeps, EventLoop } from '../core/event-loop/index.js';
+import type { EventLoopExecutionRecoveryDeps, EventLoopTurnStateSink, EventLoop } from '../core/event-loop/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
 import type { createSkillSystem as defaultCreateSkillSystem } from '../foundation/skill-system/index.js';
 import type { createSkillVersions as defaultCreateSkillVersions } from '../foundation/skill-system/index.js';
@@ -38,6 +38,8 @@ interface AssembleConfigBase {
   readonly globalConfig: ClawGlobalConfig;
   /** Phase 1204 Step C: parent 传入的 spawn generation identity（env CHESTNUT_PROCESS_GENERATION）。 */
   readonly processGenerationId?: string;
+  /** Phase 2135 Step B：Daemon 创建的 turn-state store；Assembly 仅透传给 EventLoop。 */
+  readonly turnState?: EventLoopTurnStateSink;
   /**
    * Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份的工厂（motion daemon 注入；
    * claw 缺省 = 无发布语义）。Daemon own 事实 schema 与发布时机语义；Assembly 只负责

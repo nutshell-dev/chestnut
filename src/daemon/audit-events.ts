@@ -16,6 +16,12 @@ export const DAEMON_AUDIT_EVENTS = {
   LOOP_INTERRUPT_POLLER_RECOVERED: 'daemon_loop_interrupt_poller_recovered',
   LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT: 'daemon_loop_interrupt_poller_recovery_attempt',
   LOOP_INTERRUPT_POLLER_RECOVERY_FAILED: 'daemon_loop_interrupt_poller_recovery_failed',
+  // Phase 2135 Step D: interrupt 文件发现、删除与 abort 结果事实
+  LOOP_INTERRUPT_FILE_DISCOVERED: 'daemon_loop_interrupt_file_discovered',
+  LOOP_INTERRUPT_FILE_DELETED: 'daemon_loop_interrupt_file_deleted',
+  LOOP_INTERRUPT_FILE_DELETE_FAILED: 'daemon_loop_interrupt_file_delete_failed',
+  LOOP_INTERRUPT_ABORT_SUCCEEDED: 'daemon_loop_interrupt_abort_succeeded',
+  LOOP_INTERRUPT_ABORT_FAILED: 'daemon_loop_interrupt_abort_failed',
   // Phase 1952 Step B: interrupt watcher close 次失败（不阻塞主流程，但不得静默丢弃）
   LOOP_INTERRUPT_WATCHER_CLOSE_FAILED: 'daemon_loop_interrupt_watcher_close_failed',
   LOOP_FATAL: 'daemon_loop_fatal',
@@ -23,6 +29,10 @@ export const DAEMON_AUDIT_EVENTS = {
   LIVENESS_HOURLY: 'daemon_liveness_hourly',
   // phase 1878 Step B: 心跳事实落盘失败（写失败可观察、不阻断 daemon）
   HEARTBEAT_WRITE_FAILED: 'daemon_heartbeat_write_failed',
+  // Phase 2135 Step B: turn-state 启动调和与长 turn 心跳刷新事实
+  TURN_STATE_RECONCILE_FAILED: 'daemon_turn_state_reconcile_failed',
+  TURN_STATE_RECONCILE_DEGRADED: 'daemon_turn_state_reconcile_degraded',
+  TURN_STATE_REFRESH_FAILED: 'daemon_turn_state_refresh_failed',
   // cleanup 路径
   CLEANUP_HEARTBEAT_FAILED: 'daemon_cleanup_heartbeat_failed',
   CLEANUP_PID_FAILED: 'daemon_cleanup_pid_failed',

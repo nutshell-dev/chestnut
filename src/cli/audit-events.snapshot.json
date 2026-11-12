@@ -702,7 +702,8 @@
       "eventloop_fatal",
       "eventloop_iteration",
       "eventloop_llm_retry",
-      "eventloop_post_drain_failure_recovered"
+      "eventloop_post_drain_failure_recovered",
+      "eventloop_turn_state_write_failed"
     ],
     "daemon_audit-events": [
       "daemon_cleanup_heartbeat_failed",
@@ -713,6 +714,11 @@
       "daemon_liveness_heartbeat",
       "daemon_liveness_hourly",
       "daemon_loop_fatal",
+      "daemon_loop_interrupt_abort_failed",
+      "daemon_loop_interrupt_abort_succeeded",
+      "daemon_loop_interrupt_file_delete_failed",
+      "daemon_loop_interrupt_file_deleted",
+      "daemon_loop_interrupt_file_discovered",
       "daemon_loop_interrupt_poller_disabled",
       "daemon_loop_interrupt_poller_error",
       "daemon_loop_interrupt_poller_recovered",
@@ -725,6 +731,9 @@
       "daemon_startup_check_io_error",
       "daemon_startup_check_retry",
       "daemon_startup_check_ts_without_delivery",
+      "daemon_turn_state_reconcile_degraded",
+      "daemon_turn_state_reconcile_failed",
+      "daemon_turn_state_refresh_failed",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
       "snapshot_commit_failed",
@@ -883,6 +892,7 @@
     ],
     "foundation_command-tool_audit-events": [
       "exec_guard_rejected",
+      "exec_long_blocking_rejected",
       "exec_termination",
       "overflow_persist_failed"
     ],
@@ -1062,7 +1072,9 @@
       "viewport_draft_restored",
       "viewport_event_ingest",
       "viewport_host_input",
+      "viewport_interrupt_esc",
       "viewport_interrupt_persist_failed",
+      "viewport_motion_turn_recovery_failed",
       "viewport_render_batch",
       "viewport_render_request_batch",
       "viewport_screen_reset",

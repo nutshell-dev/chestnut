@@ -13,6 +13,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createInterruptWatcher } from '../../src/daemon/interrupt-watcher.js';
 import type { Watcher } from '../../src/foundation/file-watcher/index.js';
+import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
 
 interface MockFs {
   deleteSync: ReturnType<typeof vi.fn>;
@@ -23,6 +24,10 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     return {
       deleteSync: vi.fn(),
     };
+  }
+
+  function makeAudit() {
+    return { write: vi.fn() };
   }
 
   function makeCreateWatcher() {
@@ -43,6 +48,7 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     const agentFs = makeFs();
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const audit = makeAudit();
     const createWatcher = makeCreateWatcher();
 
     createInterruptWatcher({
@@ -50,6 +56,7 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      audit,
       createWatcher,
     });
 
@@ -59,6 +66,12 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     expect(agentFs.deleteSync).toHaveBeenCalledWith('interrupt');
     expect(onInterrupt).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
+    expect(audit.write).toHaveBeenCalledWith(
+      DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_FILE_DISCOVERED,
+      'event=add',
+    );
+    expect(audit.write).toHaveBeenCalledWith(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_FILE_DELETED);
+    expect(audit.write).toHaveBeenCalledWith(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_ABORT_SUCCEEDED);
   });
 
   it('deleteSync ENOENT (race) → silent ignore, 不调 onError', () => {
@@ -96,6 +109,7 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     });
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const audit = makeAudit();
     const createWatcher = makeCreateWatcher();
 
     createInterruptWatcher({
@@ -103,6 +117,7 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      audit,
       createWatcher,
     });
 
@@ -112,12 +127,18 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     expect(onInterrupt).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0]).toBe(ioError);
+    expect(audit.write).toHaveBeenCalledWith(
+      DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_FILE_DELETE_FAILED,
+      'reason=[EACCES] EACCES: permission denied',
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_ABORT_SUCCEEDED);
   });
 
   it('change 事件 → 同 add 路径 (deleteSync + onInterrupt)', () => {
     const agentFs = makeFs();
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const audit = makeAudit();
     const createWatcher = makeCreateWatcher();
 
     createInterruptWatcher({
@@ -125,6 +146,7 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      audit,
       createWatcher,
     });
 
@@ -133,6 +155,42 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
 
     expect(agentFs.deleteSync).toHaveBeenCalledWith('interrupt');
     expect(onInterrupt).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_FILE_DISCOVERED,
+      'event=change',
+    );
+    expect(audit.write).toHaveBeenCalledWith(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_ABORT_SUCCEEDED);
+  });
+
+  it('onInterrupt abort 抛错 → 独立审计 abort 失败并保留 onError 行为', () => {
+    const agentFs = makeFs();
+    const abortError = new Error('abort boom');
+    const onInterrupt = vi.fn(() => { throw abortError; });
+    const onError = vi.fn();
+    const audit = makeAudit();
+    const createWatcher = makeCreateWatcher();
+
+    createInterruptWatcher({
+      agentFs: agentFs as never,
+      agentDir: '/test/agent',
+      onInterrupt,
+      onError,
+      audit,
+      createWatcher,
+    });
+
+    const callback = captureCallback(createWatcher);
+    callback({ type: 'add', path: '/test/agent/interrupt' });
+
+    expect(agentFs.deleteSync).toHaveBeenCalledWith('interrupt');
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(abortError);
+    expect(audit.write).toHaveBeenCalledWith(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_FILE_DELETED);
+    expect(audit.write).toHaveBeenCalledWith(
+      DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_ABORT_FAILED,
+      'reason=abort boom',
+    );
+    expect(audit.write).not.toHaveBeenCalledWith(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_ABORT_SUCCEEDED);
   });
 
   it('unlink 事件 → 不触发 onInterrupt (interrupt 文件被外部清理后不应再 abort)', () => {

@@ -53,6 +53,7 @@ summon: {
 - `write`：自动备份到 `tasks/sync/write/`（turn-scoped，Snapshot commit 后清），有大小限制保护
 - `read`：路径白名单 + 行数/字符上限，防止超大文件灌满上下文
 - `exec` 用于 CLI 命令、shell 脚本、进程管理
+- 不要用长 `sleep` 或固定间隔循环轮询等待任务；主 agent 调用 `exec` 时省略 `timeoutMs`，让长命令自动迁移到异步执行，并等待 inbox 投递的 `task_result`
 
 优先使用自己的 clawspace 目录进行读写等操作：
 

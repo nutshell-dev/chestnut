@@ -299,6 +299,7 @@ export async function createRuntimeAssembly(
     audit: auditWriter,
     inbox: { pendingDir: path.join(clawDir, INBOX_PENDING_DIR) },
     streamWriter,
+    turnState: config.turnState,
     executionRecovery,
   });
   // 初始化须在「驱动前」完成；装配序整体先于 daemon 驱动（风险项照应）。

@@ -53,7 +53,7 @@ import {
   type ExecutionRecoveryStore,
   type PendingExecutionResume,
 } from './execution-recovery.js';
-import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks, LlmGateReleaseFact, LlmGateReleaseBaseline } from './types.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks, EventLoopTurnStateSink, LlmGateReleaseFact, LlmGateReleaseBaseline } from './types.js';
 import type { PreparedInboxBatch, PreparedInboxEntry } from '../runtime/index.js';
 import { ContextInputMeasurementError, type ContextTrimOutcome } from '../context_manager/index.js';
 
@@ -78,6 +78,7 @@ export class EventLoop {
   private inboxPendingDir: string;
   private fallbackTimeoutMs: number;
   private streamWriter?: StreamWriter;
+  private turnState?: EventLoopTurnStateSink;
   private onBatchComplete?: () => Promise<void>;
   private rootFs: FileSystem;
 
@@ -120,6 +121,7 @@ export class EventLoop {
     this.inboxPendingDir = options.inbox.pendingDir;
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
+    this.turnState = options.turnState;
     this.onBatchComplete = options.onBatchComplete;
     if (options.executionRecovery) {
       this.executionRecoveryDeps = options.executionRecovery;
@@ -806,11 +808,16 @@ export class EventLoop {
       );
       stage = 'turn_start_callback';
       args.wrappedCallbacks?.onTurnStart?.(formatted.sources);
+      // Phase 2135 Step B：turn_start 发布成功后标记 active；sink 故障不阻断业务。
+      this._publishTurnState('turnStart');
       stage = 'process_turn';
       this.turnInFlight = true;
       const result = await this.runtime
         .processTurn(messages, systemPrompt, tools, args.wrappedCallbacks, undefined, args.recoveryFacts)
-        .finally(() => { this.turnInFlight = false; });
+        .finally(() => {
+          this.turnInFlight = false;
+          this._publishTurnState('turnFinish');
+        });
       stage = 'turn_result';
 
       if (result.status === 'success') {
@@ -891,8 +898,23 @@ export class EventLoop {
   private async _runOpenChain(
     entryFingerprint: string,
   ): Promise<'completed' | 'failed' | 'idle'> {
-    const wrappedCallbacks = this.streamWriter
+    const streamCallbacks = this.streamWriter
       ? createStreamCallbacks(this.streamWriter, this.runtime)
+      : undefined;
+    // 无 streamWriter 也保留 turn-state terminal 收束；stream 写抛错时 finally 仍收束。
+    const wrappedCallbacks: EventLoopStreamCallbacks | undefined = streamCallbacks || this.turnState
+      ? {
+          ...streamCallbacks,
+          onTurnEnd: () => {
+            try { streamCallbacks?.onTurnEnd?.(); } finally { this._publishTurnState('turnEnd'); }
+          },
+          onTurnError: (error) => {
+            try { streamCallbacks?.onTurnError?.(error); } finally { this._publishTurnState('turnError'); }
+          },
+          onTurnInterrupted: (cause, message) => {
+            try { streamCallbacks?.onTurnInterrupted?.(cause, message); } finally { this._publishTurnState('turnInterrupted'); }
+          },
+        }
       : undefined;
 
     let chainIters = 0;
@@ -978,6 +1000,25 @@ export class EventLoop {
 
     await this._waitInboxObserved(this.fallbackTimeoutMs, this.waitAbortController?.signal);
     return 'idle';
+  }
+
+  /** turn-state 是旁路持久事实：写失败只审计，绝不改变 turn 业务控制流。 */
+  private _publishTurnState(operation: keyof EventLoopTurnStateSink): void {
+    if (!this.turnState) return;
+    try {
+      this.turnState[operation]();
+    } catch (error) {
+      try {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.TURN_STATE_WRITE_FAILED,
+          `operation=${operation}`,
+          `reason=${formatErr(error)}`,
+        );
+      } catch (auditError) {
+        // 旁路事实与审计均不得阻断 turn；stderr 保留二次失败证据。
+        console.error(`[event-loop] turn-state audit failed: ${formatErr(auditError)}`); // console: audit 通道二次失败，stderr 是最后留证面
+      }
+    }
   }
 
   private async _dispatchError(err: unknown): Promise<void> {

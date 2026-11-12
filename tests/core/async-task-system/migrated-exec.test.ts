@@ -471,6 +471,23 @@ describe('createAsyncExecWrapper', () => {
     expect(tool.profiles).toEqual(['full']);
   });
 
+  it('phase 2135: rejects explicit long synchronous sleep before spawning a process', async () => {
+    const execWithHandle = vi.fn();
+    const tool = system.createAsyncExecWrapper({ execWithHandle, softTimeoutMs: 100 });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, auditWriter: audit });
+
+    const result = await tool.execute({ command: 'sleep 540', timeoutMs: 600_000 }, ctx);
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'exec_long_blocking_rejected',
+      metadata: { ruleId: 'exec_long_sleep', disposition: 'rejected' },
+    });
+    expect(result.content).toContain('task_result');
+    expect(execWithHandle).not.toHaveBeenCalled();
+    expect(auditEvents.some(event => event[0] === 'exec_long_blocking_rejected')).toBe(true);
+  });
+
   it('should handle execWithHandle throwing', async () => {
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => { throw new Error('spawn denied'); },

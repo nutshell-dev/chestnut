@@ -25,6 +25,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   HISTORY_REPLAY_FAILED: 'chat_viewport_history_replay_failed',
   REFRESH_CLAWS_FAILED: 'chat_viewport_refresh_claws_failed',
   ATTACHMENT_PERSIST_FAILED: 'viewport_attachment_persist_failed',
+  // Phase 2135 Step D: 每次精确单字节 Esc 的语义门与 interrupt 原子写事实
+  INTERRUPT_ESC: 'viewport_interrupt_esc',
   INTERRUPT_PERSIST_FAILED: 'viewport_interrupt_persist_failed',
   DRAFT_PERSIST_FAILED: 'viewport_draft_persist_failed',
   DRAFT_PERSISTED: 'viewport_draft_persisted',
@@ -45,6 +47,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   DAEMON_ENSURE_STARTED: 'viewport_daemon_ensure_started',
   DAEMON_ENSURE_READY: 'viewport_daemon_ensure_ready',
   DAEMON_ENSURE_FAILED: 'viewport_daemon_ensure_failed',
+  // Phase 2135 Step B: motion 恢复输入损坏；typed read 后 fail-closed 到 idle
+  MOTION_TURN_RECOVERY_FAILED: 'viewport_motion_turn_recovery_failed',
 } as const;
 
 /**

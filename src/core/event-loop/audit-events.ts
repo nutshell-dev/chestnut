@@ -7,6 +7,8 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   COOLDOWN: 'eventloop_cooldown',
   /** 调度层异常 */
   FATAL: 'eventloop_fatal',
+  /** Phase 2135 Step B: turn-state 旁路写失败（审计后不改变 turn 业务控制流） */
+  TURN_STATE_WRITE_FAILED: 'eventloop_turn_state_write_failed',
   /** Phase 1154: LLM request 被阻断（context trim 无进展 / retry 耗尽） */
   CONTEXT_BLOCKED: 'eventloop_context_blocked',
   /** Phase 1154: pre-drain request gate 阻止本次 tick（same fingerprint） */
