@@ -2074,6 +2074,7 @@ export class Runtime {
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
       measureComplete,
+      measurementCapability: meter?.capability,
       measurementDescriptor: meter?.descriptor,
     });
     // 候选只有在裁前快照、archive、裁后 save 全部成功后才可交付给本轮 LLM。
@@ -2135,6 +2136,7 @@ export class Runtime {
         targetRatio: this.contextTrimPolicy.reactiveTargetRatio,
       }),
       measureComplete: this.completeInputMeasurement(meter, session.systemPrompt, tools),
+      measurementCapability: meter?.capability,
       measurementDescriptor: meter?.descriptor,
     });
     if (outcome.status === 'no_progress' || outcome.status === 'policy_conflict') {

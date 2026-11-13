@@ -3,7 +3,7 @@
  * 事件性裁剪 + 持久化同源（phase 421 ratify、phase 440 实施、phase 1153 区分 proactive/reactive）。
  */
 
-import type { ToolDefinition, InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition, InputMeasurement, InputMeasurementCapability, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
 import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
@@ -47,6 +47,7 @@ export interface TrimAndPersistInputs {
   triggerKind: TriggerKind;
   policy: TrimPolicy;
   measureComplete?: (messages: readonly Message[]) => InputMeasurement;
+  measurementCapability?: InputMeasurementCapability;
   measurementDescriptor?: Readonly<InputMeterDescriptor>;
   now?: number;
 }
@@ -74,14 +75,19 @@ export async function trimAndPersist(
 ): Promise<ContextTrimOutcome> {
   const now = inputs.now ?? Date.now();
 
-  const fixedTokens = estimateTextTokens(inputs.systemPrompt)
-    + estimateToolsTokens(inputs.toolsForLLM);
+  const fixedTokens = inputs.measurementCapability?.kind === 'message_additive'
+    ? inputs.measurementCapability.measureFixed({
+        system: inputs.systemPrompt,
+        tools: inputs.toolsForLLM,
+      })
+    : estimateTextTokens(inputs.systemPrompt) + estimateToolsTokens(inputs.toolsForLLM);
 
   const runTrim = () => trimV2(inputs.messages, {
     recentWindowMs: inputs.recentWindowMs,
     previewBytes: inputs.previewBytes,
     fixedTokens,
     measureComplete: inputs.measureComplete,
+    measurementCapability: inputs.measurementCapability,
     measurementDescriptor: inputs.measurementDescriptor,
     policy: inputs.policy,
     now,

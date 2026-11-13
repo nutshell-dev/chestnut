@@ -189,3 +189,39 @@ describe('maybeTrimProactive', () => {
     );
   });
 });
+
+
+describe('maybeTrimProactive measurement forwarding (phase 2138)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('forwards complete measurement, additive capability and descriptor to trimAndPersist', async () => {
+    vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
+    const spy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached', before: 2_000, after: 100, newMessages: [], archived: true,
+    });
+    const inputs = makeInputs();
+    const measurementCapability = {
+      kind: 'message_additive' as const,
+      measureFixed: () => 0,
+      measureMessage: () => 1,
+    };
+    const measurementDescriptor = {
+      revision: 'rev-2138', provider: 'test', model: 'test', api: 'test',
+      contextWindow: 2_000, profile: 'test',
+    };
+
+    await maybeTrimProactive({
+      ...inputs,
+      measurementCapability,
+      measurementDescriptor,
+    });
+
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
+      measureComplete: inputs.measureComplete,
+      measurementCapability,
+      measurementDescriptor,
+    }));
+  });
+});

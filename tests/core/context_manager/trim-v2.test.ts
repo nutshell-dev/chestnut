@@ -944,3 +944,68 @@ describe('trimV2 message token ledger (phase 2132)', () => {
       && message.content.some(block => block.type === 'text' && block.text.includes('phase21')))).toBe(true);
   });
 });
+
+
+describe('trimV2 input measurement capability routing (phase 2138)', () => {
+  it('uses an injected additive counter without full candidate scans and matches the nonzero-fixed baseline', () => {
+    const policy = buildProactiveTrimPolicy(200);
+    const measureMessage = vi.fn((message: Message) => estimateMessagesTokens([message]));
+    const measureComplete = vi.fn((messages: readonly Message[]) => ({
+      kind: 'estimated' as const,
+      tokens: 17 + estimateMessagesTokens(messages),
+      method: 'legacy-cl100k' as const,
+      reason: 'baseline',
+    }));
+    const audit = { write: vi.fn() } satisfies AuditWriter;
+
+    const incremental = trimV2(makeMultiTurnTrimFixture(), baseOpts({
+      policy,
+      fixedTokens: 17,
+      measurementCapability: { kind: 'message_additive', measureFixed: () => 17, measureMessage },
+      measureComplete,
+      audit,
+    }));
+    const baseline = trimV2(makeMultiTurnTrimFixture(), baseOpts({
+      policy,
+      measureComplete: messages => ({
+        kind: 'estimated',
+        tokens: 17 + estimateMessagesTokens(messages),
+        method: 'legacy-cl100k',
+        reason: 'baseline',
+      }),
+    }));
+
+    expect(incremental).toEqual(baseline);
+    expect(incremental.droppedMessages.length).toBeGreaterThan(0);
+    expect(incremental.metrics.summaryMessageInjected).toBe(true);
+    expect(measureComplete).not.toHaveBeenCalled();
+    expect(measureMessage).toHaveBeenCalled();
+    const completed = audit.write.mock.calls.find(([event]) => event === CONTEXT_TRIM_COMPLETED);
+    expect(completed).toContain('token_count_mode=message_ledger');
+    expect(completed).toContain('token_count_full_candidate_scans=0');
+  });
+
+  it.each(['complete_only', 'unknown'] as const)('keeps %s meters on complete measurement', kind => {
+    const audit = { write: vi.fn() } satisfies AuditWriter;
+    const measureComplete = vi.fn((messages: readonly Message[]) => ({
+      kind: 'estimated' as const,
+      tokens: estimateMessagesTokens(messages),
+      method: 'legacy-cl100k' as const,
+      reason: 'complete-only baseline',
+    }));
+
+    const result = trimV2(makeMultiTurnTrimFixture(), baseOpts({
+      policy: buildProactiveTrimPolicy(200),
+      measurementCapability: { kind },
+      measureComplete,
+      audit,
+    }));
+
+    expect(result.droppedMessages.length).toBeGreaterThan(0);
+    expect(measureComplete.mock.calls.length).toBeGreaterThan(1);
+    expect(measureComplete.mock.calls.every(([messages]) => messages.length > 1)).toBe(true);
+    const completed = audit.write.mock.calls.find(([event]) => event === CONTEXT_TRIM_COMPLETED);
+    expect(completed).toContain('token_count_mode=complete_measurement');
+    expect(completed).toContain(`token_count_capability=${kind}`);
+  });
+});

@@ -3,7 +3,7 @@
  * phase 1190 三层分类裁剪策略：Tier 1 不裁 / Tier 2 尽量不裁 / Tier 3 可裁。
  */
 
-import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, InputMeasurement, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, InputMeasurement, InputMeasurementCapability, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   classifyMessage,
@@ -66,6 +66,7 @@ export interface TrimV2Options {
   previewBytes: number;
   fixedTokens: number;
   measureComplete?: (messages: readonly Message[]) => InputMeasurement;
+  measurementCapability?: InputMeasurementCapability;
   measurementDescriptor?: Readonly<InputMeterDescriptor>;
   policy: TrimPolicy;
   now: number;
@@ -103,13 +104,19 @@ class MessageTokenLedger {
   private entries: MessageTokenEntry[];
   private currentTotal: number;
   private readonly initialMessages: number;
+  private readonly measureMessage: (message: Message) => number;
   private candidateMessages = 0;
   private candidates = 0;
 
-  constructor(messages: readonly Message[], fixedTokens: number) {
+  constructor(
+    messages: readonly Message[],
+    fixedTokens: number,
+    measureMessage?: (message: Message) => number,
+  ) {
+    this.measureMessage = measureMessage ?? (message => estimateMessagesTokens([message]));
     this.entries = messages.map(message => ({
       message,
-      tokens: estimateMessagesTokens([message]),
+      tokens: this.measureMessage(message),
     }));
     this.initialMessages = messages.length;
     this.currentTotal = fixedTokens + this.entries.reduce((sum, entry) => sum + entry.tokens, 0);
@@ -140,7 +147,7 @@ class MessageTokenLedger {
     }
     const entries = messages.map(message => ({
       message,
-      tokens: estimateMessagesTokens([message]),
+      tokens: this.measureMessage(message),
     }));
     const newAffectedTotal = entries.reduce((sum, entry) => sum + entry.tokens, 0);
     this.candidateMessages += messages.length;
@@ -236,7 +243,11 @@ export function buildProactiveTrimPolicy(
  * 输出：discriminated outcome + dropped messages + metrics。
  */
 export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV2Result {
-  const ledger = opts.measureComplete ? undefined : new MessageTokenLedger(messages, opts.fixedTokens);
+  const ledger = opts.measurementCapability?.kind === 'message_additive'
+    ? new MessageTokenLedger(messages, opts.fixedTokens, opts.measurementCapability.measureMessage)
+    : opts.measureComplete || opts.measurementCapability
+      ? undefined
+      : new MessageTokenLedger(messages, opts.fixedTokens);
   const before = currentTokens(messages, opts, ledger);
 
   const targetLabel =
@@ -357,7 +368,10 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
       `tool_use_fields_collapsed=${result.metrics.collapsedToolUseFields}`,
       `redundant_results_superseded=${result.metrics.supersededRedundantResults}`,
       `summary_message_injected=${result.metrics.summaryMessageInjected ? 1 : 0}`,
-      ...(ledger?.auditDetails ?? ['token_count_mode=complete_measurement']),
+      ...(ledger?.auditDetails ?? [
+        'token_count_mode=complete_measurement',
+        `token_count_capability=${opts.measurementCapability?.kind ?? 'legacy_fallback'}`,
+      ]),
     );
   }
 
