@@ -285,7 +285,14 @@ describe('CI workflow runs-on + setup-node cache invariant (phase 643)', () => {
     const setupNodeCacheRe = /uses:\s+actions\/setup-node@v\d+[\s\S]*?cache:\s+['"]?([^'"\s]+)['"]?/g;
 
     for (const f of files) {
-      const text = fs.readFileSync(path.join(wfDir, f), 'utf-8');
+      const rawText = fs.readFileSync(path.join(wfDir, f), 'utf-8');
+      // Phase 2140: only the dedicated real Windows host-script evidence job may
+      // use a non-Linux runner. Remove that exact job header before the ratchet;
+      // any additional Windows job or a changed runs-on value remains an offender.
+      const text = rawText.replace(
+        '  windows-host-scripts:\n    runs-on: windows-latest\n',
+        '',
+      );
       let m: RegExpExecArray | null;
       while ((m = runsOnRe.exec(text)) !== null) {
         if (m[1] !== 'ubuntu-latest') {
