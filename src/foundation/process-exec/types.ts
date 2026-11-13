@@ -4,6 +4,8 @@
  * Interface types only. Constants live in `constants.ts`; error classes in `errors.ts`.
  */
 
+import type { ProcessEvidence } from './process-evidence.js';
+
 interface ExecBaseOptions {
   /** Working directory (required) */
   cwd: string;
@@ -125,6 +127,7 @@ export type ExecutionTerminationOutcome =
       termSent: boolean;
       killSent: boolean;
       completedAt: string;
+      evidence: ProcessEvidence;
     }
   | {
       status: 'still_alive';
@@ -133,6 +136,7 @@ export type ExecutionTerminationOutcome =
       termSent: boolean;
       killSent: boolean;
       checkedAt: string;
+      evidence: ProcessEvidence;
     }
   | {
       status: 'indeterminate';
@@ -142,6 +146,7 @@ export type ExecutionTerminationOutcome =
       killSent: boolean;
       checkedAt: string;
       reason: string;
+      evidence: ProcessEvidence;
     };
 
 /**
@@ -159,19 +164,24 @@ export interface ExecutionTerminationFact {
   identity?: ExecutionIdentity;
   /** Present when status is 'indeterminate' or the unit never started. */
   reason?: string;
+  /** Raw observation/signal evidence when an execution unit existed. */
+  evidence?: ProcessEvidence;
 }
 
 /**
- * Handle returned by execWithHandle: exposes the settled promise, the live
- * ChildProcess (streams/unref only — callers MUST NOT use child.kill; OS
- * signal semantics stay L1-owned via `terminate()`), the execution identity,
- * and the single idempotent termination entry point.
+ * Handle returned by execWithHandle. Output subscription, detach and signal
+ * semantics stay L1-owned; `child` remains only for legacy consumers outside
+ * AsyncTaskSystem and must never be used for `kill`.
  */
 export interface ExecHandle {
   promise: Promise<ExecResult>;
   child: import('child_process').ChildProcess;
   /** Present when the OS process exists; absent only if spawn itself failed. */
   identity?: ExecutionIdentity;
+  /** Subscribe to combined stdout/stderr chunks; unsubscribe affects only this listener. */
+  subscribeOutput(listener: (chunk: Buffer) => void): () => void;
+  /** Allow the child to outlive the caller without exposing ChildProcess.unref. */
+  detach(): void;
   /**
    * Idempotent: concurrent/repeat calls share the first in-flight run; the
    * first trigger and earliest SIGKILL deadline always win.

@@ -221,14 +221,15 @@ describe('phase 1269 Step B: process-exec group termination invariants', () => {
 describe('phase 1269 Step E: async-task-system termination ownership', () => {
   const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
 
-  it('no raw child.kill / process.kill in async-exec-wrapper / task-recovery', () => {
-    const files = [
-      `${SRC_ROOT}/core/async-task-system/async-exec-wrapper.ts`,
-      `${SRC_ROOT}/core/async-task-system/task-recovery.ts`,
-    ];
-    const offenders = files.filter((file) =>
-      /\.child\.kill\(|process\.kill\(/.test(readFileSync(file, 'utf8')),
-    );
+  it('ATS consumes only typed execution capabilities, never raw process internals', () => {
+    const dir = `${SRC_ROOT}/core/async-task-system`;
+    const offenders = readdirSync(dir)
+      .filter(name => name.endsWith('.ts'))
+      .map(name => `${dir}/${name}`)
+      .filter((file) => {
+      const src = readFileSync(file, 'utf8');
+      return /\.child\.|process\.kill\(|getProcessStartTime|probeExecutionGroup|terminateExecutionGroup|removeAllListeners|node:child_process|from ['"]child_process['"]/.test(src);
+    });
     expect(offenders).toEqual([]);
   });
 });
@@ -260,9 +261,12 @@ describe('phase 1269 Step F: persisted identity ownership proof invariants', () 
     expect(src).toContain('invalid_execution_identity');
   });
 
-  it('disk schema enforces the creation invariant as a second guard layer', () => {
-    const src = readFileSync(`${SRC_ROOT}/core/async-task-system/task-schemas.ts`, 'utf8');
-    expect(src).toContain('e.processGroupId === e.leaderPid');
+  it('ATS schema stays opaque while L1 decode owns the creation invariant', () => {
+    const schema = readFileSync(`${SRC_ROOT}/core/async-task-system/task-schemas.ts`, 'utf8');
+    const target = readFileSync(`${SRC_ROOT}/foundation/process-exec/execution-target.ts`, 'utf8');
+    expect(schema).toContain('migratedExecution: z.unknown().optional()');
+    expect(schema).not.toContain('processGroupId ===');
+    expect(target).toContain('isValidV1ExecutionIdentity(identity)');
   });
 });
 

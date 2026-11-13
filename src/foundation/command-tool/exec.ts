@@ -379,8 +379,8 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
 /**
  * Factory for a low-level exec helper that returns an ExecHandle instead of a
  * ToolResult. Reuses the same argument resolution (cwd, env, timeout) as
- * createExecTool, but surfaces exceptions directly so L4 callers can manage the
- * ChildProcess lifecycle.
+ * createExecTool, but returns the typed L1 handle for output, detach and
+ * termination capabilities.
  */
 export function createExecWithHandle(preExecGuard?: PreExecGuard) {
   return async function execWithHandleFn(

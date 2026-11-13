@@ -136,11 +136,9 @@ class BufferCollector {
 }
 
 /**
- * Spawn a process as an isolated POSIX process-group leader and return a
- * handle exposing the settled promise, the live ChildProcess (streams/unref
- * only), the execution identity, and the single idempotent L1-owned
- * terminate() entry point. Callers must not use child.kill — OS signal
- * semantics do not cross module boundaries.
+ * Spawn a process as an isolated POSIX process-group leader. The handle owns
+ * output subscriptions, detach and the idempotent termination entry point;
+ * callers must not use child.kill — OS signals do not cross module boundaries.
  */
 export function execWithHandle(
   command: string,
@@ -349,6 +347,7 @@ export function execWithHandle(
               termSent: outcome.termSent,
               killSent: outcome.killSent,
               identity: outcome.identity,
+              evidence: outcome.evidence,
               ...(outcome.status === 'indeterminate' ? { reason: outcome.reason } : {}),
             };
 
@@ -454,6 +453,18 @@ export function execWithHandle(
     promise,
     child: proc,
     identity,
+    subscribeOutput: (listener) => {
+      proc.stdout?.on('data', listener);
+      proc.stderr?.on('data', listener);
+      let subscribed = true;
+      return () => {
+        if (!subscribed) return;
+        subscribed = false;
+        proc.stdout?.off('data', listener);
+        proc.stderr?.off('data', listener);
+      };
+    },
+    detach: () => proc.unref(),
     terminate: (trigger?: ExecutionTerminationTrigger) => terminate(trigger ?? 'caller_requested'),
   };
   if (identity !== undefined) {

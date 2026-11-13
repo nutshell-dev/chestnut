@@ -394,20 +394,6 @@ export type TaskDispatchFn = (
   signal: AbortSignal,
 ) => Promise<void>;
 
-/**
- * Phase 1269 Step E: versioned persisted execution-group identity for
- * migrated exec tasks. New migrated writes MUST include this structure;
- * legacy `migratedPid`/`migratedStartTime` remain read-only compatible and
- * must never be guessed into a process-group identity (legacy processes were
- * not detached group leaders).
- */
-interface MigratedExecutionV1 {
-  version: 1;
-  leaderPid: number;
-  processGroupId: number;
-  leaderStartTime?: string;
-}
-
 export interface ToolTask {
   kind: 'tool';
   id: TaskId;
@@ -437,8 +423,8 @@ export interface ToolTask {
    * Legacy read-only compat (phase 1269: superseded by migratedExecution.leaderStartTime).
    */
   migratedStartTime?: string;
-  /** Phase 1269: persisted execution-group identity for migrated exec (new writes). */
-  migratedExecution?: MigratedExecutionV1;
+  /** Opaque ProcessExec target; decode/observe/terminate through L1 only. */
+  migratedExecution?: unknown;
   /** Phase 906: absolute deadline (ms) for migrated process hard timeout. */
   migratedDeadlineMs?: number;
   /** Phase 873/874: persisted terminal intent for recovery routing. */

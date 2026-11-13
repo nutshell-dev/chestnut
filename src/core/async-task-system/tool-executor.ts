@@ -8,7 +8,10 @@ import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultS
 import type { SendToolResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 import { classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { getProcessStartTime } from '../../foundation/process-exec/index.js';
+import {
+  decodeExecutionTarget,
+  observeExecutionTarget,
+} from '../../foundation/process-exec/index.js';
 import {
   emitTaskCompleted,
   emitHandlerFailed,
@@ -62,44 +65,63 @@ async function executeMigratedToolTask(
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const taskStartTime = Date.now();
 
-  // PID reuse defense: verify the running process has the expected start time.
-  // The wrapper guarantees the process has exited before calling executeToolTask,
-  // but we keep the check to defend against an extremely unlikely PID reuse race.
-  // Phase 1269: prefer the v1 execution-group identity; legacy PID-only tasks
-  // fall back to migratedPid/migratedStartTime.
-  const monitorPid = task.migratedExecution?.leaderPid ?? task.migratedPid;
-  const monitorStartTime = task.migratedExecution?.leaderStartTime ?? task.migratedStartTime;
-  if (monitorStartTime !== undefined && monitorPid !== undefined) {
-    const actualStartTime = getProcessStartTime(monitorPid);
-    if (actualStartTime !== undefined && actualStartTime !== monitorStartTime) {
-      auditWriter.write(
-        TASK_AUDIT_EVENTS.TASK_MIGRATED_PID_REUSED,
-        `taskId=${task.id}`,
-        `pid=${monitorPid}`,
-        `expected=${monitorStartTime}`,
-        `actual=${actualStartTime}`,
-      );
-      const errorMsg = 'Migrated process PID reused';
-      await sendToolResult(fs, auditWriter, task, errorMsg, true, resultDeliveryDeps).catch((sendErr) => {
-        emitHandlerFailed(auditWriter, {
-          fullTaskId: task.id as FullTaskId,
-          shortTaskId: taskShortId(task),
-          context: 'sendFallbackResult_migrated_pid_reused',
-          error: formatErr(sendErr),
-        });
-      });
-      emitTaskCompleted(auditWriter, {
+  // ProcessExec owns persistence decoding, PID/start-time comparison and all
+  // OS observations. Unknown never becomes a successful result delivery.
+  const decoded = decodeExecutionTarget(
+    task.migratedExecution,
+    task.migratedPid,
+    task.migratedStartTime,
+  );
+  if (decoded.kind !== 'decoded') {
+    emitHandlerFailed(auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+      context: 'migrated_execution_decode_failed',
+      error: decoded.reason,
+      evidence: JSON.stringify(decoded.evidence),
+    });
+    return;
+  }
+  const monitorPid = decoded.target.leaderPid;
+  const observation = observeExecutionTarget(decoded.target);
+  if (observation.kind === 'unknown') {
+    emitHandlerFailed(auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+      context: 'migrated_execution_observation_unknown',
+      error: observation.reason,
+      evidence: JSON.stringify(observation.evidence),
+    });
+    return;
+  }
+  if (observation.kind === 'gone' && observation.reason === 'identity_changed') {
+    auditWriter.write(
+      TASK_AUDIT_EVENTS.TASK_MIGRATED_PID_REUSED,
+      `taskId=${task.id}`,
+      `pid=${monitorPid}`,
+      `expected=${decoded.target.leaderStartTime ?? 'unavailable'}`,
+      `actual=${observation.observedStartTime ?? 'unavailable'}`,
+    );
+    const errorMsg = 'Migrated process PID reused';
+    await sendToolResult(fs, auditWriter, task, errorMsg, true, resultDeliveryDeps).catch((sendErr) => {
+      emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
-        status: 'err',
-        kind: 'tool',
-        toolName: task.toolName,
-        errorCategory: classifyTaskError(errorMsg),
-        elapsedMs: Date.now() - taskStartTime,
+        context: 'sendFallbackResult_migrated_pid_reused',
+        error: formatErr(sendErr),
       });
-      await moveTaskToFailed(task.id);
-      return;
-    }
+    });
+    emitTaskCompleted(auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+      status: 'err',
+      kind: 'tool',
+      toolName: task.toolName,
+      errorCategory: classifyTaskError(errorMsg),
+      elapsedMs: Date.now() - taskStartTime,
+    });
+    await moveTaskToFailed(task.id);
+    return;
   }
 
   // The wrapper already waited for the process to exit and wrote the full

@@ -27,10 +27,11 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import {
-  probeExecutionGroup,
-  terminateExecutionGroup,
+  decodeExecutionTarget,
+  observeExecutionTarget,
+  terminateExecutionTarget,
 } from '../../foundation/process-exec/index.js';
-import type { ExecutionIdentity } from '../../foundation/process-exec/index.js';
+import type { ProcessEvidence } from '../../foundation/process-exec/index.js';
 import {
   SENT_MARKER,
   sendResult as defaultSendResult,
@@ -163,7 +164,7 @@ async function _recoverToolTask(
     return 0;
   }
 
-  if (task.mode === 'migrated' && (task.migratedExecution !== undefined || task.migratedPid !== undefined)) {
+  if (task.mode === 'migrated') {
     return recoverMigratedToolTask(deps, filePath, task);
   }
 
@@ -362,87 +363,81 @@ export async function recoverMigratedToolTask(
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   let killedByRecovery = false;
-  // phase 1890 Step B：legacy PID-only 分支已删；pid 直取任务字段（v1 identity 优先）。
-  const pidForAudit: number | undefined = task.migratedExecution?.leaderPid ?? task.migratedPid;
+  let pidForAudit: number | undefined = task.migratedPid;
 
-  // 1. Probe the migrated execution unit (phase 1269 Step E).
-  //    All OS probes and signals go through L1; L4 maps the three-state
-  //    result to task state. Safety rule: `indeterminate` means ownership
-  //    cannot be proven (possible PID/PGID reuse) — never signal, never move
-  //    the task, never deliver a "cleaned up" result.
-  if (task.migratedExecution !== undefined) {
-    // ── v1 execution-group protocol ──────────────────────────────────────
-    const identity: ExecutionIdentity = {
-      leaderPid: task.migratedExecution.leaderPid,
-      processGroupId: task.migratedExecution.processGroupId,
-    };
-    const probe = probeExecutionGroup(identity, task.migratedExecution.leaderStartTime);
+  // Decode and observation are ProcessExec facts. ATS only maps them to task
+  // running/recoverable/indeterminate decisions; malformed or future records
+  // stay as artifacts and enter the same observable recovery path as unknown.
+  const holdIndeterminate = async (reason: string, evidence: ProcessEvidence): Promise<number> => {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_exec_probe_indeterminate',
+      error: reason,
+      evidence: JSON.stringify(evidence),
+    });
+    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+    if (Date.now() < deadlineMs) return 0;
+    if (!(await notifyManualIntervention(deps, task, reason))) return 0;
+    await moveToFailedAfterManualIntervention(deps, filePath, task);
+    return 0;
+  };
 
-    if (probe.kind === 'indeterminate') {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'migrated_exec_probe_indeterminate',
-        error: probe.reason,
+  const decoded = decodeExecutionTarget(
+    task.migratedExecution,
+    task.migratedPid,
+    task.migratedStartTime,
+  );
+  if (decoded.kind !== 'decoded') {
+    return holdIndeterminate(decoded.reason, decoded.evidence);
+  }
+  const target = decoded.target;
+  pidForAudit = target.leaderPid;
+  const observation = observeExecutionTarget(target);
+  if (observation.kind === 'unknown') {
+    return holdIndeterminate(observation.reason, observation.evidence);
+  }
+
+  if (observation.kind === 'alive') {
+    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+    if (Date.now() < deadlineMs) {
+      emitRecovered(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'running',
+        reason: 'migrated_process_still_alive',
       });
-      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-      if (Date.now() < deadlineMs) {
-        return 0; // keep in running — deadline not reached, retry next cycle
-      }
-      // Hard deadline reached and ownership still unprovable: surface one
-      // manual-intervention notification instead of silent indefinite
-      // retention. Never signal, never guess — the task ends observably.
-      if (!(await notifyManualIntervention(deps, task, probe.reason))) {
-        return 0; // keep in running — retry notification next cycle
-      }
-      await moveToFailedAfterManualIntervention(deps, filePath, task);
       return 0;
     }
-
-    if (probe.kind === 'verified_alive') {
-      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-      if (Date.now() < deadlineMs) {
-        // Still within deadline, leave in running — natural convergence:
-        // process will exit or hit deadline on next startup recovery scan.
-        emitRecovered(auditWriter, {
-          fullTaskId: task.id as FullTaskId,
-          shortTaskId: taskShortId(task),
-          kind: task.kind,
-          from: 'running',
-          to: 'running',
-          reason: 'migrated_process_still_alive',
-        });
-        return 0;
-      }
-      // Hard timeout exceeded — terminate the verified group via L1
-      // (TERM→KILL→confirmed), then proceed only when provably gone.
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'migrated_process_hard_timeout_exceeded',
-        error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
-      });
-      const outcome = await terminateExecutionGroup(identity, 'caller_requested');
-      emitMigratedExecTermination(auditWriter, {
-        taskId: task.id,
-        context: 'recovery_hard_timeout',
-        identityCols: [
-          `leader_pid=${identity.leaderPid}`,
-          `process_group_id=${identity.processGroupId}`,
-        ],
-        trigger: outcome.trigger,
-        termSent: outcome.termSent,
-        killSent: outcome.killSent,
-        status: outcome.status,
-        reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
-      });
-      if (outcome.status !== 'gone') {
-        return 0; // still_alive / indeterminate — keep in running, retry next cycle
-      }
-      killedByRecovery = true; // phase 1119: recovery itself killed the process
+    if (target.version === 0) {
+      // Legacy PID-only artifacts never gain group-signal authority.
+      return holdIndeterminate('legacy_execution_identity_not_terminable', observation.evidence);
     }
-    // probe.kind === 'gone' → fall through to result check
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_process_hard_timeout_exceeded',
+      error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
+    });
+    const outcome = await terminateExecutionTarget(target, 'caller_requested');
+    emitMigratedExecTermination(auditWriter, {
+      taskId: task.id,
+      context: 'recovery_hard_timeout',
+      identityCols: [
+        `leader_pid=${target.leaderPid}`,
+        `process_group_id=${target.processGroupId}`,
+      ],
+      trigger: outcome.trigger,
+      termSent: outcome.termSent,
+      killSent: outcome.killSent,
+      status: outcome.status,
+      reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+      evidence: JSON.stringify(outcome.evidence),
+    });
+    if (outcome.status !== 'gone') return 0;
+    killedByRecovery = true;
   }
-  // phase 1890 Step B：无执行组身份（pre-1269 legacy PID-only）的 running 任务不特设分支——
-  // 存量废弃、不可达；即便出现按常规未知路径（直落 result check）处理。
+  // gone (including a proven identity change) → recover the persisted result.
 
   // 2. Process is dead — check whether the wrapper already wrote the result.
   const resultPath = `${resultDir}/result.txt`;

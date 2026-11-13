@@ -10,8 +10,8 @@ import type { ExecContext, Tool } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ExecHandle, ExecutionIdentity } from '../../foundation/process-exec/index.js';
-import { getProcessStartTime, ProcessExecError, resolveHostCommand } from '../../foundation/process-exec/index.js';
+import type { ExecHandle, ExecutionGroupTarget, ExecutionIdentity } from '../../foundation/process-exec/index.js';
+import { captureExecutionTarget, ProcessExecError, resolveHostCommand } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs, AsyncMigrationPolicy } from '../../foundation/command-tool/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
@@ -67,14 +67,9 @@ function buildMigratedToolTask(
   shortId: ShortTaskId,
   command: string,
   ctx: ExecContext,
-  identity: ExecutionIdentity,
+  target: ExecutionGroupTarget,
   deadlineAtMs: number,
 ): ToolTask {
-  // Phase 1269 Step E: persist the L1 execution-group identity (v1 protocol).
-  // leaderStartTime may be unreadable; keep it undefined (schema-optional)
-  // rather than guessing — recovery then honestly probes indeterminate and
-  // never signals. The unavailability is audited at registration below.
-  const leaderStartTime = getProcessStartTime(identity.leaderPid);
   return {
     kind: 'tool',
     id: fullId,
@@ -89,12 +84,7 @@ function buildMigratedToolTask(
     retryCount: 0,
     toolUseId: ctx.currentToolUseId,
     mode: 'migrated',
-    migratedExecution: {
-      version: 1,
-      leaderPid: identity.leaderPid,
-      processGroupId: identity.processGroupId,
-      leaderStartTime,
-    },
+    migratedExecution: target,
     // Phase 1272 Step C: the deadline is the SINGLE absolute fact generated
     // before spawn and already armed in L1 — persist it verbatim. Never
     // recompute `Date.now() + duration` here: runtime monitor and restart
@@ -304,10 +294,16 @@ export function createAsyncExecWrapper(
       } while (shortIdIndex.has(shortId));
 
       let task: ToolTask | undefined;
+      let executionTarget: ExecutionGroupTarget | undefined;
       let checkpointError: unknown;
       const checkpointIdentity = (identity: ExecutionIdentity): void => {
         if (task !== undefined || checkpointError !== undefined) return;
-        const candidate = buildMigratedToolTask(fullId, shortId, command, ctx, identity, deadlineAtMs);
+        const capture = captureExecutionTarget(identity);
+        if (capture.kind === 'invalid') {
+          checkpointError = new Error(`${capture.reason}: ${JSON.stringify(capture.evidence)}`);
+          return;
+        }
+        const candidate = buildMigratedToolTask(fullId, shortId, command, ctx, capture.target, deadlineAtMs);
         try {
           fs.writeAtomicSync(
             `${TASKS_QUEUES_RUNNING_DIR}/${candidate.id}.json`,
@@ -316,13 +312,19 @@ export function createAsyncExecWrapper(
           shortIdIndex.add(shortId, fullId);
           shortIdIndex.save();
           task = candidate;
-          auditWriter.write(
-            TASK_AUDIT_EVENTS.EXEC_IDENTITY_CHECKPOINTED,
+          executionTarget = capture.target;
+          const checkpointCols: (string | number)[] = [
             `taskId=${fullId}`,
             `pid=${identity.leaderPid}`,
             `pgid=${identity.processGroupId}`,
             `deadline_ms=${deadlineAtMs}`,
-          );
+            `identity_capture=${capture.kind}`,
+          ];
+          if (capture.kind === 'unknown') checkpointCols.push(`capture_reason=${capture.reason}`);
+          if (capture.kind !== 'captured') {
+            checkpointCols.push(`capture_evidence=${JSON.stringify(capture.evidence)}`);
+          }
+          auditWriter.write(TASK_AUDIT_EVENTS.EXEC_IDENTITY_CHECKPOINTED, ...checkpointCols);
         } catch (err) {
           // silent: deferred to the checkpointError branch immediately after execWithHandle returns;
           // that branch terminates the execution group, audits termination, and returns structured failure
@@ -331,6 +333,7 @@ export function createAsyncExecWrapper(
       };
 
       let handle: ExecHandle;
+      let stopOutputCollection: (() => void) | undefined;
       let partialOutput = '';
       let winner: Awaited<ReturnType<typeof raceHandle>>;
       try {
@@ -368,6 +371,7 @@ export function createAsyncExecWrapper(
             killSent: outcome.killSent,
             status: outcome.status,
             reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+            evidence: JSON.stringify(outcome.evidence),
           });
           return {
             success: false,
@@ -378,8 +382,7 @@ export function createAsyncExecWrapper(
         const collect = (chunk: Buffer): void => {
           partialOutput += chunk.toString();
         };
-        handle.child.stdout?.on('data', collect);
-        handle.child.stderr?.on('data', collect);
+        stopOutputCollection = handle.subscribeOutput(collect);
 
         winner = await raceHandle(handle, timeout, ctx.signal);
       } catch (err) {
@@ -441,11 +444,16 @@ export function createAsyncExecWrapper(
           killSent: outcome.killSent,
           status: outcome.status,
           reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+          evidence: JSON.stringify(outcome.evidence),
         });
-        await moveTaskToFailed(task.id);
+        // Cancel intent is business-terminal only after L1 confirms the group
+        // is gone. Unknown/still-alive artifacts stay running for recovery.
+        if (outcome.status === 'gone') await moveTaskToFailed(task.id);
+        const cleanupSuffix = outcome.status === 'gone' ? ''
+          : ` [execution cleanup: ${outcome.status}${outcome.status === 'indeterminate' ? ` (${outcome.reason})` : ''}]`;
         return {
           success: false,
-          content: 'Command aborted by caller',
+          content: `Command aborted by caller${cleanupSuffix}`,
         };
       }
 
@@ -453,7 +461,7 @@ export function createAsyncExecWrapper(
       //    Detach from the original signal and unref the child so it can outlive
       //    the caller's turn.
       originalSignal?.removeEventListener('abort', onOriginalAbort);
-      handle.child.unref();
+      handle.detach();
 
       try {
         // Re-save at the presentation transition. The task itself was already
@@ -481,6 +489,7 @@ export function createAsyncExecWrapper(
           killSent: outcome.killSent,
           status: outcome.status,
           reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+          evidence: JSON.stringify(outcome.evidence),
         });
         auditWriter.write(
           TASK_AUDIT_EVENTS.HANDLER_FAILED,
@@ -516,10 +525,8 @@ export function createAsyncExecWrapper(
       const appendToFile = (chunk: Buffer): void => {
         fs.appendSync(resultPath, chunk.toString());
       };
-      handle.child.stdout?.removeAllListeners('data');
-      handle.child.stderr?.removeAllListeners('data');
-      handle.child.stdout?.on('data', appendToFile);
-      handle.child.stderr?.on('data', appendToFile);
+      stopOutputCollection?.();
+      handle.subscribeOutput(appendToFile);
 
       // Background chain: wait for the process to exit, then ask the async task
       // system to deliver the result. result.txt is kept up-to-date in real
@@ -533,6 +540,7 @@ export function createAsyncExecWrapper(
         // and the audit must read as the same migrated hard timeout.
         const hardTimeoutMessage = `Migrated process timed out after ${migratedHardTimeoutMs}ms`;
         let hardTimerWon = false;
+        let terminationUnresolved = false;
         try {
           const remainingMs = Math.max(0, task.migratedDeadlineMs! - Date.now());
           const hardTimeout = new Promise<never>((_, reject) => {
@@ -584,7 +592,9 @@ export function createAsyncExecWrapper(
               killSent: outcome.killSent,
               status: outcome.status,
               reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+              evidence: JSON.stringify(outcome.evidence),
             });
+            terminationUnresolved = outcome.status !== 'gone';
             cleanupSuffix = outcome.status === 'gone'
               ? ' [execution cleanup: gone]'
               : outcome.status === 'still_alive'
@@ -601,6 +611,7 @@ export function createAsyncExecWrapper(
             // context instead of dropping it into a flat exited-with-error
             // marker. Result delivery below is unchanged.
             const fact = monitorErr.termination;
+            terminationUnresolved = fact.status !== 'gone';
             emitMigratedExecTermination(auditWriter, {
               taskId: task.id,
               context: 'pre_deadline_termination',
@@ -613,6 +624,7 @@ export function createAsyncExecWrapper(
               killSent: fact.killSent,
               status: fact.status,
               reason: fact.reason,
+              evidence: fact.evidence === undefined ? undefined : JSON.stringify(fact.evidence),
             });
           }
 
@@ -628,6 +640,11 @@ export function createAsyncExecWrapper(
               error: formatErr(persistErr),
             });
           }
+
+          // Signal issuance / an exited leader is not proof of group cleanup.
+          // Keep the running artifact and skip result-terminal transitions until
+          // restart recovery obtains a gone observation.
+          if (terminationUnresolved) return;
 
           try {
             await executeToolTask(
@@ -666,13 +683,16 @@ export function createAsyncExecWrapper(
         });
       });
 
+      if (executionTarget === undefined) {
+        throw new Error('migrated execution target missing after durable checkpoint');
+      }
       const registeredCols: (string | number)[] = [
         `taskId=${task.id}`,
-        `pid=${task.migratedExecution!.leaderPid}`,
-        `pgid=${task.migratedExecution!.processGroupId}`,
+        `pid=${executionTarget.leaderPid}`,
+        `pgid=${executionTarget.processGroupId}`,
         `command=${command}`,
       ];
-      if (task.migratedExecution!.leaderStartTime === undefined) {
+      if (executionTarget.leaderStartTime === undefined) {
         // Phase 1269: never silently write -1 — recovery will honestly probe
         // this task as indeterminate and never signal it.
         registeredCols.push('start_time=unavailable');

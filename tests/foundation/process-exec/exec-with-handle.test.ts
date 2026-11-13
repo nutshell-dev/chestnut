@@ -95,7 +95,7 @@ describe('execWithHandle', () => {
     });
     expect(handle.identity).toBeDefined();
     const outcome = await handle.terminate();
-    expect(outcome.status).toBe('gone');
+    expect(outcome.status, JSON.stringify(outcome)).toBe('gone');
     await expect(handle.promise).rejects.toBeInstanceOf(ProcessExecError);
   });
 

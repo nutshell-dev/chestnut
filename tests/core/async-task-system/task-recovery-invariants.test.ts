@@ -31,8 +31,8 @@ vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOr
     ...actual,
     isAlive: vi.fn(),
     getProcessStartTime: vi.fn(),
-    probeExecutionGroup: vi.fn(),
-    terminateExecutionGroup: vi.fn(),
+    observeExecutionTarget: vi.fn(),
+    terminateExecutionTarget: vi.fn(),
   };
 });
 
@@ -818,6 +818,20 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
   const VALID_TASK_ID = '550e8400-e29b-41d4-a716-446655440000';
   const VALID_TASK_SHORT_ID = '550e8400';
   const LEADER_PID = 22222;
+  const TARGET = {
+    version: 1 as const,
+    leaderPid: LEADER_PID,
+    processGroupId: LEADER_PID,
+    leaderStartTime: 'Mon Jan 01 00:00:00 2020',
+  };
+  const EVIDENCE = { version: 1 as const, atMs: 0, facts: [] };
+  const aliveObservation = () => ({ kind: 'alive' as const, target: TARGET, evidence: EVIDENCE });
+  const goneObservation = () => ({
+    kind: 'gone' as const, target: TARGET, reason: 'absent' as const, evidence: EVIDENCE,
+  });
+  const unknownObservation = (reason: string) => ({
+    kind: 'unknown' as const, target: TARGET, reason, evidence: EVIDENCE,
+  });
 
   function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
     const events: Array<[string, ...(string | number)[]]> = [];
@@ -899,8 +913,8 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
   async function importProcessExecMocks() {
     const mod = await import('../../../src/foundation/process-exec/index.js');
     return {
-      probeExecutionGroup: vi.mocked(mod.probeExecutionGroup),
-      terminateExecutionGroup: vi.mocked(mod.terminateExecutionGroup),
+      observeExecutionTarget: vi.mocked(mod.observeExecutionTarget),
+      terminateExecutionTarget: vi.mocked(mod.terminateExecutionTarget),
     };
   }
 
@@ -912,6 +926,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       termSent: true,
       killSent: false,
       completedAt: new Date().toISOString(),
+      evidence: EVIDENCE,
     };
   }
 
@@ -921,8 +936,8 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('verified group past deadline is terminated via L1 group path, then delivered', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'verified_alive' });
-    mocks.terminateExecutionGroup.mockResolvedValue(goneGroupOutcome());
+    mocks.observeExecutionTarget.mockReturnValue(aliveObservation());
+    mocks.terminateExecutionTarget.mockResolvedValue(goneGroupOutcome());
 
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask();
@@ -941,8 +956,8 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     });
 
     // Recovery must terminate the whole group via L1 — never just assert the leader died.
-    expect(mocks.terminateExecutionGroup).toHaveBeenCalledWith(
-      { leaderPid: LEADER_PID, processGroupId: LEADER_PID },
+    expect(mocks.terminateExecutionTarget).toHaveBeenCalledWith(
+      TARGET,
       'caller_requested',
     );
 
@@ -965,7 +980,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('indeterminate probe holds task in running within deadline: no signal, no move, no delivery', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'indeterminate', reason: 'leader_gone_group_alive' });
+    mocks.observeExecutionTarget.mockReturnValue(unknownObservation('leader_gone_group_alive'));
 
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
@@ -984,7 +999,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     });
 
     // Safety: leader gone but group still responds → possible PGID reuse.
-    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
     expect(sendToolResult).not.toHaveBeenCalled();
     expect(mockFs.move).not.toHaveBeenCalled();
     expect(await mockFs.exists(taskFile)).toBe(true);
@@ -998,7 +1013,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('indeterminate probe past deadline notifies manual intervention once, writes marker, moves to failed', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'indeterminate', reason: 'leader_gone_group_alive' });
+    mocks.observeExecutionTarget.mockReturnValue(unknownObservation('leader_gone_group_alive'));
 
     const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask(); // migratedDeadlineMs: 1 → already past
@@ -1014,7 +1029,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       sendToolResult: vi.fn(),
     });
 
-    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled(); // never signal indeterminate
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled(); // never signal indeterminate
     expect(sendFallbackResult).toHaveBeenCalledTimes(1);
     expect(String((sendFallbackResult.mock.calls[0][3] as { content: string }).content)).toContain('Manual intervention required');
     expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
@@ -1036,7 +1051,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('gone probe falls through to result delivery without signalling', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'gone' });
+    mocks.observeExecutionTarget.mockReturnValue(goneObservation());
 
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask();
@@ -1056,7 +1071,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       sendToolResult,
     });
 
-    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
     expect(sendToolResult).toHaveBeenCalledTimes(1);
     expect(sendToolResult.mock.calls[0][3]).toBe('complete output');
     expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
@@ -1064,7 +1079,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('verified group within deadline stays running without termination', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'verified_alive' });
+    mocks.observeExecutionTarget.mockReturnValue(aliveObservation());
 
     const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
     const taskFile = 'tasks/queues/running/task-1.json';
@@ -1073,7 +1088,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     const { audit, events } = makeMockAudit();
     await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
     expect(mockFs.move).not.toHaveBeenCalled();
     const recovered = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
     expect(recovered.length).toBe(1);
@@ -1082,14 +1097,15 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('still_alive termination outcome keeps task in running without delivery', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'verified_alive' });
-    mocks.terminateExecutionGroup.mockResolvedValue({
+    mocks.observeExecutionTarget.mockReturnValue(aliveObservation());
+    mocks.terminateExecutionTarget.mockResolvedValue({
       status: 'still_alive',
       identity: { leaderPid: LEADER_PID, processGroupId: LEADER_PID },
       trigger: 'caller_requested',
       termSent: true,
       killSent: true,
       checkedAt: new Date().toISOString(),
+      evidence: EVIDENCE,
     });
 
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
@@ -1108,7 +1124,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       sendToolResult,
     });
 
-    expect(mocks.terminateExecutionGroup).toHaveBeenCalledTimes(1);
+    expect(mocks.terminateExecutionTarget).toHaveBeenCalledTimes(1);
     expect(sendToolResult).not.toHaveBeenCalled();
     expect(mockFs.move).not.toHaveBeenCalled();
 
@@ -1120,7 +1136,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
 
   it('dead-no-result fallback followed by move failure re-notifies only once (marker guard)', async () => {
     const mocks = await importProcessExecMocks();
-    mocks.probeExecutionGroup.mockReturnValue({ kind: 'gone' });
+    mocks.observeExecutionTarget.mockReturnValue(goneObservation());
 
     const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask();
@@ -1139,13 +1155,12 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual`)).toBe(true);
   });
 
-  // Phase 1269 Step F: an on-disk identity violating the v1 creation
-  // invariant must be rejected by the schema at load — before any probe —
-  // so the mocked L4分流 tests above can never mask an invalid identity.
-  it('identity with PGID !== leader PID is rejected at load (task_corrupt), never probed', async () => {
+  // ATS keeps malformed identity artifacts opaque; ProcessExec rejects them
+  // during decode and recovery remains observable without signalling.
+  it('identity with PGID !== leader PID stays recoverable and is never observed or signalled', async () => {
     const mocks = await importProcessExecMocks();
 
-    const task = makeV1MigratedTask();
+    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
     (task.migratedExecution as { processGroupId: number }).processGroupId = LEADER_PID + 1;
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
@@ -1153,14 +1168,14 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     const { audit, events } = makeMockAudit();
     await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-    expect(mocks.probeExecutionGroup).not.toHaveBeenCalled();
-    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
+    expect(mocks.observeExecutionTarget).not.toHaveBeenCalled();
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
 
-    const corruptEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_CORRUPT);
-    expect(corruptEvents.length).toBe(1);
-    // Original file moved aside to a .corrupt-* backup — never routed into
-    // migrated recovery, never moved to done/failed.
-    expect(await mockFs.exists(taskFile)).toBe(false);
+    const failures = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED);
+    expect(failures.some(e => e.includes('context=migrated_exec_probe_indeterminate'))).toBe(true);
+    expect(failures.some(e => e.some(col => typeof col === 'string' && col.startsWith('evidence=')))).toBe(true);
+    expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_CORRUPT)).toBe(false);
+    expect(await mockFs.exists(taskFile)).toBe(true);
     expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(false);
     expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(false);
   });

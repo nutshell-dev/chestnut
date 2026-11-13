@@ -3,8 +3,8 @@
  *
  * - New v1 execution-group identity files must parse.
  * - Legacy PID-only files must stay loadable until they drain naturally.
- * - A migrated task without any identity is corrupt (fail-observable).
- * - Unknown/future protocol versions must fail parsing — never guessed.
+ * - Execution identity remains opaque to ATS; ProcessExec owns validation.
+ * - Missing/malformed/future identities remain recoverable artifacts.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -84,8 +84,10 @@ describe('phase 1269 Step E: ToolTaskSchema migrated execution identity', () => 
     const parsed = ToolTaskSchema.safeParse(task);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.migratedExecution?.version).toBe(1);
-      expect(parsed.data.migratedExecution?.processGroupId).toBe(12345);
+      expect(parsed.data.migratedExecution).toMatchObject({
+        version: 1,
+        processGroupId: 12345,
+      });
     }
   });
 
@@ -107,18 +109,17 @@ describe('phase 1269 Step E: ToolTaskSchema migrated execution identity', () => 
     expect(parsed.success).toBe(true);
   });
 
-  it('rejects a migrated task without any execution identity', () => {
+  it('keeps a migrated task without identity loadable for observable recovery', () => {
     const task = makeBaseTask({ mode: 'migrated' });
-    const parsed = ToolTaskSchema.safeParse(task);
-    expect(parsed.success).toBe(false);
+    expect(ToolTaskSchema.safeParse(task).success).toBe(true);
   });
 
-  it('rejects an unknown/future identity version', () => {
+  it('keeps an unknown/future identity version opaque for L1 decode', () => {
     const task = makeBaseTask({
       mode: 'migrated',
       migratedExecution: { version: 2, leaderPid: 12345, processGroupId: 12345 },
     });
-    expect(ToolTaskSchema.safeParse(task).success).toBe(false);
+    expect(ToolTaskSchema.safeParse(task).success).toBe(true);
   });
 
   it('parses a non-migrated task without any identity', () => {
@@ -126,35 +127,33 @@ describe('phase 1269 Step E: ToolTaskSchema migrated execution identity', () => 
     expect(ToolTaskSchema.safeParse(makeBaseTask({ mode: 'fresh' })).success).toBe(true);
   });
 
-  // Phase 1269 Step F: the disk schema enforces the v1 creation invariant —
-  // safe integers, > 1, and PGID === leader PID.
-  it('rejects v1 identity with processGroupId !== leaderPid', () => {
+  it('does not interpret the v1 PGID invariant in the ATS schema', () => {
     const task = makeBaseTask({
       mode: 'migrated',
       migratedExecution: { version: 1, leaderPid: 12345, processGroupId: 12346 },
     });
-    expect(ToolTaskSchema.safeParse(task).success).toBe(false);
+    expect(ToolTaskSchema.safeParse(task).success).toBe(true);
   });
 
-  it('rejects non-integer and unsafe identity values', () => {
+  it('keeps non-integer and unsafe identity values opaque for L1 rejection', () => {
     expect(ToolTaskSchema.safeParse(makeBaseTask({
       mode: 'migrated',
       migratedExecution: { version: 1, leaderPid: 123.5, processGroupId: 123.5 },
-    })).success).toBe(false);
+    })).success).toBe(true);
 
     const unsafe = Number.MAX_SAFE_INTEGER + 1;
     expect(ToolTaskSchema.safeParse(makeBaseTask({
       mode: 'migrated',
       migratedExecution: { version: 1, leaderPid: unsafe, processGroupId: unsafe },
-    })).success).toBe(false);
+    })).success).toBe(true);
   });
 
-  it('rejects dangerous small values (<= 1) even when equal', () => {
+  it('keeps dangerous small values opaque for L1 rejection', () => {
     for (const pid of [0, 1, -5]) {
       expect(ToolTaskSchema.safeParse(makeBaseTask({
         mode: 'migrated',
         migratedExecution: { version: 1, leaderPid: pid, processGroupId: pid },
-      })).success).toBe(false);
+      })).success).toBe(true);
     }
   });
 });

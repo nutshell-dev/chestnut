@@ -92,9 +92,8 @@ export function listMigratedExecTasks(
 
     try {
       const raw = runningFs.readSync(entry.name);
-      // Phase 1269: schema is a refined object (migrated tasks must carry a
-      // complete identity); unknown keys are stripped — only known fields are
-      // consumed below, so passthrough preservation is unnecessary.
+      // Task fields are validated here; migratedExecution remains opaque and
+      // is decoded only by ProcessExec recovery, never by this query projection.
       const parsed = ToolTaskSchema.safeParse(JSON.parse(raw));
       if (!parsed.success) {
         const reason = `schema mismatch: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`;

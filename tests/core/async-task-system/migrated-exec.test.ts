@@ -30,7 +30,6 @@ import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_D
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { getProcessStartTime, isAlive, ProcessExecError, PROCESS_EXEC_DEFAULT_TIMEOUT_MS, resolveHostCommand, type ExecHandle, type ExecResult, type ExecutionIdentity } from '../../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
-import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
 import { makeFullTaskId } from '../../../src/core/async-task-system/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -151,14 +150,12 @@ describe('executeToolTask migrated path', () => {
   });
 
   it('should detect PID reuse via startTime mismatch and fail task', async () => {
-    // Use a live process so getProcessStartTime returns a real value, then mock
-    // it to simulate a different process occupying the same PID.
+    // Use a live process with a deliberately stale persisted startTime; L1
+    // observes the mismatch without ATS calling getProcessStartTime itself.
     const proc = spawn('sleep', ['5'], { stdio: 'ignore' });
     const pid = proc.pid!;
 
     try {
-      vi.spyOn(startTimeModule, 'getProcessStartTime').mockReturnValue('Mon Jan 01 00:00:00 2020');
-
       const taskId = makeFullTaskId(randomUUID());
       const task: ToolTask = {
         ...makeBaseToolTask(taskId),
@@ -588,6 +585,87 @@ describe('createAsyncExecWrapper', () => {
     expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
   });
 
+  it('keeps abort artifacts running when execution termination is indeterminate', async () => {
+    const base = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async (args, ctx) => {
+        const handle = await base(args, ctx);
+        return {
+          ...handle,
+          terminate: async (trigger) => {
+            const outcome = await handle.terminate(trigger);
+            return {
+              status: 'indeterminate' as const,
+              identity: outcome.identity,
+              trigger: outcome.trigger,
+              termSent: outcome.termSent,
+              killSent: outcome.killSent,
+              checkedAt: new Date().toISOString(),
+              reason: 'injected_unknown',
+              evidence: outcome.evidence,
+            };
+          },
+        };
+      },
+      softTimeoutMs: 10_000,
+    });
+
+    const controller = new AbortController();
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, signal: controller.signal });
+    const execPromise = tool.execute({ command: 'sleep 5' }, ctx);
+    await sleepMs(100);
+    controller.abort();
+
+    const result = await execPromise;
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('execution cleanup: indeterminate (injected_unknown)');
+    const runningFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR));
+    expect(runningFiles.filter(name => name.endsWith('.json'))).toHaveLength(1);
+    const failedFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR)).catch(() => []);
+    expect(failedFiles.filter(name => name.endsWith('.json'))).toHaveLength(0);
+    const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
+    expect(termEvents).toHaveLength(1);
+    expect(termEvents[0].some(col => typeof col === 'string' && col.startsWith('evidence='))).toBe(true);
+  });
+
+  it('keeps hard-timeout artifacts running when cleanup is not confirmed gone', async () => {
+    const base = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async (args, ctx) => {
+        const handle = await base(args, ctx);
+        return {
+          ...handle,
+          terminate: async (trigger) => {
+            const outcome = await handle.terminate(trigger);
+            return {
+              status: 'still_alive' as const,
+              identity: outcome.identity,
+              trigger: outcome.trigger,
+              termSent: outcome.termSent,
+              killSent: outcome.killSent,
+              checkedAt: new Date().toISOString(),
+              evidence: outcome.evidence,
+            };
+          },
+        };
+      },
+      softTimeoutMs: 50,
+      migratedHardTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 5' }, ctx);
+    const fullId = result.metadata?.fullTaskId as string;
+    await sleepMs(400);
+
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    expect(await fs.stat(runningFile).then(() => true).catch(() => false)).toBe(true);
+    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
+    expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(false);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
+    expect(await fs.readFile(resultFile, 'utf8')).toContain('execution cleanup: still_alive');
+  });
+
   it('persists v1 execution-group identity on migration (no legacy migratedPid write)', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
@@ -859,6 +937,15 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const child = spawn(process.execPath, ['-e', '']);
     const handle: ExecHandle = {
       child,
+      subscribeOutput: (listener) => {
+        child.stdout?.on('data', listener);
+        child.stderr?.on('data', listener);
+        return () => {
+          child.stdout?.off('data', listener);
+          child.stderr?.off('data', listener);
+        };
+      },
+      detach: () => child.unref(),
       promise: Promise.resolve({ output, stdout: output, exitCode: 0 }),
       terminate: async () => { throw new Error('explicit timeout success must not terminate'); },
     };
@@ -881,6 +968,15 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const child = spawn(process.execPath, ['-e', '']);
     const handle: ExecHandle = {
       child,
+      subscribeOutput: (listener) => {
+        child.stdout?.on('data', listener);
+        child.stderr?.on('data', listener);
+        return () => {
+          child.stdout?.off('data', listener);
+          child.stderr?.off('data', listener);
+        };
+      },
+      detach: () => child.unref(),
       promise: Promise.resolve({ output, stdout: output, exitCode: 0 }),
       terminate: async () => { throw new Error('sync success must not terminate'); },
     };
@@ -916,6 +1012,15 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const child = spawn(process.execPath, ['-e', '']);
     const handle: ExecHandle = {
       child,
+      subscribeOutput: (listener) => {
+        child.stdout?.on('data', listener);
+        child.stderr?.on('data', listener);
+        return () => {
+          child.stdout?.off('data', listener);
+          child.stderr?.off('data', listener);
+        };
+      },
+      detach: () => child.unref(),
       promise: Promise.reject(new ProcessExecError({
         message: 'Command timed out after 1000ms',
         output,
@@ -1396,6 +1501,15 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     const handle: ExecHandle = {
       child: proc,
       identity,
+      subscribeOutput: (listener) => {
+        proc.stdout?.on('data', listener);
+        proc.stderr?.on('data', listener);
+        return () => {
+          proc.stdout?.off('data', listener);
+          proc.stderr?.off('data', listener);
+        };
+      },
+      detach: () => proc.unref(),
       promise,
       terminate: async (trigger = 'caller_requested') => {
         try {
@@ -1408,6 +1522,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
           termSent: true,
           killSent: false,
           completedAt: new Date().toISOString(),
+          evidence: { version: 1, atMs: Date.now(), facts: [] },
         };
       },
     };

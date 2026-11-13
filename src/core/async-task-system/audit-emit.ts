@@ -215,6 +215,7 @@ export function emitRecoveryFailed(
     context: string;
     error?: string;
     raw?: string;
+    evidence?: string;
     retryCount?: number;
     maxRetries?: number;
   },
@@ -228,6 +229,7 @@ export function emitRecoveryFailed(
   if (opts.retryCount !== undefined) cols.push(`retryCount=${opts.retryCount}`);
   if (opts.maxRetries !== undefined) cols.push(`maxRetries=${opts.maxRetries}`);
   if (opts.error !== undefined) cols.push(`error=${opts.error}`);
+  if (opts.evidence !== undefined) cols.push(`evidence=${opts.evidence}`);
   audit.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, ...cols);
 }
 
@@ -267,6 +269,7 @@ export function emitHandlerFailed(
     shortTaskId: ShortTaskId;
     context?: string;
     error?: string;
+    evidence?: string;
     parent?: string;
     name?: string;
     tool?: string;
@@ -281,6 +284,7 @@ export function emitHandlerFailed(
   if (opts.name !== undefined) cols.push(`name=${opts.name}`);
   if (opts.parent !== undefined) cols.push(`parent=${opts.parent}`);
   if (opts.error !== undefined) cols.push(`error=${opts.error}`);
+  if (opts.evidence !== undefined) cols.push(`evidence=${opts.evidence}`);
   audit.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, ...cols);
 }
 
@@ -537,6 +541,7 @@ export function emitMigratedExecTermination(
     killSent: boolean;
     status: 'gone' | 'still_alive' | 'indeterminate';
     reason?: string;
+    evidence?: string;
   },
 ): void {
   const cols: (string | number)[] = [
@@ -549,6 +554,7 @@ export function emitMigratedExecTermination(
     `status=${opts.status}`,
   ];
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
+  if (opts.evidence !== undefined) cols.push(`evidence=${opts.evidence}`);
   audit.write(TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION, ...cols);
 }
 
