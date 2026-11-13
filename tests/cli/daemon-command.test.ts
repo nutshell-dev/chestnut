@@ -7,7 +7,6 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/generation.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from '../../src/daemon/index.js';
-import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 import { once } from 'events';
 import { EventEmitter } from 'events';
 
@@ -33,6 +32,11 @@ const mockState = vi.hoisted(() => {
   const mockHeartbeat = { isDue: vi.fn(() => false), fire: vi.fn() };
   const mockAssemble = vi.fn();
   const mockDispose = vi.fn().mockResolvedValue(undefined);
+  const mockCaptureCurrentProcessIdentity = vi.fn(() => ({
+    kind: 'captured',
+    target: { pid: process.pid, startTime: 'Tue Nov 10 13:27:59 2026' },
+    evidence: { version: 1, atMs: 0, facts: [] },
+  }));
   // phase 1873 Step E: 三句柄 dispose 断言面（preAssemble createSystemAudit / 主 auditWriter）
   const mockPreAssembleDispose = vi.fn();
   const mockMainAuditDispose = vi.fn();
@@ -61,6 +65,7 @@ const mockState = vi.hoisted(() => {
     mockHeartbeat,
     mockAssemble,
     mockDispose,
+    mockCaptureCurrentProcessIdentity,
     mockPreAssembleDispose,
     mockMainAuditDispose,
     mockProcessManager,
@@ -135,6 +140,11 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
 vi.mock('../../src/core/llm-configuration/index.js', async () => ({
   resolveLLMConfig: vi.fn(),
   llmConfigIdentity: vi.fn(() => 'test-llm-identity'),
+}));
+
+vi.mock('../../src/foundation/process-exec/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/foundation/process-exec/index.js')>()),
+  captureCurrentProcessIdentity: mockState.mockCaptureCurrentProcessIdentity,
 }));
 
 // node 内置 mock
@@ -392,6 +402,29 @@ describe('daemonCommand - A4a startup success', () => {
     const activationInput = mockState.mockProcessManager.activateChildGeneration.mock.calls[0][1];
     expect(activationInput.businessFact).toBeUndefined();
   });
+
+  it('Phase 2145：identity unknown 保留证据审计，activation 不伪造 startTime', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
+    mockState.mockCaptureCurrentProcessIdentity.mockReturnValueOnce({
+      kind: 'unknown',
+      reason: 'query_failed',
+      evidence: { version: 1, atMs: 1, facts: ['raw-probe-evidence'] },
+    } as any);
+
+    const running = daemonCommand('test-claw');
+    await once(mockStartDaemonLoopCallEvent, 'call');
+    if (mockState.stopFn) mockState.stopFn();
+    await running;
+
+    const activationInput = mockState.mockProcessManager.activateChildGeneration.mock.calls[0][1];
+    expect(activationInput.startTime).toBeUndefined();
+    expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
+      'daemon_process_identity_unknown',
+      'kind=unknown',
+      'reason=query_failed',
+      expect.stringContaining('raw-probe-evidence'),
+    );
+  });
 });
 
 
@@ -531,6 +564,25 @@ describe('daemonCommand - A4a startup failure', () => {
       'phase=teardown',
       expect.stringContaining('reason=dispose boom'),
     );
+  });
+
+  it('Phase 2145：host-exit 安装失败走 post-assemble dispose/retire/audit 收束', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
+    vi.mocked(process.on).mockImplementation(((event: string) => {
+      if (event === 'SIGTERM') throw new Error('host signal unavailable');
+      return process;
+    }) as typeof process.on);
+
+    await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
+
+    expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
+      'daemon_pre_runtime_failed',
+      'stage=host_exit_subscription',
+      'phase=post_assemble_init',
+      expect.stringContaining('host signal unavailable'),
+    );
+    expect(mockState.mockDispose).toHaveBeenCalledWith('post_assemble_failure:host_exit_subscription');
+    expect(mockState.mockProcessManager.retireGeneration).toHaveBeenCalled();
   });
 
   it('it #6: snapshot.commit uncategorized → snapshot_commit_uncategorized audit', async () => {

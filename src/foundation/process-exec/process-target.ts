@@ -210,6 +210,37 @@ export function captureProcessTarget(
   }
 }
 
+/**
+ * Capture the current process through the evidence-preserving OS observation
+ * path. Unknown identity never fabricates a start time; raw probe failures stay
+ * encoded in the returned evidence for the caller's own audit policy.
+ */
+export function captureCurrentProcessIdentity(
+  observe: (pid: number) => ProcessObservation = observeProcess,
+): ProcessTargetCapture {
+  const pid = process.pid;
+  try {
+    const observation = observe(pid);
+    const evidence = encodeProcessEvidence(Date.now(), [observation]);
+    if (observation.kind === 'gone') return { kind: 'gone', evidence };
+    if (observation.kind === 'unknown') {
+      return { kind: 'unknown', reason: unavailableReason(observation), evidence };
+    }
+    return {
+      kind: 'captured',
+      target: { pid, startTime: observation.startTime },
+      evidence,
+    };
+  } catch (error) {
+    return {
+      kind: 'unknown', reason: 'query_failed', error,
+      evidence: encodeProcessEvidence(Date.now(), [{
+        operation: 'capture_current_identity', outcome: 'throw', pid, error,
+      }]),
+    };
+  }
+}
+
 /** Observe a persisted PID/start-time identity without flattening failures. */
 export function observeProcessTarget(
   target: ProcessTarget,

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  captureCurrentProcessIdentity,
   observeProcessTarget,
   terminateMatchingProcesses,
   terminateProcessTarget,
@@ -69,6 +70,40 @@ describe('typed process target observation', () => {
     );
     expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied', error: denied });
     expect(JSON.stringify(result.evidence)).toContain('legacy_argv_probe');
+  });
+});
+
+describe('current process identity capture', () => {
+  it('captures the current PID and observed start time without legacy adapters', () => {
+    const result = captureCurrentProcessIdentity(() => rawAlive());
+    expect(result).toMatchObject({
+      kind: 'captured',
+      target: { pid: process.pid, startTime: START },
+    });
+    expect(JSON.stringify(result.evidence)).toContain('Tue Nov 10 13:27:59 2026');
+  });
+
+  it('keeps unknown identity and raw permission evidence instead of inventing a start time', () => {
+    const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
+    const result = captureCurrentProcessIdentity(() => ({
+      kind: 'unknown', pid: process.pid, reason: 'probe_failed',
+      evidence: [{ operation: 'signal0', outcome: 'error', error: permission }],
+    }));
+
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied' });
+    expect(result).not.toHaveProperty('target');
+    expect(JSON.stringify(result.evidence)).toContain('EPERM');
+  });
+
+  it('distinguishes a gone process and preserves observation adapter failures', () => {
+    expect(captureCurrentProcessIdentity(() => ({
+      kind: 'gone', pid: process.pid, evidence: [],
+    }))).toMatchObject({ kind: 'gone' });
+
+    const failure = new Error('observation failed');
+    const result = captureCurrentProcessIdentity(() => { throw failure; });
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'query_failed', error: failure });
+    expect(JSON.stringify(result.evidence)).toContain('observation failed');
   });
 });
 

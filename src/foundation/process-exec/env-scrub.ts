@@ -21,6 +21,9 @@ const SYSTEM_BASE: ReadonlyArray<string> = [
   'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TMP', 'TEMP',
   'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'LC_TIME',
   'TZ', 'PWD',
+  // Windows commonly spells Path with initial capitals and needs these host
+  // facts to resolve node.exe and the system interpreter.
+  'Path', 'SYSTEMROOT', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT',
 ];
 
 const NODE_BASE: ReadonlyArray<string> = [

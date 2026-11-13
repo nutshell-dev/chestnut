@@ -46,6 +46,9 @@ export const DAEMON_AUDIT_EVENTS = {
   // phase 1873 Step H: fresh ts 无消息证据（提交后崩溃未投递）→ 重投递留痕
   STARTUP_CHECK_TS_WITHOUT_DELIVERY: 'daemon_startup_check_ts_without_delivery',
   LAST_EXIT_SUMMARY_READ_FAILED: 'daemon_last_exit_summary_read_failed',
+  // Phase 2145: L1 host identity / exit delivery degradation stays observable.
+  PROCESS_IDENTITY_UNKNOWN: 'daemon_process_identity_unknown',
+  HOST_EXIT_NOTIFICATION_FAILED: 'daemon_host_exit_notification_failed',
   // phase 1124: shutdown 重入 guard 留痕
   SHUTDOWN_REENTRY_SUPPRESSED: 'daemon_shutdown_reentry_suppressed',
 } as const;

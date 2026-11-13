@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { createDaemonCommand, _resetDaemonSignalHandlers } from '../../src/daemon/daemon.js';
 import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/index.js';
-import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 
 let stopFn: (() => void) | null = null;
 
@@ -85,7 +84,6 @@ const mockFs = {
 };
 
 const TEST_GENERATION_ID = 'test-generation-id';
-const ownStartTime = getProcessStartTime(process.pid);
 
 const mockAuditWriter = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
 const mockDispose = vi.fn().mockResolvedValue(undefined);

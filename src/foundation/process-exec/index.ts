@@ -55,6 +55,7 @@ export type {
   ProcessUnavailableReason,
 } from './process-reference.js';
 export {
+  captureCurrentProcessIdentity,
   captureProcessTarget,
   observeProcessTarget,
   processCommandContainsToken,
@@ -86,3 +87,5 @@ export {
 
 export { subscribeHostExit, HostExitSubscriptionError } from './host-exit.js';
 export type { HostExitEvent } from './host-exit.js';
+export { createSpawnEnvironment } from './spawn-environment.js';
+export type { SpawnEnvironmentOutcome } from './spawn-environment.js';

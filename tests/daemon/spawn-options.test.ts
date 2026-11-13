@@ -17,6 +17,7 @@ const SENTINEL_ENV = 'PHASE1464_TEST_SENTINEL';
 
 afterEach(() => {
   delete process.env[SENTINEL_ENV];
+  delete process.env.CHESTNUT_LEGACY_COMPAT;
 });
 
 describe('createDaemonSpawnOptions (Phase 1464)', () => {
@@ -38,15 +39,18 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     expect(options.cwd).toBe('/ws');
   });
 
-  it('env 继承调用时刻 process.env，且不 mutate process.env', () => {
-    process.env[SENTINEL_ENV] = 'present';
+  it('宿主 env 由 L1 allowlist 构造，不 wholesale 继承且不 mutate process.env', () => {
+    process.env[SENTINEL_ENV] = 'do-not-inherit';
+    process.env.CHESTNUT_LEGACY_COMPAT = 'preserve';
     const options = createDaemonSpawnOptions({
       clawId: makeClawId('motion'),
       agentDir: '/ws/.chestnut/motion',
       chestnutRoot: makeChestnutRoot('/ws/.chestnut'),
     });
 
-    expect(options.env?.[SENTINEL_ENV]).toBe('present');
+    expect(options.env?.[SENTINEL_ENV]).toBeUndefined();
+    expect(options.env?.CHESTNUT_LEGACY_COMPAT).toBe('preserve');
+    expect(options.env?.PATH).toBe(process.env.PATH);
     expect(options.env).not.toBe(process.env);
     expect(process.env.CHESTNUT_ROOT).not.toBe('/ws');
   });

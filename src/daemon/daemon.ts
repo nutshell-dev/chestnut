@@ -21,7 +21,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { getProcessStartTime, subscribeHostExit, type ProcessStartTime } from '../foundation/process-exec/index.js';
+import { captureCurrentProcessIdentity, subscribeHostExit } from '../foundation/process-exec/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
@@ -40,8 +40,6 @@ import type { DaemonDir, ProcessManager, ProcessGenerationRecord } from '../foun
 // phase 517 B2: handler 返 Promise（Node 忽略、但测试可 await 验 dispose + exit 时序）
 let uncaughtHandler: ((err: Error) => void | Promise<void>) | null = null;
 let unhandledRejectionHandler: ((reason: unknown) => void | Promise<void>) | null = null;
-let sigtermHandler: (() => void) | null = null;
-let sigintHandler: (() => void) | null = null;
 let unsubscribeHostExit: (() => void) | null = null;
 
 // phase 1124: shutdown 重入 guard（mirror watchdog.ts:87-111）
@@ -54,8 +52,6 @@ export function _resetDaemonSignalHandlers(): void {
   }
   if (uncaughtHandler) { process.removeListener('uncaughtException', uncaughtHandler); uncaughtHandler = null; }
   if (unhandledRejectionHandler) { process.removeListener('unhandledRejection', unhandledRejectionHandler); unhandledRejectionHandler = null; }
-  if (sigtermHandler) { process.removeListener('SIGTERM', sigtermHandler); sigtermHandler = null; }
-  if (sigintHandler) { process.removeListener('SIGINT', sigintHandler); sigintHandler = null; }
   if (unsubscribeHostExit) { unsubscribeHostExit(); unsubscribeHostExit = null; }
   shutdownStarted = null;
 }
@@ -264,11 +260,19 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       : undefined;
 
     try {
-      const startTime = getProcessStartTime(process.pid) as ProcessStartTime | undefined;
+      const identity = captureCurrentProcessIdentity();
+      if (identity.kind !== 'captured') {
+        auditWriter.write(
+          DAEMON_AUDIT_EVENTS.PROCESS_IDENTITY_UNKNOWN,
+          `kind=${identity.kind}`,
+          `reason=${identity.kind === 'unknown' ? identity.reason : 'process_gone'}`,
+          `evidence=${JSON.stringify(identity.evidence)}`,
+        );
+      }
       const activationResult = await instances.processManager.activateChildGeneration(daemonDir, {
         generationId: processGenerationId,
         pid: process.pid,
-        startTime,
+        startTime: identity.kind === 'captured' ? identity.target.startTime : undefined,
         businessFact: motionBusinessFact,
       });
       if (activationResult.kind !== 'activated') {
@@ -484,10 +488,23 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       process.exit(0);
     };
     unsubscribeHostExit?.();
-    unsubscribeHostExit = subscribeHostExit(
-      (event) => shutdown(event.evidence.signal),
-      (error) => shutdown(`host-exit-notification-failed: ${formatErr(error)}`),
-    );
+    try {
+      unsubscribeHostExit = subscribeHostExit(
+        (event) => shutdown(event.evidence.signal),
+        (error, event) => {
+          auditWriter.write(
+            DAEMON_AUDIT_EVENTS.HOST_EXIT_NOTIFICATION_FAILED,
+            `signal=${event.evidence.signal}`,
+            `reason=${formatErr(error)}`,
+          );
+          return shutdown(`host-exit-notification-failed: ${formatErr(error)}`);
+        },
+      );
+    } catch (error) {
+      stop();
+      await failAfterAssemble({ module: 'host_exit_subscription', phase: 'post_assemble_init' }, error);
+      return;
+    }
 
     await promise;
   };

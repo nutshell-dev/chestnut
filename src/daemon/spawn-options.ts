@@ -12,16 +12,17 @@
  * `cwd` 保持既有**父目录**外部协议，由本 owner 私有推导（`path.dirname`），
  * 不再要求调用方传可互相矛盾的父目录。
  *
- * 边界：纯函数、零 I/O、零 spawn、不持状态；返回 ProcessManager 通用
- * `SpawnOptions` 即本 capability 成功点，不代表 generation 已提交或 child 已
- * ready（spawn/ready/stop lifecycle 仍归 ProcessManager；`daemonDir` 推导仍归
- * ClawTopology；何时启动/重启仍归 CLIProcess/Watchdog）。同步构造/entry
- * resolution 错误原样上抛，无部分提交、无恢复动作。
+ * 边界：零 spawn、不持状态；宿主 env 由 ProcessExec 构造，Daemon 只授权
+ * Chestnut 业务值。返回 ProcessManager 通用 `SpawnOptions` 即本 capability
+ * 成功点，不代表 generation 已提交或 child 已 ready（spawn/ready/stop lifecycle
+ * 仍归 ProcessManager；`daemonDir` 推导仍归 ClawTopology；何时启动/重启仍归
+ * CLIProcess/Watchdog）。同步构造/entry resolution 错误上抛，无部分提交。
  */
 
 import * as path from 'path';
 import type { ClawId, ChestnutRoot } from '../foundation/claw-identity/index.js';
 import type { SpawnOptions } from '../foundation/process-manager/index.js';
+import { createSpawnEnvironment } from '../foundation/process-exec/index.js';
 import { DAEMON_LOG } from './constants.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
 import { resolveDaemonEntry } from './entry-resolver.js';
@@ -48,17 +49,20 @@ export function createDaemonSpawnOptions(input: DaemonSpawnOptionsInput): SpawnO
   // Phase 1930 Step B：实例根 → legacy 父目录 env/cwd 的推导收敛在本 owner；
   // ChestnutRoot 恒为绝对规范路径，child 继承到的父目录恒为绝对值。
   const legacyParent = path.dirname(input.chestnutRoot);
+  const environment = createSpawnEnvironment({
+    CHESTNUT_ROOT: legacyParent,
+    ...(input.expectedLLMIdentity !== undefined
+      ? { [EXPECTED_LLM_IDENTITY_ENV]: input.expectedLLMIdentity }
+      : {}),
+  });
+  if (environment.kind === 'failed') {
+    throw new Error('Daemon spawn environment construction failed', { cause: environment.error });
+  }
   return {
     command: 'node',
     args: [resolveDaemonEntry(), input.clawId],
     logFile: path.join(input.agentDir, DAEMON_LOG),
-    env: {
-      ...process.env,
-      CHESTNUT_ROOT: legacyParent,
-      ...(input.expectedLLMIdentity !== undefined
-        ? { [EXPECTED_LLM_IDENTITY_ENV]: input.expectedLLMIdentity }
-        : {}),
-    },
+    env: environment.env,
     cwd: legacyParent,
   };
 }
