@@ -32,7 +32,19 @@ export type InputMeasurement =
   | { kind: 'estimated'; tokens: number; method: 'legacy-cl100k'; reason: string }
   | { kind: 'unavailable'; reason: string };
 
+export interface MessageAdditiveInputCounter {
+  readonly kind: 'message_additive';
+  measureFixed(input: Pick<CompleteInput, 'system' | 'tools'>): number;
+  measureMessage(message: CompleteInputMessage): number;
+}
+
+/** Counting semantics are versioned by the owning meter's descriptor revision. */
+export type InputMeasurementCapability =
+  | MessageAdditiveInputCounter
+  | { readonly kind: 'complete_only' | 'unknown' };
+
 export interface ModelInputMeter {
   readonly descriptor: Readonly<InputMeterDescriptor>;
+  readonly capability: InputMeasurementCapability;
   measure(input: CompleteInput): InputMeasurement;
 }

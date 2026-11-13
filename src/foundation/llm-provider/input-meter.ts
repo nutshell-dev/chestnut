@@ -2,10 +2,10 @@
 import type * as PiAi from '@earendil-works/pi-ai';
 import { sha256Hex } from '../node-utils/index.js';
 import type { ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
-import type { ModelInputMeter } from './input-meter-types.js';
+import type { MessageAdditiveInputCounter, ModelInputMeter } from './input-meter-types.js';
 import { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } from './token-estimator.js';
 import { createDeepseekV41Meter } from './deepseek-v41-meter.js';
-export type { CompleteInput, InputMeterDescriptor, InputMeasurement, ModelInputMeter } from './input-meter-types.js';
+export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, ModelInputMeter } from './input-meter-types.js';
 
 /** Metadata and effective request options, never credentials, define the counting revision. */
 export function createInputMeter(
@@ -13,7 +13,7 @@ export function createInputMeter(
   model: PiAi.Model<PiAi.Api>,
   effective: Pick<PiAi.SimpleStreamOptions, 'maxTokens' | 'temperature' | 'reasoning' | 'thinkingBudgets'>,
 ): ModelInputMeter {
-  const profile = 'legacy-cl100k-v1';
+  const profile = 'legacy-cl100k-v2';
   const descriptor = Object.freeze({
     provider: config.name,
     model: model.id,
@@ -34,15 +34,26 @@ export function createInputMeter(
     && (model.id === 'deepseek-flash' || model.id === 'deepseek-flash[1m]')) {
     return createDeepseekV41Meter(descriptor);
   }
+  const capability: MessageAdditiveInputCounter = {
+    kind: 'message_additive',
+    measureFixed(input) {
+      return estimateTextTokens(input.system ?? '')
+        + estimateToolsTokens(input.tools as ToolDefinition[] ?? []);
+    },
+    measureMessage(message) {
+      return estimateMessagesTokens([message as ProviderWireMessage]);
+    },
+  };
   return {
     descriptor,
+    capability,
     measure(input) {
       return {
         kind: 'estimated',
         method: 'legacy-cl100k',
         reason: 'unsupported_model_or_protocol',
-        tokens: estimateMessagesTokens(input.messages as ProviderWireMessage[])
-          + estimateTextTokens(input.system ?? '') + estimateToolsTokens(input.tools as ToolDefinition[] ?? []),
+        tokens: capability.measureFixed(input)
+          + input.messages.reduce((sum, message) => sum + capability.measureMessage(message), 0),
       };
     },
   };

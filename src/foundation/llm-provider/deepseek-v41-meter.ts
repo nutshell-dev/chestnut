@@ -37,6 +37,7 @@ export function createDeepseekV41Meter(descriptor: InputMeterDescriptor): ModelI
   };
   return {
     descriptor: Object.freeze({ ...descriptor, profile: 'deepseek-v41-flash-1017-v1' }),
+    capability: { kind: 'complete_only' },
     measure(input: CompleteInput): InputMeasurement {
       try {
         const segments = renderDeepseekV41({

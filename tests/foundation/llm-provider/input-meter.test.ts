@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLLMProvider, type ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import {
+  createLLMProvider,
+  estimateMessagesTokens,
+  estimateTextTokens,
+  estimateToolsTokens,
+  type ProviderConfig,
+} from '../../../src/foundation/llm-provider/index.js';
 
 const config: ProviderConfig = {
   name: 'deepseek', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',
@@ -33,6 +39,31 @@ describe('resolved model input meter', () => {
     expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
       kind: 'estimated', method: 'legacy-cl100k', reason: 'unsupported_model_or_protocol',
     });
+  });
+
+  it('declares message-additive counting whose fixed and message terms equal complete measurement', async () => {
+    const meter = await createLLMProvider({ ...config, catalogProvider: undefined,
+      catalogModel: undefined, model: 'unknown-model' }).prepareInputMeter();
+    const capability = meter.capability;
+    if (capability.kind !== 'message_additive') {
+      throw new Error(`expected message-additive meter, got ${capability.kind}`);
+    }
+    const system = 'count the fixed context';
+    const tools = [{ name: 'lookup', description: 'lookup a value', input_schema: { type: 'object' } }];
+    const messages = [
+      { role: 'user' as const, content: 'hello' },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'world' }] },
+    ];
+
+    const fixed = capability.measureFixed({ system, tools });
+    const messageTokens = messages.map(message => capability.measureMessage(message));
+    expect(fixed).toBe(estimateTextTokens(system) + estimateToolsTokens(tools));
+    expect(messageTokens).toEqual(messages.map(message => estimateMessagesTokens([message])));
+    expect(meter.measure({ system, tools, messages })).toMatchObject({
+      kind: 'estimated',
+      tokens: fixed + messageTokens.reduce((sum, tokens) => sum + tokens, 0),
+    });
+    expect(meter.descriptor.profile).toBe('legacy-cl100k-v2');
   });
 
   it('accepts successful input above the old 256K fallback, below the resolved window', async () => {
