@@ -17,7 +17,7 @@ import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr, newUuid } from '../foundation/node-utils/index.js';
 import { getChestnutRoot } from '../foundation/claw-identity/index.js';
-import { getProcessStartTime } from '../foundation/process-exec/index.js';
+import { captureProcessTarget } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';
 import { getAuditWriter } from './watchdog-context.js';
@@ -175,12 +175,16 @@ function isTerminalRecord(parsed: unknown): parsed is WatchdogGenerationTerminal
 
 /** 生成一次 startup attempt 的完整 record（写 candidate 前的事实全集）。 */
 export function newWatchdogAttempt(pid: number = process.pid): WatchdogOwnerRecord {
+  const identity = captureProcessTarget(pid);
   return {
     schema_version: WATCHDOG_OWNERSHIP_SCHEMA_VERSION,
     attempt_id: newUuid(),
     owner_token: newUuid(),
     pid,
-    process_start_time: getProcessStartTime(pid) ?? 'unknown',
+    // Keep the schema1 legacy sentinel when the OS identity is unavailable.
+    process_start_time: identity.kind === 'captured'
+      ? identity.target.startTime ?? 'unknown'
+      : 'unknown',
     workspace_root: currentLegacyParentRoot(),
     created_at: new Date().toISOString(),
   };

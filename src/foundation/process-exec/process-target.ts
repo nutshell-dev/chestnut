@@ -7,6 +7,7 @@
  */
 import { encodeProcessEvidence, type ProcessEvidence } from './process-evidence.js';
 import { observeProcess, type ProcessObservation } from './process-observation.js';
+import { observePidArgv, type ProcessArgvObservation } from './argv-verify.js';
 import { kill } from './process-control.js';
 import { getProcessStartTime, type ProcessStartTime } from './process-starttime.js';
 import type { ProcessUnavailableReason } from './process-reference.js';
@@ -15,6 +16,8 @@ import type { ProcessInfo } from './types.js';
 export interface ProcessTarget {
   pid: number;
   startTime?: ProcessStartTime;
+  /** Optional persisted argv identity, verified inside ProcessExec before signals. */
+  argvToken?: string;
 }
 
 export type ProcessTargetObservation =
@@ -25,8 +28,10 @@ export type ProcessTargetObservation =
 export interface ProcessObservationAdapters {
   /** Compatibility seam for existing callers' injected L1 probe. */
   legacyProbe?: (pid: number, startTime?: ProcessStartTime) => boolean;
-  /** Test seam for the raw L1 observation, not for PM business code. */
+  /** Test seam for the raw L1 observation, not for business code. */
   observe?: (pid: number) => ProcessObservation;
+  /** Legacy boolean argv adapter; production defaults to typed argv observation. */
+  argvMatch?: (pid: number, token: string) => boolean;
 }
 
 export interface ProcessTerminationOptions {
@@ -97,19 +102,83 @@ function unavailableReason(
   return 'query_failed';
 }
 
+function mergeEvidence(...values: ProcessEvidence[]): ProcessEvidence {
+  return { version: 1, atMs: Date.now(), facts: values.flatMap(value => value.facts) };
+}
+
+function unknownFromError(error: unknown, evidence: ProcessEvidence): ProcessTargetObservation {
+  const code = errorCode(error);
+  const reason: ProcessUnavailableReason = code === 'EPERM' || code === 'EACCES'
+    ? 'permission_denied'
+    : code === 'ETIMEDOUT' ? 'timed_out' : 'query_failed';
+  return { kind: 'unknown', reason, evidence, error };
+}
+
+function observeArgv(
+  target: ProcessTarget,
+  adapters: ProcessObservationAdapters,
+): ProcessArgvObservation {
+  const token = target.argvToken!;
+  if (adapters.argvMatch === undefined) return observePidArgv(target.pid, token);
+  try {
+    const matches = adapters.argvMatch(target.pid, token);
+    return {
+      kind: matches ? 'match' : 'mismatch',
+      evidence: encodeProcessEvidence(Date.now(), [{
+        operation: 'legacy_argv_probe', outcome: matches ? 'match' : 'mismatch', target,
+      }]),
+    };
+  } catch (error) {
+    const unknown = unknownFromError(error, encodeProcessEvidence(Date.now(), [{
+      operation: 'legacy_argv_probe', outcome: 'throw', target, error,
+    }]));
+    return {
+      kind: 'unknown',
+      reason: unknown.kind === 'unknown' ? unknown.reason : 'query_failed',
+      evidence: unknown.evidence,
+      error,
+    };
+  }
+}
+
+function applyArgvIdentity(
+  target: ProcessTarget,
+  startTime: ProcessStartTime | undefined,
+  evidence: ProcessEvidence,
+  adapters: ProcessObservationAdapters,
+): ProcessTargetObservation {
+  if (target.argvToken === undefined) {
+    return { kind: 'alive', ...(startTime !== undefined ? { startTime } : {}), evidence };
+  }
+  const argv = observeArgv(target, adapters);
+  const combined = mergeEvidence(evidence, argv.evidence);
+  if (argv.kind === 'match') {
+    return { kind: 'alive', ...(startTime !== undefined ? { startTime } : {}), evidence: combined };
+  }
+  if (argv.kind === 'gone') return { kind: 'gone', reason: 'absent', evidence: combined };
+  if (argv.kind === 'mismatch') {
+    return { kind: 'gone', reason: 'identity_changed', evidence: combined };
+  }
+  return {
+    kind: 'unknown', reason: argv.reason, evidence: combined,
+    ...(argv.error !== undefined ? { error: argv.error } : {}),
+  };
+}
+
 function observedResult(
   observation: ProcessObservation,
-  expectedStartTime: ProcessStartTime | undefined,
+  target: ProcessTarget,
+  adapters: ProcessObservationAdapters,
 ): ProcessTargetObservation {
   const evidence = encodeProcessEvidence(Date.now(), [observation]);
   if (observation.kind === 'gone') return { kind: 'gone', reason: 'absent', evidence };
   if (observation.kind === 'unknown') {
     return { kind: 'unknown', reason: unavailableReason(observation), evidence };
   }
-  if (expectedStartTime !== undefined && observation.startTime !== expectedStartTime) {
+  if (target.startTime !== undefined && observation.startTime !== target.startTime) {
     return { kind: 'gone', reason: 'identity_changed', evidence };
   }
-  return { kind: 'alive', startTime: observation.startTime, evidence };
+  return applyArgvIdentity(target, observation.startTime, evidence, adapters);
 }
 
 export type ProcessTargetCapture =
@@ -147,7 +216,7 @@ export function observeProcessTarget(
   adapters: ProcessObservationAdapters = {},
 ): ProcessTargetObservation {
   if (adapters.legacyProbe === undefined) {
-    return observedResult((adapters.observe ?? observeProcess)(target.pid), target.startTime);
+    return observedResult((adapters.observe ?? observeProcess)(target.pid), target, adapters);
   }
 
   try {
@@ -156,18 +225,14 @@ export function observeProcessTarget(
       operation: 'legacy_probe', outcome: alive ? 'alive' : 'gone', target,
     }]);
     return alive
-      ? { kind: 'alive', ...(target.startTime !== undefined ? { startTime: target.startTime } : {}), evidence }
+      ? applyArgvIdentity(target, target.startTime, evidence, adapters)
       : { kind: 'gone', reason: 'absent', evidence };
   } catch (error) {
     const evidence = encodeProcessEvidence(Date.now(), [{
       operation: 'legacy_probe', outcome: 'throw', target, error,
     }]);
     if (errorCode(error) === 'ESRCH') return { kind: 'gone', reason: 'absent', evidence };
-    const code = errorCode(error);
-    const reason: ProcessUnavailableReason = code === 'EPERM' || code === 'EACCES'
-      ? 'permission_denied'
-      : code === 'ETIMEDOUT' ? 'timed_out' : 'query_failed';
-    return { kind: 'unknown', reason, evidence, error };
+    return unknownFromError(error, evidence);
   }
 }
 
@@ -227,9 +292,9 @@ export async function terminateProcessTarget(
     }
   };
 
-  // The explicit legacy adapter preserves the old fire-then-probe test seam.
-  // Production typed observation refuses to signal when identity is unknown.
-  if (adapters.legacyProbe === undefined) {
+  // Plain legacy targets preserve the old fire-then-probe test seam. An argv
+  // identity always requires a safe pre-signal observation, including adapters.
+  if (adapters.legacyProbe === undefined || target.argvToken !== undefined) {
     const initial = observe();
     if (initial.kind === 'gone') {
       return { kind: 'gone', via: 'already_gone', termSent, killSent, evidence: initial.evidence };

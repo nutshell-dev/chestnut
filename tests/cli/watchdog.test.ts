@@ -452,6 +452,9 @@ describe('stopCommand', () => {
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      findProcesses: vi.fn().mockReturnValue([]),
+    } as unknown as ProcessManager);
   });
 
   afterEach(() => {
@@ -496,8 +499,10 @@ describe('stopCommand', () => {
       .mockImplementationOnce(() => { throw new Error('EPERM'); });  // SIGTERM fails
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await stopCommand(fsFactory);
+    await expect(stopCommand(fsFactory)).rejects.toThrow(/stop was not confirmed/);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to send SIGTERM'), expect.anything());
+    expect(logSpy).not.toHaveBeenCalledWith('Watchdog stopped');
+    expect(fs.existsSync(pidFile)).toBe(true);
     logSpy.mockRestore();
   });
 });

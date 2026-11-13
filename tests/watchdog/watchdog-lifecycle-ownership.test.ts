@@ -253,6 +253,27 @@ describe('acquireWatchdogOwnership', () => {
     expect(activeOwner()!.pid).toBe(process.pid);
   });
 
+  it('owner observation permission failure → failed，active 不 retire、不接管', () => {
+    const owner = newWatchdogAttempt(process.pid);
+    seedActive(owner);
+    const before = fs.readFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'));
+    const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
+
+    const result = acquireWatchdogOwnership(fsFactory, {
+      observeProcessTarget: () => ({
+        kind: 'unknown', reason: 'permission_denied', error: permission,
+        evidence: { version: 1, atMs: 0, facts: ['raw-evidence'] },
+      }),
+    });
+
+    expect(result.kind).toBe('failed');
+    expect(fs.readFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'))).toEqual(before);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, owner.owner_token))).toBe(false);
+    expect(activeOwner()!.owner_token).toBe(owner.owner_token);
+    expect(auditLines()).toContain('watchdog_pid_observation_unknown');
+    expect(auditLines()).toContain('permission_denied');
+  });
+
   it('畸形 active → failed（不伪装 loser）+ failed outcome', () => {
     fs.mkdirSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR), { recursive: true });
     fs.writeFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'), '{broken');

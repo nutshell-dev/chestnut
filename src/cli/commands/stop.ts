@@ -63,9 +63,14 @@ export async function stopAllCommand(
 
   // 1b. phase 1269 sub-4: sweep orphan watchdogs (恢复 commit 4b5bf0b7 精确化版)
   const { sweepOrphanWatchdogs } = await import('../../watchdog/index.js');
-  const killed = await sweepOrphanWatchdogs(deps.fsFactory, { excludePid: null });  // stop 不留任何
-  if (killed.length > 0) {
-    console.log(`Cleaned up ${killed.length} orphan watchdog process(es): ${killed.join(', ')}`);
+  const orphanSweep = await sweepOrphanWatchdogs(deps.fsFactory, { excludePid: null });  // stop 不留任何
+  if (orphanSweep.killed.length > 0) {
+    console.log(
+      `Cleaned up ${orphanSweep.killed.length} orphan watchdog process(es): ${orphanSweep.killed.join(', ')}`,
+    );
+  }
+  if (orphanSweep.failures.length > 0) {
+    console.warn(`Failed to confirm ${orphanSweep.failures.length} orphan watchdog stop(s)`);
   }
 
   // 2. Stop motion
@@ -224,10 +229,13 @@ export async function stopAllCommand(
   // phase 355 C2: cleanup 完后才 throw、保 cleanup 不被 partial-failure 跳过。
   // 无 action scope 直调时本处为唯一终态点（正常 return / CliError throw 同在此后）
   if (!watchdogAuditScoped) watchdogActionAudit.dispose();
-  if (stopFailed.length > 0) {
-    throw new CliError(
-      `Failed to stop ${stopFailed.length} claw(s): ${stopFailed.join(', ')}`,
-      1,
-    );
+  if (stopFailed.length > 0 || orphanSweep.failures.length > 0) {
+    const details = [
+      ...(stopFailed.length > 0 ? [`claws: ${stopFailed.join(', ')}`] : []),
+      ...(orphanSweep.failures.length > 0
+        ? [`orphan watchdogs: ${orphanSweep.failures.map(f => f.pid ?? 'discovery').join(', ')}`]
+        : []),
+    ];
+    throw new CliError(`Failed to stop ${details.join('; ')}`, 1);
   }
 }

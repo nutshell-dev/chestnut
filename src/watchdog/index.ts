@@ -17,11 +17,13 @@ export { getWatchdogEntryPath } from './watchdog-context.js';
 // writer 并自行 dispose（daemon 进程 own 语义不经 barrel）。
 export { createWatchdogActionAudit, type WatchdogActionAudit } from './audit-wiring.js';
 export { spawnWatchdogCandidate } from './spawn.js';
+export { stopWatchdog, type WatchdogStopOutcome } from './watchdog-control.js';
 export { sweepOrphanWatchdogs } from './orphan-sweep.js';
 export { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
 export { WATCHDOG_LOG_HINT } from './watchdog-log.js';
 export { WATCHDOG_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
 export type { WatchdogProcessDeps } from './types.js';
+export type { WatchdogOrphanSweepOutcome } from './orphan-sweep.js';
 // phase 1890 Step J：迁移协议实体（config-migration-journal/migration/
 // state-migration/legacy-retirement）退役删除；fresh init 直调 live 创建面。
 export {

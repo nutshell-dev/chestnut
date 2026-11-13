@@ -15,6 +15,8 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
 const mockKill = vi.hoisted(() => vi.fn());
+const mockIsAlive = vi.hoisted(() => vi.fn());
+const mockLivePids = vi.hoisted(() => new Set<number>());
 
 vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
@@ -80,7 +82,9 @@ describe('watchdog orphan sweep', () => {
     auditSpy = vi.spyOn(auditWriter, 'write');
 
     mockFindProcesses.mockReturnValue([]);
-    mockKill.mockImplementation(() => {});
+    mockLivePids.clear();
+    mockIsAlive.mockImplementation((pid: number) => mockLivePids.has(pid));
+    mockKill.mockImplementation((pid: number) => { mockLivePids.delete(pid); });
   });
 
   afterEach(() => {
@@ -97,12 +101,13 @@ describe('watchdog orphan sweep', () => {
       fs.writeFileSync(pidFile, JSON.stringify({ pid: 1000, root: '/test/root' }));
 
       mockFindProcesses.mockReturnValue([1000, 2000, 3000]);
+      [2000, 3000].forEach(pid => mockLivePids.add(pid));
 
-      const sweepPromise = sweepOrphanWatchdogs(fsFactory, {}, { kill: mockKill });
+      const sweepPromise = sweepOrphanWatchdogs(fsFactory, {}, { kill: mockKill, isAlive: mockIsAlive });
       await vi.advanceTimersByTimeAsync(1001);
-      const killed = await sweepPromise;
+      const outcome = await sweepPromise;
 
-      expect(killed).toEqual([2000, 3000]);
+      expect(outcome).toMatchObject({ kind: 'clear', killed: [2000, 3000], failures: [] });
       expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
       expect(mockKill).toHaveBeenCalledWith(3000, 'TERM');
       expect(mockKill).not.toHaveBeenCalledWith(1000, expect.any(String));
@@ -122,12 +127,15 @@ describe('watchdog orphan sweep', () => {
     try {
 
       mockFindProcesses.mockReturnValue([1000, 2000]);
+      [1000, 2000].forEach(pid => mockLivePids.add(pid));
 
-      const sweepPromise = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, { kill: mockKill });
+      const sweepPromise = sweepOrphanWatchdogs(
+        fsFactory, { excludePid: null }, { kill: mockKill, isAlive: mockIsAlive },
+      );
       await vi.advanceTimersByTimeAsync(1001);
-      const killed = await sweepPromise;
+      const outcome = await sweepPromise;
 
-      expect(killed).toEqual([1000, 2000]);
+      expect(outcome).toMatchObject({ kind: 'clear', killed: [1000, 2000] });
       expect(mockKill).toHaveBeenCalledWith(1000, 'TERM');
       expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
     } finally {
@@ -135,15 +143,16 @@ describe('watchdog orphan sweep', () => {
     }
   });
 
-  it('findProcesses throws → audit ORPHAN_SWEEP_FAILED phase=find + return []', async () => {
+  it('findProcesses throws → audit ORPHAN_SWEEP_FAILED phase=find + blocked outcome', async () => {
 
     mockFindProcesses.mockImplementation(() => {
       throw new Error('pgrep failed');
     });
 
-    const killed = await sweepOrphanWatchdogs(fsFactory, {}, { kill: mockKill });
+    const outcome = await sweepOrphanWatchdogs(fsFactory, {}, { kill: mockKill });
 
-    expect(killed).toEqual([]);
+    expect(outcome).toMatchObject({ kind: 'blocked', killed: [] });
+    expect(outcome.failures[0]).toMatchObject({ stage: 'find' });
     expect(auditSpy).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_FAILED,
       'phase=find',
@@ -156,22 +165,88 @@ describe('watchdog orphan sweep', () => {
     try {
 
       mockFindProcesses.mockReturnValue([2000, 3000]);
+      [2000, 3000].forEach(pid => mockLivePids.add(pid));
       mockKill.mockImplementation((pid: number) => {
         if (pid === 2000) throw new Error('EPERM');
+        mockLivePids.delete(pid);
       });
 
-      const sweepPromise = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, { kill: mockKill });
+      const sweepPromise = sweepOrphanWatchdogs(
+        fsFactory, { excludePid: null }, { kill: mockKill, isAlive: mockIsAlive },
+      );
       await vi.advanceTimersByTimeAsync(1001);
-      const killed = await sweepPromise;
+      const outcome = await sweepPromise;
 
-      expect(killed).toEqual([3000]);
+      expect(outcome).toMatchObject({ kind: 'partial', killed: [3000] });
+      expect(outcome.failures[0]).toMatchObject({ pid: 2000, stage: 'sigterm' });
       expect(auditSpy).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_FAILED,
         'phase=sigterm',
         'pid=2000',
         expect.stringContaining('EPERM'),
+        expect.stringContaining('evidence='),
       );
       expect(mockKill).toHaveBeenCalledWith(3000, 'TERM');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('PID reuse is skipped before any signal', async () => {
+    mockFindProcesses.mockReturnValue([2000]);
+    mockLivePids.add(2000);
+
+    const outcome = await sweepOrphanWatchdogs(fsFactory, { excludePid: null }, {
+      kill: mockKill,
+      isAlive: mockIsAlive,
+      isPidArgvMatching: vi.fn().mockReturnValue(false),
+    });
+
+    expect(outcome).toMatchObject({ kind: 'clear', killed: [], skipped: [2000] });
+    expect(mockKill).not.toHaveBeenCalled();
+    expect(auditSpy).toHaveBeenCalledWith(
+      WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_PID_REUSE_SKIPPED,
+      'pid=2000',
+      'reason=argv_not_watchdog',
+    );
+  });
+
+  it('permission-denied observation stays blocked and never signals', async () => {
+    mockFindProcesses.mockReturnValue([2000]);
+    const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
+    const outcome = await sweepOrphanWatchdogs(fsFactory, { excludePid: null }, {
+      kill: mockKill,
+      observeProcessTarget: () => ({
+        kind: 'unknown', reason: 'permission_denied', error: permission,
+        evidence: { version: 1, atMs: 0, facts: ['raw-evidence'] },
+      }),
+    });
+
+    expect(outcome).toMatchObject({ kind: 'blocked', killed: [] });
+    expect(outcome.failures[0]).toMatchObject({ pid: 2000, stage: 'observe', error: permission });
+    expect(mockKill).not.toHaveBeenCalled();
+  });
+
+  it('confirmation timeout is not reported as killed', async () => {
+    vi.useFakeTimers();
+    try {
+      mockFindProcesses.mockReturnValue([2000]);
+      mockLivePids.add(2000);
+      mockKill.mockImplementation(() => {});
+
+      const pending = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, {
+        kill: mockKill, isAlive: mockIsAlive,
+      });
+      await vi.advanceTimersByTimeAsync(2200);
+      const outcome = await pending;
+
+      expect(outcome).toMatchObject({ kind: 'blocked', killed: [] });
+      expect(outcome.failures[0]).toMatchObject({ pid: 2000, stage: 'confirm' });
+      expect(mockKill).toHaveBeenCalledWith(2000, 'KILL');
+      expect(auditSpy).not.toHaveBeenCalledWith(
+        WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED,
+        expect.anything(),
+      );
     } finally {
       vi.useRealTimers();
     }

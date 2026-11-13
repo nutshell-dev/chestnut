@@ -14,6 +14,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
 const mockKill = vi.hoisted(() => vi.fn());
+const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 
 vi.mock('../../src/foundation/claw-identity/instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/claw-identity/instance-paths.js')>();
@@ -75,7 +76,8 @@ describe('watchdog action audit in CLI (phase 1878 Step I)', () => {
     setAuditWriter(null);
 
     mockFindProcesses.mockReturnValue([]);
-    mockKill.mockImplementation(() => {});
+    mockIsAlive.mockReturnValue(false);
+    mockKill.mockImplementation(() => { mockIsAlive.mockReturnValue(false); });
     console.error = vi.fn();
   });
 
@@ -98,12 +100,15 @@ describe('watchdog action audit in CLI (phase 1878 Step I)', () => {
       fs.writeFileSync(legacyAuditPath, legacyLines);
 
       mockFindProcesses.mockReturnValue([2000]);
+      mockIsAlive.mockReturnValue(true);
 
-      const sweepPromise = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, { kill: mockKill });
+      const sweepPromise = sweepOrphanWatchdogs(
+        fsFactory, { excludePid: null }, { kill: mockKill, isAlive: mockIsAlive },
+      );
       await vi.advanceTimersByTimeAsync(1001);
-      const killed = await sweepPromise;
+      const outcome = await sweepPromise;
 
-      expect(killed).toEqual([2000]);
+      expect(outcome).toMatchObject({ kind: 'clear', killed: [2000] });
       // Phase 1878 Step I: scoped own + 终态 dispose——sweep 结束后无悬挂安装
       expect(getAuditWriter()).toBeNull();
 

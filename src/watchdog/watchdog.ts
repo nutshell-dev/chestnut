@@ -32,6 +32,7 @@ import {
 } from '../foundation/claw-identity/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
+import type { WatchdogProcessDeps } from './types.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { subscribeHostExit } from '../foundation/process-exec/index.js';
 import { type AuditLog, createWorkspaceAudit, createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
@@ -52,7 +53,7 @@ import {
 } from './watchdog-context.js';
 import {
   removeWatchdogPid, removeWatchdogPidIfOwner,
-  isWatchdogProcessAlive, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
+  observeWatchdogOwner, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
@@ -146,6 +147,7 @@ function ownershipFromRecord(record: WatchdogOwnerRecord): WatchdogOwnership {
  */
 export function acquireWatchdogOwnership(
   fsFactory: (baseDir: string) => FileSystem,
+  deps?: WatchdogProcessDeps,
 ): AcquireWatchdogOwnership {
   const fs = getChestnutFs(fsFactory);
   const attempt = newWatchdogAttempt(process.pid);
@@ -170,10 +172,10 @@ export function acquireWatchdogOwnership(
       });
       return { kind: 'legacy_live', pid: legacy.pid };
     }
-    if (legacy.kind === 'unreadable') {
+    if (legacy.kind === 'unreadable' || legacy.kind === 'indeterminate') {
       writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
         outcome: 'failed',
-        reason: `legacy_unreadable:${formatErr(legacy.cause)}`,
+        reason: `legacy_${legacy.kind}:${formatErr(legacy.cause)}`,
       });
       return { kind: 'failed', error: legacy.cause };
     }
@@ -183,7 +185,15 @@ export function acquireWatchdogOwnership(
 
   if (commit.kind === 'foreign_owned') {
     const owner = commit.owner;
-    if (isWatchdogProcessAlive(owner.pid)) {
+    const processFact = observeWatchdogOwner(owner.pid, owner.process_start_time, deps);
+    if (processFact.kind === 'indeterminate') {
+      writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
+        outcome: 'failed',
+        reason: `active_observation_indeterminate:${processFact.observation.reason}`,
+      });
+      return { kind: 'failed', error: processFact.observation };
+    }
+    if (processFact.kind === 'owner_active') {
       // live owner：同实例 → lost；foreign → fail-loud（不赋予 live foreign 覆盖权）。
       // Phase 1930 Step B：磁盘 workspace_root 经 owner 私有适配转实例身份再比较。
       if (!legacyParentMatchesInstance(owner.workspace_root)) {

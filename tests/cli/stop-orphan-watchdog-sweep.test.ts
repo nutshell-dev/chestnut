@@ -15,6 +15,10 @@ const mockAuditState = vi.hoisted(() => {
 });
 
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
+const mockKill = vi.hoisted(() => vi.fn());
+const mockIsAlive = vi.hoisted(() => vi.fn());
+const mockLivePids = vi.hoisted(() => new Set<number>());
+const mockStopWatchdog = vi.hoisted(() => vi.fn());
 // phase 1879 Step D: stop.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
 // mock 目标随创建点统一迁移（返回 { fs, audit } 形状）。
 const mockCreateDirContext = vi.hoisted(() => vi.fn(() => ({
@@ -56,6 +60,10 @@ vi.mock('../../src/cli/commands/motion.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../src/watchdog/watchdog-control.js', () => ({
+  stopWatchdog: mockStopWatchdog,
+}));
+
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
     isAlive: vi.fn().mockReturnValue(false),
@@ -71,8 +79,8 @@ vi.mock('../../src/foundation/process-exec/index.js', async (importOriginal) => 
   const actual = await importOriginal<typeof import('../../src/foundation/process-exec/index.js')>();
   return {
     ...actual,
-    kill: vi.fn(),
-    isAlive: vi.fn().mockReturnValue(false),
+    kill: mockKill,
+    isAlive: mockIsAlive,
   };
 });
 
@@ -126,10 +134,15 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
     _resetWatchdogContextForTest();
     mockAuditState.clear();
     vi.clearAllMocks();
+    mockLivePids.clear();
+    mockStopWatchdog.mockResolvedValue({ kind: 'not_running', reason: 'no_process' });
+    mockIsAlive.mockImplementation((pid: number) => mockLivePids.has(pid));
+    mockKill.mockImplementation((pid: number) => { mockLivePids.delete(pid); });
   });
 
   it('stopAllCommand sweeps orphan watchdogs + audits ORPHAN_SWEEP_KILLED', async () => {
     mockFindProcesses.mockReturnValue([1111, 2222]);
+    [1111, 2222].forEach(pid => mockLivePids.add(pid));
     mockCreateDirContext.mockReturnValue({ fs: {}, audit: { write: mockAuditState.write } });
 
     await stopAllCommand(stopDeps);

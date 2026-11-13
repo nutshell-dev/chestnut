@@ -27,6 +27,7 @@ const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
 const mockGetWatchdogPid = vi.hoisted(() => vi.fn().mockReturnValue(null));
+const mockGetWatchdogProcessTarget = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockIsWatchdogAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockRemoveWatchdogPid = vi.hoisted(() => vi.fn());
 
@@ -75,6 +76,7 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
 
 vi.mock('../../src/watchdog/watchdog-pid.js', () => ({
   getWatchdogPid: mockGetWatchdogPid,
+  getWatchdogProcessTarget: mockGetWatchdogProcessTarget,
   isWatchdogAlive: mockIsWatchdogAlive,
   removeWatchdogPid: mockRemoveWatchdogPid,
   WatchdogPidForeignWorkspaceError: class WatchdogPidForeignWorkspaceError extends Error {
@@ -103,7 +105,12 @@ describe('watchdog-cli stopCommand pgrep fallback (phase 804)', () => {
     mockAuditState.clear();
     vi.clearAllMocks();
     mockGetWatchdogPid.mockReturnValue(null);
+    mockGetWatchdogProcessTarget.mockReturnValue(null);
     mockIsWatchdogAlive.mockReturnValue(false);
+    mockFindProcesses.mockReturnValue([]);
+    mockIsAlive.mockReturnValue(false);
+    mockIsPidArgvMatching.mockReturnValue(true);
+    mockKill.mockImplementation(() => {});
   });
 
   it('PID file missing and pgrep finds no process → reports not running', async () => {
@@ -123,7 +130,9 @@ describe('watchdog-cli stopCommand pgrep fallback (phase 804)', () => {
 
   it('PID file missing but pgrep finds watchdog → sends SIGTERM and stops', async () => {
     mockFindProcesses.mockReturnValue([7777]);
-    mockIsAlive.mockReturnValue(false);
+    mockIsAlive.mockReturnValue(false)
+      .mockReturnValueOnce(true)  // fallback identity observation
+      .mockReturnValueOnce(true); // termination pre-signal observation
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await stopCommand(fsFactory);
@@ -155,15 +164,48 @@ describe('watchdog-cli stopCommand pgrep fallback (phase 804)', () => {
     consoleSpy.mockRestore();
   });
 
-  it('PID file missing, pgrep throws → conservative not running', async () => {
+  it('confirmation timeout rejects without claiming stopped or removing legacy evidence', async () => {
+    mockFindProcesses.mockReturnValue([8888]);
+    mockIsAlive.mockReturnValue(true);
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(stopCommand(fsFactory)).rejects.toThrow(/stop was not confirmed/);
+
+    expect(consoleSpy).not.toHaveBeenCalledWith('Watchdog stopped');
+    expect(mockRemoveWatchdogPid).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('permission-denied observation rejects without issuing a signal', async () => {
+    mockFindProcesses.mockReturnValue([8888]);
+    const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(stopCommand(fsFactory, {
+      observeProcessTarget: () => ({
+        kind: 'unknown', reason: 'permission_denied', error: permission,
+        evidence: { version: 1, atMs: 0, facts: [] },
+      }),
+    })).rejects.toThrow(/stop was not confirmed/);
+
+    expect(consoleSpy).not.toHaveBeenCalledWith('Watchdog stopped');
+    expect(mockKill).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('PID file missing, pgrep throws → indeterminate failure, never a stopped claim', async () => {
     mockFindProcesses.mockImplementation(() => {
       throw new Error('pgrep unavailable');
     });
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await stopCommand(fsFactory);
+    await expect(stopCommand(fsFactory)).rejects.toThrow(/stop was not confirmed/);
 
-    expect(consoleSpy).toHaveBeenCalledWith('Watchdog is not running');
+    expect(consoleSpy).not.toHaveBeenCalledWith('Watchdog stopped');
     expect(mockKill).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });

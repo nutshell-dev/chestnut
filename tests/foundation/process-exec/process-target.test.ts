@@ -55,6 +55,21 @@ describe('typed process target observation', () => {
     });
     expect(result).toMatchObject({ kind: 'unknown', error: denied });
   });
+
+  it('keeps argv identity and argv permission failures distinct', () => {
+    expect(observeProcessTarget(
+      { pid: PID, argvToken: 'watchdog-entry' },
+      { legacyProbe: () => true, argvMatch: () => false },
+    )).toMatchObject({ kind: 'gone', reason: 'identity_changed' });
+
+    const denied = Object.assign(new Error('denied'), { code: 'EPERM' });
+    const result = observeProcessTarget(
+      { pid: PID, argvToken: 'watchdog-entry' },
+      { legacyProbe: () => true, argvMatch: () => { throw denied; } },
+    );
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied', error: denied });
+    expect(JSON.stringify(result.evidence)).toContain('legacy_argv_probe');
+  });
 });
 
 describe('typed process termination', () => {
@@ -99,6 +114,17 @@ describe('typed process termination', () => {
       observeTarget: () => observation('alive'),
     });
     expect(result).toMatchObject({ kind: 'indeterminate', stage: 'sigterm', error: failure });
+  });
+
+  it('does not signal a reused argv identity even with a legacy probe', async () => {
+    const signal = vi.fn();
+    const result = await terminateProcessTarget(
+      { pid: PID, argvToken: 'watchdog-entry' },
+      immediate,
+      { signal, legacyProbe: () => true, argvMatch: () => false },
+    );
+    expect(result).toMatchObject({ kind: 'gone', via: 'already_gone', termSent: false });
+    expect(signal).not.toHaveBeenCalled();
   });
 });
 

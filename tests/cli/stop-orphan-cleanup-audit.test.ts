@@ -26,6 +26,7 @@ const mockKill = vi.hoisted(() => vi.fn());
 const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
+const mockStopWatchdog = vi.hoisted(() => vi.fn());
 // phase 1879 Step D: stop.ts audit 创建经 actionAuditFor（无 scope 回落 createDirContext）——
 // mock 目标随创建点统一迁移（返回 { fs, audit } 形状）。
 const mockCreateDirContext = vi.hoisted(() => vi.fn(() => ({
@@ -72,11 +73,15 @@ vi.mock('../../src/watchdog/watchdog.js', () => ({
 // in unit tests we only care about stopAllCommand's own cleanup loop, so bypass sweep
 // to remove timing noise and cross-test side effects.
 vi.mock('../../src/watchdog/orphan-sweep.js', () => ({
-  sweepOrphanWatchdogs: vi.fn().mockResolvedValue([]),
+  sweepOrphanWatchdogs: vi.fn().mockResolvedValue({ kind: 'clear', killed: [], skipped: [], failures: [] }),
 }));
 
 vi.mock('../../src/cli/commands/motion.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../src/watchdog/watchdog-control.js', () => ({
+  stopWatchdog: mockStopWatchdog,
 }));
 
 // phase 880 Step C: shrink stopProcess polling grace so tests don't spend 7s each
@@ -136,6 +141,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     mockFindProcesses.mockReset().mockReturnValue([99991, 99992]);
     mockIsAlive.mockReset().mockReturnValue(false);
     mockIsPidArgvMatching.mockReset().mockReturnValue(true);
+    mockStopWatchdog.mockReset().mockResolvedValue({ kind: 'not_running', reason: 'no_process' });
     mockCreateDirContext.mockReset().mockImplementation(() => ({
       fs: {},
       audit: {

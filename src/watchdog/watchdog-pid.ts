@@ -6,9 +6,19 @@
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { getChestnutFs } from './watchdog-context.js';
-import { isAlive, isPidArgvMatching } from '../foundation/process-exec/index.js';
+import type { ProcessTarget } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
+import {
+  _setPidArgvVerifierForTest,
+  observeWatchdogProcess,
+  watchdogProcessTarget,
+  WatchdogProcessObservationError,
+  type WatchdogProcessFact,
+} from './process-capabilities.js';
+import type { WatchdogProcessDeps } from './types.js';
+
+export { _setPidArgvVerifierForTest } from './process-capabilities.js';
 import {
   inspectActive,
   currentLegacyParentRoot,
@@ -16,38 +26,24 @@ import {
   type WatchdogOwnerRecord,
 } from './watchdog-ownership.js';
 
-/**
- * phase 346 B3 (review-2026-06-13): PID-reuse 防误判 helper。
- * isAlive(pid) 只测 PID 存在、PID-reuse 后会命中无关进程（shell / editor）；
- * 探活后必再验 argv 含 watchdog entry token 才能视为真 chestnut watchdog。
- */
-const WATCHDOG_ARGV_TOKEN = 'watchdog-entry';
-
-/**
- * phase 346 B3 test seam: tests mock process.kill so isAlive(假 PID)→true、但
- * 真 `ps -p 假PID` 返空→argv-verify 全 false。注入此 hook 让 test 旁路 argv 检
- * （仍保有 production code 的 PID-reuse 保护）。
- */
-let _pidArgvVerifierOverride: ((pid: number, token: string) => boolean) | null = null;
-export function _setPidArgvVerifierForTest(fn: ((pid: number, token: string) => boolean) | null): void {
-  _pidArgvVerifierOverride = fn;
-}
-function verifyArgv(pid: number, token: string): boolean {
-  if (_pidArgvVerifierOverride) return _pidArgvVerifierOverride(pid, token);
-  // 测试环境默认旁路（test 用 process.kill mock 让 isAlive(假 PID)→true、真
-  // ps 返空会令本守失败、破坏既有 test fixture）；测试新行为时显式 set override。
-  if (process.env.NODE_ENV === 'test') return true;
-  return isPidArgvMatching(pid, token);
+/** Ownership callers consume typed business facts; unknown is never reclaimable. */
+export function observeWatchdogOwner(
+  pid: number,
+  startTime?: string,
+  deps?: WatchdogProcessDeps,
+): WatchdogProcessFact {
+  return observeWatchdogProcess(pid, startTime, deps);
 }
 
-function isLiveChestnutWatchdog(pid: number): boolean {
-  if (!isAlive(pid)) return false;
-  return verifyArgv(pid, WATCHDOG_ARGV_TOKEN);
+function isLiveChestnutWatchdog(pid: number, startTime?: string): boolean {
+  const fact = observeWatchdogOwner(pid, startTime);
+  if (fact.kind === 'indeterminate') throw new WatchdogProcessObservationError(fact);
+  return fact.kind === 'owner_active';
 }
 
-/** Phase 1203 Step B: ownership reclaim 共用的判活（isAlive + argv verify） */
-export function isWatchdogProcessAlive(pid: number): boolean {
-  return isLiveChestnutWatchdog(pid);
+/** Backward-compatible boolean projection; indeterminate observations fail loud. */
+export function isWatchdogProcessAlive(pid: number, startTime?: string): boolean {
+  return isLiveChestnutWatchdog(pid, startTime);
 }
 
 function auditMalformedActiveQuery(ctx: string, cause: unknown): void {
@@ -120,6 +116,23 @@ export function getWatchdogPid(fsFactory: (baseDir: string) => FileSystem): numb
   return getLegacyWatchdogPid(fsFactory);
 }
 
+/** Resolve the persisted identity for Watchdog's control entry, not for CLI OS queries. */
+export function getWatchdogProcessTarget(
+  fsFactory: (baseDir: string) => FileSystem,
+): ProcessTarget | null {
+  const fs = getChestnutFs(fsFactory);
+  const inspection = inspectActive(fs);
+  if (inspection.status === 'ok') {
+    return watchdogProcessTarget(inspection.owner.pid, inspection.owner.process_start_time);
+  }
+  if (inspection.status === 'malformed') {
+    auditMalformedActiveQuery('control_target_query', inspection.cause);
+    throw new Error(`Cannot stop watchdog with malformed active owner: ${formatErr(inspection.cause)}`);
+  }
+  const pid = getLegacyWatchdogPid(fsFactory);
+  return pid === null ? null : watchdogProcessTarget(pid);
+}
+
 function getLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSystem): number | null {
   try {
     const fs = getChestnutFs(fsFactory);
@@ -170,6 +183,7 @@ type LegacyPidDisposition =
   | { kind: 'live'; pid: number }
   | { kind: 'foreign_live'; pid: number; root: string }
   | { kind: 'migrated' }
+  | { kind: 'indeterminate'; cause: unknown }
   | { kind: 'unreadable'; cause: unknown };
 
 /**
@@ -210,15 +224,15 @@ export function disposLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSyst
   }
   // Phase 1930 Step B：磁盘 root 语义是实例父目录，经 ownership owner 的私有适配
   // 转成实例身份再比较（相对历史记录 fail-closed，不猜当前 cwd）。
+  const fact = observeWatchdogOwner(parsed.pid);
+  if (fact.kind === 'indeterminate') return { kind: 'indeterminate', cause: fact.observation };
   if (!legacyParentMatchesInstance(parsed.root)) {
-    if (isLiveChestnutWatchdog(parsed.pid)) {
+    if (fact.kind === 'owner_active') {
       return { kind: 'foreign_live', pid: parsed.pid, root: parsed.root };
     }
     return migrateDeadLegacyPid(fsFactory, parsed.pid, parsed.root);
   }
-  if (isLiveChestnutWatchdog(parsed.pid)) {
-    return { kind: 'live', pid: parsed.pid };
-  }
+  if (fact.kind === 'owner_active') return { kind: 'live', pid: parsed.pid };
   // dead 或 PID-reuse（argv 不符 = 进程位被无关进程占用）
   return migrateDeadLegacyPid(fsFactory, parsed.pid, parsed.root);
 }
@@ -271,7 +285,7 @@ export function isWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boo
 function isActiveOwnerAlive(owner: WatchdogOwnerRecord): boolean {
   const currentRoot = currentLegacyParentRoot();
   if (!legacyParentMatchesInstance(owner.workspace_root)) {
-    if (isLiveChestnutWatchdog(owner.pid)) {
+    if (isLiveChestnutWatchdog(owner.pid, owner.process_start_time)) {
       const auditWriter = getAuditWriter();
       auditWriter?.write(
         WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
@@ -284,7 +298,7 @@ function isActiveOwnerAlive(owner: WatchdogOwnerRecord): boolean {
     // foreign owner 已死：不删 active（目录 authority、recovery 走 retire），仅报死
     return false;
   }
-  return isLiveChestnutWatchdog(owner.pid);
+  return isLiveChestnutWatchdog(owner.pid, owner.process_start_time);
 }
 
 function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boolean {
@@ -317,12 +331,12 @@ function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): bool
     return false;
   }
   const currentRoot = currentLegacyParentRoot();
+  const fact = observeWatchdogOwner(parsed.pid);
+  if (fact.kind === 'indeterminate') throw new WatchdogProcessObservationError(fact);
   if (!legacyParentMatchesInstance(parsed.root)) {
-    // phase 346 B3: PID-reuse 防误判 — 不光测 isAlive、还得验 argv 是 chestnut watchdog
-    const stillAlive = isLiveChestnutWatchdog(parsed.pid);
     const auditWriter = getAuditWriter();
-    // 候选 D: foreign pid 已死（或被 OS 重用给无关进程）→ 自动清 stale (audit + remove + return false 放行 spawn)
-    if (!stillAlive) {
+    // foreign pid 已死（或被 OS 重用给无关进程）→ 清 stale；unknown 已在上方 fail-closed。
+    if (fact.kind === 'reclaimable') {
       auditWriter?.write(
         WATCHDOG_AUDIT_EVENTS.PID_STALE_AUTO_CLEANED,
         `foreign_pid=${parsed.pid}`,
@@ -332,7 +346,6 @@ function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): bool
       removeWatchdogPid(fsFactory);
       return false;
     }
-    // foreign 活 → audit + throw（不删 + 不放行 spawn / user 需 cd + chestnut stop）
     auditWriter?.write(
       WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
       `foreign_pid=${parsed.pid}`,
@@ -341,20 +354,14 @@ function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): bool
     );
     throw new WatchdogPidForeignWorkspaceError(parsed.pid, parsed.root, currentRoot);
   }
-  // phase 346 B3: 同 workspace 也用 argv-verify、防 PID-reuse 后误报本 workspace watchdog 还活
-  // 注意：单次 isAlive() = 单次 process.kill(pid,0)、避免 spec test mock 计数偏差。
-  const alive = isAlive(parsed.pid);
-  if (!alive) return false;
-  if (!verifyArgv(parsed.pid, WATCHDOG_ARGV_TOKEN)) {
-    const auditWriter = getAuditWriter();
-    auditWriter?.write(
+  if (fact.kind === 'reclaimable' && fact.reason === 'identity_changed') {
+    getAuditWriter()?.write(
       WATCHDOG_AUDIT_EVENTS.PID_REUSE_DETECTED,
       `pid=${parsed.pid}`,
       `root=${parsed.root}`,
       `context=isWatchdogAlive`,
     );
     removeWatchdogPid(fsFactory);
-    return false;
   }
-  return true;
+  return fact.kind === 'owner_active';
 }
