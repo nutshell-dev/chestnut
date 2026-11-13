@@ -122,7 +122,22 @@ describe('runtime reactive trim+retry path', () => {
       return { finalText: 'ok', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
 
+    const meter = {
+      descriptor: {
+        revision: 'phase2138-reactive', provider: 'test', model: 'test', api: 'test',
+        contextWindow: 1_000, profile: 'legacy-cl100k-v2',
+      },
+      capability: {
+        kind: 'message_additive' as const,
+        measureFixed: () => 0,
+        measureMessage: () => 1,
+      },
+      measure: vi.fn(() => ({ kind: 'counted' as const, tokens: 100, method: 'deepseek-v41-template' as const })),
+    };
     const runtime = await makeRuntime();
+    const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available', meter,
+    });
     await writePendingMsg('m1');
     const capture = captureStreamEvents();
     const loop = createTestEventLoop({
@@ -138,7 +153,14 @@ describe('runtime reactive trim+retry path', () => {
     expect(trimSpy).toHaveBeenCalledTimes(1);
     expect(trimSpy).toHaveBeenCalledWith(expect.objectContaining({
       triggerKind: 'reactive_overflow',
+      measurementCapability: meter.capability,
+      measurementDescriptor: meter.descriptor,
     }));
+    expect(prepare).toHaveBeenCalledWith({ kind: 'failure', error: expect.any(LLMContextExceededError) });
+    const trimInputs = trimSpy.mock.calls[0][0];
+    expect(trimInputs.measureComplete?.([])).toEqual({
+      kind: 'counted', tokens: 100, method: 'deepseek-v41-template',
+    });
     // Phase 1978: trim 成功 → 恰好一条 retry 事件（无 blocked）
     const trimEvents = capture.events.filter(e => String(e.type).startsWith('context_trim_'));
     expect(trimEvents).toHaveLength(1);

@@ -10,7 +10,9 @@ import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { InboxMessage, InboxHandle } from '../../../src/foundation/messaging/types.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
-import { CACHE_TTL_MS } from '../../../src/core/context_manager/constants.js';
+import { CACHE_TTL_MS, CONTEXT_TRIM_RECENT_WINDOW_MS } from '../../../src/core/context_manager/constants.js';
+import { CONTEXT_TRIM_COMPLETED } from '../../../src/core/context_manager/audit-events.js';
+import { estimateMessagesTokens, estimateTextTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
 import { createMockLLMConfig } from '../_runtime-test-helpers.js';
@@ -267,5 +269,56 @@ describe('runtime proactive trim integration', () => {
         }),
       }),
     );
+  });
+
+  it('routes a prepared additive meter through the real Runtime-to-trimV2 chain', async () => {
+    const runtime = await makeRuntime(true);
+    const measureMessage = vi.fn((message: Message) => estimateMessagesTokens([message]));
+    const meter = {
+      descriptor: {
+        revision: 'phase2138-runtime', provider: 'test', model: 'test', api: 'test',
+        contextWindow: 1_000, profile: 'legacy-cl100k-v2',
+      },
+      capability: {
+        kind: 'message_additive' as const,
+        measureFixed: () => estimateTextTokens('sys'),
+        measureMessage,
+      },
+      measure: vi.fn((input: { messages: readonly Message[] }) => ({
+        kind: 'estimated' as const,
+        tokens: estimateTextTokens('sys') + estimateMessagesTokens(input.messages),
+        method: 'legacy-cl100k' as const,
+        reason: 'baseline',
+      })),
+    };
+    const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available', meter,
+    });
+    const audit = vi.spyOn(runtime.getAuditWriter(), 'write');
+    const now = Date.now();
+    const messages: Message[] = [];
+    for (let i = 0; i < 6; i++) {
+      const addedAt = new Date(now - CONTEXT_TRIM_RECENT_WINDOW_MS - 100 + i).toISOString();
+      messages.push({ role: 'user', content: `old request ${i}`, addedAt });
+      messages.push({
+        role: 'assistant',
+        content: [{ type: 'text', text: `assistant ${i} ${'测'.repeat(400)}` }],
+        addedAt,
+      });
+    }
+    messages.push({ role: 'user', content: 'recent', addedAt: new Date(now).toISOString() });
+    (runtime as any).lastLLMCallAt = now - CACHE_TTL_MS - 1_000;
+
+    const trimmed = await runtime.proactiveTrimIfNeeded(messages, 'sys', []);
+
+    expect(prepare).toHaveBeenCalledWith({ kind: 'preview' });
+    expect(meter.measure).not.toHaveBeenCalled();
+    expect(measureMessage).toHaveBeenCalled();
+    expect(trimmed).not.toEqual(messages);
+    expect(trimmed.some(message => message.systemSubtype === 'context_trim_summary')).toBe(true);
+    const completed = audit.mock.calls.filter(([event]) => event === CONTEXT_TRIM_COMPLETED);
+    expect(completed).toHaveLength(2);
+    expect(completed.every(([, ...details]) => details.includes('token_count_mode=message_ledger'))).toBe(true);
+    expect(completed.every(([, ...details]) => details.includes('token_count_full_candidate_scans=0'))).toBe(true);
   });
 });

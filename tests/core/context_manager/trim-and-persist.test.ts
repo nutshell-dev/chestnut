@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { trimAndPersist, type TriggerKind } from '../../../src/core/context_manager/trim-and-persist.js';
-import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from '../../../src/core/context_manager/audit-events.js';
+import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_COMPLETED, CONTEXT_TRIM_FAILED } from '../../../src/core/context_manager/audit-events.js';
 import { ContextTrimPersistError } from '../../../src/core/context_manager/errors.js';
 import {
   buildProactiveTrimPolicy,
@@ -8,6 +8,7 @@ import {
 } from '../../../src/core/context_manager/trim-v2.js';
 import * as trimV2Module from '../../../src/core/context_manager/trim-v2.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import { estimateMessagesTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import { DialogStore as RealDialogStore } from '../../../src/foundation/dialog-store/store.js';
@@ -334,5 +335,75 @@ describe('trimAndPersist', () => {
     const summary = result.newMessages.find(m => m.systemSubtype === 'context_trim_summary');
     expect(summary).toBeDefined();
     expect(summary!.addedAt).toBe(new Date(NOW).toISOString());
+  });
+});
+
+
+describe('trimAndPersist additive measurement lifecycle (phase 2138)', () => {
+  it('rebuilds the additive ledger for both trims after blockId assignment', async () => {
+    const realTrimV2 = trimV2Module.trimV2;
+    const trimSpy = vi.spyOn(trimV2Module, 'trimV2').mockImplementation(realTrimV2);
+    const audit = makeAudit();
+    let saveCalls = 0;
+    const store = makeDialogStore({
+      save: async () => {
+        saveCalls++;
+        return {
+          blockIndexPersisted: true,
+          assignedBlockIds: saveCalls === 1
+            ? [{ messageIndex: 0, blockIndex: 0, blockId: 'phase2138-assigned-block', shortId: 'phase2138' }]
+            : [],
+        };
+      },
+    });
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: `assistant ${'测'.repeat(400)}` }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+      { role: 'user', content: 'recent', addedAt: new Date(NOW).toISOString() },
+    ];
+    const measureFixed = vi.fn(() => 0);
+    const measureMessage = vi.fn((message: Message) => estimateMessagesTokens([message]));
+    const measureComplete = vi.fn((candidate: readonly Message[]) => ({
+      kind: 'estimated' as const,
+      tokens: estimateMessagesTokens(candidate),
+      method: 'legacy-cl100k' as const,
+      reason: 'baseline',
+    }));
+    const measurementCapability = { kind: 'message_additive' as const, measureFixed, measureMessage };
+
+    try {
+      const result = await trimAndPersist(baseInputs({
+        messages,
+        dialogStore: store,
+        audit,
+        policy: buildProactiveTrimPolicy(200),
+        measurementCapability,
+        measureComplete,
+      }));
+
+      expect(result.archived).toBe(true);
+      expect(trimSpy).toHaveBeenCalledTimes(2);
+      expect(trimSpy.mock.calls[0][1].measurementCapability).toBe(measurementCapability);
+      expect(trimSpy.mock.calls[1][1].measurementCapability).toBe(measurementCapability);
+      const secondTrimMessages = trimSpy.mock.calls[1][0];
+      expect(secondTrimMessages[0].content).toEqual([
+        expect.objectContaining({ type: 'text', blockId: 'phase2138-assigned-block' }),
+      ]);
+      const measuredBlockIds = measureMessage.mock.calls.flatMap(([message]) =>
+        typeof message.content === 'string' ? [] : message.content.map(block => block.blockId));
+      expect(measuredBlockIds).toContain('phase2138-assigned-block');
+      expect(measureComplete).not.toHaveBeenCalled();
+      expect(store.save).toHaveBeenCalledTimes(2);
+      expect(store.archive).toHaveBeenCalledTimes(1);
+      expect(result.newMessages).toEqual((store.save as ReturnType<typeof vi.fn>).mock.calls[1][0].messages);
+      const completed = audit.events.filter(([event]) => event === CONTEXT_TRIM_COMPLETED);
+      expect(completed).toHaveLength(2);
+      expect(completed.every(event => event.includes('token_count_mode=message_ledger'))).toBe(true);
+    } finally {
+      trimSpy.mockRestore();
+    }
   });
 });
