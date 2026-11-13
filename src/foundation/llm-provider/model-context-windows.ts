@@ -12,7 +12,7 @@
  *   2. 同名 model 有多组值 → exact `(provider id, model id)` 精确命中消歧；否则经
  *      PRESETS.piAiProvider/catalogProvider 别名命中（Phase 1975 metadata-only 映射）；
  *   3. 仍无法消歧 → 保守最小值（避免超限请求）；
- *   4. 目录未命中 → 既有启发式（默认 256K + 子串特判 1M）。
+ *   4. 目录未命中 → 既有启发式（默认 256K + 后缀/模型族特判 1M）。
  *
  * 注：本表是各 provider model 的 context window 字面值、不是裁剪相关业务字面；
  * 归 L1 LLMProvider、非 L4 ContextManager。快照与上游版本的漂移有测试门禁
@@ -30,13 +30,37 @@ const DEFAULT_MODEL_CONTEXT_WINDOW = 256_000;
  * phase 684 立：用子串特判替代具体 model 名映射、避免表 stale（model 命名快速演进）。
  * 大小写敏感（按用户拍板的字面值匹配）。
  */
-const MILLION_TOKEN_PATTERNS: readonly string[] = [
-  'claude',
-  'gemini',
-  'deepseek-v4',
-  'glm-5',
-  'MiniMax-M3',
+const MILLION_TOKEN_PATTERNS: readonly string[] = ['claude', 'gemini', 'deepseek-v4'] as const;
+
+/** Phase 2144：版本阈值按数字段比较，模型族前缀和版本后的边界必须明确。 */
+const MILLION_MODEL_VERSION_RULES = [
+  { prefix: 'doubao-seed-', minimumMajor: 2, minimumMinor: 1 },
+  { prefix: 'kimi-k', minimumMajor: 3, minimumMinor: 0 },
+  { prefix: 'glm-', minimumMajor: 5, minimumMinor: 0 },
+  { prefix: 'MiniMax-M', minimumMajor: 3, minimumMinor: 0 },
 ] as const;
+
+function hasVersionAtLeast(
+  modelName: string,
+  prefix: string,
+  minimumMajor: number,
+  minimumMinor: number,
+): boolean {
+  if (!modelName.startsWith(prefix)) return false;
+  const match = /^(\d+)(?:\.(\d+))?(?:\.\d+)*(?:-|$)/.exec(modelName.slice(prefix.length));
+  if (!match) return false;
+
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return major > minimumMajor || (major === minimumMajor && minor >= minimumMinor);
+}
+
+function matchesMillionModelFamily(modelName: string): boolean {
+  if (/^deepseek-flash(?:-|$)/.test(modelName)) return true;
+  return MILLION_MODEL_VERSION_RULES.some((rule) =>
+    hasVersionAtLeast(modelName, rule.prefix, rule.minimumMajor, rule.minimumMinor),
+  );
+}
 
 /**
  * Phase 1977：model id → 目录中出现的 contextWindow 集合。
@@ -97,9 +121,11 @@ export function resolveContextWindow(
     return Math.min(...windows);
   }
 
-  // 4) 目录未命中 → 既有启发式
+  // 4) 目录未命中 → 既有子串 + Phase 2144 显式后缀/模型族启发式
+  if (modelName.endsWith('[1m]')) return 1_000_000;
   for (const pattern of MILLION_TOKEN_PATTERNS) {
     if (modelName.includes(pattern)) return 1_000_000;
   }
+  if (matchesMillionModelFamily(modelName)) return 1_000_000;
   return DEFAULT_MODEL_CONTEXT_WINDOW;
 }

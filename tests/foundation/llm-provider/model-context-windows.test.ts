@@ -32,6 +32,12 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', ()
       // amazon-bedrock 的 claude-haiku 目录 200K；含 'claude' 子串但目录优先
       expect(resolveContextWindow('amazon-bedrock', 'anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(200_000);
     });
+
+    it('Phase 2144 模型族规则不覆盖目录已知值', () => {
+      expect(resolveContextWindow(undefined, 'kimi-k3')).toBe(1_048_576);
+      expect(resolveContextWindow(undefined, 'glm-5.1')).toBe(202_752);
+      expect(resolveContextWindow(undefined, 'glm-5.3-flash-free')).toBe(200_000);
+    });
   });
 
   describe('Phase 1977 模型优先（唯一目录值不依赖 provider label）', () => {
@@ -125,6 +131,63 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', ()
 
     it('returns 1M when multiple million-token substrings present', () => {
       expect(resolveContextWindow(undefined, 'hypothetical-claude-glm-5')).toBe(1_000_000);
+    });
+
+    describe('Phase 2144 显式后缀与模型族版本规则', () => {
+      it('deepseek-flash 及其结构化变体为 1M，相邻名称不误判', () => {
+        expect(resolveContextWindow(undefined, 'deepseek-flash')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'deepseek-flash-custom')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'deepseek-flash[1m]')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'deepseek-chat')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'deepseek-flashlight')).toBe(256_000);
+      });
+
+      it('doubao-seed 版本 >= 2.1 为 1M，按数字段比较', () => {
+        expect(resolveContextWindow(undefined, 'doubao-seed-2.1-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'doubao-seed-2.10-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'doubao-seed-3-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'doubao-seed-2.0-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'doubao-seed-2-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'doubao-seed-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'doubao-seed-2.1pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'other-doubao-seed-2.1-pro')).toBe(256_000);
+      });
+
+      it('kimi-k 主版本 >= 3 为 1M，两位数版本不按字典序比较', () => {
+        expect(resolveContextWindow(undefined, 'kimi-k3.1-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'kimi-k10-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'kimi-k2.10-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'kimi-k-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'kimi-k3x-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'other-kimi-k3.1-pro')).toBe(256_000);
+      });
+
+      it('glm 主版本 >= 5 为 1M，旧 glm-5 行为保留且边界收紧', () => {
+        expect(resolveContextWindow(undefined, 'glm-5.3')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'glm-5-chat')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'glm-6')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'glm-4.6')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'glm-5x')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'other-glm-6')).toBe(256_000);
+      });
+
+      it('MiniMax-M 主版本 >= 3 为 1M，保持大小写敏感', () => {
+        expect(resolveContextWindow(undefined, 'MiniMax-M3')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'MiniMax-M3-chat')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'MiniMax-M10')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'MiniMax-M2')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'MiniMax-M2.10')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'MiniMax-M3x')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'minimax-m3-custom')).toBe(256_000);
+      });
+
+      it('模型名末尾 [1m] 显式声明 1M，中间或错误后缀不生效', () => {
+        expect(resolveContextWindow(undefined, 'unknown-model[1m]')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'kimi-k2.9-custom[1m]')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'unknown-model[1m]-preview')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'unknown-model[1M]')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'unknown-model1m')).toBe(256_000);
+      });
     });
 
     it('provider 已知但 model 不在目录 → 启发式（目录未命中兜底）', () => {
