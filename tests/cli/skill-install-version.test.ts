@@ -77,6 +77,8 @@ function clawClaimPath(id: string): string {
 function killHolder(claimFile: string): void {
   const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
   claim.pid = 99999;
+  delete claim.holder;
+  delete claim.holder_observation;
   delete claim.process_start_time;
   fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
 }

@@ -21,6 +21,10 @@ import * as path from 'path';
 import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/commands/skill.js';
 import { SkillSystem, SKILL_PUBLISH_MARKER, SKILL_COMMIT_PROOF, createSkillVersions } from '../../src/foundation/skill-system/index.js';
 import { VersionStoreError } from '../../src/foundation/snapshot/index.js';
+import {
+  decodeProcessRef,
+  inspectProcessRef,
+} from '../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { makeAudit } from '../helpers/audit.js';
@@ -246,6 +250,8 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', { tim
     // 模拟 holder 进程死亡（崩溃后 pid 不复存在）
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
 
@@ -263,6 +269,8 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', { tim
     ).rejects.toThrow();
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
 
     // 不同版本源重试 → 冲突，claim 证据保留，dispatch 未发布（无固定版本）
@@ -292,6 +300,83 @@ describe('skill install multi-root consistent commit (phase 1911 Step G)', { tim
     await skillInstallClawCommand(deps, 'bob', 'myskill');
     expect(readVersion(clawSkill)).toBe('# myskill v2\n');
     expect(fs.existsSync(path.join(clawSkill, 'run.sh'))).toBe(true); // 同源快照整体替换
+  });
+});
+
+
+describe('skill install ProcessRef holder migration (Phase 2136)', { timeout: WORKFLOW_TEST_TIMEOUT_MS }, () => {
+  it('persists and observes a live v1 holder without rewriting the claim', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
+    ).rejects.toThrow(/simulated crash/);
+    const raw = fs.readFileSync(claimPath(), 'utf8');
+    const claim = JSON.parse(raw);
+    expect(claim.holder).toMatchObject({ version: 1, capture: { kind: 'captured' } });
+    expect(claim.process_start_time).toBeUndefined();
+    const decoded = decodeProcessRef(claim.holder.capture.value);
+    expect(decoded.kind, JSON.stringify(decoded)).toBe('decoded');
+    if (decoded.kind !== 'decoded') throw new Error('expected decoded holder');
+    expect(JSON.parse(decoded.value)).toMatchObject({ pid: process.pid });
+    expect(inspectProcessRef(decoded.value)).toMatchObject({ kind: 'alive' });
+
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(/observation=alive/);
+    expect(fs.readFileSync(claimPath(), 'utf8')).toBe(raw);
+  });
+
+  it.each(['invalid', 'foreign', 'envelope'] as const)('keeps a %s new holder fail-closed without legacy PID fallback', async mode => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
+    ).rejects.toThrow(/simulated crash/);
+    const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf8'));
+    claim.pid = 99999;
+    if (mode === 'invalid') {
+      claim.holder.capture.value = '{bad json';
+    } else if (mode === 'foreign') {
+      const reference = JSON.parse(claim.holder.capture.value);
+      reference.source.hostname = `foreign-${reference.source.hostname}`;
+      claim.holder.capture.value = JSON.stringify(reference);
+    } else {
+      claim.holder.capture = null;
+    }
+    const raw = JSON.stringify(claim, null, 2);
+    fs.writeFileSync(claimPath(), raw);
+
+    const expectedOutcome = mode === 'invalid'
+      ? /observation=invalid/
+      : mode === 'foreign' ? /observation=unknown/ : /observation=invalid_holder/;
+    await expect(skillInstallUserCommand(deps, src)).rejects.toThrow(expectedOutcome);
+    expect(fs.readFileSync(claimPath(), 'utf8')).toBe(raw);
+  });
+
+  it('persists legacy v0 gone evidence and one replacement capture before takeover', async () => {
+    const src = makeSkillSource('a', 'v1');
+    await expect(
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
+    ).rejects.toThrow(/simulated crash/);
+    const legacy = JSON.parse(fs.readFileSync(claimPath(), 'utf8'));
+    legacy.pid = 99999;
+    delete legacy.process_start_time;
+    delete legacy.holder;
+    delete legacy.holder_observation;
+    fs.writeFileSync(claimPath(), JSON.stringify(legacy, null, 2));
+
+    await expect(
+      skillInstallUserCommand(deps, src, { createSkillVersions: crashDispatchPublish() }),
+    ).rejects.toThrow(/simulated crash/);
+
+    const taken = JSON.parse(fs.readFileSync(claimPath(), 'utf8'));
+    expect(taken.holder_observation).toMatchObject({
+      raw: { version: 0, pid: 99999 },
+      decoded: { kind: 'decoded' },
+      observed: { kind: 'gone', reason: 'absent' },
+      decision: 'takeover',
+    });
+    expect(taken.holder).toMatchObject({ version: 1, capture: { kind: 'captured' } });
+    expect(JSON.parse(taken.holder.capture.value)).toMatchObject({ pid: process.pid });
+    expect(taken.process_start_time).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(taken))).toEqual(taken);
   });
 });
 
@@ -343,6 +428,8 @@ describe('skill 提交前可见性门控（Phase 1913 Step C：RACE-PUBLISH-PREC
     // 死 holder 同 payload 恢复 → 提交 → registry 注册完整版本（dispatch 由 import 补齐）
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
     await skillInstallUserCommand(deps, src);
@@ -414,6 +501,8 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
     // holder 死亡后恢复
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
 
@@ -447,6 +536,8 @@ describe('skill target-local 独立提交与恢复（Phase 1915 Step B：RACE-SK
     // 死 holder 恢复后 dispatch 独立补齐
     const claim = JSON.parse(fs.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
     await skillInstallUserCommand(deps, src);
@@ -468,6 +559,8 @@ describe('dispatch source snapshot（Phase 1915 Step C：RACE-DISPATCH-SOURCE-SN
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }
@@ -688,6 +781,8 @@ describe('target recovery 占有证据（Phase 1916 Step C：RACE-SKILL-RECOVERY
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }
@@ -892,6 +987,8 @@ describe('committing absent 目标身份（Phase 1916 Step C follow-up：RACE-SK
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }
@@ -1033,6 +1130,8 @@ describe('source snapshot 生命周期清理（Phase 1916 Step D：HYGIENE-SKILL
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }
@@ -1133,6 +1232,8 @@ describe('commit proof 清理恢复责任（Phase 2072：HYGIENE-SKILL-COMMIT-PR
   function killHolder(claimFile = claimPath()): void {
     const claim = JSON.parse(fs.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fs.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }

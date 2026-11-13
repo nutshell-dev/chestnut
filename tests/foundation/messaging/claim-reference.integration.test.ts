@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
 import { OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
 import type { ClaimDescriptor } from '../../../src/foundation/messaging/claim-record.js';
+import type { ClaimRecord } from '../../../src/foundation/messaging/claim-observation-store.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -279,6 +280,25 @@ function descriptorFrom(ready: ReadyFile, channel: Channel): ClaimDescriptor {
   return descriptor;
 }
 
+function observationRecords(channel: Channel): ClaimRecord[] {
+  const observationRoot = `${dirs(channel).inflightDir}-observations`;
+  if (!fs.existsSync(observationRoot)) return [];
+  const records: ClaimRecord[] = [];
+  const attempts = fs.readdirSync(observationRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const attempt of attempts) {
+    const attemptDir = path.join(observationRoot, attempt.name);
+    const names = fs.readdirSync(attemptDir)
+      .filter(name => /^\d+\.json$/.test(name))
+      .sort((left, right) => parseInt(left, 10) - parseInt(right, 10));
+    for (const name of names) {
+      records.push(JSON.parse(fs.readFileSync(path.join(attemptDir, name), 'utf8')) as ClaimRecord);
+    }
+  }
+  return records;
+}
+
 beforeAll(async () => {
   bundleDir = await createTrackedTempDir('messaging-claim-reference-build-');
   const fixtureSourcePath = path.join(bundleDir, 'claim-holder.ts');
@@ -368,6 +388,14 @@ describe('Messaging mclaim real process reference', () => {
     expect(mdFiles(layout.inflightDir)).toEqual([ready.claimName]);
     expect(fs.readFileSync(claimPath)).toEqual(messageBytes);
     expect(fs.readFileSync(ready.recordPath, 'utf8')).toBe(ready.recordRaw);
+    const liveRecords = observationRecords(channel);
+    expect(liveRecords.map(record => record.event)).toEqual(['process_observed', 'decision']);
+    expect(liveRecords[0].process).toMatchObject({
+      decoded: { kind: 'decoded', value: descriptor.capture.value },
+      observed: { kind: 'alive' },
+    });
+    expect(liveRecords[1]).toMatchObject({ decision: { kind: 'retain', reason: 'alive' } });
+    expect(liveRecords[1].process).toStrictEqual(liveRecords[0].process);
 
     releaseHolder(holder);
     await holder.done;
@@ -383,5 +411,26 @@ describe('Messaging mclaim real process reference', () => {
     expect(fs.readFileSync(path.join(layout.pendingDir, ORIGINAL_NAME))).toEqual(messageBytes);
     expect(fs.readFileSync(ready.recordPath, 'utf8')).toBe(ready.recordRaw);
     expect(descriptorFrom(ready, channel)).toEqual(descriptor);
+    const allRecords = observationRecords(channel);
+    const goneObservation = allRecords.find(record =>
+      record.event === 'process_observed' && record.process?.observed?.kind === 'gone');
+    expect(goneObservation, JSON.stringify(allRecords)).toBeDefined();
+    expect(goneObservation?.process).toMatchObject({
+      decoded: { kind: 'decoded', value: descriptor.capture.value },
+      observed: { kind: 'gone', reason: 'absent' },
+    });
+    const reclaimDecision = allRecords.find(record =>
+      record.event === 'decision' && record.attemptId === goneObservation?.attemptId);
+    expect(reclaimDecision, JSON.stringify(allRecords)).toMatchObject({
+      event: 'decision',
+      decision: { kind: 'reclaim', reason: 'process_gone' },
+    });
+    expect(reclaimDecision?.process).toStrictEqual(goneObservation?.process);
+    expect(allRecords).toHaveLength(4);
+    expect(allRecords).toEqual(expect.arrayContaining([
+      ...liveRecords,
+      goneObservation!,
+      reclaimDecision!,
+    ]));
   }, 60_000);
 });

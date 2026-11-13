@@ -166,6 +166,8 @@ describe.skipIf(!gitAvailable)('skill install 事务入实例（Phase 1930 Step 
     // holder 判死（崩溃进程 pid 已不存在），真实 CLI 恢复
     const claim = JSON.parse(fsSync.readFileSync(claimPath(), 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fsSync.writeFileSync(claimPath(), JSON.stringify(claim, null, 2));
 

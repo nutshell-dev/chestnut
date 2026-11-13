@@ -29,6 +29,7 @@ export { getProcessStartTime, makeProcessStartTime } from './process-starttime.j
 export type { ProcessStartTime } from './process-starttime.js';
 export {
   captureCurrentProcessRef,
+  captureOwnedProcessRef,
   decodeProcessRef,
   inspectProcessRef,
 } from './process-reference.js';

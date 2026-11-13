@@ -241,16 +241,19 @@ export function decodeProcessRef(raw: unknown): ProcessRefDecode {
   return decoded;
 }
 
-/** Capture only the current process; arbitrary PID capture is intentionally absent. */
-export function captureCurrentProcessRef(): ProcessRefCapture {
+/**
+ * Capture a child created and owned by the caller. This binds the observed
+ * identity; it does not prove ownership or authorize signalling the process.
+ */
+export function captureOwnedProcessRef(pid: number): ProcessRefCapture {
   const atMs = Date.now();
-  const pid = process.pid;
   const facts: unknown[] = [{ operation: 'capture', outcome: 'start', pid }];
   const finishUnknown = (reason: ProcessUnavailableReason): ProcessRefCapture => {
     appendDecision(facts, { kind: 'unknown', reason });
     return { kind: 'unknown', reason, evidence: encodeProcessEvidence(atMs, facts) };
   };
 
+  if (!validPid(pid)) return finishUnknown('incomplete_data');
   const before = readContext('before', facts);
   if (before.kind === 'error') return finishUnknown('identity_unverifiable');
   const observation = observeProcess(pid);
@@ -284,6 +287,11 @@ export function captureCurrentProcessRef(): ProcessRefCapture {
   const value = JSON.stringify(internal) as ProcessRef;
   appendDecision(facts, { kind: 'captured', compatibility: 'v1', reference: internal });
   return { kind: 'captured', value, evidence: encodeProcessEvidence(atMs, facts) };
+}
+
+/** Capture the current process through the same evidence-preserving path. */
+export function captureCurrentProcessRef(): ProcessRefCapture {
+  return captureOwnedProcessRef(process.pid);
 }
 
 /**

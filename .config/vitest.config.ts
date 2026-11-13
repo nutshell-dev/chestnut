@@ -302,6 +302,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/cli/daemon.test.ts',
   'tests/cli/already-running-sentinel.test.ts',
   'tests/core/async-task-system/migrated-exec.test.ts',
+  // Phase 2136 Step B: real ContractSystem host-script success/failure/unsupported
+  'tests/core/contract/verification-execution-host-script.integration.test.ts',
   // phase 1069: real exec timeout integration test
   'tests/foundation/command-tool/exec-timeout.integration.test.ts',
   // phase 1203 Step D: real child watchdog ownership race

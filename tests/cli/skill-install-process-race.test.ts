@@ -17,6 +17,7 @@ import { skillInstallUserCommand } from '../../src/cli/commands/skill.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createSkillVersions, type SkillVersions } from '../../src/foundation/skill-system/index.js';
+import { decodeProcessRef, inspectProcessRef } from '../../src/foundation/process-exec/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
@@ -278,6 +279,12 @@ describe('Step B：同名本地安装跨进程竞争（真实 handler 子进程 
     const claimJson = JSON.parse(claimBeforeB);
     expect(claimJson.pid).toBe(acquired.pid);
     expect(claimJson.pid).toBe(a.proc.pid);
+    expect(claimJson.holder).toMatchObject({ version: 1, capture: { kind: 'captured' } });
+    const decodedHolder = decodeProcessRef(claimJson.holder.capture.value);
+    expect(decodedHolder.kind, JSON.stringify(decodedHolder)).toBe('decoded');
+    if (decodedHolder.kind !== 'decoded') throw new Error('expected a decoded skill holder');
+    expect(JSON.parse(decodedHolder.value)).toMatchObject({ pid: acquired.pid });
+    expect(inspectProcessRef(decodedHolder.value)).toMatchObject({ kind: 'alive' });
     expect(() => process.kill(acquired.pid, 0)).not.toThrow();
 
     // B：无 barrier，读 live holder 应冲突失败

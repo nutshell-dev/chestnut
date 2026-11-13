@@ -54,7 +54,14 @@ import {
 import { noopAuditLog } from '../../foundation/audit/index.js';
 import { getClawDir } from '../../foundation/claw-identity/index.js';
 import { newShortUuid, sha256Hex, formatErr } from '../../foundation/node-utils/index.js';
-import { isAlive, getProcessStartTime, makeProcessStartTime } from '../../foundation/process-exec/index.js';
+import {
+  captureCurrentProcessRef,
+  decodeProcessRef,
+  inspectProcessRef,
+  type ProcessRefCapture,
+  type ProcessRefDecode,
+  type ProcessRefObservation,
+} from '../../foundation/process-exec/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { CliError } from '../errors.js';
@@ -78,6 +85,19 @@ interface SkillSourceManifestEntry {
   sha256: string;
 }
 
+interface SkillInstallHolder {
+  version: 1;
+  capture: ProcessRefCapture;
+}
+
+interface SkillInstallHolderObservation {
+  raw: unknown;
+  capture?: ProcessRefCapture;
+  decoded?: ProcessRefDecode;
+  observed?: ProcessRefObservation;
+  decision: 'retain' | 'takeover';
+}
+
 interface SkillInstallIntent {
   // schema 2（Phase 1916 Step C）：+ id（稳定 install 身份，marker 占有证据）、
   // targets[].preState（崩溃前目标先态）、committing 状态与 commitBranch。
@@ -96,8 +116,13 @@ interface SkillInstallIntent {
   source: string;
   /** Phase 1919 Step F：安装 begin 选定的来源 commit（仅 schema 3 / claw 模式）。 */
   sourceVersion?: string;
+  /** Legacy display/mixed-version field; new identity decisions use holder only. */
   pid: number;
   process_start_time?: string;
+  /** Phase 2136: independent envelope; malformed new data never falls back to PID. */
+  holder?: SkillInstallHolder;
+  /** The preceding holder observation is persisted before takeover proceeds. */
+  holder_observation?: SkillInstallHolderObservation;
   startedAt: string;
   manifest: SkillSourceManifestEntry[];
   /** Phase 1915 Step C：source snapshot 目录名（claim 同级隐藏目录）= 本次安装的 source identity。 */
@@ -860,6 +885,7 @@ async function runSkillInstall(
   }
 
   if (!claimExisted) {
+    const holder = captureSkillInstallHolder();
     // ---- fresh：schema 3（pinned）先把来源 commit 持久化进 claim，再导出该
     // commit 的技能子树；schema 2（unpinned）先拍自一致快照再独占写 claim ----
     const token = newShortUuid();
@@ -897,7 +923,7 @@ async function runSkillInstall(
         source: opts.srcAbs,
         sourceVersion: pinned.version,
         pid: process.pid,
-        process_start_time: getProcessStartTime(process.pid),
+        holder,
         startedAt: new Date().toISOString(),
         manifest: [], // 导出登记前为空：恢复时按 sourceVersion 重导出补齐
         sourceSnapshot: snapName,
@@ -934,7 +960,7 @@ async function runSkillInstall(
         skillName: opts.skillName,
         source: opts.srcAbs,
         pid: process.pid,
-        process_start_time: getProcessStartTime(process.pid),
+        holder,
         startedAt: new Date().toISOString(),
         manifest,
         sourceSnapshot: snapName,
@@ -957,8 +983,8 @@ async function runSkillInstall(
   if (intent === undefined) {
     // claim 已存在：读 durable intent 判读 —— 活 holder 冲突；死 holder +
     // 同 source 恢复（快照身份核验在下方）；异 source 显式冲突留证。
-    // Phase 1929 Step E：holder 接管（readExistingInstallIntent 会改写 pid/
-    // start_time/token）之前先做只读支持性判定——不支持的旧布局/异源/未知
+    // Phase 1929 Step E：holder 接管（readExistingInstallIntent 会改写 holder/
+    // pid/token）之前先做只读支持性判定——不支持的旧布局/异源/未知
     // schema 事务零改写拒绝，原始 claim 字节保持。这覆盖「入口前检后其它进程
     // 创建旧 claim」的竞态窗口（此路径 factory 可能已装配，不谎称零调用，但
     // 旧 claim 必须零改写）。
@@ -1292,8 +1318,45 @@ function assertSupportedInstallIntent(
   }
 }
 
+function captureSkillInstallHolder(): SkillInstallHolder {
+  return { version: 1, capture: captureCurrentProcessRef() };
+}
+
+/** Preserve the complete holder facts and derive only the takeover decision. */
+function observeSkillInstallHolder(intent: SkillInstallIntent): SkillInstallHolderObservation {
+  const hasNewEnvelope = intent.holder !== undefined;
+  const raw: unknown = hasNewEnvelope
+    ? intent.holder
+    : {
+        version: 0,
+        pid: intent.pid,
+        ...(typeof intent.process_start_time === 'string'
+          ? { startTime: intent.process_start_time }
+          : {}),
+      };
+  const capture = hasNewEnvelope ? intent.holder?.capture : undefined;
+  if (hasNewEnvelope && (intent.holder?.version !== 1
+      || capture === undefined || typeof capture !== 'object' || capture === null)) {
+    return { raw, decision: 'retain' };
+  }
+  if (capture !== undefined && capture.kind !== 'captured') {
+    return { raw, capture, decision: 'retain' };
+  }
+
+  const decoded = decodeProcessRef(capture?.kind === 'captured' ? capture.value : raw);
+  if (decoded.kind !== 'decoded') return { raw, capture, decoded, decision: 'retain' };
+  const observed = inspectProcessRef(decoded.value);
+  return {
+    raw,
+    capture,
+    decoded,
+    observed,
+    decision: observed.kind === 'gone' ? 'takeover' : 'retain',
+  };
+}
+
 /**
- * 判读既有 claim：活 holder → in-progress 冲突；死 holder → 接管 holder 身份
+ * 判读既有 claim：活/unknown holder → in-progress 冲突；仅 gone holder → 接管身份
  * 后交调用方做 payload 判读（Phase 1915 Step C：持久快照在场时恢复不再依赖
  * live source 未变）；claim 不可读/不可解析 → 显式留证。
  * Phase 1929 Step E：调用方必须先经 probeInstallIntentReadonly +
@@ -1322,15 +1385,16 @@ function readExistingInstallIntent(
       `Skill "${skillName}" install claim is malformed: ${claimRel}; evidence preserved, remove it manually to retry`,
     );
   }
-  const holderAlive = typeof intent.pid === 'number'
-    ? isAlive(intent.pid, typeof intent.process_start_time === 'string' && intent.process_start_time !== ''
-      ? makeProcessStartTime(intent.process_start_time)
-      : undefined)
-    : true; // 无 pid 可探测 → 保守按存活冲突
-  if (holderAlive) {
+  const holderObservation = observeSkillInstallHolder(intent);
+  if (holderObservation.decision !== 'takeover') {
+    const outcome = holderObservation.observed?.kind
+      ?? holderObservation.decoded?.kind
+      ?? holderObservation.capture?.kind
+      ?? 'invalid_holder';
     throw new CliError(
-      `Skill "${skillName}" install already in progress (pid=${intent.pid}); ` +
-      `if it was interrupted, remove ${claimRel} and retry`,
+      `Skill "${skillName}" install already in progress or has an unverifiable holder `
+      + `(pid=${intent.pid}, observation=${outcome}); `
+      + `if it was interrupted, inspect ${claimRel} and its preserved evidence before retrying`,
     );
   }
   // holder 已证明死亡
@@ -1340,9 +1404,12 @@ function readExistingInstallIntent(
       `(claim: ${claimRel}, source: ${intent.source}); evidence preserved, remove it manually to retry`,
     );
   }
-  // 接管 holder 身份；payload 判读（source 路径 + 快照身份/generation）归调用方
+  // 先把旧 holder 的完整 gone 证据与新 capture 一起落盘，再允许调用方改写目标。
+  const holder = captureSkillInstallHolder();
+  intent.holder_observation = holderObservation;
+  intent.holder = holder;
   intent.pid = process.pid;
-  intent.process_start_time = getProcessStartTime(process.pid);
+  delete intent.process_start_time;
   intent.token = newShortUuid();
   claimFs.writeAtomicSync(claimRel, JSON.stringify(intent, null, 2));
   return intent;

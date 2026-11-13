@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   captureCurrentProcessRef,
+  captureOwnedProcessRef,
   decodeProcessRef,
   inspectProcessRef,
   type ProcessRef,
@@ -228,7 +229,23 @@ describe('v1 process reference observation', () => {
   });
 });
 
-describe('current process capture and source safety', () => {
+describe('process capture and source safety', () => {
+  it('captures an owned PID without granting signal authorization', () => {
+    const result = captureOwnedProcessRef(PID);
+    expect(result.kind).toBe('captured');
+    if (result.kind !== 'captured') throw new Error(JSON.stringify(result));
+    expect(JSON.parse(result.value)).toMatchObject({ version: 1, pid: PID, startTime: START });
+    expect(processObservation.observeProcess).toHaveBeenCalledExactlyOnceWith(PID);
+    expectJsonRoundTrip(result);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('rejects invalid owned PID %s before OS access', pid => {
+    const result = captureOwnedProcessRef(pid);
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'incomplete_data' });
+    expect(processObservation.observeProcess).not.toHaveBeenCalled();
+    expectJsonRoundTrip(result);
+  });
+
   it('captures a strict v1 reference only after matching before/after contexts', () => {
     const result = captureCurrentProcessRef();
     expect(result.kind).toBe('captured');

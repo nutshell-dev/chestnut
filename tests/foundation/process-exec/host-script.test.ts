@@ -8,6 +8,7 @@ import {
   ProcessExecError,
   UnsupportedHostScriptError,
 } from '../../../src/foundation/process-exec/errors.js';
+import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import {
   resolveHostScript,
   resolveHostScriptForPlatform,
@@ -104,5 +105,58 @@ describe('ProcessExec host script resolution (phase 2066)', () => {
     expect(source).not.toContain('resolveHostScript');
     expect(source).not.toContain('UnsupportedHostScriptError');
     expect(source).not.toContain("platform === 'win32'");
+  });
+});
+
+const hostExtensions = process.platform === 'win32' ? ['.cmd', '.bat'] : ['.sh'];
+
+function writeRealScript(directory: string, extension: string, exitCode: number, marker: string): string {
+  const scriptPath = path.join(directory, `verify contract${extension}`);
+  const source = process.platform === 'win32'
+    ? `@echo off\r\necho ${marker}\r\nexit /b ${exitCode}\r\n`
+    : `#!/bin/sh\nprintf '%s\\n' '${marker}'\nexit ${exitCode}\n`;
+  fs.writeFileSync(scriptPath, source, { mode: 0o644 });
+  return scriptPath;
+}
+
+describe(`real ${process.platform} host script execution`, () => {
+  it.each(hostExtensions)('executes %s successfully from a spaced Unicode and shell-metacharacter path', async extension => {
+    const tempDir = await createTrackedTempDir('host-script-real-');
+    try {
+      const scriptDir = path.join(tempDir, 'contract work', '验收 & 100%!');
+      fs.mkdirSync(scriptDir, { recursive: true });
+      const scriptPath = writeRealScript(scriptDir, extension, 0, 'HOST_SCRIPT_SUCCESS');
+      const resolved = resolveHostScript(scriptPath);
+
+      const result = await processExec.exec(resolved.executable, resolved.args, {});
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('HOST_SCRIPT_SUCCESS');
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+
+  it.each(hostExtensions)('preserves the complete non-zero exit and output for %s', async extension => {
+    const tempDir = await createTrackedTempDir('host-script-real-');
+    try {
+      const scriptDir = path.join(tempDir, 'contract work', '验收 & 100%!');
+      fs.mkdirSync(scriptDir, { recursive: true });
+      const scriptPath = writeRealScript(scriptDir, extension, 7, 'HOST_SCRIPT_NONZERO');
+      const resolved = resolveHostScript(scriptPath);
+
+      const error = await processExec.exec(resolved.executable, resolved.args, {}).then(
+        () => { throw new Error('expected non-zero script exit'); },
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(ProcessExecError);
+      const execError = error as ProcessExecError;
+      expect(execError.exitCode).toBe(7);
+      expect(execError.killed).toBe(false);
+      expect(execError.output).toContain('HOST_SCRIPT_NONZERO');
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
   });
 });

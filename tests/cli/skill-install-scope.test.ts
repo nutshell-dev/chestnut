@@ -92,6 +92,8 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
   function killHolder(claimFile: string): void {
     const claim = JSON.parse(fsSync.readFileSync(claimFile, 'utf-8'));
     claim.pid = 99999;
+    delete claim.holder;
+    delete claim.holder_observation;
     delete claim.process_start_time;
     fsSync.writeFileSync(claimFile, JSON.stringify(claim, null, 2));
   }

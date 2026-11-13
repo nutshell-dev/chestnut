@@ -12,6 +12,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import {
   inspectProcessRef,
   type ProcessRefCapture,
+  type ProcessRefDecode,
+  type ProcessRefObservation,
 } from '../../src/foundation/process-exec/index.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 import { cleanupTempDir, createTrackedTempDir } from '../utils/temp.js';
@@ -38,7 +40,11 @@ type EvidenceRecord = {
   sequence: number;
   kind: string;
   exactRaw?: string;
+  raw?: string;
   capture?: ProcessRefCapture;
+  decoded?: ProcessRefDecode;
+  observed?: ProcessRefObservation;
+  decision?: 'retain' | 'eligible';
 };
 type ChildResult = {
   code: number | null;
@@ -209,6 +215,10 @@ function attemptRecords(attemptId: string): EvidenceRecord[] {
     .sort((left, right) => left.sequence - right.sequence);
 }
 
+function holderObservations(raw: string): EvidenceRecord[] {
+  return readEvidence().filter(record => record.kind === 'holder_observed' && record.raw === raw);
+}
+
 function attemptIdForRaw(raw: string): string {
   const requests = readEvidence().filter(record =>
     record.kind === 'claim_write_requested' && record.exactRaw === raw);
@@ -259,6 +269,13 @@ describe.skipIf(!supported)('claw import real process references', () => {
     await expect(runParentImport()).rejects.toThrow(/holder is not proven gone/);
     expect(fs.readFileSync(claimPath(), 'utf8')).toBe(initialRaw);
     expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', 'a.txt'))).toBe(false);
+    const liveObservation = holderObservations(initialRaw);
+    expect(liveObservation).toHaveLength(1);
+    expect(liveObservation[0]).toMatchObject({
+      decoded: { kind: 'decoded', value: initial.holder.value },
+      observed: { kind: 'alive' },
+      decision: 'retain',
+    });
 
     await exitAtBarrier(child);
     expect(fs.readFileSync(claimPath(), 'utf8')).toBe(initialRaw);
@@ -269,6 +286,13 @@ describe.skipIf(!supported)('claw import real process references', () => {
     expect(fs.readFileSync(claimPath(), 'utf8')).toBe(initialRaw);
     expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', 'a.txt'))).toBe(false);
     expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', 'b.txt'))).toBe(false);
+    const goneObservations = holderObservations(initialRaw);
+    expect(goneObservations).toHaveLength(2);
+    expect(goneObservations).toContainEqual(expect.objectContaining({
+      decoded: { kind: 'decoded', value: initial.holder.value },
+      observed: expect.objectContaining({ kind: 'gone', reason: 'absent' }),
+      decision: 'eligible',
+    }));
   });
 
   it('manifest claim retains one capture across both writes and recovers the same payload after child exit', async () => {
@@ -298,6 +322,10 @@ describe.skipIf(!supported)('claw import real process references', () => {
     await expect(runParentImport()).rejects.toThrow(/holder is not proven gone/);
     expect(fs.readFileSync(claimPath(), 'utf8')).toBe(manifestRaw);
     expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle', 'a.txt'))).toBe(false);
+    expect(holderObservations(manifestRaw)).toContainEqual(expect.objectContaining({
+      observed: expect.objectContaining({ kind: 'alive' }),
+      decision: 'retain',
+    }));
 
     await exitAtBarrier(child);
     expect(fs.readFileSync(claimPath(), 'utf8')).toBe(manifestRaw);
@@ -311,6 +339,12 @@ describe.skipIf(!supported)('claw import real process references', () => {
     const publication = readEvidence().find(record => record.kind === 'publication_ready');
     expect(publication, JSON.stringify(readEvidence())).toBeDefined();
     expect(publication?.exactRaw).toEqual(expect.any(String));
+    expect(holderObservations(manifestRaw)).toContainEqual(expect.objectContaining({
+      attemptId: publication!.attemptId,
+      decoded: { kind: 'decoded', value: manifest.holder.value },
+      observed: expect.objectContaining({ kind: 'gone', reason: 'absent' }),
+      decision: 'eligible',
+    }));
     const publishedClaim = readV1Claim(publication!.exactRaw!, true);
     expect(publishedClaim.manifestHash).toBe(manifest.manifestHash);
     expectSelfCapture(publishedClaim, publication!.attemptId);

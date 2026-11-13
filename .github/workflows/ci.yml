@@ -46,3 +46,25 @@ jobs:
           name: dist
           path: dist/
           retention-days: 7
+
+  windows-host-scripts:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Execute real Windows host-script matrix
+        run: >-
+          pnpm exec vitest run --config .config/vitest.config.ts
+          tests/foundation/process-exec/host-script.test.ts
+          tests/core/contract/verification-execution-host-script.integration.test.ts
