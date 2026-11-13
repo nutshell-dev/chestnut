@@ -1,5 +1,5 @@
 import type { DaemonDir, LivenessResult } from './types.js';
-import { isAlive as defaultL1IsAlive, makeProcessStartTime } from '../process-exec/index.js';
+import { observeProcessFact } from './process-facts.js';
 import { formatErr } from '../node-utils/index.js';
 import type { ProcessManagerContext } from './types.js';
 import { inspectActive, inspectActivePid } from './generation.js';
@@ -31,21 +31,14 @@ export function liveness(ctx: ProcessManagerContext, daemonDir: DaemonDir): Live
 
   const startTime = pid.record.start_time;
   const startTimeOpt = startTime !== undefined ? { startTime } : {};
-  try {
-    const alive = (ctx.l1IsAlive ?? defaultL1IsAlive)(
-      pid.record.pid,
-      startTime !== undefined ? makeProcessStartTime(startTime) : undefined,
-    );
-    return alive
-      ? { kind: 'alive', pid: pid.record.pid, ...startTimeOpt }
-      : { kind: 'dead', pid: pid.record.pid, ...startTimeOpt };
-  } catch (err) {
-    // ESRCH = pid 已消失（死亡终局）；其他 probe 异常 = 系统故障，不压平
-    if ((err as NodeJS.ErrnoException).code === 'ESRCH') {
-      return { kind: 'dead', pid: pid.record.pid, ...startTimeOpt };
-    }
-    return { kind: 'probe_unavailable', pid: pid.record.pid, error: err };
+  const observation = observeProcessFact(ctx, pid.record.pid, startTime);
+  if (observation.kind === 'alive') {
+    return { kind: 'alive', pid: pid.record.pid, ...startTimeOpt };
   }
+  if (observation.kind === 'gone') {
+    return { kind: 'dead', pid: pid.record.pid, ...startTimeOpt };
+  }
+  return { kind: 'probe_unavailable', pid: pid.record.pid, error: observation.error ?? observation };
 }
 
 /**

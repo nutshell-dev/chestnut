@@ -18,8 +18,13 @@
 import type { FileSystem } from '../fs/index.js';
 import type { DaemonDir } from './types.js';
 import type { ProcessManagerAuditSink } from './audit-sink.js';
-import type { ProcessStartTime } from '../process-exec/index.js';
-import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
+import type { ProcessStartTime, ProcessTargetObservation, ProcessTarget } from '../process-exec/index.js';
+import type {
+  isAlive as defaultL1IsAlive,
+  spawnDetached as defaultSpawnDetached,
+  getProcessStartTime as defaultGetProcessStartTime,
+  kill as defaultKill,
+} from '../process-exec/index.js';
 
 import * as aliveOps from './alive.js';
 import * as readyOps from './ready.js';
@@ -59,6 +64,7 @@ export class ProcessManager {
     spawnDetached?: typeof defaultSpawnDetached,
     getProcessStartTime?: typeof defaultGetProcessStartTime,
     kill?: typeof defaultKill,
+    observeProcessTarget?: (target: ProcessTarget) => ProcessTargetObservation,
   ) {
     this.fs = fs;
     this._ctx = {
@@ -69,6 +75,7 @@ export class ProcessManager {
       spawnDetached,
       getProcessStartTime,
       kill,
+      observeProcessTarget,
     };
   }
 

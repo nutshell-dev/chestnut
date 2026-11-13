@@ -1,12 +1,21 @@
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
-import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
-import { BOOT_DEADLINE_MS, DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
+import {
+  captureProcessTarget,
+  spawnDetached as defaultSpawnDetached,
+  terminateMatchingProcesses,
+} from '../process-exec/index.js';
+import {
+  BOOT_DEADLINE_MS,
+  DAEMON_SHUTDOWN_GRACE_MS,
+  PROCESS_STOP_POLL_INTERVAL_MS,
+} from './constants.js';
 import { awaitReadyConvergence } from './ready-convergence.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { isReady as checkReady } from './ready.js';
-import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
+import { findProcessesDetailed } from './find.js';
+import { observeProcessFact, terminateProcessFact } from './process-facts.js';
 import {
   newProcessGeneration,
   prepareGeneration,
@@ -22,14 +31,9 @@ import {
 } from './generation.js';
 import { shouldAbortSpawningForStop } from './stop.js';
 
-import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
+import type { ProcessStartTime } from '../process-exec/index.js';
 import { ProcessGenerationStateError, ProcessOrphanCleanupError, ProcessSpawnConflictError, type OrphanCleanupResult, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
-
-
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Spawn the daemon process for `daemonDir` and resolve with its PID once the
@@ -47,7 +51,7 @@ const sleep = (ms: number): Promise<void> =>
  *   5. child spawn          — `spawnDetached` + generation ID 显式注入 child env；
  *                             pid.json 写 spawning（existing-generation 语义）
  *   6. stop-intent check    — spawning 阶段存在 stop intent 立即 abort
- *   7. readiness wait       — poll until ready or child dies（l1IsAlive 直探 child PID，
+ *   7. readiness wait       — poll until ready or child dies（L1 typed observation，
  *                             event-driven + BOOT_DEADLINE_MS 兜底）
  *
  * @param ctx       Process manager context (fs + audit + optional this-seam)
@@ -92,13 +96,21 @@ export async function spawnProcess(
     const activePid = inspectActivePid(ctx, daemonDir);
     const pid = activePid.status === 'ok' ? activePid.record.pid : undefined;
     const startTime = activePid.status === 'ok' ? activePid.record.start_time as ProcessStartTime | undefined : undefined;
-    if (pid !== undefined && (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, startTime)) {
-      throw new ProcessSpawnConflictError(
-        daemonDir,
-        'active_owner',
-        active.record.generation_id,
-        `Another "${daemonDir}" daemon is already running (generation ${active.record.generation_id})`,
-      );
+    if (pid !== undefined) {
+      const observation = observeProcessFact(ctx, pid, startTime);
+      if (observation.kind === 'unknown') {
+        throw new Error(
+          `Cannot verify active generation ${active.record.generation_id} for "${daemonDir}": ${formatErr(observation.error ?? observation)}`,
+        );
+      }
+      if (observation.kind === 'alive') {
+        throw new ProcessSpawnConflictError(
+          daemonDir,
+          'active_owner',
+          active.record.generation_id,
+          `Another "${daemonDir}" daemon is already running (generation ${active.record.generation_id})`,
+        );
+      }
     }
     // active generation 存在但进程已死：旧 daemon 已退出，继续 spawn 会覆盖 active。
     // 这里先 retire 旧 active，让新 generation 有干净的 active 目标。
@@ -220,79 +232,35 @@ async function cleanupOrphans(
   daemonDir: DaemonDir,
   options: SpawnOptions,
 ): Promise<OrphanCleanupResult> {
-  const pattern = options.args.join(' ');
-  // phase 346 B2 (review-2026-06-13): pgrep -f 用 regex-substring 匹配，
-  // claw-a 会匹配 claw-abc / claw-a-1 等 prefix-collision claw → 误杀 sibling
-  // daemon。先 detailed 列、再按 daemonDir token-match 二次过滤。
-  let processes: Array<{ pid: number; command: string }>;
-  try {
-    processes = findProcessesDetailed(ctx, pattern);
-  } catch (err) {
-    // phase 1779：process list 不可用 = 重复风险无法评估 → blocked 不 spawn
-    // （PROCESS_LIST_FAILED audit 已由 find.ts 写入后重抛）。
-    return { kind: 'blocked', stage: 'enumerate', error: err, pids: [] };
-  }
-
-  const candidates: number[] = [];
-  let sentAny = false;
-  let skippedMismatch = 0;
-  for (const proc of processes) {
-    // 二次过滤：command 必须含 daemonDir 作为独立 token、非 substring
-    // command 为空（ps 失败 fallback）时保守 skip + audit、不 kill
-    if (!commandContainsDaemonDirToken(proc.command, daemonDir)) {
-      skippedMismatch++;
+  const outcome = await terminateMatchingProcesses({
+    pattern: options.args.join(' '),
+    requiredArgvToken: daemonDir,
+    excludePid: process.pid,
+    graceMs: DAEMON_SHUTDOWN_GRACE_MS,
+    list: () => findProcessesDetailed(ctx, options.args.join(' ')),
+    signal: ctx.kill,
+  });
+  if (outcome.kind !== 'blocked') {
+    for (const pid of outcome.skipped) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_MATCH_SKIPPED,
         `daemon_dir=${daemonDir}`,
-        `pid=${proc.pid}`,
+        `pid=${pid}`,
         `reason=clawid_token_mismatch`,
       );
-      continue;
-    }
-    candidates.push(proc.pid);
-    try {
-      (ctx.kill ?? defaultKill)(proc.pid, 'TERM');
-      sentAny = true;
-    } catch (err) {
-      // phase 1779：SIGTERM 失败 → blocked（不 best-effort 继续 spawn——该 orphan
-      // 未被证明会退场，放行有 double-daemon 风险）。per-pid 证据 audit 保留。
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `pid=${proc.pid}`,
-        `reason=${formatErr(err)}`,
-      );
-      return { kind: 'blocked', stage: 'signal', error: err, pids: candidates };
     }
   }
-  // skippedMismatch 计数仅 audit、不计 failure（这些不是真 orphan、是 sibling）
-  void skippedMismatch;
-  if (!sentAny) {
-    return { kind: 'not_needed' };
+  if (outcome.kind === 'blocked' && outcome.stage === 'signal') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `pids=${outcome.pids.join(',')}`,
+      `reason=${formatErr(outcome.error)}`,
+    );
   }
-
-  await sleep(DAEMON_SHUTDOWN_GRACE_MS);
-  // phase 1779 verify：signal 后按同一 identity（pid + daemonDir token command）复核
-  // 候选确已退场——pid 复用显示不同 command 不算存活（identity 不匹配 = 已退场）。
-  let survived: number[];
-  try {
-    survived = findProcessesDetailed(ctx, pattern)
-      .filter((p) => candidates.includes(p.pid) && commandContainsDaemonDirToken(p.command, daemonDir))
-      .map((p) => p.pid);
-  } catch (err) {
-    // 复核本身失败 = 重复风险无法证明解除 → blocked（PROCESS_LIST_FAILED
-    // audit 已由 find.ts 在重抛前写入，这里保留原始 error identity）
-    return { kind: 'blocked', stage: 'verify', error: err, pids: candidates };
-  }
-  if (survived.length > 0) {
-    return {
-      kind: 'blocked',
-      stage: 'verify',
-      error: new Error(`orphan pids still alive after SIGTERM: ${survived.join(', ')}`),
-      pids: survived,
-    };
-  }
-  return { kind: 'clear', terminated: candidates.length };
+  return outcome.kind === 'clear'
+    ? { kind: 'clear', terminated: outcome.terminated }
+    : outcome;
 }
 
 /**
@@ -304,7 +272,7 @@ async function cleanupOrphans(
  * Spawn the child, persist its PID into the spawning generation, and poll
  * until ready or child death.
  *
- * 死亡检测直探 child PID（l1IsAlive(pid, startTime)），不经 pidfile probe ——
+ * 死亡检测由 L1 typed observation 按 child identity 交付，不经 pidfile probe ——
  * 磁盘 generation record 即可重建运行时句柄。
  *
  * On failure: kill 精确 child（PID 属本 generation）、写 failure 事实、retire
@@ -357,7 +325,10 @@ async function spawnAndAwaitReady(
     }
     pid = spawnOutcome.pid;
 
-    childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
+    const childIdentity = captureProcessTarget(pid, ctx.getProcessStartTime);
+    childStartTime = childIdentity.kind === 'captured'
+      ? childIdentity.target.startTime
+      : undefined;
 
     // generation pid.json 是 child PID 的 SoT；existing-generation 语义 —
     // 目录已 move 走则返回 generation_moved，绝不复活。
@@ -370,24 +341,20 @@ async function spawnAndAwaitReady(
 
     // Step F barrier 2：写 PID 后再次检查本代 stop intent。
     if (shouldAbortSpawningForStop(ctx, daemonDir, record.generation_id)) {
-      try {
-        (ctx.kill ?? defaultKill)(pid, 'TERM');
-        await sleep(DAEMON_SHUTDOWN_GRACE_MS);
-        const aliveAfterTerm = childStartTime !== undefined
-          ? (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, childStartTime)
-          : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
-        if (aliveAfterTerm) {
-          (ctx.kill ?? defaultKill)(pid, 'KILL');
-          await sleep(500);
-        }
-      } catch (killErr) {
+      const termination = await terminateProcessFact(ctx, pid, childStartTime, {
+        graceMs: DAEMON_SHUTDOWN_GRACE_MS,
+        confirmMs: 500,
+        pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
+      });
+      if (termination.kind !== 'gone') {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
           `daemon_dir=${daemonDir}`,
           `pid=${pid}`,
           `ctx=spawn_stop_intent_abort`,
-          `reason=${formatErr(killErr)}`,
+          `reason=${termination.kind}`,
         );
+        throw new Error(`Cannot confirm child termination after stop intent (${termination.kind})`);
       }
       await writeFailureFact(ctx, record, 'stop intent recorded before boot completed');
       retireGeneration(ctx, daemonDir, { generationId: record.generation_id }, 'stopped', 'spawning');
@@ -402,7 +369,6 @@ async function spawnAndAwaitReady(
       );
     }
 
-    const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
     const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
     // Phase 1282 Step C：deadline/poll 调度由共享原语拥有；本观察器只解释
     // self-winner 事实（ready 事实 / child liveness），保留既有错误消息。
@@ -410,11 +376,20 @@ async function spawnAndAwaitReady(
     await awaitReadyConvergence(
       () => {
         if (isReady(daemonDir)) return { kind: 'ready', value: undefined };
-        if (!l1IsAlive(bootPid, childStartTime)) {
+        const observation = observeProcessFact(ctx, bootPid, childStartTime);
+        if (observation.kind === 'gone') {
           return {
             kind: 'failed',
             error: new Error(
               `Process "${daemonDir}" died during boot. Check logs at: ${options.logFile}`,
+            ),
+          };
+        }
+        if (observation.kind === 'unknown') {
+          return {
+            kind: 'failed',
+            error: new Error(
+              `Process "${daemonDir}" observation unavailable during boot: ${formatErr(observation.error ?? observation)}`,
             ),
           };
         }
@@ -442,38 +417,20 @@ async function spawnAndAwaitReady(
     // Guard against self-kill (tests may inject process.pid as a mock child).
     let childSurvived = false;
     if (typeof pid === 'number' && pid > 0 && pid !== process.pid) {
-      try {
-        (ctx.kill ?? defaultKill)(pid, 'TERM');
-        // Grace period for child to exit on SIGTERM
-        await sleep(DAEMON_SHUTDOWN_GRACE_MS);
-        const aliveAfterTerm = childStartTime !== undefined
-          ? (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, childStartTime)
-          : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
-        if (aliveAfterTerm) {
-          (ctx.kill ?? defaultKill)(pid, 'KILL');
-          await sleep(500);
-        }
-      } catch (killErr) {
-        ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
-          `daemon_dir=${daemonDir}`,
-          `pid=${pid}`,
-          `ctx=spawn_failed_kill`,
-          `reason=${formatErr(killErr)}`,
-        );
-      }
-      const stillAlive = childStartTime !== undefined
-        ? (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, childStartTime)
-        : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
-      if (stillAlive) {
+      const termination = await terminateProcessFact(ctx, pid, childStartTime, {
+        graceMs: DAEMON_SHUTDOWN_GRACE_MS,
+        confirmMs: 500,
+        pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
+      });
+      if (termination.kind !== 'gone') {
         childSurvived = true;
-        // Child survived SIGTERM + SIGKILL. Keep generation for forensics.
+        // Unknown or survived termination: keep generation for forensics.
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
           `daemon_dir=${daemonDir}`,
           `pid=${pid}`,
           `ctx=spawn_failed_child_survived`,
-          `reason=child_still_alive_after_kill_attempts`,
+          `reason=${termination.kind}`,
         );
       }
     }

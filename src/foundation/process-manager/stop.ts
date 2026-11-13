@@ -1,4 +1,5 @@
-import { kill as defaultKill, isAlive as defaultL1IsAlive, type ProcessStartTime } from '../process-exec/index.js';
+import type { ProcessStartTime } from '../process-exec/index.js';
+import { observeProcessFact, terminateProcessFact } from './process-facts.js';
 import type { DaemonDir } from './types.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
@@ -15,8 +16,6 @@ import {
   hasStopIntentForGeneration,
   getRetiredDirFor,
 } from './generation.js';
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface TargetLocation {
   source: 'spawning' | 'active';
@@ -195,8 +194,6 @@ async function handleTarget(
   daemonDir: DaemonDir,
   target: TargetLocation,
 ): Promise<StopProcessOutcome> {
-  const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
-
   // spawning 尚无 PID：intent 已足够，parent 写 PID 时会 abort。
   if (target.source === 'spawning' && target.pid === undefined) {
     return { kind: 'intent_recorded' };
@@ -245,7 +242,14 @@ async function handleTarget(
     };
   }
 
-  if (!l1IsAlive(current.pid, current.startTime)) {
+  const observation = observeProcessFact(ctx, current.pid, current.startTime);
+  if (observation.kind === 'unknown') {
+    return {
+      kind: 'failed', stage: 'signal', reason: 'process observation unavailable',
+      error: observation.error ?? observation,
+    };
+  }
+  if (observation.kind === 'gone') {
     const disposition = retireStoppedGeneration(ctx, daemonDir, target.generationId, current.source);
     if (disposition.kind !== 'retired') {
       return disposition;
@@ -388,51 +392,40 @@ async function stopAndRetire(
   generationId: string,
   current: { kind: 'spawning' | 'active'; pid: number; startTime: ProcessStartTime | undefined; source: 'spawning' | 'active' },
 ): Promise<StopProcessOutcome> {
-  const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
-  const kill = ctx.kill ?? defaultKill;
-
-  let via: 'sigterm' | 'sigkill' = 'sigterm';
-  try {
-    kill(current.pid, 'TERM');
-
-    const deadline = Date.now() + DAEMON_SHUTDOWN_GRACE_MS;
-    while (Date.now() < deadline) {
-      if (!l1IsAlive(current.pid, current.startTime)) break;
-      await sleep(PROCESS_STOP_POLL_INTERVAL_MS);
-    }
-
-    if (l1IsAlive(current.pid, current.startTime)) {
-      kill(current.pid, 'KILL');
-      via = 'sigkill';
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_KILL_ESCALATED,
-        `daemon_dir=${daemonDir}`,
-        `pid=${current.pid}`,
-      );
-      const verifyDeadline = Date.now() + SIGKILL_DEAD_VERIFY_GRACE_MS;
-      while (Date.now() < verifyDeadline) {
-        if (!l1IsAlive(current.pid, current.startTime)) break;
-        await sleep(PROCESS_STOP_POLL_INTERVAL_MS);
-      }
-      if (l1IsAlive(current.pid, current.startTime)) {
-        ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.STOP_PROCESS_SURVIVED_SIGKILL,
-          `daemon_dir=${daemonDir}`,
-          `pid=${current.pid}`,
-          `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,
-        );
-        return { kind: 'failed', stage: 'survived_sigkill', reason: 'process survived SIGKILL' };
-      }
-    }
-  } catch (err) {
+  const termination = await terminateProcessFact(ctx, current.pid, current.startTime, {
+    graceMs: DAEMON_SHUTDOWN_GRACE_MS,
+    confirmMs: SIGKILL_DEAD_VERIFY_GRACE_MS,
+    pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
+  });
+  if (termination.kind === 'indeterminate') {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
       `daemon_dir=${daemonDir}`,
       `pid=${current.pid}`,
-      `via=${via}`,
-      `reason=${(err as NodeJS.ErrnoException).code || (err as Error).message}`,
+      `via=${termination.killSent ? 'sigkill' : 'sigterm'}`,
+      `reason=${formatErr(termination.error)}`,
     );
-    return { kind: 'failed', stage: 'signal', reason: formatErr(err), error: err };
+    return {
+      kind: 'failed', stage: 'signal', reason: formatErr(termination.error),
+      error: termination.error,
+    };
+  }
+  if (termination.kind === 'still_alive') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.STOP_PROCESS_SURVIVED_SIGKILL,
+      `daemon_dir=${daemonDir}`,
+      `pid=${current.pid}`,
+      `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,
+    );
+    return { kind: 'failed', stage: 'survived_sigkill', reason: 'process survived SIGKILL' };
+  }
+  const via = termination.via === 'sigkill' ? 'sigkill' : 'sigterm';
+  if (termination.killSent) {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_KILL_ESCALATED,
+      `daemon_dir=${daemonDir}`,
+      `pid=${current.pid}`,
+    );
   }
 
   // 信号发送后再次按 identity 定位目标，然后在真实位置 retire。

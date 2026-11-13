@@ -13,6 +13,11 @@ import type { ProcessInfo } from './types.js';
  *
  * @throws ProcessListUnavailable if pgrep binary not available.
  */
+export function findByLiteralPattern(pattern: string): ProcessInfo[] {
+  const escaped = pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');
+  return findByPattern(escaped);
+}
+
 export function findByPattern(pattern: string): ProcessInfo[] {
   let pids: number[];
   try {

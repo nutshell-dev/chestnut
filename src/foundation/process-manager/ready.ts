@@ -1,6 +1,6 @@
 import type { DaemonDir, ReadinessResult } from './types.js';
 import { formatErr } from '../node-utils/index.js';
-import { isAlive as defaultL1IsAlive, makeProcessStartTime } from '../process-exec/index.js';
+import { observeProcessFact } from './process-facts.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
 import { inspectActive, inspectActiveReady } from './generation.js';
@@ -55,25 +55,19 @@ export function readiness(ctx: ProcessManagerContext, daemonDir: DaemonDir): Rea
     return { kind: 'not_ready', reason: 'stale_generation' };
   }
 
-  try {
-    const alive = (ctx.l1IsAlive ?? defaultL1IsAlive)(
-      ready.record.pid,
-      ready.record.start_time !== undefined
-        ? makeProcessStartTime(ready.record.start_time)
-        : undefined,
-    );
-    return alive
-      ? { kind: 'ready', generationId: active.record.generation_id, pid: ready.record.pid }
-      : { kind: 'not_ready', reason: 'process_not_alive' };
-  } catch (err) {
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
-      `daemon_dir=${daemonDir}`,
-      `ready_pid=${ready.record.pid}`,
-      `reason=${formatErr(err)}`,
-    );
-    return { kind: 'probe_unavailable', error: err };
+  const observation = observeProcessFact(ctx, ready.record.pid, ready.record.start_time);
+  if (observation.kind === 'alive') {
+    return { kind: 'ready', generationId: active.record.generation_id, pid: ready.record.pid };
   }
+  if (observation.kind === 'gone') return { kind: 'not_ready', reason: 'process_not_alive' };
+  const error = observation.error ?? observation;
+  ctx.audit.write(
+    PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
+    `daemon_dir=${daemonDir}`,
+    `ready_pid=${ready.record.pid}`,
+    `reason=${formatErr(error)}`,
+  );
+  return { kind: 'probe_unavailable', error };
 }
 
 /**

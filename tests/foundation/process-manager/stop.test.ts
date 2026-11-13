@@ -142,6 +142,29 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     vi.useRealTimers();
   });
 
+  it('keeps generation and refuses termination when typed observation is unknown', async () => {
+    const { audit } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'stop-unknown');
+    await writeGeneration(tempDir, daemonDir, 'active', 'gen-unknown', FAKE_LIVE_PID);
+    const unavailable = {
+      kind: 'unknown' as const,
+      reason: 'permission_denied' as const,
+      evidence: { version: 1 as const, atMs: 0, facts: [] },
+    };
+    const terminateProcessTarget = vi.fn();
+    const ctx = {
+      ...makeCtx(audit),
+      observeProcessTarget: () => unavailable,
+      terminateProcessTarget,
+    };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toMatchObject({ kind: 'failed', stage: 'signal', error: unavailable });
+    expect(terminateProcessTarget).not.toHaveBeenCalled();
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(true);
+  });
+
   it('records stop intent when spawning generation has no pid yet', async () => {
     const { audit, events } = makeAudit();
     const clawId = 'stop-spawning-intent';

@@ -217,6 +217,8 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
       .spyOn(Date, 'now')
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1000)
       .mockReturnValue(1000 + 35_000);
 
     await expect(
@@ -238,10 +240,11 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     const clawId = `test-claw-stop-intent-${randomUUID()}`;
     const daemonDir = testClawDaemonDir(tempDir, clawId);
 
-    const killSpy = vi.fn();
+    let alive = true;
+    const killSpy = vi.fn(() => { alive = false; });
     const ctx = makeCtx({
       isReady: () => false,
-      l1IsAlive: vi.fn().mockReturnValue(true),
+      l1IsAlive: vi.fn(() => alive),
       kill: killSpy,
       // Inject a generation-bound stop intent after the spawning generation is committed
       // but before the child PID is written. This exercises the barrier between
@@ -317,10 +320,11 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     const clawId = `test-claw-stop-intent-commit-${randomUUID()}`;
     const daemonDir = testClawDaemonDir(tempDir, clawId);
 
-    const killSpy = vi.fn();
+    let alive = true;
+    const killSpy = vi.fn(() => { alive = false; });
     const ctx = makeCtx({
       isReady: () => false,
-      l1IsAlive: vi.fn().mockReturnValue(true),
+      l1IsAlive: vi.fn(() => alive),
       kill: killSpy,
       spawnDetached: vi.fn().mockImplementation(() => {
         const generationPath = path.join(getSpawningDir(daemonDir), GENERATION_FILE);

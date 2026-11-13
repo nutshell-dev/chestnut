@@ -1,7 +1,16 @@
 import type { FileSystem } from '../fs/index.js';
 import type { ProcessManagerAuditSink } from './audit-sink.js';
 
-import type { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
+import type {
+  isAlive as defaultL1IsAlive,
+  spawnDetached as defaultSpawnDetached,
+  getProcessStartTime as defaultGetProcessStartTime,
+  kill as defaultKill,
+  ProcessTarget,
+  ProcessTargetObservation,
+  ProcessTerminationOptions,
+  ProcessTerminationOutcome,
+} from '../process-exec/index.js';
 
 
 /**
@@ -302,4 +311,11 @@ export interface ProcessManagerContext {
   getProcessStartTime?: typeof defaultGetProcessStartTime;
   /** Optional kill override (used by tests injecting process-exec level signal sender) */
   kill?: typeof defaultKill;
+  /** Typed L1 observation seam; PM maps only alive/gone/unknown to business facts. */
+  observeProcessTarget?: (target: ProcessTarget) => ProcessTargetObservation;
+  /** Typed L1 termination seam; TERM/KILL scheduling is owned by ProcessExec. */
+  terminateProcessTarget?: (
+    target: ProcessTarget,
+    options?: ProcessTerminationOptions,
+  ) => Promise<ProcessTerminationOutcome>;
 }

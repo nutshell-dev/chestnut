@@ -23,7 +23,7 @@ export { terminateExecutionGroup, probeExecutionGroup } from './execution-group.
 export { spawnDetached } from './spawn-detached.js';
 export type { SpawnDetachedOptions, SpawnDetachedOutcome, SpawnDetachedFailure } from './types.js';
 export { kill, isAlive } from './process-control.js';
-export { findByPattern } from './find-by-pattern.js';
+export { findByPattern, findByLiteralPattern } from './find-by-pattern.js';
 export { isPidArgvMatching } from './argv-verify.js';
 export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
@@ -40,6 +40,23 @@ export type {
   ProcessRefObservation,
   ProcessUnavailableReason,
 } from './process-reference.js';
+export {
+  captureProcessTarget,
+  observeProcessTarget,
+  processCommandContainsToken,
+  terminateMatchingProcesses,
+  terminateProcessTarget,
+} from './process-target.js';
+export type {
+  ProcessMatchCleanupOptions,
+  ProcessMatchCleanupOutcome,
+  ProcessTarget,
+  ProcessTargetCapture,
+  ProcessTargetObservation,
+  ProcessTerminationAdapters,
+  ProcessTerminationOptions,
+  ProcessTerminationOutcome,
+} from './process-target.js';
 export type { ProcessEvidence, ProcessEvidenceValue } from './process-evidence.js';
 export {
   ProcessExecError,

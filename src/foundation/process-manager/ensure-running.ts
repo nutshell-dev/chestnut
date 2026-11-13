@@ -20,10 +20,7 @@
  * ready 等待原语，不形成第二套时限策略。
  */
 
-import {
-  isAlive as defaultL1IsAlive,
-  makeProcessStartTime,
-} from '../process-exec/index.js';
+import { observeProcessFact } from './process-facts.js';
 import { formatErr } from '../node-utils/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { BOOT_DEADLINE_MS } from './constants.js';
@@ -130,9 +127,9 @@ function readyActivePid(
 
 /**
  * phase 1775：winner liveness probe 三分支（owner-local，不 export）。
- * - alive：probe 返回 true；
- * - dead：probe 返回 false，或抛 ESRCH（pid 已消失 = 死亡终局，同 phase 1773 liveness owner）；
- * - unavailable：非 ESRCH 异常（EPERM/未知错误）保留原始 error identity——probe 系统故障
+ * - alive：L1 typed observation 确认同 identity 存活；
+ * - dead：L1 确认 absent/identity changed；
+ * - unavailable：L1 unknown（EPERM/查询失败等）保留 evidence——probe 系统故障
  *   ≠ winner 死亡；压平为 dead 会导致错误接管/foreign winner 实际存活时 double-spawn。
  */
 type WinnerProbeResult =
@@ -141,21 +138,10 @@ type WinnerProbeResult =
   | { kind: 'unavailable'; error: unknown };
 
 function probeWinnerAlive(ctx: ProcessManagerContext, pid: number, startTime?: string): WinnerProbeResult {
-  try {
-    return (ctx.l1IsAlive ?? defaultL1IsAlive)(
-      pid,
-      startTime !== undefined ? makeProcessStartTime(startTime) : undefined,
-    )
-      ? { kind: 'alive' }
-      : { kind: 'dead' };
-  } catch (error) {
-    // ESRCH = pid 已消失（死亡终局，同 phase 1773 liveness owner 约定）
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
-      return { kind: 'dead' };
-    }
-    // 其他 probe 异常 = 系统故障不压平：保留原始 error identity（≠ winner 死亡）
-    return { kind: 'unavailable', error };
-  }
+  const observation = observeProcessFact(ctx, pid, startTime);
+  if (observation.kind === 'alive') return { kind: 'alive' };
+  if (observation.kind === 'gone') return { kind: 'dead' };
+  return { kind: 'unavailable', error: observation.error ?? observation };
 }
 
 /**

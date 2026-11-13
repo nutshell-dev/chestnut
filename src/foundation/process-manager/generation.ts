@@ -32,7 +32,7 @@ import * as path from 'path';
 import { formatErr, newUuid } from '../node-utils/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import {
-  getProcessStartTime as defaultGetProcessStartTime,
+  captureProcessTarget,
   type ProcessStartTime,
 } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
@@ -229,13 +229,15 @@ export function newProcessGeneration(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ): ProcessGenerationRecord {
-  const parentStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
+  const parent = captureProcessTarget(process.pid, ctx.getProcessStartTime);
   return {
     schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
     generation_id: newUuid(),
     daemon_dir: daemonDir,
     parent_pid: process.pid,
-    ...(parentStartTime !== undefined ? { parent_start_time: parentStartTime } : {}),
+    ...(parent.kind === 'captured' && parent.target.startTime !== undefined
+      ? { parent_start_time: parent.target.startTime }
+      : {}),
     created_at: new Date().toISOString(),
   };
 }

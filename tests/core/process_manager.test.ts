@@ -33,6 +33,13 @@ import { spawnSync, spawn } from 'child_process';  // phase 273: hoist 5 dyn imp
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 import { writeActiveGenerationSync } from '../helpers/generation-fixtures.js';
+import type { ProcessTargetObservation } from '../../src/foundation/process-exec/index.js';
+
+const aliveObservation = (): ProcessTargetObservation => ({
+  kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] },
+});
+const liveProcessManager = (fs: NodeFileSystem, audit: ReturnType<typeof makeAudit>['audit']) =>
+  new ProcessManager(fs, audit, undefined, undefined, undefined, undefined, aliveObservation);
 
 describe('ProcessManager', () => {
   let tempDir: string;
@@ -56,7 +63,7 @@ describe('ProcessManager', () => {
   describe('dirResolver - 默认路径', () => {
     it('should use claws/{id} active generation as default path', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, audit);
+      const pm = liveProcessManager(nodeFs, audit);
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
 
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
@@ -76,7 +83,7 @@ describe('ProcessManager', () => {
   describe('motion daemonDir (caller-resolved)', () => {
     it('PM 直 take motion daemonDir、不区分 motion vs claw', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, audit);
+      const pm = liveProcessManager(nodeFs, audit);
       const motionDir = testMotionDaemonDir(tempDir);
       writeActiveGenerationSync(motionDir, { generationId: 'gen-motion', pid: process.pid });
 
@@ -87,7 +94,7 @@ describe('ProcessManager', () => {
   describe('liveness - 进程检测', () => {
     it('should return true for current process PID', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, audit);
+      const pm = liveProcessManager(nodeFs, audit);
       const daemonDir = testClawDaemonDir(tempDir, 'live-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-live', pid: process.pid });
 
@@ -144,7 +151,7 @@ describe('ProcessManager', () => {
   describe('spawn - generation conflict', () => {
     it('should throw error when active generation is alive', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, audit);
+      const pm = liveProcessManager(nodeFs, audit);
       const daemonDir = testClawDaemonDir(tempDir, 'existing-claw');
       const logFile = path.join(daemonDir, 'logs', 'daemon.log');
 
@@ -161,7 +168,7 @@ describe('ProcessManager', () => {
 
     it('should throw error with claw name in message', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, audit);
+      const pm = liveProcessManager(nodeFs, audit);
       const daemonDir = testClawDaemonDir(tempDir, 'busy-claw');
       const logFile = path.join(daemonDir, 'logs', 'daemon.log');
 
