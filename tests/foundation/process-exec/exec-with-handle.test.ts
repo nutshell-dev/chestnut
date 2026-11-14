@@ -66,9 +66,11 @@ describe('execWithHandle', () => {
   });
 
   it('opt-in replay delivers early and subsequent output once without gaps or duplicates', async () => {
+    // 50ms keeps the early-output window deterministic without slowing the suite.
+    const LATE_OUTPUT_DELAY_MS = 50;
     const handle = execWithHandle(
       process.execPath,
-      ['-e', `process.stdout.write('EARLY'); setTimeout(() => process.stderr.write('LATE'), 50)`],
+      ['-e', `process.stdout.write('EARLY'); setTimeout(() => process.stderr.write('LATE'), ${LATE_OUTPUT_DELAY_MS})`],
       {
         // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         cwd: os.tmpdir(),
