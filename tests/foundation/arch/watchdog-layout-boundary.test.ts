@@ -5,8 +5,6 @@
  *  - layout 模块零 import、零 IO；ownership 四目录常量均自 WATCHDOG_PATHS 派生；
  *  - Watchdog 外 production 模块不得消费 layout 符号/deep-import layout；
  *  - state/log 生产 IO 走 target 布局、零路径字面直写。
- * （phase 1890 Step J：WATCHDOG_LEGACY_PATHS 与迁移协议特许消费白名单随存量
- *  废弃删除；migrations 目录键随迁移 journal 退役。）
  * 正反 fixture 自证 scanner 能识别模块外 owner 复制与合法模块内 import。
  */
 
@@ -23,8 +21,6 @@ const LAYOUT_FILE = path.join(WATCHDOG_DIR, 'layout.ts');
 const OWNERSHIP_FILE = path.join(WATCHDOG_DIR, 'watchdog-ownership.ts');
 const INTERNAL_SPECIFIER = './layout.js';
 
-/** Watchdog 外 layout 消费方限迁移协议原语（Assembly config-load legacy 段 IO +
-    CLI watchdog-config-migration 编排），也必须只经 Watchdog barrel。 */
 /** Watchdog 外 production 模块零消费（phase 1890 Step J：迁移特许白名单已回收）。 */
 const OUTSIDE_CONSUMER_WHITELIST: ReadonlyArray<readonly [string, string]> = [];
 
