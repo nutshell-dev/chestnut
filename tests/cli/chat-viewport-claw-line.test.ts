@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import stringWidth from 'string-width';
 import { buildClawLine, makeClawTrack } from '../../src/viewport/chat-viewport-claw-line.js';
 import { createClawManager } from '../../src/viewport/chat-viewport-claw-manager.js';
 
@@ -134,6 +135,107 @@ describe('Phase 1978 claw manager context trim lifecycle', () => {
     push({ ts: 6, type: 'turn_interrupted', cause: 'user_interrupt' });
     expect(track.retryNotice).toBeNull();
     expect(track.blockedNotice).toBeNull();
+  });
+});
+
+describe('Phase 2152 exec preview width budget', () => {
+  function inactiveTrack(lastOutput: string) {
+    const track = makeClawTrack();
+    track.hasContract = true;
+    track.isAlive = true;
+    track.daemonStatus = 'running';
+    track.lastOutput = lastOutput;
+    return track;
+  }
+
+  function plain(line: string) {
+    return line.replace(/\x1b\[[0-9;]*m/g, '');
+  }
+
+  it.each([20, 40, 80, 120])('inactive lastOutput 在 %s 列内为省略号和闭引号预留预算', cols => {
+    const line = plain(buildClawLine('c', inactiveTrack(`${'x'.repeat(200)}TAIL`), cols));
+
+    expect(stringWidth(line)).toBeLessThanOrEqual(cols);
+    expect(line).toContain('[c] ○ · "');
+    expect(line.endsWith('…"')).toBe(true);
+    expect(line).not.toContain('TAIL');
+    expect(line).not.toContain('\n');
+    expect(line).not.toContain('……');
+  });
+
+  it('精确适配不加省略号，少一列时保留省略号和闭引号', () => {
+    const track = inactiveTrack('hello');
+    const exact = '[c] ○ · "hello"';
+
+    expect(plain(buildClawLine('c', track, stringWidth(exact)))).toBe(exact);
+    const narrower = plain(buildClawLine('c', track, stringWidth(exact) - 1));
+    expect(narrower).toBe('[c] ○ · "hel…"');
+    expect(stringWidth(narrower)).toBe(stringWidth(exact) - 1);
+  });
+
+  it('CJK、emoji、ANSI、换行和引号共享同一视觉列宽预算', () => {
+    const output = '  \x1b[31m命令🙂\necho "quoted"\x1b[0m ' + '尾'.repeat(80);
+    const track = inactiveTrack(output);
+
+    const narrow = plain(buildClawLine('c', track, 24));
+    expect(stringWidth(narrow)).toBeLessThanOrEqual(24);
+    expect(narrow.endsWith('…"')).toBe(true);
+    expect(narrow).not.toContain('\n');
+
+    const wide = plain(buildClawLine('c', track, 120));
+    expect(wide).toContain('命令🙂 echo "quoted"');
+    expect(wide).not.toContain('\n');
+    expect(wide.endsWith('…"')).toBe(true);
+  });
+
+  it('空 tail 不截断 base；空白 tail 只显示空预览引号', () => {
+    expect(plain(buildClawLine('c', inactiveTrack(''), 8))).toBe('[c] ○');
+    expect(plain(buildClawLine('c', inactiveTrack('  \n'), 20))).toBe('[c] ○ · ""');
+  });
+
+  it('prefix 已占满时退回 base 截断，不留下分隔符或悬空引号', () => {
+    const track = inactiveTrack('ignored preview');
+    track.lastError = 'e'.repeat(100);
+
+    for (const cols of [1, 2, 4, 20]) {
+      const line = plain(buildClawLine('c', track, cols));
+      expect(stringWidth(line)).toBeLessThanOrEqual(cols);
+      expect(line).not.toContain(' · "');
+      expect(line).not.toContain('"');
+    }
+  });
+
+  it('宽 → 窄 → 宽始终从原 lastOutput 重算，不复用窄宽度截断', () => {
+    const track = inactiveTrack(`${'命令🙂'.repeat(10)}TAIL`);
+    const wide = plain(buildClawLine('c', track, 120));
+    const narrow = plain(buildClawLine('c', track, 40));
+    const wideAgain = plain(buildClawLine('c', track, 120));
+
+    expect(wide).toContain('TAIL');
+    expect(wide).not.toContain('…');
+    expect(stringWidth(narrow)).toBeLessThanOrEqual(40);
+    expect(narrow.endsWith('…"')).toBe(true);
+    expect(narrow).not.toContain('TAIL');
+    expect(wideAgain).toBe(wide);
+  });
+
+  it('active currentTool 保持 text/thinking 括号语义并遵守宽字符列宽', () => {
+    for (const bufferType of ['text', 'thinking'] as const) {
+      const track = inactiveTrack('');
+      track.active = true;
+      track.currentTool = 'exec';
+      track.bufferType = bufferType;
+      track.textBuffer = '  命令🙂\necho hello';
+
+      const wide = plain(buildClawLine('c', track, 120));
+      const [open, close] = bufferType === 'thinking' ? ['(', ')'] : ['"', '"'];
+      expect(wide).toBe(`[c] ⚙ exec · ${open}命令🙂 echo hello${close}`);
+
+      const narrow = plain(buildClawLine('c', track, 20));
+      expect(stringWidth(narrow)).toBeLessThanOrEqual(20);
+      expect(narrow).toContain('[c] ⚙ exec');
+      expect(narrow).not.toContain('\n');
+    }
   });
 });
 

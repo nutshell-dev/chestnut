@@ -208,6 +208,19 @@ describe('chat-viewport-task-status-bar', () => {
 
     expect(bar.renderMigratedExec(wideCols)).toContain(displayCommand);
   });
+
+  it.each([1, 2, 4, 20])('migrated exec 在 %s 列及 emoji 输入下仍保持单行宽度上限', cols => {
+    const { bar } = makeDeps();
+    bar.addMigratedExec({
+      taskId: 'exec-extreme',
+      command: 'printf \'命令🙂\'\necho hello',
+      startedAt: Date.now(),
+    });
+
+    const rendered = bar.renderMigratedExec(cols);
+    expect(stringWidth(rendered)).toBeLessThanOrEqual(cols);
+    expect(rendered).not.toContain('\n');
+  });
 });
 
 describe('buildTaskLine', () => {
