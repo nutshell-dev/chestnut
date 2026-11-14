@@ -141,6 +141,7 @@ export function publishWatchdogLayout(fs: FileSystem): void {
       config: 'migrated',
       state: 'migrated',
       log: 'migrated',
+      process_output: 'owned',
       subscriptions: 'retired',
     },
   } as const;

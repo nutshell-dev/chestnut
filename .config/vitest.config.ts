@@ -251,6 +251,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/multi-file-concurrent-write.test.ts',
   'tests/watchdog/audit-wired-in-cli.test.ts',
   'tests/watchdog/ensure-directory-authority.test.ts',  // phase 1203 Step C: 原 ensure-singleton-lock 迁为目录 authority
+  'tests/watchdog/spawn-process-output.test.ts',  // phase 2153 Step B1: vi.mock spawnDetached + owner inspection
   'tests/watchdog/watchdog-lifecycle-ownership.test.ts',  // phase 1203 Step B: vi.mock claw-instance-paths/config-load/timers/process-manager factories
   'tests/watchdog/foreign-workspace-fail-loud.test.ts',
   'tests/watchdog/orphan-sweep.test.ts',
@@ -309,6 +310,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/foundation/command-tool/exec-timeout.integration.test.ts',
   // phase 1203 Step D: real child watchdog ownership race
   'tests/watchdog/watchdog-ownership-process-race.test.ts',
+  // Phase 2153 Step B1: real detached child raw stdout/stderr + uncaught crash
+  'tests/watchdog/watchdog-process-output.integration.test.ts',
   // Phase 1931 Step B/C: real child skill install race（同名/混合来源确定性竞争）
   'tests/cli/skill-install-process-race.test.ts',
   // Phase 2071 Step C: real ConfigStore holder exit/reclaim and persisted evidence

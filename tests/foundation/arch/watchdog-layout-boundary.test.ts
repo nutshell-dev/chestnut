@@ -1,7 +1,7 @@
 /**
  * Phase 1287 Step C: Watchdog 布局 owner ratchet，冻结：
  *  - WATCHDOG_PATHS production 定义恰在 watchdog/layout.ts 一处；键值与
- *    Phase 1286 逐项一致、不缺不溢；
+ *    Phase 1286 + Phase 2153 B1 raw process_output 逐项一致、不缺不溢；
  *  - layout 模块零 import、零 IO；ownership 四目录常量均自 WATCHDOG_PATHS 派生；
  *  - Watchdog 外 production 模块不得消费 layout 符号/deep-import layout；
  *  - state/log 生产 IO 走 target 布局、零路径字面直写。
@@ -31,6 +31,7 @@ const OUTSIDE_CONSUMER_WHITELIST: ReadonlyArray<readonly [string, string]> = [];
 const TARGET_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ['root', 'watchdog'], ['layout', 'watchdog/layout.json'], ['config', 'watchdog/config.yaml'],
   ['state', 'watchdog/state.json'], ['log', 'watchdog/watchdog.log'],
+  ['process_output', 'watchdog/process-output.log'],
   ['subscriptions', 'watchdog/subscriptions'], ['candidates', 'watchdog/candidates'],
   ['active', 'watchdog/active'], ['retired', 'watchdog/retired'],
   ['quarantine', 'watchdog/quarantine'],
@@ -76,7 +77,7 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     expect(definitions).toEqual(['src/watchdog/layout.ts']);
   });
 
-  it('目标路径键值与 Phase 1286 逐项一致、无缺项无额外项', () => {
+  it('目标路径键值与 Phase 1286 + Phase 2153 B1 逐项一致、无缺项无额外项', () => {
     const text = fs.readFileSync(LAYOUT_FILE, 'utf8');
     expect(text).toContain('export const WATCHDOG_LAYOUT_SCHEMA_VERSION = 1;');
     for (const [key, value] of TARGET_ENTRIES) expect(text).toContain(`${key}: '${value}'`);
@@ -117,8 +118,12 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     // state/log 已迁移：锁定消费 WATCHDOG_PATHS、无路径字面直写（防双源漂移）。
     const migrated: ReadonlyArray<readonly [string, string]> = [
       ['watchdog-state.ts', 'WATCHDOG_PATHS.state'], ['watchdog-log.ts', 'WATCHDOG_PATHS.log'],
+      ['watchdog-log.ts', 'WATCHDOG_PATHS.process_output'],
     ];
-    const literals = ["'watchdog/state.json'", "'watchdog/watchdog.log'", "'watchdog-state.json'", "'logs/watchdog.log'"];
+    const literals = [
+      "'watchdog/state.json'", "'watchdog/watchdog.log'", "'watchdog/process-output.log'",
+      "'watchdog-state.json'", "'logs/watchdog.log'",
+    ];
     for (const [name, symbol] of migrated) {
       const text = fs.readFileSync(path.join(WATCHDOG_DIR, name), 'utf8');
       expect(text.includes(symbol), `${name} must reference ${symbol}`).toBe(true);
@@ -127,6 +132,14 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     // constants.ts：WATCHDOG_LOG 已退役（单源 WATCHDOG_PATHS.log），不得复现。
     const constants = fs.readFileSync(path.join(WATCHDOG_DIR, 'constants.ts'), 'utf8');
     expect(constants.includes('WATCHDOG_LOG'), 'WATCHDOG_LOG must stay retired').toBe(false);
+  });
+
+  it('spawn 只消费 log owner 的 raw sink，不自行拼布局路径', () => {
+    const spawn = fs.readFileSync(path.join(WATCHDOG_DIR, 'spawn.ts'), 'utf8');
+    expect(spawn).toContain('prepareWatchdogProcessOutput(fsFactory)');
+    expect(spawn).toContain('logFile: outputPath');
+    expect(spawn).not.toContain('WATCHDOG_PATHS');
+    expect(spawn).not.toContain('watchdog/process-output.log');
   });
 
   it('scanner 正反 fixture 自证', () => {

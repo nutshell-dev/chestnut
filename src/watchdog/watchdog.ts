@@ -35,7 +35,9 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import type { WatchdogProcessDeps } from './types.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { subscribeHostExit } from '../foundation/process-exec/index.js';
-import { type AuditLog, createWorkspaceAudit, createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
+import {
+  type AuditLog, type AuditWriteOutcome, createWorkspaceAudit, createHourlyHeartbeatAccumulator,
+} from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
@@ -62,7 +64,7 @@ import {
   type WatchdogOwnership, type WatchdogOwnerRecord, type WatchdogGenerationTerminal,
 } from './watchdog-ownership.js';
 import {
-  log, logWithAudit,
+  log, logWithAudit, writeWatchdogRawFallback,
 } from './watchdog-log.js';
 import {
   loadWatchdogState, saveWatchdogState,
@@ -135,6 +137,43 @@ function ownershipFromRecord(record: WatchdogOwnerRecord): WatchdogOwnership {
     activeDir: WATCHDOG_ACTIVE_DIR,
     record,
   };
+}
+
+/** 接管已提交与 audit 失败是两个事实；audit 失败不得回滚 ownership。 */
+function writeTakeoverAudit(
+  fsFactory: (baseDir: string) => FileSystem,
+  previous: WatchdogOwnerRecord,
+  previousTerminal: WatchdogGenerationTerminal['kind'] | 'missing',
+  current: WatchdogOwnership,
+): void {
+  const cols = [
+    `previous_attempt=${previous.attempt_id}`,
+    `previous_token=${previous.owner_token}`,
+    `previous_pid=${previous.pid}`,
+    `previous_terminal=${previousTerminal}`,
+    `detected_by_pid=${process.pid}`,
+    `new_attempt=${current.attemptId}`,
+    'outcome=committed',
+  ];
+  let auditError: unknown;
+  try {
+    const auditWriter = getAuditWriter();
+    if (!auditWriter) {
+      auditError = 'audit writer unavailable';
+    } else {
+      const outcome = auditWriter.write(WATCHDOG_AUDIT_EVENTS.TAKEOVER, ...cols) as unknown as
+        | AuditWriteOutcome
+        | undefined;
+      if (!outcome || outcome.kind === 'durable') return;
+      auditError = `${outcome.kind}: ${formatErr(outcome.error)}`;
+    }
+  } catch (error) {
+    auditError = error;
+  }
+  writeWatchdogRawFallback(
+    fsFactory,
+    `[watchdog-takeover] stage=audit_failed ${cols.join(' ')} error=${formatErr(auditError)}\n`,
+  );
 }
 
 /**
@@ -242,7 +281,13 @@ export function acquireWatchdogOwnership(
         'stale_recovery',
       );
       if (retired.kind === 'retired' || retired.kind === 'collision' || retired.kind === 'no_active') {
+        const previousTerminal = terminalResult.kind === 'recorded' || terminalResult.kind === 'already_recorded'
+          ? terminalResult.terminal.kind
+          : 'missing';
         commit = commitOwnership(fs, attempt);
+        if (retired.kind === 'retired' && commit.kind === 'committed') {
+          writeTakeoverAudit(fsFactory, owner, previousTerminal, commit.ownership);
+        }
       }
     }
     if (commit.kind === 'foreign_owned') {

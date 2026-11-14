@@ -8,6 +8,7 @@
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
+import type { AuditWriteOutcome } from '../foundation/audit/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import {
   getChestnutFs, getAuditWriter, motionRestartStateAPI,
@@ -143,10 +144,29 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
   fs.writeAtomicSync(WATCHDOG_PATHS.state, JSON.stringify(state, null, 2));
 }
 
-/** Best-effort crash log. */
-export function writeWatchdogCrash(err: Error): void {
+export type WriteWatchdogCrashResult =
+  | { kind: 'recorded' }
+  | { kind: 'unavailable' }
+  | { kind: 'failed'; cause: unknown };
+
+/** Crash audit typed result；writer 缺失/抛错均由 caller 降级到 raw process output。 */
+export function writeWatchdogCrash(
+  err: Error,
+  ...cols: (string | number)[]
+): WriteWatchdogCrashResult {
+  const auditWriter = getAuditWriter();
+  if (!auditWriter) return { kind: 'unavailable' };
   try {
-    const auditWriter = getAuditWriter();
-    auditWriter?.write(WATCHDOG_AUDIT_EVENTS.CRASH, `error=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`);
-  } catch { /* silent: crash handler must not throw */ }
+    const outcome = auditWriter.write(
+      WATCHDOG_AUDIT_EVENTS.CRASH,
+      `error=${auditWriter.message(formatErr(err))}`,
+      ...cols,
+    ) as unknown as AuditWriteOutcome | undefined;
+    if (outcome && outcome.kind !== 'durable') {
+      return { kind: 'failed', cause: `${outcome.kind}: ${formatErr(outcome.error)}` };
+    }
+    return { kind: 'recorded' };
+  } catch (cause) {
+    return { kind: 'failed', cause: formatErr(cause) };
+  }
 }

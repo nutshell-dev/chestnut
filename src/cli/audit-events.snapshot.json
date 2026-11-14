@@ -1007,6 +1007,7 @@
       "watchdog_ownership_committed",
       "watchdog_ownership_lost",
       "watchdog_ownership_retired",
+      "watchdog_takeover",
       "watchdog_ownership_malformed_active",
       "watchdog_ownership_legacy_migrated",
       "watchdog_unclean_termination_detected",

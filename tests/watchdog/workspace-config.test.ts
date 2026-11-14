@@ -169,6 +169,7 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
         config: 'migrated',
         state: 'migrated',
         log: 'migrated',
+        process_output: 'owned',
         subscriptions: 'retired',
       });
     });

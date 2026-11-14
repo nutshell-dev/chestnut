@@ -14,7 +14,11 @@ import {
   inspectWatchdogOwner,
   WatchdogOwnerInspectionError,
 } from './watchdog-pid.js';
-import { WATCHDOG_LOG_HINT } from './watchdog-log.js';
+import {
+  prepareWatchdogProcessOutput,
+  writeWatchdogRawFallback,
+  WATCHDOG_LOG_HINT,
+} from './watchdog-log.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
 /**
@@ -47,15 +51,17 @@ export async function spawnWatchdogCandidate(
   const legacyParent = path.dirname(getChestnutRoot());
   // phase 1763: 提交点前失败经 typed outcome 抛出（含原始 errno/时间/命令身份），
   // 不再静默落到 poll 超时；提交点后异步失败经 stderr sink 保持可观察。
+  const outputPath = prepareWatchdogProcessOutput(fsFactory);
   const outcome = await spawnDetached('node', [watchdogEntryPath], {
     env: { CHESTNUT_ROOT: legacyParent },
     cwd: legacyParent,
+    logFile: outputPath,
     onSpawnFailure: (failure) => {
-      console.error(
-        `[watchdog] post-commit spawn failure: command=${failure.command}` +
-          ` pid=${failure.pid ?? 'unknown'} errno=${failure.errno ?? failure.code ?? 'unknown'}` +
-          ` at=${failure.atMs}: ${failure.message}`,
-      );
+      const message = `[watchdog] post-commit spawn failure: command=${failure.command}` +
+        ` pid=${failure.pid ?? 'unknown'} errno=${failure.errno ?? failure.code ?? 'unknown'}` +
+        ` at=${failure.atMs}: ${failure.message}`;
+      console.error(message);
+      writeWatchdogRawFallback(fsFactory, `${message}\n`);
     },
   });
   if (outcome.kind === 'failed') {

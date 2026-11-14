@@ -10,7 +10,8 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { getChestnutFs, getAuditWriter } from './watchdog-context.js';
+import { formatErr } from '../foundation/node-utils/index.js';
+import { getChestnutDir, getChestnutFs, getAuditWriter } from './watchdog-context.js';
 import { WATCHDOG_PATHS } from './layout.js';
 
 /**
@@ -19,6 +20,38 @@ import { WATCHDOG_PATHS } from './layout.js';
  * （watchdog-layout-boundary ratchet：layout 协议对外封闭）。
  */
 export const WATCHDOG_LOG_HINT = `.chestnut/${WATCHDOG_PATHS.log}`;
+
+/** Detached child stdout/stderr 的唯一绝对路径推导（结构化 watchdog.log 不复用）。 */
+export function getWatchdogProcessOutputPath(): string {
+  return path.join(getChestnutDir(), WATCHDOG_PATHS.process_output);
+}
+
+/** spawn 前创建 owner 目录；stdout/stderr 由 spawnDetached 共用同一 fd 承接。 */
+export function prepareWatchdogProcessOutput(
+  fsFactory: (baseDir: string) => FileSystem,
+): string {
+  const outputPath = getWatchdogProcessOutputPath();
+  getChestnutFs(fsFactory).ensureDirSync(path.dirname(outputPath));
+  return outputPath;
+}
+
+/**
+ * crash/takeover audit 的最后文件降级通道。写失败只能再降级 stderr，并同时保留
+ * fallback 原始错误与完整原始行；本函数不向 crash handler 二次抛错。
+ */
+export function writeWatchdogRawFallback(
+  fsFactory: (baseDir: string) => FileSystem,
+  line: string,
+): void {
+  try {
+    getChestnutFs(fsFactory).appendSync(WATCHDOG_PATHS.process_output, line);
+  } catch (fallbackError) {
+    console.error(
+      `[watchdog] process-output fallback failed: ${formatErr(fallbackError)}; ` +
+      `original=${line.trim()}`,
+    );
+  }
+}
 
 /** 1:1 保 watchdog.ts:152-164 */
 export function log(fsFactory: (baseDir: string) => FileSystem, message: string): void {

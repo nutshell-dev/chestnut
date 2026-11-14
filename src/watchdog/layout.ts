@@ -20,13 +20,14 @@
 /** layout.json 记录格式的版本身份（同时是 watchdog/config.yaml 的 schema_version）。 */
 export const WATCHDOG_LAYOUT_SCHEMA_VERSION = 1;
 
-/** 目标布局（Phase 1286 最终树逐项一致）。 */
+/** 目标布局（Phase 1286 最终树；Phase 2153 B1 增加 raw process_output）。 */
 export const WATCHDOG_PATHS = {
   root: 'watchdog',
   layout: 'watchdog/layout.json',
   config: 'watchdog/config.yaml',
   state: 'watchdog/state.json',
   log: 'watchdog/watchdog.log',
+  process_output: 'watchdog/process-output.log',
   subscriptions: 'watchdog/subscriptions',
   candidates: 'watchdog/candidates',
   active: 'watchdog/active',

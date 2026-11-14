@@ -59,6 +59,8 @@ import type { ProcessManager } from '../../src/foundation/process-manager/index.
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
+import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+import { WATCHDOG_PATHS } from '../../src/watchdog/layout.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import {
   setAuditWriter,
@@ -203,6 +205,13 @@ describe('acquireWatchdogOwnership', () => {
     const audit = auditLines();
     expect(audit).toContain('watchdog_ownership_retired');
     expect(audit).toContain('reason=stale_recovery');
+    expect(audit).toContain('watchdog_takeover');
+    expect(audit).toContain(`previous_attempt=${stale.attempt_id}`);
+    expect(audit).toContain(`previous_token=${stale.owner_token}`);
+    expect(audit).toContain(`previous_pid=${stale.pid}`);
+    expect(audit).toContain('previous_terminal=unclean');
+    expect(audit).toContain(`new_attempt=${activeOwner()!.attempt_id}`);
+    expect(audit).toContain('outcome=committed');
   });
 
   it('live foreign owner（不同 workspace）→ foreign_owned + active 保留、不写 outcome', () => {
@@ -414,6 +423,52 @@ describe('stale recovery 补记 unclean terminal', () => {
       path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token, 'terminal.json'), 'utf-8'));
     expect(terminal.kind).toBe('crashed');
     expect(terminal.reason).toBe('test');
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_takeover');
+    expect(audit).toContain(`previous_attempt=${stale.attempt_id}`);
+    expect(audit).toContain(`previous_token=${stale.owner_token}`);
+    expect(audit).toContain(`previous_pid=${stale.pid}`);
+    expect(audit).toContain('previous_terminal=crashed');
+    expect(audit).toContain(`detected_by_pid=${process.pid}`);
+    expect(audit).toContain(`new_attempt=${activeOwner()!.attempt_id}`);
+    expect(audit).toContain('outcome=committed');
+  });
+
+  it('takeover 已提交但 audit 写失败：不阻断接管，raw fallback 同时保留双事实', () => {
+    const stale = newWatchdogAttempt(DEAD_PID);
+    seedActive(stale);
+    fs.writeFileSync(
+      path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'terminal.json'),
+      JSON.stringify({ kind: 'crashed', reason: 'old crash', recorded_at: new Date().toISOString() }),
+    );
+    const originalWrite = auditWriter.write.bind(auditWriter);
+    vi.spyOn(auditWriter, 'write').mockImplementation((type, ...cols) => {
+      if (type === WATCHDOG_AUDIT_EVENTS.TAKEOVER) {
+        return {
+          kind: 'pending_fallback',
+          path: 'audit.tsv',
+          row: 'watchdog_takeover-row',
+          error: new Error('takeover-audit-EIO'),
+        };
+      }
+      return originalWrite(type, ...cols);
+    });
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    const current = activeOwner()!;
+    expect(current.owner_token).not.toBe(stale.owner_token);
+    const raw = fs.readFileSync(path.join(chestnutDir, WATCHDOG_PATHS.process_output), 'utf8');
+    expect(raw).toContain('stage=audit_failed');
+    expect(raw).toContain('pending_fallback');
+    expect(raw).toContain('takeover-audit-EIO');
+    expect(raw).toContain(`previous_attempt=${stale.attempt_id}`);
+    expect(raw).toContain(`previous_token=${stale.owner_token}`);
+    expect(raw).toContain(`previous_pid=${stale.pid}`);
+    expect(raw).toContain('previous_terminal=crashed');
+    expect(raw).toContain(`new_attempt=${current.attempt_id}`);
+    expect(raw).toContain('outcome=committed');
   });
 
   it('已有 stopped terminal 时，recovery 不覆盖为 unclean，仍 retire 并接管', () => {
