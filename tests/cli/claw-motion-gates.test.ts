@@ -29,7 +29,7 @@ const pmMocks = vi.hoisted(() => ({
 vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>()),
   createProcessManagerForCLI: vi.fn(() => pmMocks),
-  signalCleanStop: vi.fn(),
+  signalCleanStop: vi.fn().mockResolvedValue({ kind: 'durable' }),
   clearCleanStop: vi.fn(),
 }));
 

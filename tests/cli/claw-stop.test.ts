@@ -63,7 +63,7 @@ describe('claw-stop', () => {
     vi.mocked(makeChestnutRoot).mockReturnValue('/tmp/chestnut' as any);
     vi.mocked(resolveClawDaemonDir).mockReturnValue('/tmp/chestnut/claws/test-claw/daemon');
 
-    vi.mocked(signalCleanStop).mockResolvedValue(undefined);
+    vi.mocked(signalCleanStop).mockResolvedValue({ kind: 'durable' });
     vi.mocked(clearCleanStop).mockResolvedValue(undefined);
   });
 
@@ -118,6 +118,60 @@ describe('claw-stop', () => {
       'status=failed',
       'stage=signal',
       'reason=kill ESRCH',
+    );
+  });
+
+  it('stop success + marker write failure → non-clean terminal, no success audit', async () => {
+    vi.mocked(signalCleanStop).mockRejectedValue(new Error('marker read-only'));
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' }),
+    } as any);
+
+    await expect(stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any }))
+      .rejects.toThrow('without clean-stop proof');
+
+    expect(mockAudit.write).toHaveBeenCalledWith(
+      'cli_claw_stop',
+      'name=test-claw',
+      'status=clean_stop_marker_unknown',
+      expect.stringContaining('path='),
+      expect.stringContaining('operation_id='),
+      expect.stringContaining('marker read-only'),
+    );
+    expect(mockAudit.write).not.toHaveBeenCalledWith(
+      'cli_claw_stop',
+      'name=test-claw',
+      'status=success',
+    );
+    expect(consoleLogSpy).not.toHaveBeenCalledWith('✓ Stopped Claw "test-claw"');
+  });
+
+  it('post-rename durability unknown → stopped-but-unproven terminal', async () => {
+    vi.mocked(signalCleanStop).mockResolvedValue({
+      kind: 'committed_durability_unknown',
+      error: Object.assign(new Error('directory fsync failed'), { code: 'EIO' }),
+    });
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' }),
+    } as any);
+
+    await expect(stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any }))
+      .rejects.toThrow('clean-stop marker unknown');
+  });
+
+  it('stop failure + marker cleanup failure → both facts reach caller', async () => {
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop: vi.fn().mockResolvedValue({ kind: 'failed', stage: 'signal', reason: 'kill EPERM' }),
+    } as any);
+    vi.mocked(clearCleanStop).mockRejectedValue(new Error('marker delete EIO'));
+
+    await expect(stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any }))
+      .rejects.toThrow(/kill EPERM.*marker_cleanup_failed.*marker delete EIO/);
+    expect(mockAudit.write).toHaveBeenCalledWith(
+      'cli_claw_stop',
+      'name=test-claw',
+      'status=marker_cleanup_failed',
+      'error=Error: marker delete EIO',
     );
   });
 

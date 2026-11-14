@@ -12,7 +12,7 @@
 
 import * as path from 'path';
 import type { DaemonDir } from './types.js';
-import type { FileSystem } from '../fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../fs/index.js';
 import type { ProcessManagerAuditSink } from './audit-sink.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 
@@ -20,10 +20,11 @@ export async function signalCleanStop(
   fs: FileSystem,
   daemonDir: DaemonDir,
   audit?: ProcessManagerAuditSink,
-): Promise<void> {
+): Promise<AtomicWriteResult> {
   const flagPath = path.join(daemonDir, 'clean-stop');
-  await fs.writeAtomic(flagPath, '');
+  const result = await fs.writeAtomic(flagPath, '');
   audit?.write(PROCESS_MANAGER_AUDIT_EVENTS.CLEAN_STOP_SIGNALED, `daemon_dir=${daemonDir}`);
+  return result;
 }
 
 /**
