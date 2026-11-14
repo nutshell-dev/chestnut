@@ -1,5 +1,5 @@
 import type { InputMeasurement, InputMeterDescriptor } from './input-meter-types.js';
-import { sha256Hex } from '../node-utils/index.js';
+import { formatErr, sha256Hex } from '../node-utils/index.js';
 
 export interface InputMeasurementUsage {
   inputTokens: number;
@@ -8,36 +8,51 @@ export interface InputMeasurementUsage {
   cacheReadInputTokens?: number;
 }
 
+interface InputMeasurementCorrelation {
+  invocationId?: string;
+  attemptId?: string;
+}
+
+interface InputMeasurementTerminalFacts extends InputMeasurementCorrelation {
+  descriptorRevision?: string;
+  inputHash?: string;
+  measurement?: InputMeasurement;
+}
+
 export type InputMeasurementObservation =
-  | {
+  | (InputMeasurementCorrelation & {
       kind: 'prepared';
       requestId: string;
       provider: string;
       model: string;
       descriptor: Readonly<InputMeterDescriptor>;
       measurement: InputMeasurement;
-      inputHash: string;
+      inputHash?: string;
       inputSource: 'unlinked';
-    }
-  | {
+    })
+  | (InputMeasurementTerminalFacts & {
       kind: 'completed';
       requestId: string;
       provider: string;
       model: string;
+      /** Raw SDK usage; normalization is recorded separately and never rewrites these values. */
       usage?: InputMeasurementUsage;
+      /** Backward-compatible alias of normalizedUsageInputTokens. */
       totalUsageInputTokens?: number;
+      normalizedUsageInputTokens?: number;
       measuredInputTokens?: number;
       deltaTokens?: number;
       reconciliation: 'matched' | 'mismatch' | 'no_usage' | 'unavailable';
-    }
-  | {
+      reason?: string;
+    })
+  | (InputMeasurementTerminalFacts & {
       kind: 'failed';
       requestId: string;
       provider: string;
       model: string;
       reason: string;
       measuredInputTokens?: number;
-    };
+    });
 
 export type InputMeasurementObserver = (observation: InputMeasurementObservation) => void;
 
@@ -48,8 +63,11 @@ export function emitInputMeasurement(
   if (!observer) return;
   try {
     observer(observation);
-  } catch {
-    // silent: observation is explicitly a non-throwing side channel.
+  } catch (error) {
+    // Observation is non-throwing, but dropping a formed fact must remain visible.
+    console.error( // console: L1 observer has no audit dependency; stderr preserves the dropped-fact signal
+      `[LLM INPUT MEASUREMENT CRITICAL] observer failed: request=${observation.requestId} phase=${observation.kind} reason=${formatErr(error)}`,
+    );
   }
 }
 

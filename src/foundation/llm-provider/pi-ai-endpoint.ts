@@ -13,7 +13,7 @@
 
 import type * as PiAi from '@earendil-works/pi-ai';
 import { LLMError } from './errors.js';
-import { PROVIDER_INVENTORY } from './provider-inventory.generated.js';
+import { catalogProviderEntry, type CatalogResolution } from './catalog-strategy.js';
 import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import type { ProviderConfig } from './types.js';
 import { loadPiAiRuntime } from './pi-ai-runtime.js';
@@ -23,6 +23,7 @@ export interface PiAiEndpoint {
   models: PiAi.Models;
   model: PiAi.Model<PiAi.Api>;
   fromCatalog: boolean;
+  resolution: Readonly<CatalogResolution>;
 }
 
 export interface PiAiEndpointOptions {
@@ -54,14 +55,14 @@ export async function createPiAiEndpoint(
   options?: PiAiEndpointOptions,
 ): Promise<PiAiEndpoint> {
   const runtime = await loadPiAiRuntime();
-  const { model, fromCatalog } = resolvePiAiModel(runtime, config);
+  const { model, fromCatalog, resolution } = resolvePiAiModel(runtime, config);
 
-  if (fromCatalog) {
+  if (resolution.kind === 'catalog_model') {
     const provider = runtime.builtinProviders().find((p) => p.id === model.provider);
     if (!provider) {
       throw new LLMError(
         `Provider "${config.name}": pi-ai builtin provider "${model.provider}" not found ` +
-        `(catalog model "${model.id}")`,
+        `(kind=${resolution.kind}, source=${resolution.source}, catalog model "${model.id}")`,
         { provider: config.name, api: String(model.api) },
       );
     }
@@ -74,7 +75,7 @@ export async function createPiAiEndpoint(
     }
     // Phase 1927 Step E：OAuth-capable provider 必须有装配注入的 CredentialStore
     // （否则 refresh 轮换 token 静默丢失——pi-ai 缺省 InMemoryCredentialStore 不持久化）
-    if (!options?.credentials && PROVIDER_INVENTORY[model.provider]?.auth.oauth) {
+    if (!options?.credentials && catalogProviderEntry(model.provider).auth.oauth) {
       throw new LLMError(
         `Provider "${config.name}": "${model.provider}" supports OAuth stored credentials but no ` +
         `credential store was injected (assembly must create and inject one — see pi-ai-credentials.ts)`,
@@ -86,7 +87,7 @@ export async function createPiAiEndpoint(
       ...(options?.authContext && { authContext: options.authContext }),
     });
     models.setProvider(provider);
-    return { models, model, fromCatalog };
+    return { models, model, fromCatalog, resolution };
   }
 
   const apiFactory = runtime.apis[model.api as string];
@@ -117,5 +118,5 @@ export async function createPiAiEndpoint(
   });
   const models = runtime.createModels();
   models.setProvider(provider);
-  return { models, model, fromCatalog };
+  return { models, model, fromCatalog, resolution };
 }

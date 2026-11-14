@@ -46,6 +46,13 @@ export {
   validateCatalogAuthProfile,
   catalogModelKnown,
   catalogProvidersWithoutPreset,
+  resolveCatalogIdentity,
+  CATALOG_REVISION,
+} from './catalog-strategy.js';
+export type {
+  CatalogResolution,
+  CatalogWireIdentity,
+  ContextWindowResolution,
 } from './catalog-strategy.js';
 export {
   createPiAiCredentialStore,

@@ -107,6 +107,18 @@ function toStreamEvent(event: LLMEvent): StreamEvent {
   } as StreamEvent;
 }
 
+function rawUsageForAudit(usage: unknown): string {
+  if (usage === undefined) return 'none';
+  return JSON.stringify(usage, (_key, value: unknown) =>
+    typeof value === 'number' && !Number.isFinite(value) ? String(value) : value) ?? 'none';
+}
+
+function measurementReason(measurement: { kind: string } | undefined): string {
+  return measurement && 'reason' in measurement && typeof measurement.reason === 'string'
+    ? measurement.reason
+    : 'none';
+}
+
 function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): AuditWriteOutcome | undefined {
   let outcome: AuditWriteOutcome | undefined;
   const w = (type: string, ...cols: (string | number)[]): void => {
@@ -340,15 +352,42 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       w(LLM_AUDIT_EVENTS.INPUT_MEASUREMENT,
         `request=${observation.requestId}`,
         `phase=${observation.kind}`,
-        `invocation=${event.invocationId ?? 'none'}`,
-        `attempt=${event.attemptId ?? 'none'}`,
+        `invocation=${event.invocationId ?? observation.invocationId ?? 'none'}`,
+        `attempt=${event.attemptId ?? observation.attemptId ?? 'none'}`,
         `provider=${event.provider}`,
         `model=${event.model}`,
         ...(observation.kind === 'prepared'
-          ? [`revision=${observation.descriptor.revision}`, `method=${observation.measurement.kind === 'unavailable' ? 'unavailable' : observation.measurement.method}`, `input_tokens=${observation.measurement.kind === 'unavailable' ? 'none' : observation.measurement.tokens}`, `input_hash=${observation.inputHash}`, `input_source=${observation.inputSource}`]
+          ? [
+            `revision=${observation.descriptor.revision}`,
+            `method=${observation.measurement.kind === 'unavailable' ? 'unavailable' : observation.measurement.method}`,
+            `input_tokens=${observation.measurement.kind === 'unavailable' ? 'none' : observation.measurement.tokens}`,
+            `input_hash=${observation.inputHash}`,
+            `input_source=${observation.inputSource}`,
+            `measurement_kind=${observation.measurement.kind}`,
+            `measurement_reason=${measurementReason(observation.measurement)}`,
+          ]
           : observation.kind === 'completed'
-            ? [`reconciliation=${observation.reconciliation}`, `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`, `usage_input_tokens=${observation.totalUsageInputTokens ?? 'none'}`, `delta_tokens=${observation.deltaTokens ?? 'none'}`]
-            : [`reason=${observation.reason}`, `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`]),
+            ? [
+              `reconciliation=${observation.reconciliation}`,
+              `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`,
+              `usage_input_tokens=${observation.totalUsageInputTokens ?? 'none'}`,
+              `delta_tokens=${observation.deltaTokens ?? 'none'}`,
+              `normalized_usage_input_tokens=${observation.normalizedUsageInputTokens ?? observation.totalUsageInputTokens ?? 'none'}`,
+              `raw_usage=${rawUsageForAudit(observation.usage)}`,
+              `revision=${observation.descriptorRevision ?? 'none'}`,
+              `input_hash=${observation.inputHash ?? 'none'}`,
+              `measurement_kind=${observation.measurement?.kind ?? 'none'}`,
+              `measurement_reason=${measurementReason(observation.measurement)}`,
+              `reason=${observation.reason ?? 'none'}`,
+            ]
+            : [
+              `reason=${observation.reason}`,
+              `measured_input_tokens=${observation.measuredInputTokens ?? 'none'}`,
+              `revision=${observation.descriptorRevision ?? 'none'}`,
+              `input_hash=${observation.inputHash ?? 'none'}`,
+              `measurement_kind=${observation.measurement?.kind ?? 'none'}`,
+              `measurement_reason=${measurementReason(observation.measurement)}`,
+            ]),
       );
       break;
     }

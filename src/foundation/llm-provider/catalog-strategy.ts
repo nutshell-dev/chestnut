@@ -15,8 +15,31 @@
  *   （OAuth-only → oauth；其余 → api_key；ambient 由用户显式声明）。
  */
 import { PROVIDER_INVENTORY, type ProviderInventoryEntry } from './provider-inventory.generated.js';
-import { MODEL_CATALOG } from './model-catalog.generated.js';
-import { PRESETS, type AuthProfile } from './presets.js';
+import {
+  MODEL_CATALOG,
+  MODEL_CATALOG_PI_AI_VERSION,
+} from './model-catalog.generated.js';
+import { PRESETS, type ApiFormat, type AuthProfile } from './presets.js';
+import { resolveContextWindowForIdentity } from './model-context-windows.js';
+import type {
+  CatalogIdentityConfig,
+  CatalogResolution,
+  CatalogWireIdentity,
+} from './catalog-resolution-types.js';
+export type {
+  CatalogResolution,
+  CatalogWireIdentity,
+  ContextWindowResolution,
+} from './catalog-resolution-types.js';
+
+export const CATALOG_REVISION = `pi-ai@${MODEL_CATALOG_PI_AI_VERSION}` as const;
+
+/** chestnut apiFormat → pi-ai api；由 identity facade 与 wire model 共用。 */
+export const API_FORMAT_TO_PI_AI_API: Readonly<Record<ApiFormat, string>> = {
+  anthropic: 'anthropic-messages',
+  openai: 'openai-completions',
+  gemini: 'google-generative-ai',
+};
 
 /** 显式 catalog 配置的 provider id 不在 inventory（typed；available 清单由快照单源派生）。 */
 export class UnknownCatalogProviderError extends Error {
@@ -93,6 +116,88 @@ export function validateCatalogAuthProfile(providerId: string, profile: AuthProf
 /** 显式 model 规则：`${providerId}/${model}` 命中静态 catalog seed。 */
 export function catalogModelKnown(providerId: string, model: string): boolean {
   return `${providerId}/${model}` in MODEL_CATALOG;
+}
+
+function wireIdentity(config: CatalogIdentityConfig): Readonly<CatalogWireIdentity> {
+  return Object.freeze({
+    model: config.model,
+    ...(config.apiFormat && { api: API_FORMAT_TO_PI_AI_API[config.apiFormat] }),
+    ...(config.baseUrl && { baseUrl: config.baseUrl }),
+  });
+}
+
+/**
+ * Provider/model 身份的唯一同步解析入口。SDK 只负责把 catalog_model 实例化，
+ * 不再决定它是不是合法目录身份；凭证和 endpoint 策略仍留在各自边界。
+ */
+export function resolveCatalogIdentity(
+  config: CatalogIdentityConfig,
+  source?: 'provider_id' | 'preset_alias',
+): CatalogResolution {
+  const revision = CATALOG_REVISION;
+  const base = {
+    modelId: config.model,
+    wire: wireIdentity(config),
+    revision,
+  };
+
+  if (config.catalogProvider && config.catalogModel) {
+    const providerId = config.catalogProvider;
+    catalogProviderEntry(providerId);
+    const metadata = MODEL_CATALOG[`${providerId}/${config.catalogModel}`];
+    if (!metadata) throw new CatalogModelNotFoundError(providerId, config.catalogModel);
+    const identity = {
+      ...base,
+      kind: 'metadata_only' as const,
+      source: 'metadata_only' as const,
+      providerId,
+      modelId: config.catalogModel,
+      metadata,
+    };
+    return Object.freeze({
+      ...identity,
+      window: resolveContextWindowForIdentity(identity),
+    });
+  }
+
+  if (config.piAiProvider) {
+    const providerId = config.piAiProvider;
+    if (source === 'provider_id') catalogProviderEntry(providerId);
+    const metadata = MODEL_CATALOG[`${providerId}/${config.model}`];
+    if (metadata) {
+      const identity = {
+        ...base,
+        kind: 'catalog_model' as const,
+        source: source === 'provider_id' ? 'provider_id' as const : 'preset_alias' as const,
+        providerId,
+        metadata,
+      };
+      return Object.freeze({
+        ...identity,
+        window: resolveContextWindowForIdentity(identity),
+      });
+    }
+    if (source === 'provider_id') throw new CatalogModelNotFoundError(providerId, config.model);
+  }
+
+  const identity = {
+    ...base,
+    kind: 'custom' as const,
+    source: 'explicit_custom' as const,
+    ...(config.piAiProvider && { providerId: config.piAiProvider }),
+  };
+  return Object.freeze({
+    ...identity,
+    window: resolveContextWindowForIdentity({ ...identity, providerHint: config.name }),
+  });
+}
+
+/** SDK materialization 只补全 wire 字段，不改变 catalog/window 身份与 revision。 */
+export function withCatalogWireIdentity(
+  resolution: CatalogResolution,
+  wire: CatalogWireIdentity,
+): CatalogResolution {
+  return Object.freeze({ ...resolution, wire: Object.freeze(wire) });
 }
 
 /**

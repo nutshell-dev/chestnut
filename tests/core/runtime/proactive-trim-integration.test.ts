@@ -127,6 +127,22 @@ describe('runtime proactive trim integration', () => {
     });
     runtimes.push(runtime);
     await runtime.initialize();
+    vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available',
+      meter: {
+        descriptor: {
+          revision: 'phase2148-proactive', provider: 'test', model: 'test', api: 'test',
+          contextWindow: 256_000, profile: 'legacy-cl100k-v2',
+        },
+        capability: { kind: 'unknown' as const },
+        measure: (input: { system?: string; messages: readonly Message[] }) => ({
+          kind: 'estimated' as const,
+          tokens: estimateTextTokens(input.system ?? '') + estimateMessagesTokens(input.messages),
+          method: 'legacy-cl100k' as const,
+          reason: 'test-meter',
+        }),
+      },
+    });
     return runtime as ProactiveTrimTestRuntime;
   }
 
@@ -234,6 +250,34 @@ describe('runtime proactive trim integration', () => {
 
     expect(runReactSpy).toHaveBeenCalled();
     expect((runtime as any).lastLLMCallAt).toBeGreaterThan(0);
+  });
+
+  it('uses preview budget evidence for the request fingerprint', async () => {
+    const runtime = await makeRuntime(true);
+    const prepare = vi.spyOn((runtime as any).llm, 'prepareInputBudget');
+
+    await runtime.computeTurnRequestFingerprint();
+
+    expect(prepare).toHaveBeenCalledWith({ kind: 'preview' });
+  });
+
+  it('preserves input and audits when the resolved window is unavailable', async () => {
+    const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const runtime = await makeRuntime(true);
+    vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'unavailable', reason: 'missing_evidence',
+    });
+    const audit = vi.spyOn(runtime.getAuditWriter(), 'write');
+    const msg = { role: 'user', content: 'keep me' } as Message;
+    runtime.fakeBatch = makeFakeBatch([msg]);
+
+    await driveLoop(runtime);
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(runtime.runReactMessages).toEqual([msg]);
+    expect(audit).toHaveBeenCalledWith(
+      'runtime_trim_window_unavailable', 'kind=proactive', 'reason=missing_evidence',
+    );
   });
 
   it('5. does not call maybeTrimProactive when contextManagerConfig is absent', async () => {

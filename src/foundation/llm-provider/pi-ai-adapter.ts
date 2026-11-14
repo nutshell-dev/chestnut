@@ -44,7 +44,8 @@ import {
   withCombinedAbortSignal,
 } from './abort-helper.js';
 import { createPiAiEndpoint, loadPiAiRuntime, type PiAiEndpoint } from './pi-ai-support.js';
-import { createInputMeter, type ModelInputMeter } from './input-meter.js';
+import { createInputMeter, isDeepseekV41MeterProfile, type ModelInputMeter } from './input-meter.js';
+import { prepareDeepseekInputProjection } from './deepseek-input-projection.js';
 import { buildEffectiveCallOptions } from './pi-ai-call-options.js';
 import type { PiAiCredentialStore } from './pi-ai-credentials.js';
 import { buildPiAiContext } from './pi-ai-wire.js';
@@ -66,7 +67,12 @@ import {
 } from './pi-ai-errors.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr, newUuid } from '../node-utils/index.js';
-import { emitInputMeasurement, inputProjectionHash } from './input-measurement-observer.js';
+import {
+  emitInputMeasurement,
+  inputProjectionHash,
+  type InputMeasurementUsage,
+} from './input-measurement-observer.js';
+import type { InputMeasurement } from './input-meter-types.js';
 
 /** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
 export interface PiAiAdapterOptions {
@@ -96,8 +102,10 @@ export class PiAiAdapter implements ProviderAdapter {
   }
 
   async prepareInputMeter(options: Pick<LLMCallOptions, 'maxTokens' | 'temperature'> = {}): Promise<ModelInputMeter> {
-    const { model } = await this.endpoint();
-    return createInputMeter(this.config, model, buildEffectiveCallOptions(this.config, options));
+    const { model, resolution } = await this.endpoint();
+    const effective = buildEffectiveCallOptions(this.config, options);
+    if (isDeepseekV41MeterProfile(model, resolution)) await prepareDeepseekInputProjection();
+    return createInputMeter(this.config, model, effective, resolution);
   }
 
   async call(options: LLMCallOptions): Promise<LLMResponse> {
@@ -141,9 +149,13 @@ export class PiAiAdapter implements ProviderAdapter {
   }
 
   /** 成功响应 context 检查（call/stream 共用）：所有 overflow kind 都抛 typed error。 */
-  private async inputBudgetEvidence(inputTokens?: number, requestedMaxTokens?: number): Promise<InputBudgetEvidence | undefined> {
+  private async inputBudgetEvidence(
+    inputTokens?: number,
+    requestedMaxTokens?: number,
+    temperature?: number,
+  ): Promise<InputBudgetEvidence | undefined> {
     try {
-      const meter = await this.prepareInputMeter({ maxTokens: requestedMaxTokens });
+      const meter = await this.prepareInputMeter({ maxTokens: requestedMaxTokens, temperature });
       return {
         descriptor: meter.descriptor,
         ...(inputTokens !== undefined ? { inputTokens } : {}),
@@ -154,7 +166,11 @@ export class PiAiAdapter implements ProviderAdapter {
     }
   }
 
-  private async guardSuccessfulContext(message: PiAi.AssistantMessage, options: LLMCallOptions): Promise<void> {
+  private async guardSuccessfulContext(
+    message: PiAi.AssistantMessage,
+    options: LLMCallOptions,
+    maxTokensOverride?: number,
+  ): Promise<void> {
     const runtime = await loadPiAiRuntime();
     const signal = inspectSuccessfulMessage(
       runtime.isContextOverflow,
@@ -173,7 +189,11 @@ export class PiAiAdapter implements ProviderAdapter {
       this.name,
       0,
       detail,
-      await this.inputBudgetEvidence(signal.inputTokens, options.maxTokens),
+      await this.inputBudgetEvidence(
+        signal.inputTokens,
+        maxTokensOverride ?? options.maxTokens,
+        options.temperature,
+      ),
     );
   }
 
@@ -188,7 +208,7 @@ export class PiAiAdapter implements ProviderAdapter {
       throw new LLMEmptyResponseError(this.name);
     }
     // context overflow 先于空响应检查：output=0 的 provider 截断必须进 reactive trim
-    await this.guardSuccessfulContext(finalMessage, options);
+    await this.guardSuccessfulContext(finalMessage, options, maxTokensOverride);
     if (finalMessage.content.length === 0) {
       throw new LLMEmptyResponseError(this.name);
     }
@@ -217,7 +237,7 @@ export class PiAiAdapter implements ProviderAdapter {
     const state = createEventTranslationState();
     for await (const event of this.runEvents('stream', options, maxTokensOverride)) {
       if (event.type === 'done') {
-        await this.guardSuccessfulContext(event.message, options);
+        await this.guardSuccessfulContext(event.message, options, maxTokensOverride);
       }
       const chunks = translatePiAiEvent(event, state);
       if (!chunks) continue; // error 事件已由 runEvents 抛错
@@ -246,12 +266,30 @@ export class PiAiAdapter implements ProviderAdapter {
   ): AsyncGenerator<PiAi.AssistantMessageEvent> {
     const { models, model } = await this.endpoint();
     const context = buildPiAiContext(this.config, options, model);
-    const inputBudget = await this.inputBudgetEvidence(undefined, maxTokensOverride ?? options.maxTokens);
+    const inputBudget = await this.inputBudgetEvidence(
+      undefined,
+      maxTokensOverride ?? options.maxTokens,
+      options.temperature,
+    );
     const requestId = newUuid();
     let measuredInputTokens: number | undefined;
+    let measurement: InputMeasurement | undefined;
+    let descriptorRevision: string | undefined;
+    let inputHash: string | undefined;
     try {
       const meter = await this.prepareInputMeter({ maxTokens: maxTokensOverride ?? options.maxTokens, temperature: options.temperature });
-      const measurement = meter.measure(options);
+      descriptorRevision = meter.descriptor.revision;
+      if (meter.project) {
+        try {
+          inputHash = inputProjectionHash(meter.project(options));
+        } catch {
+          // silent: measure() below returns the typed unavailable projection fact.
+          inputHash = undefined;
+        }
+      } else {
+        inputHash = inputProjectionHash(context);
+      }
+      measurement = meter.measure(options);
       measuredInputTokens = measurement.kind === 'counted' || measurement.kind === 'estimated'
         ? measurement.tokens : undefined;
       emitInputMeasurement(options.onInputMeasurement, {
@@ -261,18 +299,17 @@ export class PiAiAdapter implements ProviderAdapter {
         model: model.id,
         descriptor: meter.descriptor,
         measurement,
-        inputHash: inputProjectionHash(context),
+        ...(inputHash !== undefined ? { inputHash } : {}),
         inputSource: 'unlinked',
       });
     } catch (error) {
-      // silent: meter failure is represented as an input-measurement fact.
-      emitInputMeasurement(options.onInputMeasurement, {
-        kind: 'failed',
-        requestId,
-        provider: this.name,
-        model: model.id,
+      // silent: retained as unavailable measurement on the eventual SDK terminal.
+      // Meter setup is not an SDK terminal. Defer its fact to the SDK result so a
+      // later done/error produces exactly one terminal observation for this request.
+      measurement = {
+        kind: 'unavailable',
         reason: error instanceof Error ? error.message : 'input_meter_failed',
-      });
+      };
     }
     const timeout = options.timeoutMs ?? this.config.timeoutMs;
     const capture: HttpErrorCapture = {};
@@ -301,34 +338,34 @@ export class PiAiAdapter implements ProviderAdapter {
           abortHandle.clearInternalTimeout();
         }
         if (event.type === 'error') {
-          failureObserved = true;
           throw await this.constructStreamError(event, capture, options.signal, timeout, inputBudget);
         }
         if (event.type === 'done') {
           terminalObserved = true;
-          const usage = mapUsage(event.message.usage);
-          const totalUsageInputTokens = usage
-            ? usage.inputTokens + (usage.cacheCreationInputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0)
-            : undefined;
+          const usage = rawMeasurementUsage(event.message.usage);
+          const { normalizedUsageInputTokens, invalidFields } = normalizeUsageInputTokens(usage);
           emitInputMeasurement(options.onInputMeasurement, {
             kind: 'completed',
             requestId,
             provider: this.name,
             model: model.id,
-            ...(usage && { usage: {
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              ...(usage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: usage.cacheCreationInputTokens } : {}),
-              ...(usage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: usage.cacheReadInputTokens } : {}),
-            } }),
-            ...(totalUsageInputTokens !== undefined ? { totalUsageInputTokens } : {}),
+            ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
+            ...(inputHash !== undefined ? { inputHash } : {}),
+            ...(measurement !== undefined ? { measurement } : {}),
+            ...(usage !== undefined ? { usage } : {}),
+            ...(normalizedUsageInputTokens !== undefined ? {
+              totalUsageInputTokens: normalizedUsageInputTokens,
+              normalizedUsageInputTokens,
+            } : {}),
             ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
-            ...(totalUsageInputTokens !== undefined && measuredInputTokens !== undefined ? { deltaTokens: totalUsageInputTokens - measuredInputTokens } : {}),
-            reconciliation: totalUsageInputTokens === undefined
+            ...(normalizedUsageInputTokens !== undefined && measuredInputTokens !== undefined
+              ? { deltaTokens: normalizedUsageInputTokens - measuredInputTokens } : {}),
+            reconciliation: usage === undefined || invalidFields.length > 0
               ? 'no_usage'
               : measuredInputTokens === undefined
                 ? 'unavailable'
-                : totalUsageInputTokens === measuredInputTokens ? 'matched' : 'mismatch',
+                : normalizedUsageInputTokens === measuredInputTokens ? 'matched' : 'mismatch',
+            ...(invalidFields.length > 0 ? { reason: `invalid_usage:${invalidFields.join(',')}` } : {}),
           });
         }
         yield event;
@@ -342,6 +379,9 @@ export class PiAiAdapter implements ProviderAdapter {
           provider: this.name,
           model: model.id,
           reason: formatErr(err),
+          ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
+          ...(inputHash !== undefined ? { inputHash } : {}),
+          ...(measurement !== undefined ? { measurement } : {}),
           ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
         });
       }
@@ -354,6 +394,9 @@ export class PiAiAdapter implements ProviderAdapter {
           provider: this.name,
           model: model.id,
           reason: 'stream_ended_without_done',
+          ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
+          ...(inputHash !== undefined ? { inputHash } : {}),
+          ...(measurement !== undefined ? { measurement } : {}),
           ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
         });
       }
@@ -433,6 +476,43 @@ export class PiAiAdapter implements ProviderAdapter {
     // aborted 事件但外部 signal 未 abort → 本适配器超时控制器触发
     return new LLMTimeoutError(this.name, timeoutMs);
   }
+}
+
+/** Preserve SDK usage for observation without the response mapping's zero-value elision. */
+function rawMeasurementUsage(usage: PiAi.Usage | undefined): InputMeasurementUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    ...(usage.cacheWrite !== undefined ? { cacheCreationInputTokens: usage.cacheWrite } : {}),
+    ...(usage.cacheRead !== undefined ? { cacheReadInputTokens: usage.cacheRead } : {}),
+  };
+}
+
+/** The single owner of usage-input normalization and numeric validity classification. */
+export function normalizeUsageInputTokens(usage: InputMeasurementUsage | undefined): {
+  normalizedUsageInputTokens?: number;
+  invalidFields: string[];
+} {
+  if (!usage) return { invalidFields: [] };
+  const fields: Array<keyof InputMeasurementUsage> = [
+    'inputTokens',
+    'outputTokens',
+    'cacheCreationInputTokens',
+    'cacheReadInputTokens',
+  ];
+  const invalidFields: string[] = fields.filter(field => {
+    const value = usage[field];
+    return value !== undefined && (!Number.isSafeInteger(value) || value < 0);
+  });
+  const normalized = usage.inputTokens
+    + (usage.cacheCreationInputTokens ?? 0)
+    + (usage.cacheReadInputTokens ?? 0);
+  if (!Number.isSafeInteger(normalized)) invalidFields.push('normalizedUsageInputTokens');
+  return {
+    ...(invalidFields.length === 0 ? { normalizedUsageInputTokens: normalized } : {}),
+    invalidFields,
+  };
 }
 
 /** pi-ai AssistantMessage → chestnut LLMResponse（call 路径）。 */

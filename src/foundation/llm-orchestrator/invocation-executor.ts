@@ -38,6 +38,7 @@ import type {
   InputBudgetRequest,
   InputBudgetResult,
 } from './types.js';
+import { formatErr } from '../node-utils/index.js';
 import type { LLMProviderRecoveryState } from './instance-state.js';
 import type { ProviderAdmission } from './provider-admission.js';
 import type { ProviderRuntime } from './provider-runtime.js';
@@ -213,7 +214,18 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
   ) {
     return (observation: import('../llm-provider/index.js').InputMeasurementObservation): void => {
-      try { options.onInputMeasurement?.(observation); } catch { /* silent: observer contract is non-throwing */ }
+      const correlated: import('../llm-provider/index.js').InputMeasurementObservation = {
+        ...observation,
+        ...(correlation?.invocationId !== undefined ? { invocationId: correlation.invocationId } : {}),
+        ...(correlation?.attemptId !== undefined ? { attemptId: correlation.attemptId } : {}),
+      };
+      try {
+        options.onInputMeasurement?.(correlated);
+      } catch (error) {
+        console.error( // console: custom observer failure has no guaranteed audit sink; preserve provider result and expose the fact
+          `[LLM INPUT MEASUREMENT CRITICAL] observer failed: request=${observation.requestId} phase=${observation.kind} reason=${formatErr(error)}`,
+        );
+      }
       try {
         this.events.emit({
           type: 'input_measurement',
@@ -221,10 +233,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
           ...(correlation?.attemptId !== undefined ? { attemptId: correlation.attemptId } : {}),
           provider: adapter.name,
           model: adapter.model,
-          observation,
+          observation: correlated,
         });
-      } catch {
-        // silent: LLM event sinks are observational and must not change provider outcome.
+      } catch (error) {
+        // Custom sinks do not inherit createLLMEventSink's isolation; keep the
+        // provider result unchanged while exposing the dropped observation.
+        console.error( // console: last-resort diagnostic when the event sink itself fails
+          `[LLM EVENT SINK CRITICAL] input measurement emit failed: request=${observation.requestId} phase=${observation.kind} reason=${formatErr(error)}`,
+        );
       }
     };
   }
@@ -236,7 +252,8 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       if (evidence.length === 0) return { kind: 'unavailable', reason: 'missing_evidence' };
       for (const candidate of adapters) {
         for (const target of evidence) {
-          if (candidate.name !== target.descriptor.provider || candidate.model !== target.descriptor.model) continue;
+          const evidenceProvider = target.descriptor.providerLabel ?? target.descriptor.provider;
+          if (candidate.name !== evidenceProvider || candidate.model !== target.descriptor.model) continue;
           try {
             const meter = await candidate.prepareInputMeter();
             return meter.descriptor.revision === target.descriptor.revision
@@ -1317,6 +1334,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       signal: primaryMerged.signal,
       hardTimeoutMs: undefined,
       streamIdleTimeoutMs: undefined,
+      onInputMeasurement: this.inputMeasurementObserver(this.primary, options, inv),
     };
     const primaryIter = this.primary.stream!(primaryProviderOpts);
     let primaryClosed = false;
@@ -1371,6 +1389,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
             signal: fbMerged.signal,
             hardTimeoutMs: undefined,
             streamIdleTimeoutMs: undefined,
+            onInputMeasurement: this.inputMeasurementObserver(fb, options, inv),
           };
           try {
             const response = await fb.call(fbOpts);

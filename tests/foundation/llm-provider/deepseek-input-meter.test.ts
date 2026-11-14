@@ -10,7 +10,7 @@ const config: ProviderConfig = {
 
 describe('DeepSeek V4.1 input meter', () => {
   it('matches the official renderer for system + user input', async () => {
-    const meter = await createLLMProvider(config).prepareInputMeter();
+    const meter = await createLLMProvider({ ...config, thinking: true }).prepareInputMeter();
     expect(meter.capability).toEqual({ kind: 'complete_only' });
     expect(meter.measure({ system: 'You are helpful.', messages: [{ role: 'user', content: 'hello' }], tools: [] })).toEqual({
       kind: 'counted', tokens: 35, method: 'deepseek-v41-template',

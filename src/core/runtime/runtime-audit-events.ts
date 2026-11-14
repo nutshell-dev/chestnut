@@ -64,6 +64,7 @@ export const RUNTIME_AUDIT_EVENTS = {
   // phase 690: Runtime 反应式 trim+retry 触发 - LLM 返 context-exceeded 后 trim + 同 turn 重发
   REACTIVE_TRIM_TRIGGERED: 'runtime_reactive_trim_triggered',
   REACTIVE_TRIM_EXHAUSTED: 'runtime_reactive_trim_exhausted',
+  TRIM_WINDOW_UNAVAILABLE: 'runtime_trim_window_unavailable',
   // Phase 1967 Step B: 单条超预算消息显式单独放行（不截断/不摘要，留证）
   INBOX_OVERSIZED_ALONE: 'runtime_inbox_oversized_alone',
   // Phase 1967 Step B: 预算延后 defer 失败（EventLoop 据此回队并中止本轮）

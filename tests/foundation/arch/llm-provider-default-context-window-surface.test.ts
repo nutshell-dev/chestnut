@@ -1,17 +1,35 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const catalogSource = readFileSync(
-  new URL('../../../src/foundation/llm-provider/model-context-windows.ts', import.meta.url),
+function source(name: string): string {
+  return readFileSync(
+    new URL(`../../../src/foundation/llm-provider/${name}`, import.meta.url),
+    'utf8',
+  );
+}
+
+const windowOwner = source('model-context-windows.ts');
+const runtime = readFileSync(
+  new URL('../../../src/core/runtime/runtime.ts', import.meta.url),
   'utf8',
 );
 
-describe('LLMProvider default context window surface', () => {
-  it('keeps the default constant local while preserving resolver fallbacks', () => {
-    expect(catalogSource).not.toMatch(/export\s+const\s+DEFAULT_MODEL_CONTEXT_WINDOW\b/);
-    expect(catalogSource).toMatch(/const\s+DEFAULT_MODEL_CONTEXT_WINDOW\s*=\s*256_000;/);
-    // Phase 1925 Step C: provider 感知签名（catalog 精确命中优先，启发式回退）
-    expect(catalogSource).toMatch(/export\s+function\s+resolveContextWindow\s*\(\s*providerId:\s*string\s*\|\s*undefined,\s*modelName:\s*string\s*\|\s*undefined,?\s*\)\s*:\s*number/);
-    expect(catalogSource.match(/return\s+DEFAULT_MODEL_CONTEXT_WINDOW;/g)).toHaveLength(2);
+describe('LLMProvider catalog identity and context window surface', () => {
+  it('keeps heuristic/default fallback inside the window owner', () => {
+    expect(windowOwner).not.toMatch(/export\s+const\s+DEFAULT_MODEL_CONTEXT_WINDOW\b/);
+    expect(windowOwner).toMatch(/const\s+DEFAULT_MODEL_CONTEXT_WINDOW\s*=\s*256_000;/);
+    expect(windowOwner).toMatch(/export\s+function\s+resolveContextWindowForIdentity\s*\(/);
+    expect(runtime).not.toMatch(/resolveContextWindow/);
+  });
+
+  it.each([
+    'config-adapter.ts',
+    'pi-ai-model.ts',
+    'pi-ai-endpoint.ts',
+    'pi-ai-adapter.ts',
+  ])('keeps generated catalog tables out of %s consumers', (name) => {
+    const consumer = source(name);
+    expect(consumer).not.toMatch(/import\s*\{[^}]*\bMODEL_CATALOG\b[^}]*\}\s*from/);
+    expect(consumer).not.toMatch(/import\s*\{[^}]*\bPROVIDER_INVENTORY\b[^}]*\}\s*from/);
   });
 });

@@ -10,6 +10,7 @@ import type { ToolUseId } from './tool-use-id.js';
 import type { ThinkingLevel } from './thinking-levels.js';
 import type { ModelInputMeter } from './input-meter-types.js';
 import type { InputMeasurementObserver } from './input-measurement-observer.js';
+import type { CatalogResolution } from './catalog-resolution-types.js';
 
 // phase 692 Step A: 删 AuditLog import + re-export
 // L1 LLMProvider 收窄至 AuditSink (L1 owned duck-typed)、不知 L2a AuditLog 业务概念。
@@ -189,6 +190,9 @@ export interface ProviderConfig {
   catalogProvider?: string;
   /** metadata-only catalog 查询的 model id（可与 wire model id 不同）。 */
   catalogModel?: string;
+
+  /** 配置适配期固定的目录身份；手工构造 config 时由 resolvePiAiModel 补齐。 */
+  catalogResolution?: Readonly<CatalogResolution>;
 
   /** Optional audit sink for formatter guard events / SSE parse error clipping (L2b injects via config) */
   auditLog?: AuditSink;

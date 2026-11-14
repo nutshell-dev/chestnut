@@ -504,9 +504,13 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         model: 'model-x',
         usage: { inputTokens: 12, outputTokens: 3 },
         totalUsageInputTokens: 12,
+        normalizedUsageInputTokens: 12,
         measuredInputTokens: 12,
         deltaTokens: 0,
         reconciliation: 'matched',
+        descriptorRevision: 'rev-1',
+        inputHash: 'hash-1',
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
       },
     });
 
@@ -515,11 +519,14 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         'llm_input_measurement', 'request=req-1', 'phase=prepared',
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
         'revision=rev-1', 'method=deepseek-v41-template', 'input_tokens=12', 'input_hash=hash-1', 'input_source=unlinked',
+        'measurement_kind=counted', 'measurement_reason=none',
       ],
       [
         'llm_input_measurement', 'request=req-1', 'phase=completed',
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
         'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=12', 'delta_tokens=0',
+        'normalized_usage_input_tokens=12', 'raw_usage={"inputTokens":12,"outputTokens":3}',
+        'revision=rev-1', 'input_hash=hash-1', 'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
       ],
     ]);
     expect(stream.events).toEqual([

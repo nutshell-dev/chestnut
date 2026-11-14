@@ -8,14 +8,26 @@
 import type { ProviderConfig } from './types.js';
 import { resolvePreset } from './presets.js';
 import {
-  catalogProviderEntry,
   deriveCatalogAuthProfile,
   validateCatalogAuthProfile,
-  catalogModelKnown,
-  CatalogModelNotFoundError,
+  resolveCatalogIdentity,
 } from './catalog-strategy.js';
 import { resolveThinkingDefaults } from './thinking-defaults.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
+
+/** 派生身份不参与配置持久化/身份哈希；只在本次 runtime config 对象上保留。 */
+function attachCatalogResolution(
+  config: ProviderConfig,
+  source?: 'provider_id' | 'preset_alias',
+): ProviderConfig {
+  Object.defineProperty(config, 'catalogResolution', {
+    value: resolveCatalogIdentity(config, source),
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return config;
+}
 
 /** bare env var 名（应写 ${...} 引用）检测——preset 与显式 catalog 路径共用。 */
 function assertNotBareEnvVar(apiKey: string | undefined, display: string): void {
@@ -39,21 +51,17 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
       );
     }
     const providerId = p.provider_id;
-    catalogProviderEntry(providerId); // 未知 id loud（typed UnknownCatalogProviderError）
     if (!p.model || p.model === 'auto') {
       throw new Error(
         `Provider "${p.label ?? providerId}": explicit catalog provider (provider_id) requires an explicit "model" ` +
         `from the provider's static catalog (no "auto" default without a preset)`,
       );
     }
-    if (!catalogModelKnown(providerId, p.model)) {
-      throw new CatalogModelNotFoundError(providerId, p.model);
-    }
     const authProfile = p.auth_profile ?? deriveCatalogAuthProfile(providerId);
     validateCatalogAuthProfile(providerId, authProfile);
     assertNotBareEnvVar(p.api_key, p.label ?? providerId);
 
-    return {
+    const config: ProviderConfig = {
       name: p.label ?? providerId,
       apiKey: p.api_key,
       baseUrl: p.base_url,
@@ -72,6 +80,7 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
       reasoningEffort: p.reasoning_effort,
       piAiProvider: providerId,
     };
+    return attachCatalogResolution(config, 'provider_id');
   }
 
   const presetId = p.preset;
@@ -98,7 +107,7 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
     : p.model;
   const presetThinking = thinkingExplicit ? undefined : resolveThinkingDefaults(presetId, resolvedModel);
 
-  return {
+  const config: ProviderConfig = {
     name: p.label ?? presetId,
     apiKey: p.api_key,
     baseUrl: p.base_url ?? preset.defaultBaseUrl,
@@ -122,4 +131,5 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
     ...(preset.catalogProvider && { catalogProvider: preset.catalogProvider }),
     ...(preset.catalogModel && { catalogModel: preset.catalogModel }),
   };
+  return attachCatalogResolution(config, config.catalogProvider ? undefined : 'preset_alias');
 }

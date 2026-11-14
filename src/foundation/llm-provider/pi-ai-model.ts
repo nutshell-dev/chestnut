@@ -12,17 +12,16 @@
 
 import type * as PiAi from '@earendil-works/pi-ai';
 import { LLMError } from './errors.js';
-import { resolveContextWindow } from './model-context-windows.js';
 import type { ProviderConfig } from './types.js';
-import type { ApiFormat } from './presets.js';
 import type { PiAiRuntime } from './pi-ai-runtime.js';
+import {
+  API_FORMAT_TO_PI_AI_API,
+  resolveCatalogIdentity,
+  withCatalogWireIdentity,
+  type CatalogResolution,
+} from './catalog-strategy.js';
 
-/** chestnut apiFormat → pi-ai api（唯一协议裁决点；显式、不猜测）。 */
-export const API_FORMAT_TO_PI_AI_API: Readonly<Record<ApiFormat, string>> = {
-  anthropic: 'anthropic-messages',
-  openai: 'openai-completions',
-  gemini: 'google-generative-ai',
-};
+export { API_FORMAT_TO_PI_AI_API } from './catalog-strategy.js';
 
 /** 自建 Model 缺省 maxTokens（catalog 未命中、用户未配 max_tokens 时）。 */
 const CUSTOM_MODEL_DEFAULT_MAX_TOKENS = 65_536;
@@ -41,7 +40,9 @@ function reasoningEnabled(config: ProviderConfig): boolean {
 
 export interface ResolvedPiAiModel {
   model: PiAi.Model<PiAi.Api>;
-  /** true = catalog 命中（能力元数据来自 pi-ai 目录）；false = 显式自建。 */
+  /** 同一不可变身份同时供 endpoint、meter、guard 与 trim 消费。 */
+  resolution: Readonly<CatalogResolution>;
+  /** 兼容别名；新代码读取 resolution.kind。 */
   fromCatalog: boolean;
 }
 
@@ -56,13 +57,14 @@ export interface ResolvedPiAiModel {
  *    contextWindow 走 resolveContextWindow（catalog/启发式回退）。
  */
 export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): ResolvedPiAiModel {
+  const identity = config.catalogResolution ?? resolveCatalogIdentity(config);
   // Phase 1975 Step C：metadata-only——catalog 元数据与 wire 分离。
   // 不得返回 fromCatalog: true（createPiEndpoint 会接管 api/baseUrl）；
   // model.id 必须是 config.model（实际 wire model），不是 catalogModel。
-  if (config.catalogProvider && config.catalogModel) {
+  if (identity.kind === 'metadata_only') {
     const metadata = runtime
-      .getBuiltinModels(config.catalogProvider)
-      .find((m) => m.id === config.catalogModel);
+      .getBuiltinModels(identity.providerId)
+      .find((m) => m.id === identity.modelId);
     const api = config.apiFormat ? API_FORMAT_TO_PI_AI_API[config.apiFormat] : undefined;
     if (!api || !config.baseUrl) {
       // curated preset 必须显式 api/baseUrl——metadata-only 不提供 wire 兜底
@@ -85,8 +87,7 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
       reasoning: metadata?.reasoning ?? reasoningEnabled(config),
       input: metadata?.input ?? ['text'],
       cost: metadata?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: metadata?.contextWindow
-        ?? resolveContextWindow(config.piAiProvider ?? config.name, config.model),
+      contextWindow: identity.window.contextWindow,
       maxTokens: config.maxTokens ?? metadata?.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
       ...(metadataCompat?.forceAdaptiveThinking === true && {
         compat: { forceAdaptiveThinking: true } as unknown as PiAi.Model<PiAi.Api>['compat'],
@@ -95,22 +96,36 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
         thinkingLevelMap: metadata.thinkingLevelMap,
       }),
     };
-    return { model, fromCatalog: false };
+    const resolution = withCatalogWireIdentity(identity, {
+      model: model.id,
+      api: String(model.api),
+      baseUrl: model.baseUrl,
+    });
+    return { model, resolution, fromCatalog: false };
   }
 
-  if (config.piAiProvider) {
-    if (runtime.getBuiltinProviders().includes(config.piAiProvider)) {
-      const hit = runtime
-        .getBuiltinModels(config.piAiProvider)
-        .find((m) => m.id === config.model);
-      if (hit) {
-        const overridden =
-          config.baseUrl && config.baseUrl !== hit.baseUrl
-            ? { ...hit, baseUrl: config.baseUrl }
-            : hit;
-        return { model: overridden as PiAi.Model<PiAi.Api>, fromCatalog: true };
-      }
+  if (identity.kind === 'catalog_model') {
+    const hit = runtime
+      .getBuiltinModels(identity.providerId)
+      .find((m) => m.id === identity.modelId);
+    if (!hit) {
+      throw new LLMError(
+        `Provider "${config.name}": SDK catalog lost resolved identity ` +
+        `(kind=${identity.kind}, source=${identity.source}, provider=${identity.providerId}, model=${identity.modelId})`,
+        { provider: config.name, field: 'catalogModel' },
+      );
     }
+    const model = {
+      ...hit,
+      contextWindow: identity.window.contextWindow,
+      ...(config.baseUrl && config.baseUrl !== hit.baseUrl ? { baseUrl: config.baseUrl } : {}),
+    } as PiAi.Model<PiAi.Api>;
+    const resolution = withCatalogWireIdentity(identity, {
+      model: model.id,
+      api: String(model.api),
+      baseUrl: model.baseUrl,
+    });
+    return { model, resolution, fromCatalog: true };
   }
 
   // 自建 Model 路径：apiFormat 是唯一协议裁决（显式、不猜测）；catalog preset
@@ -140,8 +155,13 @@ export function resolvePiAiModel(runtime: PiAiRuntime, config: ProviderConfig): 
     reasoning: reasoningEnabled(config),
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: resolveContextWindow(config.piAiProvider ?? config.name, config.model),
+    contextWindow: identity.window.contextWindow,
     maxTokens: config.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
   };
-  return { model, fromCatalog: false };
+  const resolution = withCatalogWireIdentity(identity, {
+    model: model.id,
+    api: String(model.api),
+    baseUrl: model.baseUrl,
+  });
+  return { model, resolution, fromCatalog: false };
 }

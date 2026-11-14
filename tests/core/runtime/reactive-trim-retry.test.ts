@@ -17,6 +17,7 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { LLMContextExceededError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
+import { ContextInputMeasurementError } from '../../../src/core/context_manager/errors.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
@@ -95,6 +96,17 @@ describe('runtime reactive trim+retry path', () => {
     });
     runtimes.push(runtime);
     await runtime.initialize();
+    vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'available',
+      meter: {
+        descriptor: {
+          revision: 'phase2148-reactive', provider: 'test', model: 'test', api: 'test',
+          contextWindow: 1_000, profile: 'legacy-cl100k-v2',
+        },
+        capability: { kind: 'unknown' as const },
+        measure: () => ({ kind: 'counted' as const, tokens: 100, method: 'deepseek-v41-template' as const }),
+      },
+    });
     return runtime;
   }
 
@@ -229,6 +241,22 @@ describe('runtime reactive trim+retry path', () => {
     // blocked gate fail-closed：后续 run 在 drain 前被拦，LLM 零新增调用。
     await loop.run();
     expect(runReactCalls).toBe(4);
+  });
+
+  it('fails closed without trimming when the failure window evidence is unavailable', async () => {
+    const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist');
+    const runtime = await makeRuntime();
+    vi.spyOn((runtime as any).llm, 'prepareInputBudget').mockResolvedValue({
+      kind: 'unavailable', reason: 'missing_evidence',
+    });
+    const audit = vi.spyOn(runtime.getAuditWriter(), 'write');
+
+    await expect(runtime.reactiveTrim(new LLMContextExceededError('test-provider', 400, 'too long')))
+      .rejects.toBeInstanceOf(ContextInputMeasurementError);
+    expect(trimSpy).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      'runtime_trim_window_unavailable', 'kind=reactive', 'reason=missing_evidence',
+    );
   });
 
   it('non-context-exceeded errors NOT triggering retry', async () => {

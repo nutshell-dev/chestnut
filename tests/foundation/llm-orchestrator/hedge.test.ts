@@ -14,7 +14,13 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type {
+  InputMeasurementObservation,
+  LLMCallOptions,
+  ProviderAdapter,
+  ProviderConfig,
+  ProviderStreamChunk,
+} from '../../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
@@ -27,12 +33,19 @@ function createMockProvider(
     callResponse?: LLMResponse;
     callError?: Error;
     callDelayMs?: number;
+    measurementRequestId?: string;
   } = {},
 ): ProviderAdapter {
   return {
     name,
     model: 'mock-model',
-    async call(callOpts?: { signal?: AbortSignal }) {
+    async call(callOpts?: LLMCallOptions) {
+      if (opts.measurementRequestId) {
+        callOpts?.onInputMeasurement?.({
+          kind: 'completed', requestId: opts.measurementRequestId,
+          provider: name, model: 'mock-model', reconciliation: 'no_usage',
+        });
+      }
       if (opts.callDelayMs) {
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, opts.callDelayMs);
@@ -49,7 +62,13 @@ function createMockProvider(
       };
     },
     stream: opts.streamChunks || opts.streamError
-      ? async function* (streamOpts?: { signal?: AbortSignal }) {
+      ? async function* (streamOpts?: LLMCallOptions) {
+          if (opts.measurementRequestId) {
+            streamOpts?.onInputMeasurement?.({
+              kind: 'completed', requestId: opts.measurementRequestId,
+              provider: name, model: 'mock-model', reconciliation: 'no_usage',
+            });
+          }
           if (opts.streamDelayMs) {
             await new Promise<void>((resolve, reject) => {
               const timer = setTimeout(resolve, opts.streamDelayMs);
@@ -156,6 +175,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     const primary = createMockProvider('primary', {
       streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
       streamDelayMs: 100,
+      measurementRequestId: 'hedge-primary-request',
     });
     const fallback = createMockProvider('fb1', {
       callResponse: {
@@ -164,13 +184,18 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
         usage: { input_tokens: 10, output_tokens: 5 },
       },
       callDelayMs: 50,
+      measurementRequestId: 'hedge-fallback-request',
     });
     const service = createOrchestrator(primary, [fallback]);
     forceProviderWaiting(service, 0, 'transient');
     const events = attachEventSpy(service);
+    const observations: InputMeasurementObservation[] = [];
 
     const chunks: LLMStreamChunk[] = [];
-    for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
+    for await (const c of service.stream({
+      messages: [{ role: 'user', content: 'hi' }],
+      onInputMeasurement: fact => observations.push(fact),
+    })) {
       chunks.push(c);
     }
 
@@ -179,6 +204,15 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     expect(chunks.map(c => c.type)).toEqual(['text_delta', 'done']);
     expect((chunks[0] as { delta?: string }).delta).toBe('fb response');
     expect(service.getProviderInfo()?.name).toBe('fb1');
+    const started = events.find(e => e.type === 'call_invocation_started');
+    expect(started).toBeDefined();
+    if (started?.type !== 'call_invocation_started') throw new Error('expected invocation start');
+    expect(observations.map(fact => fact.requestId).sort()).toEqual([
+      'hedge-fallback-request', 'hedge-primary-request',
+    ]);
+    expect(observations.every(fact =>
+      fact.invocationId === started.invocationId && fact.attemptId === started.attemptId)).toBe(true);
+    expect(events.filter(e => e.type === 'input_measurement')).toHaveLength(2);
   });
 
   it('hedge double fail: primary error + all fallbacks fail → throw LLMAllProvidersFailedError', async () => {

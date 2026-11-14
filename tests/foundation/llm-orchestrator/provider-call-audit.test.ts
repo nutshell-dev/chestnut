@@ -94,9 +94,13 @@ function observingProvider(name: string): ProviderAdapter {
         model: 'model-x',
         usage: { inputTokens: 12, outputTokens: 2 },
         totalUsageInputTokens: 12,
+        normalizedUsageInputTokens: 12,
         measuredInputTokens: 12,
         deltaTokens: 0,
         reconciliation: 'matched',
+        descriptorRevision: 'rev-observed',
+        inputHash: 'hash-observed',
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
       });
       return OK_RESPONSE;
     },
@@ -231,7 +235,8 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       primaryName: 'observed',
     });
 
-    await h.service.call(CALL);
+    const observations: InputMeasurementObservation[] = [];
+    await h.service.call({ ...CALL, onInputMeasurement: fact => observations.push(fact) });
 
     const rows = await h.readRows();
     const inv = lastInvocationId(rows);
@@ -249,7 +254,31 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     }));
     expect(measurements[1]).toEqual(expect.objectContaining({
       reconciliation: 'matched', measured_input_tokens: '12', usage_input_tokens: '12', delta_tokens: '0',
+      normalized_usage_input_tokens: '12', revision: 'rev-observed', input_hash: 'hash-observed',
+      measurement_kind: 'counted', raw_usage: '{"inputTokens":12,"outputTokens":2}',
     }));
+    expect(observations).toHaveLength(2);
+    expect(observations.every(fact => fact.invocationId === inv && fact.attemptId === attemptId)).toBe(true);
+  });
+
+  it('isolates observer failure while preserving the result, audit facts and CRITICAL signal', async () => {
+    const dir = await makeDir();
+    const h = makeHarness(dir, {
+      providers: { observed: observingProvider('observed') },
+      primaryName: 'observed',
+    });
+    const critical = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(h.service.call({
+      ...CALL,
+      onInputMeasurement: () => { throw new Error('observer unavailable'); },
+    })).resolves.toBe(OK_RESPONSE);
+
+    const rows = await h.readRows();
+    const inv = lastInvocationId(rows);
+    expect(invocationRows(rows, inv).filter(row => row.type === 'llm_input_measurement')).toHaveLength(2);
+    expect(critical).toHaveBeenCalledWith(expect.stringContaining('[LLM INPUT MEASUREMENT CRITICAL]'));
+    critical.mockRestore();
   });
 
   it('primary 成功：started/attempt/selection 关联同一 invocation，最终 provider 明确', async () => {

@@ -68,6 +68,7 @@ function convertMessages(body: Obj): ChatMessage[] {
   };
   if (body.system !== undefined) append({ role: 'system', text: textContent(body.system, true) });
   const pending = new Map<string, number>();
+  const toolOrders = new Map<string, number>();
   for (const message of blocks(body.messages)) {
     if (message.role !== 'user' && message.role !== 'assistant') throw new Error('unsupported message role');
     if (typeof message.content === 'string') {
@@ -88,8 +89,9 @@ function convertMessages(body: Obj): ChatMessage[] {
           assistant.thinking = (assistant.thinking === undefined ? '' : assistant.thinking + '\n\n') + string(block.thinking);
         } else if (block.type === 'tool_use') {
           const id = string(block.id);
-          if (pending.has(id)) throw new Error('duplicate tool use');
+          if (toolOrders.has(id)) throw new Error('duplicate tool use');
           pending.set(id, assistant.calls!.length);
+          toolOrders.set(id, assistant.calls!.length);
           assistant.calls!.push({ id, name: string(block.name), input: object(block.input) });
         } else throw new Error(`unsupported assistant content: ${String(block.type)}`);
       }
@@ -98,7 +100,10 @@ function convertMessages(body: Obj): ChatMessage[] {
       const toolResults: { message: ChatMessage; order: number }[] = [];
       for (const block of content) {
         if (block.type === 'tool_result') {
-          const id = string(block.tool_use_id), order = pending.get(id);
+          // pi-ai can split mixed text/tool-result user content into multiple
+          // protocol messages and repeat a tool_result id; preserve that final
+          // projection instead of rejecting the actual wire request.
+          const id = string(block.tool_use_id), order = toolOrders.get(id);
           if (order === undefined) throw new Error('unmatched tool result');
           pending.delete(id);
           toolResults.push({ message: { role: 'tool', id, text: textContent(block.content) }, order });

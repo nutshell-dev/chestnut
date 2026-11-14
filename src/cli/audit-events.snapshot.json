@@ -527,6 +527,7 @@
       "runtime_reactive_trim_exhausted",
       "runtime_reactive_trim_triggered",
       "runtime_session_repair_failed",
+    "runtime_trim_window_unavailable",
       "runtime_turn_contract_id_cache_failed",
       "session_loaded",
       "session_repaired",

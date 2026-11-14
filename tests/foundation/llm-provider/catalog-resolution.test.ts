@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest';
+import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
+import { CATALOG_REVISION, resolveCatalogIdentity } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
+
+function parseProvider(input: Record<string, unknown>): ProviderConfig {
+  return toProviderConfig(llmProviderConfigSchema.parse(input));
+}
+
+describe('catalog identity facade', () => {
+  it('resolves explicit provider identity with source, revision and catalog window', () => {
+    const resolution = parseProvider({
+      provider_id: 'openai', model: 'gpt-5', api_key: 'secret-not-in-resolution',
+    }).catalogResolution;
+    expect(resolution).toMatchObject({
+      kind: 'catalog_model', source: 'provider_id', providerId: 'openai', modelId: 'gpt-5',
+      revision: CATALOG_REVISION,
+      window: { contextWindow: 400_000, source: 'catalog', revision: CATALOG_REVISION },
+    });
+    expect(JSON.stringify(resolution)).not.toContain('secret-not-in-resolution');
+    expect(Object.isFrozen(resolution)).toBe(true);
+    expect(Object.isFrozen(resolution?.window)).toBe(true);
+  });
+
+  it('resolves a preset alias once to the same provider-qualified identity', () => {
+    const resolution = parseProvider({
+      preset: 'moonshot', model: 'kimi-k2.6', api_key: 'synthetic-key',
+    }).catalogResolution;
+    expect(resolution).toMatchObject({
+      kind: 'catalog_model', source: 'preset_alias', providerId: 'moonshotai-cn', modelId: 'kimi-k2.6',
+    });
+  });
+
+  it('keeps metadata-only catalog identity separate from wire identity', () => {
+    const resolution = parseProvider({ preset: 'deepseek', api_key: 'synthetic-key' }).catalogResolution;
+    expect(resolution).toMatchObject({
+      kind: 'metadata_only', source: 'metadata_only', providerId: 'deepseek', modelId: 'deepseek-flash',
+      wire: { model: 'deepseek-flash[1m]', api: 'anthropic-messages' },
+      window: { contextWindow: 1_000_000, source: 'catalog' },
+    });
+  });
+
+  it('keeps explicit custom and unresolved duplicate fallback observable', () => {
+    const config: ProviderConfig = {
+      name: 'custom', model: 'gpt-5', apiFormat: 'openai', baseUrl: 'https://example.test/v1',
+      temperature: 0, timeoutMs: 1000,
+    };
+    const resolution = resolveCatalogIdentity(config);
+    expect(resolution).toMatchObject({
+      kind: 'custom', source: 'explicit_custom', modelId: 'gpt-5',
+      window: { contextWindow: 128_000, source: 'explicit_fallback' },
+    });
+  });
+
+  it('uses provider-qualified duplicate resolution instead of another provider window', () => {
+    const resolution = parseProvider({
+      provider_id: 'cloudflare-ai-gateway', model: 'gpt-5', api_key: 'synthetic-key',
+    }).catalogResolution;
+    expect(resolution?.window).toMatchObject({ contextWindow: 128_000, source: 'catalog' });
+    expect(resolution?.providerId).toBe('cloudflare-ai-gateway');
+  });
+});

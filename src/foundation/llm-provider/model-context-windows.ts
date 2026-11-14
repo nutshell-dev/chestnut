@@ -21,6 +21,7 @@
 
 import { MODEL_CATALOG } from './model-catalog.generated.js';
 import { PRESETS } from './presets.js';
+import type { CatalogResolution, ContextWindowResolution } from './catalog-resolution-types.js';
 
 /** 默认 context window（model 名未命中 1M 特判时 fallback、phase 684 改 128K → 256K） */
 const DEFAULT_MODEL_CONTEXT_WINDOW = 256_000;
@@ -83,49 +84,66 @@ const MODEL_CONTEXT_WINDOWS_BY_ID: ReadonlyMap<string, ReadonlySet<number>> = ((
 })();
 
 /**
- * 解析 (provider, model) 对应的 context window 上限。
- *
- * Phase 1977 模型优先（覆盖 Phase 1925 G3）：model id 唯一目录值优先；同名多值
- * 由 provider/preset 别名精确消歧，无法消歧取保守最小值；目录未命中走启发式。
- * providerId 接受 pi-ai catalog provider id 或 chestnut preset id（经
- * PRESETS.piAiProvider 显式别名，缺省回退 catalogProvider）；不再作为默认回退依据。
- * Phase 1925 Step C 界面变更：签名由 (modelName?) 改为 (providerId, modelName)，
- * 调用点（runtime.ts ×3）传 providerInfo?.name。
+ * 为已完成身份解析的结果附加窗口事实。只有 catalog facade 可以调用本函数；
+ * endpoint/runtime/guard/trim 必须消费同一个不可变结果，不能再次猜窗口。
+ */
+export function resolveContextWindowForIdentity(
+  identity: Pick<CatalogResolution, 'kind' | 'providerId' | 'modelId' | 'revision' | 'metadata'>
+    & { readonly providerHint?: string },
+): ContextWindowResolution {
+  const finish = (
+    contextWindow: number,
+    source: ContextWindowResolution['source'],
+  ): ContextWindowResolution => Object.freeze({
+    contextWindow,
+    source,
+    providerId: identity.providerId ?? identity.providerHint ?? 'unknown',
+    modelId: identity.modelId,
+    revision: identity.revision,
+  });
+
+  if (identity.kind !== 'custom' && identity.metadata) {
+    return finish(identity.metadata.contextWindow, 'catalog');
+  }
+
+  const modelName = identity.modelId;
+  const providerId = identity.providerId ?? identity.providerHint;
+  const windows = MODEL_CONTEXT_WINDOWS_BY_ID.get(modelName);
+
+  // 保留 Phase 1977/2144 数值规则，只把来源和 revision 纳入同一解析结果。
+  if (windows?.size === 1) return finish(Math.min(...windows), 'catalog');
+  const direct = providerId ? MODEL_CATALOG[`${providerId}/${modelName}`] : undefined;
+  if (direct) return finish(direct.contextWindow, 'catalog');
+  const aliased = providerId
+    ? (PRESETS[providerId]?.piAiProvider ?? PRESETS[providerId]?.catalogProvider)
+    : undefined;
+  if (aliased) {
+    const hit = MODEL_CATALOG[`${aliased}/${modelName}`];
+    if (hit) return finish(hit.contextWindow, 'catalog');
+  }
+  if (windows && windows.size > 1) return finish(Math.min(...windows), 'explicit_fallback');
+
+  if (modelName.endsWith('[1m]')) return finish(1_000_000, 'heuristic');
+  for (const pattern of MILLION_TOKEN_PATTERNS) {
+    if (modelName.includes(pattern)) return finish(1_000_000, 'heuristic');
+  }
+  if (matchesMillionModelFamily(modelName)) return finish(1_000_000, 'heuristic');
+  return finish(DEFAULT_MODEL_CONTEXT_WINDOW, 'heuristic');
+}
+
+/**
+ * 旧数值测试/外部兼容入口。生产调用方必须使用 CatalogResolution.window；
+ * 本 wrapper 不承载新的业务消费。
  */
 export function resolveContextWindow(
   providerId: string | undefined,
   modelName: string | undefined,
 ): number {
   if (!modelName) return DEFAULT_MODEL_CONTEXT_WINDOW;
-
-  const windows = MODEL_CONTEXT_WINDOWS_BY_ID.get(modelName);
-
-  // 1) model id 在目录中唯一 → 模型选择权威，不依赖 provider label
-  if (windows && windows.size === 1) {
-    return Math.min(...windows);
-  }
-
-  // 2) 同名多值 → provider 精确命中 / preset 别名消歧
-  const direct = providerId ? MODEL_CATALOG[`${providerId}/${modelName}`] : undefined;
-  if (direct) return direct.contextWindow;
-  const aliased = providerId
-    ? (PRESETS[providerId]?.piAiProvider ?? PRESETS[providerId]?.catalogProvider)
-    : undefined;
-  if (aliased) {
-    const hit = MODEL_CATALOG[`${aliased}/${modelName}`];
-    if (hit) return hit.contextWindow;
-  }
-
-  // 3) 同名多值仍无法消歧 → 保守最小值
-  if (windows && windows.size > 1) {
-    return Math.min(...windows);
-  }
-
-  // 4) 目录未命中 → 既有子串 + Phase 2144 显式后缀/模型族启发式
-  if (modelName.endsWith('[1m]')) return 1_000_000;
-  for (const pattern of MILLION_TOKEN_PATTERNS) {
-    if (modelName.includes(pattern)) return 1_000_000;
-  }
-  if (matchesMillionModelFamily(modelName)) return 1_000_000;
-  return DEFAULT_MODEL_CONTEXT_WINDOW;
+  return resolveContextWindowForIdentity({
+    kind: 'custom',
+    providerId,
+    modelId: modelName,
+    revision: 'legacy-unrevisioned',
+  }).contextWindow;
 }

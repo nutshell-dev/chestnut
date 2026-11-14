@@ -25,7 +25,6 @@ import {
   repairDialogMessages,
   type DialogSessionLifecycle,
 } from '../../foundation/dialog-store/index.js';
-import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact, isAgentLoopTerminationError } from '../agent-executor/index.js';
@@ -84,6 +83,7 @@ import {
   CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
   CONTEXT_TRIM_REACTIVE_TARGET_RATIO,
   buildReactiveTrimPolicy,
+  ContextInputMeasurementError,
   type ContextTrimOutcome,
   type TrimRuntimePolicy,
 } from '../context_manager/index.js';
@@ -1980,6 +1980,8 @@ export class Runtime {
     const providerInfo = this.llm.getProviderInfo?.();
     const primary = this.options.llmConfig.primary;
     const pending = await this.peekPendingTurnFacts();
+    const budget = await this.prepareTrimBudget({ kind: 'preview' });
+    const meter = budget.kind === 'available' ? budget.meter : undefined;
     const facts = {
       version: 2,
       sessionMessages: await this.getMessages(),
@@ -1991,7 +1993,9 @@ export class Runtime {
       provider: {
         name: providerInfo?.name ?? primary.name,
         model: providerInfo?.model ?? primary.model,
-        contextWindow: resolveContextWindow(providerInfo?.name ?? primary.name, providerInfo?.model ?? primary.model),
+        contextWindow: meter?.descriptor.contextWindow ?? null,
+        contextWindowSource: meter?.descriptor.windowResolution?.source ?? null,
+        contextWindowRevision: meter?.descriptor.windowResolution?.revision ?? null,
         explicitMaxTokens: primary.maxTokens ?? 0,
       },
       trimPolicy: {
@@ -2011,18 +2015,9 @@ export class Runtime {
    * Phase 1218 Step D: this is a public mutation operation and must acquire the
    * dialog operation authority.
    */
-  private async prepareTrimMeter(request: { kind: 'preview' } | { kind: 'failure'; error: unknown }): Promise<ModelInputMeter | undefined> {
-    if (typeof this.llm.prepareInputBudget !== 'function') return undefined;
-    try {
-      const result = await this.llm.prepareInputBudget(request);
-      return result.kind === 'available' ? result.meter : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async prepareTrimBudget(error: unknown): Promise<{ kind: 'available'; meter: ModelInputMeter } | { kind: 'unavailable'; reason: string }> {
-    const request = error === undefined ? { kind: 'preview' as const } : { kind: 'failure' as const, error };
+  private async prepareTrimBudget(
+    request: { kind: 'preview' } | { kind: 'failure'; error: unknown },
+  ): Promise<{ kind: 'available'; meter: ModelInputMeter } | { kind: 'unavailable'; reason: string }> {
     if (typeof this.llm.prepareInputBudget !== 'function') return { kind: 'unavailable', reason: 'capability_missing' };
     try {
       const result = await this.llm.prepareInputBudget(request);
@@ -2066,10 +2061,17 @@ export class Runtime {
     if (!this.contextTrimmingEnabled || !this.sessionManager) {
       return messages;
     }
-    const providerInfo = this.llm.getProviderInfo?.();
-    const meter = await this.prepareTrimMeter({ kind: 'preview' });
-    const contextWindow = meter?.descriptor.contextWindow
-      ?? resolveContextWindow(providerInfo?.name, providerInfo?.model);
+    const budget = await this.prepareTrimBudget({ kind: 'preview' });
+    if (budget.kind === 'unavailable') {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.TRIM_WINDOW_UNAVAILABLE,
+        'kind=proactive',
+        `reason=${budget.reason}`,
+      );
+      return messages;
+    }
+    const meter = budget.meter;
+    const contextWindow = meter.descriptor.contextWindow;
     const measureComplete = this.completeInputMeasurement(meter, systemPrompt, toolsForLLM);
     // phase 1861 (CM-D2+D8)：缓存失效判据归 caller——TTL 比较与「非首次」在此计算注入。
     const now = Date.now();
@@ -2121,15 +2123,24 @@ export class Runtime {
     const { session } = loadResult;
     const tools = this.getToolsForLLM();
     const providerInfo = this.llm.getProviderInfo?.();
-    const budget = await this.prepareTrimBudget(error);
-    const meter = budget.kind === 'available' ? budget.meter : undefined;
-    const contextWindow = meter?.descriptor.contextWindow
-      ?? resolveContextWindow(providerInfo?.name, providerInfo?.model);
+    const budget = await this.prepareTrimBudget(
+      error === undefined ? { kind: 'preview' } : { kind: 'failure', error },
+    );
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_TRIGGERED,
       `provider=${providerInfo?.name ?? 'unknown'}`,
       `trace_id=${String(this.execContext?.trace_id ?? '')}`,
     );
+    if (budget.kind === 'unavailable') {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.TRIM_WINDOW_UNAVAILABLE,
+        'kind=reactive',
+        `reason=${budget.reason}`,
+      );
+      throw new ContextInputMeasurementError(`window_resolution_unavailable:${budget.reason}`);
+    }
+    const meter = budget.meter;
+    const contextWindow = meter.descriptor.contextWindow;
     const outcome = await trimAndPersist({
       messages: session.messages,
       systemPrompt: session.systemPrompt,
@@ -2142,13 +2153,13 @@ export class Runtime {
       triggerKind: 'reactive_overflow',
       policy: buildReactiveTrimPolicy({
         contextWindow,
-        explicitMaxTokens: meter?.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.maxTokens,
+        explicitMaxTokens: meter.descriptor.explicitMaxTokens ?? this.options.llmConfig.primary.maxTokens,
       }, {
         targetRatio: this.contextTrimPolicy.reactiveTargetRatio,
       }),
       measureComplete: this.completeInputMeasurement(meter, session.systemPrompt, tools),
-      measurementCapability: meter?.capability,
-      measurementDescriptor: meter?.descriptor,
+      measurementCapability: meter.capability,
+      measurementDescriptor: meter.descriptor,
     });
     if (outcome.status === 'no_progress' || outcome.status === 'policy_conflict') {
       this.auditWriter.write(

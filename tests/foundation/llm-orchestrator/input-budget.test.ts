@@ -53,6 +53,36 @@ describe('provider-bound input budget', () => {
     await owner.close();
   });
 
+  it('matches canonical catalog evidence back to the labeled provider candidate', async () => {
+    const aliasDescriptor = {
+      ...descriptor('kimi-k2.6'),
+      provider: 'moonshotai-cn',
+      providerLabel: 'moonshot',
+    };
+    const owner = createLLMOrchestrator({
+      lifecycle: { mode: 'ephemeral' },
+      primary: { ...config('moonshot'), model: 'kimi-k2.6' },
+      fallbacks: [],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: { emit: (() => {}) as LLMEventSink['emit'] },
+      createProviderAdapter: () => ({
+        name: 'moonshot',
+        model: 'kimi-k2.6',
+        prepareInputMeter: async () => ({ ...meter('kimi-k2.6', 1), descriptor: aliasDescriptor }),
+        call: async () => response,
+      }),
+    });
+    const error = new LLMContextExceededError('moonshot', 413, 'too large', {
+      descriptor: aliasDescriptor,
+    });
+
+    await expect(owner.prepareInputBudget({ kind: 'failure', error })).resolves.toMatchObject({
+      kind: 'available', meter: { descriptor: aliasDescriptor },
+    });
+    await owner.close();
+  });
+
   it('keeps a typed context failure target descriptor and its JSON evidence', () => {
     const error = new LLMContextExceededError('deepseek', 413, 'too large', {
       descriptor: descriptor('deepseek-flash[1m]'),
