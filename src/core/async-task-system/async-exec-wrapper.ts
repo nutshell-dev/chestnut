@@ -32,6 +32,7 @@ import {
   type MigratedExecResultClassification,
   type MigratedExecResultRecord,
   type MigratedExecTerminationRecord,
+  type MigratedExecTerminalIntentStage,
 } from './migrated-exec-result.js';
 
 export interface AsyncExecWrapperParams {
@@ -320,7 +321,7 @@ export function createAsyncExecWrapper(
       let task: ToolTask | undefined;
       let executionTarget: ExecutionGroupTarget | undefined;
       let checkpointError: unknown;
-      let checkpointErrorContext = 'identity_checkpoint';
+      let checkpointErrorContext: MigratedExecTerminalIntentStage = 'result_dir_create';
       let outputPersistenceError: unknown;
       const auditOutputPersistenceFailure = (context: string, error: unknown): void => {
         try {
@@ -355,6 +356,31 @@ export function createAsyncExecWrapper(
         success: false,
         content: `Failed to persist migrated exec output: ${formatErr(outputPersistenceError)}`,
       });
+      const persistTerminalIntent = (
+        owner: ToolTask,
+        stage: MigratedExecTerminalIntentStage,
+        cause: unknown,
+        outcome: ExecutionTerminationOutcome,
+      ): boolean => {
+        const intent = {
+          version: 1 as const,
+          stage,
+          error: formatErr(cause),
+          termination: toTerminationRecord(outcome),
+          evidence: outcome.evidence,
+        };
+        try {
+          fs.writeAtomicSync(
+            `${TASKS_QUEUES_RUNNING_DIR}/${owner.id}.json`,
+            JSON.stringify({ ...owner, migratedExecTerminalIntent: intent }, null, 2),
+          );
+          owner.migratedExecTerminalIntent = intent;
+          return true;
+        } catch (intentErr) {
+          auditOutputPersistenceFailure('async_exec_wrapper_terminal_intent_write', intentErr);
+          return false;
+        }
+      };
       const checkpointIdentity = (identity: ExecutionIdentity): void => {
         if (task !== undefined || checkpointError !== undefined) return;
         const capture = captureExecutionTarget(identity);
@@ -368,17 +394,22 @@ export function createAsyncExecWrapper(
             `${TASKS_QUEUES_RUNNING_DIR}/${candidate.id}.json`,
             JSON.stringify(candidate, null, 2),
           );
+          // The running artifact is now the durable owner. Later failures must
+          // update this artifact even though the in-memory checkpoint is partial.
+          task = candidate;
+          executionTarget = capture.target;
           // The output artifact exists before L1 returns its handle. The single
           // replaying subscription below owns all subsequent writes, including
           // output emitted during the pre-soft-timeout window.
+          checkpointErrorContext = 'result_dir_create';
           fs.ensureDirSync(resultDir);
-          checkpointErrorContext = 'output_initial_write';
+          checkpointErrorContext = 'result_initial_write';
           fs.writeAtomicSync(resultPath, '');
-          checkpointErrorContext = 'identity_checkpoint';
+          checkpointErrorContext = 'short_id_index_add';
           shortIdIndex.add(shortId, fullId);
+          checkpointErrorContext = 'short_id_index_save';
           shortIdIndex.save();
-          task = candidate;
-          executionTarget = capture.target;
+          checkpointErrorContext = 'identity_checkpoint_audit';
           const checkpointCols: (string | number)[] = [
             `taskId=${fullId}`,
             `pid=${identity.leaderPid}`,
@@ -419,28 +450,86 @@ export function createAsyncExecWrapper(
           checkpointIdentity(handle.identity);
         }
         if (checkpointError !== undefined) {
-          const outcome = await handle.terminate('caller_requested');
-          // terminate() and the execution promise are separate observations;
-          // consume the latter before returning so the expected termination
-          // rejection cannot become an unhandledRejection.
-          await handle.promise.catch(() => { /* termination fact audited below */ });
-          emitMigratedExecTermination(auditWriter, {
-            taskId: fullId,
-            context: 'identity_checkpoint_failed',
-            identityCols: handle.identity === undefined ? [] : [
-              `leader_pid=${handle.identity.leaderPid}`,
-              `process_group_id=${handle.identity.processGroupId}`,
-            ],
-            trigger: outcome.trigger,
-            termSent: outcome.termSent,
-            killSent: outcome.killSent,
-            status: outcome.status,
-            reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
-            evidence: JSON.stringify(outcome.evidence),
+          const originalCheckpointError = checkpointError;
+          let outcome: ExecutionTerminationOutcome;
+          try {
+            outcome = await handle.terminate('caller_requested');
+          } catch (terminationErr) {
+            auditOutputPersistenceFailure('identity_checkpoint_termination_failed', terminationErr);
+            const terminationIdentity = handle.identity ?? executionTarget;
+            if (terminationIdentity === undefined) {
+              originalSignal?.removeEventListener('abort', onOriginalAbort);
+              return {
+                success: false,
+                content: `Failed to checkpoint exec identity: ${formatErr(originalCheckpointError)}`,
+              };
+            }
+            outcome = {
+              status: 'indeterminate',
+              identity: terminationIdentity,
+              trigger: 'caller_requested',
+              termSent: false,
+              killSent: false,
+              reason: `termination_failed: ${formatErr(terminationErr)}`,
+              checkedAt: new Date().toISOString(),
+              evidence: { version: 1, atMs: Date.now(), facts: [{ source: 'terminate_rejection' }] },
+            };
+          }
+          // Install a rejection consumer, but never wait for an execution that
+          // is still alive/indeterminate: durable cleanup intent is enough for
+          // restart recovery and the caller must receive the original failure.
+          void handle.promise.catch((executionErr: unknown) => {
+            auditOutputPersistenceFailure('identity_checkpoint_execution_rejection', executionErr);
           });
+          if (task !== undefined && !persistTerminalIntent(task, checkpointErrorContext, originalCheckpointError, outcome)) {
+            originalSignal?.removeEventListener('abort', onOriginalAbort);
+            return {
+              success: false,
+              content: `Failed to checkpoint exec identity: ${formatErr(originalCheckpointError)}`,
+            };
+          }
+          try {
+            emitMigratedExecTermination(auditWriter, {
+              taskId: fullId,
+              context: 'identity_checkpoint_failed',
+              identityCols: handle.identity === undefined ? [] : [
+                `leader_pid=${handle.identity.leaderPid}`,
+                `process_group_id=${handle.identity.processGroupId}`,
+              ],
+              trigger: outcome.trigger,
+              termSent: outcome.termSent,
+              killSent: outcome.killSent,
+              status: outcome.status,
+              reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+              evidence: JSON.stringify(outcome.evidence),
+            });
+          } catch (auditErr) {
+            auditOutputPersistenceFailure('identity_checkpoint_termination_audit_failed', auditErr);
+          }
+          if (task !== undefined && outcome.status === 'gone') {
+            try {
+              fs.ensureDirSync(resultDir);
+              if (writeExitRecord({
+                version: 1,
+                taskId: task.id,
+                completedAt: new Date().toISOString(),
+                classification: 'error',
+                exitCode: null,
+                termination: toTerminationRecord(outcome),
+                evidence: outcome.evidence,
+              })) {
+                await moveTaskToFailed(task.id).catch((moveErr: unknown) => {
+                  auditOutputPersistenceFailure('identity_checkpoint_failed_move', moveErr);
+                });
+              }
+            } catch (terminalErr) {
+              auditOutputPersistenceFailure('identity_checkpoint_terminal_commit_failed', terminalErr);
+            }
+          }
+          originalSignal?.removeEventListener('abort', onOriginalAbort);
           return {
             success: false,
-            content: `Failed to checkpoint exec identity: ${formatErr(checkpointError)}`,
+            content: `Failed to checkpoint exec identity: ${formatErr(originalCheckpointError)}`,
           };
         }
 

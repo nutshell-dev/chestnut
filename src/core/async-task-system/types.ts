@@ -18,6 +18,7 @@ import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ProcessedTaskResult, DeliveryEvidence } from './result-delivery-types.js';
 import type { LLMWaitFact, LLMWaitGate } from './llm-wait-state.js';
+import type { MigratedExecTerminalIntent } from './migrated-exec-result.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
@@ -427,6 +428,8 @@ export interface ToolTask {
   migratedExecution?: unknown;
   /** Phase 906: absolute deadline (ms) for migrated process hard timeout. */
   migratedDeadlineMs?: number;
-  /** Phase 873/874: persisted terminal intent for recovery routing. */
+  /** Phase 873/874: confirmed terminal state for recovery routing. */
   terminalState?: 'done' | 'failed';
+  /** Phase 2150: unconfirmed migrated-exec failure cleanup intent; not a terminal fact. */
+  migratedExecTerminalIntent?: MigratedExecTerminalIntent;
 }

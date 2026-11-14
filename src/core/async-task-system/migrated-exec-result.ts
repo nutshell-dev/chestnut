@@ -3,6 +3,7 @@ import type {
   ExecutionTerminationTrigger,
   ProcessEvidence,
 } from '../../foundation/process-exec/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 export const MIGRATED_EXEC_RESULT_VERSION = 1 as const;
 
@@ -23,6 +24,40 @@ export interface MigratedExecTerminationRecord {
   reason?: string;
   completedAt?: string;
   checkedAt?: string;
+}
+
+export const MIGRATED_EXEC_TERMINAL_INTENT_VERSION = 1 as const;
+
+export type MigratedExecTerminalIntentStage =
+  | 'result_dir_create'
+  | 'result_initial_write'
+  | 'short_id_index_add'
+  | 'short_id_index_save'
+  | 'identity_checkpoint_audit'
+  | 'migration_index_save';
+
+/**
+ * Durable cleanup intent for a checkpointed command whose normal execution
+ * chain could not commit a terminal record. It is not itself a terminal fact:
+ * recovery must observe/confirm gone before writing exit.json and moving failed.
+ */
+export interface MigratedExecTerminalIntent {
+  version: typeof MIGRATED_EXEC_TERMINAL_INTENT_VERSION;
+  stage: MigratedExecTerminalIntentStage;
+  error: string;
+  termination: MigratedExecTerminationRecord;
+  evidence?: ProcessEvidence;
+}
+
+export class MigratedExecTerminalIntentDecodeError extends Error {
+  constructor(
+    readonly kind: 'malformed' | 'future_version',
+    detail: string,
+    options?: ErrorOptions,
+  ) {
+    super(`Invalid migrated exec terminal intent (${kind}): ${detail}`, options);
+    this.name = 'MigratedExecTerminalIntentDecodeError';
+  }
 }
 
 /** Versioned terminal fact for a migrated exec. result.txt is already durable before this commit. */
@@ -114,6 +149,35 @@ function decodeEvidence(value: unknown): ProcessEvidence | undefined {
   }
   return value as unknown as ProcessEvidence;
 }
+
+export function decodeMigratedExecTerminalIntent(value: unknown): MigratedExecTerminalIntent {
+  if (!isObject(value)) throw new MigratedExecTerminalIntentDecodeError('malformed', 'root must be an object');
+  if (typeof value.version === 'number' && value.version > MIGRATED_EXEC_TERMINAL_INTENT_VERSION) {
+    throw new MigratedExecTerminalIntentDecodeError('future_version', `version=${value.version}`);
+  }
+  if (value.version !== MIGRATED_EXEC_TERMINAL_INTENT_VERSION) {
+    throw new MigratedExecTerminalIntentDecodeError('malformed', `unsupported version=${String(value.version)}`);
+  }
+  const stage = requiredString(value.stage, 'stage') as MigratedExecTerminalIntentStage;
+  if (!['result_dir_create', 'result_initial_write', 'short_id_index_add', 'short_id_index_save', 'identity_checkpoint_audit', 'migration_index_save'].includes(stage)) {
+    throw new MigratedExecTerminalIntentDecodeError('malformed', `invalid stage=${stage}`);
+  }
+  try {
+    return {
+      version: MIGRATED_EXEC_TERMINAL_INTENT_VERSION,
+      stage,
+      error: requiredString(value.error, 'error'),
+      termination: decodeTermination(value.termination) ?? (() => {
+        throw new MigratedExecTerminalIntentDecodeError('malformed', 'termination is required');
+      })(),
+      evidence: decodeEvidence(value.evidence),
+    };
+  } catch (err) {
+    if (err instanceof MigratedExecTerminalIntentDecodeError) throw err;
+    throw new MigratedExecTerminalIntentDecodeError('malformed', formatErr(err), { cause: err });
+  }
+}
+
 
 export function encodeMigratedExecResult(record: MigratedExecResultRecord): string {
   return JSON.stringify(record);

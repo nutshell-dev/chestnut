@@ -940,6 +940,114 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     vi.clearAllMocks();
   });
 
+  it('commits a gone checkpoint intent to failed without normal result delivery', async () => {
+    const mocks = await importProcessExecMocks();
+    const outcome = goneGroupOutcome();
+    const task = makeV1MigratedTask({
+      migratedExecTerminalIntent: {
+        version: 1,
+        stage: 'result_initial_write',
+        error: 'injected checkpoint EIO',
+        termination: outcome,
+        evidence: outcome.evidence,
+      },
+    });
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    const sendToolResult = vi.fn();
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit, sendToolResult });
+
+    expect(mocks.observeExecutionTarget).not.toHaveBeenCalled();
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
+    expect(sendToolResult).not.toHaveBeenCalled();
+    const exitPath = `tasks/queues/results/${VALID_TASK_ID}/exit.json`;
+    expect(JSON.parse(await mockFs.read(exitPath))).toMatchObject({
+      version: 1,
+      taskId: VALID_TASK_ID,
+      classification: 'error',
+      termination: { status: 'gone' },
+    });
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+    expect(await mockFs.exists(taskFile)).toBe(false);
+  });
+
+  it('resumes a still-alive checkpoint intent from a fresh gone observation', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.observeExecutionTarget.mockReturnValue(goneObservation());
+    const task = makeV1MigratedTask({
+      migratedExecTerminalIntent: {
+        version: 1,
+        stage: 'result_dir_create',
+        error: 'injected result dir EIO',
+        termination: {
+          status: 'still_alive',
+          trigger: 'caller_requested',
+          termSent: true,
+          killSent: false,
+          checkedAt: new Date().toISOString(),
+        },
+        evidence: EVIDENCE,
+      },
+    });
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    const sendToolResult = vi.fn();
+    const sendFallbackResult = vi.fn();
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit, sendToolResult, sendFallbackResult });
+
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
+    expect(sendToolResult).not.toHaveBeenCalled();
+    expect(sendFallbackResult).not.toHaveBeenCalled();
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+    expect(JSON.parse(await mockFs.read(`tasks/queues/results/${VALID_TASK_ID}/exit.json`))).toMatchObject({
+      classification: 'error',
+      termination: { status: 'still_alive' },
+      evidence: EVIDENCE,
+    });
+  });
+
+  it('keeps a checkpoint intent running when recovery termination is still not gone', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.observeExecutionTarget.mockReturnValue(aliveObservation());
+    mocks.terminateExecutionTarget.mockResolvedValue({
+      status: 'still_alive',
+      identity: { leaderPid: LEADER_PID, processGroupId: LEADER_PID },
+      trigger: 'caller_requested',
+      termSent: true,
+      killSent: true,
+      checkedAt: new Date().toISOString(),
+      evidence: EVIDENCE,
+    });
+    const task = makeV1MigratedTask({
+      migratedExecTerminalIntent: {
+        version: 1,
+        stage: 'short_id_index_save',
+        error: 'index write failed',
+        termination: {
+          status: 'indeterminate',
+          trigger: 'caller_requested',
+          termSent: true,
+          killSent: false,
+          reason: 'timeout',
+        },
+      },
+    });
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit, sendToolResult: vi.fn(), sendFallbackResult: vi.fn() });
+
+    expect(mocks.terminateExecutionTarget).toHaveBeenCalledWith(TARGET, 'caller_requested');
+    expect(await mockFs.exists(taskFile)).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/exit.json`)).toBe(false);
+    expect(mockFs.move).not.toHaveBeenCalled();
+  });
+
   it('verified group past deadline is terminated via L1 group path, then delivered', async () => {
     const mocks = await importProcessExecMocks();
     mocks.observeExecutionTarget.mockReturnValue(aliveObservation());

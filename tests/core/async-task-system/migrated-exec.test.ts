@@ -743,7 +743,7 @@ describe('createAsyncExecWrapper', () => {
     expect(isAlive(leaderPid)).toBe(false);
   });
 
-  it('checkpoint file remains recoverable when short-id-index save fails', async () => {
+  it('checkpoint failure commits a recoverable failed terminal after confirmed termination', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
@@ -763,7 +763,20 @@ describe('createAsyncExecWrapper', () => {
       expect(result.success).toBe(false);
       expect(result.content).toContain('Failed to checkpoint exec identity');
       const runningFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR));
-      expect(runningFiles.some(name => name.endsWith('.json'))).toBe(true);
+      const runningJson = runningFiles.filter(name => name.endsWith('.json'));
+      expect(runningJson).toHaveLength(0);
+      const failedFiles = (await fs.readdir(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR))).filter(name => name.endsWith('.json'));
+      expect(failedFiles).toHaveLength(1);
+      const fullId = failedFiles[0].replace(/\.json$/, '');
+      const failedTask = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR, failedFiles[0]), 'utf-8'));
+      expect(failedTask.migratedExecTerminalIntent).toMatchObject({
+        version: 1,
+        stage: 'short_id_index_save',
+        error: expect.stringContaining('index write failed'),
+        termination: { status: 'gone', trigger: 'caller_requested' },
+      });
+      const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+      expect(exitRecord).toMatchObject({ version: 1, taskId: fullId, classification: 'error', exitCode: null });
     } finally {
       saveSpy.mockRestore();
     }
@@ -2094,6 +2107,50 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
         identity: controlled.identity,
       });
     }
+  });
+
+  it('keeps a non-gone checkpoint failure running with durable intent without awaiting process settlement', async () => {
+    const controlled = makeControlledHandle();
+    controlled.handle.terminate = vi.fn().mockResolvedValue({
+      status: 'still_alive',
+      identity: controlled.identity,
+      trigger: 'caller_requested',
+      termSent: true,
+      killSent: false,
+      checkedAt: new Date().toISOString(),
+      evidence: { version: 1, atMs: 1234, facts: [{ source: 'injected-non-gone' }] },
+    });
+    const realEnsureDirSync = nodeFs.ensureDirSync.bind(nodeFs);
+    vi.spyOn(nodeFs, 'ensureDirSync').mockImplementation(dir => {
+      if (dir.includes(TASKS_QUEUES_RESULTS_DIR)) throw Object.assign(new Error('injected result dir EIO'), { code: 'EIO' });
+      realEnsureDirSync(dir);
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => controlled.handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const result = await tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('injected result dir EIO');
+    const runningFiles = (await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR))).filter(name => name.endsWith('.json'));
+    expect(runningFiles).toHaveLength(1);
+    const fullId = runningFiles[0].replace(/\.json$/, '');
+    const runningTask = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, runningFiles[0]), 'utf-8'));
+    expect(runningTask.terminalState).toBeUndefined();
+    expect(runningTask.migratedExecTerminalIntent).toMatchObject({
+      version: 1,
+      stage: 'result_dir_create',
+      error: expect.stringContaining('injected result dir EIO'),
+      termination: { status: 'still_alive', trigger: 'caller_requested' },
+      evidence: { facts: [{ source: 'injected-non-gone' }] },
+    });
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json')).then(() => true).catch(() => false)).toBe(false);
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(false);
   });
 
   it('persists abort classification and termination evidence before moving to failed', async () => {

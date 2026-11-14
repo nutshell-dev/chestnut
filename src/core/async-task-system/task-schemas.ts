@@ -112,8 +112,11 @@ export const ToolTaskSchema = z.object({
   migratedExecution: z.unknown().optional(),
   // Phase 906: absolute deadline (ms) for migrated process hard timeout
   migratedDeadlineMs: z.number().optional(),
-  // Phase 874: persisted terminal intent for recovery routing
+  // Phase 874: confirmed terminal state for recovery routing
   terminalState: z.enum(['done', 'failed']).optional(),
+  // Phase 2150: decoded by migrated-exec-result; malformed/future intent must
+  // keep the running artifact recoverable instead of corrupting the whole task.
+  migratedExecTerminalIntent: z.unknown().optional(),
 });
 
 export const TaskSchema = z.union([

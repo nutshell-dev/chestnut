@@ -51,8 +51,10 @@ import { createProcessedResultStore, type ProcessedResultStore } from './process
 import type { TaskId } from './types.js';
 import {
   decodeMigratedExecResult,
+  decodeMigratedExecTerminalIntent,
   encodeMigratedExecResult,
   MigratedExecResultDecodeError,
+  MigratedExecTerminalIntentDecodeError,
   type DecodedMigratedExecResult,
   type MigratedExecResultRecord,
 } from './migrated-exec-result.js';
@@ -332,6 +334,137 @@ async function notifyManualIntervention(
 }
 
 /**
+ * Complete a checkpoint-failure cleanup intent without entering normal result
+ * delivery. The intent preserves the original failure; only a gone fact permits
+ * the error exit record and failed move.
+ */
+async function recoverMigratedExecFailureIntent(
+  deps: RecoverTasksDeps,
+  filePath: string,
+  task: ToolTask,
+): Promise<number> {
+  const { fs, auditWriter } = deps;
+  let intent: ReturnType<typeof decodeMigratedExecTerminalIntent>;
+  try {
+    intent = decodeMigratedExecTerminalIntent(task.migratedExecTerminalIntent);
+  } catch (err) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: err instanceof MigratedExecTerminalIntentDecodeError && err.kind === 'future_version'
+        ? 'migrated_terminal_intent_future_version'
+        : 'migrated_terminal_intent_malformed',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+
+  const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+  const commitGone = async (
+    termination: MigratedExecResultRecord['termination'],
+    evidence: MigratedExecResultRecord['evidence'],
+  ): Promise<number> => {
+    try {
+      await fs.ensureDir(resultDir);
+      await fs.writeAtomic(`${resultDir}/exit.json`, encodeMigratedExecResult({
+        version: 1,
+        taskId: task.id,
+        completedAt: new Date().toISOString(),
+        classification: 'error',
+        exitCode: null,
+        termination,
+        evidence,
+      }));
+    } catch (err) {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_terminal_intent_exit_write_failed',
+        error: formatErr(err),
+      });
+      return 0;
+    }
+    await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).then(() => {
+      emitRecovered(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'failed',
+        reason: 'migrated_terminal_intent_completed',
+      });
+    }).catch((err: unknown) => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_terminal_intent_move_failed',
+        error: formatErr(err),
+      });
+    });
+    return 0;
+  };
+
+  if (intent.termination.status === 'gone') {
+    return commitGone(intent.termination, intent.evidence);
+  }
+
+  const decoded = decodeExecutionTarget(task.migratedExecution, task.migratedPid, task.migratedStartTime);
+  if (decoded.kind !== 'decoded') {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_terminal_intent_identity_indeterminate',
+      error: decoded.reason,
+      evidence: JSON.stringify(decoded.evidence),
+    });
+    return 0;
+  }
+  const observation = observeExecutionTarget(decoded.target);
+  if (observation.kind === 'unknown') {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_terminal_intent_probe_indeterminate',
+      error: observation.reason,
+      evidence: JSON.stringify(observation.evidence),
+    });
+    return 0;
+  }
+  if (observation.kind === 'gone') {
+    return commitGone(intent.termination, observation.evidence);
+  }
+
+  if (decoded.target.version === 0) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_terminal_intent_legacy_identity_alive',
+      error: 'legacy execution identity cannot authorize group termination',
+      evidence: JSON.stringify(observation.evidence),
+    });
+    return 0;
+  }
+  const outcome = await terminateExecutionTarget(decoded.target, 'caller_requested');
+  emitMigratedExecTermination(auditWriter, {
+    taskId: task.id,
+    context: 'recovery_terminal_intent',
+    identityCols: [
+      `leader_pid=${decoded.target.leaderPid}`,
+      `process_group_id=${decoded.target.processGroupId}`,
+    ],
+    trigger: outcome.trigger,
+    termSent: outcome.termSent,
+    killSent: outcome.killSent,
+    status: outcome.status,
+    reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+    evidence: JSON.stringify(outcome.evidence),
+  });
+  if (outcome.status !== 'gone') return 0;
+  return commitGone({
+    status: outcome.status,
+    trigger: outcome.trigger,
+    termSent: outcome.termSent,
+    killSent: outcome.killSent,
+    identity: outcome.identity,
+    completedAt: outcome.completedAt,
+  }, outcome.evidence);
+}
+
+/**
  * Move a manually-interventioned task to failed/. Move failure keeps the
  * running file; the marker guarantees the next recovery only retries the
  * move, never re-notifies.
@@ -375,6 +508,13 @@ export async function recoverMigratedToolTask(
   const resultPath = `${resultDir}/result.txt`;
   const sentMarkerPath = `${resultDir}/result.txt.sent`;
   const exitPath = `${resultDir}/exit.json`;
+
+  // Checkpoint failure has failed-business intent but no delivery semantics.
+  // Handle it before sent/exit/result recovery so an error exit can never be
+  // reinterpreted as a normal done result.
+  if (task.migratedExecTerminalIntent !== undefined) {
+    return recoverMigratedExecFailureIntent(deps, filePath, task);
+  }
 
   // A durable sent marker is the terminal delivery fact. Preserve the existing
   // crash-after-delivery idempotency without consulting stale process/exit data.
