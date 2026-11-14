@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createSendContentTracker,
-  feedSendContentDelta,
-} from '../../../src/foundation/messaging/tools/send-content-extractor.js';
+import { createSendContentTracker, feedSendContentDelta } from '../../../src/foundation/messaging/tools/send-content-extractor.js';
 
 function feedAll(parts: string[]): string {
   const tracker = createSendContentTracker();
@@ -21,6 +18,22 @@ describe('send content extractor JSON decoding', () => {
   it('decodes every standard JSON string escape', () => {
     expect(feedAll(['{"content":"a\\"b\\\\c\\/d\\be\\ff\\ng\\rh\\ti"}']))
       .toBe('a"b\\c/d\be\ff\ng\rh\ti');
+  });
+
+  it.each([
+    { raw: '\\"', expected: '"', closed: false },
+    { raw: '\\\\"', expected: '\\', closed: true },
+    { raw: '\\\\\\"', expected: '\\"', closed: false },
+  ])('uses consecutive backslash parity before a quote ($raw)', ({ raw, expected, closed }) => {
+    const tracker = createSendContentTracker();
+    expect(feedSendContentDelta(tracker, `{"content":"value${raw}`)).toBe(`value${expected}`);
+    expect(tracker.contentClosed).toBe(closed);
+  });
+
+  it('closes after even backslashes when braces surround the closing quote', () => {
+    const tracker = createSendContentTracker();
+    expect(feedSendContentDelta(tracker, '{"content":"value\\\\}"}')).toBe('value\\}');
+    expect(tracker.contentClosed).toBe(true);
   });
 
   it('decodes unicode escapes into CJK characters', () => {

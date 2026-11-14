@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createSendContentTracker,
-  feedSendContentDelta,
-} from '../../../src/foundation/messaging/tools/send-content-extractor.js';
+import { createSendContentTracker, feedSendContentDelta } from '../../../src/foundation/messaging/tools/send-content-extractor.js';
 
 function toJsonEscaped(text: string): string {
   let out = '';
@@ -68,7 +65,27 @@ describe('send content extractor streaming escape boundaries', () => {
   it('holds a unicode escape until all four hex digits arrive', () => {
     const tracker = createSendContentTracker();
     expect(feedSendContentDelta(tracker, '{"content":"\\u4f')).toBeNull();
+    expect(tracker.contentClosed).toBe(false);
     expect(feedSendContentDelta(tracker, '60"}')).toBe('你');
+    expect(tracker.contentClosed).toBe(true);
+  });
+
+  it('counts consecutive backslashes across chunk boundaries', () => {
+    const tracker = createSendContentTracker();
+    const deltas = [
+      feedSendContentDelta(tracker, '{"content":"a\\'),
+      feedSendContentDelta(tracker, '\\'),
+      feedSendContentDelta(tracker, '"}'),
+    ];
+    expect(deltas).toEqual(['a', '\\', null]);
+    expect(deltas.join('')).toBe('a\\');
+    expect(tracker.contentClosed).toBe(true);
+  });
+
+  it('keeps unterminated content open', () => {
+    const tracker = createSendContentTracker();
+    expect(feedSendContentDelta(tracker, '{"content":"value')).toBe('value');
+    expect(tracker.contentClosed).toBe(false);
   });
 
   it('holds split quote and backslash escapes', () => {

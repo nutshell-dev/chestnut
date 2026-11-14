@@ -64,17 +64,11 @@ function stripJsonClosing(s: string): { content: string; closed: boolean } {
   // Strip trailing " or "} that close the JSON string value and object
   let end = s.length;
   while (end > 0 && s[end - 1] === '}') end--;
-  let closed = false;
-  if (end > 0 && s[end - 1] === '"') {
-    // Check for escaped quote before the closing "
-    if (end >= 2 && s[end - 2] === '\\') {
-      // It's an escaped quote inside the content — keep it for unescaping
-    } else {
-      end--;
-      closed = true;
-    }
-  }
-  return { content: s.slice(0, end), closed };
+  if (end === 0 || s[end - 1] !== '"') return { content: s.slice(0, end), closed: false };
+  let slashCount = 0;
+  for (let i = end - 2; i >= 0 && s[i] === '\\'; i--) slashCount++;
+  const closed = slashCount % 2 === 0;
+  return { content: s.slice(0, closed ? end - 1 : end), closed };
 }
 
 function safeEmitEnd(raw: string, from: number): number {
