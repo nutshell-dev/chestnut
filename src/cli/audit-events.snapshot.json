@@ -257,6 +257,7 @@
       "task_recovery_complete",
       "task_recovery_dead_letter",
       "task_recovery_failed",
+      "task_recovery_fallback_batch",
       "task_result_delivery_failed",
       "task_result_write_failed",
       "task_running_file_delete_failed",
