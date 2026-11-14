@@ -17,12 +17,9 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { ContractAuditor } from '../../../src/core/contract/contract-auditor.js';
-import { InboxWriter, makeInboxPath, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import {
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../../../src/core/contract/index.js';
 import { createAuditWriter } from '../../../src/foundation/audit/index.js';
 import { createAuditReader } from '../../../src/foundation/audit/reader.js';
@@ -139,8 +136,8 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
   });
 
   function makeAuditor(llm: LLMOrchestrator): ContractAuditor {
-    const inbox = InboxWriter.__internal_create(
-      nfs, makeInboxPath('inbox/pending'), audit, MESSAGING_WRITER_LIMITS_DEFAULT,
+    const inbox = createInboxWriter(
+      nfs, rootDir, audit, MESSAGING_WRITER_LIMITS_DEFAULT,
     );
     return new ContractAuditor({ audit, fs: nfs, inbox, llm });
   }

@@ -14,7 +14,7 @@ import { type TaskId, type FullTaskId, type ShortTaskId, type TaskIdResolver } f
 import { queryArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { assertDreamStateShape } from './invariants.js';
-import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
+import { createInboxReader } from '../../foundation/messaging/index.js';
 
 /**
  * Default pulse interval（ms）for waitForTaskResult polling.
@@ -636,10 +636,7 @@ async function flushPendingNotifications(
   opts: RandomDreamOptions,
   state: RandomDreamState,
 ): Promise<RandomDreamState> {
-  const reader = new InboxReader(
-    INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR,
-    opts.motionFs, opts.audit,
-  );
+  const reader = createInboxReader(opts.motionFs, opts.audit, '.');
   let current = state;
   for (const item of current.pendingNotifications ?? []) {
     const existing = await reader.findByExtraMeta(

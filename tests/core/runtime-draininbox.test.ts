@@ -20,7 +20,7 @@ import { promises as fs } from 'fs';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 // phase 1780: misrouted 路径走 owner 常量（messaging dirs.ts barrel），不内联复制
-import { INBOX_MISROUTED_DIR } from '../../src/foundation/messaging/index.js';
+import { INBOX_MISROUTED_DIR } from '../../src/foundation/messaging/dirs.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';

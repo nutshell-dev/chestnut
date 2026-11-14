@@ -22,8 +22,8 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/config/snapshot-patterns.js';
-import { InboxReader } from '../../src/foundation/messaging/index.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
+import { createInboxReader, InboxReader } from '../../src/foundation/messaging/index.js';
+
 import { initializeClawLayout } from '../../src/assembly/index.js';
 
 afterEach(() => {
@@ -42,7 +42,7 @@ describe('Runtime.initialize() failure audits', () => {
     vi.spyOn(snapshot, 'commit').mockResolvedValue({ ok: true } as any);
 
     const sessionManager = overrides.sessionManager ?? new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
-    const inboxReader = overrides.inboxReader ?? new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
+    const inboxReader = overrides.inboxReader ?? createInboxReader(systemFs, auditWriter, '.');
     return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader };
   }
 

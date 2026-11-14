@@ -11,9 +11,9 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import { InboxWriter } from '../../src/foundation/messaging/index.js';
-import { makeInboxPath } from '../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
+import { createInboxWriter, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
+
+
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
@@ -33,16 +33,17 @@ afterEach(() => {
 });
 
 function readWrittenFile(): string {
-  const files = fs.readdirSync(tmpDir).filter(f => f.endsWith('.md'));
+  const pendingDir = path.join(tmpDir, 'inbox', 'pending');
+  const files = fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
   expect(files).toHaveLength(1);
-  return fs.readFileSync(path.join(tmpDir, files[0]), 'utf-8');
+  return fs.readFileSync(path.join(pendingDir, files[0]), 'utf-8');
 }
 
 // ─── yamlQuote: numeric passthrough ──────────────────────────────────────────
 
 describe('yamlQuote — numeric extraFields', () => {
   it('integer values are written unquoted', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -55,7 +56,7 @@ describe('yamlQuote — numeric extraFields', () => {
   });
 
   it('float values are written unquoted', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -72,7 +73,7 @@ describe('yamlQuote — numeric extraFields', () => {
 
 describe('yamlQuote — boolean extraFields', () => {
   it('true/false are written unquoted', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -89,7 +90,7 @@ describe('yamlQuote — boolean extraFields', () => {
 
 describe('yamlQuote — string escaping', () => {
   it('backslash is escaped to \\\\', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -102,7 +103,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('double-quote is escaped to \\"', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -114,7 +115,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('newline in value is escaped to \\n', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -126,7 +127,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('carriage return in value is escaped to \\r', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -142,18 +143,18 @@ describe('yamlQuote — string escaping', () => {
 
 describe('writeInboxMessage atomic write', () => {
   it('leaves no .tmp file after write', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
       body: 'hello',
     });
-    const tmpFiles = fs.readdirSync(tmpDir).filter(f => f.endsWith('.tmp'));
+    const tmpFiles = fs.readdirSync(path.join(tmpDir, 'inbox', 'pending')).filter(f => f.endsWith('.tmp'));
     expect(tmpFiles).toHaveLength(0);
   });
 
   it('final file has complete YAML frontmatter and body', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'ping',
       source: 'motion',
       priority: 'high',
@@ -173,16 +174,17 @@ describe('writeInboxMessage atomic write', () => {
 
 describe('readInboxFileMeta', () => {
   it('should return ok with meta for valid inbox file', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+    createInboxWriter(mockFs, tmpDir, mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'ping',
       source: 'motion',
       priority: 'high',
       body: 'test body content',
     });
-    const files = fs.readdirSync(tmpDir).filter(f => f.endsWith('.md'));
+    const pendingDir = path.join(tmpDir, 'inbox', 'pending');
+    const files = fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
     expect(files).toHaveLength(1);
 
-    const result = InboxWriter.readMeta(mockFs, path.join(tmpDir, files[0]));
+    const result = InboxWriter.readMeta(mockFs, path.join(pendingDir, files[0]));
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.type).toBe('ping');

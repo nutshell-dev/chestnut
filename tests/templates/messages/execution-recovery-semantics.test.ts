@@ -27,21 +27,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'fs';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import {
-  createInboxReader,
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
-import {
-  EventLoop,
-  createExecutionRecoveryController,
-  createExecutionRecoveryStore,
-} from '../../../src/core/event-loop/index.js';
-import {
-  EXECUTION_RECOVERY_DELIVERY_META_KEY,
-  EXECUTION_RECOVERY_DIR,
-} from '../../../src/core/event-loop/constants.js';
+import { EventLoop, createExecutionRecoveryController, createExecutionRecoveryStore, EVENTLOOP_INBOX_MESSAGE_TYPES } from '../../../src/core/event-loop/index.js';
+import { EXECUTION_RECOVERY_DELIVERY_META_KEY, EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import type {
   ExecutionRecoveryDeliveryOutcome,
@@ -50,7 +39,7 @@ import type {
   PendingExecutionResume,
 } from '../../../src/core/event-loop/index.js';
 import { DAEMON_INBOX_MESSAGE_TYPES } from '../../../src/daemon/inbox-formatter.js';
-import { EVENTLOOP_INBOX_MESSAGE_TYPES } from '../../../src/core/event-loop/index.js';
+
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from '../../../src/assembly/guidance/index.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
@@ -184,7 +173,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
       agentDir,
       clawId: CLAW_ID,
       audit,
-      inbox: { pendingDir },
+      inbox: { clawRoot: agentDir },
     });
     const store = createExecutionRecoveryStore({ agentFs, audit });
     const controller = createExecutionRecoveryController({
@@ -209,7 +198,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
     });
 
     // 真实 reader 读回并 ack 结算
-    const reader = createInboxReader(agentFs, audit, 'inbox');
+    const reader = createInboxReader(agentFs, audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.kind).toBe('complete');
     if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
@@ -271,7 +260,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
       agentDir,
       clawId: CLAW_ID,
       audit,
-      inbox: { pendingDir },
+      inbox: { clawRoot: agentDir },
     });
     const store = createExecutionRecoveryStore({ agentFs, audit });
     let currentNow = FIXED_NOW;
@@ -298,7 +287,7 @@ describe('phase 1845: execution_recovery 执行提醒新语义真实生产链', 
         retryInFlight: false,
         asyncTaskInFlight: false,
       });
-      const reader = createInboxReader(agentFs, audit, 'inbox');
+      const reader = createInboxReader(agentFs, audit, '.');
       const batch = await reader.drainAndDeliver();
       expect(batch.kind).toBe('complete');
       if (batch.kind !== 'complete') throw new Error('unexpected batch kind');

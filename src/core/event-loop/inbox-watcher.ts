@@ -17,7 +17,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/index.js';
-import { MESSAGING_AUDIT_EVENTS } from '../../foundation/messaging/index.js';
+import { makeInboxTarget, MESSAGING_AUDIT_EVENTS } from '../../foundation/messaging/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 
 /**
@@ -40,10 +40,11 @@ export type InboxWaitResult =
 export function waitForInbox(
   fs: FileSystem,
   audit: AuditLog,
-  inboxPendingDir: string,
+  clawRoot: string,
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<InboxWaitResult> {
+  const inboxPendingDir = makeInboxTarget(clawRoot).pendingDir;
   return new Promise(resolve => {
     let watcher: Watcher | null = null;
     let settled = false;

@@ -8,7 +8,6 @@
  * Daemon 主入口 — 启动 Runtime 并保持运行至 SIGTERM。
  */
 
-import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { RootConfigReader } from '../assembly/index.js';
@@ -347,7 +346,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // phase 1804: Messaging owner capability —— daemon 不见目录/文件名/删除动作；
     // typed identity（解码 meta.type）替代 '_heartbeat_' 文件名 substring 判断。
     {
-      const inboxMaintenance = createInboxReader(preAssembleFs, preAssembleAudit, path.join(dir, 'inbox'));
+      const inboxMaintenance = createInboxReader(preAssembleFs, preAssembleAudit, dir);
       const cleanup = await inboxMaintenance.cleanupPendingByType('heartbeat');
       if (cleanup.kind === 'partial') {
         auditWriter.write(

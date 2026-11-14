@@ -29,12 +29,7 @@ import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/inbox-
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import {
-  INBOX_PENDING_DIR,
-  INBOX_INFLIGHT_DIR,
-  INBOX_DONE_DIR,
-  INBOX_MISROUTED_DIR,
-} from '../../../src/foundation/messaging/index.js';
+import { INBOX_PENDING_DIR, INBOX_INFLIGHT_DIR, INBOX_DONE_DIR, INBOX_MISROUTED_DIR } from '../../../src/foundation/messaging/dirs.js';
 import type {
   InboxMessage,
   InboxMessageTypeRegistry,
@@ -160,7 +155,7 @@ function makeLoop(chain: RealChain): EventLoop {
     agentDir: chain.clawDir,
     clawId: CLAW_ID,
     audit: chain.audit,
-    inbox: { pendingDir: chain.pendingDir, fallbackTimeoutMs: 20 },
+    inbox: { clawRoot: chain.clawDir, fallbackTimeoutMs: 20 },
   });
 }
 

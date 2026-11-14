@@ -16,10 +16,7 @@ import { randomUUID } from 'crypto';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { executionRecoveryMessage } from '../../../src/templates/messages/index.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
-import {
-  EXECUTION_RECOVERY_DELIVERY_META_KEY,
-  EXECUTION_RECOVERY_DIR,
-} from '../../../src/core/event-loop/constants.js';
+import { EXECUTION_RECOVERY_DELIVERY_META_KEY, EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -139,7 +136,7 @@ describe('EventLoop 重复提醒合并 (phase 1869 Step C)', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       ...(opts.withRecoveryDeps
         ? { executionRecovery: { probeActivity: async () => ({ lastActivityAt: null, lastToolCallAt: null }) } }
         : {}),

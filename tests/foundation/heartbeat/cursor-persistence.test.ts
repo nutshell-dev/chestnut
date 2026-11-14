@@ -15,11 +15,11 @@ import { randomUUID } from 'crypto';
 import { Heartbeat, createHeartbeatCursorStore } from '../../../src/core/heartbeat/index.js';
 import type { CursorRead, HeartbeatCursorStore } from '../../../src/core/heartbeat/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from '../../../src/core/heartbeat/audit-events.js';
-import { createInboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
 import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
-import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
+
 import { makeAudit } from '../../helpers/audit.js';
 
 const CURSOR_PATH = 'motion/heartbeat-cursor.json';
@@ -45,7 +45,7 @@ describe('Heartbeat cursor persistence (phase 1791)', () => {
   function makeHeartbeat(clock: { now: number }, intervalSec = 1, store?: HeartbeatCursorStore): Heartbeat {
     const { audit, events } = makeAudit();
     auditEvents = events;
-    const inboxReader = createInboxReader(nodeFs, audit, path.join(root, 'motion', 'inbox'));
+    const inboxReader = createInboxReader(nodeFs, audit, path.join(root, 'motion'));
     const chestnutRoot = makeChestnutRoot(root);
     return new Heartbeat({
       interval: intervalSec,

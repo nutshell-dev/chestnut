@@ -11,7 +11,8 @@ import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR, interpretShadowExecutorPayload } from '../core/shadow-system/index.js';
-import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
+import { createInboxWriter } from '../foundation/messaging/index.js';
+import type { InboxWriter } from '../foundation/messaging/index.js';
 import { createAsyncTaskSystem, createStandardDeliverySink } from '../core/async-task-system/index.js';
 import { TASK_AUDIT_EVENTS } from '../core/async-task-system/index.js';
 import { createSubagentTaskExecutor } from './subagent-task-executor.js';
@@ -87,8 +88,8 @@ export interface BusinessSysOutput {
   taskSystem: AsyncTaskSystem;
   evolutionSystem?: EvolutionSystem;
   permissionChecker: ReturnType<typeof createClawPermissionChecker>;
-  selfInboxDir: string;
-  selfInbox: ReturnType<typeof InboxWriter.__internal_create>;
+  selfClawRoot: string;
+  selfInbox: InboxWriter;
   toolExecutor: IToolExecutor;
   /** Phase 773: shared base registry with plain sync exec (used by subagents). */
   baseToolRegistry: ToolRegistry;
@@ -122,7 +123,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   } = core;
   const { contributions } = input;
 
-  // A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
+  // A.6 selfClawRoot 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
   const permissionChecker = createClawPermissionChecker({
     clawDir,
     strict: true,
@@ -136,8 +137,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       TASKS_SYNC_SHADOW_DIR,
     ],
   });
-  const selfInboxDir = path.join(clawDir, INBOX_PENDING_DIR);
-  const selfInbox = InboxWriter.__internal_create(systemFs, makeInboxPath(selfInboxDir), auditWriter, messagingLimits);
+  const selfClawRoot = clawDir;
+  const selfInbox = createInboxWriter(systemFs, clawDir, auditWriter, messagingLimits);
 
   // --- 9. AsyncTaskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
   // phase 1863 (AT-D5)：执行/交付 adapter 在装配层构造（核心只持最小接口）
@@ -346,7 +347,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   let inboxReader: InboxReader;
   try {
-    inboxReader = createInboxReader(systemFs, auditWriter, 'inbox');
+    inboxReader = createInboxReader(systemFs, auditWriter, '.');
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=inbox_reader`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: InboxReader construct failed: ${formatErr(e)}`, { cause: e });
@@ -389,7 +390,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     taskSystem,
     evolutionSystem,
     permissionChecker,
-    selfInboxDir,
+    selfClawRoot,
     selfInbox,
     toolExecutor,
     baseToolRegistry: toolRegistry,

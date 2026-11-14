@@ -13,21 +13,13 @@ import * as path from 'path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
-import {
-  ContractSystem,
-  ONBOARDING_CONTRACT_ID,
-  type ContractTerminalFact,
-  type QueryAuditSink,
-} from '../../../src/core/contract/index.js';
+import { ContractSystem, ONBOARDING_CONTRACT_ID, type ContractTerminalFact, type QueryAuditSink } from '../../../src/core/contract/index.js';
 import { makeClawNotifyTargetResolver, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import { makeClawId, makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
-import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
+import { createClawNotifier, createInboxReader, createInboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
-import {
-  createInboxReader,
-  createInboxMessageTypeRegistry,
-} from '../../../src/foundation/messaging/index.js';
+
 import type { RuntimeDeps } from '../../../src/core/runtime/types.js';
 import { createContractCancellationDelivery } from '../../../src/assembly/contract-cancellation-delivery.js';
 import { notifyContractCreated } from '../../../src/cli/commands/contract-helpers.js';
@@ -129,7 +121,7 @@ describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前�
         formatterRegistry: createInboxMessageTypeRegistry(),
       },
     } as never);
-    const reader = createInboxReader(fsImpl, sink.audit, path.join(motionDir, 'inbox'));
+    const reader = createInboxReader(fsImpl, sink.audit, motionDir);
     runtime.injectForTest({ inboxReader: reader, auditWriter: sink.audit });
     return runtime as unknown as TestRuntime;
   }

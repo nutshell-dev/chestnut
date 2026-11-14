@@ -29,13 +29,8 @@ import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import { MEMORY_INBOX_MESSAGE_TYPES } from '../../../src/core/memory/inbox-formatter.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createClawTopology, makeClawNotifyTargetResolver, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
-import {
-  InboxReader,
-  INBOX_INFLIGHT_DIR,
-  createClawNotifier,
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxReader, createClawNotifier, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
+import { INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/dirs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
@@ -197,13 +192,7 @@ describe('phase 1835: random_dream_completed 保存通知新语义真实生产�
 
   /** 真实 InboxReader 读回唯一 pending 通知（claim 到 inflight）。 */
   async function drainOnlyMessage(): Promise<InboxMessage> {
-    const reader = new InboxReader(
-      path.join(motionDir, 'inbox', 'pending'),
-      path.join(motionDir, 'inbox', 'done'),
-      path.join(motionDir, 'inbox', 'failed'),
-      fileSystem,
-      audit as never,
-    );
+    const reader = createInboxReader(fileSystem, audit as never, motionDir);
     const result = await reader.drainAndDeliver();
     expect(result.kind).toBe('complete');
     if (result.kind !== 'complete') throw new Error('unreachable');

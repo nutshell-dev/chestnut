@@ -35,7 +35,7 @@ export function createTestEventLoop(options: TestEventLoopOptions): EventLoop {
     clawId: options.clawId,
     audit: options.audit ?? (options.runtime as unknown as RuntimeTestInternals).auditWriter,
     inbox: {
-      pendingDir: path.join(options.clawDir, 'inbox', 'pending'),
+      clawRoot: options.clawDir,
       fallbackTimeoutMs: options.fallbackTimeoutMs ?? 20,
     },
     ...(options.streamWriter

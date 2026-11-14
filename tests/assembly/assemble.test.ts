@@ -353,16 +353,14 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
     };
   });
   (MockInboxWriter as any).readMeta = vi.fn();
-  (MockInboxWriter as any).__internal_create = vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined), writeSync: vi.fn() }; });
   return {
     ...actual,
     InboxReader: vi.fn(function () { return { init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(function () { return []; }), drainAndDeliver: vi.fn(function () { return { kind: 'complete', entries: [], handles: [] }; }), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() }; }),
     OutboxWriter: vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined) }; }),
     InboxWriter: MockInboxWriter,
     createInboxReader: vi.fn(function () { return { init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(function () { return []; }), drainAndDeliver: vi.fn(function () { return { kind: 'complete', entries: [], handles: [] }; }), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() }; }),
+    createInboxWriter: vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined), writeSync: vi.fn() }; }),
     createOutboxWriter: vi.fn(function () { return { write: vi.fn().mockResolvedValue(undefined) }; }),
-    makeInboxPath: vi.fn(function (dir: string) { return dir; }),
-    makeOutboxPath: vi.fn(function (_clawId: string, clawDir: string) { return clawDir + '/outbox/pending'; }),
     readInboxFileMeta: vi.fn(),
     // phase 1243: formatter registry + Messaging 自家 declarations mock
     createInboxMessageTypeRegistry: vi.fn(function () {

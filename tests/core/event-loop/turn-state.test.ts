@@ -131,7 +131,7 @@ describe('EventLoop turn-state (phase 2135 Step B)', () => {
       agentDir,
       clawId: 'motion',
       audit: options.audit ?? makeAudit(),
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 1 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 1 },
       turnState: options.turnState,
       streamWriter: options.streamWriter,
     });

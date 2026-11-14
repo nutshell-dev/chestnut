@@ -21,20 +21,22 @@ const CLAW_ID = 'test-claw';
 
 describe('phase 1260: contract notification adapter legacy transport shape', () => {
   let tempDir: string;
-  let selfInboxDir: string;
+  let selfClawRoot: string;
+  let inboxPendingDir: string;
   let streamWrite: ReturnType<typeof vi.fn>;
   let emit: (event: ContractNotification) => void;
 
   beforeEach(async () => {
     tempDir = await createTrackedTempDir('phase1260-notify-');
-    selfInboxDir = path.join(tempDir, 'inbox', 'pending');
-    fs.mkdirSync(selfInboxDir, { recursive: true });
+    selfClawRoot = tempDir;
+    inboxPendingDir = path.join(selfClawRoot, 'inbox', 'pending');
+    fs.mkdirSync(inboxPendingDir, { recursive: true });
     streamWrite = vi.fn();
     emit = createContractNotificationAdapter({
       streamWriter: { write: streamWrite } as unknown as StreamWriter,
       clawId: CLAW_ID,
       systemFs: new NodeFileSystem({ baseDir: tempDir }),
-      selfInboxDir,
+      selfClawRoot,
       auditWriter: makeMockAudit(),
     });
   });
@@ -44,13 +46,13 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
   });
 
   function inboxFiles(): string[] {
-    return fs.readdirSync(selfInboxDir);
+    return fs.readdirSync(inboxPendingDir);
   }
 
   function readOnlyInboxFile(): string {
     const files = inboxFiles();
     expect(files).toHaveLength(1);
-    return fs.readFileSync(path.join(selfInboxDir, files[0]), 'utf8');
+    return fs.readFileSync(path.join(inboxPendingDir, files[0]), 'utf8');
   }
 
   it('contract_created → stream camel payload / 无 inbox', () => {

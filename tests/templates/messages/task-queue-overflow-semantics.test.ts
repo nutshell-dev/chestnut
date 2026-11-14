@@ -32,15 +32,8 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../../../src/core/async-task-system/inbox-formatter.js';
 import type { AsyncTaskSystemOptions } from '../../../src/core/async-task-system/system.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import {
-  InboxReader,
-  InboxWriter,
-  makeInboxPath,
-  MESSAGING_WRITER_LIMITS_DEFAULT,
-  INBOX_INFLIGHT_DIR,
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
+import { INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
@@ -175,8 +168,8 @@ describe('phase 1836: task_queue_overflow 超限通知新语义真实生产链',
 
   /** 真实 InboxWriter 作 selfInbox（与 task_result 同一 inbox，模拟 daemon 自家 inbox）。 */
   function makeRealSelfInbox(): InboxWriter {
-    return InboxWriter.__internal_create(
-      realFs, makeInboxPath(inboxPendingDir), audit as never, MESSAGING_WRITER_LIMITS_DEFAULT,
+    return createInboxWriter(
+      realFs, baseDir, audit as never, MESSAGING_WRITER_LIMITS_DEFAULT,
     );
   }
 
@@ -200,13 +193,7 @@ describe('phase 1836: task_queue_overflow 超限通知新语义真实生产链',
 
   /** 真实 InboxReader 读回全部 pending 消息（claim 到 inflight）。 */
   async function drainAll(): Promise<InboxMessage[]> {
-    const reader = new InboxReader(
-      inboxPendingDir,
-      path.join(baseDir, 'inbox', 'done'),
-      path.join(baseDir, 'inbox', 'failed'),
-      realFs,
-      audit as never,
-    );
+    const reader = createInboxReader(realFs, audit as never, baseDir);
     const result = await reader.drainAndDeliver();
     expect(result.kind).toBe('complete');
     if (result.kind !== 'complete') throw new Error('unreachable');

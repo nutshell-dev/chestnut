@@ -184,7 +184,7 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
       if (cols.includes('type=recovery_wait')) loop?.abort();
     },
   };
-  const reader = createInboxReader(f.fs, audit, 'inbox');
+  const reader = createInboxReader(f.fs, audit, '.');
   await reader.init();
   let processed = 0;
 
@@ -256,7 +256,7 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
     agentDir: f.dir,
     clawId: CLAW_ID,
     audit: audit as never,
-    inbox: { pendingDir: f.pendingDir, fallbackTimeoutMs: 20 },
+    inbox: { clawRoot: f.dir, fallbackTimeoutMs: 20 },
     executionRecovery: {
       inspectLlmRecoverySchedule: () => f.owner.inspectRecoverySchedule(),
       probeActivity: async () => ({
@@ -349,7 +349,7 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
   it('用户提前：未来 at 下真实用户消息触达 owner 并实际调用 provider，未生成额外提醒', async () => {
     const f = await makeFixture('quota');
     f.succeed();
-    await writeInboxAsync(f.fs, f.pendingDir, {
+    await writeInboxAsync(f.fs, f.dir, {
       id: 'user-early-1',
       type: 'user_inbox_message',
       from: 'user',
@@ -393,7 +393,7 @@ describe('execution-recovery LLM 等待期抑制组合（Phase 1844）', () => {
   it('Phase 2058 D：provider 失败 nack/audit 后直接等待 owner schedule，不再开启 waiting-only turn', async () => {
     const f = await makeFixture('quota');
     // 新用户事实授予提前准入；本次真实 provider 仍失败，由 EventLoop 直接消费新安排。
-    await writeInboxAsync(f.fs, f.pendingDir, {
+    await writeInboxAsync(f.fs, f.dir, {
       id: 'user-provider-failure-1',
       type: 'user_inbox_message',
       from: 'user',

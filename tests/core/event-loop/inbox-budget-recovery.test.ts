@@ -24,24 +24,13 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import type { FormattedInboxBatch, PreparedInboxBatch } from '../../../src/core/runtime/index.js';
-import {
-  INBOX_BATCH_MAX_ITEMS,
-  INBOX_BATCH_MAX_FORMATTED_BYTES,
-  formattedMessageBytes,
-  type InboxFormatBudget,
-} from '../../../src/core/runtime/inbox-budget.js';
+import { INBOX_BATCH_MAX_ITEMS, INBOX_BATCH_MAX_FORMATTED_BYTES, formattedMessageBytes, type InboxFormatBudget } from '../../../src/core/runtime/inbox-budget.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 import { createMockLLMConfig } from '../_runtime-test-helpers.js';
-import {
-  writeInboxAsync,
-  decodeInbox,
-  InboxWriter,
-  makeInboxPath,
-  INBOX_PENDING_DIR,
-  type InboxMessage,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, writeInboxAsync, decodeInbox, type InboxMessage } from '../../../src/foundation/messaging/index.js';
+
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { EventLoop } from '../../../src/core/event-loop/index.js';
@@ -154,7 +143,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     const audit = createMockAudit();
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: CLAW_ID, auditOverride: audit });
     for (let i = 0; i < opts.seedCount; i++) {
-      await writeInboxAsync(deps.systemFs, INBOX_PENDING_DIR, makeSeedMessage(i, opts.seedOpts?.(i)), audit);
+      await writeInboxAsync(deps.systemFs, '.', makeSeedMessage(i, opts.seedOpts?.(i)), audit);
     }
     const runtime = new BudgetTestRuntime({
       clawId: CLAW_ID,
@@ -360,12 +349,12 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: CLAW_ID, auditOverride: audit });
     // 超 64KiB 格式化预算的单条：绕过默认写 cap（模拟 cap 调大/历史遗留的大消息）
     const bigContent = 'x'.repeat(100 * 1024);
-    const writer = InboxWriter.__internal_create(
-      deps.systemFs, makeInboxPath(INBOX_PENDING_DIR), audit, { bodyMaxBytes: 1024 * 1024 },
+    const writer = createInboxWriter(
+      deps.systemFs, '.', audit, { bodyMaxBytes: 1024 * 1024 },
     );
     await writer.write(makeSeedMessage(0, { content: bigContent }));
-    await writeInboxAsync(deps.systemFs, INBOX_PENDING_DIR, makeSeedMessage(1), audit);
-    await writeInboxAsync(deps.systemFs, INBOX_PENDING_DIR, makeSeedMessage(2), audit);
+    await writeInboxAsync(deps.systemFs, '.', makeSeedMessage(1), audit);
+    await writeInboxAsync(deps.systemFs, '.', makeSeedMessage(2), audit);
 
     const runtime = new BudgetTestRuntime({
       clawId: CLAW_ID,

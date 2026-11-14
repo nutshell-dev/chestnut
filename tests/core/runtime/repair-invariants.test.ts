@@ -18,9 +18,9 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { Snapshot } from '../../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../../src/assembly/config/snapshot-patterns.js';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader } from '../../../src/foundation/messaging/index.js';
 import { DialogStore } from '../../../src/foundation/dialog-store/index.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
+
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { initializeClawLayout } from '../../../src/assembly/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
@@ -72,7 +72,7 @@ describe('repair-session-load-audit', () => {
       vi.spyOn(snapshot, 'commit').mockResolvedValue({ ok: true } as any);
 
       const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
-      const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
+      const inboxReader = createInboxReader(systemFs, auditWriter, '.');
       return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader };
     }
 

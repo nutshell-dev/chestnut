@@ -13,7 +13,7 @@
  * phase 1260 Step B：物理归位 Assembly（原 core/contract/contract-notify-callback.ts），
  * runtime-assembly 构造后直接 attach 到 contractManager，Runtime 中转依赖已删除。
  *
- * phase 37：variable `motionInboxDir` → `selfInboxDir` 命名 hygiene + 注释 calibration（详 §A.6）。
+ * phase 37：variable `motionInboxDir` → `selfClawRoot` 命名 hygiene + 注释 calibration（详 §A.6）。
  */
 
 import type { StreamWriter } from '../foundation/stream/index.js';
@@ -38,16 +38,16 @@ interface ContractNotificationAdapterDeps {
   clawId: string;
   systemFs: FileSystem;
   /**
-   * phase 37: 本 daemon 自家 inbox dir（= clawDir/inbox/pending）。
+   * 本 daemon 自家 claw root；Messaging 派生 inbox 落点。
    * 命名「self」明确：本 callback 写本 daemon 自家 inbox、不跨 claw。
    *
-   * - motion daemon (clawId=motion): selfInboxDir = motion/inbox/pending → motion sees 自家契约终态
-   * - worker daemon (clawId=worker-X): selfInboxDir = claws/worker-X/inbox/pending → worker sees 自家
+   * - motion daemon: selfClawRoot = <chestnutRoot>/motion
+   * - worker daemon: selfClawRoot = <chestnutRoot>/claws/worker-X
    *
    * 跨 claw 通知（worker 契约终态 → motion 知道）归 contract-observer cron 职责
    * （详 src/core/contract/jobs/contract-observer.ts、phase 37 race 治本 + dedup 防护）。
    */
-  selfInboxDir: string;
+  selfClawRoot: string;
   auditWriter: AuditLog;
 }
 
@@ -64,14 +64,14 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
       if (event.type === 'contract_completed') {
         // phase 1261 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
         // （schema version + refs JSON 两 owner key；不再手写 legacy wire keys）
-        // phase 37: 写 selfInboxDir（本 daemon 自家、详 deps.selfInboxDir doc）
+        // phase 37: 写 selfClawRoot（本 daemon 自家、详 deps.selfClawRoot doc）
         //   - motion daemon: 写 motion 自家 inbox
         //   - worker daemon: 写 worker 自家 inbox
         //   跨 claw 通知归 contract-observer cron
         // phase 1832: 完成正文改用 typed event 事实直传纯模板（不再从 legacy 串反解析）；
         // stream 的 toLegacyNotifyData shape 保持不变。
         notifyInbox(deps.systemFs, {
-          inboxDir: deps.selfInboxDir,
+          clawRoot: deps.selfClawRoot,
           type: 'contract_events',   // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
           source: 'system',
           priority: 'high',

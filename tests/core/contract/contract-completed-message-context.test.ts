@@ -24,11 +24,8 @@ import { makeContractId, makeSubtaskId } from '../../../src/core/contract/types.
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
 import { createClawTopology } from '../../../src/core/claw-topology/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import { notifyInbox } from '../../../src/foundation/messaging/index.js';
-import {
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+import { notifyInbox, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
+
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../../../src/core/contract/index.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
@@ -146,22 +143,23 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
 
   describe('路一：自家 typed completed（M04 adapter）', () => {
     function emitSelfCompleted(clawId: string, event: Parameters<ReturnType<typeof createContractNotificationAdapter>>[0]) {
-      const selfInboxDir = path.join(rootDir, clawId, 'inbox', 'pending');
+      const selfClawRoot = path.join(rootDir, clawId);
+      const inboxPendingDir = path.join(selfClawRoot, 'inbox', 'pending');
       const streamWrite = vi.fn();
       const { audit } = makeAudit();
       const emit = createContractNotificationAdapter({
         streamWriter: { write: streamWrite } as unknown as StreamWriter,
         clawId,
         systemFs: new NodeFileSystem({ baseDir: rootDir }),
-        selfInboxDir,
+        selfClawRoot,
         auditWriter: audit,
       });
       emit(event);
-      return { selfInboxDir, streamWrite };
+      return { inboxPendingDir, streamWrite };
     }
 
     it('motion 自家完成：正文自足 + 真实 guidance 链追加查询用途标签，无伪造结论', async () => {
-      const { selfInboxDir, streamWrite } = emitSelfCompleted('motion', {
+      const { inboxPendingDir, streamWrite } = emitSelfCompleted('motion', {
         type: 'contract_completed',
         contractId: makeContractId('c-self'),
         title: '整理周报',
@@ -179,7 +177,7 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
 
       const { audit, events } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: true });
-      const [msg] = await readInboxDir(selfInboxDir);
+      const [msg] = await readInboxDir(inboxPendingDir);
       expect(msg.type).toBe('contract_events');
       const content = await providerVisibleContent(runtime, msg);
 
@@ -197,7 +195,7 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
     });
 
     it('worker 自家完成（无 guidanceCompose）：放行注记中性、正文自足可识别', async () => {
-      const { selfInboxDir } = emitSelfCompleted('worker-1', {
+      const { inboxPendingDir } = emitSelfCompleted('worker-1', {
         type: 'contract_completed',
         contractId: makeContractId('c-w'),
         title: '',
@@ -210,7 +208,7 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
 
       const { audit } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: false });
-      const [msg] = await readInboxDir(selfInboxDir);
+      const [msg] = await readInboxDir(inboxPendingDir);
       const content = await providerVisibleContent(runtime, msg);
 
       // 空标题只显 ID；缺省目标省略；放行中性注记；缺省不反推质量通过
@@ -274,7 +272,7 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
         fs: nodeFs,
         motionAudit: audit,
         notifyMotion: async (m: any) => {
-          notifyInbox(nodeFs, { inboxDir: motionPendingDir, ...m }, audit);
+          notifyInbox(nodeFs, { clawRoot: motionDir, ...m }, audit);
         },
       } as any);
       return readInboxDir(motionPendingDir);

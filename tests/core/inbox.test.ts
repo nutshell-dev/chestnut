@@ -8,10 +8,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
-import { InboxReader, InboxListFailed, InboxMoveFailed } from '../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxReader, InboxListFailed, InboxMoveFailed } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
+
 import { makeAudit } from '../helpers/audit.js';
 
 describe('InboxReader', () => {
@@ -25,7 +25,7 @@ describe('InboxReader', () => {
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
-    reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, nfs, makeAudit().audit);
+    reader = createInboxReader(nfs, makeAudit().audit, '.');
     await reader.init();
   });
 
@@ -233,17 +233,11 @@ Test message content`;
 
   it('should throw InboxListFailed on non-ENOENT list errors', async () => {
     const auditCalls: string[] = [];
-    const auditReader = new InboxReader(
-      INBOX_PENDING_DIR,
-      INBOX_DONE_DIR,
-      INBOX_FAILED_DIR,
-      nfs,
-      {
+    const auditReader = createInboxReader(nfs, {
         write(type: string, ...cols: (string | number)[]) {
           auditCalls.push(`${type}:${cols.join(',')}`);
         },
-      },
-    );
+      }, '.');
 
     // Override list to simulate permission error
     const originalList = nfs.list.bind(nfs);
@@ -264,12 +258,7 @@ Test message content`;
   });
 
   it('should return empty array when pending dir does not exist (ENOENT)', async () => {
-    const noentReader = new InboxReader(
-      'nonexistent/pending',
-      'nonexistent/done',
-      'nonexistent/failed',
-      nfs,
-    );
+    const noentReader = createInboxReader(nfs, makeAudit().audit, 'nonexistent');
 
     const { entries } = await noentReader.drainInbox();
     expect(entries).toHaveLength(0);

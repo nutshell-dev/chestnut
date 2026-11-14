@@ -7,7 +7,7 @@ import type { LLMCallCapability } from '../../foundation/llm-orchestrator/index.
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
+import { createInboxReader } from '../../foundation/messaging/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 
@@ -522,10 +522,7 @@ async function flushPendingDeepNotifications(
   ctx: DreamRunContext,
   state: DreamStateData,
 ): Promise<DeepNotificationFlushResult> {
-  const reader = new InboxReader(
-    INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR,
-    ctx.clawFs, ctx.audit,
-  );
+  const reader = createInboxReader(ctx.clawFs, ctx.audit, '.');
   let current = state;
   for (const item of current.pendingNotifications ?? []) {
     let existing;

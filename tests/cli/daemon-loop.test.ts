@@ -99,7 +99,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000);
 
     await Promise.resolve();
     expect(capturedCallback).not.toBeNull();
@@ -123,7 +123,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 1_000);
 
     vi.advanceTimersByTime(1_001);
 
@@ -143,7 +143,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000);
 
     await expect(promise).resolves.toEqual({
       kind: 'observation_failed',
@@ -173,7 +173,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 1_000);
     await Promise.resolve();
 
     capturedCallback!();
@@ -195,7 +195,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000);
 
     await expect(promise).resolves.toEqual({
       kind: 'observation_failed',
@@ -234,7 +234,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000);
     await Promise.resolve();
     capturedCallback!();
 
@@ -261,7 +261,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000);
     await Promise.resolve();
     expect(capturedOnError).not.toBeNull();
     capturedOnError!(new Error('watch died'), 'watch');
@@ -294,7 +294,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000);
     await Promise.resolve();
     capturedCallback!();
 
@@ -325,7 +325,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 1_000);
     vi.advanceTimersByTime(1_001);
 
     await expect(promise).resolves.toEqual({
@@ -348,7 +348,7 @@ describe('waitForInbox', () => {
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
     const controller = new AbortController();
-    const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000, controller.signal);
+    const promise = waitForInbox(mockFs, mockAudit, '/tmp', 60_000, controller.signal);
     controller.abort();
 
     await expect(promise).resolves.toEqual({ kind: 'aborted' });

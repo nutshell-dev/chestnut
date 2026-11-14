@@ -13,10 +13,7 @@
  * `coding plan/cluster-claw-decoupling-roadmap.md`。
  */
 
-import {
-  INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR,
-  OUTBOX_PENDING_DIR, OUTBOX_DONE_DIR, OUTBOX_FAILED_DIR,
-} from '../foundation/messaging/index.js';
+import { initializeMessagingLayout } from '../foundation/messaging/index.js';
 import { DIALOG_DIR, DIALOG_ARCHIVE_DIR } from '../foundation/dialog-store/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
@@ -39,13 +36,6 @@ export const CLAW_SUBDIRS = [
   // L2b DialogStore
   DIALOG_DIR,
   DIALOG_ARCHIVE_DIR,
-  // L2c Messaging
-  INBOX_PENDING_DIR,
-  INBOX_DONE_DIR,
-  INBOX_FAILED_DIR,
-  OUTBOX_PENDING_DIR,
-  OUTBOX_DONE_DIR,
-  OUTBOX_FAILED_DIR,
   // L4 AsyncTaskSystem
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
@@ -82,4 +72,5 @@ export const CLAW_SUBDIRS = [
 /** Assembly-owned claw layout action; callers do not observe the directory set. */
 export function initializeClawLayout(fs: Pick<FileSystem, 'ensureDirSync'>): void {
   for (const dir of CLAW_SUBDIRS) fs.ensureDirSync(dir);
+  initializeMessagingLayout(fs, '.');
 }

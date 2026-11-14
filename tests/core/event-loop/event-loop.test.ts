@@ -160,7 +160,7 @@ describe('EventLoop.run', () => {
       agentDir,
       clawId: 'test-claw',
       audit: audit ?? createMockAudit(),
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       ...(recovery ? { recovery } : {}),
     });
   }
@@ -190,7 +190,7 @@ describe('EventLoop.run', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
     });
   }
 
@@ -332,7 +332,7 @@ describe('EventLoop.run', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
     });
     await eventLoop.run();
 
@@ -557,7 +557,7 @@ describe('EventLoop.run', () => {
       agentDir: clawAgentDir,
       clawId: 'c1',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
     });
 
     await eventLoop.initialize();
@@ -585,7 +585,7 @@ describe('EventLoop.run', () => {
       agentDir: clawAgentDir,
       clawId: 'c1',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
     });
 
     await eventLoop.initialize();
@@ -613,7 +613,7 @@ describe('EventLoop.run', () => {
       agentDir: motionAgentDir,
       clawId: 'motion',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
     });
 
     await eventLoop.initialize();
@@ -662,7 +662,7 @@ describe('EventLoop.run', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       streamWriter,
     });
 
@@ -1060,7 +1060,7 @@ describe('EventLoop.run', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       streamWriter: { write: vi.fn() },
     });
     await eventLoop.run();
@@ -1443,7 +1443,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       executionRecovery: { ...recovery, timeoutMs: RECOVERY_TIMEOUT_MS },
     });
   }
@@ -1518,7 +1518,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
     });
 
     await loop.run();
@@ -1544,7 +1544,6 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     const makeLoopAt = (
       dir: string,
       clawId: string,
-      pendingDir: string,
       audit: AuditLog,
       probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null; lastToolCallAt: number | null }>,
     ): EventLoop => new EventLoop({
@@ -1553,7 +1552,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       agentDir: dir,
       clawId,
       audit,
-      inbox: { pendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: dir, fallbackTimeoutMs: 50 },
       executionRecovery: { probeActivity, timeoutMs: RECOVERY_TIMEOUT_MS },
     });
     const readPending = (pendingDir: string): InboxMessage[] =>
@@ -1567,8 +1566,8 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     const stalledProbe = async () => ({ activeContractId: CONTRACT_ID, lastActivityAt, lastToolCallAt: null });
 
     // 两个 claw 相同 contract ID，各自 run：各自 inbox 一条高优 resume、各自本地 record=1
-    await makeLoopAt(motionDir, 'motion', motionPending, motionAudit, stalledProbe).run();
-    await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, stalledProbe).run();
+    await makeLoopAt(motionDir, 'motion', motionAudit, stalledProbe).run();
+    await makeLoopAt(workerDir, 'worker-1', workerAudit, stalledProbe).run();
 
     const motionMsgs = readPending(motionPending);
     const workerMsgs = readPending(workerPending);
@@ -1592,8 +1591,8 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(require('fs').existsSync(path.join(baseDir, 'event-loop'))).toBe(false);
 
     // 同窗口重入（重建 loop = 重启）：两者均不重复提醒
-    await makeLoopAt(motionDir, 'motion', motionPending, motionAudit, stalledProbe).run();
-    await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, stalledProbe).run();
+    await makeLoopAt(motionDir, 'motion', motionAudit, stalledProbe).run();
+    await makeLoopAt(workerDir, 'worker-1', workerAudit, stalledProbe).run();
     expect(readPending(motionPending)).toHaveLength(1);
     expect(readPending(workerPending)).toHaveLength(1);
 
@@ -1601,7 +1600,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     const motionBytes = require('fs').readFileSync(localRecordAt(motionDir), 'utf8');
     const workerBytes = require('fs').readFileSync(localRecordAt(workerDir), 'utf8');
     const idleProbe = async () => ({ activeContractId: undefined, lastActivityAt: FIXED_NOW, lastToolCallAt: null });
-    await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, idleProbe).run();
+    await makeLoopAt(workerDir, 'worker-1', workerAudit, idleProbe).run();
     expect(require('fs').readFileSync(localRecordAt(motionDir), 'utf8')).toBe(motionBytes);
     expect(require('fs').readFileSync(localRecordAt(workerDir), 'utf8')).toBe(workerBytes);
   });
@@ -1621,7 +1620,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       executionRecovery: {
         probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt: fixedActivity, lastToolCallAt: null }),
         timeoutMs: RECOVERY_TIMEOUT_MS,
@@ -1691,7 +1690,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     const sharedAgentFs = new NodeFileSystem({ baseDir: agentDir });
     const factory = (dir: string): FileSystem =>
       dir === agentDir ? sharedAgentFs : new NodeFileSystem({ baseDir: dir });
-    await writeInboxAsync(sharedAgentFs, inboxPendingDir, {
+    await writeInboxAsync(sharedAgentFs, agentDir, {
       id: 'old-reminder-1',
       type: 'execution_recovery',
       from: 'test-claw',
@@ -1707,7 +1706,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       executionRecovery: {
         probeActivity: async () => ({
           activeContractId: CONTRACT_ID,
@@ -1753,7 +1752,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       agentDir,
       clawId: 'test-claw',
       audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      inbox: { clawRoot: agentDir, fallbackTimeoutMs: 50 },
       executionRecovery: {
         probeActivity: async () => ({
           activeContractId: CONTRACT_ID,

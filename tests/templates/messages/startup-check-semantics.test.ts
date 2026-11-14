@@ -23,11 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import {
-  createInboxReader,
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { createStartupCheckDelivery } from '../../../src/daemon/daemon-loop.js';
 import { DAEMON_INBOX_MESSAGE_TYPES } from '../../../src/daemon/inbox-formatter.js';
@@ -145,7 +141,7 @@ describe('phase 1839: startup_check 启动通知新语义真实生产链', () =>
     expect(outcome.kind).toBe('fired');
     if (outcome.kind !== 'fired') throw new Error('unreachable');
 
-    const reader = createInboxReader(realAgentFs, audit, 'inbox');
+    const reader = createInboxReader(realAgentFs, audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.entries.length).toBe(1);
     expect(batch.handles.length).toBe(1);
@@ -203,7 +199,7 @@ describe('phase 1839: startup_check 启动通知新语义真实生产链', () =>
       path.join(agentDir, 'contract', 'c-live-archived'),
     );
 
-    const reader = createInboxReader(realAgentFs, audit, 'inbox');
+    const reader = createInboxReader(realAgentFs, audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.entries.length).toBe(1);
     const msg = batch.entries[0]!.message;

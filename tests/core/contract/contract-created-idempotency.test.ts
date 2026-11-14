@@ -12,14 +12,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import {
-  InboxReader,
-  InboxWriter,
-  makeInboxPath,
-  MESSAGING_WRITER_LIMITS_DEFAULT,
-  renderStandardInboxMessage,
-} from '../../../src/foundation/messaging/index.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT, renderStandardInboxMessage } from '../../../src/foundation/messaging/index.js';
+
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { contractCreatedInboxFormatter } from '../../../src/core/contract/inbox-formatters.js';
@@ -44,19 +38,13 @@ describe('Phase 1955 Step D: contract_created idempotency', () => {
         auditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    writer = InboxWriter.__internal_create(
+    writer = createInboxWriter(
       nfs,
-      makeInboxPath(INBOX_PENDING_DIR),
+      '.',
       audit,
       MESSAGING_WRITER_LIMITS_DEFAULT,
     );
-    reader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit,
-    );
+    reader = createInboxReader(nfs, audit, testDir);
     await reader.init();
   });
 

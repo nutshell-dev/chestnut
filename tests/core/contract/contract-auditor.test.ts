@@ -20,8 +20,8 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { ContractAuditor, parseVerdict } from '../../../src/core/contract/contract-auditor.js';
-import { InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import { makeAudit } from '../../helpers/audit.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -103,7 +103,7 @@ describe('ContractAuditor', () => {
   function makeAuditorAndAudit(llm: LLMOrchestrator) {
     const auditCtx = makeAudit();
     const inboxAudit = makeAudit();
-    inbox = InboxWriter.__internal_create(nfs, makeInboxPath('inbox/pending'), inboxAudit.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    inbox = createInboxWriter(nfs, '.', inboxAudit.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     const auditor = new ContractAuditor({
       audit: auditCtx.audit,
       fs: nfs,
@@ -438,7 +438,7 @@ describe('ContractAuditor', () => {
       read: async () => { throw new Error('EACCES audit.tsv'); },
     } as unknown as FileSystem;
     const inboxAudit = makeAudit();
-    inbox = InboxWriter.__internal_create(nfs, makeInboxPath('inbox/pending'), inboxAudit.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    inbox = createInboxWriter(nfs, '.', inboxAudit.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     const auditor = new ContractAuditor({
       audit: auditCtx.audit,
       fs: throwingFs,

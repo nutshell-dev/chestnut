@@ -425,9 +425,6 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
     };
   });
   (MockInboxWriter as any).readMeta = vi.fn();
-  (MockInboxWriter as any).__internal_create = vi.fn(function () {
-    return { write: vi.fn().mockResolvedValue(undefined), writeSync: vi.fn() };
-  });
   return {
     ...actual,
     InboxReader: vi.fn(function () {
@@ -464,14 +461,11 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
         nack: vi.fn(),
       };
     }),
+    createInboxWriter: vi.fn(function () {
+      return { write: vi.fn().mockResolvedValue(undefined), writeSync: vi.fn() };
+    }),
     createOutboxWriter: vi.fn(function () {
       return { write: vi.fn().mockResolvedValue(undefined) };
-    }),
-    makeInboxPath: vi.fn(function (dir: string) {
-      return dir;
-    }),
-    makeOutboxPath: vi.fn(function (_clawId: string, clawDir: string) {
-      return clawDir + '/outbox/pending';
     }),
     readInboxFileMeta: vi.fn(),
     createInboxMessageTypeRegistry: vi.fn(function () {

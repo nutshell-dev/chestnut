@@ -132,7 +132,7 @@ export async function assemble(
       auditWriter, processManager,
     } = coreInfra;
 
-    // §A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
+    // §A.6 selfClawRoot 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
     // 详 src/assembly/business-systems.ts (phase 37 rename motionInbox{Dir} → selfInbox{Dir} 命名 hygiene)
     const business = await createBusinessSystems({
       core: coreInfra,

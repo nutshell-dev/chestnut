@@ -3,7 +3,7 @@
  *
  * notify 目标位置解析 — 拓扑 owner 只出「位置/路由事实」：
  * motion claw 在 `<chestnutRoot>/motion`、其余 claw 在 `<chestnutRoot>/claws/<id>`，
- * inbox 位置与 DLQ 落点随目标类型派生。
+ * inbox 位置与 DLQ 叶子由 Messaging 按这些 root 派生。
  *
  * phase 1864 Step C（CT-D2）：routeNotifyClaw/Async 的发送执行迁 Messaging
  * （foundation/messaging/claw-notify.ts）；本模块只提供注入用 resolver。
@@ -11,7 +11,6 @@
  */
 
 import * as path from 'path';
-import { INBOX_PENDING_DIR, resolveDlqDir } from '../../foundation/messaging/index.js';
 import type { ClawNotifyTarget, ClawNotifyTargetResolver } from '../../foundation/messaging/index.js';
 import { CLAWS_DIR, makeClawId } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
@@ -33,10 +32,7 @@ export function makeClawNotifyTargetResolver(chestnutRoot: string): ClawNotifyTa
       : path.join(chestnutRoot, CLAWS_DIR, clawId);
     return {
       clawRoot,
-      inboxDir: path.join(clawRoot, INBOX_PENDING_DIR),
-      dlqDir: isMotion
-        ? undefined
-        : resolveDlqDir(path.join(chestnutRoot, MOTION_CLAW_ID, 'inbox')),
+      dlqClawRoot: isMotion ? undefined : path.join(chestnutRoot, MOTION_CLAW_ID),
     };
   };
 }

@@ -161,7 +161,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
     expect(await delivery.deliver()).toBe(first);
 
     // 真实 Messaging 移动：pending → inflight → done
-    const reader = createInboxReader(realAgentFs, auditCtx.audit, 'inbox');
+    const reader = createInboxReader(realAgentFs, auditCtx.audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.handles.length).toBe(1);
     await reader.ack(batch.handles[0]!);
@@ -270,7 +270,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
 
   it('7a. 未确认消息 drain 到 inflight 后仍确认 fired、无新消息', async () => {
     const { delivery } = await makeUnconfirmedWithRealMessage();
-    const reader = createInboxReader(realAgentFs, auditCtx.audit, 'inbox');
+    const reader = createInboxReader(realAgentFs, auditCtx.audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.handles.length).toBe(1);
 
@@ -282,7 +282,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
 
   it('7b. 未确认消息 ack 到 done 且 mtime 置旧仍命中（Infinity 窗口）、无新消息', async () => {
     const { delivery } = await makeUnconfirmedWithRealMessage();
-    const reader = createInboxReader(realAgentFs, auditCtx.audit, 'inbox');
+    const reader = createInboxReader(realAgentFs, auditCtx.audit, '.');
     const batch = await reader.drainAndDeliver();
     await reader.ack(batch.handles[0]!);
     const doneDir = path.join(agentDir, 'inbox', 'done');
@@ -310,7 +310,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
 
     // 真实写入一条其他 startup_check_ts 的消息
     notifyInbox(clawFs, {
-      inboxDir: pendingDir,
+      clawRoot: agentDir,
       type: 'startup_check',
       source: 'daemon',
       priority: 'high',
@@ -352,7 +352,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
 
   it('8. 未确认消息移入 failed 不作为成功证据：允许重发、保留 failed 记录', async () => {
     const { delivery } = await makeUnconfirmedWithRealMessage();
-    const reader = createInboxReader(realAgentFs, auditCtx.audit, 'inbox');
+    const reader = createInboxReader(realAgentFs, auditCtx.audit, '.');
     const pendingFile = (await fs.readdir(pendingDir))[0]!;
     await reader.markFailed(path.join(pendingDir, pendingFile));
     expect((await pendingMessages()).length).toBe(0);
@@ -399,7 +399,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
           await fs.mkdir(path.join(dir, 'daemon'), { recursive: true });
           await fs.writeFile(path.join(dir, 'daemon', 'startup_check_ts'), String(ts));
           const seededFs = new NodeFileSystem({ baseDir: dir });
-          await writeInboxAsync(seededFs, path.join(dir, 'inbox', 'pending'), {
+          await writeInboxAsync(seededFs, dir, {
             id: 'seed-startup-check',
             type: 'startup_check',
             from: 'daemon',
@@ -409,7 +409,7 @@ describe('phase 1838: startup check 真实投递确认链', () => {
             timestamp: new Date(ts).toISOString(),
             metadata: { startup_check_ts: String(ts) },
           }, auditCtx.audit);
-          const reader = createInboxReader(seededFs, auditCtx.audit, 'inbox');
+          const reader = createInboxReader(seededFs, auditCtx.audit, '.');
           const batch = await reader.drainAndDeliver();
           if (batch.kind === 'complete') {
             for (const h of batch.handles) await reader.ack(h);

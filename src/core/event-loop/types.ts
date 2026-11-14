@@ -201,7 +201,7 @@ export interface EventLoopOptions {
   agentDir: string;
   clawId: string;
   audit: AuditLog;
-  inbox: { pendingDir: string; fallbackTimeoutMs?: number };
+  inbox: { clawRoot: string; fallbackTimeoutMs?: number };
   streamWriter?: StreamWriter;
   turnState?: EventLoopTurnStateSink;
   onBatchComplete?: () => Promise<void>;

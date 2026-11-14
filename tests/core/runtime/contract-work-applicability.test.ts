@@ -18,18 +18,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
-import {
-  createInboxReader,
-  writeInboxAsync,
-  decodeInbox,
-  createInboxMessageTypeRegistry,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, writeInboxAsync, decodeInbox, createInboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
-import {
-  EXECUTION_RECOVERY_MESSAGE_TYPE,
-  EXECUTION_RECOVERY_DELIVERY_META_KEY,
-} from '../../../src/core/runtime/inbox-message-types.js';
+import { EXECUTION_RECOVERY_MESSAGE_TYPE, EXECUTION_RECOVERY_DELIVERY_META_KEY } from '../../../src/core/runtime/inbox-message-types.js';
 import { makeContractId, readContractTerminalFact } from '../../../src/core/contract/index.js';
 import type { ContractTerminalFact } from '../../../src/core/contract/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -100,7 +92,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
         formatterRegistry: createInboxMessageTypeRegistry(),
       },
     } as never);
-    const reader = createInboxReader(fsImpl, audit, inboxBaseDir);
+    const reader = createInboxReader(fsImpl, audit, rootDir);
     runtime.injectForTest({ inboxReader: reader, auditWriter: audit });
     return runtime;
   }
@@ -112,7 +104,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     contractId?: string;
     content?: string;
   }): Promise<void> {
-    await writeInboxAsync(fsImpl, pendingDir, {
+    await writeInboxAsync(fsImpl, rootDir, {
       id: opts.id,
       type: opts.type,
       from: opts.from ?? 'system',
@@ -299,7 +291,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
       },
       dependencies: { formatterRegistry: createInboxMessageTypeRegistry() },
     } as never);
-    const reader = createInboxReader(fsImpl, audit, inboxBaseDir);
+    const reader = createInboxReader(fsImpl, audit, rootDir);
     runtime.injectForTest({ inboxReader: reader, auditWriter: audit });
 
     const prepared = await runtime.testPrepareInbox();
@@ -347,7 +339,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     fs.utimesSync(stalePath, oldMtime, oldMtime);
 
     // 重启：init reconcile 把过期 inflight 残留回 pending → 重新领取 → 再次真实判定 → ack 到 done
-    const reader2 = createInboxReader(fsImpl, audit, inboxBaseDir);
+    const reader2 = createInboxReader(fsImpl, audit, rootDir);
     await reader2.init();
     const runtime2 = makeRuntime({ contractTerminalFact: realFact });
     runtime2.injectForTest({ inboxReader: reader2, auditWriter: audit });
@@ -456,11 +448,11 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
         formatterRegistry: createInboxMessageTypeRegistry(),
       },
     } as never);
-    const reader = createInboxReader(fsImpl, audit, inboxBaseDir);
+    const reader = createInboxReader(fsImpl, audit, rootDir);
     runtime.injectForTest({ inboxReader: reader, auditWriter: audit });
 
     // 坏路径 id + 恢复专用 delivery_id 键（工作消息不该输出该列）
-    await writeInboxAsync(fsImpl, pendingDir, {
+    await writeInboxAsync(fsImpl, rootDir, {
       id: 'w-badid',
       type: 'contract_created',
       from: 'system',
@@ -486,7 +478,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
 
   it('恢复④b：工作消息命中终态时不输出 delivery_id 列，execution_recovery 同目录消息仍输出（列语义按来源区分）', async () => {
     factQuery.mockResolvedValue({ kind: 'terminal', state: 'cancelled' });
-    await writeInboxAsync(fsImpl, pendingDir, {
+    await writeInboxAsync(fsImpl, rootDir, {
       id: 'w-work',
       type: 'contract_created',
       from: 'system',
@@ -496,7 +488,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
       timestamp: new Date().toISOString(),
       metadata: { contract_id: 'c-1', [EXECUTION_RECOVERY_DELIVERY_META_KEY]: 'rec-work' },
     }, audit);
-    await writeInboxAsync(fsImpl, pendingDir, {
+    await writeInboxAsync(fsImpl, rootDir, {
       id: 'w-recovery',
       type: EXECUTION_RECOVERY_MESSAGE_TYPE,
       from: 'test-claw',

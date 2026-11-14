@@ -25,7 +25,7 @@ import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, ContractAuditor, createContractSystem } from '../core/contract/index.js';
 import { createContractNotificationAdapter } from './contract-notification-adapter.js';
 import { createContractCancellationDelivery } from './contract-cancellation-delivery.js';
-import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
+import { createInboxWriter } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type MessagingWriterLimits, type OutboxWriter } from '../foundation/messaging/index.js';
@@ -339,23 +339,18 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       });
       // phase 1872 Step F: onNotify sink / auditor 一次固定——装配期构造参数注入
       // （原 runtime-assembly setOnNotify / business-systems attachAuditor 后补依赖退役）。
-      const selfInboxDir = path.join(clawDir, INBOX_PENDING_DIR);
+      const selfClawRoot = clawDir;
       const contractNotificationSink = createContractNotificationAdapter({
         streamWriter,
         clawId,
         systemFs,
-        selfInboxDir,
+        selfClawRoot,
         auditWriter,
       });
       // auditor 保持 fail-soft：构造失败 audit 留证、不阻断装配（原语义）。
       let auditor: ContractAuditor | undefined;
       try {
-        const clawInbox = InboxWriter.__internal_create(
-          systemFs,
-          makeInboxPath(selfInboxDir),
-          auditWriter,
-          messagingLimits,
-        );
+        const clawInbox = createInboxWriter(systemFs, clawDir, auditWriter, messagingLimits);
         auditor = new ContractAuditor({ audit: auditWriter, fs: systemFs, inbox: clawInbox, llm });
       } catch (e) {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_auditor`, `phase=construct`, `reason=${formatErr(e)}`);

@@ -83,7 +83,7 @@ export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
   const { agentFs, clawFs, agentDir, audit } = deps;
   let tsCommittedMs: number | null = null;
   let firedOutcome: Extract<StartupCheckOutcome, { kind: 'fired' }> | null = null;
-  const reader = createInboxReader(agentFs, audit, 'inbox');
+  const reader = createInboxReader(agentFs, audit, '.');
 
   /** owner 查询适配：命中/未命中/未知（I/O 错误保留 owner 原始错误，不冒充结论）。 */
   type LookupResult = { kind: 'present' } | { kind: 'absent' } | { kind: 'unknown'; error: string };
@@ -148,7 +148,7 @@ export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
     }
 
     notifyInbox(clawFs, {
-      inboxDir: path.join(agentDir, 'inbox', 'pending'),
+      clawRoot: agentDir,
       type: 'startup_check',
       source: 'daemon',
       priority: 'high',

@@ -5,20 +5,11 @@ import { readdir, readFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 
-import {
-  createStreamWriter, StreamWriter,
-} from '../../src/foundation/stream/index.js';
-import {
-  createSnapshot, Snapshot,
-} from '../../src/foundation/snapshot/index.js';
-import {
-  createDialogStore, DialogStore,
-} from '../../src/foundation/dialog-store/index.js';
-import {
-  createInboxReader, createOutboxWriter,
-  InboxReader, OutboxWriter,
-} from '../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
+import { createStreamWriter, StreamWriter } from '../../src/foundation/stream/index.js';
+import { createSnapshot, Snapshot } from '../../src/foundation/snapshot/index.js';
+import { createDialogStore, DialogStore } from '../../src/foundation/dialog-store/index.js';
+import { createInboxReader, createOutboxWriter, OutboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
+
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 
@@ -46,15 +37,15 @@ describe('L2 factories — 行为契约', () => {
     // phase 1445 Step D: createSnapshot 变 async（工厂内 init）；同一 dir 幂等
     expect(await createSnapshot(dir, fs, audit, [])).not.toBe(await createSnapshot(dir, fs, audit, []));
     expect(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1')).not.toBe(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1'));
-    expect(createInboxReader(fs, audit, 'inbox')).not.toBe(createInboxReader(fs, audit, 'inbox'));
+    expect(createInboxReader(fs, audit, '.')).not.toBe(createInboxReader(fs, audit, '.'));
     expect(createOutboxWriter('c1', dir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT)).not.toBe(createOutboxWriter('c1', dir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT));
   });
 
-  it('createInboxReader：baseDir 透传，五子目录固定拼 pending/inflight/done/failed/misrouted（结构断言）', async () => {
+  it('createInboxReader：clawRoot 透传，Messaging 派生 inbox 五子目录（结构断言）', async () => {
     const { dir, fs, audit } = mkEnv();
     const r = createInboxReader(fs, audit, 'my_inbox');
     await r.init();
-    const sub = (await readdir(path.join(dir, 'my_inbox'))).sort();
+    const sub = (await readdir(path.join(dir, 'my_inbox', 'inbox'))).sort();
     // phase 442: misrouted/ 子目录加入 (review N3-C-H1 / R2-C-N1 隔离方案)
     expect(sub).toEqual(['done', 'failed', 'inflight', 'misrouted', 'pending']);
     // 反向保障：若工厂写错（拼成 'incoming' 或遗漏某子目录），子目录集合偏离
@@ -66,13 +57,13 @@ describe('L2 factories — 行为契约', () => {
     const { dir, fs, audit } = mkEnv();
     const r = createInboxReader(fs, audit, 'tmp-inbox');
     await r.init();
-    await fs.writeAtomic('tmp-inbox/pending/001_hello.md', '---\nid: msg-001\ntype: message\nfrom: test\ntimestamp: 2026-07-12T00:00:00Z\n---\nhello');
+    await fs.writeAtomic('tmp-inbox/inbox/pending/001_hello.md', '---\nid: msg-001\ntype: message\nfrom: test\ntimestamp: 2026-07-12T00:00:00Z\n---\nhello');
     const { entries } = await r.drainInbox();
     expect(entries).toHaveLength(1);
-    expect(entries[0].filePath).toContain('tmp-inbox/pending/001_hello.md');
+    expect(entries[0].filePath).toContain('tmp-inbox/inbox/pending/001_hello.md');
 
     await r.markDone(entries[0].filePath);
-    const doneFiles = await readdir(path.join(dir, 'tmp-inbox', 'done'));
+    const doneFiles = await readdir(path.join(dir, 'tmp-inbox', 'inbox', 'done'));
     expect(doneFiles).toHaveLength(1);
     expect(doneFiles[0]).toContain('001_hello.md');
     // 若工厂体漏斜杠（`${baseDir}pending`），fs.write 会写到 `tmp-inboxpending/` 目录；

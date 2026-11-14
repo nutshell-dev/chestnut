@@ -75,7 +75,7 @@ export class EventLoop {
   private audit: AuditLog;
   private loopFs: FileSystem;
   private agentFs: FileSystem;
-  private inboxPendingDir: string;
+  private inboxClawRoot: string;
   private fallbackTimeoutMs: number;
   private streamWriter?: StreamWriter;
   private turnState?: EventLoopTurnStateSink;
@@ -118,7 +118,7 @@ export class EventLoop {
     this.loopFs = options.fsFactory(path.join(options.agentDir, '..'));
     this.agentFs = options.fsFactory(options.agentDir);
     this.rootFs = this._resolveRootFs(options.fsFactory, options.agentDir);
-    this.inboxPendingDir = options.inbox.pendingDir;
+    this.inboxClawRoot = options.inbox.clawRoot;
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
     this.turnState = options.turnState;
@@ -336,7 +336,7 @@ export class EventLoop {
     );
     const waitOutcome = await Promise.race([
       this._sleep(remainingMs, signal),
-      waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, remainingMs, signal),
+      waitForInbox(this.loopFs, this.audit, this.inboxClawRoot, remainingMs, signal),
     ]);
     // Phase 1958 Step D: sleep 分支结果为 undefined；watcher 分支的观察失败显式留证
     if (waitOutcome !== undefined) this._auditInboxWaitOutcome(waitOutcome);
@@ -584,7 +584,7 @@ export class EventLoop {
    * idle），new_file/timeout/aborted 无需额外动作。
    */
   private async _waitInboxObserved(timeoutMs: number, signal?: AbortSignal): Promise<void> {
-    const outcome = await waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, timeoutMs, signal);
+    const outcome = await waitForInbox(this.loopFs, this.audit, this.inboxClawRoot, timeoutMs, signal);
     this._auditInboxWaitOutcome(outcome);
   }
 
@@ -1079,7 +1079,7 @@ export class EventLoop {
     // reader 用实际注入的 pending 路径推导 inbox baseDir（按实际注入路径，不硬编码
     // 另一个 inbox）；每次调用创建只读 reader 句柄，路径依赖固定。只 findByExtraMeta，
     // 不 init/drain/ack。done 不设时间截止（includeDoneWithinMs: Infinity）。
-    const reader = createInboxReader(this.agentFs, this.audit, path.dirname(this.inboxPendingDir));
+    const reader = createInboxReader(this.agentFs, this.audit, this.inboxClawRoot);
     const query = () =>
       reader.findByExtraMeta(EXECUTION_RECOVERY_DELIVERY_META_KEY, delivery.id, {
         includeDoneWithinMs: Infinity,
@@ -1095,7 +1095,7 @@ export class EventLoop {
     if (before) return { kind: 'confirmed' };
 
     try {
-      await writeInboxAsync(this.agentFs, this.inboxPendingDir, {
+      await writeInboxAsync(this.agentFs, this.inboxClawRoot, {
         id: delivery.id,
         type: EXECUTION_RECOVERY_MESSAGE_TYPE,
         from: this.clawId,
@@ -1143,7 +1143,7 @@ export class EventLoop {
    * protected 只为真实类型化测试子类调用，不是面向上层模块的配置/端口。
    */
   protected async _findPendingExecutionResume(contractId: string): Promise<PendingExecutionResume> {
-    const reader = createInboxReader(this.agentFs, this.audit, path.dirname(this.inboxPendingDir));
+    const reader = createInboxReader(this.agentFs, this.audit, this.inboxClawRoot);
     const hits = await reader.peekUnsettled({
       type: EXECUTION_RECOVERY_MESSAGE_TYPE,
       from: this.clawId,

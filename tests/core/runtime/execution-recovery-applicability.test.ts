@@ -15,21 +15,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
-import {
-  createInboxReader,
-  writeInboxAsync,
-} from '../../../src/foundation/messaging/index.js';
-import { createInboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, writeInboxAsync, createInboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
+
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
-import {
-  EXECUTION_RECOVERY_MESSAGE_TYPE,
-  EXECUTION_RECOVERY_DELIVERY_META_KEY,
-} from '../../../src/core/runtime/inbox-message-types.js';
-import {
-  EXECUTION_RECOVERY_MESSAGE_TYPE as EVENTLOOP_MESSAGE_TYPE,
-  EXECUTION_RECOVERY_DELIVERY_META_KEY as EVENTLOOP_DELIVERY_META_KEY,
-} from '../../../src/core/event-loop/constants.js';
+import { EXECUTION_RECOVERY_MESSAGE_TYPE, EXECUTION_RECOVERY_DELIVERY_META_KEY } from '../../../src/core/runtime/inbox-message-types.js';
+import { EXECUTION_RECOVERY_MESSAGE_TYPE as EVENTLOOP_MESSAGE_TYPE, EXECUTION_RECOVERY_DELIVERY_META_KEY as EVENTLOOP_DELIVERY_META_KEY } from '../../../src/core/event-loop/constants.js';
 import type { ContractTerminalFact } from '../../../src/core/contract/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -98,13 +89,13 @@ describe('phase 1869 Step G: 消费适用性判定', () => {
         formatterRegistry: createInboxMessageTypeRegistry(),
       },
     } as never);
-    const reader = createInboxReader(fsImpl, audit, inboxBaseDir);
+    const reader = createInboxReader(fsImpl, audit, rootDir);
     runtime.injectForTest({ inboxReader: reader, auditWriter: audit });
     return runtime;
   }
 
   async function writeRecovery(id: string, contractId: string, deliveryId?: string): Promise<void> {
-    await writeInboxAsync(fsImpl, pendingDir, {
+    await writeInboxAsync(fsImpl, rootDir, {
       id,
       type: EXECUTION_RECOVERY_MESSAGE_TYPE,
       from: 'test-claw',
@@ -120,7 +111,7 @@ describe('phase 1869 Step G: 消费适用性判定', () => {
   }
 
   async function writeNormal(id: string): Promise<void> {
-    await writeInboxAsync(fsImpl, pendingDir, {
+    await writeInboxAsync(fsImpl, rootDir, {
       id,
       type: 'user_chat',
       from: 'user',
@@ -266,7 +257,7 @@ describe('phase 1869 Step G: 消费适用性判定', () => {
     fs.utimesSync(stalePath, oldMtime, oldMtime);
 
     // 重启：init reconcile 把过期 inflight 残留回 pending → 重新判定并处置
-    const reader2 = createInboxReader(fsImpl, audit, inboxBaseDir);
+    const reader2 = createInboxReader(fsImpl, audit, rootDir);
     await reader2.init();
     const runtime2 = makeRuntime();
     runtime2.injectForTest({ inboxReader: reader2, auditWriter: audit });

@@ -18,7 +18,7 @@ import * as fsNative from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { flushRealEventLoop, TestEventSignal } from './recovery-test-driver.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
@@ -124,14 +124,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
   fsNative.mkdirSync(pendingDir, { recursive: true });
 
   const auditSink = { write: () => { /* messaging audit not under test */ } };
-  const inboxReader = new InboxReader(
-    pendingDir,
-    path.join(inboxDir, 'done'),
-    path.join(inboxDir, 'failed'),
-    fs,
-    auditSink as never,
-    path.join(inboxDir, 'inflight'),
-  );
+  const inboxReader = createInboxReader(fs, auditSink as never, dir);
   await inboxReader.init();
 
   const providerCallSignal = new TestEventSignal<string>();
@@ -262,7 +255,7 @@ async function makeHarness(opts?: { dualProvider?: boolean }): Promise<Harness> 
         if (cols.includes('type=recovery_wait')) recoveryWaitSignal.emit(undefined);
       },
     } as never,
-    inbox: { pendingDir, fallbackTimeoutMs: 30 },
+    inbox: { clawRoot: dir, fallbackTimeoutMs: 30 },
     executionRecovery: {
       inspectLlmRecoverySchedule: () => owner.inspectRecoverySchedule(),
       probeActivity: async () => ({ lastActivityAt: null, lastToolCallAt: null }),
@@ -356,14 +349,7 @@ async function makeRuntimeHarness(opts?: {
   fsNative.mkdirSync(pendingDir, { recursive: true });
 
   const audit = { write: () => { /* not under test */ } };
-  const inboxReader = new InboxReader(
-    pendingDir,
-    path.join(inboxDir, 'done'),
-    path.join(inboxDir, 'failed'),
-    fs,
-    audit as never,
-    path.join(inboxDir, 'inflight'),
-  );
+  const inboxReader = createInboxReader(fs, audit as never, dir);
   await inboxReader.init();
 
   const providerCallSignal = new TestEventSignal<string>();
@@ -502,7 +488,7 @@ async function makeRuntimeHarness(opts?: {
     agentDir: dir,
     clawId: 'claw-1',
     audit: { write: () => {} } as never,
-    inbox: { pendingDir, fallbackTimeoutMs: 30 },
+    inbox: { clawRoot: dir, fallbackTimeoutMs: 30 },
     onBatchComplete: async () => { batchCompleteSignal.emit(undefined); },
   });
   await eventLoop.initialize();

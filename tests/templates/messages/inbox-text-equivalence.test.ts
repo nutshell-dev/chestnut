@@ -13,15 +13,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import {
-  EventLoop,
-  createExecutionRecoveryController,
-  createExecutionRecoveryStore,
-} from '../../../src/core/event-loop/index.js';
-import {
-  EXECUTION_RECOVERY_DELIVERY_META_KEY,
-  EXECUTION_RECOVERY_DIR,
-} from '../../../src/core/event-loop/constants.js';
+import { EventLoop, createExecutionRecoveryController, createExecutionRecoveryStore } from '../../../src/core/event-loop/index.js';
+import { EXECUTION_RECOVERY_DELIVERY_META_KEY, EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.js';
 import type {
   ExecutionRecoveryDeliveryOutcome,
   ExecutionRecoveryDeliveryRequest,
@@ -211,7 +204,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       agentDir,
       clawId: 'claw-1',
       audit,
-      inbox: { pendingDir },
+      inbox: { clawRoot: agentDir },
     });
     const CONTRACT_ID = '1700000000000-abcd';
     const FIXED_NOW = 1_700_500_000_000;
@@ -327,7 +320,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       streamWriter: { write: () => {} } as never,
       clawId: 'motion',
       systemFs,
-      selfInboxDir: pendingDir,
+      selfClawRoot: baseDir,
       auditWriter: auditStub(),
     });
     sink({
@@ -343,7 +336,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     const notifier = createClawNotifier({
       fs: systemFs,
       audit: auditStub(),
-      resolveTarget: () => ({ clawRoot: baseDir, inboxDir: pendingDir }),
+      resolveTarget: () => ({ clawRoot: baseDir }),
     });
     const deliverCancellation = createContractCancellationDelivery({
       clawId: 'motion',

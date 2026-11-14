@@ -74,7 +74,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       const audit = createMockAudit();
       const TIMEOUT_MS = 100;
 
-      const outcome = await waitForInbox(fs, audit, inboxPendingDir, TIMEOUT_MS);
+      const outcome = await waitForInbox(fs, audit, agentDir, TIMEOUT_MS);
       // 干净 timeout：不得误报为观察失败
       expect(outcome).toEqual({ kind: 'timeout' });
     });
@@ -84,7 +84,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       const audit = createMockAudit();
       const TIMEOUT_MS = 5000;
 
-      const promise = waitForInbox(fs, audit, inboxPendingDir, TIMEOUT_MS);
+      const promise = waitForInbox(fs, audit, agentDir, TIMEOUT_MS);
 
       await new Promise(r => setTimeout(r, WATCHER_SETUP_BUDGET_MS));
       fsNative.writeFileSync(path.join(inboxPendingDir, 'test.md'), '# hello');
@@ -104,7 +104,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         listSync: vi.fn().mockReturnValue([]),
       } as unknown as FileSystem;
 
-      const outcome = await waitForInbox(mockFs, audit, inboxPendingDir, 50);
+      const outcome = await waitForInbox(mockFs, audit, agentDir, 50);
 
       // 观察失败显式返回（不折叠为正常 resolve）
       expect(outcome).toEqual({
@@ -397,7 +397,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         agentDir,
         clawId: 'test-claw',
         audit,
-        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 30 },
+        inbox: { clawRoot: agentDir, fallbackTimeoutMs: 30 },
       });
       const fakeWatcher = createFakeWatcher();
 

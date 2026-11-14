@@ -63,7 +63,7 @@ function makeHarness(overrides: Partial<FileSystem> = {}) {
     agentDir,
     clawId: 'claw',
     audit: { write: vi.fn() } as unknown as AuditLog,
-    inbox: { pendingDir: path.join(agentDir, 'inbox', 'pending'), fallbackTimeoutMs: 1 },
+    inbox: { clawRoot: agentDir, fallbackTimeoutMs: 1 },
   });
   const internals = loop as unknown as {
     _enterLlmRequestBlocked: GateInternals['enter'];

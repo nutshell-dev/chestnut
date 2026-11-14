@@ -78,7 +78,7 @@ export type SendToolResult<TTask> = (
 /** phase 1042: function shape for writing an inbox message asynchronously. */
 export type WriteInboxAsync = (
   fs: FileSystem,
-  inboxDir: string,
+  clawRoot: string,
   message: InboxMessage,
   audit: AuditLog,
 ) => Promise<void>;

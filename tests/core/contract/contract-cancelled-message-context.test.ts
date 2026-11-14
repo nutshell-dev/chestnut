@@ -25,19 +25,12 @@ import { createContractCancellationDelivery } from '../../../src/assembly/contra
 import { makeContractId } from '../../../src/core/contract/types.js';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
-import {
-  buildCancelledIntent,
-  lifecycleIntentPath,
-  persistLifecycleIntent,
-} from '../../../src/core/contract/lifecycle-intent.js';
+import { buildCancelledIntent, lifecycleIntentPath, persistLifecycleIntent } from '../../../src/core/contract/lifecycle-intent.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { createClawTopology } from '../../../src/core/claw-topology/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import { createClawNotifier, notifyInbox } from '../../../src/foundation/messaging/index.js';
-import {
-  createInboxMessageTypeRegistry,
-  registerInboxMessageTypes,
-} from '../../../src/foundation/messaging/index.js';
+import { createClawNotifier, notifyInbox, createInboxMessageTypeRegistry, registerInboxMessageTypes } from '../../../src/foundation/messaging/index.js';
+
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../../../src/core/contract/index.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
@@ -175,7 +168,8 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
   describe('路一：自家 typed cancelled（M04 adapter）', () => {
     async function emitSelfCancelled(clawId: string, event: Parameters<ReturnType<typeof createContractCancellationDelivery>>[0]) {
       const clawRoot = path.join(rootDir, clawId);
-      const selfInboxDir = path.join(clawRoot, 'inbox', 'pending');
+      const selfClawRoot = clawRoot;
+      const inboxPendingDir = path.join(clawRoot, 'inbox', 'pending');
       await fs.mkdir(clawRoot, { recursive: true });
       const streamWrite = vi.fn();
       const { audit } = makeAudit();
@@ -184,13 +178,13 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
         streamWriter: { write: streamWrite } as unknown as StreamWriter,
         clawId,
         systemFs: nodeFs,
-        selfInboxDir,
+        selfClawRoot,
         auditWriter: audit,
       });
       const notifier = createClawNotifier({
         fs: nodeFs,
         audit,
-        resolveTarget: () => ({ clawRoot, inboxDir: selfInboxDir }),
+        resolveTarget: () => ({ clawRoot }),
       });
       const deliver = createContractCancellationDelivery({
         clawId,
@@ -198,11 +192,11 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
       });
       emit(event);
       await deliver(event);
-      return { selfInboxDir, streamWrite };
+      return { inboxPendingDir, streamWrite };
     }
 
     it('motion 自家取消：正文自足 + 真实 guidance 查询用途标签；stream payload 不变', async () => {
-      const { selfInboxDir, streamWrite } = await emitSelfCancelled('motion', {
+      const { inboxPendingDir, streamWrite } = await emitSelfCancelled('motion', {
         type: 'contract_cancelled',
         contractId: makeContractId('c-self'),
         reason: '用户不需要了',
@@ -218,7 +212,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
 
       const { audit, events } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: true });
-      const [msg] = await readInboxDir(selfInboxDir);
+      const [msg] = await readInboxDir(inboxPendingDir);
       expect(msg.type).toBe('contract_cancelled');
       const content = await providerVisibleContent(runtime, msg);
 
@@ -233,7 +227,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
     });
 
     it('worker 自家取消（空原因，无 guidanceCompose）：明示未填写原因、正文自足', async () => {
-      const { selfInboxDir } = await emitSelfCancelled('worker-1', {
+      const { inboxPendingDir } = await emitSelfCancelled('worker-1', {
         type: 'contract_cancelled',
         contractId: makeContractId('c-w'),
         reason: '',
@@ -241,7 +235,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
 
       const { audit } = makeAudit();
       const runtime = makeRuntime(audit, { withGuidance: false });
-      const [msg] = await readInboxDir(selfInboxDir);
+      const [msg] = await readInboxDir(inboxPendingDir);
       const content = await providerVisibleContent(runtime, msg);
 
       expect(content).toContain('契约已取消｜c-w');
@@ -309,7 +303,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
         fs: effectiveFs,
         motionAudit: audit,
         notifyMotion: async (m: any) => {
-          notifyInbox(nodeFs, { inboxDir: motionPendingDir, ...m }, audit);
+          notifyInbox(nodeFs, { clawRoot: motionDir, ...m }, audit);
         },
       } as any);
       return readInboxDir(motionPendingDir);

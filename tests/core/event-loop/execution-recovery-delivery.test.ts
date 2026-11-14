@@ -24,23 +24,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-  createExecutionRecoveryStore,
-  createExecutionRecoveryController,
-  type ExecutionRecoveryController,
-  type ExecutionRecoveryDelivery,
-  type ExecutionRecoveryDeliveryOutcome,
-  type ExecutionRecoveryDeliveryRequest,
-  type ExecutionRecoveryStore,
-  type ExecutionActivitySnapshot,
-  type ExecutionRecoveryRecord,
-  type PendingExecutionResume,
-} from '../../../src/core/event-loop/execution-recovery.js';
+import { createExecutionRecoveryStore, createExecutionRecoveryController, type ExecutionRecoveryController, type ExecutionRecoveryDelivery, type ExecutionRecoveryDeliveryOutcome, type ExecutionRecoveryDeliveryRequest, type ExecutionRecoveryStore, type ExecutionActivitySnapshot, type ExecutionRecoveryRecord, type PendingExecutionResume } from '../../../src/core/event-loop/execution-recovery.js';
 import { EventLoop } from '../../../src/core/event-loop/event-loop.js';
-import {
-  EXECUTION_RECOVERY_DIR,
-  EXECUTION_RECOVERY_DELIVERY_META_KEY,
-} from '../../../src/core/event-loop/constants.js';
+import { EXECUTION_RECOVERY_DIR, EXECUTION_RECOVERY_DELIVERY_META_KEY } from '../../../src/core/event-loop/constants.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createInboxReader, decodeInbox, writeInboxAsync } from '../../../src/foundation/messaging/index.js';
@@ -118,7 +104,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       agentDir,
       clawId: CLAW_ID,
       audit,
-      inbox: { pendingDir },
+      inbox: { clawRoot: agentDir },
     });
     const store = createExecutionRecoveryStore({ agentFs, audit });
     const controller = createExecutionRecoveryController({
@@ -526,7 +512,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
 
     // 2) inflight 位置（真实 drain 移动，不 ack）
     const hi = await setupPendingWithMessage('delivery-loc-inflight-');
-    const inflightReader = createInboxReader(hi.agentFs, hi.audit, 'inbox');
+    const inflightReader = createInboxReader(hi.agentFs, hi.audit, '.');
     const batch = await inflightReader.drainAndDeliver();
     expect(batch.kind).toBe('complete');
     if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
@@ -539,7 +525,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
 
     // 3) done 位置（真实 drain + ack；跨过多个 timeout 仍可找到，不补写、不加 attempt）
     const hd = await setupPendingWithMessage('delivery-loc-done-');
-    const doneReader = createInboxReader(hd.agentFs, hd.audit, 'inbox');
+    const doneReader = createInboxReader(hd.agentFs, hd.audit, '.');
     const doneBatch = await doneReader.drainAndDeliver();
     expect(doneBatch.kind).toBe('complete');
     if (doneBatch.kind !== 'complete') throw new Error('unexpected batch kind');
@@ -599,7 +585,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     expect(suppressedAudit!.some(col => String(col) === `message_id=${firstId}`)).toBe(true);
 
     // 真实 drain+ack 消费原消息（消费不等于契约完成，不人为推进 activity）
-    const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+    const reader = createInboxReader(h.agentFs, h.audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.kind).toBe('complete');
     if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
@@ -756,7 +742,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       ids.push(record.delivery!.id);
       expect(pendingFiles(h)).toHaveLength(1);
       // 真实消费链：drain → inflight → ack → done；不人为推进 activity
-      const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+      const reader = createInboxReader(h.agentFs, h.audit, '.');
       const batch = await reader.drainAndDeliver();
       expect(batch.kind).toBe('complete');
       if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
@@ -812,7 +798,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     h.store.save(existing);
     const bytesBefore = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
     // 无关坏消息（非本契约类型）也使本次新增查询未知——peek 是全目录解码
-    await writeInboxAsync(h.agentFs, h.pendingDir, {
+    await writeInboxAsync(h.agentFs, h.agentDir, {
       id: 'unrelated-1',
       type: 'task',
       from: 'motion',
@@ -854,7 +840,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     const delivery = h.requests[0].delivery;
 
     // 真实 owner API 写入同身份消息并 drain 到 inflight（外部已投递的场景）
-    await writeInboxAsync(h.agentFs, h.pendingDir, {
+    await writeInboxAsync(h.agentFs, h.agentDir, {
       id: delivery.id,
       type: 'execution_recovery',
       from: CLAW_ID,
@@ -864,7 +850,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       timestamp: new Date(delivery.scheduledAt).toISOString(),
       metadata: { contract_id: CONTRACT_ID, [EXECUTION_RECOVERY_DELIVERY_META_KEY]: delivery.id },
     }, h.audit);
-    const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+    const reader = createInboxReader(h.agentFs, h.audit, '.');
     const batch = await reader.drainAndDeliver();
     expect(batch.kind).toBe('complete');
 
@@ -890,7 +876,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       type?: string;
       withDeliveryMeta?: boolean;
     }): Promise<void> {
-      await writeInboxAsync(h.agentFs, h.pendingDir, {
+      await writeInboxAsync(h.agentFs, h.agentDir, {
         id: opts.id,
         type: opts.type ?? 'execution_recovery',
         from: opts.from ?? CLAW_ID,
@@ -999,7 +985,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       const h = makeHarness('matrix-inflight-');
       await writeReminder(h, { id: 'inflight-reminder', contractId: CONTRACT_ID });
       // 真实 owner 链：drain claim 到 inflight、不 ack——模拟未结算残留
-      const reader = createInboxReader(h.agentFs, h.audit, path.dirname(h.pendingDir));
+      const reader = createInboxReader(h.agentFs, h.audit, h.agentDir);
       const drained = await reader.drainAndDeliver();
       expect(drained.kind).toBe('complete');
       expect(pendingFiles(h)).toHaveLength(0);

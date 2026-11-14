@@ -42,7 +42,6 @@ import { listActiveContracts, getActiveContractTimestamp, makeContractId, readCo
 import { EventLoop, readStreamExecutionActivityMs, readStreamToolCallActivityMs } from '../core/event-loop/index.js';
 import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
 // phase 1873 Step C: 装配期构造 EventLoop 的 inbox 路径推导（daemon 侧迁入）
-import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 
 interface RuntimeAssemblyInput {
   core: CoreInfraOutput;
@@ -297,7 +296,7 @@ export async function createRuntimeAssembly(
     agentDir: clawDir,
     clawId,
     audit: auditWriter,
-    inbox: { pendingDir: path.join(clawDir, INBOX_PENDING_DIR) },
+    inbox: { clawRoot: clawDir },
     streamWriter,
     turnState: config.turnState,
     executionRecovery,
