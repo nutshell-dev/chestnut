@@ -23,8 +23,8 @@ vi.mock('fs', async (importOriginal) => {
 
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { writeAtomic } from '../../src/foundation/fs/atomic.js';
-import { PathGuardError } from '../../src/foundation/fs/types.js';
-import { FileNotFoundError } from '../../src/foundation/fs/types.js';
+import { PathGuardError, FileNotFoundError } from '../../src/foundation/fs/types.js';
+
 
 describe('FileSystem', () => {
   describe('writeAtomic', () => {
@@ -363,6 +363,44 @@ describe('FileSystem', () => {
       const paths = entries.map(e => e.path);
       expect(paths).toContain('a/b');
       expect(paths).toContain('a/d.txt');
+    });
+  });
+
+  describe('directory durability (phase 2147 B10)', () => {
+    let fs: NodeFileSystem;
+    let clawDir: string;
+
+    beforeEach(async () => {
+      clawDir = await createTempDir();
+      fs = new NodeFileSystem({ baseDir: clawDir });
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(clawDir);
+    });
+
+    it('mkdirExclusiveSync returns the first path created in a multi-level ancestor chain', () => {
+      const target = path.join(clawDir, 'a/b/claim');
+
+      expect(fs.mkdirExclusiveSync('a/b/claim')).toBe('a');
+      expect(fsSync.statSync(target).isDirectory()).toBe(true);
+    });
+
+    it('mkdirExclusiveSync returns the target when its parent already exists', async () => {
+      await fs.ensureDir('existing');
+
+      expect(fs.mkdirExclusiveSync('existing/claim')).toBe(path.join('existing', 'claim'));
+    });
+
+    it('syncSync opens a directory read-only before fsync', () => {
+      fs.ensureDirSync('directory');
+      const open = vi.spyOn(fsSync, 'openSync');
+
+      fs.syncSync('directory');
+
+      expect(open).toHaveBeenCalledWith(path.join(clawDir, 'directory'), 'r');
+      expect(vi.mocked(fsSync.fsyncSync)).toHaveBeenCalled();
+      open.mockRestore();
     });
   });
 

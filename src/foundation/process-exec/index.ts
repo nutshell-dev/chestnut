@@ -85,6 +85,7 @@ export type {
   ProcessTerminationOutcome,
 } from './process-target.js';
 export type { ProcessEvidence, ProcessEvidenceValue } from './process-evidence.js';
+export { encodeProcessEvidence } from './process-evidence.js';
 export {
   ProcessExecError,
   ProcessListUnavailable,

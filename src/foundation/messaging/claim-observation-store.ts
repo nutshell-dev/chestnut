@@ -2,6 +2,8 @@ import type { FileSystem } from '../fs/index.js';
 import { newUuid } from '../node-utils/index.js';
 import type { ClaimProcessFacts } from './claim-process-observation.js';
 import type { ClaimRecordEvidence } from './claim-record.js';
+import type { RecoveryIoEvidence } from './recovery-io-evidence.js';
+import { DirectoryDurabilityError, syncCreatedDirectoryChain } from './directory-durability.js';
 
 type AtomicWriteResult = Awaited<ReturnType<FileSystem['writeAtomic']>>;
 type PersistenceStage = 'claim_directory' | 'write_index' | 'write_record';
@@ -24,21 +26,22 @@ export type ClaimRecord = {
   sequence: number;
   atMs: number;
   sourceDir: string;
-  rawName: string;
-  originalName: string;
-  event: 'process_observed' | 'claim_observed' | 'decision';
+  rawName?: string;
+  originalName?: string;
+  event: 'process_observed' | 'claim_observed' | 'decision' | 'recovery_io';
   process?: ClaimProcessFacts;
   claim?: ClaimRecordEvidence;
   lease?: ClaimLease;
   decision?: ClaimDecision;
+  recovery?: RecoveryIoEvidence;
 };
 
 export class ClaimObservationPersistenceError extends Error {
   readonly code = 'CLAIM_OBSERVATION_PERSISTENCE_FAILED' as const;
-  readonly rawName: string;
+  readonly rawName?: string;
 
   constructor(
-    public readonly entry: string,
+    public readonly entry: string | undefined,
     public readonly recordPath: string,
     public readonly pendingRecord: ClaimRecord,
     cause: unknown,
@@ -47,6 +50,7 @@ export class ClaimObservationPersistenceError extends Error {
     public readonly targetPath: string = recordPath,
     public readonly stage: PersistenceStage = 'write_record',
     public readonly originalClaimReadError?: unknown,
+    public readonly originalRecoveryError?: unknown,
   ) {
     const location = targetPath === recordPath
       ? targetPath
@@ -79,9 +83,10 @@ type DecisionInput = {
 type ClaimRecordInput = Omit<ClaimRecord,
   'version' | 'attemptId' | 'sequence' | 'atMs' | 'sourceDir'>;
 
-type RecordOptions = {
+export type RecordOptions = {
   originalStatError?: unknown;
   originalClaimReadError?: unknown;
+  originalRecoveryError?: unknown;
 };
 
 const MAX_DIRECTORY_CLAIMS = 3;
@@ -134,6 +139,7 @@ export class ClaimObservationStore {
       targetPath,
       stage,
       options?.originalClaimReadError,
+      options?.originalRecoveryError,
     );
     this.poisoned = failure;
     return failure;
@@ -189,18 +195,37 @@ export class ClaimObservationStore {
       for (let claim = 0; claim < MAX_DIRECTORY_CLAIMS; claim += 1) {
         record = this.makeRecord(input);
         recordPath = this.recordPath;
+        let firstCreatedPath: string;
         try {
-          this.fs.mkdirExclusiveSync(this.attemptDirName);
-          claimed = true;
-          break;
+          firstCreatedPath = this.fs.mkdirExclusiveSync(this.attemptDirName);
         } catch (error) {
           if (!isEexist(error) || claim === MAX_DIRECTORY_CLAIMS - 1) {
             throw this.failure(
-              'claim_directory', this.attemptDirName, record, recordPath, error, options,
+              'claim_directory',
+              error instanceof DirectoryDurabilityError ? error.targetPath : this.attemptDirName,
+              record,
+              recordPath,
+              error instanceof DirectoryDurabilityError ? error.cause : error,
+              options,
             );
           }
           this.currentAttemptId = newUuid();
+          continue;
         }
+        try {
+          syncCreatedDirectoryChain(this.fs, this.attemptDirName, firstCreatedPath);
+        } catch (error) {
+          throw this.failure(
+            'claim_directory',
+            error instanceof DirectoryDurabilityError ? error.targetPath : this.attemptDirName,
+            record,
+            recordPath,
+            error instanceof DirectoryDurabilityError ? error.cause : error,
+            options,
+          );
+        }
+        claimed = true;
+        break;
       }
       if (!claimed) throw new Error('unreachable claim observation directory claim state');
       this.directoryClaimed = true;
@@ -227,5 +252,13 @@ export class ClaimObservationStore {
 
   recordDecision(input: DecisionInput, options?: RecordOptions): Promise<void> {
     return this.persist({ ...input, event: 'decision' }, options);
+  }
+
+  recordRecoveryIo(input: {
+    rawName?: string;
+    originalName?: string;
+    recovery: RecoveryIoEvidence;
+  }, options?: RecordOptions): Promise<void> {
+    return this.persist({ ...input, event: 'recovery_io' }, options);
   }
 }

@@ -7,6 +7,7 @@ import {
   type ClaimDescriptor,
   type ClaimRecordCapture,
 } from './claim-record.js';
+import { DirectoryDurabilityError, syncCreatedDirectoryChain } from './directory-durability.js';
 
 type AtomicWriteResult = Awaited<ReturnType<FileSystem['writeAtomic']>>;
 
@@ -86,6 +87,7 @@ export async function prepareClaimRecord(
   let claimName = '';
   let claimDirectory = '';
   let recordPath = '';
+  let firstCreatedPath = '';
 
   for (let attempt = 0; attempt < MAX_DIRECTORY_CLAIMS; attempt += 1) {
     claimId = newUuid();
@@ -93,7 +95,7 @@ export async function prepareClaimRecord(
     claimDirectory = `${claimsDir}/${claimId}`;
     recordPath = `${claimDirectory}/record.json`;
     try {
-      fs.mkdirExclusiveSync(claimDirectory);
+      firstCreatedPath = fs.mkdirExclusiveSync(claimDirectory);
       break;
     } catch (cause) {
       if (!isEexist(cause) || attempt === MAX_DIRECTORY_CLAIMS - 1) {
@@ -104,6 +106,16 @@ export async function prepareClaimRecord(
         });
       }
     }
+  }
+
+  try {
+    syncCreatedDirectoryChain(fs, claimDirectory, firstCreatedPath);
+  } catch (cause) {
+    throw new ClaimPreparationError(originalName, 'claim_directory', {
+      targetPath: cause instanceof DirectoryDurabilityError ? cause.targetPath : claimDirectory,
+      recordPath,
+      cause: cause instanceof DirectoryDurabilityError ? cause.cause : cause,
+    });
   }
 
   let capture: ClaimRecordCapture;

@@ -343,8 +343,11 @@ export interface FileSystem {
    * 目标已存在（文件/空目录/非空目录）→ throw EEXIST；父目录自动创建
    * （对齐 writeExclusiveSync 对称 invariant）。这是平台无 rename-no-replace
    * flag 时唯一原子「目录路径不存在才成功」的提交点。
+   *
+   * 返回本次递归创建的第一个路径（与输入同为相对/绝对坐标）；父目录均已存在时返回目标。
+   * caller 可据此逐层 fsync 新建目录的父目录，持久化完整祖先链。
    */
-  mkdirExclusiveSync(path: string): void;
+  mkdirExclusiveSync(path: string): string;
 
   /**
    * List directory contents synchronously.
@@ -395,8 +398,8 @@ export interface FileSystem {
   deleteSync(path: string): void;
 
   /**
-   * Synchronize file data to disk (fsync).
-   * Ensures durability for audit/log paths.
+   * Synchronize file or directory data to disk (fsync).
+   * Ensures durability for audit/log paths and directory entries.
    * @param path - Relative path within configured baseDir
    */
   syncSync(path: string): void;

@@ -19,10 +19,7 @@ vi.mock('../../../src/foundation/process-exec/index.js', async importOriginal =>
   captureCurrentProcessRef: captureMock,
 }));
 
-import {
-  ClaimPreparationError,
-  prepareClaimRecord,
-} from '../../../src/foundation/messaging/claim-record-store.js';
+import { ClaimPreparationError, prepareClaimRecord } from '../../../src/foundation/messaging/claim-record-store.js';
 import type { ClaimChannel } from '../../../src/foundation/messaging/claim-record.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type {
@@ -152,6 +149,54 @@ describe('prepareClaimRecord', () => {
     }));
     await expect(fsAsync.readFile(expectedPaths.recordPath, 'utf8'))
       .resolves.toBe(JSON.stringify(expectedDescriptor(capture)));
+  });
+
+  it('fsyncs first-created multi-level ancestors before writing the index', async () => {
+    const sync = vi.spyOn(fs, 'syncSync');
+    const write = vi.spyOn(fs, 'writeAtomic');
+
+    await prepare();
+
+    const expectedPaths = paths();
+    expect(sync.mock.calls.map(([targetPath]) => targetPath)).toEqual([
+      expectedPaths.claimsDir,
+      path.dirname(expectedPaths.claimsDir),
+    ]);
+    expect(sync.mock.invocationCallOrder[1]).toBeLessThan(write.mock.invocationCallOrder[0]);
+  });
+
+  it('fsyncs only the new claim and its existing claims root', async () => {
+    const expectedPaths = paths();
+    await fsAsync.mkdir(expectedPaths.claimsDir, { recursive: true });
+    const sync = vi.spyOn(fs, 'syncSync');
+
+    await prepare();
+
+    expect(sync.mock.calls.map(([targetPath]) => targetPath)).toEqual([expectedPaths.claimsDir]);
+  });
+
+  it('retains a directory fsync cause and stops before capture, index, and record', async () => {
+    const expectedPaths = paths();
+    const cause = Object.assign(new Error('claim directory fsync failed'), { code: 'EIO' });
+    const realSync = fs.syncSync.bind(fs);
+    const sync = vi.spyOn(fs, 'syncSync').mockImplementation(targetPath => {
+      if (targetPath === expectedPaths.claimsDir) throw cause;
+      realSync(targetPath);
+    });
+    const write = vi.spyOn(fs, 'writeAtomic');
+
+    const error = await catchPreparation(prepare());
+
+    expect(error.cause).toBe(cause);
+    expect(error.stage).toBe('claim_directory');
+    expect(error.targetPath).toBe(expectedPaths.claimsDir);
+    expect(error.recordPath).toBe(expectedPaths.recordPath);
+    expect(error.writeResult).toBeUndefined();
+    expect(sync.mock.calls.map(([targetPath]) => targetPath)).toEqual([expectedPaths.claimsDir]);
+    expect(captureMock).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(existsSync(expectedPaths.indexPath)).toBe(false);
+    expect(existsSync(expectedPaths.recordPath)).toBe(false);
   });
 
   it.each([

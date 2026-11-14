@@ -638,10 +638,13 @@ export class NodeFileSystem implements FileSystem {
     fsSync.mkdirSync(absolute, { recursive: true });
   }
 
-  mkdirExclusiveSync(relativePath: string): void {
+  mkdirExclusiveSync(relativePath: string): string {
     const absolute = this.resolveAndCheck(relativePath);
-    fsSync.mkdirSync(path.dirname(absolute), { recursive: true }); // 对称 writeExclusiveSync 的父目录 invariant
+    // 对称 writeExclusiveSync 的父目录 invariant
+    const firstCreated = fsSync.mkdirSync(path.dirname(absolute), { recursive: true });
     fsSync.mkdirSync(absolute); // 无 recursive：目标已存在（含空目录）→ EEXIST 原样上抛
+    const created = firstCreated ?? absolute;
+    return path.isAbsolute(relativePath) ? created : path.relative(this.options.baseDir, created);
   }
 
   linkExclusiveSync(fromRelative: string, toRelative: string): void {
@@ -766,7 +769,7 @@ export class NodeFileSystem implements FileSystem {
 
   syncSync(relativePath: string): void {
     const absolute = this.resolveAndCheck(relativePath);
-    const fd = fsSync.openSync(absolute, 'r+');
+    const fd = fsSync.openSync(absolute, 'r');
     try {
       fsSync.fsyncSync(fd);
     } finally {

@@ -2,10 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import * as fsAsync from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  ClaimObservationPersistenceError,
-  ClaimObservationStore,
-} from '../../../src/foundation/messaging/claim-observation-store.js';
+import { ClaimObservationPersistenceError, ClaimObservationStore } from '../../../src/foundation/messaging/claim-observation-store.js';
 import type {
   ClaimLease,
   ClaimRecord,
@@ -160,6 +157,58 @@ describe('ClaimObservationStore', () => {
       },
     ]);
     expect(persisted.records[0].process).toEqual(PROCESS);
+  });
+
+  it('fsyncs first-created multi-level ancestors before writing the index', async () => {
+    const sync = vi.spyOn(fs, 'syncSync');
+    const write = vi.spyOn(fs, 'writeAtomic');
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    await store.recordObservation(observationInput());
+
+    const observationDir = `${sourceDir}-observations`;
+    await readPersisted();
+    expect(sync.mock.calls.map(([targetPath]) => targetPath)).toEqual([
+      observationDir,
+      path.dirname(observationDir),
+    ]);
+    expect(sync.mock.invocationCallOrder[1]).toBeLessThan(write.mock.invocationCallOrder[0]);
+  });
+
+  it('fsyncs only the new attempt and its existing observation root', async () => {
+    const observationDir = `${sourceDir}-observations`;
+    await fsAsync.mkdir(observationDir, { recursive: true });
+    const sync = vi.spyOn(fs, 'syncSync');
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    await store.recordObservation(observationInput());
+
+    await readPersisted();
+    expect(sync.mock.calls.map(([targetPath]) => targetPath)).toEqual([observationDir]);
+  });
+
+  it('retains a directory fsync cause and stops before index and record writes', async () => {
+    const observationDir = `${sourceDir}-observations`;
+    const cause = Object.assign(new Error('observation directory fsync failed'), { code: 'EIO' });
+    const realSync = fs.syncSync.bind(fs);
+    const sync = vi.spyOn(fs, 'syncSync').mockImplementation(targetPath => {
+      if (targetPath === observationDir) throw cause;
+      realSync(targetPath);
+    });
+    const write = vi.spyOn(fs, 'writeAtomic');
+    const store = new ClaimObservationStore(fs, sourceDir);
+
+    const error = await catchPersistenceError(store.recordObservation(observationInput()));
+
+    expect(error.cause).toBe(cause);
+    expect(error.stage).toBe('claim_directory');
+    expect(error.targetPath).toBe(observationDir);
+    expect(sync.mock.calls.map(([targetPath]) => targetPath)).toEqual([observationDir]);
+    expect(write).not.toHaveBeenCalled();
+    expect(existsSync(error.recordPath)).toBe(false);
+    expect(existsSync(`${observationDir}/${error.pendingRecord.attemptId}.json`)).toBe(false);
+    await expect(store.recordDecision(decisionInput())).rejects.toBe(error);
+    expect(write).not.toHaveBeenCalled();
   });
 
   it('preserves the pending decision, both errors, and poisons the store after a record throw', async () => {
