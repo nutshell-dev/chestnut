@@ -7,6 +7,7 @@
  * 3. audit 构造失败时 fallback null + 不抛
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'fs';
 
 // ============================================================================
 // Hoisted mock state
@@ -116,7 +117,13 @@ vi.mock('fs', async (importOriginal) => {
   return {
     ...actual,
     readdirSync: vi.fn().mockReturnValue([]),
+    statSync: vi.fn().mockReturnValue({ isDirectory: () => true }),
     writeFileSync: vi.fn(),
+    openSync: vi.fn().mockReturnValue(1),
+    fsyncSync: vi.fn(),
+    closeSync: vi.fn(),
+    renameSync: vi.fn(),
+    unlinkSync: vi.fn(),
     existsSync: vi.fn().mockReturnValue(true),
   };
 });
@@ -126,6 +133,8 @@ vi.mock('fs', async (importOriginal) => {
 // ============================================================================
 import { stopAllCommand } from '../../src/cli/commands/stop.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { CliError } from '../../src/cli/errors.js';
+import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const stopDeps = { fsFactory, rootConfig: { loadGlobal: vi.fn() } };
@@ -168,11 +177,11 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       },
     });
 
-    await stopAllCommand(stopDeps, {
+    await expect(stopAllCommand(stopDeps, {
       kill: mockKill,
       isPidArgvMatching: mockIsPidArgvMatching,
       isAlive: () => true,
-    });
+    })).rejects.toBeInstanceOf(CliError);
 
     const sigtermEvents = mockAuditState.events.filter(e => e[0] === 'orphan_sigterm_failed');
     expect(sigtermEvents).toHaveLength(2);
@@ -201,7 +210,9 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
     mockCreateDirContext.mockReturnValue({ fs: {}, audit: { write: mockAuditState.write } });
 
-    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
+    await expect(
+      stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching }),
+    ).rejects.toBeInstanceOf(CliError);
 
     const listFailedEvents = mockAuditState.events.filter(e => e[0] === 'process_list_failed');
     expect(listFailedEvents).toHaveLength(1);
@@ -226,6 +237,66 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
 
     // audit 为 null，所以没有任何 audit 事件
     expect(mockAuditState.events).toHaveLength(0);
+  });
+
+  it('global marker failure is audited and prevents a clean Done terminal', async () => {
+    mockFindProcesses.mockReturnValue([]);
+    vi.mocked(fs.writeFileSync).mockImplementationOnce(() => {
+      throw new Error('marker read-only');
+    });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await expect(stopAllCommand(stopDeps)).rejects.toThrow('clean-stop markers: global failed');
+      expect(mockAuditState.events).toContainEqual(expect.arrayContaining([
+        'cli_daemon_stop',
+        'scope=all',
+        'status=clean_stop_marker_failed',
+        expect.stringContaining('operation_id='),
+        expect.stringContaining('marker read-only'),
+      ]));
+      expect(log).not.toHaveBeenCalledWith('Done.');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('per-claw marker failure reaches the aggregate terminal after cleanup', async () => {
+    mockFindProcesses.mockReturnValue([]);
+    vi.mocked(fs.readdirSync).mockReturnValueOnce([
+      { name: 'alpha', isDirectory: () => true },
+    ] as any);
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' }),
+      findProcessesSyncForCli: mockFindProcesses,
+    } as any);
+    vi.mocked(fs.writeFileSync)
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => { throw new Error('claw marker EIO'); });
+
+    await expect(stopAllCommand(stopDeps)).rejects.toThrow('clean-stop markers: alpha failed');
+    expect(mockAuditState.events).toContainEqual(expect.arrayContaining([
+      'cli_claw_stop',
+      'name=alpha',
+      'status=clean_stop_marker_failed',
+      expect.stringContaining('claw marker EIO'),
+    ]));
+  });
+
+  it('Done is emitted only after orphan discovery and cleanup finish', async () => {
+    const order: string[] = [];
+    mockFindProcesses.mockImplementation(() => {
+      order.push('discovery');
+      return [];
+    });
+    const log = vi.spyOn(console, 'log').mockImplementation((message?: unknown) => {
+      if (message === 'Done.') order.push('done');
+    });
+    try {
+      await stopAllCommand(stopDeps);
+      expect(order).toEqual(['discovery', 'done']);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('orphan SIGTERM 无效后升级 SIGKILL 并验证死亡', async () => {
@@ -272,7 +343,9 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       },
     });
 
-    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
+    await expect(
+      stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive }),
+    ).rejects.toBeInstanceOf(CliError);
 
     const partialEvents = mockAuditState.events.filter(e => e[0] === 'orphan_cleanup_partial');
     expect(partialEvents).toHaveLength(1);

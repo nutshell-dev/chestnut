@@ -27,6 +27,10 @@ import { resolveDaemonEntry } from '../../daemon/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
+import {
+  commitCleanStopMarker,
+  type CleanStopMarkerOutcome,
+} from './clean-stop-marker.js';
 
 interface StopCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -115,7 +119,39 @@ export async function stopAllCommand(
   // preserves unknown/malformed evidence instead of skipping a live process.
   const running = clawNames;
   let stopFailed: string[] = [];
+  const markerOutcomes: CleanStopMarkerOutcome[] = [];
   const markerFailures: string[] = [];
+  const cleanupFailures: string[] = [];
+  const stopErrors: unknown[] = [];
+  const recordMarkerOutcome = (
+    outcome: CleanStopMarkerOutcome,
+    label: string,
+    event: string,
+    columns: string[],
+  ): void => {
+    markerOutcomes.push(outcome);
+    if (outcome.kind === 'committed') return;
+    const markerError = outcome.kind === 'not_attempted'
+      ? { name: 'Error', message: 'marker write was not attempted' }
+      : outcome.error;
+    markerFailures.push(
+      `${label} ${outcome.kind}: ${markerError.name}: ${markerError.message}`,
+    );
+    stopErrors.push(markerError);
+    try {
+      audit?.write(
+        event,
+        ...columns,
+        `status=clean_stop_marker_${outcome.kind}`,
+        `path=${outcome.path}`,
+        `operation_id=${outcome.operationId}`,
+        `error=${markerError.name}: ${markerError.message}`,
+      );
+    } catch (err) {
+      markerFailures.push(`${label} marker audit failed: ${formatErr(err)}`);
+      stopErrors.push(err);
+    }
+  };
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
     const results = await Promise.allSettled(running.map(async name => {
@@ -128,6 +164,9 @@ export async function stopAllCommand(
     stopFailed = results
       .map((r, i) => (r.status === 'rejected' ? running[i] : null))
       .filter((n): n is string => n !== null);
+    for (const result of results) {
+      if (result.status === 'rejected') stopErrors.push(result.reason);
+    }
     if (stopFailed.length > 0) {
       console.warn(`Failed to stop ${stopFailed.length} claw(s): ${stopFailed.join(', ')}`);
     } else {
@@ -137,16 +176,14 @@ export async function stopAllCommand(
 
   // Write marker so next boot can detect intentional stop
   const baseFs = deps.fsFactory(baseDir);
-  try {
+  const globalMarker = await commitCleanStopMarker({
+    scope: 'global',
+    path: path.join(baseDir, 'clean-stop'),
     // phase 521 (review-round4 CLI M): writeAtomicSync 已内置 tmp+rename atomicity；
-    // 原 r126 F fork 在外层再 wrap tmpFile + moveSync (= double-tmp) → crash 在
-    // writeAtomic 完成后 moveSync 前会留 clean-stop.<pid>.<ts>.tmp 孤儿、累积 in .chestnut/。
-    // 改后直接 writeAtomicSync 到 'clean-stop'、原子 + 无中间 .tmp 残留。
-    baseFs.writeAtomicSync('clean-stop', String(Date.now()));
-  } catch (err) {
-    markerFailures.push(`global: ${formatErr(err)}`);
-    audit?.write(CLI_AUDIT_EVENTS.DAEMON_STOP, `scope=all`, `status=clean_stop_marker_failed`, `error=${formatErr(err)}`);
-  }
+    // 不在外层再 wrap tmpFile + moveSync，避免 double-tmp 孤儿。
+    write: () => baseFs.writeAtomicSync('clean-stop', String(Date.now())),
+  });
+  recordMarkerOutcome(globalMarker, 'global', CLI_AUDIT_EVENTS.DAEMON_STOP, ['scope=all']);
 
   // phase 2 γ4: 同时为每只被 stop 的 claw 写 per-claw marker so watchdog can classify
   // CrashClass.active_user_stopped vs active_unexpected per claw (not just global).
@@ -155,15 +192,14 @@ export async function stopAllCommand(
   // active_unexpected 翻成 active_user_stopped → 抑制 restart prompt → crash 静默。
   const stopSucceededSet = new Set(running.filter(name => !stopFailed.includes(name)));
   for (const name of stopSucceededSet) {
-    try {
-      // phase 521 (review-round4 CLI M): 同 baseDir marker 路径、writeAtomicSync 已内置
-      // tmp+rename、外层 wrap 去除、防 .tmp 孤儿累积 in .chestnut/claws/<name>/。
-      const clawFs = deps.fsFactory(path.join(baseDir, getRelativeClawDir(name)));
-      clawFs.writeAtomicSync('clean-stop', String(Date.now()));
-    } catch (err) {
-      markerFailures.push(`${name}: ${formatErr(err)}`);
-      audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=clean_stop_marker_failed`, `error=${formatErr(err)}`);
-    }
+    const clawDir = path.join(baseDir, getRelativeClawDir(name));
+    const clawFs = deps.fsFactory(clawDir);
+    const outcome = await commitCleanStopMarker({
+      scope: 'claw',
+      path: path.join(clawDir, 'clean-stop'),
+      write: () => clawFs.writeAtomicSync('clean-stop', String(Date.now())),
+    });
+    recordMarkerOutcome(outcome, name, CLI_AUDIT_EVENTS.CLAW_STOP, [`name=${name}`]);
   }
 
   audit?.write(CLI_AUDIT_EVENTS.DAEMON_STOP, `scope=all`);
@@ -177,7 +213,9 @@ export async function stopAllCommand(
       pids = pm.findProcessesSyncForCli(daemonEntryPath);
     } catch (err) {
       if (err instanceof ProcessListUnavailable) {
-        // audit 已由 findProcessesSyncForCli 写；降级：跳过孤儿清理
+        // 无法取得进程表是 discovery unknown，不等于“没有孤儿”。
+        cleanupFailures.push(`daemon discovery unknown: ${formatErr(err)}`);
+        stopErrors.push(err);
       } else {
         throw err;
       }
@@ -201,6 +239,9 @@ export async function stopAllCommand(
           } : {}),
         });
         if (outcome.kind === 'gone') continue;
+        const outcomeStage = outcome.kind === 'still_alive' ? 'confirm' : outcome.stage;
+        cleanupFailures.push(`daemon orphan ${p}: ${outcome.kind}/${outcomeStage}`);
+        stopErrors.push(outcome);
         if (outcome.kind === 'indeterminate' && outcome.stage === 'sigterm') {
           audit?.write(
             PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
@@ -223,6 +264,8 @@ export async function stopAllCommand(
       }
     }
   } catch (err) {
+    cleanupFailures.push(`daemon cleanup unknown: ${formatErr(err)}`);
+    stopErrors.push(err);
     audit?.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_LIST_FAILED,
       `context=stop_all_cleanup_pipeline`,
@@ -233,15 +276,24 @@ export async function stopAllCommand(
   // phase 355 C2: cleanup 完后才 throw、保 cleanup 不被 partial-failure 跳过。
   // 无 action scope 直调时本处为唯一终态点（正常 return / CliError throw 同在此后）
   if (!watchdogAuditScoped) watchdogActionAudit.dispose();
-  if (stopFailed.length > 0 || orphanSweep.failures.length > 0 || markerFailures.length > 0) {
+  if (
+    stopFailed.length > 0
+    || orphanSweep.failures.length > 0
+    || markerFailures.length > 0
+    || cleanupFailures.length > 0
+  ) {
     const details = [
       ...(stopFailed.length > 0 ? [`claws: ${stopFailed.join(', ')}`] : []),
       ...(orphanSweep.failures.length > 0
         ? [`orphan watchdogs: ${orphanSweep.failures.map(f => f.pid ?? 'discovery').join(', ')}`]
         : []),
       ...(markerFailures.length > 0 ? [`clean-stop markers: ${markerFailures.join(', ')}`] : []),
+      ...(cleanupFailures.length > 0 ? [`cleanup: ${cleanupFailures.join(', ')}`] : []),
     ];
-    throw new CliError(`Failed to stop ${details.join('; ')}`, 1);
+    throw new CliError(`Failed to stop ${details.join('; ')}`, {
+      code: 1,
+      cause: new AggregateError(stopErrors),
+    });
   }
   console.log('Done.');
 }

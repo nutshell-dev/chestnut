@@ -121,6 +121,11 @@ vi.mock('fs', async (importOriginal) => {
     ...actual,
     readdirSync: vi.fn().mockReturnValue([]),
     writeFileSync: vi.fn(),
+    openSync: vi.fn().mockReturnValue(1),
+    fsyncSync: vi.fn(),
+    closeSync: vi.fn(),
+    renameSync: vi.fn(),
+    unlinkSync: vi.fn(),
     existsSync: vi.fn().mockReturnValue(true),
   };
 });

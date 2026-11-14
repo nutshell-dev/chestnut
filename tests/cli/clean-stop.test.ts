@@ -89,17 +89,12 @@ describe('Phase 86: clean stop 生命周期修复', () => {
     });
 
     it('应使用 atomic write 写入标记', () => {
-      // 找到 clean-stop 相关代码块
-      const cleanStopSection = stopSource.slice(
-        stopSource.indexOf('clean-stop') - 100,
-        stopSource.indexOf('clean-stop') + 200
-      );
-      expect(cleanStopSection).toContain('writeAtomicSync');
+      expect(stopSource).toContain("write: () => baseFs.writeAtomicSync('clean-stop'");
     });
 
     it('应在 claws 停止后、Done 输出前写入标记', () => {
       const allClawsStoppedIdx = stopSource.indexOf('All claws stopped');
-      const cleanStopIdx = stopSource.indexOf('clean-stop');
+      const cleanStopIdx = stopSource.indexOf("write: () => baseFs.writeAtomicSync('clean-stop'");
       const doneIdx = stopSource.indexOf("console.log('Done.')");
 
       expect(allClawsStoppedIdx).toBeGreaterThan(-1);
