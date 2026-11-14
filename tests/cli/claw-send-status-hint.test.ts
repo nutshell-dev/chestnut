@@ -43,7 +43,7 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
   return {
     ...actual,
     createProcessManagerForCLI: vi.fn(() => ({
-      isAlive: vi.fn(),
+      liveness: vi.fn(() => ({ kind: 'absent', reason: 'missing_active' })),
     })),
   };
 });
@@ -93,7 +93,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => false,
+      liveness: () => ({ kind: 'absent', reason: 'missing_active' }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
@@ -116,7 +116,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      liveness: () => ({ kind: 'alive', pid: 123 }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
@@ -129,7 +129,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      liveness: () => ({ kind: 'alive', pid: 123 }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'wrapper-msg');
@@ -145,17 +145,17 @@ describe('cli claw send status hint (phase 232)', () => {
 
   it('uses same formatClawStatusHint helper as notify_claw tool (M#1)', async () => {
 
-    expect(formatClawStatusHint('my-claw', false)).toBe(
+    expect(formatClawStatusHint('my-claw', { kind: 'absent', reason: 'missing_active' })).toBe(
       'Note: claw "my-claw" is not running. Start it with: chestnut claw my-claw daemon',
     );
-    expect(formatClawStatusHint('my-claw', true)).toBeUndefined();
+    expect(formatClawStatusHint('my-claw', { kind: 'alive', pid: 123 })).toBeUndefined();
   });
 
   it('stderr 含 contract hint when no active contract (phase 241)', async () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      liveness: () => ({ kind: 'alive', pid: 123 }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
@@ -173,7 +173,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      liveness: () => ({ kind: 'alive', pid: 123 }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');

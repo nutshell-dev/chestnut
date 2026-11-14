@@ -1,8 +1,8 @@
 /**
  * Phase 1382: ProcessManager exposes one directory-liveness query.
  *
- * `liveness()` is the canonical typed query; `isAlive()` is its single-line
- * boolean projection. The owner must not grow a second wrapper or context seam.
+ * `liveness()` is the canonical typed query. Legacy boolean projections are
+ * forbidden; callers must preserve unknown/malformed evidence.
  * L1 process-exec PID liveness and UI state named `isAlive` are out of scope.
  */
 import * as fs from 'node:fs';
@@ -36,17 +36,15 @@ describe('ProcessManager public liveness surface (phase 1382, ratchet phase 1773
     expect(alive).toMatch(/export function liveness\s*\(/);
     expect(types).toMatch(/export type LivenessResult\s*=/);
 
-    // boolean convenience 只允许单行 fail-closed 投影，不得二次 probe
-    expect(manager).toMatch(
-      /isAlive\(daemonDir:\s*DaemonDir\):\s*boolean \{ return this\.liveness\(daemonDir\)\.kind === 'alive'; \}/,
-    );
+    // B2: 不再提供把 unknown/malformed 压成 false 的公共 boolean 出口。
+    expect(manager).not.toMatch(/\bisAlive\s*\(/);
 
     // isAlive 已由上方正断言限定为单行投影；此处只禁旧 wrapper 形态
     expect(alive).not.toMatch(/export function isAliveByPidFile\s*\(/);
     expect(types).not.toMatch(/^\s*isAlive\?:\s*\(daemonDir:\s*DaemonDir\)/m);
   });
 
-  // phase 1773: boolean convenience 是 sanctioned 单行投影；本 ratchet 改为「barrel 唯一门」——
+  // 生产 caller 只能经 barrel 消费 typed liveness——
   // 生产 caller 不得 deep import owner 模块（process-manager/alive.js 等）绕开 barrel 表面
   it('production callers reach liveness only through the process-manager barrel', () => {
     const violations = walkTs(SRC_ROOT)

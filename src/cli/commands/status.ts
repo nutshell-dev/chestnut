@@ -17,11 +17,11 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { resolveDaemonEntry } from '../../daemon/index.js';
 import {
   getWatchdogPid,
-  isWatchdogAlive,
+  inspectWatchdogLivenessForCli,
   getWatchdogEntryPath,
 } from '../../watchdog/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { getProcessStartTime } from '../../foundation/process-exec/index.js';
+import { observeProcessTarget } from '../../foundation/process-exec/index.js';
 import {
   computeForumStatusView,
   formatForumStatusView,
@@ -46,7 +46,7 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
   const watchdogPid = getWatchdogPid(deps.fsFactory);
   const watchdog = {
     pid: typeof watchdogPid === 'number' ? watchdogPid : undefined,
-    alive: isWatchdogAlive(deps.fsFactory),
+    alive: inspectWatchdogLivenessForCli(deps.fsFactory) === 'alive',
     entryPath: getWatchdogEntryPath(),
   };
 
@@ -64,7 +64,10 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
     motionDir,
     pm,
     now: () => Date.now(),
-    getStartTime: (pid: number) => getProcessStartTime(pid),
+    getStartTime: (pid: number) => {
+      const observation = observeProcessTarget({ pid });
+      return observation.kind === 'alive' ? observation.startTime : undefined;
+    },
     watchdog,
     daemonEntryPath,
     audit,

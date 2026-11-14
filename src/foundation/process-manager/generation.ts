@@ -32,14 +32,17 @@ import * as path from 'path';
 import { formatErr, newUuid } from '../node-utils/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import {
-  captureProcessTarget,
+  captureOwnedProcessRef,
   type ProcessEvidence,
+  type ProcessRef,
   type ProcessStartTime,
   type ProcessTerminationOutcome,
 } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
+import { inspectProcessRefValue, observeProcessFact } from './process-facts.js';
 import { STATUS_SUBDIR } from './paths.js';
-import type { DaemonDir, ProcessManagerContext } from './types.js';
+import type { DaemonDir, ProcessManagerContext, ProcessPidRecord } from './types.js';
+export type { ProcessPidRecord } from './types.js';
 
 const PROCESS_GENERATION_SCHEMA_VERSION = 1;
 
@@ -79,14 +82,6 @@ export interface ProcessGenerationRecord {
   created_at: string;
 }
 
-interface ProcessPidRecord {
-  schema_version: number;
-  generation_id: string;
-  pid: number;
-  start_time?: string;
-  created_at: string;
-}
-
 /** ready 事实与 pid 同形：child 在 spawning 内写好后随目录整体 move 进 active（单 SoT）。 */
 type ProcessReadyRecord = ProcessPidRecord;
 
@@ -121,6 +116,7 @@ function isPidRecord(parsed: unknown): parsed is ProcessPidRecord {
     p.schema_version === PROCESS_GENERATION_SCHEMA_VERSION &&
     typeof p.generation_id === 'string' && p.generation_id.length > 0 &&
     isValidPid(p.pid) &&
+    (p.process_ref === undefined || typeof p.process_ref === 'string') &&
     (p.start_time === undefined || typeof p.start_time === 'string') &&
     typeof p.created_at === 'string'
   );
@@ -175,7 +171,7 @@ export type UpdateActiveBusinessFact =
 interface GenerationIdentity {
   generationId: string;
   pid: number;
-  startTime?: ProcessStartTime;
+  processRef?: ProcessRef;
 }
 
 export type ActivateGeneration =
@@ -183,6 +179,7 @@ export type ActivateGeneration =
   | { kind: 'already_active'; record: ProcessGenerationRecord }
   | { kind: 'no_spawning' }
   | { kind: 'identity_mismatch'; record: ProcessGenerationRecord }
+  | { kind: 'identity_unavailable'; record: ProcessGenerationRecord; evidence: ProcessEvidence }
   | { kind: 'collision'; winner: ProcessGenerationRecord }
   | { kind: 'malformed'; cause: unknown }
   | { kind: 'retryable_failure'; cause: unknown };
@@ -236,7 +233,7 @@ export function newProcessGeneration(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ): ProcessGenerationRecord {
-  const parent = captureProcessTarget(process.pid, ctx.getProcessStartTime);
+  const parent = (ctx.captureProcessRef ?? captureOwnedProcessRef)(process.pid);
   return {
     schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
     generation_id: newUuid(),
@@ -488,6 +485,7 @@ export async function writeChildPid(
   record: ProcessGenerationRecord,
   childPid: number,
   childStartTime?: ProcessStartTime,
+  childProcessRef?: ProcessRef,
 ): Promise<WriteGenerationFact> {
   const daemonDir = record.daemon_dir as DaemonDir;
   const inspection = inspectSpawning(ctx, daemonDir);
@@ -499,6 +497,7 @@ export async function writeChildPid(
     schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
     generation_id: record.generation_id,
     pid: childPid,
+    ...(childProcessRef !== undefined ? { process_ref: childProcessRef } : {}),
     ...(childStartTime !== undefined ? { start_time: childStartTime } : {}),
     created_at: new Date().toISOString(),
   };
@@ -532,6 +531,7 @@ export async function writeReadyFact(
   record: ProcessGenerationRecord,
   pid: number,
   startTime?: ProcessStartTime,
+  processRef?: ProcessRef,
 ): Promise<WriteGenerationFact> {
   const daemonDir = record.daemon_dir as DaemonDir;
   const inspection = inspectSpawning(ctx, daemonDir);
@@ -543,6 +543,7 @@ export async function writeReadyFact(
     schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
     generation_id: record.generation_id,
     pid,
+    ...(processRef !== undefined ? { process_ref: processRef } : {}),
     ...(startTime !== undefined ? { start_time: startTime } : {}),
     created_at: new Date().toISOString(),
   };
@@ -753,19 +754,25 @@ export function activateGeneration(
   if (record.generation_id !== expected.generationId) {
     return { kind: 'identity_mismatch', record };
   }
-  // PID/startTime 交叉校验：pid.json 必须是 parent 为本 generation 写的同一 child
+  // Opaque identities are decoded and inspected only in L1. Legacy live v0 facts
+  // remain unknown and therefore cannot activate or authorize later lifecycle work.
+  if (expected.processRef !== undefined) {
+    const currentIdentity = inspectProcessRefValue(ctx, expected.processRef);
+    if (currentIdentity.kind === 'unknown') {
+      return { kind: 'identity_unavailable', record, evidence: currentIdentity.evidence };
+    }
+    if (currentIdentity.kind !== 'alive') return { kind: 'identity_mismatch', record };
+  }
   const pidInspection = inspectSpawningPid(ctx, daemonDir);
   if (pidInspection.status === 'malformed') return { kind: 'malformed', cause: pidInspection.cause };
   if (pidInspection.status === 'none' || pidInspection.record.pid !== expected.pid) {
     return { kind: 'identity_mismatch', record };
   }
-  if (
-    expected.startTime !== undefined &&
-    pidInspection.record.start_time !== undefined &&
-    pidInspection.record.start_time !== expected.startTime
-  ) {
-    return { kind: 'identity_mismatch', record };
+  const persistedIdentity = observeProcessFact(ctx, pidInspection.record);
+  if (persistedIdentity.kind === 'unknown') {
+    return { kind: 'identity_unavailable', record, evidence: persistedIdentity.evidence };
   }
+  if (persistedIdentity.kind !== 'alive') return { kind: 'identity_mismatch', record };
   try {
     ctx.fs.moveDirSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
   } catch (moveErr) {
@@ -1029,6 +1036,7 @@ interface StopResultBase {
   request_id: string;
   target_generation_id: string;
   pid: number;
+  process_ref?: string;
   start_time?: string;
   created_at: string;
 }
@@ -1100,6 +1108,7 @@ export function writeStopTerminationResult(
   pid: number,
   startTime: ProcessStartTime | undefined,
   outcome: ProcessTerminationOutcome,
+  processRef?: ProcessRef,
 ): WriteStopResult {
   return writeStopResult(ctx, daemonDir, requestId, STOP_TERMINATION_FILE, {
     schema_version: STOP_RESULT_SCHEMA_VERSION,
@@ -1107,6 +1116,7 @@ export function writeStopTerminationResult(
     request_id: requestId,
     target_generation_id: targetGenerationId,
     pid,
+    ...(processRef !== undefined ? { process_ref: processRef } : {}),
     ...(startTime !== undefined ? { start_time: startTime } : {}),
     outcome: stopTerminationOutcomeRecord(outcome),
     evidence: outcome.evidence,
@@ -1123,6 +1133,7 @@ export function writeStopGoneConfirmation(
   pid: number,
   startTime: ProcessStartTime | undefined,
   evidence: ProcessEvidence,
+  processRef?: ProcessRef,
 ): WriteStopResult {
   return writeStopResult(ctx, daemonDir, requestId, STOP_CONFIRMATION_FILE, {
     schema_version: STOP_RESULT_SCHEMA_VERSION,
@@ -1130,6 +1141,7 @@ export function writeStopGoneConfirmation(
     request_id: requestId,
     target_generation_id: targetGenerationId,
     pid,
+    ...(processRef !== undefined ? { process_ref: processRef } : {}),
     ...(startTime !== undefined ? { start_time: startTime } : {}),
     outcome: 'gone',
     evidence,

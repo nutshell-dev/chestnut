@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 
 import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
-import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
+import { getWatchdogPid, inspectWatchdogLivenessForCli } from '../../src/watchdog/watchdog-pid.js';
 import { setAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
@@ -124,15 +124,13 @@ describe('watchdog-pid corrupt path', () => {
     expect(backupFile).toBeDefined();
   });
 
-  it('root non-string: emits PID_CORRUPT audit + backup exists + returns false from isWatchdogAlive', () => {
+  it('root non-string: emits PID_CORRUPT audit + backup exists + fails closed', () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     // Note: root: 99999 is intentional type-corruption fixture (root field should be string path;
     //       testing corruption recovery). pid: FAKE_LIVE_PID is normal use.
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID, root: 99999 }));
 
-    const result = isWatchdogAlive(fsFactory);
-
-    expect(result).toBe(false);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(/malformed/);
     expect(auditSpy).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.PID_CORRUPT,
       expect.stringContaining('backup='),

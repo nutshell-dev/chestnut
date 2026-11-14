@@ -1,4 +1,4 @@
-import { delimiter } from 'node:path';
+import { delimiter, dirname } from 'node:path';
 
 import { scrubEnv } from './env-scrub.js';
 import { encodeProcessEvidence, type ProcessEvidence } from './process-evidence.js';
@@ -15,6 +15,23 @@ function findPathKey(
   return Object.keys(env).find(key => key.toLowerCase() === 'path');
 }
 
+/** Collapse Windows' case-insensitive Path entries without executing caller hooks twice. */
+function mergeWindowsPathVariants(
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+  canonicalize = false,
+): Readonly<Record<string, string | undefined>> {
+  if (platform !== 'win32') return env;
+  const entries = Object.entries(env);
+  const pathEntry = entries.find(([key]) => key.toLowerCase() === 'path');
+  if (pathEntry === undefined) return env;
+  const merged = Object.fromEntries(
+    entries.filter(([key]) => key.toLowerCase() !== 'path'),
+  ) as Record<string, string | undefined>;
+  merged[canonicalize ? 'Path' : pathEntry[0]] = pathEntry[1];
+  return merged;
+}
+
 /**
  * Add the current Node bin directory without changing the caller's env contract.
  * Windows env keys are case-insensitive, so an authorized/host `Path` entry is
@@ -28,16 +45,19 @@ export function augmentNodePath(
   hostEnv: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): Record<string, string | undefined> {
-  const basePathKey = findPathKey(baseEnv, platform);
-  const hostPathKey = findPathKey(hostEnv, platform);
+  const base = mergeWindowsPathVariants(baseEnv, platform);
+  const host = mergeWindowsPathVariants(hostEnv, platform);
+  const basePathKey = findPathKey(base, platform);
+  const hostPathKey = findPathKey(host, platform);
   const pathKey = basePathKey ?? hostPathKey ?? 'PATH';
-  const pathEnv = (basePathKey === undefined ? undefined : baseEnv[basePathKey])
-    ?? (hostPathKey === undefined ? undefined : hostEnv[hostPathKey])
-    ?? '';
+  // An explicitly supplied undefined PATH removes the host fallback as well.
+  const pathEnv = (basePathKey === undefined
+    ? (hostPathKey === undefined ? undefined : host[hostPathKey])
+    : base[basePathKey]) ?? '';
   const augmentedPath = pathEnv.includes(nodeBinDir)
     ? pathEnv
-    : `${nodeBinDir}${delimiter}${pathEnv}`;
-  return { ...baseEnv, [pathKey]: augmentedPath };
+    : pathEnv === '' ? nodeBinDir : `${nodeBinDir}${delimiter}${pathEnv}`;
+  return { ...base, [pathKey]: augmentedPath };
 }
 
 /**
@@ -45,20 +65,34 @@ export function augmentNodePath(
  * values. Host inheritance and platform variables stay in ProcessExec; callers
  * only declare their own explicit environment contract.
  *
- * The optional host argument is a test seam. Production callers must leave it
- * unspecified so the current host environment is captured at construction time.
+ * Optional host/platform arguments are test seams. Production callers leave
+ * them unspecified so host facts are captured at construction time.
  */
 export function createSpawnEnvironment(
   authorizedEnv: Readonly<Record<string, string | undefined>> = {},
   hostEnv: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
 ): SpawnEnvironmentOutcome {
   try {
-    const env = scrubEnv(hostEnv);
-    for (const [key, value] of Object.entries(authorizedEnv)) {
+    // Canonicalize host Path before scrubbing so every Windows casing remains
+    // subject to the same allowlist rule and only one variant survives.
+    const env = scrubEnv(mergeWindowsPathVariants(hostEnv, platform, true));
+    const authorized = mergeWindowsPathVariants(authorizedEnv, platform);
+    for (const [key, value] of Object.entries(authorized)) {
+      if (platform === 'win32' && key.toLowerCase() === 'path') {
+        for (const existingKey of Object.keys(env)) {
+          if (existingKey.toLowerCase() === 'path') delete env[existingKey];
+        }
+      }
       if (value === undefined) delete env[key];
       else env[key] = value;
     }
-    return { kind: 'created', env };
+    // Host PATH has already been considered above. Passing an empty fallback
+    // prevents an explicit PATH deletion from re-importing process.env here.
+    return {
+      kind: 'created',
+      env: augmentNodePath(env, dirname(process.execPath), {}, platform),
+    };
   } catch (error) {
     return {
       kind: 'failed',

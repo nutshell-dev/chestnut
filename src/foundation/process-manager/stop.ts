@@ -1,4 +1,4 @@
-import type { ProcessEvidence, ProcessStartTime } from '../process-exec/index.js';
+import type { ProcessEvidence, ProcessRef, ProcessStartTime } from '../process-exec/index.js';
 import { observeProcessFact, terminateProcessFact } from './process-facts.js';
 import type { DaemonDir } from './types.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
@@ -24,6 +24,7 @@ interface TargetLocation {
   generationId: string;
   pid?: number;
   startTime?: ProcessStartTime;
+  processRef?: ProcessRef;
 }
 
 /**
@@ -127,7 +128,14 @@ function inspectActiveLocation(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ):
-  | { kind: 'active'; source: 'active'; generationId: string; pid?: number; startTime?: ProcessStartTime }
+  | {
+      kind: 'active';
+      source: 'active';
+      generationId: string;
+      pid?: number;
+      startTime?: ProcessStartTime;
+      processRef?: ProcessRef;
+    }
   | { kind: 'none' }
   | { kind: 'foreign'; expectedGenerationId: string; observedGenerationId: string }
   | { kind: 'malformed_active'; cause: unknown } {
@@ -144,6 +152,7 @@ function inspectActiveLocation(
       generationId: active.record.generation_id,
       pid: pidFact.record.pid,
       startTime: pidFact.record.start_time as ProcessStartTime | undefined,
+      processRef: pidFact.record.process_ref as ProcessRef | undefined,
     };
   }
   // active generation 存在但 pid fact 缺失/不匹配：按 foreign 处理，不猜状态
@@ -158,7 +167,14 @@ function inspectSpawningLocation(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ):
-  | { kind: 'spawning'; source: 'spawning'; generationId: string; pid?: number; startTime?: ProcessStartTime }
+  | {
+      kind: 'spawning';
+      source: 'spawning';
+      generationId: string;
+      pid?: number;
+      startTime?: ProcessStartTime;
+      processRef?: ProcessRef;
+    }
   | { kind: 'none' }
   | { kind: 'foreign'; expectedGenerationId: string; observedGenerationId: string }
   | { kind: 'malformed_spawning'; cause: unknown } {
@@ -182,6 +198,7 @@ function inspectSpawningLocation(
       generationId: spawning.record.generation_id,
       pid: pidFact.record.pid,
       startTime: pidFact.record.start_time as ProcessStartTime | undefined,
+      processRef: pidFact.record.process_ref as ProcessRef | undefined,
     };
   }
   return {
@@ -216,7 +233,11 @@ async function handleTarget(
         reason: `target generation ${target.generationId} retired directory does not match identity`,
       };
     }
-    const observation = observeProcessFact(ctx, target.pid, target.startTime);
+    const observation = observeProcessFact(ctx, {
+      pid: target.pid,
+      ...(target.startTime !== undefined ? { start_time: target.startTime } : {}),
+      ...(target.processRef !== undefined ? { process_ref: target.processRef } : {}),
+    });
     if (observation.kind !== 'gone') {
       return {
         kind: 'failed', stage: 'signal',
@@ -228,6 +249,7 @@ async function handleTarget(
     }
     const confirmation = recordGoneConfirmation(
       ctx, daemonDir, requestId, target.generationId, target.pid, target.startTime, observation.evidence,
+      target.processRef,
     );
     if (confirmation.kind === 'failed') return confirmation;
     ctx.audit.write(
@@ -259,7 +281,11 @@ async function handleTarget(
     };
   }
 
-  const observation = observeProcessFact(ctx, current.pid, current.startTime);
+  const observation = observeProcessFact(ctx, {
+    pid: current.pid,
+    ...(current.startTime !== undefined ? { start_time: current.startTime } : {}),
+    ...(current.processRef !== undefined ? { process_ref: current.processRef } : {}),
+  });
   if (observation.kind === 'unknown') {
     return {
       kind: 'failed', stage: 'signal', reason: 'process observation unavailable',
@@ -269,6 +295,7 @@ async function handleTarget(
   if (observation.kind === 'gone') {
     const confirmation = recordGoneConfirmation(
       ctx, daemonDir, requestId, target.generationId, current.pid, current.startTime, observation.evidence,
+      current.processRef,
     );
     if (confirmation.kind === 'failed') return confirmation;
     const disposition = retireStoppedGeneration(ctx, daemonDir, target.generationId, current.source);
@@ -293,7 +320,13 @@ function locateGeneration(
   daemonDir: DaemonDir,
   generationId: string,
 ):
-  | { kind: 'spawning' | 'active'; pid: number; startTime: ProcessStartTime | undefined; source: 'spawning' | 'active' }
+  | {
+      kind: 'spawning' | 'active';
+      pid: number;
+      startTime: ProcessStartTime | undefined;
+      processRef: ProcessRef | undefined;
+      source: 'spawning' | 'active';
+    }
   | { kind: 'retired' }
   | { kind: 'missing' }
   | { kind: 'foreign'; observedGenerationId: string } {
@@ -306,6 +339,7 @@ function locateGeneration(
         source: 'active',
         pid: pidFact.record.pid,
         startTime: pidFact.record.start_time as ProcessStartTime | undefined,
+        processRef: pidFact.record.process_ref as ProcessRef | undefined,
       };
     }
     return {
@@ -322,6 +356,7 @@ function locateGeneration(
         source: 'spawning',
         pid: pidFact.record.pid,
         startTime: pidFact.record.start_time as ProcessStartTime | undefined,
+        processRef: pidFact.record.process_ref as ProcessRef | undefined,
       };
     }
     return {
@@ -352,9 +387,10 @@ function recordGoneConfirmation(
   pid: number,
   startTime: ProcessStartTime | undefined,
   evidence: ProcessEvidence,
+  processRef?: ProcessRef,
 ): { kind: 'recorded' } | { kind: 'failed'; stage: 'confirmation_write'; reason: string; error: unknown } {
   const write = writeStopGoneConfirmation(
-    ctx, daemonDir, requestId, generationId, pid, startTime, evidence,
+    ctx, daemonDir, requestId, generationId, pid, startTime, evidence, processRef,
   );
   if (write.kind === 'written') return { kind: 'recorded' };
   return {
@@ -432,15 +468,25 @@ async function stopAndRetire(
   daemonDir: DaemonDir,
   requestId: string,
   generationId: string,
-  current: { kind: 'spawning' | 'active'; pid: number; startTime: ProcessStartTime | undefined; source: 'spawning' | 'active' },
+  current: {
+    kind: 'spawning' | 'active';
+    pid: number;
+    startTime: ProcessStartTime | undefined;
+    processRef: ProcessRef | undefined;
+    source: 'spawning' | 'active';
+  },
 ): Promise<StopProcessOutcome> {
-  const termination = await terminateProcessFact(ctx, current.pid, current.startTime, {
+  const termination = await terminateProcessFact(ctx, {
+    pid: current.pid,
+    ...(current.startTime !== undefined ? { start_time: current.startTime } : {}),
+    ...(current.processRef !== undefined ? { process_ref: current.processRef } : {}),
+  }, {
     graceMs: DAEMON_SHUTDOWN_GRACE_MS,
     confirmMs: SIGKILL_DEAD_VERIFY_GRACE_MS,
     pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
   });
   const terminationWrite = writeStopTerminationResult(
-    ctx, daemonDir, requestId, generationId, current.pid, current.startTime, termination,
+    ctx, daemonDir, requestId, generationId, current.pid, current.startTime, termination, current.processRef,
   );
   if (terminationWrite.kind !== 'written') {
     return {
@@ -474,6 +520,7 @@ async function stopAndRetire(
   }
   const confirmation = recordGoneConfirmation(
     ctx, daemonDir, requestId, generationId, current.pid, current.startTime, termination.evidence,
+    current.processRef,
   );
   if (confirmation.kind === 'failed') return confirmation;
 

@@ -163,7 +163,7 @@ describe('motion-callerType', () => {
         resolveTarget: makeClawNotifyTargetResolver(chestnutDir),
       });
       return {
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
         formatClawStatusHint,
         clawExists: () => true,
         hasActiveContract: () => false,

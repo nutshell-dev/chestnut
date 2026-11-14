@@ -30,6 +30,7 @@ import {
 } from '../../../src/foundation/process-manager/generation.js';
 import { activateChildGeneration } from '../../../src/foundation/process-manager/index.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 describe('phase 1873 Step B: activateChildGeneration（PM 协议 capability）', () => {
   let tempDir: string;
@@ -45,7 +46,7 @@ describe('phase 1873 Step B: activateChildGeneration（PM 协议 capability）',
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     daemonDir = testClawDaemonDir(tempDir, 'gen-a');
     ({ audit } = makeAudit());
-    ctx = { fs: nodeFs, audit, getProcessStartTime: () => undefined };
+    ctx = installLegacyProcessRefInspector({ fs: nodeFs, audit, getProcessStartTime: () => undefined });
   });
 
   afterEach(async () => {
@@ -75,7 +76,7 @@ describe('phase 1873 Step B: activateChildGeneration（PM 协议 capability）',
       startTime: undefined,
     });
 
-    expect(outcome.kind).toBe('activated');
+    expect(outcome).toMatchObject({ kind: 'activated' });
     expect(exists(path.join(getSpawningDir(daemonDir), READY_FILE))).toBe(false); // 目录已整体迁 active
     const active = inspectActive(ctx, daemonDir);
     expect(active.status).toBe('ok');
@@ -151,13 +152,21 @@ describe('phase 1873 Step B: activateChildGeneration（PM 协议 capability）',
     // 预置 pid 事实带 start_time='AAA'
     const child = await writeChildPid(ctx, record, CHILD_PID, 'AAA' as never);
     expect(child.kind).toBe('written');
-    const outcome = await activateChildGeneration(ctx, daemonDir, {
+    const mismatchCtx = {
+      ...ctx,
+      inspectProcessRef: () => ({
+        kind: 'gone' as const,
+        reason: 'identity_changed' as const,
+        evidence: { version: 1 as const, atMs: 0, facts: [] },
+      }),
+    };
+    const outcome = await activateChildGeneration(mismatchCtx, daemonDir, {
       generationId: 'gen-st',
       pid: CHILD_PID,
       startTime: 'BBB' as never,
     });
     expect(outcome.kind === 'failed' && outcome.stage).toBe('start_time_mismatch');
-    expect(outcome.kind === 'failed' && outcome.reason).toBe('spawning startTime mismatch');
+    expect(outcome.kind === 'failed' && outcome.reason).toBe('spawning process identity mismatch');
   });
 
   it('stop intent：retire spawning + failed/stop_intent（不在 ready/activate 之后写事实）', async () => {

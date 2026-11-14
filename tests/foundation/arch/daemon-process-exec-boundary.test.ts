@@ -24,7 +24,7 @@ describe('Daemon / ProcessExec host capability boundary', () => {
   it('keeps host environment selection out of the Daemon spawn specification', () => {
     const spawnOptions = readFileSync(`${DAEMON_ROOT}/spawn-options.ts`, 'utf8');
     expect(spawnOptions).not.toMatch(/\.\.\.process\.env/);
-    expect(spawnOptions).toContain('createSpawnEnvironment');
+    expect(spawnOptions).not.toContain('createSpawnEnvironment');
     expect(spawnOptions).not.toMatch(/process\.platform|node:child_process|from ['"]child_process['"]/);
   });
 });

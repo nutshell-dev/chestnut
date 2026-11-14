@@ -22,12 +22,6 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
   const processManager = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
   const daemonDir = resolveClawDaemonDir(target.clawId);
 
-  // Check if running
-  if (!processManager.isAlive(daemonDir)) {
-    console.log(`Claw "${name}" is not running`);
-    return;
-  }
-
   console.log(`Stopping Claw "${name}"...`);
 
   // phase 287 Step B: use signalCleanStop SoT (M#1 共用基础设施单源)
@@ -50,7 +44,7 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
     return;
   }
   if (outcome.kind === 'not_running') {
-    // 竞态终局（alive 检查后 generation 消失）：非失败，不 throw
+    // 无目标 generation 的幂等终局：非失败，不 throw
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=not_running`);
     console.log(`Claw "${name}" is not running`);
     return;

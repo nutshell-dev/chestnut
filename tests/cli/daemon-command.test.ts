@@ -144,7 +144,7 @@ vi.mock('../../src/core/llm-configuration/index.js', async () => ({
 
 vi.mock('../../src/foundation/process-exec/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/foundation/process-exec/index.js')>()),
-  captureCurrentProcessIdentity: mockState.mockCaptureCurrentProcessIdentity,
+  captureCurrentProcessRef: mockState.mockCaptureCurrentProcessIdentity,
 }));
 
 // node 内置 mock

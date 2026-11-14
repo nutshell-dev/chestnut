@@ -22,7 +22,6 @@
 import * as path from 'path';
 import type { ClawId, ChestnutRoot } from '../foundation/claw-identity/index.js';
 import type { SpawnOptions } from '../foundation/process-manager/index.js';
-import { createSpawnEnvironment } from '../foundation/process-exec/index.js';
 import { DAEMON_LOG } from './constants.js';
 import { EXPECTED_LLM_IDENTITY_ENV } from './constants.js';
 import { resolveDaemonEntry } from './entry-resolver.js';
@@ -49,20 +48,16 @@ export function createDaemonSpawnOptions(input: DaemonSpawnOptionsInput): SpawnO
   // Phase 1930 Step B：实例根 → legacy 父目录 env/cwd 的推导收敛在本 owner；
   // ChestnutRoot 恒为绝对规范路径，child 继承到的父目录恒为绝对值。
   const legacyParent = path.dirname(input.chestnutRoot);
-  const environment = createSpawnEnvironment({
-    CHESTNUT_ROOT: legacyParent,
-    ...(input.expectedLLMIdentity !== undefined
-      ? { [EXPECTED_LLM_IDENTITY_ENV]: input.expectedLLMIdentity }
-      : {}),
-  });
-  if (environment.kind === 'failed') {
-    throw new Error('Daemon spawn environment construction failed', { cause: environment.error });
-  }
   return {
     command: 'node',
     args: [resolveDaemonEntry(), input.clawId],
     logFile: path.join(input.agentDir, DAEMON_LOG),
-    env: environment.env,
+    env: {
+      CHESTNUT_ROOT: legacyParent,
+      ...(input.expectedLLMIdentity !== undefined
+        ? { [EXPECTED_LLM_IDENTITY_ENV]: input.expectedLLMIdentity }
+        : {}),
+    },
     cwd: legacyParent,
   };
 }

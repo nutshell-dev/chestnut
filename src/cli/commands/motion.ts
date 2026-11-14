@@ -222,14 +222,12 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
       const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
       // Phase 1936 Step B: ensureDaemon 改由 viewport 在 TUI 可见后后台运行，
       // 启动中/失败文案归 viewport 系统消息——本回调不再 console.log（会破坏 TUI 帧）。
-      if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-        // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
-        await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
-          clawId: MOTION_CLAW_ID,
-          agentDir: motionDir,
-          chestnutRoot: getChestnutRoot(),
-        }));
-      }
+      // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner；precheck/conflict/join 归 PM。
+      await pm.ensureRunning(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+        clawId: MOTION_CLAW_ID,
+        agentDir: motionDir,
+        chestnutRoot: getChestnutRoot(),
+      }));
     },
     showRecapStream: globalConfig.viewport.show_recap_stream,
     showSystemMessages: globalConfig.viewport.show_system_messages,
@@ -276,12 +274,6 @@ export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?:
   deps.rootConfig.loadGlobal();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
-  if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-    audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
-    console.log('Motion is not running');
-    return;
-  }
-
   console.log('Stopping Motion daemon...');
   // phase 1769: typed outcome——按 discriminant 处理，不再由 boolean 反推终局
   const outcome = await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID));
@@ -291,7 +283,7 @@ export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?:
     return;
   }
   if (outcome.kind === 'not_running') {
-    // 竞态终局（alive 检查后 generation 消失）：非失败，不 throw
+    // 无目标 generation 的幂等终局：非失败，不 throw
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
     console.log('Motion is not running');
     return;

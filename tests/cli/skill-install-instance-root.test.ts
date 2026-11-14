@@ -13,6 +13,7 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { skillInstallUserCommand } from '../../src/cli/commands/skill.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createSkillVersions, type SkillVersions } from '../../src/foundation/skill-system/index.js';
 import { newUuid } from '../../src/foundation/node-utils/index.js';
@@ -42,12 +43,14 @@ describe.skipIf(!gitAvailable)('skill install 事务入实例（Phase 1930 Step 
     tmpDir = await createTrackedTempDir('skill-install-instance-root-');
     // 真实 CLI 子进程需要最小全局配置与存活 watchdog owner（同 scope 测试既定模式）
     fsSync.mkdirSync(path.join(tmpDir, '.chestnut', 'watchdog', 'active'), { recursive: true });
+    const identity = captureOwnedProcessRef(process.pid);
+    if (identity.kind !== 'captured') throw new Error('watchdog fixture identity unavailable');
     fsSync.writeFileSync(path.join(tmpDir, '.chestnut', 'watchdog', 'active', 'owner.json'), JSON.stringify({
-      schema_version: 1,
+      schema_version: 2,
       attempt_id: newUuid(),
       owner_token: newUuid(),
       pid: process.pid,
-      process_start_time: 'test',
+      process_ref: identity.value,
       workspace_root: tmpDir,
       created_at: new Date().toISOString(),
     }));

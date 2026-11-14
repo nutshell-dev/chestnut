@@ -58,7 +58,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
   describe('status hint', () => {
     it('return content 含 hint when target claw not alive', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => false,
+        clawLiveness: () => ({ kind: 'absent', reason: 'missing_active' }),
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
@@ -73,7 +73,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
 
     it('return content 不含 hint when target claw alive', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
@@ -88,7 +88,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
   describe('wrapper migration (M#3)', () => {
     it('calls notifyClaw wrapper — file written to target inbox', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'wrapper msg' },
@@ -104,7 +104,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
 
     it('NOTIFY_CLAW_SENT audit emit preserved after wrapper migration', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       });
       await tool.execute(
         { to: targetClaw, body: 'audit check' },
@@ -118,7 +118,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
     it('DLQ for unknown destination preserved via clawExists callback (phase 241)', async () => {
       const tool = makeTool(audit.audit, {
         clawExists: () => false,
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       });
       const result = await tool.execute(
         { to: 'ghost-claw', body: 'orphan' },
@@ -134,7 +134,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
   describe('phase 241: active contract hint', () => {
     it('return content 含 contract hint when alive but no active contract', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
         hasActiveContract: () => false,
       });
       const result = await tool.execute(
@@ -150,7 +150,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
 
     it('return content 不含 contract hint when alive + has active contract', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
         hasActiveContract: () => true,
       });
       const result = await tool.execute(
@@ -164,7 +164,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
 
     it('return content 含 status hint but not contract hint when stopped (not alive)', async () => {
       const tool = makeTool(audit.audit, {
-        isClawAlive: () => false,
+        clawLiveness: () => ({ kind: 'absent', reason: 'missing_active' }),
         hasActiveContract: () => false,
       });
       const result = await tool.execute(

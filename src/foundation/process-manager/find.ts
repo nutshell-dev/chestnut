@@ -1,5 +1,5 @@
 import {
-  findByLiteralPattern,
+  findByLiteralPatternSyncForCli,
   findByLiteralPatternAsync,
   ProcessListUnavailable,
   type FindByPatternOptions,
@@ -33,32 +33,26 @@ function auditListFailure(
   );
 }
 
-function listProcesses(ctx: ProcessManagerContext, pattern: string): ProcessInfo[] {
+function listProcessesSyncForCli(ctx: ProcessManagerContext, pattern: string): ProcessInfo[] {
   try {
-    return findByLiteralPattern(pattern);
+    return findByLiteralPatternSyncForCli(pattern);
   } catch (err) {
     if (err instanceof ProcessListUnavailable) auditListFailure(ctx, pattern, err);
     throw err;
   }
 }
 
-/** Legacy public query: literal matching and OS decoding remain in ProcessExec. */
-export function findProcesses(ctx: ProcessManagerContext, pattern: string): number[] {
-  return listProcesses(ctx, pattern)
+/** Synchronous diagnostic query restricted to explicit CLI call sites. */
+export function findProcessesSyncForCli(ctx: ProcessManagerContext, pattern: string): number[] {
+  return listProcessesSyncForCli(ctx, pattern)
     .map(item => item.pid)
     .filter(pid => pid !== process.pid);
 }
 
-/** L1 listing evidence for the L1 orphan-termination capability. */
-export function findProcessesDetailed(ctx: ProcessManagerContext, pattern: string): ProcessInfo[] {
-  return listProcesses(ctx, pattern).filter(item => item.pid !== process.pid);
-}
-
-/** Bounded async detailed query for event-loop-sensitive orphan cleanup. */
-export async function findProcessesDetailedAsync(
+async function listProcessesAsync(
   ctx: ProcessManagerContext,
   pattern: string,
-  options: FindByPatternOptions = {},
+  options: FindByPatternOptions,
 ): Promise<ProcessInfo[]> {
   try {
     const processes = await findByLiteralPatternAsync(pattern, options);
@@ -67,4 +61,22 @@ export async function findProcessesDetailedAsync(
     if (err instanceof ProcessListUnavailable) auditListFailure(ctx, pattern, err);
     throw err;
   }
+}
+
+/** Bounded async PID query for event-loop-sensitive production callers. */
+export async function findProcessesAsync(
+  ctx: ProcessManagerContext,
+  pattern: string,
+  options: FindByPatternOptions = {},
+): Promise<number[]> {
+  return (await listProcessesAsync(ctx, pattern, options)).map(item => item.pid);
+}
+
+/** Bounded async detailed query for event-loop-sensitive orphan cleanup. */
+export async function findProcessesDetailedAsync(
+  ctx: ProcessManagerContext,
+  pattern: string,
+  options: FindByPatternOptions = {},
+): Promise<ProcessInfo[]> {
+  return listProcessesAsync(ctx, pattern, options);
 }

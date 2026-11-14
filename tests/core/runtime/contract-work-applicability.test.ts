@@ -339,7 +339,9 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     const inflightDir = path.join(inboxBaseDir, 'inflight');
     const inflightName = inflightFiles()[0];
     const originalName = inflightName.replace(/^\d+_[0-9a-f]+_/i, '');
-    const stalePath = path.join(inflightDir, `${process.pid}_0_${originalName}`);
+    // Use a nonexistent PID so recovery is authorized by typed gone rather than
+    // by an unverifiable live-v0 identity plus an expired lease.
+    const stalePath = path.join(inflightDir, `999999_0_${originalName}`);
     fs.renameSync(path.join(inflightDir, inflightName), stalePath);
     const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
     fs.utimesSync(stalePath, oldMtime, oldMtime);

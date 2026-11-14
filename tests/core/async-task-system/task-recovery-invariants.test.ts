@@ -370,7 +370,9 @@ describe('phase 874: ToolTask terminalState + dead-letter retry counter', () => 
       }),
       read: vi.fn().mockImplementation((filePath: string) => {
         const content = fileMap.get(filePath);
-        if (content === undefined) return Promise.reject(new Error('ENOENT'));
+        if (content === undefined) {
+          return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+        }
         return Promise.resolve(content);
       }),
       move: vi.fn().mockImplementation((from: string, to: string) => {
@@ -551,7 +553,7 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
       }),
       read: vi.fn().mockImplementation((filePath: string) => {
         const content = fileMap.get(filePath);
-        if (content === undefined) return Promise.reject(new Error('ENOENT'));
+        if (content === undefined) return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
         return Promise.resolve(content);
       }),
       move: vi.fn().mockImplementation((from: string, to: string) => {
@@ -716,7 +718,7 @@ describe('phase 989 task-recovery sub-fixes', () => {
       }),
       read: vi.fn().mockImplementation((filePath: string) => {
         const content = fileMap.get(filePath);
-        if (content === undefined) return Promise.reject(new Error('ENOENT'));
+        if (content === undefined) return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
         return Promise.resolve(content);
       }),
       move: vi.fn().mockImplementation((from: string, to: string) => {
@@ -886,7 +888,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       }),
       read: vi.fn().mockImplementation((filePath: string) => {
         const content = fileMap.get(filePath);
-        if (content === undefined) return Promise.reject(new Error('ENOENT'));
+        if (content === undefined) return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
         return Promise.resolve(content);
       }),
       move: vi.fn().mockImplementation((from: string, to: string) => {
@@ -901,6 +903,10 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       }),
       writeAtomic: vi.fn().mockImplementation((filePath: string, content: string) => {
         fileMap.set(filePath, content);
+        return Promise.resolve(undefined);
+      }),
+      append: vi.fn().mockImplementation((filePath: string, content: string) => {
+        fileMap.set(filePath, (fileMap.get(filePath) ?? '') + content);
         return Promise.resolve(undefined);
       }),
       ensureDir: vi.fn().mockResolvedValue(undefined),

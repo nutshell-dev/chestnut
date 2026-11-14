@@ -49,6 +49,13 @@ import {
 } from './subagent-executor.js';
 import { createProcessedResultStore, type ProcessedResultStore } from './processed-result-store.js';
 import type { TaskId } from './types.js';
+import {
+  decodeMigratedExecResult,
+  encodeMigratedExecResult,
+  MigratedExecResultDecodeError,
+  type DecodedMigratedExecResult,
+  type MigratedExecResultRecord,
+} from './migrated-exec-result.js';
 
 
 const RETRY_COUNT_PATH = (taskId: TaskId) =>
@@ -363,87 +370,14 @@ export async function recoverMigratedToolTask(
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   let killedByRecovery = false;
+  let recoveryExitRecord: MigratedExecResultRecord | undefined;
   let pidForAudit: number | undefined = task.migratedPid;
-
-  // Decode and observation are ProcessExec facts. ATS only maps them to task
-  // running/recoverable/indeterminate decisions; malformed or future records
-  // stay as artifacts and enter the same observable recovery path as unknown.
-  const holdIndeterminate = async (reason: string, evidence: ProcessEvidence): Promise<number> => {
-    emitRecoveryFailed(auditWriter, {
-      taskId: task.id,
-      context: 'migrated_exec_probe_indeterminate',
-      error: reason,
-      evidence: JSON.stringify(evidence),
-    });
-    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-    if (Date.now() < deadlineMs) return 0;
-    if (!(await notifyManualIntervention(deps, task, reason))) return 0;
-    await moveToFailedAfterManualIntervention(deps, filePath, task);
-    return 0;
-  };
-
-  const decoded = decodeExecutionTarget(
-    task.migratedExecution,
-    task.migratedPid,
-    task.migratedStartTime,
-  );
-  if (decoded.kind !== 'decoded') {
-    return holdIndeterminate(decoded.reason, decoded.evidence);
-  }
-  const target = decoded.target;
-  pidForAudit = target.leaderPid;
-  const observation = observeExecutionTarget(target);
-  if (observation.kind === 'unknown') {
-    return holdIndeterminate(observation.reason, observation.evidence);
-  }
-
-  if (observation.kind === 'alive') {
-    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-    if (Date.now() < deadlineMs) {
-      emitRecovered(auditWriter, {
-        fullTaskId: task.id as FullTaskId,
-        shortTaskId: taskShortId(task),
-        kind: task.kind,
-        from: 'running',
-        to: 'running',
-        reason: 'migrated_process_still_alive',
-      });
-      return 0;
-    }
-    if (target.version === 0) {
-      // Legacy PID-only artifacts never gain group-signal authority.
-      return holdIndeterminate('legacy_execution_identity_not_terminable', observation.evidence);
-    }
-    emitRecoveryFailed(auditWriter, {
-      taskId: task.id,
-      context: 'migrated_process_hard_timeout_exceeded',
-      error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
-    });
-    const outcome = await terminateExecutionTarget(target, 'caller_requested');
-    emitMigratedExecTermination(auditWriter, {
-      taskId: task.id,
-      context: 'recovery_hard_timeout',
-      identityCols: [
-        `leader_pid=${target.leaderPid}`,
-        `process_group_id=${target.processGroupId}`,
-      ],
-      trigger: outcome.trigger,
-      termSent: outcome.termSent,
-      killSent: outcome.killSent,
-      status: outcome.status,
-      reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
-      evidence: JSON.stringify(outcome.evidence),
-    });
-    if (outcome.status !== 'gone') return 0;
-    killedByRecovery = true;
-  }
-  // gone (including a proven identity change) → recover the persisted result.
-
-  // 2. Process is dead — check whether the wrapper already wrote the result.
   const resultPath = `${resultDir}/result.txt`;
   const sentMarkerPath = `${resultDir}/result.txt.sent`;
+  const exitPath = `${resultDir}/exit.json`;
 
-  // 0. If a previous recovery already delivered the result, just move to done.
+  // A durable sent marker is the terminal delivery fact. Preserve the existing
+  // crash-after-delivery idempotency without consulting stale process/exit data.
   let alreadySent = false;
   try {
     alreadySent = await fs.exists(sentMarkerPath);
@@ -455,7 +389,6 @@ export async function recoverMigratedToolTask(
     });
     return 0;
   }
-
   if (alreadySent) {
     await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
       .then(() => {
@@ -478,6 +411,120 @@ export async function recoverMigratedToolTask(
       });
     return 0;
   }
+
+  // Read the terminal record directly: ENOENT is the only missing-marker case.
+  // Malformed/future records and all other I/O failures stay observable/running.
+  let decodedExit: DecodedMigratedExecResult | undefined;
+  try {
+    decodedExit = decodeMigratedExecResult(await fs.read(exitPath), task.id);
+  } catch (err) {
+    if (!isFileNotFound(err)) {
+      const context = err instanceof MigratedExecResultDecodeError
+        ? err.kind === 'future_version'
+          ? 'migrated_exit_record_future_version'
+          : 'migrated_exit_record_malformed'
+        : 'migrated_exit_record_read_io_error';
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context,
+        error: formatErr(err),
+      });
+      return 0;
+    }
+  }
+
+  // Decode and observation are ProcessExec facts. ATS only maps them to task
+  // running/recoverable/indeterminate decisions when no terminal record exists.
+  const holdIndeterminate = async (reason: string, evidence: ProcessEvidence): Promise<number> => {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_exec_probe_indeterminate',
+      error: reason,
+      evidence: JSON.stringify(evidence),
+    });
+    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+    if (Date.now() < deadlineMs) return 0;
+    if (!(await notifyManualIntervention(deps, task, reason))) return 0;
+    await moveToFailedAfterManualIntervention(deps, filePath, task);
+    return 0;
+  };
+
+  // A committed exit record already proves business termination. Only an
+  // absent record needs an OS observation before legacy truncated recovery.
+  if (decodedExit === undefined) {
+    const decoded = decodeExecutionTarget(
+      task.migratedExecution,
+      task.migratedPid,
+      task.migratedStartTime,
+    );
+    if (decoded.kind !== 'decoded') {
+      return holdIndeterminate(decoded.reason, decoded.evidence);
+    }
+    const target = decoded.target;
+    pidForAudit = target.leaderPid;
+    const observation = observeExecutionTarget(target);
+    if (observation.kind === 'unknown') {
+      return holdIndeterminate(observation.reason, observation.evidence);
+    }
+
+    if (observation.kind === 'alive') {
+      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+      if (Date.now() < deadlineMs) {
+        emitRecovered(auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'running',
+          reason: 'migrated_process_still_alive',
+        });
+        return 0;
+      }
+      if (target.version === 0) {
+        // Legacy PID-only artifacts never gain group-signal authority.
+        return holdIndeterminate('legacy_execution_identity_not_terminable', observation.evidence);
+      }
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_process_hard_timeout_exceeded',
+        error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
+      });
+      const outcome = await terminateExecutionTarget(target, 'caller_requested');
+      emitMigratedExecTermination(auditWriter, {
+        taskId: task.id,
+        context: 'recovery_hard_timeout',
+        identityCols: [
+          `leader_pid=${target.leaderPid}`,
+          `process_group_id=${target.processGroupId}`,
+        ],
+        trigger: outcome.trigger,
+        termSent: outcome.termSent,
+        killSent: outcome.killSent,
+        status: outcome.status,
+        reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+        evidence: JSON.stringify(outcome.evidence),
+      });
+      if (outcome.status !== 'gone') return 0;
+      killedByRecovery = true;
+      recoveryExitRecord = {
+        version: 1,
+        taskId: task.id,
+        completedAt: new Date().toISOString(),
+        classification: 'timeout',
+        exitCode: null,
+        termination: {
+          status: outcome.status,
+          trigger: outcome.trigger,
+          termSent: outcome.termSent,
+          killSent: outcome.killSent,
+          identity: outcome.identity,
+          completedAt: outcome.completedAt,
+        },
+        evidence: outcome.evidence,
+      };
+    }
+  }
+  // A committed record or a gone observation now permits persisted-result recovery.
 
   let resultExists: boolean;
   try {
@@ -510,19 +557,50 @@ export async function recoverMigratedToolTask(
     let deliveredContent = resultContent;
     if (killedByRecovery) {
       deliveredContent += '\n[Process killed by recovery: hard timeout exceeded]';
-    } else {
-      const exitMarkerExists = await fs.exists(`${resultDir}/exit.json`).catch(() => false);
-      if (!exitMarkerExists) {
-        deliveredContent += '\n[Recovery note: daemon restarted while process was still running — output may be truncated]';
-        auditWriter.write(
-          TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED,
-          `taskId=${task.id}`,
-          `pid=${pidForAudit ?? 'unknown'}`,
-        );
+      try {
+        await fs.append(resultPath, '\n[Process killed by recovery: hard timeout exceeded]');
+      } catch (err) {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'migrated_recovery_output_append_failed',
+          error: formatErr(err),
+        });
+        return 0;
       }
+      if (decodedExit === undefined) {
+        decodedExit = { kind: 'v1', record: recoveryExitRecord! };
+        try {
+          await fs.writeAtomic(exitPath, encodeMigratedExecResult(recoveryExitRecord!));
+        } catch (err) {
+          emitRecoveryFailed(auditWriter, {
+            taskId: task.id,
+            context: 'migrated_exit_record_write_failed',
+            error: formatErr(err),
+          });
+          return 0;
+        }
+      }
+    } else if (decodedExit === undefined) {
+      deliveredContent += '\n[Recovery note: daemon restarted while process was still running — output may be truncated]';
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED,
+        `taskId=${task.id}`,
+        `pid=${pidForAudit ?? 'unknown'}`,
+      );
     }
 
-    const sent = await sendToolResult(fs, auditWriter, task, deliveredContent, false, resultDeliveryDeps)
+    const recoveredRecord = decodedExit?.kind === 'v1' ? decodedExit.record : undefined;
+    const recoveredIsError = recoveredRecord !== undefined && recoveredRecord.classification !== 'success';
+    if (recoveredIsError) {
+      deliveredContent += `\n[Recovered process result: ${JSON.stringify({
+        classification: recoveredRecord.classification,
+        exitCode: recoveredRecord.exitCode,
+        signal: recoveredRecord.signal,
+        termination: recoveredRecord.termination,
+        evidence: recoveredRecord.evidence,
+      })}]`;
+    }
+    const sent = await sendToolResult(fs, auditWriter, task, deliveredContent, recoveredIsError, resultDeliveryDeps)
       .then(() => true)
       .catch(() => false);
 

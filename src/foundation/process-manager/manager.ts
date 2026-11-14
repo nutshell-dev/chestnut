@@ -18,12 +18,14 @@
 import type { FileSystem } from '../fs/index.js';
 import type { DaemonDir } from './types.js';
 import type { ProcessManagerAuditSink } from './audit-sink.js';
-import type { ProcessStartTime, ProcessTargetObservation, ProcessTarget } from '../process-exec/index.js';
 import type {
-  isAlive as defaultL1IsAlive,
-  spawnDetached as defaultSpawnDetached,
-  getProcessStartTime as defaultGetProcessStartTime,
+  captureOwnedProcessRef as defaultCaptureProcessRef,
+  inspectProcessRef as defaultInspectProcessRef,
   kill as defaultKill,
+  spawnDetached as defaultSpawnDetached,
+  terminateProcessRef as defaultTerminateProcessRef,
+  ProcessRef,
+  ProcessStartTime,
 } from '../process-exec/index.js';
 
 import * as aliveOps from './alive.js';
@@ -31,7 +33,7 @@ import * as readyOps from './ready.js';
 import { spawnProcess } from './spawn.js';
 import { ensureRunning as ensureRunningOp } from './ensure-running.js';
 import { stopProcess } from './stop.js';
-import { findProcesses } from './find.js';
+import { findProcessesAsync, findProcessesSyncForCli } from './find.js';
 import {
   activateGeneration,
   retireGeneration,
@@ -60,30 +62,28 @@ export class ProcessManager {
   constructor(
     fs: FileSystem,
     audit: ProcessManagerAuditSink,
-    l1IsAlive?: typeof defaultL1IsAlive,
+    captureProcessRef?: typeof defaultCaptureProcessRef,
     spawnDetached?: typeof defaultSpawnDetached,
-    getProcessStartTime?: typeof defaultGetProcessStartTime,
+    inspectProcessRef?: typeof defaultInspectProcessRef,
     kill?: typeof defaultKill,
-    observeProcessTarget?: (target: ProcessTarget) => ProcessTargetObservation,
+    terminateProcessRef?: typeof defaultTerminateProcessRef,
   ) {
     this.fs = fs;
     this._ctx = {
       fs,
       audit,
       isReady: (daemonDir: DaemonDir) => this.isReady(daemonDir),
-      l1IsAlive,
+      captureProcessRef,
       spawnDetached,
-      getProcessStartTime,
+      inspectProcessRef,
       kill,
-      observeProcessTarget,
+      terminateProcessRef,
     };
   }
 
   // alive / ready
   // phase 1773: 公开 typed LivenessResult（禁 boolean 压平，probe 异常不伪装 alive）
   liveness(daemonDir: DaemonDir): LivenessResult { return aliveOps.liveness(this._ctx, daemonDir); }
-  // convenience fail-closed：仅 kind==='alive'，单行投影不得二次 probe
-  isAlive(daemonDir: DaemonDir): boolean { return this.liveness(daemonDir).kind === 'alive'; }
   // phase 1771: 公开 typed ReadinessResult（禁 boolean 压平，risk 条款）
   readiness(daemonDir: DaemonDir): ReadinessResult { return readyOps.readiness(this._ctx, daemonDir); }
   // convenience fail-closed：仅 kind==='ready'，不得承载其它状态判断
@@ -121,10 +121,19 @@ export class ProcessManager {
   ): Promise<UpdateActiveBusinessFact> {
     return updateActiveBusinessFact(this._ctx, daemonDir, expected, raw);
   }
-  writeGenerationReady(_daemonDir: DaemonDir, record: ProcessGenerationRecord, pid: number, startTime?: ProcessStartTime): Promise<WriteGenerationFact> {
-    return writeReadyFact(this._ctx, record, pid, startTime);
+  writeGenerationReady(
+    _daemonDir: DaemonDir,
+    record: ProcessGenerationRecord,
+    pid: number,
+    startTime?: ProcessStartTime,
+    processRef?: ProcessRef,
+  ): Promise<WriteGenerationFact> {
+    return writeReadyFact(this._ctx, record, pid, startTime, processRef);
   }
-  activateGeneration(daemonDir: DaemonDir, identity: { generationId: string; pid: number; startTime?: ProcessStartTime }): ActivateGeneration {
+  activateGeneration(
+    daemonDir: DaemonDir,
+    identity: { generationId: string; pid: number; processRef?: ProcessRef },
+  ): ActivateGeneration {
     return activateGeneration(this._ctx, daemonDir, identity);
   }
   retireGeneration(daemonDir: DaemonDir, expected: { generationId: string }, reason: Parameters<typeof retireGeneration>[3], source: Parameters<typeof retireGeneration>[4]): RetireGeneration {
@@ -156,5 +165,10 @@ export class ProcessManager {
   stop(daemonDir: DaemonDir): Promise<StopProcessOutcome> { return stopProcess(this._ctx, daemonDir); }
 
   // query
-  findProcesses(pattern: string): number[] { return findProcesses(this._ctx, pattern); }
+  findProcessesSyncForCli(pattern: string): number[] {
+    return findProcessesSyncForCli(this._ctx, pattern);
+  }
+  findProcessesAsync(pattern: string): Promise<number[]> {
+    return findProcessesAsync(this._ctx, pattern);
+  }
 }

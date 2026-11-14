@@ -18,7 +18,7 @@ import { ensureWatchdog } from '../../src/watchdog/ensure.js';
 import { setAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { WatchdogPidForeignWorkspaceError } from '../../src/watchdog/watchdog-pid.js';
+import { WatchdogOwnerInspectionError } from '../../src/watchdog/watchdog-pid.js';
 import {
   newWatchdogAttempt,
   prepareCandidate,
@@ -181,10 +181,10 @@ describe('ensureWatchdog 目录 authority', () => {
     expect(audit).not.toContain('ensure_lock');
   });
 
-  it('foreign workspace pid rethrows WatchdogPidForeignWorkspaceError', async () => {
+  it('foreign workspace pid with unverifiable legacy identity fails closed', async () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/foreign/root' }));
 
-    await expect(ensureWatchdog(fsFactory)).rejects.toThrow(WatchdogPidForeignWorkspaceError);
+    await expect(ensureWatchdog(fsFactory)).rejects.toThrow(WatchdogOwnerInspectionError);
   });
 });

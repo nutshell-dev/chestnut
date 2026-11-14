@@ -350,6 +350,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       let decision: ClaimDecision | undefined;
       let lease: ClaimLease | undefined;
       let shouldStat = !match;
+      let legacyIdentityUnknown = false;
 
       if (entry.name.startsWith('mclaim_')) {
         let loaded: Awaited<ReturnType<typeof loadClaimDescriptor>>;
@@ -413,7 +414,13 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             originalName,
             claim,
           });
-          shouldStat = true;
+          if (capture.kind === 'unknown') {
+            // A failed capture is not a reference-free historical lease.
+            decision = { kind: 'retain', reason: 'unknown' };
+            shouldStat = false;
+          } else {
+            shouldStat = true;
+          }
         }
       } else if (match) {
         const pid = parseInt(match[1], 10);
@@ -438,8 +445,13 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             kind: 'retain',
             reason: facts.observed?.kind === 'alive' ? 'alive' : 'unknown',
           };
+        } else if (facts.observed?.kind === 'unknown') {
+          // Stat may prove the lease is still active, but an expired lease never
+          // authorizes recovery when the holder identity is unknown.
+          legacyIdentityUnknown = true;
+          shouldStat = true;
         } else {
-          // Without a startTime, a non-gone owner still has the original mtime lease.
+          // An alive v0 owner without a startTime retains the original mtime lease.
           shouldStat = true;
         }
       }
@@ -479,9 +491,12 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
           observedAtMs,
           ...(Number.isFinite(mtime) ? { valueMs: mtime } : { valueMsText: String(mtime) }),
         };
-        decision = Number.isFinite(mtime) && observedAtMs - mtime >= STALE_THRESHOLD_MS
-          ? { kind: 'reclaim', reason: 'lease_elapsed' }
-          : { kind: 'retain', reason: 'lease_active' };
+        const leaseElapsed = Number.isFinite(mtime) && observedAtMs - mtime >= STALE_THRESHOLD_MS;
+        decision = legacyIdentityUnknown
+          ? { kind: 'retain', reason: leaseElapsed ? 'unknown' : 'lease_active' }
+          : leaseElapsed
+            ? { kind: 'reclaim', reason: 'lease_elapsed' }
+            : { kind: 'retain', reason: 'lease_active' };
       }
 
       if (decision === undefined) throw new Error('unreachable inbox claim decision state');

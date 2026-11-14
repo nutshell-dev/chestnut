@@ -70,6 +70,21 @@ describe('exec tool env injection', () => {
     expect((sub.content as string).trim()).toBe('');
   });
 
+  it('不向命令子进程泄漏未授权宿主 secret', async () => {
+    const { ctx } = await makeCtx();
+    const secretKey = 'PHASE2146_UNAUTHORIZED_SECRET';
+    const previousSecret = process.env[secretKey];
+    process.env[secretKey] = 'do-not-inherit';
+    try {
+      const result = await createExecTool().execute({ command: printEnvCommand(secretKey) }, ctx);
+      expect(result.success).toBe(true);
+      expect((result.content as string).trim()).toBe('');
+    } finally {
+      if (previousSecret === undefined) delete process.env[secretKey];
+      else process.env[secretKey] = previousSecret;
+    }
+  });
+
   it('子代理 exec → caller env 与 subagent task env 并存（同为 task id）', async () => {
     const { ctx } = await makeCtx('spawn-abc', 'spawn-abc');
     const tool = createExecTool();

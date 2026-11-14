@@ -15,6 +15,7 @@ const mockAuditState = vi.hoisted(() => {
 });
 
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
+const mockFindProcessesAsync = vi.hoisted(() => vi.fn().mockResolvedValue([99991, 99992]));
 const mockKill = vi.hoisted(() => vi.fn());
 const mockIsAlive = vi.hoisted(() => vi.fn());
 const mockLivePids = vi.hoisted(() => new Set<number>());
@@ -52,7 +53,7 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
 vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
   getWatchdogPid: vi.fn().mockReturnValue(null),
-  isWatchdogAlive: vi.fn().mockReturnValue(false),
+  inspectWatchdogLivenessForCli: vi.fn().mockReturnValue('not_running'),
   removeWatchdogPid: vi.fn(),
 }));
 
@@ -66,9 +67,10 @@ vi.mock('../../src/watchdog/watchdog-control.js', () => ({
 
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
-    isAlive: vi.fn().mockReturnValue(false),
-    stop: vi.fn().mockResolvedValue(undefined),
-    findProcesses: mockFindProcesses,
+    liveness: vi.fn().mockReturnValue({ kind: 'dead', pid: 12345, evidence: { version: 1, atMs: 0, facts: [] } }),
+    stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 12345, via: 'already_dead' }),
+    findProcessesSyncForCli: mockFindProcesses,
+    findProcessesAsync: mockFindProcessesAsync,
   })),
 }));
 
@@ -81,6 +83,11 @@ vi.mock('../../src/foundation/process-exec/index.js', async (importOriginal) => 
     ...actual,
     kill: mockKill,
     isAlive: mockIsAlive,
+    observeProcessTarget: (target: { pid: number }) => ({
+      kind: mockIsAlive(target.pid) ? 'alive' : 'gone',
+      reason: 'absent',
+      evidence: { version: 1, atMs: 0, facts: [] },
+    }),
   };
 });
 
@@ -142,10 +149,11 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
 
   it('stopAllCommand sweeps orphan watchdogs + audits ORPHAN_SWEEP_KILLED', async () => {
     mockFindProcesses.mockReturnValue([1111, 2222]);
+    mockFindProcessesAsync.mockResolvedValue([1111, 2222]);
     [1111, 2222].forEach(pid => mockLivePids.add(pid));
     mockCreateDirContext.mockReturnValue({ fs: {}, audit: { write: mockAuditState.write } });
 
-    await stopAllCommand(stopDeps);
+    await stopAllCommand(stopDeps, { kill: mockKill, isAlive: mockIsAlive });
 
     const sweepEvents = mockAuditState.events.filter(e => e[0] === WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED);
     expect(sweepEvents).toHaveLength(1);
@@ -165,6 +173,7 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
 
     await expect(stopAllCommand(stopDeps)).rejects.toBe(sentinel);
     expect(mockFindProcesses).not.toHaveBeenCalled();
+    expect(mockFindProcessesAsync).not.toHaveBeenCalled();
     expect(mockCreateDirContext).not.toHaveBeenCalled();
   });
 });

@@ -72,7 +72,7 @@ async function sweepOrphanWatchdogsScoped(
 
   let allPids: number[];
   try {
-    allPids = pm.findProcesses(wdPath);
+    allPids = await pm.findProcessesAsync(wdPath);
   } catch (error) {
     getAuditWriter()?.write(
       WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_FAILED,
@@ -91,7 +91,7 @@ async function sweepOrphanWatchdogsScoped(
   const failures: WatchdogOrphanFailure[] = [];
 
   for (const pid of orphans) {
-    const fact = observeWatchdogProcess(pid, undefined, deps);
+    const fact = observeWatchdogProcess(pid, deps);
     if (fact.kind === 'reclaimable') {
       skipped.push(pid);
       if (fact.reason === 'identity_changed') {

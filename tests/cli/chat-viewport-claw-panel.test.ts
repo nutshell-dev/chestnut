@@ -293,7 +293,7 @@ function makeRescanDeps(clawTopology: ClawTopology): RescanHarness {
     updateClawPanel: () => { updatePanelCalls += 1; },
     pm: {
       inspectSpawning: () => ({ status: 'absent' }),
-      isAlive: () => false,
+      liveness: () => ({ kind: 'dead', pid: 1, evidence: { version: 1, atMs: 0, facts: [] } }),
     },
   });
   return {
@@ -376,7 +376,7 @@ describe('rescanClawsDir: topology 消费（phase 1997 Step C）', () => {
       audit: { write: () => {} } as any,
       agentDir: '/unused',
       updateClawPanel: () => {},
-      pm: { inspectSpawning: () => ({ status: 'absent' }), isAlive: () => true },
+      pm: { inspectSpawning: () => ({ status: 'absent' }), liveness: () => ({ kind: 'alive', pid: 1, evidence: { version: 1, atMs: 0, facts: [] } }) },
     });
 
     await rescan();

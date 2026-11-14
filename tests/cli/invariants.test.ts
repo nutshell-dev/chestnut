@@ -165,17 +165,17 @@ describe('parseIntOption (Layer A validation)', () => {
  */
 describe('findOrphans (status-service)', () => {
   it('returns empty array on ProcessListUnavailable (graceful skip)', () => {
-    const pm = { findProcesses: () => { throw new ProcessListUnavailable('test'); } };
+    const pm = { findProcessesSyncForCli: () => { throw new ProcessListUnavailable('test'); } };
     expect(findOrphans(pm as any, '/path', [1, 2])).toEqual([]);
   });
 
   it('rethrows non-ProcessListUnavailable errors', () => {
-    const pm = { findProcesses: () => { throw new Error('other'); } };
+    const pm = { findProcessesSyncForCli: () => { throw new Error('other'); } };
     expect(() => findOrphans(pm as any, '/path', [])).toThrow('other');
   });
 
   it('excludes given PIDs and process.pid', () => {
-    const pm = { findProcesses: () => [1, 2, 3, process.pid] };
+    const pm = { findProcessesSyncForCli: () => [1, 2, 3, process.pid] };
     expect(findOrphans(pm as any, '/path', [2])).toEqual([1, 3]);
   });
 });

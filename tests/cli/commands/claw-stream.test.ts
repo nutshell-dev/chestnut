@@ -96,6 +96,15 @@ vi.mock('../../../src/foundation/process-manager/index.js', () => ({
 vi.mock('../../../src/foundation/process-exec/index.js', () => ({
   isAlive: (...args: unknown[]) => shutdownMocks.procExec.isAlive(...args as [number]),
   isPidArgvMatching: (...args: unknown[]) => shutdownMocks.procExec.isPidArgvMatching(...args as [number, string]),
+  observeProcessTarget: (target: { pid: number; argvToken?: string }) => {
+    const alive = shutdownMocks.procExec.isAlive(target.pid);
+    const matches = shutdownMocks.procExec.isPidArgvMatching(target.pid, target.argvToken ?? 'test-claw');
+    const evidence = { version: 1 as const, atMs: 0, facts: [] };
+    if (!alive) return { kind: 'gone', reason: 'absent', evidence };
+    return matches
+      ? { kind: 'alive', evidence }
+      : { kind: 'gone', reason: 'identity_changed', evidence };
+  },
 }));
 
 describe('Phase 2029 Step F: launcher structured payload', () => {

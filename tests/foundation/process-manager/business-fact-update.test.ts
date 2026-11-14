@@ -27,6 +27,7 @@ import {
 } from '../../../src/foundation/process-manager/generation.js';
 import { ProcessManager } from '../../../src/foundation/process-manager/index.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 describe('phase 1945 Step B: updateActiveBusinessFact（PM active 业务事实更新）', () => {
   let tempDir: string;
@@ -43,8 +44,8 @@ describe('phase 1945 Step B: updateActiveBusinessFact（PM active 业务事实�
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     daemonDir = testClawDaemonDir(tempDir, 'gen-a');
     ({ audit } = makeAudit());
-    ctx = { fs: nodeFs, audit, getProcessStartTime: () => undefined };
-    pm = new ProcessManager(nodeFs, audit);
+    ctx = installLegacyProcessRefInspector({ fs: nodeFs, audit, getProcessStartTime: () => undefined });
+    pm = new ProcessManager(nodeFs, audit, undefined, undefined, ctx.inspectProcessRef);
   });
 
   afterEach(async () => {

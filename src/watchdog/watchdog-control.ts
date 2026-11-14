@@ -7,8 +7,12 @@ import type {
   ProcessTerminationOutcome,
 } from '../foundation/process-exec/index.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
-import { getWatchdogProcessTarget } from './watchdog-pid.js';
-import { observeWatchdogProcess, terminateWatchdogProcess } from './process-capabilities.js';
+import { inspectWatchdogOwner } from './watchdog-pid.js';
+import {
+  observeWatchdogProcess,
+  terminateWatchdogProcess,
+  watchdogProcessTarget,
+} from './process-capabilities.js';
 import type { WatchdogProcessDeps } from './types.js';
 
 const WATCHDOG_STOP_OPTIONS = {
@@ -67,20 +71,42 @@ export async function stopWatchdog(
   fsFactory: (baseDir: string) => FileSystem,
   deps?: WatchdogProcessDeps,
 ): Promise<WatchdogStopOutcome> {
-  const recorded = getWatchdogProcessTarget(fsFactory);
-  if (recorded !== null) return terminateTarget(recorded, deps);
+  const recorded = inspectWatchdogOwner(fsFactory, deps);
+  if (recorded.kind === 'unknown' || recorded.kind === 'malformed') {
+    const error = recorded.kind === 'malformed'
+      ? recorded.cause
+      : 'cause' in recorded
+        ? recorded.cause
+        : recorded.observation ?? recorded.decoded;
+    return {
+      kind: 'indeterminate',
+      ...('pid' in recorded ? { pid: recorded.pid } : {}),
+      stage: 'observe',
+      error,
+    };
+  }
+  if (recorded.kind === 'gone') {
+    return {
+      kind: 'not_running',
+      pid: recorded.pid,
+      reason: recorded.reason === 'identity_changed' ? 'identity_changed' : 'already_gone',
+    };
+  }
+  if (recorded.kind === 'alive') {
+    return terminateTarget(watchdogProcessTarget(recorded.pid), deps);
+  }
 
   let candidates: number[];
   try {
     const pm = createProcessManagerForCLI({ fsFactory, baseDir: getChestnutRoot() });
-    candidates = pm.findProcesses(getWatchdogEntryPath());
+    candidates = await pm.findProcessesAsync(getWatchdogEntryPath());
   } catch (error) {
     // silent: the original enumeration error is returned in the typed outcome.
     return { kind: 'indeterminate', stage: 'enumerate', error };
   }
 
   for (const pid of candidates) {
-    const fact = observeWatchdogProcess(pid, undefined, deps);
+    const fact = observeWatchdogProcess(pid, deps);
     if (fact.kind === 'indeterminate') {
       return {
         kind: 'indeterminate', pid, stage: 'observe',

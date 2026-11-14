@@ -49,7 +49,7 @@ describe('ProcessManager - spawn defaults', () => {
     vi.mocked(spawn).mockImplementation(function () { return makeFakeSpawnedChild(FAKE_LIVE_PID) as any; });
 
     // phase 1779: pgrep 语义化 mock（exit 1 = 无匹配）——orphan enumerate 走真
-    // findByPattern；若 mock 被 reset 成 undefined，findByPattern 会抛
+    // findByPatternSyncForCli；若 mock 被 reset 成 undefined，findByPatternSyncForCli 会抛
     // ProcessListUnavailable，新 fail-closed gate 将阻断 spawn（旧 best-effort
     // 降级会静默吞掉，恰好掩盖了 restoreAllMocks 的副作用）。
     vi.mocked(spawnSync).mockReturnValue({ stdout: '', stderr: '', status: 1 });

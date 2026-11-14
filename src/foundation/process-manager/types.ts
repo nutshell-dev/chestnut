@@ -2,14 +2,13 @@ import type { FileSystem } from '../fs/index.js';
 import type { ProcessManagerAuditSink } from './audit-sink.js';
 
 import type {
-  isAlive as defaultL1IsAlive,
-  spawnDetached as defaultSpawnDetached,
-  getProcessStartTime as defaultGetProcessStartTime,
+  captureOwnedProcessRef as defaultCaptureProcessRef,
+  inspectProcessRef as defaultInspectProcessRef,
   kill as defaultKill,
-  ProcessTarget,
-  ProcessTargetObservation,
-  ProcessTerminationOptions,
-  ProcessTerminationOutcome,
+  spawnDetached as defaultSpawnDetached,
+  terminateProcessRef as defaultTerminateProcessRef,
+  ProcessEvidence,
+  ProcessRef,
 } from '../process-exec/index.js';
 
 
@@ -203,11 +202,11 @@ export class ProcessOrphanCleanupError extends Error {
  * - probe_unavailable: liveness probe 抛错（原始 error）
  */
 export type ReadinessResult =
-  | { kind: 'ready'; generationId: string; pid: number }
-  | { kind: 'not_ready'; reason: ReadinessNotReadyReason }
+  | { kind: 'ready'; generationId: string; pid: number; evidence: ProcessEvidence }
+  | { kind: 'not_ready'; reason: ReadinessNotReadyReason; evidence?: ProcessEvidence }
   | { kind: 'malformed'; file?: string; error: unknown }
   | { kind: 'read_failure'; file?: string; error: unknown }
-  | { kind: 'probe_unavailable'; file?: string; error: unknown };
+  | { kind: 'probe_unavailable'; file?: string; error: unknown; evidence?: ProcessEvidence };
 
 export type ReadinessNotReadyReason =
   | 'missing_active'
@@ -229,11 +228,18 @@ export type ReadinessNotReadyReason =
  * - probe_unavailable: probe 抛非 ESRCH 异常（EPERM/未知错误），error 保留原始 identity
  */
 export type LivenessResult =
-  | { kind: 'alive'; pid: number; startTime?: string }
-  | { kind: 'dead'; pid: number; startTime?: string }
+  | { kind: 'alive'; pid: number; startTime?: string; processRef?: ProcessRef; evidence: ProcessEvidence }
+  | {
+      kind: 'dead';
+      pid: number;
+      startTime?: string;
+      processRef?: ProcessRef;
+      reason: 'absent' | 'identity_changed';
+      evidence: ProcessEvidence;
+    }
   | { kind: 'absent'; reason: 'missing_active' | 'missing_pid' }
   | { kind: 'malformed'; file: 'generation.json' | 'pid.json'; evidence: unknown }
-  | { kind: 'probe_unavailable'; pid: number; error: unknown };
+  | { kind: 'probe_unavailable'; pid: number; error: unknown; evidence: ProcessEvidence };
 
 /**
  * Phase 1282 Step A: join foreign winner 收敛失败的 typed reason（discriminant）。
@@ -285,6 +291,15 @@ export class ProcessWinnerConvergenceError extends Error {
   }
 }
 
+export interface ProcessPidRecord {
+  schema_version: number;
+  generation_id: string;
+  pid: number;
+  process_ref?: string;
+  start_time?: string;
+  created_at: string;
+}
+
 export interface SpawnOptions {
   /** 可执行文件路径（如 'node'） */
   command: string;
@@ -294,7 +309,7 @@ export interface SpawnOptions {
   cwd?: string;
   /** stdout/stderr 重定向的日志文件绝对路径 */
   logFile: string;
-  /** 环境变量（可选，默认继承父进程） */
+  /** 业务授权环境值；宿主 allowlist/PATH 由 ProcessExec 构造 */
   env?: Record<string, string | undefined>;
 }
 
@@ -310,19 +325,14 @@ export interface ProcessManagerContext {
   audit: ProcessManagerAuditSink;
   /** Optional ready override (used by tests spying on ProcessManager.prototype.isReady) */
   isReady?: (daemonDir: DaemonDir) => boolean;
-  /** Optional l1IsAlive override (used by tests injecting process-exec level liveness probe) */
-  l1IsAlive?: typeof defaultL1IsAlive;
+  /** Typed capture seam; production captures persistent v1 identities in L1. */
+  captureProcessRef?: typeof defaultCaptureProcessRef;
   /** Optional spawnDetached override (used by tests injecting process-exec level spawn) */
   spawnDetached?: typeof defaultSpawnDetached;
-  /** Optional getProcessStartTime override (used by tests injecting process-exec level startTime probe) */
-  getProcessStartTime?: typeof defaultGetProcessStartTime;
-  /** Optional kill override (used by tests injecting process-exec level signal sender) */
+  /** Typed observation seam; PM maps only alive/gone/unknown to business facts. */
+  inspectProcessRef?: typeof defaultInspectProcessRef;
+  /** Raw signal remains an L1 adapter, also used by B10 matching cleanup. */
   kill?: typeof defaultKill;
-  /** Typed L1 observation seam; PM maps only alive/gone/unknown to business facts. */
-  observeProcessTarget?: (target: ProcessTarget) => ProcessTargetObservation;
-  /** Typed L1 termination seam; TERM/KILL scheduling is owned by ProcessExec. */
-  terminateProcessTarget?: (
-    target: ProcessTarget,
-    options?: ProcessTerminationOptions,
-  ) => Promise<ProcessTerminationOutcome>;
+  /** Typed persistent-identity termination seam; TERM/KILL scheduling stays in L1. */
+  terminateProcessRef?: typeof defaultTerminateProcessRef;
 }

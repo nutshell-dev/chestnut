@@ -68,8 +68,8 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
   it('cli-protocol barrel exposes formatClawStatusHint（phase 1278 Step A: owner 归位）', async () => {
     const protocol = await import('../../../src/cli-protocol/index.js');
     expect(typeof protocol.formatClawStatusHint).toBe('function');
-    expect(protocol.formatClawStatusHint('x', true)).toBeUndefined();
-    expect(protocol.formatClawStatusHint('x', false)).toBe(
+    expect(protocol.formatClawStatusHint('x', { kind: 'alive', pid: 123 })).toBeUndefined();
+    expect(protocol.formatClawStatusHint('x', { kind: 'absent', reason: 'missing_active' })).toBe(
       'Note: claw "x" is not running. Start it with: chestnut claw x daemon',
     );
   });

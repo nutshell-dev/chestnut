@@ -24,7 +24,7 @@ import {
 } from '../../foundation/llm-provider/index.js';
 // Phase 1927 Step D：catalog-only provider 选择与派生 profile（显式 catalog 配置入口）
 import { catalogProvidersWithoutPreset, deriveCatalogAuthProfile } from '../../foundation/llm-provider/index.js';
-import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 // phase 1874 Step B: 终端文本原语经 viewport 模块 barrel（CLIProtocol 有 zod-only bare 白名单、不容 string-width）
 import { fitLine } from '../../viewport/index.js';
@@ -125,8 +125,14 @@ export async function notifyRunningDaemons(
   });
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
-    if (!pm.isAlive(resolveClawDaemonDir(clawId))) {
+    const liveness = pm.liveness(resolveClawDaemonDir(clawId));
+    if (liveness.kind === 'dead' || liveness.kind === 'absent') {
       recordNotification(id, 'offline');
+      continue;
+    }
+    if (liveness.kind !== 'alive') {
+      // 证据损坏/probe 不可用不是 offline；保留可诊断失败，且不向状态不明的 daemon 投递。
+      recordNotification(id, 'failed', describeLiveness(liveness));
       continue;
     }
     recordNotification(id, 'pending');

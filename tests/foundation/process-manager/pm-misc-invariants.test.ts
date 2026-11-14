@@ -16,6 +16,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 describe('signal-clean-stop', () => {
   describe('signalCleanStop (phase 1373 sub-3)', () => {
@@ -104,7 +105,7 @@ describe('alive-conservative', () => {
   }
 
   function makeCtx(tempDir: string, overrides?: Partial<ProcessManagerContext>): ProcessManagerContext {
-    return {
+    return installLegacyProcessRefInspector({
       fs: new NodeFileSystem({ baseDir: tempDir }),
       audit: {
         write: () => {},
@@ -113,7 +114,7 @@ describe('alive-conservative', () => {
         summary: (s: string) => s,
       },
       ...overrides,
-    } as ProcessManagerContext;
+    } as ProcessManagerContext);
   }
 
   describe('liveness probe verdicts (phase 1773)', () => {

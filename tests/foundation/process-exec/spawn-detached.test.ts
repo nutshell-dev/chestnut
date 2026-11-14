@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
+import { delimiter, dirname } from 'node:path';
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
@@ -20,6 +21,8 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { spawnDetached } from '../../../src/foundation/process-exec/spawn-detached.js';
+import { execWithHandle } from '../../../src/foundation/process-exec/exec.js';
+import { ProcessExecError } from '../../../src/foundation/process-exec/errors.js';
 import type { SpawnDetachedFailure } from '../../../src/foundation/process-exec/types.js';
 
 /** 手动控制事件时序的 ChildProcess double（真实 EventEmitter + pid/unref）。 */
@@ -43,6 +46,7 @@ describe('spawnDetached typed outcome（phase 1763）', () => {
     // 防 spawn 模块 mock 的 calls 跨测试累积（「未被调用」类断言读到历史调用）。
     vi.clearAllMocks();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('提交点成功：spawn 事件交付后返回 spawned pid 并 unref', async () => {
@@ -56,6 +60,64 @@ describe('spawnDetached typed outcome（phase 1763）', () => {
     const outcome = await pending;
     expect(outcome).toEqual({ kind: 'spawned', pid: 4321 });
     expect(unrefSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('由 L1 构造宿主环境，保留 caller 授权值且不泄漏未授权 secret', async () => {
+    const proc = makeControllableChild(4322);
+    vi.mocked(spawn).mockReturnValue(proc as unknown as ReturnType<typeof spawn>);
+    vi.stubEnv('PHASE2146_DETACHED_SECRET', 'do-not-inherit');
+
+    const pending = spawnDetached('node', ['entry.js'], {
+      cwd: '/tmp',
+      env: { CALLER_AUTHORIZED: 'yes', PATH: '/caller/bin' },
+    });
+    proc.emit('spawn');
+    await pending;
+
+    const env = vi.mocked(spawn).mock.calls[0][2]?.env as Record<string, string | undefined>;
+    expect(env.CALLER_AUTHORIZED).toBe('yes');
+    expect(env.PATH).toBe(`${dirname(process.execPath)}${delimiter}/caller/bin`);
+    expect(env.PHASE2146_DETACHED_SECRET).toBeUndefined();
+  });
+
+  it('环境构造失败返回带原始 error/evidence 的 failed outcome，且不 spawn', async () => {
+    const failure = Object.assign(new Error('authorized env unreadable'), { code: 'EIO' });
+    const authorized = new Proxy({}, {
+      ownKeys() { throw failure; },
+    }) as Record<string, string | undefined>;
+
+    const outcome = await spawnDetached('node', ['entry.js'], { cwd: '/tmp', env: authorized });
+
+    expect(outcome.kind).toBe('failed');
+    if (outcome.kind === 'failed') {
+      expect(outcome.failure.cause).toBe(failure);
+      expect(outcome.failure.code).toBe('EIO');
+      expect(JSON.stringify(outcome.failure.evidence)).toContain('authorized env unreadable');
+      expect(JSON.stringify(outcome.failure.evidence)).toContain('EIO');
+    }
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+  });
+
+  it('execWithHandle 环境构造失败保留 typed error/evidence，且不 spawn', () => {
+    const failure = Object.assign(new Error('exec authorized env unreadable'), { code: 'EIO' });
+    const authorized = new Proxy({}, {
+      ownKeys() { throw failure; },
+    }) as Record<string, string | undefined>;
+
+    let thrown: unknown;
+    try {
+      execWithHandle('node', ['entry.js'], { cwd: '/tmp', env: authorized });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ProcessExecError);
+    const error = thrown as ProcessExecError;
+    expect(error.cause).toBe(failure);
+    expect(error.message).toContain('Spawn environment construction failed');
+    expect(JSON.stringify(error.evidence)).toContain('exec authorized env unreadable');
+    expect(JSON.stringify(error.evidence)).toContain('EIO');
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
   });
 
   it('异步 pre-commit 失败：error 事件交付 failed outcome，保留 errno/code/命令身份，不返回成功 pid', async () => {

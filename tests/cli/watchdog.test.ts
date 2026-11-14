@@ -97,9 +97,18 @@ import {
   motionRestartStateAPI,
 } from '../../src/watchdog/watchdog-context.js';
 import { writeWatchdogCrash, loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
-import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
+import {
+  getWatchdogPid,
+  inspectWatchdogLivenessForCli,
+  WatchdogOwnerInspectionError,
+} from '../../src/watchdog/watchdog-pid.js';
 import { startCommand, stopCommand } from '../../src/cli/commands/watchdog-cli.js';
 import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
+import {
+  newWatchdogAttempt,
+  prepareCandidate,
+  commitOwnership,
+} from '../../src/watchdog/watchdog-ownership.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { spawn } from 'child_process';
 import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
@@ -298,7 +307,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
   });
 });
 
-// ─── Step 2: getWatchdogPid / isWatchdogAlive / getWatchdogEntryPath ─────────
+// ─── Step 2: getWatchdogPid / inspectWatchdogLivenessForCli / getWatchdogEntryPath ─────────
 
 describe('getWatchdogPid', () => {
   let tmpDir: string;
@@ -328,7 +337,7 @@ describe('getWatchdogPid', () => {
   });
 });
 
-describe('isWatchdogAlive', () => {
+describe('inspectWatchdogLivenessForCli', () => {
   let tmpDir: string;
   const originalRoot = process.env.CHESTNUT_ROOT;
 
@@ -353,23 +362,23 @@ describe('isWatchdogAlive', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns true when pid file exists, root matches, and process is alive', () => {
+  it('fails closed for a live legacy PID whose identity is unverifiable', () => {
     const pidFile = path.join(tmpDir, '.chestnut', 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root: '/test/root' }));
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
-    expect(isWatchdogAlive(fsFactory)).toBe(true);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(WatchdogOwnerInspectionError);
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID_ALT, 0);
   });
 
   it('returns false and removes pid file when root does not match', () => {
     const pidFile = path.join(tmpDir, '.chestnut', 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root: '/different/root' }));
-    expect(isWatchdogAlive(fsFactory)).toBe(false);
+    expect(inspectWatchdogLivenessForCli(fsFactory)).toBe('not_running');
     expect(fs.existsSync(pidFile)).toBe(false);
   });
 
   it('returns false when pid file does not exist', () => {
-    expect(isWatchdogAlive(fsFactory)).toBe(false);
+    expect(inspectWatchdogLivenessForCli(fsFactory)).toBe('not_running');
   });
 });
 
@@ -403,17 +412,21 @@ describe('startCommand', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('logs "already running" if watchdog is alive before spawn', async () => {
-    const pidFile = path.join(tmpDir, '.chestnut', 'watchdog.pid');
-    const root = process.env.CHESTNUT_ROOT ?? process.cwd();
-    fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root }));
+    const chestnutFs = new NodeFileSystem({ baseDir: path.join(tmpDir, '.chestnut') });
+    const owner = newWatchdogAttempt(process.pid);
+    prepareCandidate(chestnutFs, owner);
+    commitOwnership(chestnutFs, owner);
     vi.spyOn(process, 'kill').mockImplementation(() => true);
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await startCommand(fsFactory);
+    await startCommand(fsFactory, {
+      inspectProcessRef: () => ({ kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] } }),
+    });
 
     expect(spawn).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
@@ -421,8 +434,9 @@ describe('startCommand', () => {
     vi.restoreAllMocks();
   });
 
-  it('spawns watchdog process when not alive (throws CliError because PID never appears in test)', async () => {
+  it('spawns with L1 host env plus CHESTNUT_ROOT, without caller-spread host secrets', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.stubEnv('PHASE2146_WATCHDOG_SECRET', 'do-not-inherit');
     // phase 324 H2: startCommand 现在在 PID 未写时 throw CliError 而非静默 exit 0。
     // 本测试环境 spawn 被 mock、不会真写 PID → 必 throw。
     await expect(startCommand(fsFactory)).rejects.toThrow(/Watchdog failed to start/);
@@ -432,6 +446,9 @@ describe('startCommand', () => {
       expect.arrayContaining([expect.stringContaining('watchdog-entry')]),
       expect.objectContaining({ detached: true, env: expect.any(Object) }),
     );
+    const env = vi.mocked(spawn).mock.calls[0][2]?.env as Record<string, string | undefined>;
+    expect(env.CHESTNUT_ROOT).toBeDefined();
+    expect(env.PHASE2146_WATCHDOG_SECRET).toBeUndefined();
     logSpy.mockRestore();
   });
 
@@ -453,7 +470,7 @@ describe('stopCommand', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      findProcesses: vi.fn().mockReturnValue([]),
+      findProcessesAsync: vi.fn().mockResolvedValue([]),
     } as unknown as ProcessManager);
   });
 
@@ -481,8 +498,17 @@ describe('stopCommand', () => {
       .mockImplementationOnce(() => true)   // second call: kill(pid, 'SIGTERM')
       .mockImplementation(() => { throw new Error('ESRCH'); }); // subsequent 0-checks → dead
 
+    let observations = 0;
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await stopCommand(fsFactory);
+    await stopCommand(fsFactory, {
+      inspectProcessRef: () => ({ kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] } }),
+      observeProcessTarget: () => {
+        observations++;
+        return observations === 1
+          ? { kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] } }
+          : { kind: 'gone', reason: 'absent', evidence: { version: 1, atMs: 0, facts: [] } };
+      },
+    });
 
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID_ALT, 'SIGTERM');
     logSpy.mockRestore();
@@ -495,12 +521,15 @@ describe('stopCommand', () => {
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root }));
 
     vi.spyOn(process, 'kill')
-      .mockImplementationOnce(() => true)           // isWatchdogAlive kill(0)
+      .mockImplementationOnce(() => true)           // inspectWatchdogLivenessForCli kill(0)
       .mockImplementationOnce(() => { throw new Error('EPERM'); });  // SIGTERM fails
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await expect(stopCommand(fsFactory)).rejects.toThrow(/stop was not confirmed/);
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to send SIGTERM'), expect.anything());
+    await expect(stopCommand(fsFactory, {
+      inspectProcessRef: () => ({ kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] } }),
+      observeProcessTarget: () => ({ kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] } }),
+    })).rejects.toThrow(/stop was not confirmed/);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/Failed to send SIG(?:TERM|KILL)/), expect.anything());
     expect(logSpy).not.toHaveBeenCalledWith('Watchdog stopped');
     expect(fs.existsSync(pidFile)).toBe(true);
     logSpy.mockRestore();

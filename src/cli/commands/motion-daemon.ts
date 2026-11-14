@@ -34,16 +34,17 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { 
   const systemAudit = actionAuditFor(baseDir, deps);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
-  if (pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-    console.warn('⚠ Motion is already running');
-    return;
-  }
   // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
-  const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+  const outcome = await pm.ensureRunning(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
     clawId: MOTION_CLAW_ID,
     agentDir: motionDir,
     chestnutRoot: getChestnutRoot(),
   }));
+  if (outcome.kind !== 'spawned') {
+    console.warn('⚠ Motion is already running');
+    return;
+  }
+  const pid = outcome.pid;
   // phase 1452 Step B: spawn 成功侧 emit（claw-daemon 同型）；失败侧由 PM 承载
   extraDeps?.audit?.write(CLI_AUDIT_EVENTS.MOTION_DAEMON_START, `pid=${pid}`);
   console.log(`Started Motion daemon (PID: ${pid})`);

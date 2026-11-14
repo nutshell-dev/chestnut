@@ -1,10 +1,7 @@
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
-import {
-  captureProcessTarget,
-  spawnDetached as defaultSpawnDetached,
-} from '../process-exec/index.js';
+import { spawnDetached as defaultSpawnDetached } from '../process-exec/index.js';
 import {
   BOOT_DEADLINE_MS,
   DAEMON_SHUTDOWN_GRACE_MS,
@@ -14,7 +11,7 @@ import { awaitReadyConvergence } from './ready-convergence.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { isReady as checkReady } from './ready.js';
 import { runOrphanCleanup } from './orphan-cleanup.js';
-import { observeProcessFact, terminateProcessFact } from './process-facts.js';
+import { captureProcessFactRef, observeProcessFact, terminateProcessFact } from './process-facts.js';
 import {
   newProcessGeneration,
   prepareGeneration,
@@ -30,7 +27,7 @@ import {
 } from './generation.js';
 import { shouldAbortSpawningForStop } from './stop.js';
 
-import type { ProcessStartTime } from '../process-exec/index.js';
+import type { ProcessRef, ProcessStartTime } from '../process-exec/index.js';
 import { ProcessGenerationStateError, ProcessOrphanCleanupError, ProcessSpawnConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
 
@@ -96,7 +93,10 @@ export async function spawnProcess(
     const pid = activePid.status === 'ok' ? activePid.record.pid : undefined;
     const startTime = activePid.status === 'ok' ? activePid.record.start_time as ProcessStartTime | undefined : undefined;
     if (pid !== undefined) {
-      const observation = observeProcessFact(ctx, pid, startTime);
+      const observation = observeProcessFact(ctx, activePid.status === 'ok' ? activePid.record : {
+        pid,
+        ...(startTime !== undefined ? { start_time: startTime } : {}),
+      });
       if (observation.kind === 'unknown') {
         throw new Error(
           `Cannot verify active generation ${active.record.generation_id} for "${daemonDir}": ${formatErr(observation.error ?? observation)}`,
@@ -247,11 +247,11 @@ async function spawnAndAwaitReady(
 ): Promise<number> {
   let pid: number | undefined;
   let childStartTime: ProcessStartTime | undefined;
+  let childProcessRef: ProcessRef | undefined;
   try {
-    // generation ID 显式传入 child 环境（CHESTNUT_* 落 env-scrub allowlist）——
+    // 只提交 caller 授权值与 generation identity；宿主 env 由 L1 构造。
     // 跨进程交接必须携带 generation identity，child 不得「扫描 spawning 猜是自己」。
-    const baseEnv = options.env ?? process.env;
-    const childEnv = { ...baseEnv, [PROCESS_GENERATION_ENV]: record.generation_id };
+    const childEnv = { ...options.env, [PROCESS_GENERATION_ENV]: record.generation_id };
     // phase 1763: detached spawn 提交点由 owner（process-exec）以 child 'spawn'
     // 事件定义；pre-commit 同步/异步失败经 typed outcome 返回（保留原始
     // errno/时间/命令身份），不得以 pid 非空或后续 liveness 替代；提交点后
@@ -285,14 +285,15 @@ async function spawnAndAwaitReady(
     }
     pid = spawnOutcome.pid;
 
-    const childIdentity = captureProcessTarget(pid, ctx.getProcessStartTime);
+    const childIdentity = captureProcessFactRef(ctx, pid);
     childStartTime = childIdentity.kind === 'captured'
       ? childIdentity.target.startTime
       : undefined;
+    childProcessRef = childIdentity.kind === 'captured' ? childIdentity.value : undefined;
 
     // generation pid.json 是 child PID 的 SoT；existing-generation 语义 —
     // 目录已 move 走则返回 generation_moved，绝不复活。
-    const pidWrite = await writeChildPid(ctx, record, pid, childStartTime);
+    const pidWrite = await writeChildPid(ctx, record, pid, childStartTime, childProcessRef);
     if (pidWrite.kind !== 'written') {
       throw new Error(
         `Cannot persist child PID for "${daemonDir}" generation ${record.generation_id} (${pidWrite.kind})`,
@@ -301,7 +302,11 @@ async function spawnAndAwaitReady(
 
     // Step F barrier 2：写 PID 后再次检查本代 stop intent。
     if (shouldAbortSpawningForStop(ctx, daemonDir, record.generation_id)) {
-      const termination = await terminateProcessFact(ctx, pid, childStartTime, {
+      const termination = await terminateProcessFact(ctx, {
+        pid,
+        ...(childStartTime !== undefined ? { start_time: childStartTime } : {}),
+        ...(childProcessRef !== undefined ? { process_ref: childProcessRef } : {}),
+      }, {
         graceMs: DAEMON_SHUTDOWN_GRACE_MS,
         confirmMs: 500,
         pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
@@ -336,7 +341,11 @@ async function spawnAndAwaitReady(
     await awaitReadyConvergence(
       () => {
         if (isReady(daemonDir)) return { kind: 'ready', value: undefined };
-        const observation = observeProcessFact(ctx, bootPid, childStartTime);
+        const observation = observeProcessFact(ctx, {
+          pid: bootPid,
+          ...(childStartTime !== undefined ? { start_time: childStartTime } : {}),
+          ...(childProcessRef !== undefined ? { process_ref: childProcessRef } : {}),
+        });
         if (observation.kind === 'gone') {
           return {
             kind: 'failed',
@@ -377,7 +386,11 @@ async function spawnAndAwaitReady(
     // Guard against self-kill (tests may inject process.pid as a mock child).
     let childSurvived = false;
     if (typeof pid === 'number' && pid > 0 && pid !== process.pid) {
-      const termination = await terminateProcessFact(ctx, pid, childStartTime, {
+      const termination = await terminateProcessFact(ctx, {
+        pid,
+        ...(childStartTime !== undefined ? { start_time: childStartTime } : {}),
+        ...(childProcessRef !== undefined ? { process_ref: childProcessRef } : {}),
+      }, {
         graceMs: DAEMON_SHUTDOWN_GRACE_MS,
         confirmMs: 500,
         pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,

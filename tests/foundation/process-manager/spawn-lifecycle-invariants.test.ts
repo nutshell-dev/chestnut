@@ -20,6 +20,10 @@ import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js'
 import { makeAudit } from '../../helpers/audit.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
+import {
+  installLegacyProcessRefInspector,
+  makeProcessRefCaptureForTest,
+} from '../../helpers/process-ref-inspector.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { GENERATION_FILE, PID_FILE, getSpawningDir, getStopIntentsDir, getRetiredDirFor } from '../../../src/foundation/process-manager/generation.js';
@@ -30,7 +34,7 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
 });
 
-// phase 1779: cleanup 后 identity 边界测试需控制 orphan 复列——findProcessesDetailed
+// phase 1779: cleanup 后 identity 边界测试需控制 orphan 复列——findProcessesDetailedAsync
 // 经 hoisted impl 可控。默认确定性空列表（无 orphan）：phase 1779 后 enumerate 是
 // fail-closed spawn gate，call-through 真实 pgrep 会让无 pgrep/受限环境下全部
 // happy-path 用例以 ProcessListUnavailable 误失败（2026-09-07 验证事故）。
@@ -42,8 +46,6 @@ vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
   return {
     ...actual,
-    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
-      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
     findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
@@ -69,7 +71,11 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     overrides: Partial<ProcessManagerContext> = {},
     audit: ProcessManagerContext['audit'] = makeAudit().audit,
   ): ProcessManagerContext {
-    return {
+    const legacyStartTime = (overrides as unknown as {
+      getProcessStartTime?: (pid: number) => Parameters<typeof makeProcessRefCaptureForTest>[1];
+    }).getProcessStartTime;
+    return installLegacyProcessRefInspector({
+      captureProcessRef: (pid: number) => makeProcessRefCaptureForTest(pid, legacyStartTime?.(pid)),
       fs: nodeFs,
       audit,
       isReady: () => true,
@@ -78,7 +84,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
       spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: FAKE_LIVE_PID }),
       getProcessStartTime: vi.fn().mockReturnValue(undefined),
       ...overrides,
-    };
+    });
   }
 
   function failPidWrites(): void {
@@ -118,7 +124,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     const clawId = `test-claw-spawn-fail-kill-${randomUUID()}`;
     const daemonDir = testClawDaemonDir(tempDir, clawId);
 
-    const ctx = makeCtx({ isReady: () => false, l1IsAlive: vi.fn().mockReturnValue(false) });
+    const ctx = makeCtx({ isReady: () => false, l1IsAlive: vi.fn().mockReturnValue(true) });
 
     // 让 child PID 持久化失败 → 触发 cleanup kill 路径
     failPidWrites();

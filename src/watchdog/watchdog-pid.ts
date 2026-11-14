@@ -1,24 +1,21 @@
 /**
  * @module L6.Watchdog.Pid
- * PID file management — 0 module state 依赖（仅 fs）
+ * PID file management — persisted identity is decoded/inspected by ProcessExec.
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { formatErr } from "../foundation/node-utils/index.js";
+import { formatErr } from '../foundation/node-utils/index.js';
+export { _setPidArgvVerifierForTest } from './process-capabilities.js';
 import { getChestnutFs } from './watchdog-context.js';
-import type { ProcessTarget } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
 import {
-  _setPidArgvVerifierForTest,
-  observeWatchdogProcess,
-  watchdogProcessTarget,
-  WatchdogProcessObservationError,
-  type WatchdogProcessFact,
+  inspectWatchdogOwnerRecord,
+  inspectWatchdogProcessRef,
+  type WatchdogProcessRefInspection,
 } from './process-capabilities.js';
 import type { WatchdogProcessDeps } from './types.js';
-
-export { _setPidArgvVerifierForTest } from './process-capabilities.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
 import {
   inspectActive,
   currentLegacyParentRoot,
@@ -26,24 +23,43 @@ import {
   type WatchdogOwnerRecord,
 } from './watchdog-ownership.js';
 
-/** Ownership callers consume typed business facts; unknown is never reclaimable. */
-export function observeWatchdogOwner(
-  pid: number,
-  startTime?: string,
-  deps?: WatchdogProcessDeps,
-): WatchdogProcessFact {
-  return observeWatchdogProcess(pid, startTime, deps);
+export { inspectWatchdogOwnerRecord } from './process-capabilities.js';
+
+interface WatchdogInspectedMetadata {
+  source: 'active' | 'legacy';
+  pid: number;
+  workspaceRoot: string;
+  owner?: WatchdogOwnerRecord;
 }
 
-function isLiveChestnutWatchdog(pid: number, startTime?: string): boolean {
-  const fact = observeWatchdogOwner(pid, startTime);
-  if (fact.kind === 'indeterminate') throw new WatchdogProcessObservationError(fact);
-  return fact.kind === 'owner_active';
-}
+export type WatchdogOwnerInspection =
+  | { kind: 'none' }
+  | {
+      kind: 'malformed';
+      source: 'active' | 'legacy';
+      cause: unknown;
+      raw?: string;
+    }
+  | {
+      kind: 'unknown';
+      source: 'legacy';
+      reason: 'read_failed';
+      cause: unknown;
+    }
+  | (WatchdogInspectedMetadata & WatchdogProcessRefInspection);
 
-/** Backward-compatible boolean projection; indeterminate observations fail loud. */
-export function isWatchdogProcessAlive(pid: number, startTime?: string): boolean {
-  return isLiveChestnutWatchdog(pid, startTime);
+export class WatchdogOwnerInspectionError extends Error {
+  constructor(
+    readonly inspection: Extract<WatchdogOwnerInspection, { kind: 'unknown' | 'malformed' }>,
+  ) {
+    super(
+      `Watchdog owner inspection is ${inspection.kind}: ` +
+      `source=${inspection.source} reason=${formatErr(
+        inspection.kind === 'malformed' ? inspection.cause : inspection.reason,
+      )}`,
+    );
+    this.name = 'WatchdogOwnerInspectionError';
+  }
 }
 
 function auditMalformedActiveQuery(ctx: string, cause: unknown): void {
@@ -54,8 +70,6 @@ function auditMalformedActiveQuery(ctx: string, cause: unknown): void {
     `error=${auditWriter?.message(formatErr(cause)) ?? formatErr(cause)}`,
   );
 }
-
-import { isFileNotFound } from '../foundation/fs/index.js';
 
 // Phase 1203 Step E: runtime writer 已删除 —— 新版 Watchdog 运行期不创建/覆盖/更新
 // `watchdog.pid`；本文件只保留 legacy reader / migration / stop 兼容清理能力。
@@ -83,7 +97,11 @@ function validatePidShape(parsed: unknown): parsed is WatchdogPidShape {
   );
 }
 
-function backupCorruptPid(fsFactory: (baseDir: string) => FileSystem, _content: string, err: unknown): void {
+function backupCorruptPid(
+  fsFactory: (baseDir: string) => FileSystem,
+  _content: string,
+  err: unknown,
+): void {
   const fs = getChestnutFs(fsFactory);
   const backupPath = `watchdog.pid.corrupt-${Date.now()}`;
   let moveOk = true;
@@ -104,7 +122,7 @@ function backupCorruptPid(fsFactory: (baseDir: string) => FileSystem, _content: 
   );
 }
 
-/** 1:1 保 watchdog.ts:121-130；Phase 1203 Step B: active owner 优先、legacy watchdog.pid 为 fallback 边界 */
+/** 1:1 保 watchdog.ts:121-130；active owner 优先、legacy watchdog.pid 为 fallback。 */
 export function getWatchdogPid(fsFactory: (baseDir: string) => FileSystem): number | null {
   const fs = getChestnutFs(fsFactory);
   const inspection = inspectActive(fs);
@@ -114,23 +132,6 @@ export function getWatchdogPid(fsFactory: (baseDir: string) => FileSystem): numb
     return null;
   }
   return getLegacyWatchdogPid(fsFactory);
-}
-
-/** Resolve the persisted identity for Watchdog's control entry, not for CLI OS queries. */
-export function getWatchdogProcessTarget(
-  fsFactory: (baseDir: string) => FileSystem,
-): ProcessTarget | null {
-  const fs = getChestnutFs(fsFactory);
-  const inspection = inspectActive(fs);
-  if (inspection.status === 'ok') {
-    return watchdogProcessTarget(inspection.owner.pid, inspection.owner.process_start_time);
-  }
-  if (inspection.status === 'malformed') {
-    auditMalformedActiveQuery('control_target_query', inspection.cause);
-    throw new Error(`Cannot stop watchdog with malformed active owner: ${formatErr(inspection.cause)}`);
-  }
-  const pid = getLegacyWatchdogPid(fsFactory);
-  return pid === null ? null : watchdogProcessTarget(pid);
 }
 
 function getLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSystem): number | null {
@@ -160,8 +161,90 @@ function getLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSystem): numbe
   }
 }
 
-/** Phase 1203 Step B: generation guard — 仅当 legacy pid 文件属于本进程才删（防旧 generation 迟到 shutdown 删新 owner 镜像） */
-export function removeWatchdogPidIfOwner(fsFactory: (baseDir: string) => FileSystem, pid: number): void {
+function inspectLegacyWatchdogOwner(
+  fsFactory: (baseDir: string) => FileSystem,
+  deps?: WatchdogProcessDeps,
+): WatchdogOwnerInspection {
+  const fs = getChestnutFs(fsFactory);
+  let content: string;
+  try {
+    content = fs.readSync('watchdog.pid');
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'none' };
+    const auditWriter = getAuditWriter();
+    auditWriter?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+      'path=watchdog.pid',
+      `error=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`,
+    );
+    return { kind: 'unknown', source: 'legacy', reason: 'read_failed', cause: err };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    // silent: malformed legacy JSON is returned as typed evidence, not deleted.
+    return { kind: 'malformed', source: 'legacy', cause: error, raw: content };
+  }
+  if (!validatePidShape(parsed)) {
+    return { kind: 'malformed', source: 'legacy', cause: 'shape_mismatch', raw: content };
+  }
+  return {
+    source: 'legacy',
+    pid: parsed.pid,
+    workspaceRoot: parsed.root,
+    ...inspectWatchdogProcessRef({ version: 0, pid: parsed.pid }, parsed.pid, deps),
+  };
+}
+
+/** Public typed inspection for the persisted active owner or legacy fallback. */
+export function inspectWatchdogOwner(
+  fsFactory: (baseDir: string) => FileSystem,
+  deps?: WatchdogProcessDeps,
+): WatchdogOwnerInspection {
+  const active = inspectActive(getChestnutFs(fsFactory));
+  if (active.status === 'none') return inspectLegacyWatchdogOwner(fsFactory, deps);
+  if (active.status === 'malformed') {
+    return { kind: 'malformed', source: 'active', cause: active.cause };
+  }
+  return {
+    source: 'active',
+    pid: active.owner.pid,
+    workspaceRoot: active.owner.workspace_root,
+    owner: active.owner,
+    ...inspectWatchdogOwnerRecord(active.owner, deps),
+  };
+}
+
+/** Validate workspace policy after typed identity inspection; returns foreign=true. */
+export function assertWatchdogOwnerWorkspace(
+  inspection: Exclude<WatchdogOwnerInspection, { kind: 'none' | 'malformed' }>,
+): boolean {
+  if (!('workspaceRoot' in inspection)) return false;
+  if (legacyParentMatchesInstance(inspection.workspaceRoot)) return false;
+  if (inspection.kind === 'alive') {
+    const currentRoot = currentLegacyParentRoot();
+    getAuditWriter()?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
+      `foreign_pid=${inspection.pid}`,
+      `foreign_root=${inspection.workspaceRoot}`,
+      `current_root=${currentRoot}`,
+    );
+    throw new WatchdogPidForeignWorkspaceError(
+      inspection.pid,
+      inspection.workspaceRoot,
+      currentRoot,
+    );
+  }
+  return true;
+}
+
+/** Phase 1203 Step B: generation guard — 仅当 legacy pid 文件属于本进程才删。 */
+export function removeWatchdogPidIfOwner(
+  fsFactory: (baseDir: string) => FileSystem,
+  pid: number,
+): void {
   try {
     const fs = getChestnutFs(fsFactory);
     const parsed: unknown = JSON.parse(fs.readSync('watchdog.pid'));
@@ -186,16 +269,11 @@ type LegacyPidDisposition =
   | { kind: 'indeterminate'; cause: unknown }
   | { kind: 'unreadable'; cause: unknown };
 
-/**
- * legacy `watchdog.pid` 处置边界（仅在无 active owner 时由 candidate 调用）。
- * - live（同 workspace / PID-reuse 已 argv 检）→ 保守阻止接管；
- * - foreign live → foreign_live（caller fail-loud）；
- * - dead / PID-reuse / foreign dead → 保留证据迁移到 `watchdog/retired/legacy-<pid>/owner.json` 后放行；
- * - corrupt → 走既有 `watchdog.pid.corrupt-<ts>` quarantine 后放行。
- * legacy 文件不得直接删除；migration destination 由 pid 稳定派生（不用当前时间），
- * 两个 migrator 产生同一 destination、rename 单 winner。
- */
-export function disposLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSystem): LegacyPidDisposition {
+/** Legacy disposal consumes the same L1 v0 decoder/inspector as active schema 1. */
+export function disposLegacyWatchdogPid(
+  fsFactory: (baseDir: string) => FileSystem,
+  deps?: WatchdogProcessDeps,
+): LegacyPidDisposition {
   const fs = getChestnutFs(fsFactory);
   let content: string;
   try {
@@ -205,10 +283,9 @@ export function disposLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSyst
     const auditWriter = getAuditWriter();
     auditWriter?.write(
       WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
-      `path=watchdog.pid`,
+      'path=watchdog.pid',
       `error=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`,
     );
-    // 读不出 = 不能证明 dead → fail-closed 阻止接管
     return { kind: 'unreadable', cause: err };
   }
   let parsed: unknown;
@@ -222,22 +299,20 @@ export function disposLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSyst
     backupCorruptPid(fsFactory, content, 'shape_mismatch');
     return { kind: 'migrated' };
   }
-  // Phase 1930 Step B：磁盘 root 语义是实例父目录，经 ownership owner 的私有适配
-  // 转成实例身份再比较（相对历史记录 fail-closed，不猜当前 cwd）。
-  const fact = observeWatchdogOwner(parsed.pid);
-  if (fact.kind === 'indeterminate') return { kind: 'indeterminate', cause: fact.observation };
-  if (!legacyParentMatchesInstance(parsed.root)) {
-    if (fact.kind === 'owner_active') {
+
+  const sameWorkspace = legacyParentMatchesInstance(parsed.root);
+  const fact = inspectWatchdogProcessRef({ version: 0, pid: parsed.pid }, parsed.pid, deps);
+  if (fact.kind === 'unknown') return { kind: 'indeterminate', cause: fact };
+  if (!sameWorkspace) {
+    if (fact.kind === 'alive') {
       return { kind: 'foreign_live', pid: parsed.pid, root: parsed.root };
     }
     return migrateDeadLegacyPid(fsFactory, parsed.pid, parsed.root);
   }
-  if (fact.kind === 'owner_active') return { kind: 'live', pid: parsed.pid };
-  // dead 或 PID-reuse（argv 不符 = 进程位被无关进程占用）
+  if (fact.kind === 'alive') return { kind: 'live', pid: parsed.pid };
   return migrateDeadLegacyPid(fsFactory, parsed.pid, parsed.root);
 }
 
-/** dead legacy 迁移：move 原始文件为不可变证据；并发 migrator 单 winner；真 IO 失败 fail-closed */
 function migrateDeadLegacyPid(
   fsFactory: (baseDir: string) => FileSystem,
   pid: number,
@@ -248,12 +323,10 @@ function migrateDeadLegacyPid(
   try {
     fs.moveSync('watchdog.pid', dest);
   } catch (err) {
-    // 另一 migrator 已迁移（source 消失或 destination 已存在）→ 幂等收敛
     if (fs.existsSync(dest) || !fs.existsSync('watchdog.pid')) return { kind: 'migrated' };
     return { kind: 'unreadable', cause: formatErr(err) };
   }
-  const auditWriter = getAuditWriter();
-  auditWriter?.write(
+  getAuditWriter()?.write(
     WATCHDOG_AUDIT_EVENTS.OWNERSHIP_LEGACY_MIGRATED,
     `pid=${pid}`,
     `root=${root}`,
@@ -269,99 +342,43 @@ export class WatchdogPidForeignWorkspaceError extends Error {
   }
 }
 
-/** 1:1 保 watchdog.ts:132-149；Phase 1203 Step B: active owner 优先、legacy watchdog.pid 为 fallback 边界 */
-export function isWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boolean {
-  const fs = getChestnutFs(fsFactory);
-  const inspection = inspectActive(fs);
-  if (inspection.status === 'ok') return isActiveOwnerAlive(inspection.owner);
-  if (inspection.status === 'malformed') {
-    // fail-closed：不猜 owner、不 fallback legacy
-    auditMalformedActiveQuery('alive_query', inspection.cause);
-    return false;
-  }
-  return isLegacyWatchdogAlive(fsFactory);
-}
-
-function isActiveOwnerAlive(owner: WatchdogOwnerRecord): boolean {
-  const currentRoot = currentLegacyParentRoot();
-  if (!legacyParentMatchesInstance(owner.workspace_root)) {
-    if (isLiveChestnutWatchdog(owner.pid, owner.process_start_time)) {
-      const auditWriter = getAuditWriter();
-      auditWriter?.write(
-        WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
-        `foreign_pid=${owner.pid}`,
-        `foreign_root=${owner.workspace_root}`,
-        `current_root=${currentRoot}`,
-      );
-      throw new WatchdogPidForeignWorkspaceError(owner.pid, owner.workspace_root, currentRoot);
+/** Typed CLI liveness; unknown/malformed stays fail-loud and never starts/spawns. */
+export type WatchdogCliLiveness = 'alive' | 'not_running';
+export function inspectWatchdogLivenessForCli(
+  fsFactory: (baseDir: string) => FileSystem,
+  deps?: WatchdogProcessDeps,
+): WatchdogCliLiveness {
+  const inspection = inspectWatchdogOwner(fsFactory, deps);
+  if (inspection.kind === 'none') return 'not_running';
+  if (inspection.kind === 'malformed') {
+    if (inspection.source === 'active') {
+      auditMalformedActiveQuery('alive_query', inspection.cause);
+    } else {
+      backupCorruptPid(fsFactory, inspection.raw ?? '', inspection.cause);
     }
-    // foreign owner 已死：不删 active（目录 authority、recovery 走 retire），仅报死
-    return false;
+    throw new WatchdogOwnerInspectionError(inspection);
   }
-  return isLiveChestnutWatchdog(owner.pid, owner.process_start_time);
-}
+  const foreign = assertWatchdogOwnerWorkspace(inspection);
+  if (inspection.kind === 'unknown') throw new WatchdogOwnerInspectionError(inspection);
+  if (inspection.kind === 'alive') return 'alive';
 
-function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boolean {
-  const fs = getChestnutFs(fsFactory);
-  let content: string;
-  try {
-    content = fs.readSync('watchdog.pid');
-  } catch (err) {
-    // ENOENT silent (pid 文件不在 = watchdog 不在跑、合规)
-    if (isFileNotFound(err)) return false;
-    // 非 ENOENT IO 错 = silent 是反模式、必 audit + throw
-    const auditWriter = getAuditWriter();
-    // phase 580: 加 path forensic col、forensic 解析定位是哪个 pid file 读失败
-    auditWriter?.write(
-      WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
-      `path=watchdog.pid`,
-      `error=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`,
-    );
-    throw err;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (e) {
-    backupCorruptPid(fsFactory, content, e);
-    return false;
-  }
-  if (!validatePidShape(parsed)) {
-    backupCorruptPid(fsFactory, content, new Error('shape_mismatch'));
-    return false;
-  }
-  const currentRoot = currentLegacyParentRoot();
-  const fact = observeWatchdogOwner(parsed.pid);
-  if (fact.kind === 'indeterminate') throw new WatchdogProcessObservationError(fact);
-  if (!legacyParentMatchesInstance(parsed.root)) {
-    const auditWriter = getAuditWriter();
-    // foreign pid 已死（或被 OS 重用给无关进程）→ 清 stale；unknown 已在上方 fail-closed。
-    if (fact.kind === 'reclaimable') {
-      auditWriter?.write(
-        WATCHDOG_AUDIT_EVENTS.PID_STALE_AUTO_CLEANED,
-        `foreign_pid=${parsed.pid}`,
-        `foreign_root=${parsed.root}`,
-        `current_root=${currentRoot}`,
-      );
-      removeWatchdogPid(fsFactory);
-      return false;
-    }
-    auditWriter?.write(
-      WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
-      `foreign_pid=${parsed.pid}`,
-      `foreign_root=${parsed.root}`,
+  if (inspection.source === 'legacy' && foreign) {
+    const currentRoot = currentLegacyParentRoot();
+    getAuditWriter()?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_STALE_AUTO_CLEANED,
+      `foreign_pid=${inspection.pid}`,
+      `foreign_root=${inspection.workspaceRoot}`,
       `current_root=${currentRoot}`,
     );
-    throw new WatchdogPidForeignWorkspaceError(parsed.pid, parsed.root, currentRoot);
-  }
-  if (fact.kind === 'reclaimable' && fact.reason === 'identity_changed') {
+    removeWatchdogPid(fsFactory);
+  } else if (inspection.source === 'legacy' && inspection.reason === 'identity_changed') {
     getAuditWriter()?.write(
       WATCHDOG_AUDIT_EVENTS.PID_REUSE_DETECTED,
-      `pid=${parsed.pid}`,
-      `root=${parsed.root}`,
-      `context=isWatchdogAlive`,
+      `pid=${inspection.pid}`,
+      `root=${inspection.workspaceRoot}`,
+      'context=isWatchdogAlive',
     );
     removeWatchdogPid(fsFactory);
   }
-  return fact.kind === 'owner_active';
+  return 'not_running';
 }

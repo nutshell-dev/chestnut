@@ -45,7 +45,6 @@ vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => ({
 vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>()),
   createProcessManagerForCLI: vi.fn(() => ({
-    isAlive: vi.fn(() => false),
     liveness: vi.fn(() => ({ kind: 'absent', reason: 'missing_active' })),
   })),
 }));

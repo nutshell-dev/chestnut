@@ -13,6 +13,7 @@ import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { ClawNotifyIntent } from '../../../foundation/messaging/index.js';
+import type { LivenessResult } from '../../../foundation/process-manager/index.js';
 import type { TopologyEventSink } from '../types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../audit-events.js';
@@ -39,8 +40,8 @@ interface NotifyClawDeps {
   authorized?: boolean;
   /** phase 1864 Step I（CT-D12）：最小 sink（NOTIFY_CLAW_* / topology violation 行 emit）。 */
   sink: TopologyEventSink;
-  isClawAlive: (clawId: string) => boolean; // phase 232: status hint callback
-  formatClawStatusHint: (clawName: string, isAlive: boolean) => string | undefined; // phase 232: M#1 single source
+  clawLiveness: (clawId: string) => LivenessResult; // typed status hint callback；core 不依赖 CLIProtocol
+  formatClawStatusHint: (clawName: string, liveness: LivenessResult) => string | undefined; // phase 232: M#1 single source
   clawExists: (clawId: string) => boolean; // phase 241: exist check callback
   hasActiveContract: (clawId: string) => boolean; // phase 241: active contract hint callback
 }
@@ -168,11 +169,11 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       // hint queries (best-effort, separate try/catch)
       const hints: string[] = [];
       try {
-        const isAlive = deps.isClawAlive(to);
-        const statusHint = deps.formatClawStatusHint(to, isAlive);
+        const liveness = deps.clawLiveness(to);
+        const statusHint = deps.formatClawStatusHint(to, liveness);
         if (statusHint) hints.push(statusHint);
-        // phase 241: active contract hint — alive but no active contract → remind caller
-        if (isAlive && !deps.hasActiveContract(to)) {
+        // phase 241: active contract hint — confirmed alive but no active contract → remind caller
+        if (liveness.kind === 'alive' && !deps.hasActiveContract(to)) {
           hints.push(`No active contract for "${to}". Ask claw to reply via send tool in message body.`);
         }
       } catch (hintErr) {

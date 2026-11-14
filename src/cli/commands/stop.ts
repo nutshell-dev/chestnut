@@ -13,7 +13,12 @@ import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
 import { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from '../../foundation/process-manager/index.js';
-import { kill, isPidArgvMatching, isAlive, ProcessListUnavailable } from '../../foundation/process-exec/index.js';
+import {
+  kill,
+  ProcessListUnavailable,
+  terminateProcessTarget,
+  observeProcessTargetWithLegacyProbeForTest,
+} from '../../foundation/process-exec/index.js';
 import { actionAuditFor, registerActionResource } from '../action-scope.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -30,7 +35,12 @@ interface StopCommandDeps {
 
 export async function stopAllCommand(
   deps: StopCommandDeps,
-  extraDeps?: { audit?: AuditLog; kill?: typeof kill; isPidArgvMatching?: typeof isPidArgvMatching; isAlive?: typeof isAlive },
+  extraDeps?: {
+    audit?: AuditLog;
+    kill?: typeof kill;
+    isPidArgvMatching?: (pid: number, expectedToken: string) => boolean;
+    isAlive?: (pid: number, expectedStartTime?: string) => boolean;
+  },
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
 
@@ -63,7 +73,16 @@ export async function stopAllCommand(
 
   // 1b. phase 1269 sub-4: sweep orphan watchdogs (恢复 commit 4b5bf0b7 精确化版)
   const { sweepOrphanWatchdogs } = await import('../../watchdog/index.js');
-  const orphanSweep = await sweepOrphanWatchdogs(deps.fsFactory, { excludePid: null });  // stop 不留任何
+  const orphanSweep = await sweepOrphanWatchdogs(deps.fsFactory, { excludePid: null }, {
+    kill: extraDeps?.kill,
+    ...(extraDeps?.isAlive !== undefined ? {
+      observeProcessTarget: (target: { pid: number }) =>
+        observeProcessTargetWithLegacyProbeForTest(target, {
+          legacyProbe: extraDeps.isAlive!,
+          argvMatch: (pid, token) => extraDeps.isPidArgvMatching?.(pid, token) ?? true,
+        }),
+    } : {}),
+  });  // stop 不留任何
   if (orphanSweep.killed.length > 0) {
     console.log(
       `Cleaned up ${orphanSweep.killed.length} orphan watchdog process(es): ${orphanSweep.killed.join(', ')}`,
@@ -92,7 +111,9 @@ export async function stopAllCommand(
   // phase 355 C2 (review-2026-06-13): partial-stop failure 在循环末
   // throw CliError、让 wrapper 真退非 0、不再 console.warn 静默 + 后续 return success。
   // 收集 failed 列表后延到 cleanup 之后 throw（保留 marker 写 / orphan cleanup 等业务）。
-  const running = clawNames.filter(name => pm.isAlive(resolveClawDaemonDir(makeClawId(name))));
+  // Do not prefilter through a boolean probe: typed stop handles not_running and
+  // preserves unknown/malformed evidence instead of skipping a live process.
+  const running = clawNames;
   let stopFailed: string[] = [];
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
@@ -149,10 +170,10 @@ export async function stopAllCommand(
     const daemonEntryPath = resolveDaemonEntry();
     let pids: number[] = [];
     try {
-      pids = pm.findProcesses(daemonEntryPath);
+      pids = pm.findProcessesSyncForCli(daemonEntryPath);
     } catch (err) {
       if (err instanceof ProcessListUnavailable) {
-        // audit 已由 findProcesses 写；降级：跳过孤儿清理
+        // audit 已由 findProcessesSyncForCli 写；降级：跳过孤儿清理
       } else {
         throw err;
       }
@@ -160,62 +181,41 @@ export async function stopAllCommand(
     if (pids.length > 0) {
       console.log(`Cleaning up ${pids.length} orphan daemon process(es)...`);
       const killFn = extraDeps?.kill ?? kill;
-      const isPidArgvMatchingFn = extraDeps?.isPidArgvMatching ?? isPidArgvMatching;
-      const isAliveFn = extraDeps?.isAlive ?? isAlive;
-      const remaining: number[] = [];
       for (const p of pids) {
-        // phase 422 Step A (review medium orphan-cleanup uniformity): SIGTERM 前
-        // 二次 argv-verify、防 findProcesses → kill 间 PID race window 误杀
-        // shell/editor。mirror orphan-sweep.ts:74,101 pattern。
-        if (!isPidArgvMatchingFn(p, daemonEntryPath)) {
+        const outcome = await terminateProcessTarget({ pid: p, argvToken: daemonEntryPath }, {
+          graceMs: DAEMON_SHUTDOWN_GRACE_MS,
+          confirmMs: SIGKILL_DEAD_VERIFY_GRACE_MS,
+          pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
+        }, {
+          signal: killFn,
+          ...(extraDeps?.isAlive !== undefined ? {
+            observeTarget: (target: { pid: number; argvToken?: string }) =>
+              observeProcessTargetWithLegacyProbeForTest(target, {
+                legacyProbe: extraDeps.isAlive!,
+                argvMatch: (pid, token) => extraDeps.isPidArgvMatching?.(pid, token) ?? true,
+              }),
+          } : {}),
+        });
+        if (outcome.kind === 'gone') continue;
+        if (outcome.kind === 'indeterminate' && outcome.stage === 'sigterm') {
           audit?.write(
             PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
             `pid=${p}`,
             `context=stop_all_orphan_cleanup`,
-            `reason=argv_verify_failed`,
+            `reason=${formatErr(outcome.error)}`,
           );
           continue;
         }
-        try {
-          killFn(p, 'TERM');
-        } catch (err) {
-          audit?.write(
-            PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
-            `pid=${p}`,
-            `context=stop_all_orphan_cleanup`,
-            `reason=${formatErr(err)}`,
-          );
-          continue;
-        }
-        remaining.push(p);
-      }
-
-      // phase 804: poll for SIGTERM effect, escalate to SIGKILL, then verify death
-      if (remaining.length > 0) {
-        const deadline = Date.now() + DAEMON_SHUTDOWN_GRACE_MS;
-        let alivePids = [...remaining];
-        while (alivePids.length > 0 && Date.now() < deadline) {
-          await new Promise(resolve => setTimeout(resolve, PROCESS_STOP_POLL_INTERVAL_MS));
-          alivePids = alivePids.filter(p => isAliveFn(p));
-        }
-
-        if (alivePids.length > 0) {
-          console.log(`  ${alivePids.length} orphan(s) still alive, sending SIGKILL...`);
-          for (const p of alivePids) {
-            try { killFn(p, 'KILL'); } catch { /* silent: process already dead, race between poll and kill */ }
-          }
-          await new Promise(resolve => setTimeout(resolve, SIGKILL_DEAD_VERIFY_GRACE_MS));
-
-          const finalSurvivors = alivePids.filter(p => isAliveFn(p));
-          if (finalSurvivors.length > 0) {
-            console.warn(`  WARNING: ${finalSurvivors.length} orphan(s) survived SIGKILL: ${finalSurvivors.join(', ')}`);
-            audit?.write(
-              PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_PARTIAL,
-              `pids=${finalSurvivors.join(',')}`,
-              `context=stop_all_orphan_sigkill_survived`,
-            );
-          }
-        }
+        const stage = outcome.kind === 'still_alive' ? 'confirm' : outcome.stage;
+        audit?.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_PARTIAL,
+          `pids=${p}`,
+          `context=${outcome.kind === 'still_alive' ? 'stop_all_orphan_sigkill_survived' : 'stop_all_orphan_cleanup'}`,
+          `stage=${stage}`,
+          `reason=${outcome.kind === 'still_alive' ? 'process_survived_sigkill' : formatErr(outcome.error)}`,
+          `evidence=${JSON.stringify(outcome.evidence)}`,
+        );
+        console.warn(`  WARNING: orphan ${p} termination was not confirmed (${outcome.kind})`);
       }
     }
   } catch (err) {

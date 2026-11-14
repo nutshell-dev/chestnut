@@ -41,7 +41,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     const correctFs = new NodeFileSystem({ baseDir: chestnutDir });
     const tool = createNotifyClawTool({
       formatClawStatusHint,
-      isClawAlive: () => true,
+      clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       clawExists: () => { throw new Error('drift detected'); },
       hasActiveContract: () => false,
       defaultSource: 'motion',
@@ -73,7 +73,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
 
     const tool = createNotifyClawTool({
       formatClawStatusHint,
-      isClawAlive: () => true,
+      clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       clawExists: () => true,
       hasActiveContract: () => false,
       defaultSource: 'motion',
@@ -98,7 +98,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
 
     const tool = createNotifyClawTool({
       formatClawStatusHint,
-      isClawAlive: () => true,
+      clawLiveness: () => ({ kind: 'alive', pid: 123 }),
       clawExists: () => false,
       hasActiveContract: () => false,
       defaultSource: 'motion',

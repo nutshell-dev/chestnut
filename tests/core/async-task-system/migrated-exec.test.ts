@@ -28,7 +28,9 @@ import { makeExecContext } from '../../helpers/exec-context.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import { getProcessStartTime, isAlive, ProcessExecError, PROCESS_EXEC_DEFAULT_TIMEOUT_MS, resolveHostCommand, type ExecHandle, type ExecResult, type ExecutionIdentity } from '../../../src/foundation/process-exec/index.js';
+import { ProcessExecError, PROCESS_EXEC_DEFAULT_TIMEOUT_MS, resolveHostCommand, type ExecHandle, type ExecResult, type ExecutionIdentity } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
+import { isAlive } from '../../../src/foundation/process-exec/process-control.js';
 import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
 import { makeFullTaskId } from '../../../src/core/async-task-system/types.js';
@@ -300,7 +302,7 @@ describe('createAsyncExecWrapper', () => {
     await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
-    // Result file is written by the background chain once the process exits (persistence uses fullId).
+    // The durable result file exists from identity checkpoint and is updated by the replaying subscription.
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     expect(await fs.stat(resultFile).then(() => true).catch(() => false)).toBe(true);
 
@@ -403,6 +405,12 @@ describe('createAsyncExecWrapper', () => {
     await waitUntilGone(runningFile, 5000);
 
     const exitMarker = JSON.parse(await fs.readFile(exitMarkerFile, 'utf-8'));
+    expect(exitMarker).toMatchObject({
+      version: 1,
+      taskId: fullId,
+      classification: 'success',
+      exitCode: 0,
+    });
     expect(typeof exitMarker.completedAt).toBe('string');
   });
 
@@ -456,6 +464,13 @@ describe('createAsyncExecWrapper', () => {
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('partial');
     expect(output).toMatch(/Process exited with error/i);
+    const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+    expect(exitRecord).toMatchObject({
+      version: 1,
+      taskId: fullId,
+      classification: 'nonzero_exit',
+      exitCode: 1,
+    });
   });
 
   it('should only expose async wrapper in full profile', () => {
@@ -1620,6 +1635,15 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     // no degradation to `exited with error`.
     expect(output).toContain(`[Process timed out: Migrated process timed out after ${HARD_TIMEOUT_MS}ms]`);
     expect(output).not.toContain('exited with error');
+    const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+    expect(exitRecord).toMatchObject({
+      version: 1,
+      taskId: fullId,
+      classification: 'timeout',
+      exitCode: null,
+      termination: { status: 'gone', trigger: 'timeout' },
+    });
+    expect(exitRecord.evidence).toEqual({ version: 1, atMs: expect.any(Number), facts: [] });
 
     const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
     expect(termEvents.length).toBe(1);
@@ -1661,7 +1685,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
       await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + 50); // migrate
       const result = await resultP;
       expect(result.success).toBe(true);
-      expect(captured.subscriptionOptions).toEqual([{ replay: true }, undefined]);
+      expect(captured.subscriptionOptions).toEqual([{ replay: true }]);
       const fullId = result.metadata?.fullTaskId as string;
       const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
 
@@ -1673,6 +1697,14 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
       const output = await fs.readFile(resultFile, 'utf-8');
       expect(output).toMatch(/\[Process exited with error:/);
       expect(output).not.toContain('[Process timed out:');
+      const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+      expect(exitRecord).toMatchObject({
+        version: 1,
+        taskId: fullId,
+        classification: 'max_buffer',
+        exitCode: null,
+        termination: { status: 'gone', trigger: 'max_buffer' },
+      });
 
       // The structured termination fact survives under its own context.
       const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
@@ -1784,4 +1816,321 @@ describe('phase 1272 Step C: production 30s-default survival regression (real OS
     const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
   }, 60_000); // wall ~31s: command sleep + monitor/delivery slack
+});
+
+
+/** Phase 2146 B5: durable output/terminal records with a controlled L1 handle. */
+describe('phase 2146 B5: migrated exec persistence owner', () => {
+  interface ControlledHandle {
+    handle: ExecHandle;
+    identity: ExecutionIdentity;
+    subscribed: Promise<void>;
+    subscriptionOptions: Array<{ replay?: boolean } | undefined>;
+    resolve(result?: ExecResult): void;
+    reject(error: unknown): void;
+    stop(): Promise<void>;
+  }
+
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let audit: AuditLog;
+  let system: AsyncTaskSystem;
+  let sendToolResult: ReturnType<typeof vi.fn>;
+  let streamEvents: Array<Record<string, unknown>>;
+  let controlledHandles: ControlledHandle[];
+
+  function makeControlledHandle(earlyOutput?: string): ControlledHandle {
+    // A 1s keep-alive interval is long enough to cover each controlled test.
+    const KEEP_ALIVE_INTERVAL_MS = 1000;
+    const child = spawn(process.execPath, ['-e', `setInterval(() => {}, ${KEEP_ALIVE_INTERVAL_MS})`], {
+      cwd: tmpDir,
+      detached: true,
+      stdio: 'ignore',
+    });
+    const identity: ExecutionIdentity = { leaderPid: child.pid!, processGroupId: child.pid! };
+    const subscriptionOptions: Array<{ replay?: boolean } | undefined> = [];
+    const listeners = new Set<(chunk: Buffer) => void>();
+    let resolvePromise!: (result: ExecResult) => void;
+    let rejectPromise!: (error: unknown) => void;
+    let markSubscribed!: () => void;
+    const subscribed = new Promise<void>(resolve => { markSubscribed = resolve; });
+    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+    let stopPromise: Promise<void> | undefined;
+    const stop = (): Promise<void> => {
+      stopPromise ??= (async () => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        await exited;
+      })();
+      return stopPromise;
+    };
+    const promise = new Promise<ExecResult>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    });
+    const handle: ExecHandle = {
+      identity,
+      promise,
+      subscribeOutput: (listener, options) => {
+        subscriptionOptions.push(options);
+        listeners.add(listener);
+        if (options?.replay === true && earlyOutput !== undefined) listener(Buffer.from(earlyOutput));
+        markSubscribed();
+        return () => { listeners.delete(listener); };
+      },
+      detach: () => child.unref(),
+      terminate: async (trigger = 'caller_requested') => {
+        await stop();
+        return {
+          status: 'gone',
+          identity,
+          trigger,
+          termSent: false,
+          killSent: true,
+          completedAt: new Date().toISOString(),
+          evidence: { version: 1, atMs: Date.now(), facts: [{ source: 'controlled-handle' }] },
+        };
+      },
+    };
+    const controlled: ControlledHandle = {
+      handle,
+      identity,
+      subscribed,
+      subscriptionOptions,
+      resolve: (result = { output: '', stdout: '', stderr: '', exitCode: 0 }) => resolvePromise(result),
+      reject: error => rejectPromise(error),
+      stop,
+    };
+    controlledHandles.push(controlled);
+    return controlled;
+  }
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tmpDir = path.join(os.tmpdir(), `phase2146-b5-wrapper-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+    sendToolResult = vi.fn().mockResolvedValue(undefined);
+    streamEvents = [];
+    controlledHandles = [];
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
+      parentStreamLog: { write: entry => { streamEvents.push(entry); } },
+      sendToolResult,
+      sendFallbackResult: vi.fn().mockResolvedValue(undefined),
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    for (const controlled of controlledHandles) await controlled.stop();
+    vi.restoreAllMocks();
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('creates result.txt at identity checkpoint and persists replayed early output exactly once', async () => {
+    const controlled = makeControlledHandle('early-before-subscription\n');
+    let checkpointObserved = false;
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async args => {
+        args.onExecutionIdentity?.(controlled.identity);
+        const resultIds = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR));
+        expect(resultIds).toHaveLength(1);
+        const checkpointOutput = await fs.readFile(
+          path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, resultIds[0], 'result.txt'), 'utf-8',
+        );
+        expect(checkpointOutput).toBe('');
+        checkpointObserved = true;
+        return controlled.handle;
+      },
+      softTimeoutMs: 10_000,
+    });
+
+    const execution = tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir }),
+    );
+    await controlled.subscribed;
+    const [fullId] = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR));
+    const resultPath = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
+    expect(await fs.readFile(resultPath, 'utf-8')).toBe('early-before-subscription\n');
+
+    controlled.resolve({ output: 'early-before-subscription\n', stdout: 'early-before-subscription\n', stderr: '', exitCode: 0 });
+    const result = await execution;
+    expect(result.success).toBe(true);
+    expect(checkpointObserved).toBe(true);
+    expect(controlled.subscriptionOptions).toEqual([{ replay: true }]);
+    expect(await fs.readFile(resultPath, 'utf-8')).toBe('early-before-subscription\n');
+    const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+    expect(exitRecord).toMatchObject({ version: 1, taskId: fullId, classification: 'success', exitCode: 0 });
+  });
+
+  it('contains append failures inside the output callback and vetoes clean exit/done', async () => {
+    const controlled = makeControlledHandle('cannot-persist\n');
+    vi.spyOn(nodeFs, 'appendSync').mockImplementation(() => {
+      throw Object.assign(new Error('injected append EIO'), { code: 'EIO' });
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => controlled.handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const execution = tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir }),
+    );
+    await controlled.subscribed;
+    controlled.resolve({ output: 'cannot-persist\n', stdout: 'cannot-persist\n', stderr: '', exitCode: 0 });
+    const result = await execution;
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('Failed to persist migrated exec output');
+    const runningFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR));
+    expect(runningFiles.filter(name => name.endsWith('.json'))).toHaveLength(1);
+    const fullId = runningFiles.find(name => name.endsWith('.json'))!.replace(/\.json$/, '');
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(false);
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json')).then(() => true).catch(() => false)).toBe(false);
+    expect(sendToolResult).not.toHaveBeenCalled();
+  });
+
+  it('exit record write failure blocks delivery, terminal move, and completion event', async () => {
+    const controlled = makeControlledHandle();
+    let markExitWriteAttempt!: () => void;
+    const exitWriteAttempt = new Promise<void>(resolve => { markExitWriteAttempt = resolve; });
+    const realWriteAtomicSync = nodeFs.writeAtomicSync.bind(nodeFs);
+    vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation((file, content) => {
+      if (file.endsWith('exit.json')) {
+        markExitWriteAttempt();
+        throw Object.assign(new Error('injected exit ENOSPC'), { code: 'ENOSPC' });
+      }
+      return realWriteAtomicSync(file, content);
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => controlled.handle,
+      softTimeoutMs: 10,
+    });
+
+    const migrated = await tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir }),
+    );
+    expect(migrated.metadata).toMatchObject({ async: true, migrated: true });
+    const fullId = migrated.metadata?.fullTaskId as string;
+    controlled.resolve({ output: 'finished', stdout: 'finished', stderr: '', exitCode: 0 });
+    await exitWriteAttempt;
+    await Promise.resolve();
+
+    expect(sendToolResult).not.toHaveBeenCalled();
+    expect(streamEvents.some(entry => entry.type === 'task_started')).toBe(true);
+    expect(streamEvents.some(entry => entry.type === 'task_completed')).toBe(false);
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(true);
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(false);
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json')).then(() => true).catch(() => false)).toBe(false);
+  });
+
+  it.each([
+    { classification: 'nonzero_exit', exitCode: 23, signal: undefined, trigger: undefined, maxBufferExceeded: false },
+    { classification: 'timeout', exitCode: null, signal: 'SIGTERM', trigger: 'timeout', maxBufferExceeded: false },
+    { classification: 'max_buffer', exitCode: null, signal: 'SIGTERM', trigger: 'max_buffer', maxBufferExceeded: true },
+  ] as const)('persists a task-bound $classification ProcessExecError record with available evidence', async fixture => {
+    const controlled = makeControlledHandle();
+    const evidence = { version: 1 as const, atMs: 1234, facts: [{ fixture: fixture.classification }] };
+    const error = new ProcessExecError({
+      message: `injected ${fixture.classification}`,
+      output: 'partial',
+      exitCode: fixture.exitCode,
+      signal: fixture.signal,
+      stderr: 'raw stderr',
+      maxBufferExceeded: fixture.maxBufferExceeded,
+      evidence,
+      termination: fixture.trigger === undefined ? undefined : {
+        status: 'gone',
+        trigger: fixture.trigger,
+        termSent: true,
+        killSent: false,
+        identity: controlled.identity,
+        evidence,
+      },
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => controlled.handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const execution = tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir }),
+    );
+    await controlled.subscribed;
+    controlled.reject(error);
+    const result = await execution;
+    // A plain nonzero exit is a completed command (success=true); timeout and
+    // maxBuffer have exitCode=null and remain real tool failures.
+    expect(result.success).toBe(fixture.exitCode !== null);
+
+    const doneFiles = (await fs.readdir(path.join(tmpDir, TASKS_QUEUES_DONE_DIR))).filter(name => name.endsWith('.json'));
+    expect(doneFiles).toHaveLength(1);
+    const fullId = doneFiles[0].replace(/\.json$/, '');
+    const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+    expect(exitRecord).toMatchObject({
+      version: 1,
+      taskId: fullId,
+      classification: fixture.classification,
+      exitCode: fixture.exitCode,
+      stderr: 'raw stderr',
+      evidence,
+    });
+    expect(exitRecord.signal).toBe(fixture.signal);
+    if (fixture.trigger === undefined) {
+      expect(exitRecord.termination).toBeUndefined();
+    } else {
+      expect(exitRecord.termination).toMatchObject({
+        status: 'gone',
+        trigger: fixture.trigger,
+        identity: controlled.identity,
+      });
+    }
+  });
+
+  it('persists abort classification and termination evidence before moving to failed', async () => {
+    const controlled = makeControlledHandle();
+    const controller = new AbortController();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => controlled.handle,
+      softTimeoutMs: 10_000,
+    });
+
+    const execution = tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, signal: controller.signal }),
+    );
+    await controlled.subscribed;
+    controller.abort();
+    const result = await execution;
+    expect(result.success).toBe(false);
+
+    const [fullId] = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR));
+    const exitRecord = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'));
+    expect(exitRecord).toMatchObject({
+      version: 1,
+      taskId: fullId,
+      classification: 'abort',
+      exitCode: null,
+      termination: {
+        status: 'gone',
+        trigger: 'abort',
+        identity: controlled.identity,
+        termSent: false,
+        killSent: true,
+      },
+      evidence: { version: 1, atMs: expect.any(Number), facts: [{ source: 'controlled-handle' }] },
+    });
+    expect(typeof exitRecord.termination.completedAt).toBe('string');
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(true);
+    expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(false);
+  });
 });

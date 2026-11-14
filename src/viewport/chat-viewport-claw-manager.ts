@@ -13,7 +13,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
-import type { DaemonDir } from '../foundation/process-manager/index.js';
+import type { DaemonDir, LivenessResult } from '../foundation/process-manager/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import { createChatViewportWatcher, type Watcher } from './chat-viewport-watcher.js';
 
@@ -22,8 +22,7 @@ interface ClawManagerDeps {
   fs: FileSystem;
   pm: {
     inspectSpawning: (daemonDir: DaemonDir) => { status: string; record?: { generation_id: string } };
-    // phase 1773: boolean convenience 注入（单一 liveness probe 的单行投影）
-    isAlive: (daemonDir: DaemonDir) => boolean;
+    liveness: (daemonDir: DaemonDir) => LivenessResult;
   };
   audit: AuditLog;
   isMotion: boolean;
@@ -307,18 +306,26 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
           track.isAlive = false;
         } else if (spawning.status === 'malformed') {
           track.daemonStatus = 'error';
-          track.isAlive = false;
         } else {
-          const alive = pm.isAlive(daemonDir);
-          track.isAlive = alive;
-          track.daemonStatus = alive ? 'running' : 'stopped';
+          const liveness = pm.liveness(daemonDir);
+          if (liveness.kind === 'alive') {
+            track.isAlive = true;
+            track.daemonStatus = 'running';
+          } else if (liveness.kind === 'dead' || liveness.kind === 'absent') {
+            track.isAlive = false;
+            track.daemonStatus = 'stopped';
+          } else {
+            // malformed/probe_unavailable = unknown：保留 track.isAlive 与既有流状态。
+            track.daemonStatus = 'error';
+          }
         }
       } catch (e) {
+        // silent: status read failures stay unknown and preserve the existing track.
         if (!isFileNotFound(e)) {
           process.stderr.write(`[viewport] status check failed: ${(e as Error).message}\n`);
         }
+        // 读取异常同样是 unknown，不得把现有 track reset 成 stopped。
         track.daemonStatus = 'error';
-        track.isAlive = false;
       }
       const loc2 = clawTopology.resolve(makeClawId(clawId));
       if (loc2.kind !== 'local') continue;

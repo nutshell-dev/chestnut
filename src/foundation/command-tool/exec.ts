@@ -92,11 +92,9 @@ function resolveExecArgs(
     : ctx.workspaceDir;
   const timeoutMs = toSafeNumber(args.timeoutMs);
   const deadlineAtMs = toSafeNumber(args.deadlineAtMs);
-  // phase 1986 Step G：每次 exec 注入调用者 agent 身份（主代理=claw id，子代理=task id）。
-  // 主代理路径从「默认继承」变为「显式 spread 父进程 env + marker」，语义等价、仅多一个变量；
-  // 既有 CHESTNUT_SUBAGENT_TASK_ID 行为保留。
+  // phase 1986 Step G：每次 exec 只授权调用者/subagent marker；
+  // 宿主 allowlist、PATH 与 Windows 大小写统一由 ProcessExec 构造。
   const env: Record<string, string> = {
-    ...process.env,
     [CALLER_AGENT_ID_ENV]: ctx.clawId,
     ...(ctx.subagentTaskId ? { CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId } : {}),
   };

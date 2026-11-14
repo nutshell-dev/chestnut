@@ -129,6 +129,7 @@ async function observeExistingLock(
   const processFacts: ProcessFacts = {};
   let target: unknown;
   let hasTarget = false;
+  let hasUnknownHolder = false;
   let at: unknown;
 
   if (isRecord(parsed) && parsed.lock_version === 2) {
@@ -137,11 +138,18 @@ async function observeExistingLock(
       if (parsed.holder.kind === 'reference') {
         target = parsed.holder.ref;
         hasTarget = true;
+      } else {
+        hasUnknownHolder = true;
       }
-    } else if (typeof parsed.at === 'number') {
-      // A malformed known-v2 envelope remains eligible only for independent lease
-      // takeover; it never falls back to legacy pid fields.
-      at = parsed.at;
+    } else {
+      if (typeof parsed.at === 'number') at = parsed.at;
+      // A malformed v2 holder still proves that this is not reference-free history.
+      // Never use its age to discard an owner whose reference cannot be decoded.
+      if (isRecord(parsed.holder)
+          && (parsed.holder.kind === 'reference' || parsed.holder.kind === 'unknown')) {
+        hasUnknownHolder = true;
+      }
+      // A malformed known-v2 envelope never falls back to legacy pid fields.
     }
   } else if (isRecord(parsed)) {
     at = parsed.at;
@@ -215,7 +223,10 @@ async function observeExistingLock(
     }
   }
 
-  const decision: LockDecision = isLeaseElapsed(lease)
+  const unknownReference = hasTarget && (
+    processFacts.decoded?.kind !== 'decoded' || processFacts.observed?.kind === 'unknown'
+  );
+  const decision: LockDecision = !hasUnknownHolder && !unknownReference && isLeaseElapsed(lease)
     ? { kind: 'takeover', reason: 'lease_elapsed' }
     : {
         kind: 'wait',

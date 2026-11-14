@@ -20,6 +20,7 @@ export interface GenerationFixtureOptions {
   generationId: string;
   pid: number;
   startTime?: string;
+  processRef?: string;
   parentPid?: number;
 }
 
@@ -38,6 +39,7 @@ function pidRecord(opts: GenerationFixtureOptions) {
     schema_version: 1,
     generation_id: opts.generationId,
     pid: opts.pid,
+    ...(opts.processRef ? { process_ref: opts.processRef } : {}),
     ...(opts.startTime ? { start_time: opts.startTime } : {}),
     created_at: new Date().toISOString(),
   };

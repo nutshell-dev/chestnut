@@ -25,7 +25,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 // Import the SUT *after* the mock is declared.
 import { getProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
-import { findByPattern } from '../../../src/foundation/process-exec/find-by-pattern.js';
+import { findByPatternSyncForCli } from '../../../src/foundation/process-exec/find-by-pattern.js';
 
 /**
  * Phase 948 site A — exec maxBuffer SIGTERM 后 pushChunk early return
@@ -109,11 +109,11 @@ describe('getProcessStartTime catch filter', () => {
 });
 
 /**
- * findByPattern tests
+ * findByPatternSyncForCli tests
  *
  * Covers degraded behaviour when the `ps` companion command fails.
  */
-describe('findByPattern', () => {
+describe('findByPatternSyncForCli', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('preserves ps failure as structured unavailable evidence', () => {
@@ -131,7 +131,7 @@ describe('findByPattern', () => {
 
     let failure: unknown;
     try {
-      findByPattern('node');
+      findByPatternSyncForCli('node');
     } catch (error) {
       failure = error;
     }

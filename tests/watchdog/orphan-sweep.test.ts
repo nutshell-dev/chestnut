@@ -13,7 +13,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { sweepOrphanWatchdogs } from '../../src/watchdog/orphan-sweep.js';  // phase 276: hoist 4 dyn imports
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
+const mockFindProcesses = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockKill = vi.hoisted(() => vi.fn());
 const mockIsAlive = vi.hoisted(() => vi.fn());
 const mockLivePids = vi.hoisted(() => new Set<number>());
@@ -52,9 +52,22 @@ vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
 
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
-    findProcesses: mockFindProcesses,
+    findProcessesAsync: mockFindProcesses,
   })),
 }));
+
+function processDeps(argvMatches = true) {
+  return {
+    kill: mockKill,
+    observeProcessTarget: (target: { pid: number }) => {
+      const evidence = { version: 1 as const, atMs: 0, facts: [] };
+      if (!mockIsAlive(target.pid)) return { kind: 'gone', reason: 'absent', evidence };
+      return argvMatches
+        ? { kind: 'alive', evidence }
+        : { kind: 'gone', reason: 'identity_changed', evidence };
+    },
+  };
+}
 
 describe('watchdog orphan sweep', () => {
   let tmpDir: string;
@@ -81,7 +94,7 @@ describe('watchdog orphan sweep', () => {
     setAuditWriter(auditWriter);
     auditSpy = vi.spyOn(auditWriter, 'write');
 
-    mockFindProcesses.mockReturnValue([]);
+    mockFindProcesses.mockResolvedValue([]);
     mockLivePids.clear();
     mockIsAlive.mockImplementation((pid: number) => mockLivePids.has(pid));
     mockKill.mockImplementation((pid: number) => { mockLivePids.delete(pid); });
@@ -100,10 +113,10 @@ describe('watchdog orphan sweep', () => {
       const pidFile = path.join(chestnutDir, 'watchdog.pid');
       fs.writeFileSync(pidFile, JSON.stringify({ pid: 1000, root: '/test/root' }));
 
-      mockFindProcesses.mockReturnValue([1000, 2000, 3000]);
+      mockFindProcesses.mockResolvedValue([1000, 2000, 3000]);
       [2000, 3000].forEach(pid => mockLivePids.add(pid));
 
-      const sweepPromise = sweepOrphanWatchdogs(fsFactory, {}, { kill: mockKill, isAlive: mockIsAlive });
+      const sweepPromise = sweepOrphanWatchdogs(fsFactory, {}, processDeps());
       await vi.advanceTimersByTimeAsync(1001);
       const outcome = await sweepPromise;
 
@@ -126,11 +139,11 @@ describe('watchdog orphan sweep', () => {
     vi.useFakeTimers();
     try {
 
-      mockFindProcesses.mockReturnValue([1000, 2000]);
+      mockFindProcesses.mockResolvedValue([1000, 2000]);
       [1000, 2000].forEach(pid => mockLivePids.add(pid));
 
       const sweepPromise = sweepOrphanWatchdogs(
-        fsFactory, { excludePid: null }, { kill: mockKill, isAlive: mockIsAlive },
+        fsFactory, { excludePid: null }, processDeps(),
       );
       await vi.advanceTimersByTimeAsync(1001);
       const outcome = await sweepPromise;
@@ -143,11 +156,9 @@ describe('watchdog orphan sweep', () => {
     }
   });
 
-  it('findProcesses throws → audit ORPHAN_SWEEP_FAILED phase=find + blocked outcome', async () => {
+  it('findProcessesAsync throws → audit ORPHAN_SWEEP_FAILED phase=find + blocked outcome', async () => {
 
-    mockFindProcesses.mockImplementation(() => {
-      throw new Error('pgrep failed');
-    });
+    mockFindProcesses.mockRejectedValue(new Error('pgrep failed'));
 
     const outcome = await sweepOrphanWatchdogs(fsFactory, {}, { kill: mockKill });
 
@@ -164,7 +175,7 @@ describe('watchdog orphan sweep', () => {
     vi.useFakeTimers();
     try {
 
-      mockFindProcesses.mockReturnValue([2000, 3000]);
+      mockFindProcesses.mockResolvedValue([2000, 3000]);
       [2000, 3000].forEach(pid => mockLivePids.add(pid));
       mockKill.mockImplementation((pid: number) => {
         if (pid === 2000) throw new Error('EPERM');
@@ -172,7 +183,7 @@ describe('watchdog orphan sweep', () => {
       });
 
       const sweepPromise = sweepOrphanWatchdogs(
-        fsFactory, { excludePid: null }, { kill: mockKill, isAlive: mockIsAlive },
+        fsFactory, { excludePid: null }, processDeps(),
       );
       await vi.advanceTimersByTimeAsync(1001);
       const outcome = await sweepPromise;
@@ -193,13 +204,11 @@ describe('watchdog orphan sweep', () => {
   });
 
   it('PID reuse is skipped before any signal', async () => {
-    mockFindProcesses.mockReturnValue([2000]);
+    mockFindProcesses.mockResolvedValue([2000]);
     mockLivePids.add(2000);
 
     const outcome = await sweepOrphanWatchdogs(fsFactory, { excludePid: null }, {
-      kill: mockKill,
-      isAlive: mockIsAlive,
-      isPidArgvMatching: vi.fn().mockReturnValue(false),
+      ...processDeps(false),
     });
 
     expect(outcome).toMatchObject({ kind: 'clear', killed: [], skipped: [2000] });
@@ -212,7 +221,7 @@ describe('watchdog orphan sweep', () => {
   });
 
   it('permission-denied observation stays blocked and never signals', async () => {
-    mockFindProcesses.mockReturnValue([2000]);
+    mockFindProcesses.mockResolvedValue([2000]);
     const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
     const outcome = await sweepOrphanWatchdogs(fsFactory, { excludePid: null }, {
       kill: mockKill,
@@ -230,13 +239,11 @@ describe('watchdog orphan sweep', () => {
   it('confirmation timeout is not reported as killed', async () => {
     vi.useFakeTimers();
     try {
-      mockFindProcesses.mockReturnValue([2000]);
+      mockFindProcesses.mockResolvedValue([2000]);
       mockLivePids.add(2000);
       mockKill.mockImplementation(() => {});
 
-      const pending = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, {
-        kill: mockKill, isAlive: mockIsAlive,
-      });
+      const pending = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, processDeps());
       await vi.advanceTimersByTimeAsync(2200);
       const outcome = await pending;
 

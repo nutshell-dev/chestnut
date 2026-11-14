@@ -26,6 +26,7 @@ import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 describe('readiness typed owner', () => {
   let tempDir: string;
@@ -44,12 +45,12 @@ describe('readiness typed owner', () => {
 
   function makeCtx(overrides?: Partial<ProcessManagerContext>): ProcessManagerContext {
     const { audit } = makeAudit();
-    return {
+    return installLegacyProcessRefInspector({
       fs: nodeFs,
       audit,
       l1IsAlive: vi.fn().mockReturnValue(true),
       ...overrides,
-    };
+    });
   }
 
   /** 包装真实 fs：指定文件名（ basename ）readSync 抛非 ENOENT 错误，模拟权限/IO 故障。 */
@@ -73,7 +74,9 @@ describe('readiness typed owner', () => {
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
     const result = readiness(ctx, daemonDir);
-    expect(result).toEqual({ kind: 'ready', generationId: 'gen-1', pid: process.pid });
+    expect(result).toMatchObject({
+      kind: 'ready', generationId: 'gen-1', pid: process.pid, evidence: { version: 1 },
+    });
     expect(isReady(ctx, daemonDir)).toBe(true);
   });
 
@@ -203,9 +206,11 @@ describe('readiness typed owner', () => {
       throw probeErr;
     });
 
-    const ctx = { fs: nodeFs, audit, l1IsAlive };
+    const ctx = installLegacyProcessRefInspector({ fs: nodeFs, audit, l1IsAlive });
     const result = readiness(ctx, daemonDir);
-    expect(result).toEqual({ kind: 'probe_unavailable', error: probeErr });
+    expect(result).toMatchObject({
+      kind: 'probe_unavailable', error: probeErr, evidence: { version: 1 },
+    });
     expect(isReady(ctx, daemonDir)).toBe(false);
 
     // readiness 与 isReady 各 probe 一次，各写一条事实；只要求至少一条、不误绑数量
@@ -218,7 +223,9 @@ describe('readiness typed owner', () => {
     const daemonDir = testClawDaemonDir(tempDir, 'not-alive');
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
-    expect(readiness(ctx, daemonDir)).toEqual({ kind: 'not_ready', reason: 'process_not_alive' });
+    expect(readiness(ctx, daemonDir)).toMatchObject({
+      kind: 'not_ready', reason: 'process_not_alive', evidence: { version: 1 },
+    });
     expect(isReady(ctx, daemonDir)).toBe(false);
   });
 });

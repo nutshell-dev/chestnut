@@ -23,7 +23,8 @@ import {
   type ProcessGenerationRecord,
 } from './generation.js';
 import type { ProcessManagerContext, DaemonDir } from './types.js';
-import type { ProcessStartTime } from '../process-exec/index.js';
+import type { ProcessRef, ProcessStartTime } from '../process-exec/index.js';
+import { observeProcessFact } from './process-facts.js';
 
 /** 激活失败阶段（typed 分类，与既有 reason 文案并存——caller 不做语义展开）。 */
 export type ChildActivationStage =
@@ -47,8 +48,10 @@ export interface ChildActivationInput {
   readonly generationId: string | undefined;
   /** 当前（child）进程 pid。 */
   readonly pid: number;
-  /** 当前（child）进程 start-time（平台不可得时 undefined）。 */
+  /** Legacy display evidence only; lifecycle checks use processRef/persisted ref. */
   readonly startTime: ProcessStartTime | undefined;
+  /** Opaque current-process identity captured through ProcessExec. */
+  readonly processRef?: ProcessRef;
   /**
    * Phase 1927 Step C：opaque 业务事实（PM 不解析不解释；业务 owner 的
    * ready 伴随事实，如 motion 已消费的 LLM 配置身份摘要）。写于 ready 事实
@@ -80,12 +83,16 @@ export async function activateChildGeneration(
   if (pidFact.record.pid !== pid) {
     return { kind: 'failed', stage: 'pid_mismatch', reason: 'spawning pid does not match current process' };
   }
-  if (
-    startTime !== undefined &&
-    pidFact.record.start_time !== undefined &&
-    pidFact.record.start_time !== startTime
-  ) {
-    return { kind: 'failed', stage: 'start_time_mismatch', reason: 'spawning startTime mismatch' };
+  const persistedIdentity = observeProcessFact(ctx, pidFact.record);
+  if (persistedIdentity.kind === 'unknown') {
+    return {
+      kind: 'failed',
+      stage: 'start_time_mismatch',
+      reason: `spawning process identity unavailable: ${persistedIdentity.reason}`,
+    };
+  }
+  if (persistedIdentity.kind !== 'alive') {
+    return { kind: 'failed', stage: 'start_time_mismatch', reason: 'spawning process identity mismatch' };
   }
   // Step F barrier：child 在写 ready / activate 前检查是否有绑定本 generation 的 stop intent。
   if (hasStopIntentForGeneration(ctx, daemonDir, generationId)) {
@@ -99,11 +106,15 @@ export async function activateChildGeneration(
       return { kind: 'failed', stage: 'business_fact_write_failed', reason: `business fact write failed: ${fact.kind}` };
     }
   }
-  const ready = await writeReadyFact(ctx, spawning.record, pid, startTime);
+  const ready = await writeReadyFact(ctx, spawning.record, pid, startTime, input.processRef);
   if (ready.kind !== 'written') {
     return { kind: 'failed', stage: 'ready_write_failed', reason: `ready fact write failed: ${ready.kind}` };
   }
-  const activation = activateGeneration(ctx, daemonDir, { generationId, pid, startTime });
+  const activation = activateGeneration(ctx, daemonDir, {
+    generationId,
+    pid,
+    ...(input.processRef !== undefined ? { processRef: input.processRef } : {}),
+  });
   if (activation.kind === 'activated' || activation.kind === 'already_active') {
     return { kind: 'activated', record: activation.record };
   }

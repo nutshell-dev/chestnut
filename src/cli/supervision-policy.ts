@@ -20,7 +20,7 @@
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { ensureWatchdog, isWatchdogAlive, createWatchdogActionAudit } from '../watchdog/index.js';
+import { ensureWatchdog, inspectWatchdogLivenessForCli, createWatchdogActionAudit } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
 import { createCliActionScope, setCurrentActionScope, registerActionResource, type CliActionScope } from './action-scope.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
@@ -59,7 +59,7 @@ async function executePolicy(
       const actionAudit = createWatchdogActionAudit(ctx.fsFactory);
       const scoped = registerActionResource('watchdog-action-audit', () => actionAudit.dispose());
       try {
-        isWatchdogAlive(ctx.fsFactory);
+        inspectWatchdogLivenessForCli(ctx.fsFactory);
       } finally {
         if (!scoped) actionAudit.dispose();
       }

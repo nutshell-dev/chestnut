@@ -553,10 +553,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 旧 PID 校正仅限非 motion；motion 已由 turn-state + heartbeat 完成 fail-closed 校验。
   if (!isMotion && turnTracker.isActive()) {
     try {
-      if (!pm.isAlive(resolveClawDaemonDir(options.clawId))) {
+      const liveness = pm.liveness(resolveClawDaemonDir(options.clawId));
+      if (liveness.kind === 'dead' || liveness.kind === 'absent') {
         turnTracker.forceReset();
       }
-      // spawning / io_error / corrupt → keep tracker (uncertain state)
+      // alive 保留 active turn；malformed/probe_unavailable/spawning/io_error → unknown 保留，不 reset。
     } catch (e) {
       if (!isFileNotFound(e)) {
         process.stderr.write(`[viewport] turn tracker PID read failed: ${(e as Error).message}\n`);

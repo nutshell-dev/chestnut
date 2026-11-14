@@ -35,7 +35,7 @@ const h = vi.hoisted(() => ({
   psCommand: vi.fn(),
   clawDaemonCommand: vi.fn(),
   ensureWatchdog: vi.fn(),
-  isWatchdogAlive: vi.fn(),
+  inspectWatchdogLivenessForCli: vi.fn(),
   createDirContext: vi.fn(),
   handleCliError: vi.fn(),
 }));
@@ -58,7 +58,7 @@ vi.mock('../../src/cli/commands/claw.js', () => ({
 vi.mock('../../src/cli/commands/claw-ps.js', () => ({ psCommand: h.psCommand }));
 vi.mock('../../src/cli/commands/claw-daemon.js', () => ({ clawDaemonCommand: h.clawDaemonCommand }));
 vi.mock('../../src/watchdog/ensure.js', () => ({ ensureWatchdog: h.ensureWatchdog }));
-vi.mock('../../src/watchdog/watchdog-pid.js', () => ({ isWatchdogAlive: h.isWatchdogAlive }));
+vi.mock('../../src/watchdog/watchdog-pid.js', () => ({ inspectWatchdogLivenessForCli: h.inspectWatchdogLivenessForCli }));
 vi.mock('../../src/foundation/audit/index.js', () => ({ createDirContext: h.createDirContext }));
 vi.mock('../../src/cli/errors.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/cli/errors.js')>();
@@ -81,7 +81,7 @@ describe('claw-router RootConfig 窄 DI', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     h.createDirContext.mockReturnValue({ audit: { write: vi.fn() } });
-    h.isWatchdogAlive.mockReturnValue(false);
+    h.inspectWatchdogLivenessForCli.mockReturnValue('not_running');
     // 与真实 handleCliError 同语义的最小实现（CliError → message + code；Error → 'Error:' + 1）。
     h.handleCliError.mockImplementation((error: unknown) => {
       if (error instanceof CliError) {

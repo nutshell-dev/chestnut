@@ -30,16 +30,20 @@ function enoent(targetPath: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`ENOENT: ${targetPath}`), { code: 'ENOENT' });
 }
 
-function queryFailureObservation(pid: number): ProcessRefObservation {
-  const cause = Object.assign(new Error('query backend unavailable'), { code: 'EIO' });
-  const error = Object.assign(new Error('signal0 EIO', { cause }), {
-    code: 'EIO',
+function unknownObservation(
+  pid: number,
+  reason: 'query_failed' | 'permission_denied' | 'identity_unverifiable' = 'query_failed',
+): ProcessRefObservation {
+  const code = reason === 'permission_denied' ? 'EPERM' : 'EIO';
+  const cause = Object.assign(new Error(`${reason}: ${code}`), { code });
+  const error = Object.assign(new Error(`signal0 ${code}`, { cause }), {
+    code,
     errno: -5,
     syscall: 'kill',
   });
   return {
     kind: 'unknown',
-    reason: 'query_failed',
+    reason,
     evidence: encodeProcessEvidence(NOW - 2, [
       {
         operation: 'inspect',
@@ -51,16 +55,22 @@ function queryFailureObservation(pid: number): ProcessRefObservation {
         operation: 'observe',
         outcome: {
           kind: 'unknown',
-          reason: 'query_failed',
+          reason,
           evidence: [
-            { operation: 'signal0', outcome: 'throw', error },
+            reason === 'identity_unverifiable'
+              ? { operation: 'signal0', outcome: 'alive' }
+              : { operation: 'signal0', outcome: 'throw', error },
             { operation: 'query_bytes', outcome: 'result', stdout: Buffer.from([0, 1, 255]) },
           ],
         },
       },
-      { operation: 'decision', outcome: { kind: 'unknown', reason: 'query_failed' } },
+      { operation: 'decision', outcome: { kind: 'unknown', reason } },
     ]),
   };
+}
+
+function queryFailureObservation(pid: number): ProcessRefObservation {
+  return unknownObservation(pid);
 }
 
 function goneObservation(pid: number): ProcessRefObservation {
@@ -250,10 +260,36 @@ describe('OutboxReader claim observation and recovery decisions', () => {
   });
 
   it.each([
+    { label: 'query failure', observed: unknownObservation(42) },
+    { label: 'EPERM', observed: unknownObservation(42, 'permission_denied') },
+    { label: 'alive but identity-unverifiable', observed: unknownObservation(42, 'identity_unverifiable') },
+  ])('retains an over-age v0 startTime=0 claim after $label with complete evidence', async ({ observed }) => {
+    vi.mocked(inspectProcessRef).mockReturnValue(observed);
+    const { fs, writes } = makeMockFs({ mtimeMs: NOW - THRESHOLD_MS });
+    const { audit } = makeAudit();
+
+    await new OutboxReader(fs, audit).init('/claw');
+
+    expect(fs.move).not.toHaveBeenCalled();
+    expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
+    const records = capturedRecords(writes);
+    const processFacts = { decoded: legacyReference(42), observed };
+    expect(records[0].process).toEqual(processFacts);
+    expect(records[1].process).toEqual(processFacts);
+    expect(records[1].process?.observed?.evidence).toEqual(observed.evidence);
+    expect(records[1].lease).toEqual({
+      thresholdMs: THRESHOLD_MS,
+      observedAtMs: NOW,
+      valueMs: NOW - THRESHOLD_MS,
+    });
+    expect(records[1].decision).toEqual({ kind: 'retain', reason: 'unknown' });
+  });
+
+  it.each([
     { label: 'zero startTime', rawName: 'cli_42_0_abc123_msg.md' },
     { label: 'PID-only token', rawName: 'cli_42_abc123_msg.md' },
-  ])('reclaims an over-age $label claim by lease without rewriting unknown as gone', async ({ rawName }) => {
-    const observed = queryFailureObservation(42);
+  ])('still reclaims an over-age $label claim by lease when its owner is alive', async ({ rawName }) => {
+    const observed = { kind: 'alive', evidence: { version: 1, atMs: NOW - 2, facts: [] } } as const;
     vi.mocked(inspectProcessRef).mockReturnValue(observed);
     const { fs, writes } = makeMockFs({ rawName, mtimeMs: NOW - THRESHOLD_MS });
     const { audit } = makeAudit();

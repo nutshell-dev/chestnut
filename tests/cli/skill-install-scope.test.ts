@@ -25,6 +25,7 @@ import { skillInstallUserCommand, skillInstallClawCommand } from '../../src/cli/
 import { skillListCommand } from '../../src/cli/commands/skill-list.js';
 import { CliError } from '../../src/cli/errors.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createSkillVersions, SkillSystem, type SkillVersions } from '../../src/foundation/skill-system/index.js';
 import { newUuid } from '../../src/foundation/node-utils/index.js';
@@ -375,12 +376,14 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     // 预置存活 watchdog owner（pid=本测试进程；NODE_ENV=test 旁路 argv 校验）
     const activeDir = path.join(tmpDir, '.chestnut', 'watchdog', 'active');
     fsSync.mkdirSync(activeDir, { recursive: true });
+    const identity = captureOwnedProcessRef(process.pid);
+    if (identity.kind !== 'captured') throw new Error('watchdog fixture identity unavailable');
     fsSync.writeFileSync(path.join(activeDir, 'owner.json'), JSON.stringify({
-      schema_version: 1,
+      schema_version: 2,
       attempt_id: newUuid(),
       owner_token: newUuid(),
       pid: process.pid,
-      process_start_time: 'test',
+      process_ref: identity.value,
       workspace_root: tmpDir,
       created_at: new Date().toISOString(),
     }));

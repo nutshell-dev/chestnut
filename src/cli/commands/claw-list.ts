@@ -51,7 +51,7 @@ function formatField(value: FieldValue): string {
 /** Internal claw entry populated for list rendering. */
 interface ClawEntry {
   name: string;
-  status: 'running' | 'stopped';
+  status: 'running' | 'stopped' | 'unknown';
   pid?: number | 'spawning';
   pidError?: string;
   lastActiveIso: string | null;
@@ -190,7 +190,10 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
       continue;
     }
     {
-      const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(entry)));
+      const liveness = processManager.liveness(resolveClawDaemonDir(makeClawId(entry)));
+      const status: ClawEntry['status'] = liveness.kind === 'alive'
+        ? 'running'
+        : liveness.kind === 'dead' || liveness.kind === 'absent' ? 'stopped' : 'unknown';
 
       const contractField = getContractStatus(clawFs);
       const lastContractField = getLatestContractTitle(clawFs);
@@ -217,7 +220,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
 
       claws.push({
         name: entry,
-        status: isRunning ? 'running' : 'stopped',
+        status,
         pid,
         pidError: pidField.kind === 'error' ? pidField.reason : undefined,
         contract: formatField(contractField),
@@ -263,7 +266,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
     const payload = {
       claws: claws.map(c => ({
         name: c.name,
-        status: c.status as 'running' | 'stopped',
+        status: c.status,
         pid: c.pid ?? null,
         contract: c.contract,
         outbox: c.outbox,
@@ -289,7 +292,9 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   console.log('─'.repeat(112));
 
   for (const claw of claws) {
-    const statusIcon = claw.status === 'running' ? '[running]' : '[stopped]';
+    const statusIcon = claw.status === 'running'
+      ? '[running]'
+      : claw.status === 'stopped' ? '[stopped]' : '[unknown]';
     const pidStr = claw.pidError ? 'err' : (claw.pid !== undefined ? String(claw.pid) : '-');
     console.log(`${claw.name.padEnd(20)} ${statusIcon.padEnd(12)} ${pidStr.padEnd(10)} ${claw.contract.padEnd(10)} ${String(claw.outbox).padEnd(8)} ${claw.lastActive.padEnd(10)} ${claw.lastContract.padEnd(30)}`);
   }
@@ -310,7 +315,9 @@ export function formatClawSummary(claw: ClawEntry, stats: ContractSubtaskStats |
   const pid = claw.pidError ? 'PID: err' : (claw.pid !== undefined ? `PID: ${claw.pid}` : 'PID: none');
 
   let daemonLine: string;
-  if (running) {
+  if (claw.status === 'unknown') {
+    daemonLine = `unknown · ${pid}`;
+  } else if (running) {
     if (ageMs < 5 * 60_000) {
       daemonLine = `running · last active ${age} ago · ${pid}`;
     } else {
@@ -330,9 +337,12 @@ export function formatClawSummary(claw: ClawEntry, stats: ContractSubtaskStats |
   if (claw.contract === 'active') {
     if (running) {
       lines.push(`  current: working on "${stats?.title ?? '(unknown)'}"`);
-    } else {
+    } else if (claw.status === 'stopped') {
       const activeTitle = stats?.title ?? '(unknown)';
       lines.push(`  current: ⚠ has active contract "${activeTitle}" but daemon is stopped — needs restart`);
+    } else {
+      const activeTitle = stats?.title ?? '(unknown)';
+      lines.push(`  current: has active contract "${activeTitle}" · daemon status unknown`);
     }
   } else {
     if (stats === null) {

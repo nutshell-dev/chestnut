@@ -291,14 +291,44 @@ describe('mclaim_ process-reference recovery with real NodeFS', () => {
   });
 
   it.each(CHANNELS.flatMap(channel => ([
-    { channel, captureKind: 'unknown' as const, stale: false },
-    { channel, captureKind: 'unknown' as const, stale: true },
-    { channel, captureKind: 'gone' as const, stale: false },
-    { channel, captureKind: 'gone' as const, stale: true },
+    { channel, stale: false },
+    { channel, stale: true },
+  ])))('$channel retains an unknown capture without using its mtime lease (stale=$stale)', async ({
+    channel,
+    stale,
+  }) => {
+    const claim = await seedClaim(channel, uncaptured('unknown'), { stale });
+
+    await initialize(channel);
+
+    expect(await mdFiles(claim.sourceDir)).toEqual([claim.rawName]);
+    expect(await fsAsync.readFile(claim.sourcePath, 'utf8')).toBe(claim.content);
+    expect(await mdFiles(claim.pendingDir)).toEqual([]);
+    const records = await observationRecords(channel);
+    expect(records.map(record => record.event)).toEqual(['claim_observed', 'decision']);
+    expect(records[0].process).toBeUndefined();
+    expect(records[0].claim).toEqual({ recordPath: claim.recordPath, raw: claim.raw });
+    expect(records[1].process).toBeUndefined();
+    expect(records[1].claim).toEqual({ recordPath: claim.recordPath, raw: claim.raw });
+    expect(records[1].decision).toEqual({ kind: 'retain', reason: 'unknown' });
+    if (channel === 'inbox') {
+      expect(records[1].lease).toBeUndefined();
+    } else {
+      expect(records[1].lease).toEqual({
+        thresholdMs: STALE_THRESHOLD_MS,
+        observedAtMs: NOW,
+        valueMs: stale ? NOW - STALE_MS : NOW,
+      });
+    }
+  });
+
+  it.each(CHANNELS.flatMap(channel => ([
+    { channel, stale: false },
+    { channel, stale: true },
   ])))(
-    '$channel uses only the mtime lease for $captureKind capture (stale=$stale)',
-    async ({ channel, captureKind, stale }) => {
-      const claim = await seedClaim(channel, uncaptured(captureKind), { stale });
+    '$channel keeps reference-free gone-capture history on the mtime lease (stale=$stale)',
+    async ({ channel, stale }) => {
+      const claim = await seedClaim(channel, uncaptured('gone'), { stale });
 
       await initialize(channel);
 
@@ -402,7 +432,7 @@ describe('mclaim_ process-reference recovery with real NodeFS', () => {
     expect(records[1].claim).toEqual({ recordPath: claim.recordPath, raw: claim.raw });
   });
 
-  it.each(CHANNELS)('%s reconciles reserved records alongside legacy filename formats', async channel => {
+  it.each(CHANNELS)('%s retains an unknown reserved record while reconciling legacy filename formats', async channel => {
     const claim = await seedClaim(channel, uncaptured('unknown'), {
       originalName: 'new.md',
       content: 'new descriptor content',
@@ -426,14 +456,18 @@ describe('mclaim_ process-reference recovery with real NodeFS', () => {
 
     await initialize(channel);
 
-    expect(await mdFiles(claim.sourceDir)).toEqual([]);
-    expect(await mdFiles(claim.pendingDir)).toEqual(['legacy.md', 'new.md', 'plain.md']);
-    expect(await fsAsync.readFile(claim.targetPath, 'utf8')).toBe('new descriptor content');
-    expect(await fsAsync.readFile(path.join(claim.pendingDir, 'legacy.md'), 'utf8')).toBe('legacy PID content');
+    const legacyRawName = channel === 'inbox'
+      ? `${process.pid}_0_legacy.md`
+      : `cli_${process.pid}_abc123_legacy.md`;
+    // The v0 legacy holder is also identity-unverifiable and must be retained.
+    expect(await mdFiles(claim.sourceDir)).toEqual([legacyRawName, claim.rawName]);
+    expect(await mdFiles(claim.pendingDir)).toEqual(['plain.md']);
+    await expect(fsAsync.stat(claim.targetPath)).rejects.toThrow();
+    await expect(fsAsync.stat(path.join(claim.pendingDir, 'legacy.md'))).rejects.toThrow();
     expect(await fsAsync.readFile(path.join(claim.pendingDir, 'plain.md'), 'utf8')).toBe('legacy no-PID content');
     const records = await observationRecords(channel);
     expect(records.find(record => record.rawName === claim.rawName && record.event === 'decision'))
-      .toMatchObject({ decision: { kind: 'reclaim', reason: 'lease_elapsed' } });
+      .toMatchObject({ decision: { kind: 'retain', reason: 'unknown' } });
     if (channel === 'inbox') {
       expect(claim.sourceDir).toBe(path.join(root, 'custom-inbox', 'held-messages'));
       expect(claim.recordPath).toBe(`${claim.sourceDir}-claims/${CLAIM_ID}/record.json`);

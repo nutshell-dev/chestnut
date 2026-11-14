@@ -47,7 +47,7 @@ function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {
 }
 const defaultDeps = {
     formatClawStatusHint,
-    isClawAlive: () => true,
+    clawLiveness: () => ({ kind: 'alive', pid: 123 }),
     clawExists: () => true,
     hasActiveContract: () => false,
     defaultSource: 'motion',
@@ -317,7 +317,7 @@ const defaultDeps = {
         notifyClaw: (targetClawId, intent) =>
           createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
         sink: audit.audit,
-        isClawAlive: () => { throw new Error('hint boom'); },
+        clawLiveness: () => { throw new Error('hint boom'); },
       });
       const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
 

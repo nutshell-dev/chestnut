@@ -23,7 +23,8 @@ describe('ProcessExec Signal type deep surface', () => {
     expect(processControlSource).toMatch(/KILL:\s*'SIGKILL',/);
     expect(processControlSource).toMatch(/INT:\s*'SIGINT',/);
     expect(processControlSource).toMatch(/export\s+function\s+kill\(pid:\s*number,\s*signal:\s*Signal\):\s*void\s*\{/);
-    expect(barrelSource).toMatch(/export\s*\{\s*kill,\s*isAlive\s*\}\s*from\s*'\.\/process-control\.js';/);
+    expect(barrelSource).toMatch(/export\s*\{\s*kill\s*\}\s*from\s*'\.\/process-control\.js';/);
+    expect(barrelSource).not.toMatch(/\bisAlive\b|\bgetProcessStartTime\b/);
     expect(barrelSource).not.toMatch(/\bSignal\b/);
   });
 });

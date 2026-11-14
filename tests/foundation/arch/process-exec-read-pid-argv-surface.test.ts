@@ -17,9 +17,7 @@ describe('ProcessExec argv observation surface', () => {
     expect(argvVerifySource).toMatch(
       /export\s+function\s+isPidArgvMatching\(pid:\s*number,\s*expectedToken:\s*string\):\s*boolean\s*\{[\s\S]*?observePidArgv\(pid,\s*expectedToken\)/,
     );
-    expect(barrelSource).toMatch(
-      /export\s*\{\s*isPidArgvMatching,\s*observePidArgv\s*\}\s*from\s*'\.\/argv-verify\.js';/,
-    );
-    expect(barrelSource).not.toMatch(/\breadPidArgv\b/);
+    expect(barrelSource).toMatch(/export\s*\{\s*observePidArgv\s*\}\s*from\s*'\.\/argv-verify\.js';/);
+    expect(barrelSource).not.toMatch(/\breadPidArgv\b|\bisPidArgvMatching\b/);
   });
 });

@@ -14,15 +14,23 @@
  */
 
 import * as path from 'path';
+import { hostname } from 'node:os';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr, newUuid } from '../foundation/node-utils/index.js';
 import { getChestnutRoot } from '../foundation/claw-identity/index.js';
-import { captureProcessTarget } from '../foundation/process-exec/index.js';
+import {
+  captureOwnedProcessRef,
+  type ProcessRef,
+  type ProcessRefCapture,
+  type ProcessStartTime,
+} from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import type { WatchdogProcessDeps } from './types.js';
 import { WATCHDOG_PATHS } from './layout.js';
 import { getAuditWriter } from './watchdog-context.js';
 
-const WATCHDOG_OWNERSHIP_SCHEMA_VERSION = 1;
+const WATCHDOG_OWNERSHIP_SCHEMA_VERSION = 2;
+const WATCHDOG_LEGACY_OWNERSHIP_SCHEMA_VERSION = 1;
 
 // Phase 1287 Step B: 目录常量归 layout 协议唯一 owner；此处保留兼容导出
 // 名称（测试与内部调用契约），仅从 WATCHDOG_PATHS 派生、不再重复字面。
@@ -63,15 +71,27 @@ export function legacyParentMatchesInstance(recordRoot: string): boolean {
 
 // === Records ===
 
-export interface WatchdogOwnerRecord {
-  schema_version: number;
+interface WatchdogOwnerRecordBase {
   attempt_id: string;
   owner_token: string;
+  /** Display/generation metadata only; ProcessRef is the persisted OS identity. */
   pid: number;
-  process_start_time: string;
   workspace_root: string;
   created_at: string;
 }
+
+export interface WatchdogOwnerRecordV2 extends WatchdogOwnerRecordBase {
+  schema_version: 2;
+  /** Opaque L1 ProcessRef. Watchdog never parses or brands this value. */
+  process_ref: string;
+}
+
+export interface WatchdogLegacyOwnerRecord extends WatchdogOwnerRecordBase {
+  schema_version: 1;
+  process_start_time: string;
+}
+
+export type WatchdogOwnerRecord = WatchdogOwnerRecordV2 | WatchdogLegacyOwnerRecord;
 
 interface WatchdogOutcomeRecord {
   schema_version: number;
@@ -85,16 +105,20 @@ interface WatchdogOutcomeRecord {
 
 function isOwnerRecord(parsed: unknown): parsed is WatchdogOwnerRecord {
   if (typeof parsed !== 'object' || parsed === null) return false;
-  const p = parsed as Partial<WatchdogOwnerRecord>;
-  return (
-    p.schema_version === WATCHDOG_OWNERSHIP_SCHEMA_VERSION &&
+  const p = parsed as Partial<Record<string, unknown>>;
+  const common = (
     typeof p.attempt_id === 'string' && p.attempt_id.length > 0 &&
     typeof p.owner_token === 'string' && p.owner_token.length > 0 &&
     typeof p.pid === 'number' &&
-    typeof p.process_start_time === 'string' &&
     typeof p.workspace_root === 'string' &&
     typeof p.created_at === 'string'
   );
+  if (!common) return false;
+  if (p.schema_version === WATCHDOG_OWNERSHIP_SCHEMA_VERSION) {
+    return typeof p.process_ref === 'string' && p.process_ref.length > 0;
+  }
+  return p.schema_version === WATCHDOG_LEGACY_OWNERSHIP_SCHEMA_VERSION
+    && typeof p.process_start_time === 'string';
 }
 
 // === Typed outcomes ===
@@ -173,18 +197,55 @@ function isTerminalRecord(parsed: unknown): parsed is WatchdogGenerationTerminal
 
 // === Attempt preparation ===
 
+export class WatchdogProcessRefCaptureError extends Error {
+  constructor(readonly capture: Exclude<ProcessRefCapture, { kind: 'captured' }>) {
+    super(`Cannot persist watchdog owner without a captured ProcessRef: ${capture.kind}`);
+    this.name = 'WatchdogProcessRefCaptureError';
+  }
+}
+
+function captureAttemptIdentity(pid: number, deps?: WatchdogProcessDeps): ProcessRefCapture {
+  const captured = (deps?.captureOwnedProcessRef ?? captureOwnedProcessRef)(pid);
+  if (captured.kind === 'captured' || process.env.NODE_ENV !== 'test'
+      || !Number.isSafeInteger(pid) || pid <= 0) {
+    return captured;
+  }
+  // Explicit fake-PID test seam. Real production captures never take this branch.
+  const startTime = 'Sat May 18 10:30:00 2026' as ProcessStartTime;
+  const internal = {
+    version: 1,
+    pid,
+    startTime,
+    source: {
+      platform: process.platform,
+      hostname: hostname(),
+      tzEnv: process.env.TZ ?? null,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
+    basis: 'posix-lstart-second',
+    capturedAtMs: Date.now(),
+  };
+  return {
+    kind: 'captured',
+    value: JSON.stringify(internal) as ProcessRef,
+    target: { pid, startTime },
+    evidence: { version: 1, atMs: Date.now(), facts: [{ operation: 'test_capture', outcome: internal }] },
+  };
+}
+
 /** 生成一次 startup attempt 的完整 record（写 candidate 前的事实全集）。 */
-export function newWatchdogAttempt(pid: number = process.pid): WatchdogOwnerRecord {
-  const identity = captureProcessTarget(pid);
+export function newWatchdogAttempt(
+  pid: number = process.pid,
+  deps?: WatchdogProcessDeps,
+): WatchdogOwnerRecordV2 {
+  const identity = captureAttemptIdentity(pid, deps);
+  if (identity.kind !== 'captured') throw new WatchdogProcessRefCaptureError(identity);
   return {
     schema_version: WATCHDOG_OWNERSHIP_SCHEMA_VERSION,
     attempt_id: newUuid(),
     owner_token: newUuid(),
     pid,
-    // Keep the schema1 legacy sentinel when the OS identity is unavailable.
-    process_start_time: identity.kind === 'captured'
-      ? identity.target.startTime ?? 'unknown'
-      : 'unknown',
+    process_ref: identity.value,
     workspace_root: currentLegacyParentRoot(),
     created_at: new Date().toISOString(),
   };

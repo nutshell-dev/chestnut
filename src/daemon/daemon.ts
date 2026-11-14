@@ -21,7 +21,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { captureCurrentProcessIdentity, subscribeHostExit } from '../foundation/process-exec/index.js';
+import { captureCurrentProcessRef, subscribeHostExit } from '../foundation/process-exec/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
@@ -260,7 +260,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       : undefined;
 
     try {
-      const identity = captureCurrentProcessIdentity();
+      const identity = captureCurrentProcessRef();
       if (identity.kind !== 'captured') {
         auditWriter.write(
           DAEMON_AUDIT_EVENTS.PROCESS_IDENTITY_UNKNOWN,
@@ -273,6 +273,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         generationId: processGenerationId,
         pid: process.pid,
         startTime: identity.kind === 'captured' ? identity.target.startTime : undefined,
+        processRef: identity.kind === 'captured' ? identity.value : undefined,
         businessFact: motionBusinessFact,
       });
       if (activationResult.kind !== 'activated') {

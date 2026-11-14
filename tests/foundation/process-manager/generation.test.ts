@@ -41,6 +41,7 @@ import {
 } from '../../../src/foundation/process-manager/generation.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 describe('process generation store (Phase 1204 Step A)', () => {
   let tempDir: string;
@@ -55,7 +56,7 @@ describe('process generation store (Phase 1204 Step A)', () => {
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     daemonDir = testClawDaemonDir(tempDir, 'gen-a');
     ({ audit, events } = makeAudit());
-    ctx = { fs: nodeFs, audit, getProcessStartTime: () => undefined };
+    ctx = installLegacyProcessRefInspector({ fs: nodeFs, audit, getProcessStartTime: () => undefined });
   });
 
   afterEach(async () => {

@@ -91,7 +91,6 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile,
-      env: { ...process.env },
     });
 
     expect(orphanQuery.calls).toEqual([`/fake/daemon-entry.js ${clawId}`]);
@@ -124,7 +123,6 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile,
-      env: { ...process.env },
     });
 
     expect(killSpy).toHaveBeenCalledWith(orphanPid, 'SIGTERM');
@@ -149,7 +147,6 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile,
-      env: { ...process.env },
     });
 
     expect(result).toBe(process.pid);

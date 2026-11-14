@@ -10,7 +10,7 @@ import type { ExecContext, Tool } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ExecHandle, ExecutionGroupTarget, ExecutionIdentity } from '../../foundation/process-exec/index.js';
+import type { ExecHandle, ExecutionGroupTarget, ExecutionIdentity, ExecutionTerminationFact, ExecutionTerminationOutcome } from '../../foundation/process-exec/index.js';
 import { captureExecutionTarget, ProcessExecError, resolveHostCommand } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs, AsyncMigrationPolicy } from '../../foundation/command-tool/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
@@ -27,6 +27,12 @@ import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { emitHandlerFailed, emitMigratedExecTermination } from './audit-emit.js';
 import type { ToolTask, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
 import { makeFullTaskId, taskShortId } from './types.js';
+import {
+  encodeMigratedExecResult,
+  type MigratedExecResultClassification,
+  type MigratedExecResultRecord,
+  type MigratedExecTerminationRecord,
+} from './migrated-exec-result.js';
 
 export interface AsyncExecWrapperParams {
   execWithHandle: (args: ExecWithHandleArgs, ctx: ExecContext) => Promise<ExecHandle>;
@@ -55,6 +61,21 @@ interface AsyncExecWrapperDeps {
 }
 
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
+
+function toTerminationRecord(
+  fact: ExecutionTerminationFact | ExecutionTerminationOutcome,
+): MigratedExecTerminationRecord {
+  return {
+    status: fact.status,
+    trigger: fact.trigger,
+    termSent: fact.termSent,
+    killSent: fact.killSent,
+    identity: fact.identity,
+    reason: fact.status === 'indeterminate' ? fact.reason : undefined,
+    completedAt: 'completedAt' in fact ? fact.completedAt : undefined,
+    checkedAt: 'checkedAt' in fact ? fact.checkedAt : undefined,
+  };
+}
 
 /** Migrated process hard timeout (ms). Process will be killed after this time. */
 export const ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -293,9 +314,47 @@ export function createAsyncExecWrapper(
         shortId = shortIdIndex.deriveShortId(fullId);
       } while (shortIdIndex.has(shortId));
 
+      const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${fullId}`;
+      const resultPath = path.join(resultDir, 'result.txt');
+      const exitPath = path.join(resultDir, 'exit.json');
       let task: ToolTask | undefined;
       let executionTarget: ExecutionGroupTarget | undefined;
       let checkpointError: unknown;
+      let checkpointErrorContext = 'identity_checkpoint';
+      let outputPersistenceError: unknown;
+      const auditOutputPersistenceFailure = (context: string, error: unknown): void => {
+        try {
+          emitHandlerFailed(auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: shortId,
+            context,
+            error: formatErr(error),
+          });
+        } catch { /* an output EventEmitter callback must never rethrow, including audit failures */ }
+      };
+      const appendOutput = (chunk: Buffer | string): void => {
+        try {
+          fs.appendSync(resultPath, chunk.toString());
+        } catch (err) {
+          if (outputPersistenceError === undefined) {
+            outputPersistenceError = err;
+            auditOutputPersistenceFailure('async_exec_wrapper_output_append', err);
+          }
+        }
+      };
+      const writeExitRecord = (record: MigratedExecResultRecord): boolean => {
+        try {
+          fs.writeAtomicSync(exitPath, encodeMigratedExecResult(record));
+          return true;
+        } catch (err) {
+          auditOutputPersistenceFailure('async_exec_wrapper_exit_record_write', err);
+          return false;
+        }
+      };
+      const outputPersistenceFailureResult = (): { success: false; content: string } => ({
+        success: false,
+        content: `Failed to persist migrated exec output: ${formatErr(outputPersistenceError)}`,
+      });
       const checkpointIdentity = (identity: ExecutionIdentity): void => {
         if (task !== undefined || checkpointError !== undefined) return;
         const capture = captureExecutionTarget(identity);
@@ -309,6 +368,13 @@ export function createAsyncExecWrapper(
             `${TASKS_QUEUES_RUNNING_DIR}/${candidate.id}.json`,
             JSON.stringify(candidate, null, 2),
           );
+          // The output artifact exists before L1 returns its handle. The single
+          // replaying subscription below owns all subsequent writes, including
+          // output emitted during the pre-soft-timeout window.
+          fs.ensureDirSync(resultDir);
+          checkpointErrorContext = 'output_initial_write';
+          fs.writeAtomicSync(resultPath, '');
+          checkpointErrorContext = 'identity_checkpoint';
           shortIdIndex.add(shortId, fullId);
           shortIdIndex.save();
           task = candidate;
@@ -326,15 +392,14 @@ export function createAsyncExecWrapper(
           }
           auditWriter.write(TASK_AUDIT_EVENTS.EXEC_IDENTITY_CHECKPOINTED, ...checkpointCols);
         } catch (err) {
-          // silent: deferred to the checkpointError branch immediately after execWithHandle returns;
-          // that branch terminates the execution group, audits termination, and returns structured failure
+          // Deferred to the checkpointError branch immediately after execWithHandle returns;
+          // that branch terminates the execution group, audits termination, and returns structured failure.
           checkpointError = err;
+          auditOutputPersistenceFailure(checkpointErrorContext, err);
         }
       };
 
-      let handle: ExecHandle;
-      let stopOutputCollection: (() => void) | undefined;
-      let partialOutput = '';
+      let handle: ExecHandle | undefined;
       let winner: Awaited<ReturnType<typeof raceHandle>>;
       try {
         handle = await execWithHandle(
@@ -379,17 +444,59 @@ export function createAsyncExecWrapper(
           };
         }
 
-        const collect = (chunk: Buffer): void => {
-          partialOutput += chunk.toString();
-        };
-        // Replay L1's bounded pre-subscription buffer into the durable migration
-        // snapshot; the later file listener stays live-only to avoid duplicates.
-        stopOutputCollection = handle.subscribeOutput(collect, { replay: true });
+        // One durable subscription for the whole handle lifetime. Replay closes
+        // the identity-callback → subscription window; there is no in-memory
+        // collector or listener handoff at soft timeout.
+        handle.subscribeOutput(appendOutput, { replay: true });
 
         winner = await raceHandle(handle, timeout, ctx.signal);
       } catch (err) {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         if (err instanceof ProcessExecError) {
+          if (handle === undefined || task === undefined || handle.identity === undefined) {
+            return processExecErrorToToolResult(err, command);
+          }
+          const fact = err.termination;
+          if (fact !== undefined) {
+            emitMigratedExecTermination(auditWriter, {
+              taskId: task.id,
+              context: 'pre_deadline_termination',
+              identityCols: [
+                `leader_pid=${handle.identity.leaderPid}`,
+                `process_group_id=${handle.identity.processGroupId}`,
+              ],
+              trigger: fact.trigger,
+              termSent: fact.termSent,
+              killSent: fact.killSent,
+              status: fact.status,
+              reason: fact.reason,
+              evidence: fact.evidence === undefined ? undefined : JSON.stringify(fact.evidence),
+            });
+            // A rejected execution promise is not proof that the process group
+            // is gone. Keep all artifacts running and do not commit exit.json.
+            if (fact.status !== 'gone') return processExecErrorToToolResult(err, command);
+          }
+          const classification: MigratedExecResultClassification =
+            err.maxBufferExceeded || fact?.trigger === 'max_buffer' ? 'max_buffer'
+              : fact?.trigger === 'timeout' ? 'timeout'
+                : fact?.trigger === 'abort' ? 'abort'
+                  : err.exitCode !== null && err.exitCode !== 0 ? 'nonzero_exit' : 'error';
+          appendOutput(`\n[Process exited with error: ${formatErr(err)}]`);
+          if (outputPersistenceError !== undefined) return outputPersistenceFailureResult();
+          if (!writeExitRecord({
+            version: 1,
+            taskId: task.id,
+            completedAt: new Date().toISOString(),
+            classification,
+            exitCode: err.exitCode,
+            stderr: err.stderr,
+            signal: err.signal,
+            termination: fact === undefined ? undefined : toTerminationRecord(fact),
+            evidence: fact?.evidence ?? err.evidence,
+          })) {
+            return { success: false, content: 'Failed to persist migrated exec exit record; task remains running' };
+          }
+          await moveTaskToDone(task.id);
           return processExecErrorToToolResult(err, command);
         }
         throw err;
@@ -398,7 +505,12 @@ export function createAsyncExecWrapper(
       // A resolved handle always carries the OS execution identity (absent only
       // when spawn itself failed, which rejects above). Fail-observable, never
       // guess an identity.
-      const identity = handle.identity;
+      if (handle === undefined) {
+        originalSignal?.removeEventListener('abort', onOriginalAbort);
+        throw new Error('execWithHandle resolved without a handle');
+      }
+      const resolvedHandle = handle;
+      const identity = resolvedHandle.identity;
       if (identity === undefined || task === undefined) {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         throw new Error('execWithHandle resolved without a durable execution identity');
@@ -408,13 +520,17 @@ export function createAsyncExecWrapper(
       if (winner.type === 'result') {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         const result = winner.value;
-        const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-        fs.ensureDirSync(resultDir);
-        fs.writeAtomicSync(path.join(resultDir, 'result.txt'), result.output);
-        fs.writeAtomicSync(
-          path.join(resultDir, 'exit.json'),
-          JSON.stringify({ completedAt: new Date().toISOString() }),
-        );
+        if (outputPersistenceError !== undefined) return outputPersistenceFailureResult();
+        if (!writeExitRecord({
+          version: 1,
+          taskId: task.id,
+          completedAt: new Date().toISOString(),
+          classification: 'success',
+          exitCode: result.exitCode,
+          stderr: result.stderr,
+        })) {
+          return { success: false, content: 'Failed to persist migrated exec exit record; task remains running' };
+        }
         await moveTaskToDone(task.id);
         auditWriter.write(
           TASK_AUDIT_EVENTS.EXEC_CHECKPOINT_COMPLETED_SYNC,
@@ -433,7 +549,7 @@ export function createAsyncExecWrapper(
       //    real termination word ('abort'); L4 scene lives in the audit context.
       if (winner.type === 'abort') {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
-        const outcome = await handle.terminate('abort');
+        const outcome = await resolvedHandle.terminate('abort');
         emitMigratedExecTermination(auditWriter, {
           taskId: task.id,
           context: 'caller_abort',
@@ -449,8 +565,24 @@ export function createAsyncExecWrapper(
           evidence: JSON.stringify(outcome.evidence),
         });
         // Cancel intent is business-terminal only after L1 confirms the group
-        // is gone. Unknown/still-alive artifacts stay running for recovery.
-        if (outcome.status === 'gone') await moveTaskToFailed(task.id);
+        // is gone and output + exit.json have both committed. Unknown/still-alive
+        // artifacts stay running for recovery without a terminal record.
+        if (outcome.status === 'gone') {
+          appendOutput('\n[Process aborted by caller]');
+          if (outputPersistenceError !== undefined) return outputPersistenceFailureResult();
+          if (!writeExitRecord({
+            version: 1,
+            taskId: task.id,
+            completedAt: new Date().toISOString(),
+            classification: 'abort',
+            exitCode: null,
+            termination: toTerminationRecord(outcome),
+            evidence: outcome.evidence,
+          })) {
+            return { success: false, content: 'Command aborted by caller, but its exit record could not be persisted; task remains running' };
+          }
+          await moveTaskToFailed(task.id);
+        }
         const cleanupSuffix = outcome.status === 'gone' ? ''
           : ` [execution cleanup: ${outcome.status}${outcome.status === 'indeterminate' ? ` (${outcome.reason})` : ''}]`;
         return {
@@ -463,7 +595,7 @@ export function createAsyncExecWrapper(
       //    Detach from the original signal and unref the child so it can outlive
       //    the caller's turn.
       originalSignal?.removeEventListener('abort', onOriginalAbort);
-      handle.detach();
+      resolvedHandle.detach();
 
       try {
         // Re-save at the presentation transition. The task itself was already
@@ -478,7 +610,7 @@ export function createAsyncExecWrapper(
         // L1 has no 'persist_failed' word — caller_requested is the correct L1
         // trigger here (the wrapper requested termination); L4 scene is the
         // audit context column.
-        const outcome = await handle.terminate('caller_requested');
+        const outcome = await resolvedHandle.terminate('caller_requested');
         emitMigratedExecTermination(auditWriter, {
           taskId: task.id,
           context: 'persist_failed',
@@ -515,20 +647,7 @@ export function createAsyncExecWrapper(
         startedAt,
       });
 
-      // Create result.txt with the partial output collected so far and switch
-      // stdout/stderr listeners to append future chunks to the file in real time.
-      // Use synchronous I/O for the initial write so no stdout/stderr data can
-      // arrive while the listener is still the old in-memory collector.
-      const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-      fs.ensureDirSync(resultDir);
-      const resultPath = path.join(resultDir, 'result.txt');
-      fs.writeAtomicSync(resultPath, partialOutput);
-
-      const appendToFile = (chunk: Buffer): void => {
-        fs.appendSync(resultPath, chunk.toString());
-      };
-      stopOutputCollection?.();
-      handle.subscribeOutput(appendToFile);
+      if (outputPersistenceError !== undefined) return outputPersistenceFailureResult();
 
       // Background chain: wait for the process to exit, then ask the async task
       // system to deliver the result. result.txt is kept up-to-date in real
@@ -536,13 +655,10 @@ export function createAsyncExecWrapper(
       // needed.
       const backgroundMonitor = (async (): Promise<void> => {
         // Phase 1272 Step C: the runtime hard timer is armed from the SAME
-        // persisted absolute deadline (never a fresh relative duration). The
-        // hard-timeout wording is fixed up front because L1 and L4 race on
-        // the identical deadline: whichever timer fires first, the marker
-        // and the audit must read as the same migrated hard timeout.
+        // persisted absolute deadline (never a fresh relative duration).
         const hardTimeoutMessage = `Migrated process timed out after ${migratedHardTimeoutMs}ms`;
         let hardTimerWon = false;
-        let terminationUnresolved = false;
+        let exitRecord: MigratedExecResultRecord;
         try {
           const remainingMs = Math.max(0, task.migratedDeadlineMs! - Date.now());
           const hardTimeout = new Promise<never>((_, reject) => {
@@ -553,35 +669,27 @@ export function createAsyncExecWrapper(
             timer.unref?.();
           });
 
-          await Promise.race([handle.promise, hardTimeout]);
-
-          // phase 1119: write a clean-exit marker so recovery can distinguish
-          // "process finished before daemon crash" from "output may be truncated".
-          fs.writeAtomicSync(
-            path.join(resultDir, 'exit.json'),
-            JSON.stringify({ completedAt: new Date().toISOString() }),
-          );
-
-          await executeToolTask(
-            task,
-            () => Promise.resolve({ success: true, content: '' }),
-            new AbortController().signal,
-            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackResult, writeInboxAsync: deps.writeInboxAsync },
-          );
+          const result = await Promise.race([resolvedHandle.promise, hardTimeout]);
+          exitRecord = {
+            version: 1,
+            taskId: task.id,
+            completedAt: new Date().toISOString(),
+            classification: 'success',
+            exitCode: result.exitCode,
+            stderr: result.stderr,
+          };
         } catch (monitorErr) {
           // Deadline race classification must not trust a single closure
           // boolean: L1's own deadline timer can win the race and reject
-          // handle.promise first, leaving hardTimerWon false — the persisted
-          // wall-clock deadline is the honest backstop (phase 1272 Step C).
+          // resolvedHandle.promise first, leaving hardTimerWon false.
           const deadlineExceeded = hardTimerWon || Date.now() >= task.migratedDeadlineMs!;
+          const processError = monitorErr instanceof ProcessExecError ? monitorErr : undefined;
           let cleanupSuffix = '';
+          let termination: MigratedExecTerminationRecord | undefined;
+          let evidence: MigratedExecResultRecord['evidence'] = processError?.evidence;
+          let terminationUnresolved = false;
           if (deadlineExceeded) {
-            // Hard timeout. L1 may already have terminated the group via its
-            // own deadline timer; terminate() is idempotent, so the shared
-            // outcome keeps the first trigger ('timeout'). Wait for the
-            // outcome before appending the marker / delivering the result; an
-            // indeterminate outcome must never be described as cleaned up.
-            const outcome = await handle.terminate('timeout');
+            const outcome = await resolvedHandle.terminate('timeout');
             emitMigratedExecTermination(auditWriter, {
               taskId: task.id,
               context: 'hard_timeout',
@@ -596,6 +704,8 @@ export function createAsyncExecWrapper(
               reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
               evidence: JSON.stringify(outcome.evidence),
             });
+            termination = toTerminationRecord(outcome);
+            evidence = outcome.evidence;
             terminationUnresolved = outcome.status !== 'gone';
             cleanupSuffix = outcome.status === 'gone'
               ? ' [execution cleanup: gone]'
@@ -607,13 +717,11 @@ export function createAsyncExecWrapper(
               `taskId=${task.id}`,
               `pid=${identity.leaderPid}`,
             );
-          } else if (monitorErr instanceof ProcessExecError && monitorErr.termination !== undefined) {
-            // Terminated BEFORE the deadline (e.g. max_buffer overflow):
-            // preserve the structured L1 termination fact under its own
-            // context instead of dropping it into a flat exited-with-error
-            // marker. Result delivery below is unchanged.
-            const fact = monitorErr.termination;
+          } else if (processError?.termination !== undefined) {
+            const fact = processError.termination;
             terminationUnresolved = fact.status !== 'gone';
+            termination = toTerminationRecord(fact);
+            evidence = fact.evidence ?? processError?.evidence;
             emitMigratedExecTermination(auditWriter, {
               taskId: task.id,
               context: 'pre_deadline_termination',
@@ -630,42 +738,53 @@ export function createAsyncExecWrapper(
             });
           }
 
-          try {
-            const errorMarker =
-              `\n[Process ${deadlineExceeded ? 'timed out' : 'exited with error'}: ${deadlineExceeded ? hardTimeoutMessage : formatErr(monitorErr)}]${cleanupSuffix}`;
-            fs.appendSync(resultPath, errorMarker);
-          } catch (persistErr) {
-            emitHandlerFailed(auditWriter, {
-              fullTaskId: task.id as FullTaskId,
-              shortTaskId: taskShortId(task),
-              context: 'async_exec_wrapper_append_error_marker',
-              error: formatErr(persistErr),
-            });
-          }
+          appendOutput(
+            `\n[Process ${deadlineExceeded ? 'timed out' : 'exited with error'}: ${deadlineExceeded ? hardTimeoutMessage : formatErr(monitorErr)}]${cleanupSuffix}`,
+          );
 
           // Signal issuance / an exited leader is not proof of group cleanup.
-          // Keep the running artifact and skip result-terminal transitions until
-          // restart recovery obtains a gone observation.
+          // Keep the running artifact and skip exit.json until recovery observes gone.
           if (terminationUnresolved) return;
-
-          try {
-            await executeToolTask(
-              task,
-              () => Promise.resolve({ success: true, content: '' }),
-              new AbortController().signal,
-              { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackResult, writeInboxAsync: deps.writeInboxAsync },
-            );
-          } catch (execErr) {
-            emitHandlerFailed(auditWriter, {
-              fullTaskId: task.id as FullTaskId,
-              shortTaskId: taskShortId(task),
-              context: 'async_exec_wrapper_monitor',
-              error: formatErr(execErr),
-            });
-          }
+          const classification: MigratedExecResultClassification = deadlineExceeded ? 'timeout'
+            : processError?.maxBufferExceeded || processError?.termination?.trigger === 'max_buffer' ? 'max_buffer'
+              : processError?.termination?.trigger === 'timeout' ? 'timeout'
+                : processError?.termination?.trigger === 'abort' ? 'abort'
+                  : processError !== undefined && processError.exitCode !== null && processError.exitCode !== 0
+                    ? 'nonzero_exit' : 'error';
+          exitRecord = {
+            version: 1,
+            taskId: task.id,
+            completedAt: new Date().toISOString(),
+            classification,
+            exitCode: processError?.exitCode ?? null,
+            stderr: processError?.stderr,
+            signal: processError?.signal,
+            termination,
+            evidence,
+          };
         }
-        // Emit completion event on both success and failure paths so the viewport
-        // removes the migrated exec indicator.
+
+        // Terminal commit order is output → atomic exit.json → delivery/move.
+        // Any earlier output failure permanently vetoes this in-memory terminal
+        // chain; restart recovery must not inherit a false clean-exit marker.
+        if (outputPersistenceError !== undefined) return;
+        if (!writeExitRecord(exitRecord)) return;
+        try {
+          await executeToolTask(
+            task,
+            () => Promise.resolve({ success: true, content: '' }),
+            new AbortController().signal,
+            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackResult, writeInboxAsync: deps.writeInboxAsync },
+          );
+        } catch (execErr) {
+          emitHandlerFailed(auditWriter, {
+            fullTaskId: task.id as FullTaskId,
+            shortTaskId: taskShortId(task),
+            context: 'async_exec_wrapper_monitor',
+            error: formatErr(execErr),
+          });
+          return;
+        }
         parentStreamLog?.write({
           ts: Date.now(),
           type: STREAM_TASK_EVENTS.TASK_COMPLETED,

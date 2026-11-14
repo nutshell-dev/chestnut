@@ -3,7 +3,10 @@ import type { spawn } from 'child_process';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ProcessListUnavailable } from '../../../src/foundation/process-exec/index.js';
-import { findProcessesDetailedAsync } from '../../../src/foundation/process-manager/find.js';
+import {
+  findProcessesAsync,
+  findProcessesDetailedAsync,
+} from '../../../src/foundation/process-manager/find.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 
@@ -51,6 +54,23 @@ describe('process-manager bounded async find query', () => {
       signal: controller.signal,
       spawnProcess: spawnProcess as unknown as typeof spawn,
     })).resolves.toEqual([{ pid: 123, command: 'node orphan.js' }]);
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+  });
+
+  it('findProcessesAsync projects detailed results to non-self PIDs', async () => {
+    const spawnProcess = vi.fn().mockImplementation((command: string) => {
+      const child = makeChild();
+      queueMicrotask(() => {
+        if (command === 'pgrep') child.stdout.emit('data', Buffer.from(`${process.pid}\n123\n`));
+        else child.stdout.emit('data', Buffer.from(`${process.pid} self\n 123 node orphan.js\n`));
+        child.emit('close', 0, null);
+      });
+      return asSpawn(child);
+    });
+
+    await expect(findProcessesAsync(makeContext(), 'orphan', {
+      spawnProcess: spawnProcess as unknown as typeof spawn,
+    })).resolves.toEqual([123]);
     expect(spawnProcess).toHaveBeenCalledTimes(2);
   });
 

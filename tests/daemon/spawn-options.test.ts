@@ -39,7 +39,7 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
     expect(options.cwd).toBe('/ws');
   });
 
-  it('宿主 env 由 L1 allowlist 构造，不 wholesale 继承且不 mutate process.env', () => {
+  it('只提交业务授权 env，宿主 allowlist/PATH 留给 L1 且不 mutate process.env', () => {
     process.env[SENTINEL_ENV] = 'do-not-inherit';
     process.env.CHESTNUT_LEGACY_COMPAT = 'preserve';
     const options = createDaemonSpawnOptions({
@@ -48,9 +48,10 @@ describe('createDaemonSpawnOptions (Phase 1464)', () => {
       chestnutRoot: makeChestnutRoot('/ws/.chestnut'),
     });
 
+    expect(options.env).toEqual({ CHESTNUT_ROOT: '/ws' });
     expect(options.env?.[SENTINEL_ENV]).toBeUndefined();
-    expect(options.env?.CHESTNUT_LEGACY_COMPAT).toBe('preserve');
-    expect(options.env?.PATH).toBe(process.env.PATH);
+    expect(options.env?.CHESTNUT_LEGACY_COMPAT).toBeUndefined();
+    expect(options.env?.PATH).toBeUndefined();
     expect(options.env).not.toBe(process.env);
     expect(process.env.CHESTNUT_ROOT).not.toBe('/ws');
   });

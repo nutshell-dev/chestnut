@@ -5,8 +5,9 @@ import type {
   SpawnDetachedOutcome,
   SpawnDetachedFailure,
 } from './types.js';
-import { scrubEnv } from './env-scrub.js';
+import { createSpawnEnvironment } from './spawn-environment.js';
 import { formatErr } from '../node-utils/index.js';
+import type { ProcessEvidence } from './process-evidence.js';
 
 /**
  * 把任意 spawn 错误（同步 throw 或异步 'error' 事件负载）折叠为 typed failure，
@@ -17,6 +18,7 @@ function toSpawnFailure(
   args: ReadonlyArray<string>,
   err: unknown,
   pid?: number,
+  evidence?: ProcessEvidence,
 ): SpawnDetachedFailure {
   const e = err as NodeJS.ErrnoException;
   return {
@@ -27,6 +29,7 @@ function toSpawnFailure(
     ...(e.code !== undefined ? { code: e.code } : {}),
     message: formatErr(err),
     atMs: Date.now(),
+    ...(evidence !== undefined ? { cause: err, evidence } : {}),
   };
 }
 
@@ -87,6 +90,13 @@ export async function spawnDetached(
   args: ReadonlyArray<string>,
   options: SpawnDetachedOptions,
 ): Promise<SpawnDetachedOutcome> {
+  const environment = createSpawnEnvironment(options.env);
+  if (environment.kind === 'failed') {
+    return {
+      kind: 'failed',
+      failure: toSpawnFailure(command, args, environment.error, undefined, environment.evidence),
+    };
+  }
   let logFd: number | 'ignore' = 'ignore';
   try {
     logFd = options.logFile ? openSync(options.logFile, 'a') : 'ignore';
@@ -95,18 +105,13 @@ export async function spawnDetached(
     return { kind: 'failed', failure: toSpawnFailure(command, args, err) };
   }
   try {
-    // phase 346 B1 (review-2026-06-13): 始终 scrub env 到 allowlist，
-    // 避免 wholesale inherit parent's process.env 把 ssh-agent socket /
-    // 任意 user-set 环境变量 / 别的 secret 灌入 detached 子进程。
-    // caller 显式 options.env 仍走 scrub（caller 多半 spread process.env、
-    // 真正想加的几 key 落 allowlist 内、scrub 不掉）。
-    const rawEnv = options.env ?? process.env;
-    const scrubbedEnv = scrubEnv(rawEnv as NodeJS.ProcessEnv);
+    // createSpawnEnvironment 已统一构造宿主 allowlist/PATH 并应用 caller
+    // 授权覆盖；此处不得二次 scrub authorized map。
     let proc: ChildProcess;
     try {
       proc = spawn(command, [...args], {
         cwd: options.cwd,
-        env: scrubbedEnv,
+        env: environment.env,
         detached: true,
         stdio: ['ignore', logFd, logFd],
       });

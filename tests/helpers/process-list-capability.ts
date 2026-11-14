@@ -18,14 +18,14 @@
  */
 
 import type { TestContext } from 'vitest';
-import { findByPattern, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
+import { findByPatternSyncForCli, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
 
 /** 探针形态：默认经 L1 自身 API 做一次真实进程表查询（'node' 在本仓测试环境必存在）。 */
 export type ProcessListProbe = () => unknown;
 
 export function requireProcessListCapability(
   ctx: Pick<TestContext, 'skip'>,
-  probe: ProcessListProbe = () => findByPattern('node'),
+  probe: ProcessListProbe = () => findByPatternSyncForCli('node'),
 ): void {
   try {
     probe();

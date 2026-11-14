@@ -21,8 +21,8 @@ import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 // ── 边界 mock：PM（不 spawn 真实 daemon）──────────────────────────────────────
 const pmMocks = vi.hoisted(() => ({
-  isAlive: vi.fn(() => false),
-  spawn: vi.fn(),
+  liveness: vi.fn(() => ({ kind: 'absent', reason: 'missing_active' })),
+  ensureRunning: vi.fn(),
   stop: vi.fn(),
 }));
 
@@ -64,9 +64,9 @@ describe('claw motion gates (phase 1986 Step H)', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    pmMocks.isAlive.mockClear().mockReturnValue(false);
-    pmMocks.spawn.mockClear();
-    pmMocks.stop.mockClear();
+    pmMocks.liveness.mockClear().mockReturnValue({ kind: 'absent', reason: 'missing_active' });
+    pmMocks.ensureRunning.mockClear().mockResolvedValue({ kind: 'spawned', pid: 123 });
+    pmMocks.stop.mockClear().mockResolvedValue({ kind: 'not_running' });
     vi.mocked(runChatViewport).mockClear();
   });
 
@@ -100,18 +100,17 @@ describe('claw motion gates (phase 1986 Step H)', () => {
     await expect(healthCommand(deps(), 'motion')).rejects.toThrow(/Motion is not initialized/);
   });
 
-  it('daemon → PM alive 走 already running 分支；不 spawn；不报不存在', async () => {
-    pmMocks.isAlive.mockReturnValue(true);
+  it('daemon → ensureRunning already_ready 走 already running 分支；不报不存在', async () => {
+    pmMocks.ensureRunning.mockResolvedValue({ kind: 'already_ready', pid: 123 });
 
     const daemonDeps = {
       ...deps(),
-      processManager: { isAlive: pmMocks.isAlive, spawn: pmMocks.spawn } as unknown as DaemonPM,
+      processManager: { ensureRunning: pmMocks.ensureRunning } as unknown as DaemonPM,
     };
     await clawDaemonCommand(daemonDeps, 'motion');
 
     const out = consoleWarnSpy.mock.calls.flat().join('\n');
     expect(out).toContain('Claw "motion" is already running');
-    expect(pmMocks.spawn).not.toHaveBeenCalled();
   });
 
   it('stop → PM not alive → "is not running"；不报不存在', async () => {

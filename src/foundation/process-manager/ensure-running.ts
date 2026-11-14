@@ -20,7 +20,7 @@
  * ready 等待原语，不形成第二套时限策略。
  */
 
-import { observeProcessFact } from './process-facts.js';
+import { observeProcessFact, type PersistentProcessFact } from './process-facts.js';
 import { formatErr } from '../node-utils/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { BOOT_DEADLINE_MS } from './constants.js';
@@ -103,7 +103,10 @@ function readyActivePid(
   if (ready.status !== 'ok' || ready.record.generation_id !== generationId) return undefined;
   if (pid.record.pid !== ready.record.pid) return undefined;
 
-  const probe = probeWinnerAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time);
+  const probe = probeWinnerAlive(ctx, {
+    ...pid.record,
+    process_ref: pid.record.process_ref ?? ready.record.process_ref,
+  });
   if (probe.kind === 'unavailable') {
     // phase 1775 precheck fail-closed：probe 系统故障 ≠ winner 死亡——无法确认
     // not-ready 时继续 spawn 有 double-spawn 风险，直接 typed 失败（保留原始 error）。
@@ -137,8 +140,11 @@ type WinnerProbeResult =
   | { kind: 'dead' }
   | { kind: 'unavailable'; error: unknown };
 
-function probeWinnerAlive(ctx: ProcessManagerContext, pid: number, startTime?: string): WinnerProbeResult {
-  const observation = observeProcessFact(ctx, pid, startTime);
+function probeWinnerAlive(
+  ctx: ProcessManagerContext,
+  record: PersistentProcessFact,
+): WinnerProbeResult {
+  const observation = observeProcessFact(ctx, record);
   if (observation.kind === 'alive') return { kind: 'alive' };
   if (observation.kind === 'gone') return { kind: 'dead' };
   return { kind: 'unavailable', error: observation.error ?? observation };
@@ -209,11 +215,10 @@ async function joinWinner(
       }
       if (ready.status === 'ok') {
         // child 已写 ready、activate 即将发生；probe 系统故障（非 ESRCH）不归 winner_died
-        const probe = probeWinnerAlive(
-          ctx,
-          ready.record.pid,
-          ready.record.start_time ?? (pid.status === 'ok' ? pid.record.start_time : undefined),
-        );
+        const probe = probeWinnerAlive(ctx, {
+          ...ready.record,
+          process_ref: ready.record.process_ref ?? (pid.status === 'ok' ? pid.record.process_ref : undefined),
+        });
         if (probe.kind === 'unavailable') {
           fail('winner_probe_unavailable', `winner probe unavailable: ${formatErr(probe.error)}`, probe.error);
         }
@@ -252,7 +257,10 @@ async function joinWinner(
       ) {
         // phase 1775：probe 系统故障（非 ESRCH）不归 winner_died——误判 dead 会
         // 在 foreign winner 实际存活时触发 respawn/double-spawn。
-        const probe = probeWinnerAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time);
+        const probe = probeWinnerAlive(ctx, {
+    ...pid.record,
+    process_ref: pid.record.process_ref ?? ready.record.process_ref,
+  });
         if (probe.kind === 'unavailable') {
           fail('winner_probe_unavailable', `winner probe unavailable: ${formatErr(probe.error)}`, probe.error);
         }

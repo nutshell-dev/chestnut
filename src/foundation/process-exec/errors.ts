@@ -5,6 +5,7 @@
  */
 
 import type { ExecutionTerminationFact } from './types.js';
+import type { ProcessEvidence } from './process-evidence.js';
 
 /**
  * Error thrown when process execution fails.
@@ -25,6 +26,8 @@ export class ProcessExecError extends Error {
    * those are not termination events.
    */
   readonly termination?: ExecutionTerminationFact;
+  /** Original structured evidence for failures before an OS process exists. */
+  readonly evidence?: ProcessEvidence;
 
   constructor(options: {
     message: string;
@@ -36,8 +39,10 @@ export class ProcessExecError extends Error {
     maxBufferExceeded?: boolean;
     stderr?: string;
     termination?: ExecutionTerminationFact;
+    cause?: unknown;
+    evidence?: ProcessEvidence;
   }) {
-    super(options.message);
+    super(options.message, 'cause' in options ? { cause: options.cause } : undefined);
     this.name = 'ProcessExecError';
     this.output = options.output ?? '';
     this.exitCode = options.exitCode ?? null;
@@ -47,6 +52,7 @@ export class ProcessExecError extends Error {
     this.maxBufferExceeded = options.maxBufferExceeded ?? false;
     this.stderr = options.stderr;
     this.termination = options.termination;
+    this.evidence = options.evidence;
   }
 }
 

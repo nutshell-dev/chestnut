@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex, PersistentShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
-import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../../src/core/async-task-system/dirs.js';
+import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from '../../../src/core/async-task-system/async-exec-wrapper.js';
 import * as processExecModule from '../../../src/foundation/process-exec/index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
@@ -1213,7 +1213,7 @@ describe('phase 1119', () => {
   });
 
   describe('migrated exec recovery truncation marker', () => {
-    it('delivers content as-is when exit.json marker exists', async () => {
+    it('delivers content as-is for a legacy {completedAt} exit.json marker', async () => {
       const task = makeMigratedToolTask();
       const taskFile = 'tasks/queues/running/task-1.json';
       const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
@@ -1302,3 +1302,198 @@ describe('phase 1119', () => {
   });
 });
 
+
+
+/** Phase 2146 B5: real-disk restart recovery without any previous handle/instance. */
+describe('phase 2146 B5: migrated exec disk restart recovery', () => {
+  let baseDir: string;
+  let system: AsyncTaskSystem | undefined;
+
+  function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
+    const events: Array<[string, ...(string | number)[]]> = [];
+    const audit: AuditLog = {
+      write: (type: string, ...cols: (string | number)[]) => { events.push([type, ...cols]); },
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    };
+    return { audit, events };
+  }
+
+  beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    baseDir = path.join(tmpdir(), `phase2146-b5-recovery-${randomUUID()}`);
+    fs.mkdirSync(baseDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await system?.shutdown(1000).catch(() => { /* silent */ });
+    vi.restoreAllMocks();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  async function seedCrashArtifacts(exitContent: string | ((taskId: string) => string), resultContent = 'durable output\n') {
+    const taskId = randomUUID();
+    const firstFs = new NodeFileSystem({ baseDir });
+    const task = {
+      kind: 'tool',
+      id: taskId,
+      shortId: taskId.slice(0, 8),
+      toolName: 'exec',
+      args: { command: 'controlled' },
+      parentClawDir: baseDir,
+      parentClawId: 'parent',
+      createdAt: new Date().toISOString(),
+      isIdempotent: false,
+      maxRetries: 0,
+      retryCount: 0,
+      mode: 'migrated',
+      migratedExecution: {
+        version: 1,
+        leaderPid: 4_000_000,
+        processGroupId: 4_000_000,
+        leaderStartTime: 'no-live-handle-is-used-by-this-test',
+      },
+      migratedDeadlineMs: Date.now() + 60_000,
+    };
+    await firstFs.ensureDir(TASKS_QUEUES_RUNNING_DIR);
+    await firstFs.ensureDir(`${TASKS_QUEUES_RESULTS_DIR}/${taskId}`);
+    await firstFs.writeAtomic(`${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`, JSON.stringify(task));
+    await firstFs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt`, resultContent);
+    await firstFs.writeAtomic(
+      `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/exit.json`,
+      typeof exitContent === 'function' ? exitContent(taskId) : exitContent,
+    );
+    return { taskId, task };
+  }
+
+  async function recoverWithFreshInstance(audit: AuditLog, sendToolResult: ReturnType<typeof vi.fn>, recoveryFs = new NodeFileSystem({ baseDir })) {
+    system = new AsyncTaskSystem(baseDir, recoveryFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
+      sendToolResult,
+      sendFallbackResult: vi.fn().mockResolvedValue(undefined),
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+    return recoveryFs;
+  }
+
+  it.each([
+    { classification: 'success', exitCode: 0, isError: false },
+    { classification: 'nonzero_exit', exitCode: 19, isError: true },
+    { classification: 'timeout', exitCode: null, isError: true },
+  ] as const)('recovers a committed $classification record written before the delivery crash', async fixture => {
+    const evidence = { version: 1, atMs: 4321, facts: [{ source: 'persisted-test-evidence' }] };
+    const { taskId } = await seedCrashArtifacts(taskId => JSON.stringify({
+      version: 1,
+      taskId,
+      completedAt: new Date().toISOString(),
+      classification: fixture.classification,
+      exitCode: fixture.exitCode,
+      ...(fixture.classification === 'timeout' ? {
+        signal: 'SIGTERM',
+        termination: {
+          status: 'gone',
+          trigger: 'timeout',
+          termSent: true,
+          killSent: true,
+          identity: { leaderPid: 4_000_000, processGroupId: 4_000_000 },
+          completedAt: new Date().toISOString(),
+        },
+        evidence,
+      } : {}),
+    }));
+    const sendToolResult = vi.fn().mockResolvedValue(undefined);
+    const { audit } = makeAudit();
+    await recoverWithFreshInstance(audit, sendToolResult);
+
+    expect(sendToolResult).toHaveBeenCalledTimes(1);
+    expect(sendToolResult.mock.calls[0][3]).toContain('durable output');
+    expect(sendToolResult.mock.calls[0][3]).not.toContain('may be truncated');
+    expect(sendToolResult.mock.calls[0][4]).toBe(fixture.isError);
+    if (fixture.isError) {
+      expect(sendToolResult.mock.calls[0][3]).toContain(`"classification":"${fixture.classification}"`);
+      expect(sendToolResult.mock.calls[0][3]).toContain(`"exitCode":${fixture.exitCode}`);
+    }
+    if (fixture.classification === 'timeout') {
+      expect(sendToolResult.mock.calls[0][3]).toContain('"trigger":"timeout"');
+      expect(sendToolResult.mock.calls[0][3]).toContain('persisted-test-evidence');
+    }
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt.sent'))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`))).toBe(false);
+  });
+
+  it.each([
+    {
+      name: 'malformed JSON',
+      exitContent: '{"version":1,',
+      context: 'migrated_exit_record_malformed',
+    },
+    {
+      name: 'future version',
+      exitContent: JSON.stringify({ version: 2, completedAt: new Date().toISOString() }),
+      context: 'migrated_exit_record_future_version',
+    },
+    {
+      name: 'taskId mismatch',
+      exitContent: JSON.stringify({
+        version: 1,
+        taskId: randomUUID(),
+        completedAt: new Date().toISOString(),
+        classification: 'success',
+        exitCode: 0,
+      }),
+      context: 'migrated_exit_record_malformed',
+    },
+  ])('keeps running and audits $name instead of applying legacy truncation', async fixture => {
+    const { taskId } = await seedCrashArtifacts(fixture.exitContent);
+    const sendToolResult = vi.fn().mockResolvedValue(undefined);
+    const { audit, events } = makeAudit();
+    await recoverWithFreshInstance(audit, sendToolResult);
+
+    expect(sendToolResult).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`))).toBe(false);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt.sent'))).toBe(false);
+    expect(events.some(event => event[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED
+      && event.includes(`context=${fixture.context}`))).toBe(true);
+    expect(events.some(event => event[0] === TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED)).toBe(false);
+  });
+
+  it('keeps running and audits exit.json EIO rather than treating it as ENOENT', async () => {
+    const { taskId } = await seedCrashArtifacts(JSON.stringify({ completedAt: new Date().toISOString() }));
+    const recoveryFs = new NodeFileSystem({ baseDir });
+    const realRead = recoveryFs.read.bind(recoveryFs);
+    vi.spyOn(recoveryFs, 'read').mockImplementation(async file => {
+      if (file === `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/exit.json`) {
+        throw Object.assign(new Error('injected exit EIO'), { code: 'EIO' });
+      }
+      return realRead(file);
+    });
+    const sendToolResult = vi.fn().mockResolvedValue(undefined);
+    const { audit, events } = makeAudit();
+    await recoverWithFreshInstance(audit, sendToolResult, recoveryFs);
+
+    expect(sendToolResult).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt.sent'))).toBe(false);
+    expect(events.some(event => event[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED
+      && event.includes('context=migrated_exit_record_read_io_error'))).toBe(true);
+    expect(events.some(event => event[0] === TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED)).toBe(false);
+  });
+
+  it('sent marker remains authoritative even when a later exit record is malformed', async () => {
+    const { taskId } = await seedCrashArtifacts('not-json');
+    const firstFs = new NodeFileSystem({ baseDir });
+    await firstFs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.sent`, '1');
+    const sendToolResult = vi.fn().mockResolvedValue(undefined);
+    const { audit } = makeAudit();
+    await recoverWithFreshInstance(audit, sendToolResult);
+
+    expect(sendToolResult).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`))).toBe(false);
+  });
+});

@@ -13,6 +13,7 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-ma
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { encodeProcessEvidence } from '../../../src/foundation/process-exec/process-evidence.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 import {
   GENERATION_FILE,
@@ -80,12 +81,12 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
   });
 
   function makeCtx(audit: ProcessManagerContext['audit']): ProcessManagerContext {
-    return {
+    return installLegacyProcessRefInspector({
       fs: nodeFs,
       audit,
       l1IsAlive: () => true,
       kill: vi.fn(),
-    };
+    });
   }
 
   it('stops active generation and retires it', async () => {
@@ -96,7 +97,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     await writeGeneration(tempDir, daemonDir, 'active', generationId, FAKE_LIVE_PID);
 
     let alive = false;
-    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive };
+    const ctx = installLegacyProcessRefInspector({ ...makeCtx(audit), l1IsAlive: () => alive });
 
     const result = await stopProcess(ctx, daemonDir);
 
@@ -121,7 +122,11 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     await writeGeneration(tempDir, daemonDir, 'spawning', generationId, FAKE_LIVE_PID);
 
     let alive = true;
-    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive, kill: vi.fn(() => { alive = false; }) };
+    const ctx = installLegacyProcessRefInspector({
+      ...makeCtx(audit),
+      l1IsAlive: () => alive,
+      kill: vi.fn(() => { alive = false; }),
+    });
 
     const result = await stopProcess(ctx, daemonDir);
 
@@ -139,7 +144,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const evidence = { version: 1 as const, atMs: 123, facts: [{ operation: 'test', outcome: 'gone' }] };
     const ctx = {
       ...makeCtx(audit),
-      terminateProcessTarget: vi.fn(async () => ({
+      terminateProcessRef: vi.fn(async () => ({
         kind: 'gone' as const, via: 'sigkill' as const,
         termSent: true, killSent: true, evidence,
       })),
@@ -196,7 +201,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     });
     const ctx = {
       ...makeCtx(audit),
-      terminateProcessTarget: vi.fn(async () => ({
+      terminateProcessRef: vi.fn(async () => ({
         kind: 'gone' as const, via: 'sigterm' as const,
         termSent: true, killSent: false,
         evidence: { version: 1 as const, atMs: 123, facts: [] },
@@ -227,7 +232,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     });
     const ctx = {
       ...makeCtx(audit),
-      terminateProcessTarget: vi.fn(async () => ({
+      terminateProcessRef: vi.fn(async () => ({
         kind: 'gone' as const, via: 'sigterm' as const,
         termSent: true, killSent: false,
         evidence: { version: 1 as const, atMs: 123, facts: [] },
@@ -255,7 +260,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const evidence = encodeProcessEvidence(123, [{ operation: 'sigterm', outcome: 'throw', error: cyclicError }]);
     const ctx = {
       ...makeCtx(audit),
-      terminateProcessTarget: vi.fn(async () => ({
+      terminateProcessRef: vi.fn(async () => ({
         kind: 'indeterminate' as const, stage: 'sigterm' as const,
         error: cyclicError, termSent: false, killSent: false, evidence,
       })),
@@ -281,11 +286,11 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const { audit, events } = makeAudit();
     const daemonDir = testClawDaemonDir(tempDir, 'stop-survived');
     await writeGeneration(tempDir, daemonDir, 'active', 'gen-survived', FAKE_LIVE_PID);
-    const ctx = {
+    const ctx = installLegacyProcessRefInspector({
       ...makeCtx(audit),
       l1IsAlive: () => true,
       kill: vi.fn(),
-    };
+    });
 
     const resultPromise = stopProcess(ctx, daemonDir);
     await vi.runAllTimersAsync();
@@ -308,17 +313,17 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
       reason: 'permission_denied' as const,
       evidence: { version: 1 as const, atMs: 0, facts: [] },
     };
-    const terminateProcessTarget = vi.fn();
+    const terminateProcessRef = vi.fn();
     const ctx = {
       ...makeCtx(audit),
-      observeProcessTarget: () => unavailable,
-      terminateProcessTarget,
+      inspectProcessRef: () => unavailable,
+      terminateProcessRef,
     };
 
     const result = await stopProcess(ctx, daemonDir);
 
     expect(result).toMatchObject({ kind: 'failed', stage: 'signal', error: unavailable });
-    expect(terminateProcessTarget).not.toHaveBeenCalled();
+    expect(terminateProcessRef).not.toHaveBeenCalled();
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(true);
   });
 
@@ -406,7 +411,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const killSpy = vi.fn((_pid: number, signal: string) => {
       if (signal === 'TERM') alive = false;
     });
-    const ctx = {
+    const ctx = installLegacyProcessRefInspector({
       ...makeCtx(audit),
       kill: killSpy,
       l1IsAlive: () => {
@@ -417,7 +422,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
         }
         return alive;
       },
-    };
+    });
 
     const result = await stopProcess(ctx, daemonDir);
 
@@ -481,7 +486,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     });
 
     let alive = false;
-    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive };
+    const ctx = installLegacyProcessRefInspector({ ...makeCtx(audit), l1IsAlive: () => alive });
 
     const result = await stopProcess(ctx, daemonDir);
 
@@ -521,7 +526,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     });
 
     let alive = false;
-    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive };
+    const ctx = installLegacyProcessRefInspector({ ...makeCtx(audit), l1IsAlive: () => alive });
 
     const result = await stopProcess(ctx, daemonDir);
 

@@ -17,16 +17,8 @@ import type { ProcessStartTime } from './process-starttime.js';
 import {
   observationError,
   observationUnavailableReason,
-  type ProcessUnavailableReason,
 } from './process-reference.js';
-import type { ProcessInfo } from './types.js';
-
-export interface ProcessTarget {
-  pid: number;
-  startTime?: ProcessStartTime;
-  /** Optional persisted argv identity, verified inside ProcessExec before signals. */
-  argvToken?: string;
-}
+import type { ProcessInfo, ProcessTarget, ProcessUnavailableReason } from './types.js';
 
 export type ProcessTargetObservation =
   | { kind: 'alive'; startTime?: ProcessStartTime; evidence: ProcessEvidence }
@@ -239,6 +231,14 @@ export function captureCurrentProcessIdentity(
   observe: (pid: number) => ProcessObservation = observeProcess,
 ): ProcessTargetCapture {
   return captureObservedProcessTarget(process.pid, observe, 'capture_current_identity');
+}
+
+/** Explicit test seam for legacy boolean callers; production uses observeProcessTarget. */
+export function observeProcessTargetWithLegacyProbeForTest(
+  target: ProcessTarget,
+  adapters: Pick<ProcessObservationAdapters, 'legacyProbe' | 'argvMatch'>,
+): ProcessTargetObservation {
+  return observeProcessTarget(target, adapters);
 }
 
 /** Observe a persisted PID/start-time identity without flattening failures. */

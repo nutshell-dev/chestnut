@@ -81,8 +81,8 @@ interface RescanClawsDirDeps {
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
   pm: {
     inspectSpawning: (daemonDir: import('../foundation/process-manager/index.js').DaemonDir) => { status: string; record?: { generation_id: string } };
-    // phase 1773: boolean convenience 注入（单一 liveness probe 的单行投影）
-    isAlive: (daemonDir: import('../foundation/process-manager/index.js').DaemonDir) => boolean;
+    liveness: (daemonDir: import('../foundation/process-manager/index.js').DaemonDir) =>
+      import('../foundation/process-manager/index.js').LivenessResult;
   };
 }
 
@@ -120,11 +120,21 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
             } else if (spawning.status === 'malformed') {
               t.daemonStatus = 'error';
             } else {
-              alive = deps.pm.isAlive(daemonDir);
-              t.daemonStatus = alive ? 'running' : 'stopped';
+              const liveness = deps.pm.liveness(daemonDir);
+              alive = liveness.kind === 'alive';
+              if (alive) {
+                t.isAlive = true;
+                t.daemonStatus = 'running';
+              } else if (liveness.kind === 'dead' || liveness.kind === 'absent') {
+                t.isAlive = false;
+                t.daemonStatus = 'stopped';
+              } else {
+                // malformed/probe_unavailable = unknown：保留既有存活事实，不显示 stopped。
+                t.daemonStatus = 'error';
+              }
             }
           } catch {
-            // silent: status read failure → treat as not alive (fail-soft)
+            // silent: 状态读取失败是 unknown，保留既有存活事实。
             t.daemonStatus = 'error';
           }
           if (alive && t.daemonStatus === 'running') {

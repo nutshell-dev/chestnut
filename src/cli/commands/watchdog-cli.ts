@@ -8,7 +8,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   type WatchdogProcessDeps,
   createWatchdogActionAudit,
-  getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
+  getWatchdogPid, inspectWatchdogLivenessForCli, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
   stopWatchdog,
   WATCHDOG_AUDIT_EVENTS,
   WATCHDOG_LOG_HINT,
@@ -24,7 +24,7 @@ export async function startCommand(
 ): Promise<void> {
   // 幂等：本 workspace 的 watchdog 已在运行则直接返回
   try {
-    if (isWatchdogAlive(fsFactory)) {
+    if (inspectWatchdogLivenessForCli(fsFactory, _deps) === 'alive') {
       console.log(`Watchdog already running (PID: ${getWatchdogPid(fsFactory)})`);
       return;
     }

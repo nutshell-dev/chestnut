@@ -1,46 +1,88 @@
 import {
-  observeProcessTarget as observeL1ProcessTarget,
-  terminateProcessTarget as terminateL1ProcessTarget,
-  makeProcessStartTime,
-  type ProcessTarget,
-  type ProcessTargetObservation,
+  captureOwnedProcessRef,
+  decodeProcessRef,
+  inspectProcessRef as inspectL1ProcessRef,
+  terminateProcessRef as terminateL1ProcessRef,
+  type ProcessRef,
+  type ProcessRefCapture,
+  type ProcessRefDecode,
+  type ProcessRefObservation,
   type ProcessTerminationOptions,
   type ProcessTerminationOutcome,
 } from '../process-exec/index.js';
+import type { ProcessPidRecord } from './types.js';
 import type { ProcessManagerContext } from './types.js';
 
-function processTarget(pid: number, startTime?: string): ProcessTarget {
+export type PersistentProcessFact = Pick<
+  ProcessPidRecord,
+  'pid' | 'start_time' | 'process_ref'
+>;
+
+/** The only PM-side persistent identity decode, including the legacy v0 adapter. */
+export function decodeProcessFact(record: PersistentProcessFact): ProcessRefDecode {
+  return decodeProcessRef(record.process_ref ?? {
+    version: 0,
+    pid: record.pid,
+    ...(record.start_time !== undefined ? { startTime: record.start_time } : {}),
+  });
+}
+
+function decodedFailure(decoded: Exclude<ProcessRefDecode, { kind: 'decoded' }>): ProcessRefObservation {
   return {
-    pid,
-    ...(startTime !== undefined ? { startTime: makeProcessStartTime(startTime) } : {}),
+    kind: 'unknown',
+    reason: decoded.kind === 'unsupported_version' ? 'unsupported' : 'identity_unverifiable',
+    evidence: decoded.evidence,
   };
 }
 
-/** Resolve legacy records and injected legacy probes at the L1 boundary. */
-export function observeProcessFact(
+export function inspectProcessRefValue(
   ctx: ProcessManagerContext,
-  pid: number,
-  startTime?: string,
-): ProcessTargetObservation {
-  const target = processTarget(pid, startTime);
-  return ctx.observeProcessTarget?.(target)
-    ?? observeL1ProcessTarget(target, { legacyProbe: ctx.l1IsAlive });
+  ref: ProcessRef,
+): ProcessRefObservation {
+  const decoded = decodeProcessRef(ref);
+  if (decoded.kind !== 'decoded') return decodedFailure(decoded);
+  return (ctx.inspectProcessRef ?? inspectL1ProcessRef)(decoded.value);
 }
 
-/** PM supplies timing policy; L1 owns signals, polling and settle evidence. */
-export function terminateProcessFact(
+/** Decode and inspect one persistent fact without exposing its JSON internals. */
+export function observeProcessFact(
+  ctx: ProcessManagerContext,
+  record: PersistentProcessFact,
+): ProcessRefObservation {
+  const decoded = decodeProcessFact(record);
+  if (decoded.kind !== 'decoded') return decodedFailure(decoded);
+  return (ctx.inspectProcessRef ?? inspectL1ProcessRef)(decoded.value);
+}
+
+export function captureProcessFactRef(
   ctx: ProcessManagerContext,
   pid: number,
-  startTime: string | undefined,
+): ProcessRefCapture {
+  return (ctx.captureProcessRef ?? captureOwnedProcessRef)(pid);
+}
+
+/** PM supplies timing policy; L1 owns identity checks, signals and settle evidence. */
+export function terminateProcessFact(
+  ctx: ProcessManagerContext,
+  record: PersistentProcessFact,
   options: ProcessTerminationOptions,
 ): Promise<ProcessTerminationOutcome> {
-  const target = processTarget(pid, startTime);
-  return ctx.terminateProcessTarget?.(target, options)
-    ?? terminateL1ProcessTarget(target, options, {
-      legacyProbe: ctx.l1IsAlive,
-      signal: ctx.kill,
-      ...(ctx.observeProcessTarget !== undefined
-        ? { observeTarget: ctx.observeProcessTarget }
-        : {}),
+  const decoded = decodeProcessFact(record);
+  if (decoded.kind !== 'decoded') {
+    return Promise.resolve({
+      kind: 'indeterminate',
+      stage: 'observe',
+      error: decoded,
+      termSent: false,
+      killSent: false,
+      evidence: decoded.evidence,
     });
+  }
+  if (ctx.terminateProcessRef !== undefined) {
+    return ctx.terminateProcessRef(decoded.value, options);
+  }
+  return terminateL1ProcessRef(decoded.value, options, {
+    signal: ctx.kill,
+    inspect: ctx.inspectProcessRef,
+  });
 }

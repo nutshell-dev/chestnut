@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { cliAction, cliDeferredRequiredAction } from '../../src/cli/supervision-policy.js';
 import { ensureWatchdog } from '../../src/watchdog/ensure.js';
-import { isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
+import { inspectWatchdogLivenessForCli } from '../../src/watchdog/watchdog-pid.js';
 import { withCliErrorHandling } from '../../src/cli/with-cli-error-handling.js';
 import { CliError } from '../../src/cli/errors.js';
 
@@ -29,7 +29,7 @@ vi.mock('../../src/watchdog/watchdog-pid.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-pid.js')>();
   return {
     ...actual,
-    isWatchdogAlive: vi.fn().mockReturnValue(true),
+    inspectWatchdogLivenessForCli: vi.fn().mockReturnValue('alive'),
   };
 });
 
@@ -40,7 +40,7 @@ let handlerCalls: string[];
 beforeEach(() => {
   handlerCalls = [];
   vi.mocked(ensureWatchdog).mockReset().mockResolvedValue(undefined);
-  vi.mocked(isWatchdogAlive).mockReset().mockReturnValue(true);
+  vi.mocked(inspectWatchdogLivenessForCli).mockReset().mockReturnValue('alive');
 });
 
 afterEach(() => {
@@ -71,7 +71,7 @@ describe('cliAction policy execution', () => {
 
     await wrapped();
 
-    expect(isWatchdogAlive).toHaveBeenCalledWith(fsFactory);
+    expect(inspectWatchdogLivenessForCli).toHaveBeenCalledWith(fsFactory);
     expect(ensureWatchdog).not.toHaveBeenCalled();
     expect(handlerCalls).toContain('handler');
   });
@@ -83,7 +83,7 @@ describe('cliAction policy execution', () => {
 
     await wrapped();
 
-    expect(isWatchdogAlive).not.toHaveBeenCalled();
+    expect(inspectWatchdogLivenessForCli).not.toHaveBeenCalled();
     expect(ensureWatchdog).not.toHaveBeenCalled();
     expect(handlerCalls).toContain('handler');
   });
@@ -95,7 +95,7 @@ describe('cliAction policy execution', () => {
 
     await wrapped();
 
-    expect(isWatchdogAlive).not.toHaveBeenCalled();
+    expect(inspectWatchdogLivenessForCli).not.toHaveBeenCalled();
     expect(ensureWatchdog).not.toHaveBeenCalled();
     expect(handlerCalls).toContain('handler');
   });

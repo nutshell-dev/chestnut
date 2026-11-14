@@ -37,6 +37,7 @@ import {
 import { encodeMotionLLMReadyFact } from '../../src/daemon/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../src/foundation/process-manager/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
+import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
 
 const h = vi.hoisted(() => ({
@@ -134,7 +135,7 @@ vi.mock('readline', () => ({
   }),
 }));
 
-// phase 1887 Step C: orphan cleanup 走确定性缝（1779 模式）——findProcessesDetailed
+// phase 1887 Step C: orphan cleanup 走确定性缝（1779 模式）——findProcessesDetailedAsync
 // 经 hoisted impl 可控。默认确定性空列表（无 orphan → cleanupOrphans 走 not_needed →
 // spawn 继续至 commit 竞争）；call-through 真实 pgrep 会让无 pgrep/受限环境下本用例以
 // ProcessOrphanCleanupError（blocked stage=enumerate，fail-closed 不 spawn）误失败。
@@ -147,8 +148,6 @@ vi.mock('../../src/foundation/process-manager/find.js', async (importOriginal) =
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/find.js')>();
   return {
     ...actual,
-    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
-      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
     findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
@@ -242,7 +241,16 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     sleeper.unref();
     expect(sleeper.pid).toBeDefined();
     sleeperPid = sleeper.pid!;
-    expect((await writeChildPid(winnerCtx, record, sleeperPid)).kind).toBe('written');
+    const identity = captureOwnedProcessRef(sleeperPid);
+    expect(identity.kind).toBe('captured');
+    if (identity.kind !== 'captured') throw new Error('sleeper identity unavailable');
+    expect((await writeChildPid(
+      winnerCtx,
+      record,
+      sleeperPid,
+      identity.target.startTime,
+      identity.value,
+    )).kind).toBe('written');
 
     // --- CLI 侧：真实 PM；winner 尚未 ready，ensureRunning 必走 conflict → join ---
     const ensureSupervision = vi.fn(async () => {});
@@ -259,7 +267,13 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
       llmIdentity: 'test-gate-identity',
       committedAt: new Date().toISOString(),
     }))).kind).toBe('written');
-    expect((await writeReadyFact(winnerCtx, record, sleeperPid)).kind).toBe('written');
+    expect((await writeReadyFact(
+      winnerCtx,
+      record,
+      sleeperPid,
+      identity.target.startTime,
+      identity.value,
+    )).kind).toBe('written');
     const activation = activateGeneration(winnerCtx, motionDaemonDir, {
       generationId: record.generation_id,
       pid: sleeperPid,
@@ -314,7 +328,16 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     sleeper.unref();
     expect(sleeper.pid).toBeDefined();
     sleeperPid = sleeper.pid!;
-    expect((await writeChildPid(winnerCtx, record, sleeperPid)).kind).toBe('written');
+    const identity = captureOwnedProcessRef(sleeperPid);
+    expect(identity.kind).toBe('captured');
+    if (identity.kind !== 'captured') throw new Error('sleeper identity unavailable');
+    expect((await writeChildPid(
+      winnerCtx,
+      record,
+      sleeperPid,
+      identity.target.startTime,
+      identity.value,
+    )).kind).toBe('written');
 
     const ensureSupervision = vi.fn(async () => {});
     const startPromise = startCommand(startDeps(), { ensureSupervision });
@@ -323,7 +346,13 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 10000);
 
     // winner 只写 ready（无业务事实）并 activate
-    expect((await writeReadyFact(winnerCtx, record, sleeperPid)).kind).toBe('written');
+    expect((await writeReadyFact(
+      winnerCtx,
+      record,
+      sleeperPid,
+      identity.target.startTime,
+      identity.value,
+    )).kind).toBe('written');
     const activation = activateGeneration(winnerCtx, motionDaemonDir, {
       generationId: record.generation_id,
       pid: sleeperPid,

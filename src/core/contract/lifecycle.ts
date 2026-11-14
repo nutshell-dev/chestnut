@@ -9,7 +9,6 @@ import type { ProgressData } from './types.js';
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import type { ContractCorruptionEvidence } from './types.js';
@@ -45,7 +44,6 @@ import { newShortUuid } from '../../foundation/node-utils/index.js';
 export interface TerminalLifecycleContext {
   fs: FileSystem;
   audit: AuditLog;
-  l1IsAlive?: typeof defaultL1IsAlive;
   /** Phase 1198: clawDir / base directory for stable intent store. */
   baseDir: string;
   activeDir: string;

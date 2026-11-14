@@ -6,13 +6,23 @@
 
 import type { ProcessEvidence } from './process-evidence.js';
 
+export type ProcessUnavailableReason = 'permission_denied' | 'unsupported'
+  | 'query_failed' | 'timed_out' | 'identity_unverifiable' | 'incomplete_data';
+
+export interface ProcessTarget {
+  pid: number;
+  startTime?: import('./process-starttime.js').ProcessStartTime;
+  /** Optional persisted argv identity, verified inside ProcessExec before signals. */
+  argvToken?: string;
+}
+
 interface ExecBaseOptions {
   /** Working directory (required) */
   cwd: string;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
-  /** Environment variables for child process. If provided, only these + PATH are passed (no process.env inheritance). If omitted, inherits all of process.env. */
-  env?: Record<string, string>;
+  /** Caller-authorized values; ProcessExec adds host allowlist/PATH facts. Undefined explicitly removes a host value. */
+  env?: Record<string, string | undefined>;
   /** Content to pipe to the child process stdin (phase 1321) */
   stdin?: string;
   /**
@@ -221,6 +231,9 @@ export interface SpawnDetachedFailure {
   message: string;
   /** 观察时间（epoch ms） */
   atMs: number;
+  /** 环境构造失败时的原始异常与结构化证据。 */
+  cause?: unknown;
+  evidence?: ProcessEvidence;
 }
 
 /**
@@ -234,6 +247,7 @@ export type SpawnDetachedOutcome =
 
 export interface SpawnDetachedOptions {
   cwd?: string;
+  /** Caller-authorized values; ProcessExec owns host allowlist/PATH construction. */
   env?: Record<string, string | undefined>;
   logFile?: string;       // 内部 open/close fd 包装
   /**

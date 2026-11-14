@@ -18,8 +18,8 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
-// phase 1773: liveness typed protocol——boolean convenience（单一 probe 的单行投影）
-export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
+// 启动由 PM 单一能力封装 precheck/spawn/conflict/join，CLI 不再组合 liveness + spawn。
+export type DaemonPM = Pick<ProcessManager, 'ensureRunning'>;
 
 export interface ClawDaemonDeps extends ClawCommandDeps {
   /** Test seam — when provided, skips real ProcessManager construction. */
@@ -41,16 +41,17 @@ export async function clawDaemonCommand(
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   const clawId = target.clawId;
-  if (pm.isAlive(resolveClawDaemonDir(clawId))) {
-    console.warn(`⚠ Claw "${name}" is already running`);
-    return;
-  }
   // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner，CLI 只提交 identity/agentDir/chestnutRoot
-  const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
+  const outcome = await pm.ensureRunning(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
     clawId,
     agentDir: clawDir,
     chestnutRoot: getChestnutRoot(),
   }));
+  if (outcome.kind !== 'spawned') {
+    console.warn(`⚠ Claw "${name}" is already running`);
+    return;
+  }
+  const pid = outcome.pid;
   // phase 1452 Step B: spawn 成功侧 emit（对齐 start.ts DAEMON_START 形态）；
   // 失败侧由 PM PROCESS_SPAWN_FAILED 承载（豁免、不补 CLI 侧失败事件）
   extraDeps?.audit?.write(CLI_AUDIT_EVENTS.CLAW_DAEMON_START, `claw=${name}`, `pid=${pid}`);

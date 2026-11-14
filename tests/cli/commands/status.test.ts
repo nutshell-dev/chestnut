@@ -73,7 +73,7 @@ vi.mock('../../../src/core/claw-topology/index.js', async (importOriginal) => {
 vi.mock('../../../src/foundation/process-manager/index.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
     isAlive: () => false,
-    findProcesses: () => [],
+    findProcessesSyncForCli: () => [],
   })),
 }));
 
@@ -81,9 +81,9 @@ vi.mock('../../../src/daemon/entry-resolver.js', () => ({
   resolveDaemonEntry: vi.fn(() => '/daemon-entry'),
 }));
 
-vi.mock('../../../src/watchdog/watchdog.js', () => ({
+vi.mock('../../../src/watchdog/index.js', () => ({
   getWatchdogPid: vi.fn(() => undefined),
-  isWatchdogAlive: vi.fn(() => false),
+  inspectWatchdogLivenessForCli: vi.fn(() => 'not_running'),
   getWatchdogEntryPath: vi.fn(() => '/wd-entry'),
 }));
 

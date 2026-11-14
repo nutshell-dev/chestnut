@@ -12,7 +12,7 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
-const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
+const mockFindProcesses = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockKill = vi.hoisted(() => vi.fn());
 const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 
@@ -50,7 +50,7 @@ vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
 
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
-    findProcesses: mockFindProcesses,
+    findProcessesAsync: mockFindProcesses,
   })),
 }));
 
@@ -75,7 +75,7 @@ describe('watchdog action audit in CLI (phase 1878 Step I)', () => {
 
     setAuditWriter(null);
 
-    mockFindProcesses.mockReturnValue([]);
+    mockFindProcesses.mockResolvedValue([]);
     mockIsAlive.mockReturnValue(false);
     mockKill.mockImplementation(() => { mockIsAlive.mockReturnValue(false); });
     console.error = vi.fn();
@@ -99,11 +99,18 @@ describe('watchdog action audit in CLI (phase 1878 Step I)', () => {
       const legacyLines = '2024-01-01T00:00:00Z\tseq=1\tlegacy_event\n';
       fs.writeFileSync(legacyAuditPath, legacyLines);
 
-      mockFindProcesses.mockReturnValue([2000]);
+      mockFindProcesses.mockResolvedValue([2000]);
       mockIsAlive.mockReturnValue(true);
 
       const sweepPromise = sweepOrphanWatchdogs(
-        fsFactory, { excludePid: null }, { kill: mockKill, isAlive: mockIsAlive },
+        fsFactory, { excludePid: null }, {
+          kill: mockKill,
+          observeProcessTarget: (target: { pid: number }) => ({
+            kind: mockIsAlive(target.pid) ? 'alive' : 'gone',
+            reason: 'absent',
+            evidence: { version: 1, atMs: 0, facts: [] },
+          }),
+        },
       );
       await vi.advanceTimersByTimeAsync(1001);
       const outcome = await sweepPromise;

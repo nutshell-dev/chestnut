@@ -13,7 +13,7 @@ import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messagi
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
-import { getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
 import type { InboxHandle } from '../../../src/foundation/messaging/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -116,8 +116,8 @@ describe('InboxReader phase 930', () => {
     expect(reconcileAudit).toHaveLength(0);
   });
 
-  // ─── Case 3: startTime=0 with expired mtime lease → reclaim ───────────────
-  it('reclaims inflight when startTime=0 and mtime lease expired', async () => {
+  // ─── Case 3: startTime=0 + alive/unverifiable v0 owner → retain ───────────
+  it('retains inflight when startTime=0 and the v0 owner is alive but unverifiable', async () => {
     await writeMsg('msg-1', 'hello');
     const pid = process.pid;
 
@@ -142,7 +142,10 @@ describe('InboxReader phase 930', () => {
     await freshReader.init();
 
     const pendingFiles = (await fs.readdir(pendingDir)).filter(f => f.endsWith('.md'));
-    expect(pendingFiles).toHaveLength(1);
+    expect(pendingFiles).toHaveLength(0);
+    expect((await fs.readdir(inflightDir)).filter(f => f.endsWith('.md'))).toEqual([
+      path.basename(inflightPath),
+    ]);
   });
 
   // ─── Case 4: startTime=0 with recent mtime → keep inflight ──────────────────

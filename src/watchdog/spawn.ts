@@ -9,7 +9,11 @@ import { spawnDetached } from '../foundation/process-exec/index.js';
 import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import * as path from 'path';
 import { getWatchdogEntryPath } from './watchdog-context.js';
-import { isWatchdogAlive, getWatchdogPid } from './watchdog-pid.js';
+import {
+  assertWatchdogOwnerWorkspace,
+  inspectWatchdogOwner,
+  WatchdogOwnerInspectionError,
+} from './watchdog-pid.js';
 import { WATCHDOG_LOG_HINT } from './watchdog-log.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
@@ -44,7 +48,7 @@ export async function spawnWatchdogCandidate(
   // phase 1763: 提交点前失败经 typed outcome 抛出（含原始 errno/时间/命令身份），
   // 不再静默落到 poll 超时；提交点后异步失败经 stderr sink 保持可观察。
   const outcome = await spawnDetached('node', [watchdogEntryPath], {
-    env: { ...process.env, CHESTNUT_ROOT: legacyParent },
+    env: { CHESTNUT_ROOT: legacyParent },
     cwd: legacyParent,
     onSpawnFailure: (failure) => {
       console.error(
@@ -62,19 +66,20 @@ export async function spawnWatchdogCandidate(
     );
   }
 
-  let attempts = 0;
-  while (!isWatchdogAlive(fsFactory) && attempts < WATCHDOG_START_MAX_ATTEMPTS) {
+  for (let attempts = 0; ; attempts++) {
+    const inspection = inspectWatchdogOwner(fsFactory);
+    if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
+      throw new WatchdogOwnerInspectionError(inspection);
+    }
+    if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
+    if (inspection.kind === 'alive') return inspection.pid;
+    if (attempts >= WATCHDOG_START_MAX_ATTEMPTS) break;
     await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
-    attempts++;
   }
 
-  const pid = getWatchdogPid(fsFactory);
-  if (!pid) {
-    throw new Error(
-      `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
-      // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）。
-      `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
-    );
-  }
-  return pid;
+  throw new Error(
+    `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
+    // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）。
+    `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
+  );
 }

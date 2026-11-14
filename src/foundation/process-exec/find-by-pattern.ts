@@ -105,16 +105,16 @@ function parseProcessList(stdout: string): ProcessInfo[] {
 
 /**
  * Find processes matching pattern. Returns pids + command strings.
- * Legacy synchronous API; new event-loop-sensitive callers should use the
+ * Synchronous CLI diagnostic API; event-loop-sensitive callers use the
  * bounded async variant.
  *
  * @throws ProcessListUnavailable if either process-list operation fails.
  */
-export function findByLiteralPattern(pattern: string): ProcessInfo[] {
-  return findByPattern(escapeLiteral(pattern));
+export function findByLiteralPatternSyncForCli(pattern: string): ProcessInfo[] {
+  return findByPatternSyncForCli(escapeLiteral(pattern));
 }
 
-export function findByPattern(pattern: string): ProcessInfo[] {
+export function findByPatternSyncForCli(pattern: string): ProcessInfo[] {
   let pids: number[];
   try {
     const result = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf-8' });

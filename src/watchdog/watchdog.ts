@@ -53,7 +53,7 @@ import {
 } from './watchdog-context.js';
 import {
   removeWatchdogPid, removeWatchdogPidIfOwner,
-  observeWatchdogOwner, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
+  inspectWatchdogOwnerRecord, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
@@ -150,13 +150,13 @@ export function acquireWatchdogOwnership(
   deps?: WatchdogProcessDeps,
 ): AcquireWatchdogOwnership {
   const fs = getChestnutFs(fsFactory);
-  const attempt = newWatchdogAttempt(process.pid);
+  const attempt = newWatchdogAttempt(process.pid, deps);
   prepareCandidate(fs, attempt);
 
   // Phase 1203 Step D: 无 active owner 时先处置 legacy watchdog.pid ——
   // live 保守阻止接管；dead/corrupt 保留证据迁移后放行；文件不得直接删除。
   if (inspectActive(fs).status === 'none') {
-    const legacy = disposLegacyWatchdogPid(fsFactory);
+    const legacy = disposLegacyWatchdogPid(fsFactory, deps);
     if (legacy.kind === 'foreign_live') {
       writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
         outcome: 'failed',
@@ -185,15 +185,15 @@ export function acquireWatchdogOwnership(
 
   if (commit.kind === 'foreign_owned') {
     const owner = commit.owner;
-    const processFact = observeWatchdogOwner(owner.pid, owner.process_start_time, deps);
-    if (processFact.kind === 'indeterminate') {
+    const processFact = inspectWatchdogOwnerRecord(owner, deps);
+    if (processFact.kind === 'unknown') {
       writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
         outcome: 'failed',
-        reason: `active_observation_indeterminate:${processFact.observation.reason}`,
+        reason: `active_observation_indeterminate:${processFact.reason}`,
       });
-      return { kind: 'failed', error: processFact.observation };
+      return { kind: 'failed', error: processFact };
     }
-    if (processFact.kind === 'owner_active') {
+    if (processFact.kind === 'alive') {
       // live owner：同实例 → lost；foreign → fail-loud（不赋予 live foreign 覆盖权）。
       // Phase 1930 Step B：磁盘 workspace_root 经 owner 私有适配转实例身份再比较。
       if (!legacyParentMatchesInstance(owner.workspace_root)) {
@@ -544,7 +544,9 @@ export async function runWatchdogLoop(
     try {
       for (const rawClawId of enumerateClaws(fs, 'claws')) {
         presentClawIds.push(rawClawId);
-        if (pm.isAlive(resolveClawDaemonDir(makeClawId(rawClawId)))) aliveIds.push(rawClawId);
+        if (pm.liveness(resolveClawDaemonDir(makeClawId(rawClawId))).kind === 'alive') {
+          aliveIds.push(rawClawId);
+        }
       }
     } catch (err) {
       if (!isFileNotFound(err)) {

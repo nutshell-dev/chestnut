@@ -140,12 +140,12 @@ describe('claw-stop', () => {
   it('not running → no marker write, no cleanup, resolves', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn().mockReturnValue(false),
-      stop: vi.fn(),
+      stop: vi.fn().mockResolvedValue({ kind: 'not_running' }),
     } as any);
 
     await stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any });
 
-    expect(signalCleanStop).not.toHaveBeenCalled();
+    expect(signalCleanStop).toHaveBeenCalledTimes(1);
     expect(clearCleanStop).not.toHaveBeenCalled();
   });
 

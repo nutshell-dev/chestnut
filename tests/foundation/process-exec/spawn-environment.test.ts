@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { delimiter } from 'node:path';
+import { delimiter, dirname } from 'node:path';
 import { createSpawnEnvironment } from '../../../src/foundation/process-exec/index.js';
 import { augmentNodePath } from '../../../src/foundation/process-exec/spawn-environment.js';
 
@@ -51,18 +51,20 @@ describe('spawn environment construction', () => {
     const result = createSpawnEnvironment(
       { CHESTNUT_ROOT: '/authorized-root', EXPLICIT_EMPTY: '' },
       {
-        PATH: '/usr/bin',
+        PATH: `${dirname(process.execPath)}${delimiter}/usr/bin`,
         Path: 'C\\Windows\\System32',
         SystemRoot: 'C\\Windows',
         CHESTNUT_LEGACY: 'compatible',
+        CHESTNUT_ROOT: '/host-root',
         ARBITRARY_SECRET: 'do-not-inherit',
       },
+      'linux',
     );
 
     expect(result).toEqual({
       kind: 'created',
       env: {
-        PATH: '/usr/bin',
+        PATH: `${dirname(process.execPath)}${delimiter}/usr/bin`,
         Path: 'C\\Windows\\System32',
         SystemRoot: 'C\\Windows',
         CHESTNUT_LEGACY: 'compatible',
@@ -74,10 +76,61 @@ describe('spawn environment construction', () => {
 
   it('supports explicit removal and does not mutate the host environment', () => {
     const host = { PATH: '/usr/bin', CHESTNUT_ROOT: '/old-root' };
-    const result = createSpawnEnvironment({ CHESTNUT_ROOT: undefined }, host);
+    const result = createSpawnEnvironment({ CHESTNUT_ROOT: undefined }, host, 'linux');
 
-    expect(result).toEqual({ kind: 'created', env: { PATH: '/usr/bin' } });
+    expect(result).toEqual({
+      kind: 'created',
+      env: { PATH: `${dirname(process.execPath)}${delimiter}/usr/bin` },
+    });
     expect(host.CHESTNUT_ROOT).toBe('/old-root');
+  });
+
+  it('collapses every host Windows Path casing before augmentation', () => {
+    const result = createSpawnEnvironment({}, {
+      Path: 'C:\\host\\bin',
+      PATH: 'C:\\duplicate-host\\bin',
+      path: 'C:\\lowercase-host\\bin',
+    }, 'win32');
+
+    expect(result.kind).toBe('created');
+    if (result.kind !== 'created') throw new Error('expected created environment');
+    const pathKeys = Object.keys(result.env).filter(key => key.toLowerCase() === 'path');
+    expect(pathKeys).toEqual(['Path']);
+    expect(result.env.Path).toBe(`${dirname(process.execPath)}${delimiter}C:\\host\\bin`);
+  });
+
+  it('merges every Windows Path casing and lets the caller value win', () => {
+    const result = createSpawnEnvironment(
+      { pAtH: 'C:\\caller\\bin', PATH: 'C:\\ignored-duplicate\\bin' },
+      {
+        Path: 'C:\\host\\bin',
+        PATH: 'C:\\duplicate-host\\bin',
+        path: 'C:\\lowercase-host\\bin',
+        ARBITRARY_SECRET: 'do-not-inherit',
+      },
+      'win32',
+    );
+
+    expect(result.kind).toBe('created');
+    if (result.kind !== 'created') throw new Error('expected created environment');
+    const pathKeys = Object.keys(result.env).filter(key => key.toLowerCase() === 'path');
+    expect(pathKeys).toEqual(['pAtH']);
+    expect(result.env.pAtH).toBe(`${dirname(process.execPath)}${delimiter}C:\\caller\\bin`);
+    expect(result.env.ARBITRARY_SECRET).toBeUndefined();
+  });
+
+  it.each(['Path', 'PATH', 'pAtH'])('Windows explicit %s deletion removes every host casing', (pathKey) => {
+    const result = createSpawnEnvironment(
+      { [pathKey]: undefined },
+      { Path: 'C:\\host\\bin', PATH: 'C:\\duplicate-host\\bin' },
+      'win32',
+    );
+
+    expect(result.kind).toBe('created');
+    if (result.kind !== 'created') throw new Error('expected created environment');
+    const pathKeys = Object.keys(result.env).filter(key => key.toLowerCase() === 'path');
+    expect(pathKeys).toEqual(['PATH']);
+    expect(result.env.PATH).toBe(dirname(process.execPath));
   });
 
   it('returns the original construction error with encoded evidence', () => {

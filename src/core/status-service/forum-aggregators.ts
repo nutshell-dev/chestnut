@@ -329,7 +329,7 @@ function findOrphansInternal(
   excludePids: (number | undefined)[],
 ): number[] {
   const validExcludes = excludePids.filter((p): p is number => typeof p === 'number');
-  return pm.findProcesses(entryPath).filter(p => !validExcludes.includes(p) && p !== process.pid);
+  return pm.findProcessesSyncForCli(entryPath).filter(p => !validExcludes.includes(p) && p !== process.pid);
 }
 
 /**

@@ -27,7 +27,10 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const systemAudit = actionAuditFor(baseDir, deps);
 
-  const isRunning = processManager.isAlive(resolveClawDaemonDir(target.clawId));
+  const liveness = processManager.liveness(resolveClawDaemonDir(target.clawId));
+  const status = liveness.kind === 'alive'
+    ? 'running'
+    : liveness.kind === 'dead' || liveness.kind === 'absent' ? 'stopped' : 'unknown';
 
   // Read inbox/outbox pending counts in real time
   // phase 858: lightweight query helpers now return Result; -1 marks I/O error
@@ -54,7 +57,7 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   if (opts?.json) {
     const payload = {
       name,
-      status: isRunning ? 'running' : 'stopped',
+      status,
       inbox_pending: inboxPending,
       outbox_pending: outboxPending,
       contract: contractStatus as 'active' | 'none',
@@ -67,7 +70,7 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
 
   console.log(`\nHealth Check: ${name}`);
   console.log('─'.repeat(40));
-  console.log(`status: ${isRunning ? 'running' : 'stopped'}`);
+  console.log(`status: ${status}`);
   console.log(`inbox_pending: ${inboxPending}`);
   console.log(`outbox_pending: ${outboxPending}`);
   console.log(`contract: ${contractStatus}`);

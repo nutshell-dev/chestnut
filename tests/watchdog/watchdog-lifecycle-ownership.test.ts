@@ -260,7 +260,7 @@ describe('acquireWatchdogOwnership', () => {
     const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
 
     const result = acquireWatchdogOwnership(fsFactory, {
-      observeProcessTarget: () => ({
+      inspectProcessRef: () => ({
         kind: 'unknown', reason: 'permission_denied', error: permission,
         evidence: { version: 1, atMs: 0, facts: ['raw-evidence'] },
       }),
@@ -454,20 +454,20 @@ describe('stale recovery 补记 unclean terminal', () => {
 describe('legacy watchdog.pid 迁移（Phase 1203 Step D）', () => {
   const legacyPidFile = () => path.join(chestnutDir, 'watchdog.pid');
 
-  it('live legacy owner（同 workspace）保守阻止接管：legacy_live + outcome + 无 active', () => {
+  it('live legacy owner（同 workspace）身份不可证：failed + 不接管', () => {
     fs.writeFileSync(legacyPidFile(), JSON.stringify({ pid: process.pid, root: tmpDir }));
 
     const result = acquireWatchdogOwnership(fsFactory);
 
-    expect(result.kind).toBe('legacy_live');
+    expect(result.kind).toBe('failed');
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
     // legacy 文件不得删除
     expect(fs.existsSync(legacyPidFile())).toBe(true);
     const outcomes = candidateOutcomeFiles();
     expect(outcomes.length).toBe(1);
     expect(JSON.parse(fs.readFileSync(outcomes[0], 'utf-8'))).toMatchObject({
-      outcome: 'lost',
-      reason: 'legacy_live',
+      outcome: 'failed',
+      reason: expect.stringContaining('legacy_indeterminate'),
     });
   });
 
@@ -499,11 +499,12 @@ describe('legacy watchdog.pid 迁移（Phase 1203 Step D）', () => {
     expect(auditLines()).toContain('watchdog_pid_corrupt');
   });
 
-  it('foreign workspace live legacy → throw WatchdogPidForeignWorkspaceError、legacy 文件保留', () => {
+  it('foreign workspace live legacy → 身份不可证 failed、legacy 文件保留', () => {
     fs.writeFileSync(legacyPidFile(), JSON.stringify({ pid: process.pid, root: '/foreign/root' }));
     const before = fs.readFileSync(legacyPidFile());
 
-    expect(() => acquireWatchdogOwnership(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
+    const result = acquireWatchdogOwnership(fsFactory);
+    expect(result.kind).toBe('failed');
     expect(fs.existsSync(legacyPidFile())).toBe(true);
     expect(fs.readFileSync(legacyPidFile())).toEqual(before);
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
@@ -671,7 +672,7 @@ describe('相对/冗余实例身份记录经 acquire 链（Phase 1931 Step D）'
 
     const result = acquireWatchdogOwnership(fsFactory);
 
-    expect(result.kind).toBe('legacy_live');
+    expect(result.kind).toBe('failed');
     expect(fs.readFileSync(legacyPidPath())).toEqual(before);
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR))).toBe(false);
   });

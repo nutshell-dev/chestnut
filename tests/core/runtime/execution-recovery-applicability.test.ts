@@ -258,7 +258,9 @@ describe('phase 1869 Step G: 消费适用性判定', () => {
     const inflightFiles = fs.readdirSync(inflightDir).filter(f => f.endsWith('.md'));
     expect(inflightFiles).toHaveLength(1);
     const originalName = inflightFiles[0].replace(/^\d+_[0-9a-f]+_/i, '');
-    const stalePath = path.join(inflightDir, `${process.pid}_0_${originalName}`);
+    // Use a nonexistent PID so recovery is authorized by typed gone rather than
+    // by an unverifiable live-v0 identity plus an expired lease.
+    const stalePath = path.join(inflightDir, `999999_0_${originalName}`);
     fs.renameSync(path.join(inflightDir, inflightFiles[0]), stalePath);
     const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
     fs.utimesSync(stalePath, oldMtime, oldMtime);

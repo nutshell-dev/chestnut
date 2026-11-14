@@ -16,6 +16,7 @@ import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { DEAD_PID } from '../../helpers/dead-pid.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import { ProcessGenerationStateError, ProcessSpawnConflictError } from '../../../src/foundation/process-manager/index.js';
 import { ProcessOrphanCleanupError } from '../../../src/foundation/process-manager/types.js';
@@ -40,7 +41,7 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
 });
 
-// phase 1779: orphan cleanup 故障注入——findProcessesDetailed 经 hoisted impl 可控。
+// phase 1779: orphan cleanup 故障注入——findProcessesDetailedAsync 经 hoisted impl 可控。
 // 默认确定性空列表（无 orphan）：phase 1779 后 enumerate 是 fail-closed spawn gate，
 // call-through 真实 pgrep 会让无 pgrep/受限环境下全部 happy-path 用例以
 // ProcessListUnavailable 误失败（2026-09-07 验证事故）。需要真实枚举的用例
@@ -52,8 +53,6 @@ vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
   return {
     ...actual,
-    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
-      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
     findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
@@ -66,7 +65,7 @@ function defaultCtx(
   audit: ProcessManagerContext['audit'],
   overrides: Partial<ProcessManagerContext> = {},
 ): ProcessManagerContext {
-  return {
+  return installLegacyProcessRefInspector({
     fs: nodeFs,
     audit,
     isReady: () => true,
@@ -74,7 +73,7 @@ function defaultCtx(
     spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: process.pid }),
     getProcessStartTime: vi.fn().mockReturnValue(undefined),
     ...overrides,
-  };
+  });
 }
 
 describe('spawn', () => {
@@ -473,23 +472,39 @@ describe('spawn', () => {
       expect(candidateDirs).toHaveLength(0);
     });
 
-    it('passes CHESTNUT_PROCESS_GENERATION env matching generation.json', async () => {
+    it('passes only caller authorization plus the generated identity to L1', async () => {
       const { audit } = makeAudit();
       const clawId = 'gen-env';
       const daemonDir = testClawDaemonDir(tempDir, clawId);
       const spawnDetached = vi.fn().mockResolvedValue({ kind: 'spawned', pid: process.pid });
       const ctx = defaultCtx(nodeFs, audit, { isReady: () => true, spawnDetached });
+      const secretKey = 'PHASE2146_PM_UNAUTHORIZED_SECRET';
+      const previousSecret = process.env[secretKey];
+      const previousGeneration = process.env[PROCESS_GENERATION_ENV];
+      process.env[secretKey] = 'do-not-inherit';
+      process.env[PROCESS_GENERATION_ENV] = 'host-generation-must-not-win';
 
-      await spawnProcess(ctx, daemonDir, {
-        command: 'node',
-        args: ['/fake/daemon-entry.js', clawId],
-        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
-      });
+      try {
+        await spawnProcess(ctx, daemonDir, {
+          command: 'node',
+          args: ['/fake/daemon-entry.js', clawId],
+          logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+          env: { CHESTNUT_ROOT: '/caller-root', CALLER_AUTHORIZED: 'yes' },
+        });
 
-      const generationId = JSON.parse(nodeFs.readSync(path.join(getSpawningDir(daemonDir), GENERATION_FILE))).generation_id;
-      expect(spawnDetached).toHaveBeenCalledTimes(1);
-      const env = spawnDetached.mock.calls[0][2].env;
-      expect(env[PROCESS_GENERATION_ENV]).toBe(generationId);
+        const generationId = JSON.parse(nodeFs.readSync(path.join(getSpawningDir(daemonDir), GENERATION_FILE))).generation_id;
+        expect(spawnDetached).toHaveBeenCalledTimes(1);
+        expect(spawnDetached.mock.calls[0][2].env).toEqual({
+          CHESTNUT_ROOT: '/caller-root',
+          CALLER_AUTHORIZED: 'yes',
+          [PROCESS_GENERATION_ENV]: generationId,
+        });
+      } finally {
+        if (previousSecret === undefined) delete process.env[secretKey];
+        else process.env[secretKey] = previousSecret;
+        if (previousGeneration === undefined) delete process.env[PROCESS_GENERATION_ENV];
+        else process.env[PROCESS_GENERATION_ENV] = previousGeneration;
+      }
     });
 
     it('precheck rejects a foreign spawning generation with typed conflict', async () => {

@@ -55,11 +55,16 @@ export function readiness(ctx: ProcessManagerContext, daemonDir: DaemonDir): Rea
     return { kind: 'not_ready', reason: 'stale_generation' };
   }
 
-  const observation = observeProcessFact(ctx, ready.record.pid, ready.record.start_time);
+  const observation = observeProcessFact(ctx, ready.record);
   if (observation.kind === 'alive') {
-    return { kind: 'ready', generationId: active.record.generation_id, pid: ready.record.pid };
+    return {
+      kind: 'ready', generationId: active.record.generation_id, pid: ready.record.pid,
+      evidence: observation.evidence,
+    };
   }
-  if (observation.kind === 'gone') return { kind: 'not_ready', reason: 'process_not_alive' };
+  if (observation.kind === 'gone') {
+    return { kind: 'not_ready', reason: 'process_not_alive', evidence: observation.evidence };
+  }
   const error = observation.error ?? observation;
   ctx.audit.write(
     PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
@@ -67,7 +72,7 @@ export function readiness(ctx: ProcessManagerContext, daemonDir: DaemonDir): Rea
     `ready_pid=${ready.record.pid}`,
     `reason=${formatErr(error)}`,
   );
-  return { kind: 'probe_unavailable', error };
+  return { kind: 'probe_unavailable', error, evidence: observation.evidence };
 }
 
 /**

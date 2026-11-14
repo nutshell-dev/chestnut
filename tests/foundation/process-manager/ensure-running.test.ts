@@ -46,6 +46,7 @@ import {
   writeSpawningGenerationSync,
 } from '../../helpers/generation-fixtures.js';
 import type { DaemonDir } from '../../../src/foundation/process-manager/index.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
 // Phase 1995 Step B：BOOT_DEADLINE_MS 由固定值改 hoisted mutable + getter——
 // join-success 用例（先等 audit 再写 ready）在满负载下 500ms 先到期误报
@@ -85,7 +86,7 @@ vi.mock('../../../src/foundation/process-manager/ready-convergence.js', async (i
   };
 });
 
-// phase 1887 Step B: orphan cleanup 走确定性缝（1779 模式）——findProcessesDetailed
+// phase 1887 Step B: orphan cleanup 走确定性缝（1779 模式）——findProcessesDetailedAsync
 // 经 hoisted impl 可控。默认确定性空列表（无 orphan → cleanupOrphans 走 not_needed →
 // spawn 继续）；call-through 真实 pgrep 会让无 pgrep/受限环境下全部 happy-path 用例以
 // ProcessOrphanCleanupError（blocked stage=enumerate，fail-closed 不 spawn）误失败。
@@ -97,8 +98,6 @@ vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
   return {
     ...actual,
-    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
-      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
     findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
@@ -109,7 +108,7 @@ function defaultCtx(
   audit: ProcessManagerContext['audit'],
   overrides: Partial<ProcessManagerContext> = {},
 ): ProcessManagerContext {
-  return {
+  return installLegacyProcessRefInspector({
     fs: nodeFs,
     audit,
     isReady: () => true,
@@ -117,7 +116,7 @@ function defaultCtx(
     spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: process.pid }),
     getProcessStartTime: vi.fn().mockReturnValue(undefined),
     ...overrides,
-  };
+  });
 }
 
 function spawnOptionsFor(tempDir: string, clawId: string): SpawnOptions {

@@ -8,7 +8,11 @@
  * `watchdog/active/owner.json`，不要求自己的 child 获胜。
  */
 import type { FileSystem } from '../foundation/fs/index.js';
-import { isWatchdogAlive } from './watchdog-pid.js';
+import {
+  assertWatchdogOwnerWorkspace,
+  inspectWatchdogOwner,
+  WatchdogOwnerInspectionError,
+} from './watchdog-pid.js';
 import { spawnWatchdogCandidate } from './spawn.js';
 import { createWatchdogActionAudit } from './audit-wiring.js';
 
@@ -27,7 +31,12 @@ export async function ensureWatchdog(
   // （旧 ensureAuditWired lazy 悬挂语义退役）。
   const actionAudit = createWatchdogActionAudit(fsFactory);
   try {
-    if (isWatchdogAlive(fsFactory)) return; // throws WatchdogPidForeignWorkspaceError if foreign
+    const inspection = inspectWatchdogOwner(fsFactory);
+    if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
+      throw new WatchdogOwnerInspectionError(inspection);
+    }
+    if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
+    if (inspection.kind === 'alive') return;
     await spawnWatchdogCandidate(fsFactory);
   } finally {
     actionAudit.dispose();

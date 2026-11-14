@@ -7,7 +7,7 @@
 import { spawnSync } from 'child_process';
 import { PROCESS_EXEC_DEFAULT_MAX_BUFFER } from './constants.js';
 import { encodeProcessEvidence, type ProcessEvidence } from './process-evidence.js';
-import type { ProcessUnavailableReason } from './process-reference.js';
+import type { ProcessUnavailableReason } from './types.js';
 
 const ARGV_QUERY_TIMEOUT_MS = 1000;
 

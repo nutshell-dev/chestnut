@@ -239,9 +239,12 @@ export class OutboxReader {
           }
         } else {
           await store.recordObservation({ rawName: entry.name, originalName, claim });
-          decision = leaseElapsed
-            ? { kind: 'reclaim', reason: 'lease_elapsed' }
-            : { kind: 'retain', reason: 'lease_active' };
+          decision = capture.kind === 'unknown'
+            // A failed capture is not a reference-free historical lease.
+            ? { kind: 'retain', reason: 'unknown' }
+            : leaseElapsed
+              ? { kind: 'reclaim', reason: 'lease_elapsed' }
+              : { kind: 'retain', reason: 'lease_active' };
           await store.recordDecision({
             rawName: entry.name,
             originalName,
@@ -278,6 +281,12 @@ export class OutboxReader {
           decision = { kind: 'retain', reason: 'invalid_reference' };
         } else if (facts.observed?.kind === 'gone') {
           decision = { kind: 'reclaim', reason: 'process_gone' };
+        } else if (facts.observed?.kind === 'unknown') {
+          // Unknown identity never authorizes recovery; an active lease remains
+          // useful evidence, while an elapsed lease still cannot reclaim.
+          decision = leaseEligible
+            ? { kind: 'retain', reason: leaseElapsed ? 'unknown' : 'lease_active' }
+            : { kind: 'retain', reason: 'unknown' };
         } else if (leaseEligible && leaseElapsed) {
           decision = { kind: 'reclaim', reason: 'lease_elapsed' };
         } else if (leaseEligible) {

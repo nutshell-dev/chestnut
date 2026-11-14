@@ -26,7 +26,7 @@ import {
 import type { ConfigSchema } from '../../../src/foundation/config-store/store.js';
 import type { ConfigStoreErrorCode } from '../../../src/foundation/config-store/errors.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
 
 interface TestConfig {
   name: string;

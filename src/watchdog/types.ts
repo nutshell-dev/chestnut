@@ -1,7 +1,8 @@
 import type {
-  isAlive as defaultIsAlive,
+  captureOwnedProcessRef as defaultCaptureOwnedProcessRef,
+  decodeProcessRef as defaultDecodeProcessRef,
+  inspectProcessRef as defaultInspectProcessRef,
   kill as defaultKill,
-  isPidArgvMatching as defaultIsPidArgvMatching,
   ProcessTarget,
   ProcessTargetObservation,
   ProcessTerminationOptions,
@@ -9,15 +10,18 @@ import type {
 } from '../foundation/process-exec/index.js';
 
 export interface WatchdogProcessDeps {
-  /** Legacy L1 adapters retained for existing callers and test fixtures. */
-  kill?: typeof defaultKill;
-  isAlive?: typeof defaultIsAlive;
-  isPidArgvMatching?: typeof defaultIsPidArgvMatching;
-  /** Typed L1 observation seam; Watchdog maps only OS facts to business facts. */
+  /** Typed capture seam for new persisted owner records. */
+  captureOwnedProcessRef?: typeof defaultCaptureOwnedProcessRef;
+  /** Typed persisted-identity seams; decoding never performs an OS query. */
+  decodeProcessRef?: typeof defaultDecodeProcessRef;
+  inspectProcessRef?: typeof defaultInspectProcessRef;
+  /** Typed dynamic-target observation seam for enumerated {pid, argvToken}. */
   observeProcessTarget?: (target: ProcessTarget) => ProcessTargetObservation;
   /** Typed L1 termination seam; TERM/KILL scheduling stays in ProcessExec. */
   terminateProcessTarget?: (
     target: ProcessTarget,
     options?: ProcessTerminationOptions,
   ) => Promise<ProcessTerminationOutcome>;
+  /** Signal adapter consumed only by ProcessExec's typed termination state machine. */
+  kill?: typeof defaultKill;
 }

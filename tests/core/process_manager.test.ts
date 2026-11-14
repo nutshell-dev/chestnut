@@ -11,7 +11,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-// Mock child_process so findProcesses tests can control pgrep behavior
+// Mock child_process so findProcessesSyncForCli tests can control pgrep behavior
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
@@ -39,7 +39,7 @@ const aliveObservation = (): ProcessTargetObservation => ({
   kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] },
 });
 const liveProcessManager = (fs: NodeFileSystem, audit: ReturnType<typeof makeAudit>['audit']) =>
-  new ProcessManager(fs, audit, undefined, undefined, undefined, undefined, aliveObservation);
+  new ProcessManager(fs, audit, undefined, undefined, aliveObservation);
 
 describe('ProcessManager', () => {
   let tempDir: string;
@@ -68,13 +68,13 @@ describe('ProcessManager', () => {
 
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
-      expect(pm.isAlive(daemonDir)).toBe(true);
+      expect(pm.liveness(daemonDir).kind).toBe('alive');
     });
 
     it('should return false when no active generation exists', () => {
       const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
-      expect(pm.isAlive(testClawDaemonDir(tempDir, 'nonexistent'))).toBe(false);
+      expect(pm.liveness(testClawDaemonDir(tempDir, 'nonexistent')).kind).toBe('absent');
     });
   });
 
@@ -87,7 +87,7 @@ describe('ProcessManager', () => {
       const motionDir = testMotionDaemonDir(tempDir);
       writeActiveGenerationSync(motionDir, { generationId: 'gen-motion', pid: process.pid });
 
-      expect(pm.isAlive(motionDir)).toBe(true);
+      expect(pm.liveness(motionDir).kind).toBe('alive');
     });
   });
 
@@ -98,7 +98,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'live-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-live', pid: process.pid });
 
-      expect(pm.isAlive(daemonDir)).toBe(true);
+      expect(pm.liveness(daemonDir).kind).toBe('alive');
     });
 
     it('should return false and not clean stale generation for dead process (phase 879 M#1)', async () => {
@@ -107,7 +107,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'dead-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-dead', pid: DEAD_PID });
 
-      expect(pm.isAlive(daemonDir)).toBe(false);
+      expect(pm.liveness(daemonDir).kind).toBe('dead');
 
       // M#1 probe ≠ delete：liveness/isAlive 不清理 stale generation、留到 stop/recovery 显式路径
       expect(fsSync.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(true);
@@ -121,7 +121,7 @@ describe('ProcessManager', () => {
       await fs.mkdir(activeDir, { recursive: true });
       await fs.writeFile(path.join(activeDir, 'generation.json'), 'not-json', 'utf-8');
 
-      expect(pm.isAlive(daemonDir)).toBe(false);
+      expect(pm.liveness(daemonDir).kind).toBe('malformed');
     });
   });
 
@@ -162,7 +162,6 @@ describe('ProcessManager', () => {
         command: 'node',
         args: ['/fake/daemon-entry.js', 'existing-claw'],
         logFile,
-        env: { ...process.env },
       })).rejects.toThrow(/already running/);
     });
 
@@ -179,7 +178,6 @@ describe('ProcessManager', () => {
           command: 'node',
           args: ['/fake/daemon-entry.js', 'busy-claw'],
           logFile,
-          env: { ...process.env },
         });
         expect.fail('should have thrown');
       } catch (err: any) {
@@ -189,7 +187,7 @@ describe('ProcessManager', () => {
     });
   });
 
-  describe('findProcesses', () => {
+  describe('findProcessesSyncForCli', () => {
     it('should throw ProcessListUnavailable when spawnSync throws (e.g. ENOENT)', async () => {
       const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
@@ -198,7 +196,7 @@ describe('ProcessManager', () => {
         throw err;
       });
 
-      expect(() => pm.findProcesses('test-pattern')).toThrow(ProcessListUnavailable);
+      expect(() => pm.findProcessesSyncForCli('test-pattern')).toThrow(ProcessListUnavailable);
     });
 
     it('should throw ProcessListUnavailable when pgrep exits with non-0/non-1 status', async () => {
@@ -210,7 +208,7 @@ describe('ProcessManager', () => {
         stderr: Buffer.from('invalid regex'),
       }) as ReturnType<typeof import('child_process').spawnSync>);
 
-      expect(() => pm.findProcesses('test-pattern')).toThrow(ProcessListUnavailable);
+      expect(() => pm.findProcessesSyncForCli('test-pattern')).toThrow(ProcessListUnavailable);
     });
 
     it('should return empty array when pgrep exits 1 (no match)', async () => {
@@ -222,7 +220,7 @@ describe('ProcessManager', () => {
         stderr: '',
       } as any));
 
-      expect(pm.findProcesses('test-pattern')).toEqual([]);
+      expect(pm.findProcessesSyncForCli('test-pattern')).toEqual([]);
     });
   });
 });

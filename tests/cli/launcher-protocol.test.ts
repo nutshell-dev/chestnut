@@ -41,7 +41,7 @@ vi.mock('../../src/assembly/config/global-config-path.js', async (importOriginal
 });
 vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>();
-  return { ...actual, createProcessManagerForCLI: vi.fn(() => ({ isAlive: vi.fn(), liveness: vi.fn(() => ({ kind: 'dead', pid: 0 })) })) };
+  return { ...actual, createProcessManagerForCLI: vi.fn(() => ({ liveness: vi.fn(() => ({ kind: 'dead', pid: 0 })) })) };
 });
 
 // ---------------------------------------------------------------------------

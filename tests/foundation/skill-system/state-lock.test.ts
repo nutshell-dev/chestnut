@@ -179,7 +179,7 @@ describe('SkillSystem state lock persisted observations', () => {
     }
   });
 
-  it('never treats unknown as death, but retains independent lease_elapsed takeover', async () => {
+  it('retains an unknown holder even after its lease expires', async () => {
     const fresh = v2Raw();
     writeLock(fresh);
     const decode = vi.spyOn(processExec, 'decodeProcessRef');
@@ -196,12 +196,17 @@ describe('SkillSystem state lock persisted observations', () => {
     const expired = v2Raw({ kind: 'unknown' }, NOW - 30_001);
     writeLock(expired);
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const deletion = vi.spyOn(nodeFs, 'delete');
+    releaseAfterWaits();
     let calls = 0;
     await withSkillStateLock(nodeFs, async () => { calls += 1; });
     expect(calls).toBe(1);
+    expect(deletion).toHaveBeenCalledTimes(1); // replacement release only
     expect(readRecords()[0]).toMatchObject({
+      lockRaw: expired,
       process: {},
-      decision: { kind: 'takeover', reason: 'lease_elapsed' },
+      lease: { source: 'at', valueMs: NOW - 30_001 },
+      decision: { kind: 'wait', reason: 'unknown' },
     });
   });
 
@@ -219,20 +224,91 @@ describe('SkillSystem state lock persisted observations', () => {
     });
   });
 
-  it('allows an independently expired invalid reference only as lease_elapsed', async () => {
-    const raw = JSON.stringify({ pid: -1, at: NOW - 30_001 });
+  it.each([
+    {
+      label: 'malformed',
+      decoded: { kind: 'invalid', reason: 'malformed_json', evidence: EVIDENCE } as const,
+    },
+    {
+      label: 'unsupported',
+      decoded: { kind: 'unsupported_version', evidence: EVIDENCE } as const,
+    },
+  ])('retains an expired $label reference and preserves its decode evidence', async ({ decoded }) => {
+    const raw = v2Raw({ kind: 'reference', ref: 'unreadable-ref' }, NOW - 30_001);
     writeLock(raw);
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
-    const decoded = { kind: 'invalid', reason: 'invalid_v0_shape_or_pid', evidence: EVIDENCE } as const;
     mockDecode(decoded);
     const inspect = vi.spyOn(processExec, 'inspectProcessRef');
+    const deletion = vi.spyOn(nodeFs, 'delete');
+    releaseAfterWaits();
 
     await withSkillStateLock(nodeFs, async () => undefined);
 
     expect(inspect).not.toHaveBeenCalled();
+    expect(deletion).toHaveBeenCalledTimes(1); // replacement release only
     expect(readRecords()[0]).toMatchObject({
+      lockRaw: raw,
       process: { decoded },
-      decision: { kind: 'takeover', reason: 'lease_elapsed' },
+      lease: { source: 'at', valueMs: NOW - 30_001 },
+      decision: { kind: 'wait', reason: 'unknown' },
+    });
+  });
+
+  it.each([
+    {
+      label: 'v0 alive but identity-unverifiable',
+      observed: {
+        kind: 'unknown',
+        reason: 'identity_unverifiable',
+        evidence: {
+          version: 1,
+          atMs: NOW - 1,
+          facts: [{ operation: 'signal0', outcome: 'alive' }],
+        },
+      } as const,
+    },
+    {
+      label: 'EPERM',
+      observed: {
+        kind: 'unknown',
+        reason: 'permission_denied',
+        evidence: {
+          version: 1,
+          atMs: NOW - 1,
+          facts: [{ operation: 'signal0', outcome: 'throw', error: { code: 'EPERM' } }],
+        },
+      } as const,
+    },
+    {
+      label: 'query failure',
+      observed: {
+        kind: 'unknown',
+        reason: 'query_failed',
+        evidence: {
+          version: 1,
+          atMs: NOW - 1,
+          facts: [{ operation: 'signal0', outcome: 'throw', error: { code: 'EIO' } }],
+        },
+      } as const,
+    },
+  ])('retains an expired referenced holder after $label and keeps the observation evidence', async ({ observed }) => {
+    const raw = JSON.stringify({ pid: 1234, at: NOW - 30_001 });
+    writeLock(raw);
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const { decode, inspect } = mockObservation(observed);
+    const deletion = vi.spyOn(nodeFs, 'delete');
+    releaseAfterWaits();
+
+    await withSkillStateLock(nodeFs, async () => undefined);
+
+    expect(decode).toHaveBeenCalledWith({ version: 0, pid: 1234, startTime: undefined });
+    expect(inspect).toHaveBeenCalledWith(REF);
+    expect(deletion).toHaveBeenCalledTimes(1); // replacement release only
+    expect(readRecords()[0]).toMatchObject({
+      lockRaw: raw,
+      process: { decoded: { kind: 'decoded', value: REF }, observed },
+      lease: { source: 'at', valueMs: NOW - 30_001 },
+      decision: { kind: 'wait', reason: 'unknown' },
     });
   });
 
@@ -258,8 +334,7 @@ describe('SkillSystem state lock persisted observations', () => {
     ['malformed JSON', '{"pid":'],
     ['null', 'null'],
     ['array', '[]'],
-    ['invalid v2 holder', v2Raw({ kind: 'reference', ref: '' }, 0)],
-  ])('uses only mtime lease rules for a corrupt known lock: %s', async (_label, raw) => {
+  ])('uses only mtime lease rules for reference-free corrupt history: %s', async (_label, raw) => {
     writeLock(raw);
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
     nodeFs.utimesSync('state.lock', new Date(0), new Date(NOW - 30_001));
@@ -273,6 +348,27 @@ describe('SkillSystem state lock persisted observations', () => {
       process: {},
       lease: { source: 'mtime', valueMs: NOW - 30_001 },
       decision: { kind: 'takeover', reason: 'lease_elapsed' },
+    });
+  });
+
+  it('retains a malformed v2 reference holder instead of treating it as reference-free history', async () => {
+    const raw = v2Raw({ kind: 'reference', ref: '' }, 0);
+    writeLock(raw);
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    nodeFs.utimesSync('state.lock', new Date(0), new Date(NOW - 30_001));
+    const decode = vi.spyOn(processExec, 'decodeProcessRef');
+    const deletion = vi.spyOn(nodeFs, 'delete');
+    releaseAfterWaits();
+
+    await withSkillStateLock(nodeFs, async () => undefined);
+
+    expect(decode).not.toHaveBeenCalled();
+    expect(deletion).toHaveBeenCalledTimes(1); // replacement release only
+    expect(readRecords()[0]).toMatchObject({
+      lockRaw: raw,
+      process: {},
+      lease: { source: 'mtime', valueMs: NOW - 30_001 },
+      decision: { kind: 'wait', reason: 'unknown' },
     });
   });
 

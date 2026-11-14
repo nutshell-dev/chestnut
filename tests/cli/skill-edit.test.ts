@@ -30,6 +30,7 @@ import {
 } from '../../src/cli/commands/skill-edit.js';
 import { CliError } from '../../src/cli/errors.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import {
   createSkillVersions,
@@ -387,12 +388,14 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     // 'required' 策略 alive fast-path，不 spawn 真实 watchdog
     const activeDir = path.join(tmpDir, '.chestnut', 'watchdog', 'active');
     fsSync.mkdirSync(activeDir, { recursive: true });
+    const identity = captureOwnedProcessRef(process.pid);
+    if (identity.kind !== 'captured') throw new Error('watchdog fixture identity unavailable');
     fsSync.writeFileSync(path.join(activeDir, 'owner.json'), JSON.stringify({
-      schema_version: 1,
+      schema_version: 2,
       attempt_id: newUuid(),
       owner_token: newUuid(),
       pid: process.pid,
-      process_start_time: 'test',
+      process_ref: identity.value,
       workspace_root: tmpDir,
       created_at: new Date().toISOString(),
     }));

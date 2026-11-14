@@ -14,6 +14,11 @@ import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { writeActiveGenerationSync } from '../helpers/generation-fixtures.js';
+import type { ProcessTargetObservation } from '../../src/foundation/process-exec/index.js';
+
+const aliveObservation: ProcessTargetObservation = {
+  kind: 'alive', evidence: { version: 1, atMs: 0, facts: [] },
+};
 
 describe('ProcessManager', () => {
   let tempDir: string;
@@ -41,8 +46,8 @@ describe('ProcessManager', () => {
 
   describe('isAlive', () => {
     it('should return false when no active generation exists', () => {
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'nonexistent-claw'));
-      expect(result).toBe(false);
+      const result = processManager.liveness(testClawDaemonDir(tempDir, 'nonexistent-claw'));
+      expect(result.kind).toBe('absent');
     });
 
     it('should return false when active generation is malformed', () => {
@@ -51,8 +56,8 @@ describe('ProcessManager', () => {
       fs.mkdirSync(activeDir, { recursive: true });
       fs.writeFileSync(path.join(activeDir, 'generation.json'), 'not-a-number');
 
-      const result = processManager.isAlive(daemonDir);
-      expect(result).toBe(false);
+      const result = processManager.liveness(daemonDir);
+      expect(result.kind).toBe('malformed');
     });
 
     it('should return false when active pid record is missing', () => {
@@ -64,8 +69,8 @@ describe('ProcessManager', () => {
         JSON.stringify({ schema_version: 1, generation_id: 'gen-1', daemon_dir: daemonDir, parent_pid: process.pid, created_at: new Date().toISOString() }),
       );
 
-      const result = processManager.isAlive(daemonDir);
-      expect(result).toBe(false);
+      const result = processManager.liveness(daemonDir);
+      expect(result.kind).toBe('absent');
     });
   });
 
@@ -79,7 +84,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: DEAD_PID });
 
-      expect(processManager.isAlive(daemonDir)).toBe(false);
+      expect(processManager.liveness(daemonDir).kind).toBe('dead');
 
       // generation 文件不应被 probe 清理（M#1 probe ≠ delete）
       expect(fs.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(true);
@@ -102,24 +107,24 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: 12345 });
 
-      const result = processManager.isAlive(daemonDir);
-      expect(result).toBe(false);
+      const result = processManager.liveness(daemonDir);
+      expect(result.kind).toBe('dead');
     });
 
     it('should read motion daemonDir when caller resolves path', () => {
       const motionDir = testMotionDaemonDir(tempDir);
       writeActiveGenerationSync(motionDir, { generationId: 'gen-motion', pid: 12345 });
 
-      const result = processManager.isAlive(motionDir);
-      expect(result).toBe(false);
+      const result = processManager.liveness(motionDir);
+      expect(result.kind).toBe('dead');
     });
 
     it('should read claw daemonDir when caller resolves path', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: 12345 });
 
-      const result = processManager.isAlive(daemonDir);
-      expect(result).toBe(false);
+      const result = processManager.liveness(daemonDir);
+      expect(result.kind).toBe('dead');
     });
   });
 
@@ -149,6 +154,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'live-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-live', pid: process.pid });
 
+      processManager = new ProcessManager(fsInstance, audit, undefined, undefined, () => aliveObservation);
       const result = processManager.liveness(daemonDir);
       expect(result.kind).toBe('alive');
       if (result.kind === 'alive') {
@@ -161,6 +167,7 @@ describe('ProcessManager', () => {
     it('should throw error when active generation is alive', async () => {
       const daemonDir = testClawDaemonDir(tempDir, 'existing-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-existing', pid: process.pid });
+      processManager = new ProcessManager(fsInstance, audit, undefined, undefined, () => aliveObservation);
 
       await expect(
         processManager.spawn(daemonDir, {
@@ -175,6 +182,7 @@ describe('ProcessManager', () => {
     it('should throw error with correct message when process is alive', async () => {
       const daemonDir = testClawDaemonDir(tempDir, 'busy-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-busy', pid: process.pid });
+      processManager = new ProcessManager(fsInstance, audit, undefined, undefined, () => aliveObservation);
 
       try {
         await processManager.spawn(daemonDir, {

@@ -65,7 +65,7 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
 vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
   getWatchdogPid: vi.fn().mockReturnValue(null),
-  isWatchdogAlive: vi.fn().mockReturnValue(false),
+  inspectWatchdogLivenessForCli: vi.fn().mockReturnValue('not_running'),
   removeWatchdogPid: vi.fn(),
 }));
 
@@ -97,7 +97,7 @@ vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
     isAlive: vi.fn().mockReturnValue(false),
     stop: vi.fn().mockResolvedValue(undefined),
-    findProcesses: mockFindProcesses,
+    findProcessesSyncForCli: mockFindProcesses,
   })),
 }));
 
@@ -168,7 +168,11 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       },
     });
 
-    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
+    await stopAllCommand(stopDeps, {
+      kill: mockKill,
+      isPidArgvMatching: mockIsPidArgvMatching,
+      isAlive: () => true,
+    });
 
     const sigtermEvents = mockAuditState.events.filter(e => e[0] === 'orphan_sigterm_failed');
     expect(sigtermEvents).toHaveLength(2);

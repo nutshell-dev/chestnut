@@ -18,6 +18,8 @@ export type {
   ProcessInfo,
   ExecutionIdentity,
   ExecutionTerminationFact,
+  ExecutionTerminationOutcome,
+  ExecutionTerminationTrigger,
 } from './types.js';
 export { terminateExecutionGroup, probeExecutionGroup } from './execution-group.js';
 export {
@@ -35,18 +37,18 @@ export type {
   LegacyExecutionTarget,
 } from './execution-target.js';
 export { spawnDetached } from './spawn-detached.js';
-export type { SpawnDetachedOptions, SpawnDetachedOutcome, SpawnDetachedFailure } from './types.js';
-export { kill, isAlive } from './process-control.js';
+export type { SpawnDetachedOptions, SpawnDetachedOutcome, SpawnDetachedFailure, ProcessTarget } from './types.js';
+export { kill } from './process-control.js';
 export {
-  findByPattern,
-  findByLiteralPattern,
+  findByPatternSyncForCli,
+  findByLiteralPatternSyncForCli,
   findByPatternAsync,
   findByLiteralPatternAsync,
 } from './find-by-pattern.js';
 export type { FindByPatternOptions } from './find-by-pattern.js';
-export { isPidArgvMatching, observePidArgv } from './argv-verify.js';
+export { observePidArgv } from './argv-verify.js';
 export type { ProcessArgvObservation } from './argv-verify.js';
-export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
+export { makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
 export {
   captureCurrentProcessRef,
@@ -61,10 +63,13 @@ export type {
   ProcessRefObservation,
   ProcessUnavailableReason,
 } from './process-reference.js';
+export { terminateProcessRef } from './process-ref-target.js';
+export type { ProcessRefTerminationAdapters } from './process-ref-target.js';
 export {
   captureCurrentProcessIdentity,
   captureProcessTarget,
   observeProcessTarget,
+  observeProcessTargetWithLegacyProbeForTest,
   processCommandContainsToken,
   terminateMatchingProcesses,
   terminateProcessTarget,
@@ -72,7 +77,6 @@ export {
 export type {
   ProcessMatchCleanupOptions,
   ProcessMatchCleanupOutcome,
-  ProcessTarget,
   ProcessTargetCapture,
   ProcessTargetObservation,
   ProcessTerminationAdapters,

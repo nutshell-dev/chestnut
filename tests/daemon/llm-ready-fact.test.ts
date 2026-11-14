@@ -40,6 +40,10 @@ import { makeAudit } from '../helpers/audit.js';
 import { testClawDaemonDir } from '../helpers/daemon-dir.js';
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import {
+  installLegacyProcessRefInspector,
+  makeProcessRefCaptureForTest,
+} from '../helpers/process-ref-inspector.js';
 
 const DAEMON_DIR: DaemonDir = makeDaemonDir('/tmp/test/motion/.daemon');
 
@@ -211,18 +215,20 @@ describe('createMotionLLMReadyFactPublisher（Phase 1945 Step C）', () => {
       const nodeFs = new NodeFileSystem({ baseDir: tempDir });
       const daemonDir = testClawDaemonDir(tempDir, 'motion');
       const { audit } = makeAudit();
-      const ctx: ProcessManagerContext = { fs: nodeFs, audit, getProcessStartTime: () => undefined };
-      const pm = new ProcessManager(nodeFs, audit);
+      const ctx = installLegacyProcessRefInspector({ fs: nodeFs, audit, getProcessStartTime: () => undefined });
+      const identity = makeProcessRefCaptureForTest(BINDING.pid);
+      const pm = new ProcessManager(nodeFs, audit, undefined, undefined, ctx.inspectProcessRef);
 
       // 出生：spawning 协议 + activation 携带身份 A 的业务事实
       const record: ProcessGenerationRecord = newProcessGeneration(ctx, daemonDir);
       prepareGeneration(ctx, record);
       expect(commitSpawning(ctx, record).kind).toBe('committed');
-      expect((await writeChildPid(ctx, record, BINDING.pid)).kind).toBe('written');
+      expect((await writeChildPid(ctx, record, BINDING.pid, undefined, identity.value)).kind).toBe('written');
       const birth = await pm.activateChildGeneration(daemonDir, {
         generationId: record.generation_id,
         pid: BINDING.pid,
         startTime: undefined,
+        processRef: identity.value,
         businessFact: encodeMotionLLMReadyFact({
           generationId: record.generation_id,
           llmIdentity: FACT.llmIdentity,

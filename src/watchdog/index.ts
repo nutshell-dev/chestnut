@@ -8,7 +8,7 @@
 export { ensureWatchdog } from './ensure.js';
 export {
   getWatchdogPid,
-  isWatchdogAlive,
+  inspectWatchdogLivenessForCli,
   removeWatchdogPid,
   WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';

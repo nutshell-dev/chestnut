@@ -451,7 +451,7 @@ describe('shadow-di-restrictions', () => {
         defaultSource: 'motion',
         authorized: true,
         sink: audit.audit,
-        isClawAlive: () => true,
+        clawLiveness: () => ({ kind: 'alive', pid: 123 }),
         formatClawStatusHint: () => undefined,
         clawExists: () => true,
         hasActiveContract: () => false,

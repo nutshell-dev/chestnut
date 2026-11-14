@@ -141,7 +141,7 @@ describe('phase 1775: winner probe failure 终局分类 invariants', () => {
   it('probe 异常不压平为 dead：ensure-running 持有三分支 probeWinnerAlive（alive/dead/unavailable）', () => {
     expect(ensureSrc).toContain("kind: 'unavailable'");
     // Phase 2141：ESRCH/EPERM 由 L1 typed observation 分型；PM 不自行解释宿主异常。
-    expect(ensureSrc).toContain('observeProcessFact(ctx, pid, startTime)');
+    expect(ensureSrc).toContain('observeProcessFact(ctx, record)');
     expect(ensureSrc).toContain("observation.kind === 'gone'");
     expect(ensureSrc).toContain('error: observation.error ?? observation');
   });

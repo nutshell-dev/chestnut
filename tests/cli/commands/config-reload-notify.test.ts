@@ -15,6 +15,7 @@ import { notifyRunningDaemons } from '../../../src/cli/commands/config.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeDaemonDir } from '../../../src/foundation/process-manager/index.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
+import { captureOwnedProcessRef } from '../../../src/foundation/process-exec/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const deps = {
@@ -24,7 +25,14 @@ const deps = {
 
 function writeActiveGeneration(rootDir: string, agentSubpath: string, pid: number) {
   const daemonDir = makeDaemonDir(path.join(rootDir, '.chestnut', agentSubpath));
-  writeActiveGenerationSync(daemonDir, { generationId: `gen-${agentSubpath.replace(/\//g, '-')}`, pid });
+  const identity = captureOwnedProcessRef(pid);
+  writeActiveGenerationSync(daemonDir, {
+    generationId: `gen-${agentSubpath.replace(/\//g, '-')}`,
+    pid,
+    ...(identity.kind === 'captured'
+      ? { processRef: identity.value, startTime: identity.target.startTime }
+      : {}),
+  });
 }
 
 function listInbox(rootDir: string, agentSubpath: string): string[] {

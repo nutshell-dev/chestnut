@@ -33,7 +33,7 @@ import {
 } from '../../cli-protocol/index.js';
 import { LauncherActivityMapper, LauncherEventMapper, makeLauncherSessionId } from '../launcher-envelope-producer.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
+import { observeProcessTarget } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -97,8 +97,16 @@ export async function streamCommand(
     const daemonLiveness = pm.liveness(daemonDir);
     // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
     // phase 1773: probe_unavailable/malformed 不伪装 alive（fail-closed warn）
-    if (daemonLiveness.kind === 'alive' && isAlive(daemonLiveness.pid) && isPidArgvMatching(daemonLiveness.pid, name)) initialDaemonPid = daemonLiveness.pid;
-    else process.stderr.write(`[stream] warning: daemon for "${name}" not running, tailing existing file only\n`);
+    if (daemonLiveness.kind === 'alive') {
+      const observation = observeProcessTarget({ pid: daemonLiveness.pid, argvToken: name });
+      if (observation.kind === 'alive') initialDaemonPid = daemonLiveness.pid;
+      else if (observation.kind === 'unknown') {
+        process.stderr.write(`[stream] warning: daemon identity unavailable for "${name}" (${observation.reason}), continuing\n`);
+      }
+    }
+    if (initialDaemonPid === null) {
+      process.stderr.write(`[stream] warning: daemon for "${name}" not running, tailing existing file only\n`);
+    }
   } catch {
     // silent: liveness probe failure is non-fatal; degrade to warn
     process.stderr.write(`[stream] warning: failed to probe daemon for "${name}", continuing\n`);
@@ -233,8 +241,10 @@ export async function streamCommand(
   // daemon liveness polling — only when initial probe found a live daemon
   if (initialDaemonPid !== null) {
     const interval = setInterval(() => {
-      // phase 523 (review-round4 CLI M): argv-verify 防 PID-reuse 让 stream tail 错进程
-      if (!isAlive(initialDaemonPid!) || !isPidArgvMatching(initialDaemonPid!, name)) {
+      // Only a typed gone observation proves daemon death. Query/permission
+      // failures stay unknown and never turn into a daemon_dead shutdown.
+      const observation = observeProcessTarget({ pid: initialDaemonPid!, argvToken: name });
+      if (observation.kind === 'gone') {
         clearInterval(interval);
         void shutdown('daemon_dead');
       }

@@ -360,7 +360,12 @@ describe('legacy v0 process reference observation', () => {
       { operation: 'signal0', outcome: 'error', error: errno('EACCES') },
     ]));
     const result = inspectProcessRef(asRef({ version: 0, pid: PID }));
-    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied' });
-    expectJsonRoundTrip(result);
+    expect(result).toMatchObject({
+      kind: 'unknown', reason: 'permission_denied', error: { code: 'EACCES' },
+    });
+    expect(JSON.parse(JSON.stringify(result))).toEqual({
+      ...result,
+      error: { code: 'EACCES' },
+    });
   });
 });

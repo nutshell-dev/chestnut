@@ -8,7 +8,6 @@
  */
 
 import { spawn } from 'child_process';
-import { dirname } from 'node:path';
 
 import {
   PROCESS_EXEC_TIMEOUT_MIN_MS,
@@ -27,7 +26,8 @@ import type {
   ExecutionTerminationTrigger,
 } from './types.js';
 import { ProcessExecError } from './errors.js';
-import { augmentNodePath } from './spawn-environment.js';
+import { createSpawnEnvironment } from './spawn-environment.js';
+import { formatErr } from '../node-utils/index.js';
 
 /**
  * Node caps a single setTimeout delay at a signed 32-bit ms value; larger
@@ -49,19 +49,6 @@ function clampTimeout(requested: number, minOverride?: number): number {
     Math.max(requested, min),
     PROCESS_EXEC_TIMEOUT_MAX_MS,
   );
-}
-
-/**
- * Build the child process env:
- * - If caller passed options.env, only those vars + PATH are exposed.
- * - If absent, the parent's process.env is inherited.
- * In both cases, PATH is augmented with the current Node bin directory so
- * exec'd scripts can find `node` without relying on caller's PATH layout.
- * Pure (no mutation of caller-provided objects).
- */
-function buildChildEnv(options: ExecOptions): Record<string, string | undefined> {
-  const baseEnv = options.env ?? { ...process.env };
-  return augmentNodePath(baseEnv, dirname(process.execPath));
 }
 
 /**
@@ -168,7 +155,16 @@ export function execWithHandle(
     ? clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, testMode ? options.__testMinTimeoutMs : undefined)
     : undefined;
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
-  const env = buildChildEnv(options);
+  const environment = createSpawnEnvironment(options.env);
+  if (environment.kind === 'failed') {
+    throw new ProcessExecError({
+      message: `Spawn environment construction failed: ${formatErr(environment.error)}`,
+      exitCode: null,
+      cause: environment.error,
+      evidence: environment.evidence,
+    });
+  }
+  const env = environment.env;
 
   // Pre-aborted signal: never spawn an OS process. The error is explicit
   // (trigger='abort', status='gone', reason='not_started') and no PID/PGID

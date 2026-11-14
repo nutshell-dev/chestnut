@@ -242,7 +242,7 @@ function makePm(
       // （describeLiveness 渲染同为 'no active generation'）
       return absentLiveness();
     },
-    findProcesses: () => orphanPids,
+    findProcessesSyncForCli: () => orphanPids,
   } as unknown as ProcessManager;
 }
 
@@ -352,12 +352,12 @@ describe('computeForumStatusView', () => {
     expect(v.totalClawCount).toBe(1);
   });
 
-  it('ProcessListUnavailable in findProcesses degrades to empty orphan list with error field', async () => {
+  it('ProcessListUnavailable in findProcessesSyncForCli degrades to empty orphan list with error field', async () => {
     const deps = makeDeps({
       pm: {
         // phase 1773: 无 active generation → absent missing_active（渲染 'no active generation'）
         liveness: () => absentLiveness(),
-        findProcesses: () => {
+        findProcessesSyncForCli: () => {
           throw new ProcessListUnavailable('ps not available');
         },
       } as unknown as ProcessManager,
@@ -378,7 +378,7 @@ describe('computeForumStatusView', () => {
         .mockImplementationOnce(() => {
           throw new Error('EIO');
         }), // claw-b
-      findProcesses: vi.fn().mockReturnValue([]),
+      findProcessesSyncForCli: vi.fn().mockReturnValue([]),
     } as unknown as ProcessManager;
     const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm });
     const view = await computeForumStatusView(deps);
@@ -388,7 +388,7 @@ describe('computeForumStatusView', () => {
 
   it('returns error field when process list unavailable', () => {
     const pm = {
-      findProcesses: vi.fn().mockImplementation(() => {
+      findProcessesSyncForCli: vi.fn().mockImplementation(() => {
         throw new ProcessListUnavailable('test');
       }),
     } as unknown as ProcessManager;
@@ -409,7 +409,7 @@ describe('computeForumStatusView', () => {
         .mockReturnValueOnce(absentLiveness()) // motion
         .mockReturnValueOnce(aliveLiveness(100)) // claw-a ok
         .mockReturnValueOnce(aliveLiveness(200)), // claw-b ok
-      findProcesses: vi.fn().mockReturnValue([]),
+      findProcessesSyncForCli: vi.fn().mockReturnValue([]),
     } as unknown as ProcessManager;
     const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm, audit });
     const view = await computeForumStatusView(deps);
@@ -432,7 +432,7 @@ describe('computeForumStatusView', () => {
         .mockImplementationOnce(() => {
           throw new Error('boom-b');
         }), // claw-b error
-      findProcesses: vi.fn().mockReturnValue([]),
+      findProcessesSyncForCli: vi.fn().mockReturnValue([]),
     } as unknown as ProcessManager;
     const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm, audit });
     await computeForumStatusView(deps);
@@ -449,7 +449,7 @@ describe('computeForumStatusView', () => {
     const deps = makeDeps({
       pm: {
         liveness: () => absentLiveness(),
-        findProcesses: () => {
+        findProcessesSyncForCli: () => {
           throw new ProcessListUnavailable('ps not available');
         },
       } as unknown as ProcessManager,

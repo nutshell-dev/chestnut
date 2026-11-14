@@ -28,11 +28,12 @@ import {
 } from '../../../src/foundation/process-manager/generation.js';
 import {
   spawnDetached as defaultSpawnDetached,
-  isAlive as defaultL1IsAlive,
   kill as defaultKill,
-  getProcessStartTime as defaultGetProcessStartTime,
 } from '../../../src/foundation/process-exec/index.js';
+import { isAlive as defaultL1IsAlive } from '../../../src/foundation/process-exec/process-control.js';
+import { getProcessStartTime as defaultGetProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
 import { makeAudit } from '../../helpers/audit.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -77,14 +78,14 @@ describe('stop real process race (Phase 1204 Step G)', () => {
     const clawId = 'stop-real-race';
     const daemonDir = testClawDaemonDir(tempDir, clawId);
 
-    const ctx: ProcessManagerContext = {
+    const ctx = installLegacyProcessRefInspector({
       fs: nodeFs,
       audit,
       l1IsAlive: defaultL1IsAlive,
       kill: defaultKill,
       spawnDetached: defaultSpawnDetached,
       getProcessStartTime: defaultGetProcessStartTime,
-    };
+    });
 
     // Parent prepares the generation and commits it to spawning.
     const record = newProcessGeneration(ctx, daemonDir);
@@ -123,7 +124,10 @@ describe('stop real process race (Phase 1204 Step G)', () => {
       return defaultL1IsAlive(checkedPid, startTime);
     };
 
-    const result = await stopProcess({ ...ctx, l1IsAlive }, daemonDir);
+    const result = await stopProcess(
+      installLegacyProcessRefInspector({ ...ctx, l1IsAlive }),
+      daemonDir,
+    );
 
     expect(result).toMatchObject({ kind: 'stopped' });
     expect(defaultL1IsAlive(pid, childStartTime)).toBe(false);

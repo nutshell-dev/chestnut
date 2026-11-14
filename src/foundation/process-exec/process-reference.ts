@@ -9,12 +9,13 @@ import {
   type ObservationFact,
   type ProcessObservation,
 } from './process-observation.js';
+import type { ProcessTarget, ProcessUnavailableReason } from './types.js';
+import { makeProcessStartTime, type ProcessStartTime } from './process-starttime.js';
 
 declare const processRefBrand: unique symbol;
 export type ProcessRef = string & { readonly [processRefBrand]: true };
 
-export type ProcessUnavailableReason = 'permission_denied' | 'unsupported'
-  | 'query_failed' | 'timed_out' | 'identity_unverifiable' | 'incomplete_data';
+export type { ProcessUnavailableReason } from './types.js';
 
 export type ProcessRefDecode =
   | { kind: 'decoded'; value: ProcessRef }
@@ -22,14 +23,20 @@ export type ProcessRefDecode =
   | { kind: 'unsupported_version'; evidence: ProcessEvidence };
 
 export type ProcessRefCapture =
-  | { kind: 'captured'; value: ProcessRef; evidence: ProcessEvidence }
+  | {
+      kind: 'captured';
+      value: ProcessRef;
+      /** Typed observation projection for additive legacy evidence fields. */
+      target: ProcessTarget;
+      evidence: ProcessEvidence;
+    }
   | { kind: 'gone'; evidence: ProcessEvidence }
-  | { kind: 'unknown'; reason: ProcessUnavailableReason; evidence: ProcessEvidence };
+  | { kind: 'unknown'; reason: ProcessUnavailableReason; evidence: ProcessEvidence; error?: unknown };
 
 export type ProcessRefObservation =
   | { kind: 'alive'; evidence: ProcessEvidence }
   | { kind: 'gone'; reason: 'absent' | 'identity_changed'; evidence: ProcessEvidence }
-  | { kind: 'unknown'; reason: ProcessUnavailableReason; evidence: ProcessEvidence };
+  | { kind: 'unknown'; reason: ProcessUnavailableReason; evidence: ProcessEvidence; error?: unknown };
 
 type SupportedPlatform = 'darwin' | 'linux';
 type ProcessSource = {
@@ -40,7 +47,7 @@ type ProcessSource = {
 };
 type InternalRef =
   | {
-      version: 1; pid: number; startTime: string; source: ProcessSource;
+      version: 1; pid: number; startTime: ProcessStartTime; source: ProcessSource;
       basis: 'posix-lstart-second'; capturedAtMs: number;
     }
   | { version: 0; pid: number; startTime?: string };
@@ -145,7 +152,7 @@ function decodeInternal(raw: unknown): InternalDecode {
     const internal: InternalRef = {
       version: 1,
       pid: candidate.pid,
-      startTime: candidate.startTime,
+      startTime: makeProcessStartTime(candidate.startTime),
       source: {
         platform: source.platform,
         hostname: source.hostname,
@@ -200,7 +207,7 @@ function observationErrors(evidence: readonly ObservationFact[]): unknown[] {
   const errors: unknown[] = [];
   for (const fact of evidence) {
     if (fact.outcome === 'error' || fact.outcome === 'throw') errors.push(fact.error);
-    if (fact.operation === 'start_time' && fact.outcome === 'result' && fact.raw.error) {
+    if (fact.operation === 'start_time' && fact.outcome === 'result' && fact.raw?.error) {
       errors.push(fact.raw.error);
     }
   }
@@ -228,7 +235,7 @@ export function observationUnavailableReason(
   if (observation.reason === 'start_time_unavailable') {
     const raw = observation.evidence.find(fact => fact.operation === 'start_time'
       && fact.outcome === 'result');
-    if (raw?.operation === 'start_time' && raw.outcome === 'result'
+    if (raw?.operation === 'start_time' && raw.outcome === 'result' && raw.raw
         && !raw.raw.error && raw.raw.status === 0 && raw.raw.signal === null
         && (!Buffer.isBuffer(raw.raw.stdout) || !Buffer.isBuffer(raw.raw.stderr)
           || (raw.raw.stderr.length === 0 && raw.raw.stdout.length === 0))) {
@@ -256,9 +263,17 @@ export function decodeProcessRef(raw: unknown): ProcessRefDecode {
 export function captureOwnedProcessRef(pid: number): ProcessRefCapture {
   const atMs = Date.now();
   const facts: unknown[] = [{ operation: 'capture', outcome: 'start', pid }];
-  const finishUnknown = (reason: ProcessUnavailableReason): ProcessRefCapture => {
+  const finishUnknown = (
+    reason: ProcessUnavailableReason,
+    error?: unknown,
+  ): ProcessRefCapture => {
     appendDecision(facts, { kind: 'unknown', reason });
-    return { kind: 'unknown', reason, evidence: encodeProcessEvidence(atMs, facts) };
+    return {
+      kind: 'unknown',
+      reason,
+      evidence: encodeProcessEvidence(atMs, facts),
+      ...(error !== undefined ? { error } : {}),
+    };
   };
 
   if (!validPid(pid)) return finishUnknown('incomplete_data');
@@ -277,7 +292,9 @@ export function captureOwnedProcessRef(pid: number): ProcessRefCapture {
     appendDecision(facts, { kind: 'gone', reason: 'absent' });
     return { kind: 'gone', evidence: encodeProcessEvidence(atMs, facts) };
   }
-  if (observation.kind === 'unknown') return finishUnknown(observationUnavailableReason(observation));
+  if (observation.kind === 'unknown') {
+    return finishUnknown(observationUnavailableReason(observation), observationError(observation));
+  }
 
   const internal: InternalRef = {
     version: 1,
@@ -294,7 +311,25 @@ export function captureOwnedProcessRef(pid: number): ProcessRefCapture {
   };
   const value = JSON.stringify(internal) as ProcessRef;
   appendDecision(facts, { kind: 'captured', compatibility: 'v1', reference: internal });
-  return { kind: 'captured', value, evidence: encodeProcessEvidence(atMs, facts) };
+  return {
+    kind: 'captured',
+    value,
+    target: { pid, startTime: observation.startTime },
+    evidence: encodeProcessEvidence(atMs, facts),
+  };
+}
+
+/**
+ * @internal Project an already decoded reference for the L1 termination bridge.
+ * Legacy start times are deliberately omitted: v0 presence must never acquire
+ * v1 identity semantics through the generic ProcessTarget path.
+ */
+export function processTargetFromRef(ref: ProcessRef): ProcessTarget | undefined {
+  const decoded = decodeInternal(ref);
+  if (decoded.kind !== 'decoded') return undefined;
+  return decoded.internal.version === 1
+    ? { pid: decoded.internal.pid, startTime: decoded.internal.startTime }
+    : { pid: decoded.internal.pid };
 }
 
 /** Capture the current process through the same evidence-preserving path. */
@@ -325,9 +360,17 @@ export function inspectProcessRef(ref: ProcessRef): ProcessRefObservation {
   const facts: unknown[] = [{
     operation: 'inspect', outcome: 'start', compatibility, reference: internal,
   }];
-  const finishUnknown = (reason: ProcessUnavailableReason): ProcessRefObservation => {
+  const finishUnknown = (
+    reason: ProcessUnavailableReason,
+    error?: unknown,
+  ): ProcessRefObservation => {
     appendDecision(facts, { kind: 'unknown', reason });
-    return { kind: 'unknown', reason, evidence: encodeProcessEvidence(atMs, facts) };
+    return {
+      kind: 'unknown',
+      reason,
+      evidence: encodeProcessEvidence(atMs, facts),
+      ...(error !== undefined ? { error } : {}),
+    };
   };
 
   if (internal.version === 0) {
@@ -340,7 +383,9 @@ export function inspectProcessRef(ref: ProcessRef): ProcessRefObservation {
       });
       return { kind: 'gone', reason: 'absent', evidence: encodeProcessEvidence(atMs, facts) };
     }
-    if (observation.kind === 'unknown') return finishUnknown(observationUnavailableReason(observation));
+    if (observation.kind === 'unknown') {
+      return finishUnknown(observationUnavailableReason(observation), observationError(observation));
+    }
     // Never promote a legacy string comparison to proof of PID reuse or identity.
     return finishUnknown('identity_unverifiable');
   }

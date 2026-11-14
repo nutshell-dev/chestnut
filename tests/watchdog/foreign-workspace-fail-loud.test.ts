@@ -6,7 +6,11 @@ import { randomUUID } from 'crypto';
 
 import { getNamedSubrootDir } from '../../src/foundation/claw-identity/index.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
-import { isWatchdogAlive, WatchdogPidForeignWorkspaceError } from '../../src/watchdog/watchdog-pid.js';
+import {
+  inspectWatchdogLivenessForCli,
+  WatchdogOwnerInspectionError,
+  WatchdogPidForeignWorkspaceError,
+} from '../../src/watchdog/watchdog-pid.js';
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, WATCHDOG_ACTIVE_DIR,
 } from '../../src/watchdog/watchdog-ownership.js';
@@ -89,20 +93,20 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('foreign workspace alive: throws WatchdogPidForeignWorkspaceError + audit PID_FOREIGN_WORKSPACE + does NOT delete pid file', () => {
+  it('foreign workspace legacy identity unknown: fail closed + preserve pid file', () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     // Use current process PID as a guaranteed-alive foreign PID
     const foreignAlivePid = process.pid;
     fs.writeFileSync(pidFile, JSON.stringify({ pid: foreignAlivePid, root: '/foreign/root' }));
     const before = fs.readFileSync(pidFile);
 
-    expect(() => isWatchdogAlive(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(WatchdogOwnerInspectionError);
 
     expect(auditSpy).toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
-      expect.stringContaining(`foreign_pid=${foreignAlivePid}`),
-      expect.stringContaining('foreign_root=/foreign/root'),
-      expect.stringContaining('current_root=/test/root'),
+      WATCHDOG_AUDIT_EVENTS.PID_OBSERVATION_UNKNOWN,
+      `pid=${foreignAlivePid}`,
+      'reason=identity_unverifiable',
+      expect.anything(),
     );
     expect(fs.existsSync(pidFile)).toBe(true);
     // 原记录字节不删不改
@@ -113,9 +117,9 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: DEAD_PID, root: '/foreign/root' }));
 
-    const result = isWatchdogAlive(fsFactory);
+    const result = inspectWatchdogLivenessForCli(fsFactory);
 
-    expect(result).toBe(false);
+    expect(result).toBe('not_running');
     expect(auditSpy).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.PID_STALE_AUTO_CLEANED,
       expect.stringContaining(`foreign_pid=${DEAD_PID}`),
@@ -126,9 +130,9 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
   });
 
   it('pid file ENOENT: returns false + no throw + no audit', () => {
-    const result = isWatchdogAlive(fsFactory);
+    const result = inspectWatchdogLivenessForCli(fsFactory);
 
-    expect(result).toBe(false);
+    expect(result).toBe('not_running');
     expect(auditSpy).not.toHaveBeenCalled();
   });
 
@@ -138,7 +142,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     fs.chmodSync(pidFile, 0o000);
 
     try {
-      expect(() => isWatchdogAlive(fsFactory)).toThrow();
+      expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow();
       // phase 580: 加 path forensic col
       expect(auditSpy).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
@@ -151,13 +155,13 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     }
   });
 
-  it('startCommand surfaces foreign workspace as CliError with guidance', async () => {
+  it('startCommand surfaces legacy identity unknown without spawning', async () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     const foreignAlivePid = process.pid;
     fs.writeFileSync(pidFile, JSON.stringify({ pid: foreignAlivePid, root: '/foreign/root' }));
 
-    await expect(startCommand(fsFactory)).rejects.toThrow('Watchdog already running for foreign workspace');
-    await expect(startCommand(fsFactory)).rejects.toThrow('chestnut stop');
+    await expect(startCommand(fsFactory)).rejects.toThrow('Watchdog owner inspection is unknown');
+    await expect(startCommand(fsFactory)).rejects.toThrow('source=legacy');
   });
 });
 
@@ -216,7 +220,7 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
     const activeBefore = fs.readFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'));
     const legacyBefore = fs.readFileSync(pidFile);
 
-    expect(() => isWatchdogAlive(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
 
     expect(auditSpy).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
@@ -238,7 +242,7 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));
 
-    expect(isWatchdogAlive(fsFactory)).toBe(false);
+    expect(inspectWatchdogLivenessForCli(fsFactory)).toBe('not_running');
 
     // active 不动（recovery 走 generation-guarded retire，不走查询路径删除）
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'))).toBe(true);
@@ -256,7 +260,7 @@ describe('active owner 与 legacy 输入分型（Phase 1203 Step E）', () => {
     const pidFile = path.join(chestnutDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));
 
-    expect(isWatchdogAlive(fsFactory)).toBe(false);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(WatchdogOwnerInspectionError);
     expect(fs.existsSync(pidFile)).toBe(true);
   });
 });
@@ -320,7 +324,7 @@ describe('实例身份记录：绝对规范化与相对拒绝（Phase 1931 Step 
     seedActive({ ...newWatchdogAttempt(process.pid), workspace_root: '/test/./root' });
     const before = fs.readFileSync(activeOwnerPath());
 
-    expect(isWatchdogAlive(fsFactory)).toBe(true);
+    expect(inspectWatchdogLivenessForCli(fsFactory)).toBe('alive');
 
     expect(foreignAuditCount()).toBe(0);
     expect(fs.readFileSync(activeOwnerPath())).toEqual(before);
@@ -330,7 +334,7 @@ describe('实例身份记录：绝对规范化与相对拒绝（Phase 1931 Step 
     fs.writeFileSync(legacyPidPath(), JSON.stringify({ pid: process.pid, root: '/test/x/../root' }));
     const before = fs.readFileSync(legacyPidPath());
 
-    expect(isWatchdogAlive(fsFactory)).toBe(true);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(WatchdogOwnerInspectionError);
 
     expect(foreignAuditCount()).toBe(0);
     expect(fs.readFileSync(legacyPidPath())).toEqual(before);
@@ -340,7 +344,7 @@ describe('实例身份记录：绝对规范化与相对拒绝（Phase 1931 Step 
     seedActive({ ...newWatchdogAttempt(process.pid), workspace_root: 'relative/root' });
     const before = fs.readFileSync(activeOwnerPath());
 
-    expect(() => isWatchdogAlive(fsFactory)).toThrow(/relative workspace root/);
+    expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(/relative workspace root/);
 
     expect(fs.readFileSync(activeOwnerPath())).toEqual(before);
   });
@@ -355,7 +359,7 @@ describe('实例身份记录：绝对规范化与相对拒绝（Phase 1931 Step 
     const saved = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = elsewhere;
     try {
-      expect(() => isWatchdogAlive(fsFactory)).toThrow(/relative workspace root/);
+      expect(() => inspectWatchdogLivenessForCli(fsFactory)).toThrow(/relative workspace root/);
     } finally {
       process.env.CHESTNUT_ROOT = saved;
     }

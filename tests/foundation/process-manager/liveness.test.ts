@@ -26,6 +26,7 @@ import { formatErr } from '../../../src/foundation/node-utils/index.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
+import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 import {
   aliveLiveness,
   deadLiveness,
@@ -51,12 +52,12 @@ describe('liveness typed owner', () => {
 
   function makeCtx(overrides?: Partial<ProcessManagerContext>): ProcessManagerContext {
     const { audit } = makeAudit();
-    return {
+    return installLegacyProcessRefInspector({
       fs: nodeFs,
       audit,
       l1IsAlive: vi.fn().mockReturnValue(true),
       ...overrides,
-    };
+    });
   }
 
   /** 包装真实 fs：指定文件名（ basename ）readSync 抛非 ENOENT 错误，模拟权限/IO 故障。 */
@@ -80,7 +81,7 @@ describe('liveness typed owner', () => {
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid, startTime });
 
     const result = liveness(ctx, daemonDir);
-    expect(result).toEqual({ kind: 'alive', pid: process.pid, startTime });
+    expect(result).toMatchObject({ kind: 'alive', pid: process.pid, startTime, evidence: { version: 1 } });
   });
 
   it('active + pid 无 start_time → alive{pid} 无 startTime 字段', () => {
@@ -88,7 +89,9 @@ describe('liveness typed owner', () => {
     const daemonDir = testClawDaemonDir(tempDir, 'live-no-start');
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
-    expect(liveness(ctx, daemonDir)).toEqual({ kind: 'alive', pid: process.pid });
+    const result = liveness(ctx, daemonDir);
+    expect(result).toMatchObject({ kind: 'alive', pid: process.pid, evidence: { version: 1 } });
+    expect(result).not.toHaveProperty('startTime');
   });
 
   it('l1IsAlive false → dead{pid}', () => {
@@ -96,7 +99,9 @@ describe('liveness typed owner', () => {
     const daemonDir = testClawDaemonDir(tempDir, 'dead-claw');
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
-    expect(liveness(ctx, daemonDir)).toEqual({ kind: 'dead', pid: process.pid });
+    expect(liveness(ctx, daemonDir)).toMatchObject({
+      kind: 'dead', pid: process.pid, evidence: { version: 1 },
+    });
   });
 
   it('l1IsAlive 抛 ESRCH → dead{pid}（pid 已消失 = 死亡终局）', () => {
@@ -110,7 +115,9 @@ describe('liveness typed owner', () => {
       }),
     });
 
-    expect(liveness(ctx, daemonDir)).toEqual({ kind: 'dead', pid: process.pid });
+    expect(liveness(ctx, daemonDir)).toMatchObject({
+      kind: 'dead', pid: process.pid, evidence: { version: 1 },
+    });
   });
 
   it('l1IsAlive 抛 EPERM → probe_unavailable{pid,error}（error identity 保留；phase 1773 probe 不伪装 alive）', () => {
@@ -125,7 +132,9 @@ describe('liveness typed owner', () => {
     });
 
     const result = liveness(ctx, daemonDir);
-    expect(result).toEqual({ kind: 'probe_unavailable', pid: process.pid, error: probeErr });
+    expect(result).toMatchObject({
+      kind: 'probe_unavailable', pid: process.pid, error: probeErr, evidence: { version: 1 },
+    });
     if (result.kind === 'probe_unavailable') {
       expect(result.error).toBe(probeErr); // error identity 保留，不压平
     }

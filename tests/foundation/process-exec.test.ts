@@ -17,13 +17,13 @@ import {
   exec,
   execWithHandle,
   kill,
-  isAlive,
-  findByPattern,
+  findByPatternSyncForCli,
   ProcessExecError,
   ProcessListUnavailable,
   type ExecHandle,
 } from '../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../src/foundation/process-exec/execution-group.js';
+import { isAlive } from '../../src/foundation/process-exec/process-control.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { requireProcessListCapability } from '../helpers/process-list-capability.js';
 
@@ -278,19 +278,18 @@ describe('ProcessExec exec', () => {
   // ── env control ─────────────────────────────────────────────────────────
 
   describe('env control', () => {
-    it.concurrent('should use caller-provided env (not inherit process.env)', async () => {
+    it.concurrent('should combine the host allowlist with caller-authorized env', async () => {
       const result = await exec('node', ['-e', 'console.log(JSON.stringify(Object.keys(process.env)))'], {
         cwd: workDir,
         env: { MY_VAR: 'hello' },
       });
-      const keys = JSON.parse(result.output.trim());
+      const keys = JSON.parse(result.output.trim()) as string[];
       expect(keys).toContain('MY_VAR');
-      expect(keys).toContain('PATH'); // always augmented
-      // process.env secrets should NOT appear
-      expect(keys).not.toContain('HOME');
+      expect(keys.filter(key => key.toLowerCase() === 'path')).toHaveLength(1); // always augmented
+      if (process.env.HOME !== undefined) expect(keys).toContain('HOME');
     });
 
-    it.concurrent('should inherit process.env when env not provided', async () => {
+    it.concurrent('should inherit allowlisted process.env values when env not provided', async () => {
       const result = await exec('node', ['-e', 'console.log(!!process.env.HOME)'], {
         cwd: workDir,
       });
@@ -407,16 +406,16 @@ describe('isAlive', () => {
   });
 });
 
-describe('findByPattern', () => {
+describe('findByPatternSyncForCli', () => {
   // phase 1883: 环境能力前提显式化——preflight 探针不过 → typed skip（带原因）；
   // preflight 通过后再遇 ProcessListUnavailable 照常 fail（不假绿、不吞）。
   it('returns empty for no match', (ctx) => {
     requireProcessListCapability(ctx);
-    expect(findByPattern('zzz_no_such_process_zzz_xyz')).toEqual([]);
+    expect(findByPatternSyncForCli('zzz_no_such_process_zzz_xyz')).toEqual([]);
   });
   it('finds processes with command field', (ctx) => {
     requireProcessListCapability(ctx);
-    const r = findByPattern('node');
+    const r = findByPatternSyncForCli('node');
     expect(r.length).toBeGreaterThan(0);
     expect(r[0]).toHaveProperty('pid');
     expect(r[0]).toHaveProperty('command');

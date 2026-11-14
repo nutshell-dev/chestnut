@@ -94,8 +94,8 @@ export async function deliverClawMessage(
   });
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
-  const isAlive = processManager.isAlive(resolveClawDaemonDir(target.clawId));
-  const statusHint = formatClawStatusHint(name, isAlive);
+  const liveness = processManager.liveness(resolveClawDaemonDir(target.clawId));
+  const statusHint = formatClawStatusHint(name, liveness);
   if (statusHint) process.stderr.write(statusHint + '\n');
 
   // phase 241: active contract hint — no active contract → remind caller
