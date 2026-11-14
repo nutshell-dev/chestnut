@@ -401,7 +401,7 @@ async function recoverMigratedExecFailureIntent(
     return 0;
   };
 
-  if (intent.termination.status === 'gone') {
+  if (intent.termination?.status === 'gone') {
     return commitGone(intent.termination, intent.evidence);
   }
 
@@ -429,6 +429,21 @@ async function recoverMigratedExecFailureIntent(
     return commitGone(intent.termination, observation.evidence);
   }
 
+  if (intent.termination === undefined) {
+    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+    if (Date.now() < deadlineMs) {
+      emitRecovered(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'running',
+        reason: 'migrated_persistence_failure_process_alive',
+      });
+      return 0;
+    }
+  }
+
   if (decoded.target.version === 0) {
     emitRecoveryFailed(auditWriter, {
       taskId: task.id,
@@ -438,7 +453,10 @@ async function recoverMigratedExecFailureIntent(
     });
     return 0;
   }
-  const outcome = await terminateExecutionTarget(decoded.target, 'caller_requested');
+  const outcome = await terminateExecutionTarget(
+    decoded.target,
+    intent.termination === undefined ? 'timeout' : 'caller_requested',
+  );
   emitMigratedExecTermination(auditWriter, {
     taskId: task.id,
     context: 'recovery_terminal_intent',

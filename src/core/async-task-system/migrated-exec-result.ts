@@ -34,7 +34,9 @@ export type MigratedExecTerminalIntentStage =
   | 'short_id_index_add'
   | 'short_id_index_save'
   | 'identity_checkpoint_audit'
-  | 'migration_index_save';
+  | 'migration_index_save'
+  | 'output_append'
+  | 'exit_record_write';
 
 /**
  * Durable cleanup intent for a checkpointed command whose normal execution
@@ -45,7 +47,7 @@ export interface MigratedExecTerminalIntent {
   version: typeof MIGRATED_EXEC_TERMINAL_INTENT_VERSION;
   stage: MigratedExecTerminalIntentStage;
   error: string;
-  termination: MigratedExecTerminationRecord;
+  termination?: MigratedExecTerminationRecord;
   evidence?: ProcessEvidence;
 }
 
@@ -159,7 +161,7 @@ export function decodeMigratedExecTerminalIntent(value: unknown): MigratedExecTe
     throw new MigratedExecTerminalIntentDecodeError('malformed', `unsupported version=${String(value.version)}`);
   }
   const stage = requiredString(value.stage, 'stage') as MigratedExecTerminalIntentStage;
-  if (!['result_dir_create', 'result_initial_write', 'short_id_index_add', 'short_id_index_save', 'identity_checkpoint_audit', 'migration_index_save'].includes(stage)) {
+  if (!['result_dir_create', 'result_initial_write', 'short_id_index_add', 'short_id_index_save', 'identity_checkpoint_audit', 'migration_index_save', 'output_append', 'exit_record_write'].includes(stage)) {
     throw new MigratedExecTerminalIntentDecodeError('malformed', `invalid stage=${stage}`);
   }
   try {
@@ -167,9 +169,7 @@ export function decodeMigratedExecTerminalIntent(value: unknown): MigratedExecTe
       version: MIGRATED_EXEC_TERMINAL_INTENT_VERSION,
       stage,
       error: requiredString(value.error, 'error'),
-      termination: decodeTermination(value.termination) ?? (() => {
-        throw new MigratedExecTerminalIntentDecodeError('malformed', 'termination is required');
-      })(),
+      termination: decodeTermination(value.termination),
       evidence: decodeEvidence(value.evidence),
     };
   } catch (err) {

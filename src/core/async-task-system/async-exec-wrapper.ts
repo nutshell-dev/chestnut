@@ -340,6 +340,7 @@ export function createAsyncExecWrapper(
           if (outputPersistenceError === undefined) {
             outputPersistenceError = err;
             auditOutputPersistenceFailure('async_exec_wrapper_output_append', err);
+            if (task !== undefined) persistTerminalIntent(task, 'output_append', err);
           }
         }
       };
@@ -349,6 +350,9 @@ export function createAsyncExecWrapper(
           return true;
         } catch (err) {
           auditOutputPersistenceFailure('async_exec_wrapper_exit_record_write', err);
+          if (task !== undefined) {
+            persistTerminalIntent(task, 'exit_record_write', err, record.termination, record.evidence);
+          }
           return false;
         }
       };
@@ -360,14 +364,16 @@ export function createAsyncExecWrapper(
         owner: ToolTask,
         stage: MigratedExecTerminalIntentStage,
         cause: unknown,
-        outcome: ExecutionTerminationOutcome,
+        termination?: MigratedExecTerminationRecord,
+        evidence?: MigratedExecResultRecord['evidence'],
       ): boolean => {
+        const previous = owner.migratedExecTerminalIntent;
         const intent = {
           version: 1 as const,
-          stage,
-          error: formatErr(cause),
-          termination: toTerminationRecord(outcome),
-          evidence: outcome.evidence,
+          stage: previous?.stage ?? stage,
+          error: previous?.error ?? formatErr(cause),
+          termination: termination ?? previous?.termination,
+          evidence: evidence ?? previous?.evidence,
         };
         try {
           fs.writeAtomicSync(
@@ -380,6 +386,82 @@ export function createAsyncExecWrapper(
           auditOutputPersistenceFailure('async_exec_wrapper_terminal_intent_write', intentErr);
           return false;
         }
+      };
+      const finalizeExecutionFailure = async (
+        failedHandle: ExecHandle,
+        stage: MigratedExecTerminalIntentStage,
+        cause: unknown,
+        context: 'identity_checkpoint_failed' | 'persist_failed',
+        failurePrefix: string,
+      ): Promise<ToolResult> => {
+        let outcome: ExecutionTerminationOutcome;
+        try {
+          outcome = await failedHandle.terminate('caller_requested');
+        } catch (terminationErr) {
+          auditOutputPersistenceFailure(`${context}_termination_failed`, terminationErr);
+          const terminationIdentity = failedHandle.identity ?? executionTarget;
+          if (terminationIdentity === undefined) {
+            originalSignal?.removeEventListener('abort', onOriginalAbort);
+            return { success: false, content: `${failurePrefix}: ${formatErr(cause)}` };
+          }
+          outcome = {
+            status: 'indeterminate',
+            identity: terminationIdentity,
+            trigger: 'caller_requested',
+            termSent: false,
+            killSent: false,
+            reason: `termination_failed: ${formatErr(terminationErr)}`,
+            checkedAt: new Date().toISOString(),
+            evidence: { version: 1, atMs: Date.now(), facts: [{ source: 'terminate_rejection' }] },
+          };
+        }
+        void failedHandle.promise.catch((executionErr: unknown) => {
+          auditOutputPersistenceFailure(`${context}_execution_rejection`, executionErr);
+        });
+        if (task !== undefined && !persistTerminalIntent(task, stage, cause, toTerminationRecord(outcome), outcome.evidence)) {
+          originalSignal?.removeEventListener('abort', onOriginalAbort);
+          return { success: false, content: `${failurePrefix}: ${formatErr(cause)}` };
+        }
+        try {
+          emitMigratedExecTermination(auditWriter, {
+            taskId: fullId,
+            context,
+            identityCols: failedHandle.identity === undefined ? [] : [
+              `leader_pid=${failedHandle.identity.leaderPid}`,
+              `process_group_id=${failedHandle.identity.processGroupId}`,
+            ],
+            trigger: outcome.trigger,
+            termSent: outcome.termSent,
+            killSent: outcome.killSent,
+            status: outcome.status,
+            reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+            evidence: JSON.stringify(outcome.evidence),
+          });
+        } catch (auditErr) {
+          auditOutputPersistenceFailure(`${context}_termination_audit_failed`, auditErr);
+        }
+        if (task !== undefined && outcome.status === 'gone') {
+          try {
+            fs.ensureDirSync(resultDir);
+            if (writeExitRecord({
+              version: 1,
+              taskId: task.id,
+              completedAt: new Date().toISOString(),
+              classification: 'error',
+              exitCode: null,
+              termination: toTerminationRecord(outcome),
+              evidence: outcome.evidence,
+            })) {
+              await moveTaskToFailed(task.id).catch((moveErr: unknown) => {
+                auditOutputPersistenceFailure(`${context}_move`, moveErr);
+              });
+            }
+          } catch (terminalErr) {
+            auditOutputPersistenceFailure(`${context}_terminal_commit_failed`, terminalErr);
+          }
+        }
+        originalSignal?.removeEventListener('abort', onOriginalAbort);
+        return { success: false, content: `${failurePrefix}: ${formatErr(cause)}` };
       };
       const checkpointIdentity = (identity: ExecutionIdentity): void => {
         if (task !== undefined || checkpointError !== undefined) return;
@@ -450,87 +532,13 @@ export function createAsyncExecWrapper(
           checkpointIdentity(handle.identity);
         }
         if (checkpointError !== undefined) {
-          const originalCheckpointError = checkpointError;
-          let outcome: ExecutionTerminationOutcome;
-          try {
-            outcome = await handle.terminate('caller_requested');
-          } catch (terminationErr) {
-            auditOutputPersistenceFailure('identity_checkpoint_termination_failed', terminationErr);
-            const terminationIdentity = handle.identity ?? executionTarget;
-            if (terminationIdentity === undefined) {
-              originalSignal?.removeEventListener('abort', onOriginalAbort);
-              return {
-                success: false,
-                content: `Failed to checkpoint exec identity: ${formatErr(originalCheckpointError)}`,
-              };
-            }
-            outcome = {
-              status: 'indeterminate',
-              identity: terminationIdentity,
-              trigger: 'caller_requested',
-              termSent: false,
-              killSent: false,
-              reason: `termination_failed: ${formatErr(terminationErr)}`,
-              checkedAt: new Date().toISOString(),
-              evidence: { version: 1, atMs: Date.now(), facts: [{ source: 'terminate_rejection' }] },
-            };
-          }
-          // Install a rejection consumer, but never wait for an execution that
-          // is still alive/indeterminate: durable cleanup intent is enough for
-          // restart recovery and the caller must receive the original failure.
-          void handle.promise.catch((executionErr: unknown) => {
-            auditOutputPersistenceFailure('identity_checkpoint_execution_rejection', executionErr);
-          });
-          if (task !== undefined && !persistTerminalIntent(task, checkpointErrorContext, originalCheckpointError, outcome)) {
-            originalSignal?.removeEventListener('abort', onOriginalAbort);
-            return {
-              success: false,
-              content: `Failed to checkpoint exec identity: ${formatErr(originalCheckpointError)}`,
-            };
-          }
-          try {
-            emitMigratedExecTermination(auditWriter, {
-              taskId: fullId,
-              context: 'identity_checkpoint_failed',
-              identityCols: handle.identity === undefined ? [] : [
-                `leader_pid=${handle.identity.leaderPid}`,
-                `process_group_id=${handle.identity.processGroupId}`,
-              ],
-              trigger: outcome.trigger,
-              termSent: outcome.termSent,
-              killSent: outcome.killSent,
-              status: outcome.status,
-              reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
-              evidence: JSON.stringify(outcome.evidence),
-            });
-          } catch (auditErr) {
-            auditOutputPersistenceFailure('identity_checkpoint_termination_audit_failed', auditErr);
-          }
-          if (task !== undefined && outcome.status === 'gone') {
-            try {
-              fs.ensureDirSync(resultDir);
-              if (writeExitRecord({
-                version: 1,
-                taskId: task.id,
-                completedAt: new Date().toISOString(),
-                classification: 'error',
-                exitCode: null,
-                termination: toTerminationRecord(outcome),
-                evidence: outcome.evidence,
-              })) {
-                await moveTaskToFailed(task.id).catch((moveErr: unknown) => {
-                  auditOutputPersistenceFailure('identity_checkpoint_failed_move', moveErr);
-                });
-              }
-            } catch (terminalErr) {
-              auditOutputPersistenceFailure('identity_checkpoint_terminal_commit_failed', terminalErr);
-            }
-          }
-          originalSignal?.removeEventListener('abort', onOriginalAbort);
-          return {
-            success: false,
-            content: `Failed to checkpoint exec identity: ${formatErr(originalCheckpointError)}`,
-          };
+          return finalizeExecutionFailure(
+            handle,
+            checkpointErrorContext,
+            checkpointError,
+            'identity_checkpoint_failed',
+            'Failed to checkpoint exec identity',
+          );
         }
 
         // One durable subscription for the whole handle lifetime. Replay closes
@@ -699,28 +707,14 @@ export function createAsyncExecWrapper(
         // L1 has no 'persist_failed' word — caller_requested is the correct L1
         // trigger here (the wrapper requested termination); L4 scene is the
         // audit context column.
-        const outcome = await resolvedHandle.terminate('caller_requested');
-        emitMigratedExecTermination(auditWriter, {
-          taskId: task.id,
-          context: 'persist_failed',
-          identityCols: [
-            `leader_pid=${identity.leaderPid}`,
-            `process_group_id=${identity.processGroupId}`,
-          ],
-          trigger: outcome.trigger,
-          termSent: outcome.termSent,
-          killSent: outcome.killSent,
-          status: outcome.status,
-          reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
-          evidence: JSON.stringify(outcome.evidence),
-        });
-        auditWriter.write(
-          TASK_AUDIT_EVENTS.HANDLER_FAILED,
-          `taskId=${task.id}`,
-          `context=async_exec_wrapper_persist_failed`,
-          `error=${formatErr(persistErr)}`,
+        auditOutputPersistenceFailure('async_exec_wrapper_persist_failed', persistErr);
+        return finalizeExecutionFailure(
+          resolvedHandle,
+          'migration_index_save',
+          persistErr,
+          'persist_failed',
+          'Failed to persist migrated exec task',
         );
-        return { success: false, content: `Failed to persist migrated exec task: ${formatErr(persistErr)}` };
       }
 
       // Migration persisted: notify viewport that a background exec task started.

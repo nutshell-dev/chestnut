@@ -973,6 +973,70 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(await mockFs.exists(taskFile)).toBe(false);
   });
 
+  it('retries terminal-intent exit persistence without moving before the record is durable', async () => {
+    const outcome = goneGroupOutcome();
+    const task = makeV1MigratedTask({
+      migratedExecTerminalIntent: {
+        version: 1,
+        stage: 'short_id_index_save',
+        error: 'index write failed',
+        termination: outcome,
+        evidence: outcome.evidence,
+      },
+    });
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    const originalWriteAtomic = mockFs.writeAtomic;
+    let failExitWrite = true;
+    mockFs.writeAtomic = vi.fn(async (filePath: string, content: string) => {
+      if (failExitWrite && filePath.endsWith('/exit.json')) throw new Error('injected recovery exit EIO');
+      await originalWriteAtomic(filePath, content);
+    });
+    const { audit } = makeMockAudit();
+    const deps = { fs: mockFs, auditWriter: audit, sendToolResult: vi.fn(), sendFallbackResult: vi.fn() };
+
+    await recoverTasks(deps);
+    expect(await mockFs.exists(taskFile)).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(false);
+    expect(mockFs.move).not.toHaveBeenCalled();
+
+    failExitWrite = false;
+    await recoverTasks(deps);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+    expect(deps.sendToolResult).not.toHaveBeenCalled();
+    expect(deps.sendFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it('recovers an output persistence failure without fabricating a termination record', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.observeExecutionTarget.mockReturnValue(goneObservation());
+    const task = makeV1MigratedTask({
+      migratedExecTerminalIntent: {
+        version: 1,
+        stage: 'output_append',
+        error: 'injected append EIO',
+        evidence: EVIDENCE,
+      },
+    });
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    await mockFs.writeAtomic(resultPath, 'partial output');
+    const sendToolResult = vi.fn();
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit, sendToolResult });
+
+    expect(mocks.terminateExecutionTarget).not.toHaveBeenCalled();
+    expect(sendToolResult).not.toHaveBeenCalled();
+    expect(JSON.parse(await mockFs.read(`tasks/queues/results/${VALID_TASK_ID}/exit.json`))).toMatchObject({
+      classification: 'error',
+      evidence: EVIDENCE,
+    });
+    expect(JSON.parse(await mockFs.read(`tasks/queues/results/${VALID_TASK_ID}/exit.json`)).termination).toBeUndefined();
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+  });
+
   it('resumes a still-alive checkpoint intent from a fresh gone observation', async () => {
     const mocks = await importProcessExecMocks();
     mocks.observeExecutionTarget.mockReturnValue(goneObservation());

@@ -2007,6 +2007,12 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     const fullId = runningFiles.find(name => name.endsWith('.json'))!.replace(/\.json$/, '');
     expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(false);
     expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json')).then(() => true).catch(() => false)).toBe(false);
+    const runningTask = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`), 'utf-8'));
+    expect(runningTask.migratedExecTerminalIntent).toMatchObject({
+      version: 1,
+      stage: 'output_append',
+      error: expect.stringContaining('injected append EIO'),
+    });
     expect(sendToolResult).not.toHaveBeenCalled();
   });
 
@@ -2043,6 +2049,12 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(true);
     expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`)).then(() => true).catch(() => false)).toBe(false);
     expect(await fs.stat(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json')).then(() => true).catch(() => false)).toBe(false);
+    const runningTask = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`), 'utf-8'));
+    expect(runningTask.migratedExecTerminalIntent).toMatchObject({
+      version: 1,
+      stage: 'exit_record_write',
+      error: expect.stringContaining('injected exit ENOSPC'),
+    });
   });
 
   it.each([
@@ -2107,6 +2119,42 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
         identity: controlled.identity,
       });
     }
+  });
+
+  it('closes a migration presentation index failure through the same recoverable failed path', async () => {
+    const controlled = makeControlledHandle();
+    const realSave = InMemoryShortIdIndex.prototype.save;
+    let saveCount = 0;
+    vi.spyOn(InMemoryShortIdIndex.prototype, 'save').mockImplementation(function () {
+      saveCount += 1;
+      if (saveCount === 2) throw new Error('injected migration index EIO');
+      realSave.call(this);
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => controlled.handle,
+      softTimeoutMs: 10,
+    });
+
+    const result = await tool.execute(
+      { command: 'controlled' },
+      makeExecContext({ fs: nodeFs, workspaceDir: tmpDir }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('injected migration index EIO');
+    const failedFiles = (await fs.readdir(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR))).filter(name => name.endsWith('.json'));
+    expect(failedFiles).toHaveLength(1);
+    const fullId = failedFiles[0].replace(/\.json$/, '');
+    const failedTask = JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR, failedFiles[0]), 'utf-8'));
+    expect(failedTask.migratedExecTerminalIntent).toMatchObject({
+      stage: 'migration_index_save',
+      error: expect.stringContaining('injected migration index EIO'),
+      termination: { status: 'gone' },
+    });
+    expect(JSON.parse(await fs.readFile(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json'), 'utf-8'))).toMatchObject({
+      classification: 'error',
+      taskId: fullId,
+    });
   });
 
   it('keeps a non-gone checkpoint failure running with durable intent without awaiting process settlement', async () => {
