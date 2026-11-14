@@ -395,8 +395,16 @@ describe('phase881.test.ts', () => {
       const lastCall = inboxCalls[inboxCalls.length - 1];
       const message = lastCall[2] as { content: string };
       const parsed = JSON.parse(message.content);
-      expect(parsed.is_error).toBe(true);
-      expect(parsed.result).toContain('Non-idempotent tool task cannot be retried after crash');
+      expect(parsed.aggregated).toBe(true);
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.items[0]).toMatchObject({
+        taskId: task.shortId,
+        fullTaskId: task.id,
+        is_error: true,
+        reason: 'non_idempotent_recovery',
+      });
+      const artifact = JSON.parse(fileMap.get(parsed.items[0].resultRef)!);
+      expect(artifact.result.content).toContain('Non-idempotent tool task cannot be retried after crash');
     });
   });
 

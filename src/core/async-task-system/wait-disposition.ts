@@ -43,6 +43,7 @@ import {
 } from './audit-emit.js';
 import { sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
 import type { SendFallbackResult, WriteInboxAsync } from './result-delivery-types.js';
+import { queueRecoveryFallback, type RecoveryFallbackPass } from './recovery-fallback.js';
 
 /** 等待处置判定：deadline 优先于 ready（now >= expiresAt → expired）。 */
 export type WaitDisposition = 'expired' | 'resume' | 'keep';
@@ -71,6 +72,8 @@ export interface ApplyWaitDispositionDeps {
   /** expired 投递（缺省走标准实现；测试注入 mock）。 */
   sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
+  /** Startup recovery only; runtime wakeup/deadline paths keep direct delivery. */
+  recoveryFallbackPass?: RecoveryFallbackPass;
 }
 
 export interface ApplyWaitDispositionOpts {
@@ -213,22 +216,19 @@ async function expireWait(
     });
     return { kind: 'deferred' };
   }
-  if (!alreadyNotified) {
-    const sendFallback = deps.sendFallbackResult ?? defaultSendFallbackResult;
-    try {
-      await sendFallback(fs, auditWriter, task, {
-        schema_version: 1,
-        content: `LLM wait deadline expired (orchestrator_instance=${fact.orchestratorInstance}, expiresAt=${fact.expiresAt}). Task failed without resumption.`,
-        isError: true,
-      }, { writeInboxAsync: deps.writeInboxAsync });
-    } catch (err) {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'llm_wait_expired_notify_failed',
-        error: formatErr(err),
-      });
-      return { kind: 'deferred' };
-    }
+  const result = {
+    schema_version: 1 as const,
+    content: `LLM wait deadline expired (orchestrator_instance=${fact.orchestratorInstance}, expiresAt=${fact.expiresAt}). Task failed without resumption.`,
+    isError: true,
+  };
+  const notificationFailed = async (err: unknown): Promise<void> => {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'llm_wait_expired_notify_failed',
+      error: formatErr(err),
+    });
+  };
+  const writeNotifiedMarker = async (): Promise<void> => {
     try {
       await fs.writeAtomic(markerPath, '');
     } catch (err) {
@@ -237,10 +237,10 @@ async function expireWait(
         context: 'llm_wait_expired_marker_write_failed',
         error: formatErr(err),
       });
-      return { kind: 'deferred' };
+      throw err;
     }
-  }
-
+  };
+  const settleExpired = async (): Promise<WaitDispositionOutcome> => {
   try {
     await writeTerminalIntent(fs, filePath, 'failed');
   } catch (err) {
@@ -275,6 +275,38 @@ async function expireWait(
     });
   }
   return { kind: 'expired' };
+  };
+
+  if (!alreadyNotified) {
+    if (await queueRecoveryFallback(
+      deps,
+      task,
+      result,
+      'llm_wait_expired',
+      async () => { await writeNotifiedMarker(); await settleExpired(); },
+      notificationFailed,
+    )) return { kind: 'deferred' };
+
+    const sendFallback = deps.sendFallbackResult ?? defaultSendFallbackResult;
+    try {
+      await sendFallback(fs, auditWriter, task, result, { writeInboxAsync: deps.writeInboxAsync });
+    } catch (err) {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'llm_wait_expired_notify_failed',
+        error: formatErr(err),
+      });
+      return { kind: 'deferred' };
+    }
+    try {
+      await writeNotifiedMarker();
+    } catch {
+      // silent: writeNotifiedMarker already emitted the original marker error.
+      return { kind: 'deferred' };
+    }
+  }
+
+  return settleExpired();
 }
 
 /**

@@ -1227,6 +1227,30 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(sendFallbackResult).toHaveBeenCalledTimes(1);
   });
 
+  it('aggregates migrated manual-intervention fallback while preserving its artifact and terminal marker', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.observeExecutionTarget.mockReturnValue(unknownObservation('leader_gone_group_alive'));
+    const task = makeV1MigratedTask();
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit, writeInboxAsync });
+
+    expect(writeInboxAsync).toHaveBeenCalledTimes(1);
+    const notice = JSON.parse(writeInboxAsync.mock.calls[0][2].content);
+    expect(notice).toMatchObject({ aggregated: true, partial: false });
+    expect(notice.items[0]).toMatchObject({
+      fullTaskId: VALID_TASK_ID,
+      is_error: true,
+      reason: 'migrated_manual_intervention',
+    });
+    expect(JSON.parse(await mockFs.read(notice.items[0].resultRef)).result.content).toContain('Manual intervention required');
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+  });
+
   it('gone probe falls through to result delivery without signalling', async () => {
     const mocks = await importProcessExecMocks();
     mocks.observeExecutionTarget.mockReturnValue(goneObservation());
@@ -1310,6 +1334,28 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(termEvents.length).toBe(1);
     expect(termEvents[0]).toContain('status=still_alive');
     expect(termEvents[0]).toContain('kill_sent=true');
+  });
+
+  it('aggregates migrated dead-no-result fallback without creating a fake process result.txt', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.observeExecutionTarget.mockReturnValue(goneObservation());
+    const task = makeV1MigratedTask();
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit, writeInboxAsync });
+
+    const notice = JSON.parse(writeInboxAsync.mock.calls[0][2].content);
+    expect(notice.items[0]).toMatchObject({
+      fullTaskId: VALID_TASK_ID,
+      reason: 'migrated_process_dead_no_result',
+    });
+    expect(notice.items[0].resultRef.endsWith('/recovery-fallback.json')).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt`)).toBe(false);
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual`)).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
   });
 
   it('dead-no-result fallback followed by move failure re-notifies only once (marker guard)', async () => {

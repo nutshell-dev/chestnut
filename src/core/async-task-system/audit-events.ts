@@ -16,6 +16,7 @@ export const TASK_AUDIT_EVENTS = {
   RECOVERED: 'task_recovered',
   RECOVERY_COMPLETE: 'task_recovery_complete',
   RECOVERY_FAILED: 'task_recovery_failed',
+  RECOVERY_FALLBACK_BATCH: 'task_recovery_fallback_batch',
   RECOVERY_DEAD_LETTER: 'task_recovery_dead_letter',
   START_FAILED: 'task_start_failed',
   HANDLER_FAILED: 'task_handler_failed',

@@ -48,6 +48,11 @@ import {
   MAX_POST_PROCESSOR_DEFERS,
 } from './subagent-executor.js';
 import { createProcessedResultStore, type ProcessedResultStore } from './processed-result-store.js';
+import {
+  createRecoveryFallbackPass,
+  queueRecoveryFallback,
+  type RecoveryFallbackPass,
+} from './recovery-fallback.js';
 import type { TaskId } from './types.js';
 import {
   decodeMigratedExecResult,
@@ -78,6 +83,8 @@ export interface RecoverTasksDeps {
   sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
   sendToolResult?: SendToolResult<ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
+  /** Internal one-pass recovery notice aggregator; absent for direct recovery calls. */
+  recoveryFallbackPass?: RecoveryFallbackPass;
   postProcessors?: Map<string, import('./post-processors/types.js').PostProcessor>;
   /**
    * Phase 1933 Step E：LLM 等待 gate（装配期注入；判定归 orchestrator，ATS 只消费
@@ -229,51 +236,56 @@ async function _recoverToolTask(
     return 0;
   }
 
-  // First time — send notification, then marker, then move
-  await sendFallbackResult(deps.fs, deps.auditWriter, task,
-    { schema_version: 1, content: 'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', isError: true }, resultDeliveryDeps)
-    .then(async () => {
-      // Persist notification-sent marker BEFORE moving to failed.
-      // If crash occurs between marker and move, next recovery skips re-notification.
-      try {
-        await deps.fs.writeAtomic(notifiedPath, '');
-      } catch (e) {
-        emitRecoveryFailed(deps.auditWriter, {
-          taskId: task.id,
-          context: 'non_idempotent_marker_write_failed',
-          error: formatErr(e),
-        });
-        // Don't move — keep in running for next recovery retry
-        return;
-      }
-
-      await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
-        .then(() => {
-          emitRecovered(deps.auditWriter, {
-            fullTaskId: task.id as FullTaskId,
-            shortTaskId: taskShortId(task),
-            kind: task.kind,
-            from: 'running',
-            to: 'failed',
-            reason: 'non_idempotent_recovery',
-          });
-        })
-        .catch(async (e) => {
-          emitRecoveryFailed(deps.auditWriter, {
-            taskId: task.id,
-            context: 'non_idempotent_move_failed',
-            error: formatErr(e),
-          });
-        });
-    })
-    .catch(async (e) => {
+  const result = { schema_version: 1 as const, content: 'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', isError: true };
+  const completeNotification = async (): Promise<void> => {
+    // Persist notification-sent marker BEFORE moving to failed.
+    try {
+      await deps.fs.writeAtomic(notifiedPath, '');
+    } catch (e) {
       emitRecoveryFailed(deps.auditWriter, {
         taskId: task.id,
-        context: 'non_idempotent_notify_failed',
+        context: 'non_idempotent_marker_write_failed',
         error: formatErr(e),
       });
-      // Task stays in running — next recovery will retry
+      return;
+    }
+    await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).then(() => {
+      emitRecovered(deps.auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'failed',
+        reason: 'non_idempotent_recovery',
+      });
+    }).catch((e: unknown) => {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'non_idempotent_move_failed',
+        error: formatErr(e),
+      });
     });
+  };
+  const notificationFailed = async (e: unknown): Promise<void> => {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'non_idempotent_notify_failed',
+      error: formatErr(e),
+    });
+  };
+  if (await queueRecoveryFallback(
+    deps,
+    task,
+    result,
+    'non_idempotent_recovery',
+    completeNotification,
+    notificationFailed,
+  )) return 0;
+
+  // First time — send notification, then marker, then move
+  await sendFallbackResult(deps.fs, deps.auditWriter, task, result, resultDeliveryDeps)
+    .then(completeNotification)
+    .catch(notificationFailed);
   return 0;
 }
 /**
@@ -285,6 +297,7 @@ async function _recoverToolTask(
  */
 async function notifyManualIntervention(
   deps: RecoverTasksDeps,
+  filePath: string,
   task: ToolTask,
   reason: string,
 ): Promise<boolean> {
@@ -304,31 +317,46 @@ async function notifyManualIntervention(
     return false;
   }
   if (alreadyNotified) return true;
-  const sent = await sendFallbackResult(
-    fs,
-    auditWriter,
-    task,
-    { schema_version: 1, content: `Migrated process ownership cannot be verified (${reason}) after the hard deadline. Manual intervention required.`, isError: true },
-    resultDeliveryDeps,
-  )
-    .then(() => true)
-    .catch((e) => {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'migrated_manual_notify_failed',
-        error: formatErr(e),
-      });
-      return false;
-    });
-  if (!sent) return false;
-  try {
-    await fs.writeAtomic(manualPath, '1');
-  } catch (err) {
+  const result = { schema_version: 1 as const, content: `Migrated process ownership cannot be verified (${reason}) after the hard deadline. Manual intervention required.`, isError: true };
+  const notificationFailed = async (e: unknown): Promise<void> => {
     emitRecoveryFailed(auditWriter, {
       taskId: task.id,
-      context: 'migrated_manual_marker_write_failed',
-      error: formatErr(err),
+      context: 'migrated_manual_notify_failed',
+      error: formatErr(e),
     });
+  };
+  const completeNotification = async (): Promise<void> => {
+    try {
+      await fs.writeAtomic(manualPath, '1');
+    } catch (err) {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_manual_marker_write_failed',
+        error: formatErr(err),
+      });
+      throw err;
+    }
+  };
+  if (await queueRecoveryFallback(
+    deps,
+    task,
+    result,
+    'migrated_manual_intervention',
+    async () => {
+      await completeNotification();
+      await moveToFailedAfterManualIntervention(deps, filePath, task);
+    },
+    notificationFailed,
+  )) return false;
+
+  const sent = await sendFallbackResult(fs, auditWriter, task, result, resultDeliveryDeps)
+    .then(() => true)
+    .catch(async (e) => { await notificationFailed(e); return false; });
+  if (!sent) return false;
+  try {
+    await completeNotification();
+  } catch {
+    return false;
   }
   return true;
 }
@@ -602,7 +630,7 @@ export async function recoverMigratedToolTask(
     });
     const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
     if (Date.now() < deadlineMs) return 0;
-    if (!(await notifyManualIntervention(deps, task, reason))) return 0;
+    if (!(await notifyManualIntervention(deps, filePath, task, reason))) return 0;
     await moveToFailedAfterManualIntervention(deps, filePath, task);
     return 0;
   };
@@ -822,23 +850,7 @@ export async function recoverMigratedToolTask(
     return 0;
   }
 
-  if (!fallbackAlreadyNotified) {
-    const fallbackSent = await sendFallbackResult(fs, auditWriter, task, { schema_version: 1, content: 'Migrated process exited without producing output', isError: true }, resultDeliveryDeps)
-      .then(() => true)
-      .catch((e) => {
-        emitRecoveryFailed(auditWriter, {
-          taskId: task.id,
-          context: 'migrated_fallback_error_failed',
-          error: formatErr(e),
-        });
-        return false;
-      });
-
-    if (!fallbackSent) {
-      // Keep in running — retry notification on next recovery
-      return 0;
-    }
-
+  const completeFallback = async (): Promise<void> => {
     try {
       await fs.writeAtomic(fallbackMarkerPath, '1');
     } catch (err) {
@@ -847,11 +859,11 @@ export async function recoverMigratedToolTask(
         context: 'migrated_fallback_marker_write_failed',
         error: formatErr(err),
       });
+      throw err;
     }
-  }
-
-  await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
-    .then(() => {
+  };
+  const moveFallbackToFailed = async (): Promise<void> => {
+    await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).then(() => {
       emitRecovered(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
@@ -860,15 +872,45 @@ export async function recoverMigratedToolTask(
         to: 'failed',
         reason: 'migrated_process_dead_no_result',
       });
-    })
-    .catch(async (e) => {
+    }).catch((e: unknown) => {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'migrated_failed_move_failed',
         error: formatErr(e),
       });
-      // Keep running file — recovery will retry the move on next startup.
     });
+  };
+
+  if (!fallbackAlreadyNotified) {
+    const result = { schema_version: 1 as const, content: 'Migrated process exited without producing output', isError: true };
+    const notificationFailed = async (e: unknown): Promise<void> => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_fallback_error_failed',
+        error: formatErr(e),
+      });
+    };
+    if (await queueRecoveryFallback(
+      deps,
+      task,
+      result,
+      'migrated_process_dead_no_result',
+      async () => { await completeFallback(); await moveFallbackToFailed(); },
+      notificationFailed,
+    )) return 0;
+
+    const fallbackSent = await sendFallbackResult(fs, auditWriter, task, result, resultDeliveryDeps)
+      .then(() => true)
+      .catch(async (e) => { await notificationFailed(e); return false; });
+    if (!fallbackSent) return 0;
+    try {
+      await completeFallback();
+    } catch {
+      return 0;
+    }
+  }
+
+  await moveFallbackToFailed();
   return 0;
 }
 
@@ -903,6 +945,7 @@ async function _recoverLLMWait(
       auditWriter: deps.auditWriter,
       sendFallbackResult: deps.sendFallbackResult,
       writeInboxAsync: deps.writeInboxAsync,
+      recoveryFallbackPass: deps.recoveryFallbackPass,
     },
     { filePath, task, fact: load.fact, gate: deps.waitGate },
   );
@@ -1293,42 +1336,18 @@ async function _recoverWithEnvelope(
     retryCount = MAX_RECOVERY_RETRIES;
   }
 
-  const resultSent = await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps)
-    .then(() => true)
-    .catch(async (e) => {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'resend_result_failed',
-        error: formatErr(e),
-      });
-      // phase 789 (audit-2026-05-14 P0.20): await sendFallbackResult + 视作 sent
-      // 防止 fallback 成功后 next startup 重试 sendResult 导致父 inbox 双投递
-      // sendFallbackResult 内会写 SENT_MARKER（phase 789 invariant）
-      // Phase 1396 Step L: fallback 接收完整 envelope —— metadata 不丢失。
-      try {
-        await sendFallbackResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
-        return true;  // fallback delivered = inbox-written 视作 sent
-      } catch (fallbackErr) {
-        emitRecoveryFailed(auditWriter, {
-          taskId: task.id,
-          context: 'fallback_send_failed',
-          error: formatErr(fallbackErr),
-        });
-        return false;  // both failed → retry next startup
-      }
-    });
-
-  if (resultSent) {
-    // phase 789: sendResult 内已写过此 marker，本处是 defensive idempotent backup
-    await fs.writeAtomic(SENT_MARKER(task.id), '1').catch((e) => {
+  const completeDelivery = async (): Promise<void> => {
+    // phase 789: defensive idempotent backup after direct or aggregated delivery.
+    try {
+      await fs.writeAtomic(SENT_MARKER(task.id), '1');
+    } catch (e) {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'sent_marker_persist_failed',
         error: formatErr(e),
       });
-    });
-    // retryPath delete 失败无害（残文件下次 startup 覆盖 / 不影响 dead-letter promotion）
-    // phase 18: narrow ENOENT silent + 其他 IO error audit emit (Design Principle 不可预期失败暴露而非吞没)
+      throw e;
+    }
     await fs.delete(retryPath).catch((err) => {
       if (!isFileNotFound(err)) {
         emitRecoveryFailed(auditWriter, {
@@ -1337,9 +1356,10 @@ async function _recoverWithEnvelope(
           error: formatErr(err),
         });
       }
-      // silent: ENOENT/FS_NOT_FOUND first-time recovery、retry-count file 未生成、cleanup 无目标
     });
-  } else {
+    await _moveToEnvelopeTerminal(deps, filePath, task, envelope, 'result_envelope_resent');
+  };
+  const failDelivery = async (): Promise<void> => {
     retryCount++;
     try {
       await fs.writeAtomic(retryPath, String(retryCount));
@@ -1349,26 +1369,59 @@ async function _recoverWithEnvelope(
         context: 'retry_counter_persist_failed',
         error: formatErr(e),
       });
-      // Phase 889: counter persist failure must stop this recovery attempt.
-      return 0;
+      return;
     }
     if (retryCount >= MAX_RECOVERY_RETRIES) {
       await _moveToDeadLetter(deps, filePath, task, retryCount, retryPath);
-      return 0;
+      return;
     }
-    // P1.8 fix (phase 612): retryCount<MAX 时不 move terminal / 保 running/ /
-    // 下次启动 recovery 再 trigger _recoverWithEnvelope / counter 持久化 / 累至 MAX → dead-letter
     emitRecoveryFailed(auditWriter, {
       taskId: task.id,
       context: 'retry_pending',
       retryCount,
       maxRetries: MAX_RECOVERY_RETRIES,
     });
-    return 0;
-  }
+  };
 
-  // resultSent=true: terminal classification comes from the committed envelope
-  await _moveToEnvelopeTerminal(deps, filePath, task, envelope, 'result_envelope_resent');
+  let fallbackQueued = false;
+  const resultSent = await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps)
+    .then(() => true)
+    .catch(async (e) => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'resend_result_failed',
+        error: formatErr(e),
+      });
+      const fallbackFailed = async (fallbackErr: unknown): Promise<void> => {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'fallback_send_failed',
+          error: formatErr(fallbackErr),
+        });
+      };
+      if (await queueRecoveryFallback(
+        deps,
+        task,
+        envelope,
+        'result_envelope_recovery_fallback',
+        completeDelivery,
+        async (fallbackErr) => { await fallbackFailed(fallbackErr); await failDelivery(); },
+      )) {
+        fallbackQueued = true;
+        return false;
+      }
+      try {
+        await sendFallbackResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
+        return true;
+      } catch (fallbackErr) {
+        await fallbackFailed(fallbackErr);
+        return false;
+      }
+    });
+
+  if (fallbackQueued) return 0;
+  if (resultSent) await completeDelivery();
+  else await failDelivery();
   return 0;
 }
 
@@ -1484,7 +1537,9 @@ async function _loadPendingTasks(deps: RecoverTasksDeps): Promise<void> {
 export async function recoverTasks(deps: RecoverTasksDeps): Promise<void> {
   const { auditWriter } = deps;
   try {
-    const recoveredFromRunning = await _recoverRunningTasks(deps);
+    const recoveryFallbackPass = createRecoveryFallbackPass(deps);
+    const recoveredFromRunning = await _recoverRunningTasks({ ...deps, recoveryFallbackPass });
+    await recoveryFallbackPass.flush();
     await _loadPendingTasks(deps);
 
     let pendingCount: number;
