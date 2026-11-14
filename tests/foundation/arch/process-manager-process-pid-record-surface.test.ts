@@ -5,17 +5,21 @@ const generationSource = readFileSync(
   new URL('../../../src/foundation/process-manager/generation.ts', import.meta.url),
   'utf8',
 );
+const typesSource = readFileSync(
+  new URL('../../../src/foundation/process-manager/types.ts', import.meta.url),
+  'utf8',
+);
 const barrelSource = readFileSync(
   new URL('../../../src/foundation/process-manager/index.ts', import.meta.url),
   'utf8',
 );
 
 describe('ProcessManager ProcessPidRecord deep surface', () => {
-  it('keeps the PID record local behind generation operations', () => {
-    expect(generationSource).not.toMatch(/export\s+interface\s+ProcessPidRecord\s*\{/);
-    expect(generationSource).toMatch(/(?:^|\n)interface\s+ProcessPidRecord\s*\{/);
-    expect(generationSource).toMatch(
-      /interface\s+ProcessPidRecord\s*\{[\s\S]*?schema_version:\s*number;[\s\S]*?generation_id:\s*string;[\s\S]*?pid:\s*number;[\s\S]*?start_time\?:\s*string;[\s\S]*?created_at:\s*string;[\s\S]*?\}/,
+  it('keeps the shared PID record in the ProcessManager type owner', () => {
+    expect(generationSource).not.toMatch(/(?:^|\n)(?:export\s+)?interface\s+ProcessPidRecord\s*\{/);
+    expect(generationSource).toMatch(/import type \{[^\n]*ProcessPidRecord[^\n]*\} from ['"]\.\/types\.js['"];?/);
+    expect(typesSource).toMatch(
+      /export interface ProcessPidRecord\s*\{[\s\S]*?schema_version:\s*number;[\s\S]*?generation_id:\s*string;[\s\S]*?pid:\s*number;[\s\S]*?process_ref\?:\s*string;[\s\S]*?start_time\?:\s*string;[\s\S]*?created_at:\s*string;[\s\S]*?\}/,
     );
     expect(generationSource).toMatch(
       /type\s+ProcessReadyRecord\s*=\s*ProcessPidRecord;/,

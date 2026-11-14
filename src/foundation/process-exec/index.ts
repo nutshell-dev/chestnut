@@ -53,6 +53,7 @@ export type { ProcessStartTime } from './process-starttime.js';
 export {
   captureCurrentProcessRef,
   captureOwnedProcessRef,
+  _captureProcessRefForTest,
   decodeProcessRef,
   inspectProcessRef,
 } from './process-reference.js';

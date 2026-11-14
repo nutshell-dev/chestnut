@@ -320,6 +320,46 @@ export function captureOwnedProcessRef(pid: number): ProcessRefCapture {
 }
 
 /**
+ * Test-only capture seam for synthetic PIDs. The ProcessExec owner still creates
+ * and brands the reference so callers do not duplicate the persisted v1 shape
+ * or read host context directly.
+ */
+export function _captureProcessRefForTest(
+  pid: number,
+  startTime: ProcessStartTime = makeProcessStartTime('Sat May 18 10:30:00 2026'),
+): Extract<ProcessRefCapture, { kind: 'captured' }> {
+  const atMs = Date.now();
+  const facts: unknown[] = [{ operation: 'test_capture', outcome: 'start', pid }];
+  const context = readContext('before', facts);
+  if (context.kind === 'error') {
+    throw new Error('Cannot create synthetic ProcessRef without host context', { cause: context.error });
+  }
+  if (context.context.platform !== 'darwin' && context.context.platform !== 'linux') {
+    throw new Error(`Cannot create synthetic ProcessRef on unsupported platform ${context.context.platform}`);
+  }
+  const internal: InternalRef = {
+    version: 1,
+    pid,
+    startTime,
+    source: {
+      platform: context.context.platform,
+      hostname: context.context.hostname,
+      tzEnv: context.context.tzEnv,
+      timeZone: context.context.timeZone,
+    },
+    basis: 'posix-lstart-second',
+    capturedAtMs: atMs,
+  };
+  facts.push({ operation: 'captured', outcome: internal });
+  return {
+    kind: 'captured',
+    value: JSON.stringify(internal) as ProcessRef,
+    target: { pid, startTime },
+    evidence: encodeProcessEvidence(atMs, facts),
+  };
+}
+
+/**
  * @internal Project an already decoded reference for the L1 termination bridge.
  * Legacy start times are deliberately omitted: v0 presence must never acquire
  * v1 identity semantics through the generic ProcessTarget path.

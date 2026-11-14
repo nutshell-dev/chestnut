@@ -42,7 +42,6 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { inspectProcessRefValue, observeProcessFact } from './process-facts.js';
 import { STATUS_SUBDIR } from './paths.js';
 import type { DaemonDir, ProcessManagerContext, ProcessPidRecord } from './types.js';
-export type { ProcessPidRecord } from './types.js';
 
 const PROCESS_GENERATION_SCHEMA_VERSION = 1;
 
@@ -728,8 +727,8 @@ export async function writeFailureFact(
 
 /**
  * child 在 Assembly 成功 + ready 事实写好后将本 generation 从 spawning move
- * 到 active。只认显式 generation identity（generation ID + PID + startTime
- * 全匹配）；active collision 重读 winner 形成 typed outcome，loser 退出、
+ * 到 active。只认显式 generation identity（generation ID + PID + persisted
+ * ProcessRef 观察成立）；active collision 重读 winner 形成 typed outcome，loser 退出、
  * 绝不覆盖 fresh active。
  */
 export function activateGeneration(

@@ -14,7 +14,7 @@ describe('ProcessManager GenerationIdentity deep surface', () => {
   it('keeps the generation identity interface local behind activateGeneration', () => {
     expect(generationSource).not.toMatch(/export\s+interface\s+GenerationIdentity\b/);
     expect(generationSource).toMatch(
-      /(?:^|\n)interface\s+GenerationIdentity\s*\{[\s\S]*?generationId:\s*string;[\s\S]*?pid:\s*number;[\s\S]*?startTime\?:\s*ProcessStartTime;[\s\S]*?\}/,
+      /(?:^|\n)interface\s+GenerationIdentity\s*\{[\s\S]*?generationId:\s*string;[\s\S]*?pid:\s*number;[\s\S]*?processRef\?:\s*ProcessRef;[\s\S]*?\}/,
     );
     expect(generationSource).toMatch(/expected:\s*GenerationIdentity,/);
     expect(barrelSource).not.toMatch(/\bGenerationIdentity\b/);

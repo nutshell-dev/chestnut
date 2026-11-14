@@ -8,7 +8,7 @@
  *
  * 语义与迁移前 daemon.ts `activateOwnGeneration` 逐条 1:1（含 reason 文案与副作用序）：
  * env 缺失 → inspect spawning 存在/ID 一致 → spawning pid 事实存在/与传入 pid 一致
- * →（有 startTime 双方可考时）start-time 一致 → 绑定本 generation 的 stop intent
+ * → persisted ProcessRef 观察成立 → 绑定本 generation 的 stop intent
  * （有则 retire spawning + 失败）→ 写 ready 事实 → activate（activated/already_active
  * 均视为成功）。
  */

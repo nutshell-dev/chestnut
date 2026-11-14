@@ -14,15 +14,13 @@
  */
 
 import * as path from 'path';
-import { hostname } from 'node:os';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr, newUuid } from '../foundation/node-utils/index.js';
 import { getChestnutRoot } from '../foundation/claw-identity/index.js';
 import {
   captureOwnedProcessRef,
-  type ProcessRef,
+  _captureProcessRefForTest,
   type ProcessRefCapture,
-  type ProcessStartTime,
 } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import type { WatchdogProcessDeps } from './types.js';
@@ -211,26 +209,7 @@ function captureAttemptIdentity(pid: number, deps?: WatchdogProcessDeps): Proces
     return captured;
   }
   // Explicit fake-PID test seam. Real production captures never take this branch.
-  const startTime = 'Sat May 18 10:30:00 2026' as ProcessStartTime;
-  const internal = {
-    version: 1,
-    pid,
-    startTime,
-    source: {
-      platform: process.platform,
-      hostname: hostname(),
-      tzEnv: process.env.TZ ?? null,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    },
-    basis: 'posix-lstart-second',
-    capturedAtMs: Date.now(),
-  };
-  return {
-    kind: 'captured',
-    value: JSON.stringify(internal) as ProcessRef,
-    target: { pid, startTime },
-    evidence: { version: 1, atMs: Date.now(), facts: [{ operation: 'test_capture', outcome: internal }] },
-  };
+  return _captureProcessRefForTest(pid);
 }
 
 /** 生成一次 startup attempt 的完整 record（写 candidate 前的事实全集）。 */
