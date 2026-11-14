@@ -49,6 +49,23 @@ export function makeClawTrack(): ClawTrack {
   };
 }
 
+/** 将 base 与带引号的预览组合为单行；省略号和闭引号均计入列宽预算。 */
+function renderPreviewLine(baseText: string, tailText: string, cols: number): string {
+  const width = Math.max(1, cols);
+  const base = baseText.replace(/\r\n?|\n/g, ' ');
+  const tail = tailText.replace(/\r\n?|\n/g, ' ');
+  const prefix = `${base} · "`;
+  const budget = Math.max(0, width - stringWidth(prefix) - 1);
+
+  if (budget === 0) return fitLine(base, width);
+
+  const truncated = stringWidth(tail) > budget;
+  const tailBudget = truncated ? Math.max(0, budget - 1) : budget;
+  const snippet = sliceFromStart(tail, tailBudget);
+  const line = `${prefix}${snippet}${truncated ? '…' : ''}"`;
+  return fitLine(line, width);
+}
+
 /** 渲染 claw 状态行 / 1:1 保 chat-viewport.ts:379-433 body。
  *  phase 2003 Step E：错误/终止文本由共享 formatter（cli-protocol/claw-bar-display）
  *  单源生成；本模块只负责 ANSI 颜色、fitLine 截断与 lastOutput 摘要拼接。 */
@@ -116,14 +133,9 @@ export function buildClawLine(id: string, t: ClawTrack, cols: number): string {
     leftColor = '\x1b[38;5;245m';
   }
 
-  // 净化并截断 leftText，确保 attach bar 单行显示
-  leftText = fitLine(leftText, cols);
-
   if (t.lastOutput) {
-    const prefix = `${leftText} · "`;
-    const available = cols - stringWidth(prefix) - 1;
-    const snippet = sliceFromStart(t.lastOutput.trimStart().replace(/\n/g, ' '), available);
-    return `${leftColor}${prefix}${snippet}"\x1b[0m`;
+    const line = renderPreviewLine(leftText, t.lastOutput.trimStart(), cols);
+    return `${leftColor}${line}\x1b[0m`;
   }
-  return `${leftColor}${leftText}\x1b[0m`;
+  return `${leftColor}${fitLine(leftText, Math.max(1, cols))}\x1b[0m`;
 }
