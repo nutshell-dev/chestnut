@@ -4,7 +4,6 @@ import { formatErr } from '../node-utils/index.js';
 import {
   captureProcessTarget,
   spawnDetached as defaultSpawnDetached,
-  terminateMatchingProcesses,
 } from '../process-exec/index.js';
 import {
   BOOT_DEADLINE_MS,
@@ -14,7 +13,7 @@ import {
 import { awaitReadyConvergence } from './ready-convergence.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { isReady as checkReady } from './ready.js';
-import { findProcessesDetailed } from './find.js';
+import { runOrphanCleanup } from './orphan-cleanup.js';
 import { observeProcessFact, terminateProcessFact } from './process-facts.js';
 import {
   newProcessGeneration,
@@ -32,7 +31,7 @@ import {
 import { shouldAbortSpawningForStop } from './stop.js';
 
 import type { ProcessStartTime } from '../process-exec/index.js';
-import { ProcessGenerationStateError, ProcessOrphanCleanupError, ProcessSpawnConflictError, type OrphanCleanupResult, type ProcessManagerContext } from './types.js';
+import { ProcessGenerationStateError, ProcessOrphanCleanupError, ProcessSpawnConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
 
 /**
@@ -112,20 +111,18 @@ export async function spawnProcess(
         );
       }
     }
-    // active generation 存在但进程已死：旧 daemon 已退出，继续 spawn 会覆盖 active。
-    // 这里先 retire 旧 active，让新 generation 有干净的 active 目标。
-    retireGeneration(ctx, daemonDir, { generationId: active.record.generation_id }, 'confirmed_dead', 'active');
   }
 
   // phase 1779 fail-closed gate：cleanup blocked（无法证明旧进程退场）→ 不 spawn。
   // clear / not_needed 是仅有的安全终局。
-  const orphanCleanup = await cleanupOrphans(ctx, daemonDir, options);
+  const orphanCleanup = await runOrphanCleanup(ctx, daemonDir, options);
   if (orphanCleanup.kind === 'blocked') {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED,
       `daemon_dir=${daemonDir}`,
       `stage=${orphanCleanup.stage}`,
       `pids=${orphanCleanup.pids.length > 0 ? orphanCleanup.pids.join(',') : 'unknown'}`,
+      `request_id=${orphanCleanup.requestId ?? 'unavailable'}`,
       `reason=${ctx.audit.message(formatErr(orphanCleanup.error))}`,
     );
     throw new ProcessOrphanCleanupError(
@@ -133,7 +130,15 @@ export async function spawnProcess(
       orphanCleanup.stage,
       orphanCleanup.error,
       orphanCleanup.pids,
+      undefined,
+      { requestId: orphanCleanup.requestId, recoveryPending: true },
     );
+  }
+
+  // 只有 cleanup 已证明安全终局后才 retire 旧 active；cleanup blocked 时保留
+  // generation/PID 证据，下一次 spawn 可在同一持久恢复链上继续。
+  if (active.status === 'ok') {
+    retireGeneration(ctx, daemonDir, { generationId: active.record.generation_id }, 'confirmed_dead', 'active');
   }
 
   // generation precheck：spawning 已被持 → typed conflict（不从异常猜 winner）；
@@ -216,51 +221,6 @@ export async function spawnProcess(
   ctx.fs.ensureDirSync(path.dirname(options.logFile));
 
   return await spawnAndAwaitReady(ctx, daemonDir, options, startMs, record);
-}
-
-/**
- * SIGTERM stale processes whose argv matches the new spawn target so they
- * don't race the new daemon.
- *
- * phase 1779：不再 best-effort——返回 typed outcome；调用方仅接受 clear/not_needed，
- * blocked（enumerate/signal/verify 任一失败）必须阻止 spawn：旧进程重复风险未被
- * 证明解除时禁止新 generation spawn。原始 error 与候选 pid evidence 全程保留，
- * 不以 retry/sleep 掩盖失败、不降级 warning。
- */
-async function cleanupOrphans(
-  ctx: ProcessManagerContext,
-  daemonDir: DaemonDir,
-  options: SpawnOptions,
-): Promise<OrphanCleanupResult> {
-  const outcome = await terminateMatchingProcesses({
-    pattern: options.args.join(' '),
-    requiredArgvToken: daemonDir,
-    excludePid: process.pid,
-    graceMs: DAEMON_SHUTDOWN_GRACE_MS,
-    list: () => findProcessesDetailed(ctx, options.args.join(' ')),
-    signal: ctx.kill,
-  });
-  if (outcome.kind !== 'blocked') {
-    for (const pid of outcome.skipped) {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_MATCH_SKIPPED,
-        `daemon_dir=${daemonDir}`,
-        `pid=${pid}`,
-        `reason=clawid_token_mismatch`,
-      );
-    }
-  }
-  if (outcome.kind === 'blocked' && outcome.stage === 'signal') {
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
-      `daemon_dir=${daemonDir}`,
-      `pids=${outcome.pids.join(',')}`,
-      `reason=${formatErr(outcome.error)}`,
-    );
-  }
-  return outcome.kind === 'clear'
-    ? { kind: 'clear', terminated: outcome.terminated }
-    : outcome;
 }
 
 /**

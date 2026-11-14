@@ -149,6 +149,8 @@ vi.mock('../../src/foundation/process-manager/find.js', async (importOriginal) =
     ...actual,
     findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+    findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
 });
 

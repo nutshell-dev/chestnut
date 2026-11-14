@@ -54,6 +54,8 @@ vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal
     ...actual,
     findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+    findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
 });
 
@@ -695,7 +697,7 @@ describe('spawn', () => {
       const daemonDir = testClawDaemonDir(tempDir, clawId);
       const killErr = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
       killErr.code = 'EPERM';
-      orphanFind.impl = () => [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+      orphanFind.impl = () => [{ pid: 4321, command: `node /fake/daemon-entry.js ${clawId}` }];
       const kill = vi.fn().mockImplementation(() => { throw killErr; });
 
       const ctx = gateCtx(audit, { kill });
@@ -719,7 +721,7 @@ describe('spawn', () => {
       const clawId = 'orphan-survived';
       const daemonDir = testClawDaemonDir(tempDir, clawId);
       // enumerate 与 verify 复列都返回同一 orphan（kill 成功但进程不退场）
-      orphanFind.impl = () => [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+      orphanFind.impl = () => [{ pid: 4321, command: `node /fake/daemon-entry.js ${clawId}` }];
 
       const ctx = gateCtx(audit);
       const err = await spawnProcess(ctx, daemonDir, gateOpts(clawId)).catch((e) => e);
@@ -742,7 +744,7 @@ describe('spawn', () => {
       let calls = 0;
       orphanFind.impl = () => {
         calls++;
-        if (calls === 1) return [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+        if (calls === 1) return [{ pid: 4321, command: `node /fake/daemon-entry.js ${clawId}` }];
         throw listErr;
       };
 
@@ -764,7 +766,7 @@ describe('spawn', () => {
       orphanFind.impl = () => {
         calls++;
         // 第一次 enumerate 命中 orphan；grace 后 verify 复列已退场
-        return calls === 1 ? [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }] : [];
+        return calls === 1 ? [{ pid: 4321, command: `node /fake/daemon-entry.js ${clawId}` }] : [];
       };
 
       const ctx = gateCtx(audit);

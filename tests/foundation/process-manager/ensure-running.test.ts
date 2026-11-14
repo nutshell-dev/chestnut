@@ -99,6 +99,8 @@ vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal
     ...actual,
     findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+    findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
 });
 
@@ -585,7 +587,7 @@ describe('ensureRunning', () => {
   });
 
   it('fails join_timeout via shared deadline when winner never becomes ready', async () => {
-    const { audit, events } = makeAudit();
+    const { audit, events, emitter } = makeAudit();
     const daemonDir = testClawDaemonDir(tempDir, 'ensure-join-timeout');
     const generationId = randomUUID();
     // winner 持有 spawning、进程存活但永不写 ready → 只能由共享 deadline 终止
@@ -598,6 +600,9 @@ describe('ensureRunning', () => {
       const ctx = defaultCtx(nodeFs, audit);
       const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-timeout')).catch((e) => e);
 
+      // Durable orphan cleanup is async; wait until spawn has lost to the existing
+      // winner and join owns the shared deadline before advancing fake time.
+      await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
       await vi.advanceTimersByTimeAsync(ADVANCE_PAST_DEADLINE_MS);
 
       const err = await promise;

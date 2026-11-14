@@ -207,7 +207,15 @@ function observationErrors(evidence: readonly ObservationFact[]): unknown[] {
   return errors;
 }
 
-function observationUnavailableReason(
+/** @internal Return the first original observation error, when one exists. */
+export function observationError(
+  observation: Extract<ProcessObservation, { kind: 'unknown' }>,
+): unknown {
+  return observationErrors(observation.evidence).find(error => error !== undefined);
+}
+
+/** @internal Share observation failure classification across typed capabilities. */
+export function observationUnavailableReason(
   observation: Extract<ProcessObservation, { kind: 'unknown' }>,
 ): ProcessUnavailableReason {
   if (observation.reason === 'unsupported_platform') return 'unsupported';

@@ -20,6 +20,24 @@ vi.mock('../../src/foundation/process-manager/constants.js', async (importOrigin
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0 };
 });
 
+const orphanQuery = vi.hoisted(() => ({
+  calls: [] as string[],
+  impl: (() => []) as () => Array<{ pid: number; command: string }>,
+}));
+vi.mock('../../src/foundation/process-manager/find.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/process-manager/find.js')>();
+  return {
+    ...actual,
+    findProcessesDetailedAsync: async (
+      _ctx: unknown,
+      pattern: string,
+    ) => {
+      orphanQuery.calls.push(pattern);
+      return orphanQuery.impl();
+    },
+  };
+});
+
 // Mock child_process so spawn() doesn't actually start a node process
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
@@ -46,6 +64,8 @@ beforeEach(async () => {
   tempDir = await createTrackedTempDir('pm-spawn-p19-');
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
   vi.clearAllMocks();
+  orphanQuery.calls = [];
+  orphanQuery.impl = () => [];
   // Mock isReady so spawn poll passes without a real daemon writing ready marker
   vi.spyOn(ProcessManager.prototype, 'isReady').mockReturnValue(true);
   // Restore default: pgrep no match
@@ -59,7 +79,7 @@ afterEach(async () => {
 });
 
 describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
-  it('should call spawnSync pgrep with options.args pattern', async () => {
+  it('should query the async process-list capability with options.args pattern', async () => {
     const { audit } = makeAudit();
     const pm = new ProcessManager(nodeFs, audit);
     const clawId = 'p19-claw';
@@ -74,27 +94,22 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       env: { ...process.env },
     });
 
-    expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
-      'pgrep',
-      expect.arrayContaining(['-f', `/fake/daemon-entry\\.js ${clawId}`]),
-      expect.any(Object),
-    );
+    expect(orphanQuery.calls).toEqual([`/fake/daemon-entry.js ${clawId}`]);
   });
 
   it('should SIGTERM orphaned processes found by pgrep', async () => {
     const orphanPid = 99991;
     const clawId = 'orphan-claw';
 
-    // phase 346 B2: cleanupOrphans 现做两步：
-    //   1. pgrep → 候选 PID
-    //   2. ps -o pid=,command= -p ...PIDs → 候选 cmdline、按 clawId token 二次过滤
-    // 测试需 mock 两个 spawnSync 调用，第二个返 cmdline 含 clawId 才会真 kill。
-    vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout: `${orphanPid}\n`, stderr: '' } as any);
-    vi.mocked(spawnSync).mockReturnValueOnce({
-      status: 0,
-      stdout: `${orphanPid} node /fake/daemon-entry.js ${clawId}\n`,
-      stderr: '',
-    } as any);
+    // The typed cleanup enumerates complete argv evidence, then verifies the
+    // same identity disappeared before permitting the replacement spawn.
+    let queries = 0;
+    orphanQuery.impl = () => {
+      queries++;
+      return queries === 1
+        ? [{ pid: orphanPid, command: `node /fake/daemon-entry.js ${clawId}` }]
+        : [];
+    };
     vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(process.pid) as any);
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);

@@ -1,12 +1,12 @@
 /**
  * Phase 769 — L1 ProcessExec execWithHandle tests
  *
- * Verifies that execWithHandle returns both a promise and an immediately
- * available ChildProcess handle, preserving all existing exec semantics.
+ * Verifies that execWithHandle returns a promise and restricted execution
+ * capabilities without exposing the raw ChildProcess.
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { execWithHandle, ProcessExecError, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { execWithHandle, ProcessExecError, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime, type ExecHandle } from '../../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
 import { PROCESS_EXEC_TIMEOUT_MAX_MS } from '../../../src/foundation/process-exec/constants.js';
 import * as os from 'os';
@@ -41,15 +41,51 @@ describe('execWithHandle', () => {
     expect(result.output.trim()).toBe('hello');
   });
 
-  it('should expose child process immediately after call', async () => {
+  it('exposes identity without exposing the raw child process', async () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
     });
-    expect(handle.child).toBeDefined();
-    expect(handle.child.pid).toBeGreaterThan(0);
+    expect(handle).not.toHaveProperty('child');
+    expect(handle.identity?.leaderPid).toBeGreaterThan(0);
     await handle.terminate();
     await expect(handle.promise).rejects.toBeInstanceOf(ProcessExecError);
+  });
+
+  it('keeps output subscription live-only by default', async () => {
+    const handle = execWithHandle('sh', ['-c', 'printf BEFORE_SUBSCRIBE'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+      cwd: os.tmpdir(),
+    });
+    await expect(handle.promise).resolves.toMatchObject({ exitCode: 0 });
+
+    const chunks: Buffer[] = [];
+    const unsubscribe = handle.subscribeOutput(chunk => chunks.push(chunk));
+    expect(chunks).toEqual([]);
+    unsubscribe();
+  });
+
+  it('opt-in replay delivers early and subsequent output once without gaps or duplicates', async () => {
+    const handle = execWithHandle(
+      process.execPath,
+      ['-e', `process.stdout.write('EARLY'); setTimeout(() => process.stderr.write('LATE'), 50)`],
+      {
+        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+        cwd: os.tmpdir(),
+      },
+    );
+    await waitForMatch(handle, /EARLY/);
+
+    const chunks: Buffer[] = [];
+    const unsubscribe = handle.subscribeOutput(
+      chunk => chunks.push(chunk),
+      { replay: true },
+    );
+    const result = await handle.promise;
+    unsubscribe();
+
+    expect(Buffer.concat(chunks).toString('utf8')).toBe('EARLYLATE');
+    expect(Buffer.concat(chunks).toString('utf8')).toBe(result.output);
   });
 
   it('should reject ProcessExecError for non-zero exit', async () => {
@@ -122,7 +158,7 @@ describe('execWithHandle execution identity and terminate (phase 1269)', () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], { cwd: workDir });
     expect(handle.identity).toBeDefined();
     const identity = handle.identity!;
-    expect(identity.leaderPid).toBe(handle.child.pid);
+    expect(identity.leaderPid).toBeGreaterThan(0);
     // detached: true → leader is its own process-group leader
     expect(identity.processGroupId).toBe(identity.leaderPid);
     // Safety invariant: the group must never be our own / the runner's group,
@@ -209,23 +245,31 @@ function isAlivePid(pid: number): boolean {
   }
 }
 
-/** Accumulate child stdout until `pattern` matches; returns capture group 1 or full match. */
-function waitForMatch(
-  handle: { child: import('child_process').ChildProcess },
-  pattern: RegExp,
-): Promise<string> {
+/** Accumulate subscribed output until `pattern` matches; returns capture group 1 or full match. */
+function waitForMatch(handle: ExecHandle, pattern: RegExp): Promise<string> {
   return new Promise((resolve, reject) => {
     let buf = '';
-    const onData = (chunk: Buffer) => {
+    let matched = false;
+    const unsubscribe = handle.subscribeOutput((chunk) => {
       buf += chunk.toString('utf8');
-      const m = buf.match(pattern);
-      if (m) {
-        handle.child.stdout?.off('data', onData);
-        resolve(m[1] ?? m[0]);
-      }
-    };
-    handle.child.stdout?.on('data', onData);
-    handle.child.on('close', () => reject(new Error(`closed before match: ${pattern}`)));
+      const match = buf.match(pattern);
+      if (!match || matched) return;
+      matched = true;
+      unsubscribe();
+      resolve(match[1] ?? match[0]);
+    });
+    void handle.promise.then(
+      () => {
+        if (matched) return;
+        unsubscribe();
+        reject(new Error(`closed before match: ${pattern}`));
+      },
+      () => {
+        if (matched) return;
+        unsubscribe();
+        reject(new Error(`closed before match: ${pattern}`));
+      },
+    );
   });
 }
 

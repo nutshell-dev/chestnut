@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   captureCurrentProcessIdentity,
+  captureProcessTarget,
   observeProcessTarget,
   terminateMatchingProcesses,
   terminateProcessTarget,
@@ -8,6 +9,7 @@ import {
   type ProcessTargetObservation,
 } from '../../../src/foundation/process-exec/index.js';
 import { makeProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
+import * as processObservation from '../../../src/foundation/process-exec/process-observation.js';
 import type { ProcessObservation } from '../../../src/foundation/process-exec/process-observation.js';
 
 const PID = 12345;
@@ -22,6 +24,10 @@ const observation = (kind: 'alive' | 'gone' | 'unknown'): ProcessTargetObservati
       : { kind, reason: 'query_failed', evidence: evidence() };
 const rawAlive = (startTime = START): ProcessObservation => ({
   kind: 'alive', pid: PID, startTime, evidence: [],
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('typed process target observation', () => {
@@ -41,7 +47,7 @@ describe('typed process target observation', () => {
       evidence: [{ operation: 'signal0', outcome: 'error', error: permission }],
     };
     const result = observeProcessTarget({ pid: PID }, { observe: () => raw });
-    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied' });
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied', error: permission });
     expect(JSON.stringify(result.evidence)).toContain('EPERM');
   });
 
@@ -73,6 +79,33 @@ describe('typed process target observation', () => {
   });
 });
 
+describe('process target capture', () => {
+  it('uses typed observation by default and preserves the original unknown error', () => {
+    const permission = Object.assign(new Error('denied'), { code: 'EPERM' });
+    const observe = vi.spyOn(processObservation, 'observeProcess').mockReturnValue({
+      kind: 'unknown', pid: PID, reason: 'probe_failed',
+      evidence: [{ operation: 'signal0', outcome: 'error', error: permission }],
+    });
+
+    const result = captureProcessTarget(PID);
+
+    expect(observe).toHaveBeenCalledExactlyOnceWith(PID);
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied', error: permission });
+    expect(JSON.stringify(result.evidence)).toContain('EPERM');
+  });
+
+  it('retains the legacy start-time seam without invoking default observation', () => {
+    const observe = vi.spyOn(processObservation, 'observeProcess').mockReturnValue(rawAlive());
+    const legacyStartTime = vi.fn(() => START);
+
+    expect(captureProcessTarget(PID, legacyStartTime)).toMatchObject({
+      kind: 'captured', target: { pid: PID, startTime: START },
+    });
+    expect(legacyStartTime).toHaveBeenCalledExactlyOnceWith(PID);
+    expect(observe).not.toHaveBeenCalled();
+  });
+});
+
 describe('current process identity capture', () => {
   it('captures the current PID and observed start time without legacy adapters', () => {
     const result = captureCurrentProcessIdentity(() => rawAlive());
@@ -90,7 +123,7 @@ describe('current process identity capture', () => {
       evidence: [{ operation: 'signal0', outcome: 'error', error: permission }],
     }));
 
-    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied' });
+    expect(result).toMatchObject({ kind: 'unknown', reason: 'permission_denied', error: permission });
     expect(result).not.toHaveProperty('target');
     expect(JSON.stringify(result.evidence)).toContain('EPERM');
   });

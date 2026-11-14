@@ -11,7 +11,10 @@ import {
 } from './execution-group.js';
 import { encodeProcessEvidence, type ProcessEvidence } from './process-evidence.js';
 import { observeProcess } from './process-observation.js';
-import type { ProcessUnavailableReason } from './process-reference.js';
+import {
+  observationError,
+  observationUnavailableReason,
+} from './process-reference.js';
 import type {
   ExecutionIdentity,
   ExecutionTerminationOutcome,
@@ -158,14 +161,11 @@ export function captureExecutionTarget(identity: ExecutionIdentity): ExecutionTa
   if (observation.kind === 'gone') {
     return { kind: 'gone', target, evidence: encodeProcessEvidence(atMs, facts) };
   }
-  const reason: ProcessUnavailableReason = observation.reason === 'unsupported_platform'
-    ? 'unsupported'
-    : observation.reason === 'invalid_pid' || observation.reason === 'malformed_start_time'
-      ? 'incomplete_data'
-      : 'query_failed';
+  const error = observationError(observation);
   return {
-    kind: 'unknown', target, reason,
+    kind: 'unknown', target, reason: observationUnavailableReason(observation),
     evidence: encodeProcessEvidence(atMs, facts),
+    ...(error !== undefined ? { error } : {}),
   };
 }
 
@@ -194,7 +194,11 @@ export function observeExecutionTarget(target: ExecutionTarget): ExecutionTarget
     return { kind: 'gone', target, reason: 'absent', evidence };
   }
   if (observation.kind === 'unknown') {
-    return { kind: 'unknown', target, reason: observation.reason, evidence };
+    const error = observationError(observation);
+    return {
+      kind: 'unknown', target, reason: observation.reason, evidence,
+      ...(error !== undefined ? { error } : {}),
+    };
   }
   if (target.leaderStartTime === undefined) {
     return { kind: 'unknown', target, reason: 'leader_start_time_unavailable', evidence };

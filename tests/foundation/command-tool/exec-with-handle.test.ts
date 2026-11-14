@@ -83,7 +83,7 @@ describe('createExecWithHandle execution identity passthrough (phase 1269)', () 
     const handle = await execWithHandle({ command: 'sleep 30' }, ctx);
 
     expect(handle.identity).toBeDefined();
-    expect(handle.identity!.leaderPid).toBe(handle.child.pid);
+    expect(handle.identity!.leaderPid).toBeGreaterThan(0);
     expect(handle.identity!.processGroupId).toBe(handle.identity!.leaderPid);
 
     const outcome = await handle.terminate();

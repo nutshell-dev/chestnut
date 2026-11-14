@@ -382,7 +382,9 @@ export function createAsyncExecWrapper(
         const collect = (chunk: Buffer): void => {
           partialOutput += chunk.toString();
         };
-        stopOutputCollection = handle.subscribeOutput(collect);
+        // Replay L1's bounded pre-subscription buffer into the durable migration
+        // snapshot; the later file listener stays live-only to avoid duplicates.
+        stopOutputCollection = handle.subscribeOutput(collect, { replay: true });
 
         winner = await raceHandle(handle, timeout, ctx.signal);
       } catch (err) {

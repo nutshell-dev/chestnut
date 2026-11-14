@@ -18,6 +18,7 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   ORPHAN_SIGTERM_FAILED: 'orphan_sigterm_failed',
   ORPHAN_CLEANUP_PARTIAL: 'orphan_cleanup_partial', // ← NEW phase 1060
   ORPHAN_CLEANUP_BLOCKED: 'orphan_cleanup_blocked', // ← phase 1779: cleanup 无法证明完成、spawn fail-closed
+  ORPHAN_CLEANUP_RECOVERED: 'orphan_cleanup_recovered', // ← phase 2146: durable request 跨重启收敛
   ORPHAN_MATCH_SKIPPED: 'orphan_match_skipped', // ← phase 346 B2: clawId token-match miss、防误杀 sibling claw
   STOP_PROCESS_SURVIVED_SIGKILL: 'stop_process_survived_sigkill',
   PROCESS_LIST_FAILED: 'process_list_failed',

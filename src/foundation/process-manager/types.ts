@@ -138,6 +138,8 @@ export type StopFailureStage =
   | 'locate'           // intent 后 / signal 后按 identity 重定位失败（foreign / missing）
   | 'signal'           // kill 或等待过程抛错（error 为原始异常）
   | 'survived_sigkill' // 进程在 SIGKILL 后仍存活
+  | 'termination_write' // termination outcome sidecar 持久化失败
+  | 'confirmation_write' // 最终 gone confirmation sidecar 持久化失败
   | 'retire';          // retire 或 retired identity 校验失败
 
 /**
@@ -153,7 +155,7 @@ export type OrphanCleanupResult =
   | { kind: 'not_needed' }
   | { kind: 'blocked'; stage: OrphanCleanupStage; error: unknown; pids: number[] };
 
-export type OrphanCleanupStage = 'enumerate' | 'signal' | 'verify';
+export type OrphanCleanupStage = 'enumerate' | 'signal' | 'verify' | 'persist';
 
 /**
  * phase 1779: orphan cleanup blocked 时 spawn 的 fail-closed typed failure。
@@ -164,12 +166,15 @@ export class ProcessOrphanCleanupError extends Error {
   readonly daemonDir: DaemonDir;
   readonly stage: OrphanCleanupStage;
   readonly pids: readonly number[];
+  readonly requestId?: string;
+  readonly recoveryPending: boolean;
   constructor(
     daemonDir: DaemonDir,
     stage: OrphanCleanupStage,
     error: unknown,
     pids: readonly number[] = [],
     message?: string,
+    recovery: { requestId?: string; recoveryPending?: boolean } = {},
   ) {
     super(
       message ?? `Orphan cleanup for "${daemonDir}" blocked at stage "${stage}" (${pids.length} candidate pid(s) unverified)`,
@@ -179,6 +184,8 @@ export class ProcessOrphanCleanupError extends Error {
     this.daemonDir = daemonDir;
     this.stage = stage;
     this.pids = pids;
+    this.requestId = recovery.requestId;
+    this.recoveryPending = recovery.recoveryPending ?? false;
   }
 }
 

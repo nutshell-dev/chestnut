@@ -11,6 +11,21 @@ import type { ProcessUnavailableReason } from './process-reference.js';
 
 const ARGV_QUERY_TIMEOUT_MS = 1000;
 
+/** @internal Match one literal token with whitespace/start/end boundaries. */
+export function commandContainsToken(command: string, token: string): boolean {
+  if (!command || !token) return false;
+  let fromIndex = 0;
+  for (;;) {
+    const at = command.indexOf(token, fromIndex);
+    if (at < 0) return false;
+    const end = at + token.length;
+    const beforeBoundary = at === 0 || /\s/.test(command[at - 1]!);
+    const afterBoundary = end === command.length || /\s/.test(command[end]!);
+    if (beforeBoundary && afterBoundary) return true;
+    fromIndex = at + 1;
+  }
+}
+
 export type ProcessArgvObservation =
   | { kind: 'match'; evidence: ProcessEvidence }
   | { kind: 'mismatch'; evidence: ProcessEvidence }
@@ -73,7 +88,7 @@ export function observePidArgv(pid: number, expectedToken: string): ProcessArgvO
     const error = new Error(`argv evidence unavailable for pid ${pid} (status=${raw.status})`);
     return { kind: 'unknown', reason: 'query_failed', error, evidence };
   }
-  return raw.stdout.includes(expectedToken)
+  return commandContainsToken(raw.stdout, expectedToken)
     ? { kind: 'match', evidence }
     : { kind: 'mismatch', evidence };
 }

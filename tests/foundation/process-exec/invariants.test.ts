@@ -116,8 +116,7 @@ describe('getProcessStartTime catch filter', () => {
 describe('findByPattern', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('writes stderr when ps fails with non-ENOENT', () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  it('preserves ps failure as structured unavailable evidence', () => {
 
     const mockSpawnSync = vi.mocked(spawnSync);
     mockSpawnSync.mockReturnValueOnce({
@@ -130,10 +129,20 @@ describe('findByPattern', () => {
       throw Object.assign(new Error('Input/output error'), { code: 'EIO' });
     });
 
-    const result = findByPattern('node');
+    let failure: unknown;
+    try {
+      findByPattern('node');
+    } catch (error) {
+      failure = error;
+    }
 
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[process-exec] ps failed'));
-    expect(result).toEqual([{ pid: 42, command: '' }]);
+    expect(failure).toMatchObject({
+      name: 'ProcessListUnavailable',
+      operation: 'ps',
+      classification: 'spawn_error',
+      causeCode: 'EIO',
+      evidence: { operation: 'ps', code: 'EIO' },
+    });
   });
 });
 

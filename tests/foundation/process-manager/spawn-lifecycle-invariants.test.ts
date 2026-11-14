@@ -44,6 +44,8 @@ vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal
     ...actual,
     findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
       orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+    findProcessesDetailedAsync: async (...args: Parameters<typeof actual.findProcessesDetailedAsync>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailedAsync(...args),
   };
 });
 
@@ -79,6 +81,16 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     };
   }
 
+  function failPidWrites(): void {
+    const original = nodeFs.writeAtomicExisting.bind(nodeFs);
+    vi.spyOn(nodeFs, 'writeAtomicExisting').mockImplementation(async (file, content) => {
+      if (file.endsWith(path.join('spawning', PID_FILE))) {
+        throw new Error('pid fact write failed');
+      }
+      return original(file, content);
+    });
+  }
+
   it('live active generation → ProcessSpawnConflictError(active_owner) with winner generation ID', async () => {
     const { audit } = makeAudit();
     const clawId = `test-claw-live-active-${randomUUID()}`;
@@ -90,7 +102,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
 
     const err = await spawnProcess(ctx, daemonDir, {
       command: 'node',
-      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(daemonDir, 'logs', 'daemon.log'),
     }).catch((e) => e);
 
@@ -109,12 +121,12 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     const ctx = makeCtx({ isReady: () => false, l1IsAlive: vi.fn().mockReturnValue(false) });
 
     // 让 child PID 持久化失败 → 触发 cleanup kill 路径
-    vi.spyOn(nodeFs, 'writeAtomicExisting').mockRejectedValue(new Error('pid fact write failed'));
+    failPidWrites();
 
     await expect(
       spawnProcess(ctx, daemonDir, {
         command: 'node',
-        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(daemonDir, 'logs', 'daemon.log'),
       }),
     ).rejects.toThrow(/Cannot persist child PID/);
@@ -136,12 +148,12 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
       getProcessStartTime: vi.fn().mockReturnValue(childStartTime),
     });
 
-    vi.spyOn(nodeFs, 'writeAtomicExisting').mockRejectedValue(new Error('pid fact write failed'));
+    failPidWrites();
 
     await expect(
       spawnProcess(ctx, daemonDir, {
         command: 'node',
-        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(daemonDir, 'logs', 'daemon.log'),
       }),
     ).rejects.toThrow(/Cannot persist child PID/);
@@ -161,12 +173,12 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     });
 
     // 让 child PID 持久化失败，触发 cleanup；child 存活 → generation 保留作取证
-    vi.spyOn(nodeFs, 'writeAtomicExisting').mockRejectedValue(new Error('pid fact write failed'));
+    failPidWrites();
 
     await expect(
       spawnProcess(ctx, daemonDir, {
         command: 'node',
-        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(daemonDir, 'logs', 'daemon.log'),
       }),
     ).rejects.toThrow(/Cannot persist child PID/);
@@ -187,7 +199,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
 
     const pid = await spawnProcess(ctx, daemonDir, {
       command: 'node',
-      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(daemonDir, 'logs', 'daemon.log'),
     });
 
@@ -224,7 +236,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     await expect(
       spawnProcess(ctx, daemonDir, {
         command: 'node',
-        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(daemonDir, 'logs', 'daemon.log'),
       }),
     ).rejects.toThrow(/did not become ready within/);
@@ -273,7 +285,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     await expect(
       spawnProcess(ctx, daemonDir, {
         command: 'node',
-        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(daemonDir, 'logs', 'daemon.log'),
       }),
     ).rejects.toThrow(/stop intent/);
@@ -307,7 +319,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
 
     const pid = await spawnProcess(ctx, daemonDir, {
       command: 'node',
-      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(daemonDir, 'logs', 'daemon.log'),
     });
 
@@ -350,7 +362,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     await expect(
       spawnProcess(ctx, daemonDir, {
         command: 'node',
-        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(daemonDir, 'logs', 'daemon.log'),
       }),
     ).rejects.toThrow(/stop intent/);
@@ -371,10 +383,10 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     orphanFind.impl = () => {
       calls++;
       if (calls === 1) {
-        // enumerate：真 orphan（command 含 daemonDir token）
-        return [{ pid: REUSED_PID, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+        // enumerate：真 orphan（完整 daemon entry 与 claw id argv token 均匹配）
+        return [{ pid: REUSED_PID, command: `node /fake/daemon-entry.js ${clawId}` }];
       }
-      // verify 复列：同 pid 已被复用为无关进程（command 无 daemonDir token）→ identity 不匹配 = 已退场
+      // verify 复列：同 pid 已被复用为无关进程（完整 argv 不匹配）→ identity 不匹配 = 已退场
       return [{ pid: REUSED_PID, command: 'node /unrelated/worker.js' }];
     };
 
@@ -383,7 +395,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
 
     const pid = await spawnProcess(ctx, daemonDir, {
       command: 'node',
-      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(daemonDir, 'logs', 'daemon.log'),
     });
 
@@ -405,7 +417,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
 
     const pid = await spawnProcess(ctx, daemonDir, {
       command: 'node',
-      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(daemonDir, 'logs', 'daemon.log'),
     });
 

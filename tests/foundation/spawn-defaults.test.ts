@@ -23,6 +23,16 @@ vi.mock('child_process', async (importOriginal) => {
   };
 });
 
+vi.mock('../../src/foundation/process-manager/find.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/process-manager/find.js')>();
+  return {
+    ...actual,
+    // The detached child double is not a pgrep/ps process. Keep host-query
+    // behavior in ProcessExec tests and make this PM test deterministic.
+    findProcessesDetailedAsync: async () => [],
+  };
+});
+
 import { spawn, spawnSync } from 'child_process';
 import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 

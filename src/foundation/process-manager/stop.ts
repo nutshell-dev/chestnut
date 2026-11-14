@@ -1,4 +1,4 @@
-import type { ProcessStartTime } from '../process-exec/index.js';
+import type { ProcessEvidence, ProcessStartTime } from '../process-exec/index.js';
 import { observeProcessFact, terminateProcessFact } from './process-facts.js';
 import type { DaemonDir } from './types.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
@@ -13,6 +13,8 @@ import {
   inspectRetiredGeneration,
   retireGeneration,
   writeStopIntent,
+  writeStopTerminationResult,
+  writeStopGoneConfirmation,
   hasStopIntentForGeneration,
   getRetiredDirFor,
 } from './generation.js';
@@ -97,7 +99,7 @@ async function stopProcessDetailed(
     return { kind: 'failed', stage: 'intent_write', reason: `failed to record stop intent: ${formatErr(intent.cause)}`, error: intent.cause };
   }
 
-  return handleTarget(ctx, daemonDir, initial);
+  return handleTarget(ctx, daemonDir, requestId, initial);
 }
 
 function inspectTarget(
@@ -192,6 +194,7 @@ function inspectSpawningLocation(
 async function handleTarget(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
+  requestId: string,
   target: TargetLocation,
 ): Promise<StopProcessOutcome> {
   // spawning 尚无 PID：intent 已足够，parent 写 PID 时会 abort。
@@ -213,6 +216,20 @@ async function handleTarget(
         reason: `target generation ${target.generationId} retired directory does not match identity`,
       };
     }
+    const observation = observeProcessFact(ctx, target.pid, target.startTime);
+    if (observation.kind !== 'gone') {
+      return {
+        kind: 'failed', stage: 'signal',
+        reason: observation.kind === 'unknown'
+          ? 'process observation unavailable'
+          : 'retired target process is still alive',
+        ...(observation.kind === 'unknown' ? { error: observation.error ?? observation } : {}),
+      };
+    }
+    const confirmation = recordGoneConfirmation(
+      ctx, daemonDir, requestId, target.generationId, target.pid, target.startTime, observation.evidence,
+    );
+    if (confirmation.kind === 'failed') return confirmation;
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.STOP_TARGET_RELOCATED,
       `daemon_dir=${daemonDir}`,
@@ -250,6 +267,10 @@ async function handleTarget(
     };
   }
   if (observation.kind === 'gone') {
+    const confirmation = recordGoneConfirmation(
+      ctx, daemonDir, requestId, target.generationId, current.pid, current.startTime, observation.evidence,
+    );
+    if (confirmation.kind === 'failed') return confirmation;
     const disposition = retireStoppedGeneration(ctx, daemonDir, target.generationId, current.source);
     if (disposition.kind !== 'retired') {
       return disposition;
@@ -264,7 +285,7 @@ async function handleTarget(
     return { kind: 'stopped', pid: current.pid, via: 'already_dead' };
   }
 
-  return stopAndRetire(ctx, daemonDir, target.generationId, current);
+  return stopAndRetire(ctx, daemonDir, requestId, target.generationId, current);
 }
 
 function locateGeneration(
@@ -321,6 +342,26 @@ function retiredIdentityMatches(
 ): boolean {
   const inspection = inspectRetiredGeneration(ctx, daemonDir, generationId);
   return inspection.status === 'ok' && inspection.record.generation_id === generationId;
+}
+
+function recordGoneConfirmation(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  requestId: string,
+  generationId: string,
+  pid: number,
+  startTime: ProcessStartTime | undefined,
+  evidence: ProcessEvidence,
+): { kind: 'recorded' } | { kind: 'failed'; stage: 'confirmation_write'; reason: string; error: unknown } {
+  const write = writeStopGoneConfirmation(
+    ctx, daemonDir, requestId, generationId, pid, startTime, evidence,
+  );
+  if (write.kind === 'written') return { kind: 'recorded' };
+  return {
+    kind: 'failed', stage: 'confirmation_write',
+    reason: `failed to record gone confirmation: ${formatErr(write.cause)}`,
+    error: write.cause,
+  };
 }
 
 /**
@@ -389,6 +430,7 @@ function retireStoppedGeneration(
 async function stopAndRetire(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
+  requestId: string,
   generationId: string,
   current: { kind: 'spawning' | 'active'; pid: number; startTime: ProcessStartTime | undefined; source: 'spawning' | 'active' },
 ): Promise<StopProcessOutcome> {
@@ -397,6 +439,17 @@ async function stopAndRetire(
     confirmMs: SIGKILL_DEAD_VERIFY_GRACE_MS,
     pollIntervalMs: PROCESS_STOP_POLL_INTERVAL_MS,
   });
+  const terminationWrite = writeStopTerminationResult(
+    ctx, daemonDir, requestId, generationId, current.pid, current.startTime, termination,
+  );
+  if (terminationWrite.kind !== 'written') {
+    return {
+      kind: 'failed', stage: 'termination_write',
+      reason: `failed to record termination outcome: ${formatErr(terminationWrite.cause)}`,
+      error: terminationWrite.cause,
+    };
+  }
+
   if (termination.kind === 'indeterminate') {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
@@ -419,7 +472,12 @@ async function stopAndRetire(
     );
     return { kind: 'failed', stage: 'survived_sigkill', reason: 'process survived SIGKILL' };
   }
-  const via = termination.via === 'sigkill' ? 'sigkill' : 'sigterm';
+  const confirmation = recordGoneConfirmation(
+    ctx, daemonDir, requestId, generationId, current.pid, current.startTime, termination.evidence,
+  );
+  if (confirmation.kind === 'failed') return confirmation;
+
+  const via = termination.via === 'already_gone' ? 'already_dead' : termination.via;
   if (termination.killSent) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_KILL_ESCALATED,

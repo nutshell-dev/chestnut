@@ -169,17 +169,23 @@ export interface ExecutionTerminationFact {
 }
 
 /**
- * Handle returned by execWithHandle. Output subscription, detach and signal
- * semantics stay L1-owned; `child` remains only for legacy consumers outside
- * AsyncTaskSystem and must never be used for `kill`.
+ * Handle returned by execWithHandle. The raw ChildProcess stays module-private;
+ * output subscription, detach and signal semantics are L1-owned capabilities.
  */
 export interface ExecHandle {
   promise: Promise<ExecResult>;
-  child: import('child_process').ChildProcess;
   /** Present when the OS process exists; absent only if spawn itself failed. */
   identity?: ExecutionIdentity;
-  /** Subscribe to combined stdout/stderr chunks; unsubscribe affects only this listener. */
-  subscribeOutput(listener: (chunk: Buffer) => void): () => void;
+  /**
+   * Subscribe to combined stdout/stderr chunks; unsubscribe affects only this
+   * listener. By default only future chunks are delivered (legacy behavior).
+   * `replay: true` first synchronously replays the bounded output already
+   * collected, then delivers future chunks exactly once to this subscription.
+   */
+  subscribeOutput(
+    listener: (chunk: Buffer) => void,
+    options?: { replay?: boolean },
+  ): () => void;
   /** Allow the child to outlive the caller without exposing ChildProcess.unref. */
   detach(): void;
   /**

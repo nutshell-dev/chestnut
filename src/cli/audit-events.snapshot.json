@@ -839,6 +839,7 @@
       "clean_stop_signaled",
       "orphan_cleanup_blocked",
       "orphan_cleanup_partial",
+      "orphan_cleanup_recovered",
       "orphan_match_skipped",
       "orphan_sigterm_failed",
       "process_ensure_failed",

@@ -37,8 +37,15 @@ export type {
 export { spawnDetached } from './spawn-detached.js';
 export type { SpawnDetachedOptions, SpawnDetachedOutcome, SpawnDetachedFailure } from './types.js';
 export { kill, isAlive } from './process-control.js';
-export { findByPattern, findByLiteralPattern } from './find-by-pattern.js';
-export { isPidArgvMatching } from './argv-verify.js';
+export {
+  findByPattern,
+  findByLiteralPattern,
+  findByPatternAsync,
+  findByLiteralPatternAsync,
+} from './find-by-pattern.js';
+export type { FindByPatternOptions } from './find-by-pattern.js';
+export { isPidArgvMatching, observePidArgv } from './argv-verify.js';
+export type { ProcessArgvObservation } from './argv-verify.js';
 export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
 export {
@@ -77,6 +84,11 @@ export {
   ProcessExecError,
   ProcessListUnavailable,
   UnsupportedHostScriptError,
+} from './errors.js';
+export type {
+  ProcessListErrorEvidence,
+  ProcessListFailureClassification,
+  ProcessListOperation,
 } from './errors.js';
 export {
   PROCESS_EXEC_DEFAULT_TIMEOUT_MS,

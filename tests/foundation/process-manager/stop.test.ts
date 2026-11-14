@@ -12,6 +12,7 @@ import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { encodeProcessEvidence } from '../../../src/foundation/process-exec/process-evidence.js';
 
 import {
   GENERATION_FILE,
@@ -21,6 +22,7 @@ import {
   getActiveDir,
   getRetiredDirFor,
   getStopIntentsDir,
+  getStopResultsDir,
 } from '../../../src/foundation/process-manager/generation.js';
 
 async function writeGeneration(
@@ -53,6 +55,12 @@ async function writeGeneration(
     const readyRecord = { ...pidRecord };
     await fs.writeFile(path.join(dir, READY_FILE), JSON.stringify(readyRecord), 'utf-8');
   }
+}
+
+async function getOnlyStopResultDir(daemonDir: string): Promise<string> {
+  const requestIds = await fs.readdir(getStopResultsDir(daemonDir));
+  expect(requestIds).toHaveLength(1);
+  return path.join(getStopResultsDir(daemonDir), requestIds[0]);
 }
 
 describe('stopProcess generation authority (Phase 1204 Step D)', () => {
@@ -96,6 +104,10 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     expect(ctx.kill).not.toHaveBeenCalled();
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+    const resultDir = await getOnlyStopResultDir(daemonDir);
+    const confirmation = JSON.parse(await fs.readFile(path.join(resultDir, 'confirmation.json'), 'utf8'));
+    expect(confirmation).toMatchObject({ record_kind: 'gone_confirmation', outcome: 'gone' });
+    expect(nodeFs.existsSync(path.join(resultDir, 'termination.json'))).toBe(false);
 
     const stoppedEvents = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED);
     expect(stoppedEvents).toHaveLength(1);
@@ -117,6 +129,151 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     expect(ctx.kill).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+  });
+
+  it('persists intent, termination and final confirmation before retire', async () => {
+    const { audit } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'stop-result-records');
+    const generationId = 'gen-result-records';
+    await writeGeneration(tempDir, daemonDir, 'active', generationId, FAKE_LIVE_PID, 'start-1');
+    const evidence = { version: 1 as const, atMs: 123, facts: [{ operation: 'test', outcome: 'gone' }] };
+    const ctx = {
+      ...makeCtx(audit),
+      terminateProcessTarget: vi.fn(async () => ({
+        kind: 'gone' as const, via: 'sigkill' as const,
+        termSent: true, killSent: true, evidence,
+      })),
+    };
+    const writeSpy = vi.spyOn(nodeFs, 'writeAtomicSync');
+    const moveSpy = vi.spyOn(nodeFs, 'moveDirSync');
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toMatchObject({ kind: 'stopped', via: 'sigkill' });
+    const resultDir = await getOnlyStopResultDir(daemonDir);
+    const termination = JSON.parse(await fs.readFile(path.join(resultDir, 'termination.json'), 'utf8'));
+    const confirmation = JSON.parse(await fs.readFile(path.join(resultDir, 'confirmation.json'), 'utf8'));
+    expect(termination).toMatchObject({
+      schema_version: 1,
+      record_kind: 'termination',
+      request_id: expect.any(String),
+      target_generation_id: generationId,
+      pid: FAKE_LIVE_PID,
+      start_time: 'start-1',
+      outcome: { kind: 'gone', via: 'sigkill', term_sent: true, kill_sent: true },
+      evidence,
+    });
+    expect(confirmation).toMatchObject({
+      schema_version: 1,
+      record_kind: 'gone_confirmation',
+      request_id: termination.request_id,
+      target_generation_id: generationId,
+      pid: FAKE_LIVE_PID,
+      outcome: 'gone',
+      evidence,
+    });
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+
+    const intentWrite = writeSpy.mock.calls.findIndex(([file]) => file.includes(`${path.sep}stop-intents${path.sep}`));
+    const terminationWrite = writeSpy.mock.calls.findIndex(([file]) => file.endsWith(`${path.sep}termination.json`));
+    const confirmationWrite = writeSpy.mock.calls.findIndex(([file]) => file.endsWith(`${path.sep}confirmation.json`));
+    expect(intentWrite).toBeGreaterThanOrEqual(0);
+    expect(terminationWrite).toBeGreaterThan(intentWrite);
+    expect(confirmationWrite).toBeGreaterThan(terminationWrite);
+    expect(moveSpy.mock.invocationCallOrder[0]).toBeGreaterThan(writeSpy.mock.invocationCallOrder[confirmationWrite]);
+  });
+
+  it('does not retire or report success when termination persistence fails', async () => {
+    const { audit } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'stop-termination-write-failure');
+    const generationId = 'gen-termination-write-failure';
+    await writeGeneration(tempDir, daemonDir, 'active', generationId, FAKE_LIVE_PID);
+    const writeError = new Error('injected termination EIO');
+    const originalWrite = nodeFs.writeAtomicSync.bind(nodeFs);
+    vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation((file, content) => {
+      if (file.endsWith(`${path.sep}termination.json`)) throw writeError;
+      return originalWrite(file, content);
+    });
+    const ctx = {
+      ...makeCtx(audit),
+      terminateProcessTarget: vi.fn(async () => ({
+        kind: 'gone' as const, via: 'sigterm' as const,
+        termSent: true, killSent: false,
+        evidence: { version: 1 as const, atMs: 123, facts: [] },
+      })),
+    };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toMatchObject({ kind: 'failed', stage: 'termination_write', error: writeError });
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(true);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(false);
+    const resultDir = await getOnlyStopResultDir(daemonDir);
+    expect(nodeFs.existsSync(path.join(resultDir, 'termination.json'))).toBe(false);
+    expect(nodeFs.existsSync(path.join(resultDir, 'confirmation.json'))).toBe(false);
+    expect(await fs.readdir(getStopIntentsDir(daemonDir))).toHaveLength(1);
+  });
+
+  it('keeps the generation and termination record at the confirmation crash point', async () => {
+    const { audit } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'stop-confirmation-write-failure');
+    const generationId = 'gen-confirmation-write-failure';
+    await writeGeneration(tempDir, daemonDir, 'active', generationId, FAKE_LIVE_PID);
+    const writeError = new Error('injected confirmation EIO');
+    const originalWrite = nodeFs.writeAtomicSync.bind(nodeFs);
+    vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation((file, content) => {
+      if (file.endsWith(`${path.sep}confirmation.json`)) throw writeError;
+      return originalWrite(file, content);
+    });
+    const ctx = {
+      ...makeCtx(audit),
+      terminateProcessTarget: vi.fn(async () => ({
+        kind: 'gone' as const, via: 'sigterm' as const,
+        termSent: true, killSent: false,
+        evidence: { version: 1 as const, atMs: 123, facts: [] },
+      })),
+    };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toMatchObject({ kind: 'failed', stage: 'confirmation_write', error: writeError });
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(true);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(false);
+    const resultDir = await getOnlyStopResultDir(daemonDir);
+    const termination = JSON.parse(await fs.readFile(path.join(resultDir, 'termination.json'), 'utf8'));
+    expect(termination).toMatchObject({ record_kind: 'termination', outcome: { kind: 'gone', via: 'sigterm' } });
+    expect(nodeFs.existsSync(path.join(resultDir, 'confirmation.json'))).toBe(false);
+  });
+
+  it('persists indeterminate termination without serializing a cyclic raw error', async () => {
+    const { audit } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'stop-cyclic-error');
+    const generationId = 'gen-cyclic-error';
+    await writeGeneration(tempDir, daemonDir, 'active', generationId, FAKE_LIVE_PID);
+    const cyclicError = new Error('TERM failed') as Error & { self?: unknown };
+    cyclicError.self = cyclicError;
+    const evidence = encodeProcessEvidence(123, [{ operation: 'sigterm', outcome: 'throw', error: cyclicError }]);
+    const ctx = {
+      ...makeCtx(audit),
+      terminateProcessTarget: vi.fn(async () => ({
+        kind: 'indeterminate' as const, stage: 'sigterm' as const,
+        error: cyclicError, termSent: false, killSent: false, evidence,
+      })),
+    };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toMatchObject({ kind: 'failed', stage: 'signal', error: cyclicError });
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(true);
+    const resultDir = await getOnlyStopResultDir(daemonDir);
+    const termination = JSON.parse(await fs.readFile(path.join(resultDir, 'termination.json'), 'utf8'));
+    expect(termination).toMatchObject({
+      record_kind: 'termination',
+      outcome: { kind: 'indeterminate', stage: 'sigterm', term_sent: false, kill_sent: false },
+      evidence,
+    });
+    expect(termination.outcome).not.toHaveProperty('error');
+    expect(nodeFs.existsSync(path.join(resultDir, 'confirmation.json'))).toBe(false);
   });
 
   it('reports a surviving process without claiming its PID was removed', async () => {

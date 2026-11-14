@@ -24,9 +24,10 @@ describe('ProcessManager OS capability ownership (Phase 2141)', () => {
     const offenders = productionSources().filter(({ file, source }) =>
       file !== 'process-facts.ts' && file !== 'types.ts' && file !== 'manager.ts'
       && /ctx\.(?:l1IsAlive|kill)\b/.test(source));
-    // spawn.ts may only forward the injected L1 signal to the L1 matching cleanup.
+    // Cleanup owners may only forward the injected L1 signal to L1 matching cleanup.
     const remaining = offenders.filter(({ file, source }) =>
-      file !== 'spawn.ts' || !/signal: ctx\.kill/.test(source) || /ctx\.l1IsAlive/.test(source));
+      (file !== 'spawn.ts' && file !== 'orphan-cleanup.ts')
+      || !/signal: ctx\.kill/.test(source) || /ctx\.l1IsAlive/.test(source));
     expect(remaining.map(({ file }) => file)).toEqual([]);
   });
 

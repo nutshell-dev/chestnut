@@ -109,6 +109,29 @@ describe('ProcessExec host script resolution (phase 2066)', () => {
 });
 
 const hostExtensions = process.platform === 'win32' ? ['.cmd', '.bat'] : ['.sh'];
+const unsupportedHostExtensions = process.platform === 'win32'
+  ? ['.sh', '.ps1', '']
+  : ['.cmd', '.CMD', '.bat', '.BAT', '.ps1', ''];
+
+describe(`actual ${process.platform} host script unsupported matrix`, () => {
+  it.each(unsupportedHostExtensions)('rejects %s through the actual-platform public resolver', (extension) => {
+    const scriptPath = path.join(process.cwd(), `unsupported contract${extension}`);
+    let thrown: unknown;
+    try {
+      processExec.resolveHostScript(scriptPath);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(UnsupportedHostScriptError);
+    const error = thrown as UnsupportedHostScriptError;
+    expect(error.code).toBe('HOST_SCRIPT_UNSUPPORTED');
+    expect(error.platform).toBe(process.platform);
+    expect(error.scriptPath).toBe(scriptPath);
+    expect(error.extension).toBe(extension.toLowerCase());
+    expect(error.allowedExtensions).toEqual(hostExtensions);
+  });
+});
 
 function writeRealScript(directory: string, extension: string, exitCode: number, marker: string): string {
   const scriptPath = path.join(directory, `verify contract${extension}`);

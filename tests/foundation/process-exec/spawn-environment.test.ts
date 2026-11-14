@@ -1,7 +1,52 @@
 import { describe, expect, it } from 'vitest';
+import { delimiter } from 'node:path';
 import { createSpawnEnvironment } from '../../../src/foundation/process-exec/index.js';
+import { augmentNodePath } from '../../../src/foundation/process-exec/spawn-environment.js';
 
 describe('spawn environment construction', () => {
+  it('joins the Node bin directory with the host path delimiter without leaking host entries', () => {
+    const authorized = { PATH: '/authorized/bin', AUTHORIZED: 'yes' };
+    const env = augmentNodePath(
+      authorized,
+      '/node/bin',
+      { PATH: '/host/bin', ARBITRARY_SECRET: 'do-not-inherit' },
+      'linux',
+    );
+
+    expect(env).toEqual({
+      PATH: `/node/bin${delimiter}/authorized/bin`,
+      AUTHORIZED: 'yes',
+    });
+    expect(authorized.PATH).toBe('/authorized/bin');
+  });
+
+  it.each(['Path', 'PATH'])('augments an authorized Windows %s entry under its existing key', (pathKey) => {
+    const env = augmentNodePath(
+      { [pathKey]: 'C:\\authorized\\bin', AUTHORIZED: 'yes' },
+      'C:\\node\\bin',
+      { Path: 'C:\\host\\bin' },
+      'win32',
+    );
+
+    expect(env[pathKey]).toBe(`C:\\node\\bin${delimiter}C:\\authorized\\bin`);
+    expect(env.AUTHORIZED).toBe('yes');
+    expect(Object.keys(env)).toHaveLength(2);
+  });
+
+  it('recognizes a host Windows Path fallback without inheriting unrelated host values', () => {
+    const env = augmentNodePath(
+      { AUTHORIZED: 'yes' },
+      'C:\\node\\bin',
+      { Path: 'C:\\host\\bin', ARBITRARY_SECRET: 'do-not-inherit' },
+      'win32',
+    );
+
+    expect(env).toEqual({
+      AUTHORIZED: 'yes',
+      Path: `C:\\node\\bin${delimiter}C:\\host\\bin`,
+    });
+  });
+
   it('allowlists host facts and applies only explicit caller authorization', () => {
     const result = createSpawnEnvironment(
       { CHESTNUT_ROOT: '/authorized-root', EXPLICIT_EMPTY: '' },

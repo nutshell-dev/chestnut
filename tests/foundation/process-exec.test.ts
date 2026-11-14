@@ -529,29 +529,20 @@ describe('phase 1269 Step C: exec abort convergence', () => {
 function waitForProcessOutput(handle: ExecHandle, pattern: RegExp): Promise<string> {
   return new Promise((resolve, reject) => {
     let output = '';
-    const stdout = handle.child.stdout;
-    if (!stdout) {
-      reject(new Error(`child stdout unavailable while waiting for ${String(pattern)}`));
-      return;
-    }
-
-    const cleanup = () => {
-      stdout.off('data', onData);
-      handle.child.off('close', onClose);
-    };
-    const onData = (chunk: Buffer) => {
+    let matched = false;
+    const unsubscribe = handle.subscribeOutput((chunk) => {
       output += chunk.toString('utf8');
       const match = output.match(pattern);
-      if (!match) return;
-      cleanup();
+      if (!match || matched) return;
+      matched = true;
+      unsubscribe();
       resolve(match[1] ?? match[0]);
-    };
-    const onClose = () => {
-      cleanup();
+    });
+    const onSettled = () => {
+      if (matched) return;
+      unsubscribe();
       reject(new Error(`child closed before output matched ${String(pattern)}: ${output}`));
     };
-
-    stdout.on('data', onData);
-    handle.child.once('close', onClose);
+    void handle.promise.then(onSettled, onSettled);
   });
 }

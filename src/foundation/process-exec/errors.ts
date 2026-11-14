@@ -77,13 +77,64 @@ export class UnsupportedHostScriptError extends Error {
   }
 }
 
+/** Process-list operation and stable failure taxonomy for diagnostics/recovery. */
+export type ProcessListOperation = 'pgrep' | 'ps';
+export type ProcessListFailureClassification =
+  | 'spawn_error'
+  | 'nonzero_exit'
+  | 'signal'
+  | 'timeout'
+  | 'abort'
+  | 'max_buffer';
+
+/** Serializable OS evidence; the original exception remains available as `cause`. */
+export interface ProcessListErrorEvidence {
+  readonly operation: ProcessListOperation;
+  readonly classification: ProcessListFailureClassification;
+  readonly status: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stderr: string;
+  /** Original errno-style code (ENOENT, ENOBUFS, ABORT_ERR, ...), when known. */
+  readonly code?: string;
+}
+
 /**
- * Thrown when pgrep / process listing binary is unavailable.
+ * Thrown when pgrep / process listing is unavailable or cannot be trusted.
+ * `code` retains its legacy Chestnut error identity; the OS code is in
+ * `causeCode` and `evidence.code`.
  */
 export class ProcessListUnavailable extends Error {
   readonly code = 'PROCESS_LIST_UNAVAILABLE' as const;
-  constructor(public readonly pattern: string, public readonly cause: unknown) {
-    super(`pgrep unavailable for pattern: ${pattern}`);
+  readonly operation: ProcessListOperation;
+  readonly classification: ProcessListFailureClassification;
+  readonly status: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stderr: string;
+  readonly causeCode?: string;
+  readonly evidence: ProcessListErrorEvidence;
+
+  constructor(
+    public readonly pattern: string,
+    public readonly cause: unknown,
+    evidence: Partial<ProcessListErrorEvidence> = {},
+  ) {
+    const normalized: ProcessListErrorEvidence = {
+      operation: evidence.operation ?? 'pgrep',
+      classification: evidence.classification ?? 'spawn_error',
+      status: evidence.status ?? null,
+      signal: evidence.signal ?? null,
+      stderr: evidence.stderr ?? '',
+      code: evidence.code,
+    };
+    // Preserve the legacy message shape; structured diagnostics live in evidence.
+    super(`${normalized.operation} unavailable for pattern: ${pattern}`);
     this.name = 'ProcessListUnavailable';
+    this.operation = normalized.operation;
+    this.classification = normalized.classification;
+    this.status = normalized.status;
+    this.signal = normalized.signal;
+    this.stderr = normalized.stderr;
+    this.causeCode = normalized.code;
+    this.evidence = normalized;
   }
 }

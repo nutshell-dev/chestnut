@@ -936,7 +936,6 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const output = '中'.repeat(667);
     const child = spawn(process.execPath, ['-e', '']);
     const handle: ExecHandle = {
-      child,
       subscribeOutput: (listener) => {
         child.stdout?.on('data', listener);
         child.stderr?.on('data', listener);
@@ -967,7 +966,6 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const output = 'x'.repeat(2001);
     const child = spawn(process.execPath, ['-e', '']);
     const handle: ExecHandle = {
-      child,
       subscribeOutput: (listener) => {
         child.stdout?.on('data', listener);
         child.stderr?.on('data', listener);
@@ -1011,7 +1009,6 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const output = '😀'.repeat(501);
     const child = spawn(process.execPath, ['-e', '']);
     const handle: ExecHandle = {
-      child,
       subscribeOutput: (listener) => {
         child.stdout?.on('data', listener);
         child.stderr?.on('data', listener);
@@ -1491,17 +1488,22 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
   function makeFakeL1Handle(opts: {
     rejectAfterMs: number;
     makeError: (identity: ExecutionIdentity) => ProcessExecError;
-  }): { handle: ExecHandle; identity: ExecutionIdentity } {
+  }): {
+    handle: ExecHandle;
+    identity: ExecutionIdentity;
+    subscriptionOptions: Array<{ replay?: boolean } | undefined>;
+  } {
     const proc = spawn('sh', ['-c', 'sleep 30'], { cwd: tmpDir, detached: true });
+    const subscriptionOptions: Array<{ replay?: boolean } | undefined> = [];
     const identity: ExecutionIdentity = { leaderPid: proc.pid!, processGroupId: proc.pid! };
     const promise = new Promise<ExecResult>((_, reject) => {
       const timer = setTimeout(() => reject(opts.makeError(identity)), opts.rejectAfterMs);
       timer.unref?.();
     });
     const handle: ExecHandle = {
-      child: proc,
       identity,
-      subscribeOutput: (listener) => {
+      subscribeOutput: (listener, options) => {
+        subscriptionOptions.push(options);
         proc.stdout?.on('data', listener);
         proc.stderr?.on('data', listener);
         return () => {
@@ -1526,7 +1528,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
         };
       },
     };
-    return { handle, identity };
+    return { handle, identity, subscriptionOptions };
   }
 
   it('L1 arg and persisted task carry the exact same absolute deadline (single source)', async () => {
@@ -1570,7 +1572,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     // its timer is registered before the monitor's hard timer for the same
     // due instant, so L1 provably wins the race while the L4 closure boolean
     // stays false. Classification must come from the persisted deadline.
-    let captured: { handle: ExecHandle; identity: ExecutionIdentity } | undefined;
+    let captured: ReturnType<typeof makeFakeL1Handle> | undefined;
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async (args) => {
         const deadlineAtMs = args.deadlineAtMs;
@@ -1659,6 +1661,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
       await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + 50); // migrate
       const result = await resultP;
       expect(result.success).toBe(true);
+      expect(captured.subscriptionOptions).toEqual([{ replay: true }, undefined]);
       const fullId = result.metadata?.fullTaskId as string;
       const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
 

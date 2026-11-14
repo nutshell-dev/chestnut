@@ -33,7 +33,9 @@ import { formatErr, newUuid } from '../node-utils/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import {
   captureProcessTarget,
+  type ProcessEvidence,
   type ProcessStartTime,
+  type ProcessTerminationOutcome,
 } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { STATUS_SUBDIR } from './paths.js';
@@ -47,6 +49,7 @@ const SPAWNING_DIR_NAME = 'spawning';
 const ACTIVE_DIR_NAME = 'active';
 const RETIRED_DIR_NAME = 'retired';
 const STOP_INTENTS_DIR_NAME = 'stop-intents';
+const STOP_RESULTS_DIR_NAME = 'stop-results';
 
 export const GENERATION_FILE = 'generation.json';
 export const PID_FILE = 'pid.json';
@@ -220,6 +223,10 @@ export function getRetiredDirFor(daemonDir: DaemonDir, generationId: string): st
 
 export function getStopIntentsDir(daemonDir: DaemonDir): string {
   return path.join(getProcessDir(daemonDir), STOP_INTENTS_DIR_NAME);
+}
+
+export function getStopResultsDir(daemonDir: DaemonDir): string {
+  return path.join(getProcessDir(daemonDir), STOP_RESULTS_DIR_NAME);
 }
 
 // === Preparation ===
@@ -1009,4 +1016,123 @@ export function hasStopIntentForGeneration(
     `reason=${ctx.audit.message(formatErr(scan.cause))}`,
   );
   return true;
+}
+
+// === Stop results ===
+
+const STOP_RESULT_SCHEMA_VERSION = 1;
+const STOP_TERMINATION_FILE = 'termination.json';
+const STOP_CONFIRMATION_FILE = 'confirmation.json';
+
+interface StopResultBase {
+  schema_version: number;
+  request_id: string;
+  target_generation_id: string;
+  pid: number;
+  start_time?: string;
+  created_at: string;
+}
+
+type StopTerminationOutcomeRecord =
+  | { kind: 'gone'; via: 'already_gone' | 'sigterm' | 'sigkill'; term_sent: boolean; kill_sent: boolean }
+  | { kind: 'still_alive'; term_sent: boolean; kill_sent: boolean }
+  | { kind: 'indeterminate'; stage: 'observe' | 'sigterm' | 'sigkill'; term_sent: boolean; kill_sent: boolean };
+
+export interface StopTerminationRecord extends StopResultBase {
+  record_kind: 'termination';
+  outcome: StopTerminationOutcomeRecord;
+  evidence: ProcessEvidence;
+}
+
+export interface StopGoneConfirmationRecord extends StopResultBase {
+  record_kind: 'gone_confirmation';
+  outcome: 'gone';
+  evidence: ProcessEvidence;
+}
+
+export type WriteStopResult =
+  | { kind: 'written' }
+  | { kind: 'retryable_failure'; cause: unknown };
+
+function stopTerminationOutcomeRecord(outcome: ProcessTerminationOutcome): StopTerminationOutcomeRecord {
+  if (outcome.kind === 'gone') {
+    return {
+      kind: 'gone', via: outcome.via,
+      term_sent: outcome.termSent, kill_sent: outcome.killSent,
+    };
+  }
+  if (outcome.kind === 'still_alive') {
+    return { kind: 'still_alive', term_sent: outcome.termSent, kill_sent: outcome.killSent };
+  }
+  return {
+    kind: 'indeterminate', stage: outcome.stage,
+    term_sent: outcome.termSent, kill_sent: outcome.killSent,
+  };
+}
+
+function writeStopResult(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  requestId: string,
+  fileName: string,
+  record: StopTerminationRecord | StopGoneConfirmationRecord,
+): WriteStopResult {
+  try {
+    const dir = path.join(getStopResultsDir(daemonDir), requestId);
+    ctx.fs.ensureDirSync(dir);
+    const write = ctx.fs.writeAtomicSync(path.join(dir, fileName), JSON.stringify(record, null, 2));
+    if (write.kind === 'committed_durability_unknown') {
+      return { kind: 'retryable_failure', cause: write.error };
+    }
+    return { kind: 'written' };
+  } catch (err) {
+    // silent: the original write failure is returned as a typed retryable outcome.
+    return { kind: 'retryable_failure', cause: err };
+  }
+}
+
+/** Persist the L1 outcome without serializing its potentially cyclic raw error. */
+export function writeStopTerminationResult(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  requestId: string,
+  targetGenerationId: string,
+  pid: number,
+  startTime: ProcessStartTime | undefined,
+  outcome: ProcessTerminationOutcome,
+): WriteStopResult {
+  return writeStopResult(ctx, daemonDir, requestId, STOP_TERMINATION_FILE, {
+    schema_version: STOP_RESULT_SCHEMA_VERSION,
+    record_kind: 'termination',
+    request_id: requestId,
+    target_generation_id: targetGenerationId,
+    pid,
+    ...(startTime !== undefined ? { start_time: startTime } : {}),
+    outcome: stopTerminationOutcomeRecord(outcome),
+    evidence: outcome.evidence,
+    created_at: new Date().toISOString(),
+  });
+}
+
+/** Persist the final gone fact separately from the TERM/KILL outcome. */
+export function writeStopGoneConfirmation(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  requestId: string,
+  targetGenerationId: string,
+  pid: number,
+  startTime: ProcessStartTime | undefined,
+  evidence: ProcessEvidence,
+): WriteStopResult {
+  return writeStopResult(ctx, daemonDir, requestId, STOP_CONFIRMATION_FILE, {
+    schema_version: STOP_RESULT_SCHEMA_VERSION,
+    record_kind: 'gone_confirmation',
+    request_id: requestId,
+    target_generation_id: targetGenerationId,
+    pid,
+    ...(startTime !== undefined ? { start_time: startTime } : {}),
+    outcome: 'gone',
+    evidence,
+    created_at: new Date().toISOString(),
+  });
 }

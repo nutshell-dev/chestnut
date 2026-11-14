@@ -23,6 +23,7 @@ import {
   getSpawningDir,
   getActiveDir,
   getRetiredDirFor,
+  getStopResultsDir,
   PROCESS_GENERATION_ENV,
 } from '../../../src/foundation/process-manager/generation.js';
 import {
@@ -132,5 +133,29 @@ describe('stop real process race (Phase 1204 Step G)', () => {
     expect(retired.status).toBe('ok');
     expect(retired.record.generation_id).toBe(generationId);
     expect(getRetiredDirFor(daemonDir, generationId)).toEqual(expect.any(String));
+    const requestIds = await fs.promises.readdir(getStopResultsDir(daemonDir));
+    expect(requestIds).toHaveLength(1);
+    const resultDir = path.join(getStopResultsDir(daemonDir), requestIds[0]);
+    const termination = JSON.parse(await fs.promises.readFile(path.join(resultDir, 'termination.json'), 'utf8'));
+    const confirmation = JSON.parse(await fs.promises.readFile(path.join(resultDir, 'confirmation.json'), 'utf8'));
+    expect(termination).toMatchObject({
+      schema_version: 1,
+      record_kind: 'termination',
+      request_id: requestIds[0],
+      target_generation_id: generationId,
+      pid,
+      outcome: { kind: 'gone' },
+      evidence: { version: 1 },
+    });
+    expect(['sigterm', 'sigkill']).toContain(termination.outcome.via);
+    expect(confirmation).toMatchObject({
+      schema_version: 1,
+      record_kind: 'gone_confirmation',
+      request_id: requestIds[0],
+      target_generation_id: generationId,
+      pid,
+      outcome: 'gone',
+      evidence: { version: 1 },
+    });
   });
 });

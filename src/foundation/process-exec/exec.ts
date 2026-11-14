@@ -8,7 +8,7 @@
  */
 
 import { spawn } from 'child_process';
-import * as path from 'path';
+import { dirname } from 'node:path';
 
 import {
   PROCESS_EXEC_TIMEOUT_MIN_MS,
@@ -27,6 +27,7 @@ import type {
   ExecutionTerminationTrigger,
 } from './types.js';
 import { ProcessExecError } from './errors.js';
+import { augmentNodePath } from './spawn-environment.js';
 
 /**
  * Node caps a single setTimeout delay at a signed 32-bit ms value; larger
@@ -59,13 +60,8 @@ function clampTimeout(requested: number, minOverride?: number): number {
  * Pure (no mutation of caller-provided objects).
  */
 function buildChildEnv(options: ExecOptions): Record<string, string | undefined> {
-  const nodeBinDir = path.dirname(process.execPath);
   const baseEnv = options.env ?? { ...process.env };
-  const pathEnv = baseEnv.PATH ?? process.env.PATH ?? '';
-  const augmentedPath = pathEnv.includes(nodeBinDir)
-    ? pathEnv
-    : `${nodeBinDir}:${pathEnv}`;
-  return { ...baseEnv, PATH: augmentedPath };
+  return augmentNodePath(baseEnv, dirname(process.execPath));
 }
 
 /**
@@ -245,13 +241,16 @@ export function execWithHandle(
     return terminationPromise;
   };
 
+  // The same bounded collector backs both promise results and opt-in replay.
+  // No second history buffer is introduced, and maxBuffer overflow semantics
+  // remain identical for subscribers and non-subscribers.
+  const collector = new BufferCollector(maxBuffer, () => {
+    terminate('max_buffer');
+  });
+
   const promise = new Promise<ExecResult>((resolve, reject) => {
     let timedOut = false;
     let settled = false;
-
-    const collector = new BufferCollector(maxBuffer, () => {
-      terminate('max_buffer');
-    });
 
     function settle(): void {
       if (settled) return;
@@ -451,9 +450,14 @@ export function execWithHandle(
 
   const handle: ExecHandle = {
     promise,
-    child: proc,
     identity,
-    subscribeOutput: (listener) => {
+    subscribeOutput: (listener, subscriptionOptions) => {
+      if (subscriptionOptions?.replay) {
+        // Collector listeners are registered before execWithHandle returns.
+        // JS event callbacks cannot interleave this synchronous replay with the
+        // subsequent listener registration, so replay+live has no gap/overlap.
+        for (const chunk of collector.combined) listener(chunk);
+      }
       proc.stdout?.on('data', listener);
       proc.stderr?.on('data', listener);
       let subscribed = true;

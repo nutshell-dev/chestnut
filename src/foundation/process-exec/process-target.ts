@@ -7,10 +7,18 @@
  */
 import { encodeProcessEvidence, type ProcessEvidence } from './process-evidence.js';
 import { observeProcess, type ProcessObservation } from './process-observation.js';
-import { observePidArgv, type ProcessArgvObservation } from './argv-verify.js';
+import {
+  commandContainsToken,
+  observePidArgv,
+  type ProcessArgvObservation,
+} from './argv-verify.js';
 import { kill } from './process-control.js';
-import { getProcessStartTime, type ProcessStartTime } from './process-starttime.js';
-import type { ProcessUnavailableReason } from './process-reference.js';
+import type { ProcessStartTime } from './process-starttime.js';
+import {
+  observationError,
+  observationUnavailableReason,
+  type ProcessUnavailableReason,
+} from './process-reference.js';
 import type { ProcessInfo } from './types.js';
 
 export interface ProcessTarget {
@@ -76,30 +84,6 @@ function errorCode(error: unknown): unknown {
   return typeof error === 'object' && error !== null && 'code' in error
     ? (error as { code: unknown }).code
     : undefined;
-}
-
-function observationErrors(observation: Extract<ProcessObservation, { kind: 'unknown' }>): unknown[] {
-  const errors: unknown[] = [];
-  for (const fact of observation.evidence) {
-    if (fact.outcome === 'error' || fact.outcome === 'throw') errors.push(fact.error);
-    if (fact.operation === 'start_time' && fact.outcome === 'result' && fact.raw.error) {
-      errors.push(fact.raw.error);
-    }
-  }
-  return errors;
-}
-
-function unavailableReason(
-  observation: Extract<ProcessObservation, { kind: 'unknown' }>,
-): ProcessUnavailableReason {
-  if (observation.reason === 'unsupported_platform') return 'unsupported';
-  if (observation.reason === 'invalid_pid' || observation.reason === 'malformed_start_time') {
-    return 'incomplete_data';
-  }
-  const codes = observationErrors(observation).map(errorCode);
-  if (codes.some(code => code === 'EPERM' || code === 'EACCES')) return 'permission_denied';
-  if (codes.some(code => code === 'ETIMEDOUT')) return 'timed_out';
-  return 'query_failed';
 }
 
 function mergeEvidence(...values: ProcessEvidence[]): ProcessEvidence {
@@ -173,7 +157,11 @@ function observedResult(
   const evidence = encodeProcessEvidence(Date.now(), [observation]);
   if (observation.kind === 'gone') return { kind: 'gone', reason: 'absent', evidence };
   if (observation.kind === 'unknown') {
-    return { kind: 'unknown', reason: unavailableReason(observation), evidence };
+    const error = observationError(observation);
+    return {
+      kind: 'unknown', reason: observationUnavailableReason(observation), evidence,
+      ...(error !== undefined ? { error } : {}),
+    };
   }
   if (target.startTime !== undefined && observation.startTime !== target.startTime) {
     return { kind: 'gone', reason: 'identity_changed', evidence };
@@ -186,13 +174,45 @@ export type ProcessTargetCapture =
   | { kind: 'gone'; evidence: ProcessEvidence }
   | { kind: 'unknown'; reason: ProcessUnavailableReason; evidence: ProcessEvidence; error?: unknown };
 
-/** Capture current identity metadata without exposing raw ps output to callers. */
+function captureObservedProcessTarget(
+  pid: number,
+  observe: (pid: number) => ProcessObservation,
+  operation: 'capture_identity' | 'capture_current_identity',
+): ProcessTargetCapture {
+  try {
+    const observation = observe(pid);
+    const evidence = encodeProcessEvidence(Date.now(), [observation]);
+    if (observation.kind === 'gone') return { kind: 'gone', evidence };
+    if (observation.kind === 'unknown') {
+      const error = observationError(observation);
+      return {
+        kind: 'unknown', reason: observationUnavailableReason(observation), evidence,
+        ...(error !== undefined ? { error } : {}),
+      };
+    }
+    return {
+      kind: 'captured',
+      target: { pid, startTime: observation.startTime },
+      evidence,
+    };
+  } catch (error) {
+    return {
+      kind: 'unknown', reason: 'query_failed', error,
+      evidence: encodeProcessEvidence(Date.now(), [{ operation, outcome: 'throw', pid, error }]),
+    };
+  }
+}
+
+/** Capture identity through typed observation, retaining the legacy probe seam. */
 export function captureProcessTarget(
   pid: number,
   legacyStartTime?: (pid: number) => ProcessStartTime | undefined,
 ): ProcessTargetCapture {
+  if (legacyStartTime === undefined) {
+    return captureObservedProcessTarget(pid, observeProcess, 'capture_identity');
+  }
   try {
-    const startTime = (legacyStartTime ?? getProcessStartTime)(pid);
+    const startTime = legacyStartTime(pid);
     const evidence = encodeProcessEvidence(Date.now(), [{
       operation: 'capture_identity', outcome: startTime === undefined ? 'unknown' : 'captured', pid,
     }]);
@@ -218,27 +238,7 @@ export function captureProcessTarget(
 export function captureCurrentProcessIdentity(
   observe: (pid: number) => ProcessObservation = observeProcess,
 ): ProcessTargetCapture {
-  const pid = process.pid;
-  try {
-    const observation = observe(pid);
-    const evidence = encodeProcessEvidence(Date.now(), [observation]);
-    if (observation.kind === 'gone') return { kind: 'gone', evidence };
-    if (observation.kind === 'unknown') {
-      return { kind: 'unknown', reason: unavailableReason(observation), evidence };
-    }
-    return {
-      kind: 'captured',
-      target: { pid, startTime: observation.startTime },
-      evidence,
-    };
-  } catch (error) {
-    return {
-      kind: 'unknown', reason: 'query_failed', error,
-      evidence: encodeProcessEvidence(Date.now(), [{
-        operation: 'capture_current_identity', outcome: 'throw', pid, error,
-      }]),
-    };
-  }
+  return captureObservedProcessTarget(process.pid, observe, 'capture_current_identity');
 }
 
 /** Observe a persisted PID/start-time identity without flattening failures. */
@@ -379,17 +379,19 @@ export type ProcessMatchCleanupOutcome =
 
 export interface ProcessMatchCleanupOptions {
   pattern: string;
+  /** Legacy single-token match; structured callers should provide requiredArgvTokens. */
   requiredArgvToken: string;
+  /** Complete literal argv tokens that must all match; no shell parsing or substring guesses. */
+  requiredArgvTokens?: readonly string[];
   excludePid?: number;
   graceMs?: number;
-  list: () => ProcessInfo[];
+  list: () => ProcessInfo[] | Promise<ProcessInfo[]>;
   signal?: (pid: number, signal: 'TERM' | 'KILL') => void;
 }
 
 /** Match a daemon-dir-style token in L1; callers never split ps command text. */
 export function processCommandContainsToken(command: string, token: string): boolean {
-  if (!command) return false;
-  return command.split(/\s+/).filter(part => part.length > 0).includes(token);
+  return commandContainsToken(command, token);
 }
 
 /**
@@ -401,9 +403,12 @@ export async function terminateMatchingProcesses(
   options: ProcessMatchCleanupOptions,
 ): Promise<ProcessMatchCleanupOutcome> {
   const signal = options.signal ?? kill;
+  const requiredTokens = options.requiredArgvTokens ?? [options.requiredArgvToken];
+  const matches = (command: string): boolean => requiredTokens.every(token =>
+    processCommandContainsToken(command, token));
   let processes: ProcessInfo[];
   try {
-    processes = options.list();
+    processes = await options.list();
   } catch (error) {
     // silent: enumeration failure is returned with its original error evidence.
     return { kind: 'blocked', stage: 'enumerate', error, pids: [] };
@@ -419,7 +424,7 @@ export async function terminateMatchingProcesses(
         error: new Error(`argv evidence unavailable for pid ${proc.pid}`),
       };
     }
-    if (!processCommandContainsToken(proc.command, options.requiredArgvToken)) {
+    if (!matches(proc.command)) {
       skipped.push(proc.pid);
       continue;
     }
@@ -436,7 +441,7 @@ export async function terminateMatchingProcesses(
   await sleep(options.graceMs ?? DEFAULT_TERMINATION_GRACE_MS);
   let remaining: ProcessInfo[];
   try {
-    remaining = options.list();
+    remaining = await options.list();
   } catch (error) {
     // silent: verification failure is returned with candidate and original error evidence.
     return { kind: 'blocked', stage: 'verify', error, pids: candidates };
@@ -450,8 +455,7 @@ export async function terminateMatchingProcesses(
     }
   }
   const survived = remaining
-    .filter(proc => candidates.includes(proc.pid)
-      && processCommandContainsToken(proc.command, options.requiredArgvToken))
+    .filter(proc => candidates.includes(proc.pid) && matches(proc.command))
     .map(proc => proc.pid);
   if (survived.length > 0) {
     return {
