@@ -6,13 +6,8 @@
  * 错误文案无 env 提示 / 默认 limits 回归 / schema 默认与覆盖校验。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/inbox-writer.js';
-import {
-  createOutboxWriter,
-  messagingConfigSchema,
-  MESSAGING_BODY_MAX_BYTES_DEFAULT,
-  MESSAGING_WRITER_LIMITS_DEFAULT,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter } from '../../../src/foundation/messaging/inbox-writer.js';
+import { createOutboxWriter, messagingConfigSchema, MESSAGING_BODY_MAX_BYTES_DEFAULT, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -34,7 +29,7 @@ describe('phase 1820 messaging writer limits 注入', () => {
 
   it('inbox write 超注入上限 → 拒写 + INBOX_BODY_OVERSIZE audit（cap=注入值）', async () => {
     const { audit, events } = makeAudit();
-    const writer = InboxWriter.__internal_create(fs, makeInboxPath('inbox/pending'), audit, TINY);
+    const writer = createInboxWriter(fs, '.', audit, TINY);
     await expect(
       writer.write({ id: 'm1', type: 'text', from: 'a', to: 'b', content: bigBody, timestamp: new Date().toISOString(), priority: 'normal' }),
     ).rejects.toThrow(/exceeds cap 256/);
@@ -45,7 +40,7 @@ describe('phase 1820 messaging writer limits 注入', () => {
 
   it('inbox writeSync 超注入上限 → 拒写（同步路径同一 limits 来源）', () => {
     const { audit, events } = makeAudit();
-    const writer = InboxWriter.__internal_create(fs, makeInboxPath('inbox/pending'), audit, TINY);
+    const writer = createInboxWriter(fs, '.', audit, TINY);
     expect(() =>
       writer.writeSync({ type: 'text', source: 'a', body: bigBody }),
     ).toThrow(/exceeds cap 256/);
@@ -65,7 +60,7 @@ describe('phase 1820 messaging writer limits 注入', () => {
 
   it('默认 limits（64 KiB）下典型消息正常写入（数值回归）', async () => {
     const { audit } = makeAudit();
-    const writer = InboxWriter.__internal_create(fs, makeInboxPath('inbox/pending'), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    const writer = createInboxWriter(fs, '.', audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     await expect(
       writer.write({ id: 'm2', type: 'text', from: 'a', to: 'b', content: 'hello', timestamp: new Date().toISOString(), priority: 'normal' }),
     ).resolves.toBeUndefined();

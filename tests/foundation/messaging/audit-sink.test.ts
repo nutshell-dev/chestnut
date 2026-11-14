@@ -9,19 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as disk } from 'node:fs';
 import * as path from 'node:path';
-import {
-  InboxWriter,
-  OutboxReader,
-  createInboxReader,
-  createOutboxWriter,
-  makeInboxPath,
-  type InboxMessage,
-  notifyClaw,
-  notifyInbox,
-  writeInboxAsync,
-  MESSAGING_AUDIT_EVENTS,
-  MESSAGING_WRITER_LIMITS_DEFAULT,
-} from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, createOutboxReader, createOutboxWriter, type InboxMessage, notifyClaw, notifyInbox, writeInboxAsync, MESSAGING_AUDIT_EVENTS, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileEntry } from '../../../src/foundation/fs/index.js';
@@ -68,13 +56,13 @@ describe('Messaging accepts only the audit write capability', () => {
     const inbox = path.join(root, 'inbox');
     const pending = path.join(inbox, 'pending');
 
-    notifyInbox(fs, { inboxDir: pending, type: 'text', source: 'a', body: 'sync' }, sink);
-    await writeInboxAsync(fs, pending, {
+    notifyInbox(fs, { clawRoot: root, type: 'text', source: 'a', body: 'sync' }, sink);
+    await writeInboxAsync(fs, root, {
       id: 'async-1', type: 'text', from: 'a', to: 'b', content: 'async',
       timestamp: new Date().toISOString(), priority: 'normal',
     }, sink);
 
-    const reader = createInboxReader(fs, sink, inbox);
+    const reader = createInboxReader(fs, sink, root);
     expect((await reader.init()).kind).toBe('ready');
     const batch = await reader.drainAndDeliver();
     expect(batch.kind).toBe('complete');
@@ -85,12 +73,12 @@ describe('Messaging accepts only the audit write capability', () => {
 
     const writer = createOutboxWriter(makeClawId('claw-a'), root, fs, sink, MESSAGING_WRITER_LIMITS_DEFAULT);
     await writer.write({ type: 'report', to: 'motion', content: 'outbox' });
-    const peek = await new OutboxReader(fs, sink).peekLastOutboxPending(root);
+    const peek = await createOutboxReader({ clawRoot: root, fs, audit: sink }).peekLastOutboxPending();
     expect(peek.kind).toBe('found');
     if (peek.kind !== 'found') throw new Error('expected persisted outbox message');
     expect(peek.message.content).toBe('outbox');
 
-    notifyClaw(fs, root, pending, undefined, { type: 'text', source: 'a', body: 'cross' }, sink);
+    notifyClaw(fs, root, undefined, { type: 'text', source: 'a', body: 'cross' }, sink);
     expect(await disk.readdir(pending)).toHaveLength(1);
     expect(rows.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN)).toHaveLength(3);
     expect(rows.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.INBOX_DONE)).toHaveLength(2);
@@ -104,7 +92,7 @@ describe('Messaging accepts only the audit write capability', () => {
     const rows: SinkRow[] = [];
     const sink = makeSink(rows);
     const failingFs = new ListFailFs({ baseDir: root });
-    const result = await new OutboxReader(failingFs, sink).peekLastOutboxPending(root);
+    const result = await createOutboxReader({ clawRoot: root, fs: failingFs, audit: sink }).peekLastOutboxPending();
 
     expect(result.kind).toBe('failed');
     if (result.kind !== 'failed') throw new Error('expected failed peek');
@@ -113,6 +101,10 @@ describe('Messaging accepts only the audit write capability', () => {
     const pending = path.join(root, 'outbox', 'pending');
     expect(result.path).toBe(pending);
     expect(rows).toEqual([[
+      MESSAGING_AUDIT_EVENTS.OUTBOX_LIST_FAILED,
+      `dir=${pending}`,
+      'reason=list denied',
+    ], [
       MESSAGING_AUDIT_EVENTS.OUTBOX_PEEK_FAILED,
       `file=${pending}`,
       'stage=list',
@@ -124,7 +116,7 @@ describe('Messaging accepts only the audit write capability', () => {
     const rows: SinkRow[] = [];
     const sink = makeSink(rows);
     const pending = path.join(root, 'inbox', 'pending');
-    const writer = InboxWriter.__internal_create(fs, makeInboxPath(pending), sink, MESSAGING_WRITER_LIMITS_DEFAULT);
+    const writer = createInboxWriter(fs, root, sink, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     await writer.write({
       id: 'direct-async', type: 'text', from: 'a', to: 'b', content: 'direct-async-body',
@@ -144,7 +136,7 @@ describe('Messaging accepts only the audit write capability', () => {
     const rows: SinkRow[] = [];
     const sink = makeSink(rows);
     const pending = path.join(root, 'inbox', 'pending');
-    const writer = InboxWriter.__internal_create(fs, makeInboxPath(pending), sink, MESSAGING_WRITER_LIMITS_DEFAULT);
+    const writer = createInboxWriter(fs, root, sink, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     await writer.write({
       id: 'valid-id', type: 'text', from: 'a', to: 'b', content: 'bad-priority-body',

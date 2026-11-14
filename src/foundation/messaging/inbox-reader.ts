@@ -18,7 +18,7 @@ import { formatErr } from "../node-utils/index.js";
 import { newShortUuid } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/types.js';
+import type { InboxMessage, InboxHandle, InboxInitResult, InboxPeekResult } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { decodeProcessRef, inspectProcessRef } from '../process-exec/index.js';
 import { decodeInbox, encodeInbox } from './codec-inbox.js';
@@ -44,7 +44,7 @@ import {
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { makeClawId } from '../claw-identity/index.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
-import { INBOX_INFLIGHT_DIR, INBOX_MISROUTED_DIR } from './dirs.js';
+import { makeInboxTarget } from './dirs.js';
 import { observeLegacyClaim } from './claim-process-observation.js';
 import {
   ClaimObservationPersistenceError,
@@ -58,6 +58,7 @@ import {
   type ClaimRecordEvidence,
 } from './claim-record.js';
 import { prepareClaimRecord } from './claim-record-store.js';
+import { recordRecoveryIo } from './recovery-io-evidence.js';
 
 // Phase 992: inbox-reader owns its transient-read error to avoid reaching into dialog-store internals.
 class InboxReadError extends Error {
@@ -155,9 +156,9 @@ export interface InboxDeliveryBatch {
  * claim/move 中途失败必须显式携带停止原因 + 已处理/未处理 evidence，
  * 不得把 partial batch 压平为完整成功：
  * - `complete`：pending entries 全部 claim 并 move 到 inflight/。
- * - `partial_failure`：claim（pending 读取/quarantine，此前以异常穿越 drain
- *   边界）或 move（→ inflight/，此前 break 后伪装完整成功）首个失败即停止；
- *   携带 stage、entry identity（list 级失败缺省）、原始 error 与已 claim 的
+ * - `partial_failure`：claim（pending 读取/malformed quarantine）、quarantine
+ *   （duplicate 隔离，fail-closed 不交付主副本）或 move（→ inflight/）失败；
+ *   携带 stage、entry identity 或逐文件 failures、原始 error 与已 claim 的
  *   entries/handles。已交付 handles 仍可正常 ack/nack/markMisrouted；未处理
  *   entries 留在 pending/（不丢、不重复 claim），caller 必须显式处理（audit
  *   /降级继续），下轮 drain 幂等重试。
@@ -169,6 +170,11 @@ export type InboxDeliveryResult =
       readonly stage: 'claim' | 'move';
       readonly entry?: string;
       readonly error: unknown;
+    })
+  | (InboxDeliveryBatch & {
+      readonly kind: 'partial_failure';
+      readonly stage: 'quarantine';
+      readonly failures: readonly { readonly file: string; readonly error: unknown }[];
     });
 
 /**
@@ -188,7 +194,7 @@ export interface InboxDeliverySession {
    */
   defer(handle: InboxHandle, reason: string): Promise<void>;
   markMisrouted(handle: InboxHandle): Promise<void>;
-  peekMetas(filter?: { priority?: Priority[] }): Promise<InboxMessageMeta[]>;
+  peekMetas(filter?: { priority?: Priority[] }): Promise<InboxPeekResult<InboxMessageMeta[]>>;
   peekPending(): Promise<PendingView>;
 }
 
@@ -216,24 +222,34 @@ export interface InboxMaintenance {
 }
 
 export class InboxReader implements InboxDeliverySession, InboxMaintenance {
+  static create(fs: FileSystem, audit: MessagingAuditSink, clawRoot: string): InboxReader {
+    const target = makeInboxTarget(clawRoot);
+    return new InboxReader(
+      target.pendingDir,
+      target.doneDir,
+      target.failedDir,
+      fs,
+      audit,
+      target.inflightDir,
+      target.misroutedDir,
+    );
+  }
+
   private readonly inflightDir: string;
   // phase 442: misroutedDir 隔离 to=<other_claw> 误投消息、与 done/failed 同级独立子目录
   private readonly misroutedDir: string;
 
-  constructor(
+  private constructor(
     private readonly pendingDir: string,
     private readonly doneDir: string,
     private readonly failedDir: string,
     private readonly fs: FileSystem,
     private readonly audit: MessagingAuditSink,
-    inflightDir?: string,
-    misroutedDir?: string,
+    inflightDir: string,
+    misroutedDir: string,
   ) {
-    // phase 1780: inflight/misrouted 默认推导不再 regex 替换 pendingDir ——
-    // 叶子名单源 = owner 常量（dirs.ts），pendingDir 同级拼接。
-    this.inflightDir = inflightDir ?? path.join(path.dirname(pendingDir), path.basename(INBOX_INFLIGHT_DIR));
-    // phase 442: misrouted/ 同模式推导；fallback 仍为 pendingDir 兄弟
-    this.misroutedDir = misroutedDir ?? path.join(path.dirname(pendingDir), path.basename(INBOX_MISROUTED_DIR));
+    this.inflightDir = inflightDir;
+    this.misroutedDir = misroutedDir;
   }
 
   /**
@@ -312,6 +328,12 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
    * 留在 inflight/ 原处。
    */
   private async _reconcileInflight(): Promise<InboxInitResult> {
+    let observationStore: ClaimObservationStore | undefined;
+    const getObservationStore = (): ClaimObservationStore => {
+      observationStore ??= new ClaimObservationStore(this.fs, this.inflightDir);
+      return observationStore;
+    };
+
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.inflightDir, { includeDirs: false });
@@ -324,14 +346,11 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         errorCode: classifyErrno(err),
         reason,
       });
+      await recordRecoveryIo(getObservationStore(), this.audit, {
+        operation: 'list', stage: 'list', path: this.inflightDir, error: err,
+      });
       return { kind: 'degraded', stage: 'list', error: err, recovered: 0 };
     }
-
-    let observationStore: ClaimObservationStore | undefined;
-    const getObservationStore = (): ClaimObservationStore => {
-      observationStore ??= new ClaimObservationStore(this.fs, this.inflightDir);
-      return observationStore;
-    };
 
     const CLAIM_RE = /^(\d+)_([0-9a-f]+)_(.+\.md)$/i;
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -363,11 +382,22 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             ...(error.raw !== undefined && { raw: error.raw }),
             issue: error.issue,
           };
+          const recoveryError = error.cause ?? error;
+          if (error.issue.kind === 'io') {
+            await recordRecoveryIo(getObservationStore(), this.audit, {
+              operation: 'read',
+              stage: 'read',
+              path: error.recordPath ?? sourcePath,
+              error: recoveryError,
+              rawName: entry.name,
+              originalName: entry.name,
+            });
+          }
           await getObservationStore().recordObservation({
             rawName: entry.name,
             originalName: entry.name,
             claim,
-          }, { originalClaimReadError: error.cause ?? error });
+          }, { originalClaimReadError: recoveryError });
           throw error;
         }
         originalName = loaded.descriptor.originalName;
@@ -470,6 +500,14 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
               errorCode: classifyErrno(err),
               reason: formatErr(err),
             });
+            await recordRecoveryIo(getObservationStore(), this.audit, {
+              operation: 'stat',
+              stage: 'read',
+              path: sourcePath,
+              error: err,
+              rawName: entry.name,
+              originalName,
+            });
             firstFailure ??= { stage: 'read', entry: entry.name, error: err };
           }
           await getObservationStore().recordDecision({
@@ -516,6 +554,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         const restored = await this._restoreToPending(sourcePath, originalName, 'reconcile');
         if (restored === 'restored') revertedCount++;
       } catch (err) {
+        if (err instanceof ClaimObservationPersistenceError) throw err;
         const reason = formatErr(err);
         emitInboxMoveFailed(this.audit, {
           file: entry.name,
@@ -568,12 +607,16 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
   private async _recoverStaged(): Promise<void> {
     const STAGE_RE = /^\.tmp_[a-f0-9]{8}_(.+)\.staging$/;
     const OLD_STAGE_RE = /^\.tmp_([a-f0-9]{8})_(.+\.md)$/;
+    const observationStore = new ClaimObservationStore(this.fs, this.pendingDir);
 
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err) {
       if (isFileNotFound(err)) return;
+      await recordRecoveryIo(observationStore, this.audit, {
+        operation: 'list', stage: 'list', path: this.pendingDir, error: err,
+      });
       throw err;
     }
 
@@ -592,6 +635,16 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             await this.fs.move(stagePath, quarantinePath);
           } catch (err) {
             if (isFileNotFound(err)) continue;
+            await recordRecoveryIo(observationStore, this.audit, {
+              operation: 'move',
+              stage: 'recover_stage_quarantine',
+              path: stagePath,
+              sourcePath: stagePath,
+              targetPath: quarantinePath,
+              completedActions: ['stage_existing'],
+              error: err,
+              rawName: entry.name,
+            });
             throw err;
           }
           emitInboxStageQuarantine(this.audit, {
@@ -602,7 +655,24 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         }
         const originalName = match[1];
         const stagePath = path.join(this.pendingDir, entry.name);
-        const stageContent = await this.fs.read(stagePath);
+        let stageContent: string;
+        try {
+          stageContent = await this.fs.read(stagePath);
+        } catch (err) {
+          if (isFileNotFound(err)) continue;
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'read',
+            stage: 'recover_stage',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath: path.join(this.pendingDir, originalName),
+            completedActions: ['stage_existing'],
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
+          throw err;
+        }
         const result = await this._resolveStagedFile(entry.name, originalName, stageContent);
         if (result === 'restored') revertedCount++;
         continue;
@@ -620,6 +690,16 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             await this.fs.move(stagePath, quarantinePath);
           } catch (err) {
             if (isFileNotFound(err)) continue;
+            await recordRecoveryIo(observationStore, this.audit, {
+              operation: 'move',
+              stage: 'recover_stage_quarantine',
+              path: stagePath,
+              sourcePath: stagePath,
+              targetPath: quarantinePath,
+              completedActions: ['stage_existing'],
+              error: err,
+              rawName: entry.name,
+            });
             throw err;
           }
           emitInboxStageQuarantine(this.audit, {
@@ -630,7 +710,24 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         }
         const originalName = match[2];  // group 2 = 原文件名（含 .md）
         const stagePath = path.join(this.pendingDir, entry.name);
-        const stageContent = await this.fs.read(stagePath);
+        let stageContent: string;
+        try {
+          stageContent = await this.fs.read(stagePath);
+        } catch (err) {
+          if (isFileNotFound(err)) continue;
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'read',
+            stage: 'recover_stage',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath: path.join(this.pendingDir, originalName),
+            completedActions: ['stage_existing'],
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
+          throw err;
+        }
         const result = await this._resolveStagedFile(entry.name, originalName, stageContent);
         if (result === 'restored') revertedCount++;
         continue;
@@ -658,43 +755,102 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     stageName: string,
     originalName: string,
     stageContent: string,
-  ): Promise<'restored' | 'deduped' | 'dlq'> {
+  ): Promise<'restored' | 'vanished' | 'deduped' | 'dlq'> {
     const stagePath = path.join(this.pendingDir, stageName);
     const targetPath = path.join(this.pendingDir, originalName);
+    const observationStore = new ClaimObservationStore(this.fs, this.pendingDir);
+    const identity = { rawName: stageName, originalName };
+    const completedActions = ['stage_existing'];
+    const read = async (filePath: string): Promise<string | null> => {
+      try {
+        return await this.fs.read(filePath);
+      } catch (err) {
+        if (isFileNotFound(err)) return null;
+        await recordRecoveryIo(observationStore, this.audit, {
+          operation: 'read',
+          stage: 'recover_stage',
+          path: filePath,
+          sourcePath: filePath,
+          targetPath: filePath === targetPath ? stagePath : targetPath,
+          completedActions: [...completedActions],
+          error: err,
+          ...identity,
+        });
+        throw err;
+      }
+    };
+    const publish = async (): Promise<void> => {
+      try {
+        this.fs.writeExclusiveSync(targetPath, stageContent);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST' || isFileNotFound(err)) throw err;
+        await recordRecoveryIo(observationStore, this.audit, {
+          operation: 'restore',
+          stage: 'recover_stage',
+          path: targetPath,
+          sourcePath: stagePath,
+          targetPath,
+          completedActions: [...completedActions],
+          error: err,
+          ...identity,
+        });
+        throw err;
+      }
+    };
+    const deleteStage = async (): Promise<void> => {
+      try {
+        this.fs.deleteSync(stagePath);
+      } catch (err) {
+        if (isFileNotFound(err)) return;
+        await recordRecoveryIo(observationStore, this.audit, {
+          operation: 'delete',
+          stage: 'recover_stage',
+          path: stagePath,
+          sourcePath: stagePath,
+          targetPath,
+          completedActions: [...completedActions],
+          error: err,
+          ...identity,
+        });
+        throw err;
+      }
+    };
+    const moveStage = async (destination: string): Promise<boolean> => {
+      try {
+        await this.fs.move(stagePath, destination);
+        return true;
+      } catch (err) {
+        if (isFileNotFound(err)) return false;
+        await recordRecoveryIo(observationStore, this.audit, {
+          operation: 'move',
+          stage: 'recover_stage',
+          path: stagePath,
+          sourcePath: stagePath,
+          targetPath: destination,
+          completedActions: [...completedActions],
+          error: err,
+          ...identity,
+        });
+        throw err;
+      }
+    };
 
-    let targetContent: string | null = null;
-    try {
-      targetContent = await this.fs.read(targetPath);
-    } catch (err) {
-      if (!isFileNotFound(err)) throw err;
-      targetContent = null;
-    }
-
+    let targetContent = await read(targetPath);
     if (targetContent === null) {
       try {
         // 崩溃发生在 target claim 之前 → 完成恢复
-        this.fs.writeExclusiveSync(targetPath, stageContent);
-        // claimed the name → drop the stage copy
-        try {
-          this.fs.deleteSync(stagePath);
-        } catch (err) {
-          if (!isFileNotFound(err)) throw err;
-        }
+        await publish();
+        completedActions.push('publish');
+        await deleteStage();
         return 'restored';
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
         // 并发写入出现了 target → 重读，fall through 到三向决策
-        try {
-          targetContent = await this.fs.read(targetPath);
-        } catch (readErr) {
-          if (!isFileNotFound(readErr)) throw readErr;
+        targetContent = await read(targetPath);
+        if (targetContent === null) {
           // target 在 EEXIST→重读之间又消失了（极端竞态）→ 重试恢复
-          this.fs.writeExclusiveSync(targetPath, stageContent);
-          try {
-            this.fs.deleteSync(stagePath);
-          } catch (delErr) {
-            if (!isFileNotFound(delErr)) throw delErr;
-          }
+          await publish();
+          await deleteStage();
           return 'restored';
         }
       }
@@ -702,18 +858,14 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
 
     if (stageContent === targetContent) {
       // 崩溃发生在 claim 之后、stage 清理之前 → 丢弃冗余副本
-      try {
-        this.fs.deleteSync(stagePath);
-      } catch (err) {
-        if (!isFileNotFound(err)) throw err;
-      }
+      await deleteStage();
       emitInboxDeduped(this.audit, { file: originalName });
       return 'deduped';
     }
 
     // target 存在且内容不同 → 双方保留，stage 入 failed/DLQ
     const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
-    await this.fs.move(stagePath, dlqPath);
+    if (!await moveStage(dlqPath)) return 'vanished';
     emitInboxRestoreConflict(this.audit, { file: originalName, op: 'recover_stage', stageName });
     return 'dlq';
   }
@@ -952,15 +1104,12 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         error: err,
       };
     }
-    // claim 阶段（pending 读取 + malformed/duplicate quarantine）失败：尚未 claim
-    // 任何 entry；typed evidence 交 caller，不再以异常穿越 drain 边界。
-    let drain: DrainInboxResult;
+    // Pending 读取失败：尚未 claim 任何 entry，保留原始 error 交 caller。
+    let view: PendingView;
     try {
-      drain = await this.drainInbox();
+      view = await this._readPendingView();
     } catch (err) {
-      // silent: 错误不吞 —— 源头已 audit（inbox_list_failed / inbox_failed），此处将
-      // 原始 error 作为 typed partial_failure evidence 返回 caller（runtime 再 audit
-      // runtime_inbox_drain_failed），替代原先的异常穿越。
+      // silent: the original pending-view error is returned as typed partial_failure evidence.
       return {
         kind: 'partial_failure',
         entries: [],
@@ -972,7 +1121,62 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         error: err,
       };
     }
-    const { entries, transientErrors, permanentErrors } = drain;
+
+    // duplicate 必须先于主副本交付完成隔离。任何真实失败均 fail-closed：
+    // 主副本及其他 entries 本轮不 claim，失败路径与底层原始 error 显式返回。
+    const quarantineFailures: { file: string; error: unknown }[] = [];
+    for (const issue of view.issues) {
+      if (issue.kind !== 'duplicate') continue;
+      const fileName = path.basename(issue.filePath);
+      try {
+        await this.markDone(issue.filePath);
+        emitInboxDeduped(this.audit, {
+          file: fileName,
+          shortTaskId: issue.shortTaskId,
+          fullTaskId: issue.fullTaskId,
+          id: issue.id,
+          type: issue.type,
+        });
+      } catch (error) {
+        const vanished = isFileNotFound(error) ||
+          (error instanceof InboxMoveFailed && isFileNotFound(error.cause));
+        if (vanished) continue; // quarantine-success: concurrent consumer already moved it
+        emitInboxMarkDoneFailed(this.audit, { file: fileName, reason: formatErr(error) });
+        quarantineFailures.push({
+          file: issue.filePath,
+          error: error instanceof InboxMoveFailed ? error.cause : error,
+        });
+      }
+    }
+    if (quarantineFailures.length > 0) {
+      return {
+        kind: 'partial_failure',
+        entries: [],
+        handles: [],
+        transientErrors: view.issues.filter(i => i.kind === 'transient_read').length,
+        permanentErrors: view.issues.filter(i => i.kind === 'malformed').length,
+        stage: 'quarantine',
+        failures: quarantineFailures,
+      };
+    }
+
+    // malformed quarantine 失败仍属 claim；duplicates 已在上方全部成功处置。
+    try {
+      await this._applyPendingIssues(view.issues.filter(issue => issue.kind !== 'duplicate'));
+    } catch (err) {
+      // silent: the original quarantine error is returned as typed partial_failure evidence.
+      return {
+        kind: 'partial_failure',
+        entries: [],
+        handles: [],
+        transientErrors: 0,
+        permanentErrors: 0,
+        stage: 'claim',
+        entry: err instanceof InboxMoveFailed ? path.basename(err.filePath) : undefined,
+        error: err,
+      };
+    }
+    const { entries, transientErrors, permanentErrors } = this._toDrainResult(view);
     const handles: InboxHandle[] = [];
     const deliveredEntries: InboxEntry[] = [];
 
@@ -1103,6 +1307,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       // 不调 _markRedelivery：defer 不递增 delivery_attempts。
       outcome = await this._restoreToPending(sourcePath, fileName, 'defer');
     } catch (err) {
+      if (err instanceof ClaimObservationPersistenceError) throw err;
       const errReason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
         file: fileName,
@@ -1133,12 +1338,13 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     let outcome: RestoreOutcome;
     try {
       // Phase 1955 Step D：幂等业务消息重投递计数（首次 timestamp 保持不变）。
-      await this._markRedelivery(sourcePath);
+      await this._markRedelivery(sourcePath, fileName);
       // phase 1020: conflict-aware restore — dedupe/conflict paths are audited
       // inside _restoreToPending and sourcePath no longer exists afterwards, so
       // skip the INBOX_NACK emit there.
       outcome = await this._restoreToPending(sourcePath, fileName, 'nack');
     } catch (err) {
+      if (err instanceof ClaimObservationPersistenceError) throw err;
       const errReason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
         file: fileName,
@@ -1167,12 +1373,17 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
    * 仅改写带 idempotency_key 的消息（普通消息内容保持不变）；解析失败的不改写，
    * 由后续 drain 的既有错误处置暴露。
    */
-  private async _markRedelivery(sourcePath: string): Promise<void> {
+  private async _markRedelivery(sourcePath: string, originalName: string): Promise<void> {
+    const observationStore = new ClaimObservationStore(this.fs, path.dirname(sourcePath));
+    const identity = { rawName: path.basename(sourcePath), originalName };
     let raw: string;
     try {
       raw = await this.fs.read(sourcePath);
     } catch (err) {
       if (isFileNotFound(err)) return;
+      await recordRecoveryIo(observationStore, this.audit, {
+        operation: 'read', stage: 'nack_redelivery', path: sourcePath, error: err, ...identity,
+      });
       throw err;
     }
     let message: InboxMessage;
@@ -1188,7 +1399,16 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
       delivery_attempts: String(Number.isFinite(attempts) ? attempts + 1 : 1),
       last_redelivered_at: new Date().toISOString(),
     };
-    await this.fs.writeAtomic(sourcePath, encodeInbox(message));
+    try {
+      await this.fs.writeAtomic(sourcePath, encodeInbox(message));
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        await recordRecoveryIo(observationStore, this.audit, {
+          operation: 'restore', stage: 'nack_redelivery', path: sourcePath, error, ...identity,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1220,53 +1440,115 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     // the target claim and the stage cleanup would leave a drainable duplicate.
     const stageName = `.tmp_${newShortUuid()}_${originalName}.staging`;
     const stagePath = path.join(this.pendingDir, stageName);
+    const targetPath = path.join(this.pendingDir, originalName);
+    const observationStore = new ClaimObservationStore(this.fs, path.dirname(sourcePath));
+    const identity = { rawName: path.basename(sourcePath), originalName };
+    const completedActions: string[] = [];
+    const fail = async (
+      operation: 'restore' | 'read' | 'move' | 'delete',
+      failurePath: string,
+      error: unknown,
+      targetPath?: string,
+    ): Promise<void> => {
+      await recordRecoveryIo(observationStore, this.audit, {
+        operation,
+        stage: op === 'reconcile' ? 'move' : op,
+        path: failurePath,
+        sourcePath: failurePath,
+        ...(targetPath !== undefined && { targetPath }),
+        completedActions: [...completedActions],
+        error,
+        ...identity,
+      });
+    };
     try {
       await this.fs.move(sourcePath, stagePath);
     } catch (err) {
       if (isFileNotFound(err)) return 'vanished'; // concurrent ack/cleanup already handled
+      await fail('move', sourcePath, err, stagePath);
       throw err;
     }
-
-    const targetPath = path.join(this.pendingDir, originalName);
-
-    // Stage 2 — atomic create-if-absent via O_EXCL exclusive write
-    let targetContent: string | null = null;
-    try {
-      targetContent = await this.fs.read(targetPath);
-    } catch (err) {
-      if (!isFileNotFound(err)) throw err;
-      targetContent = null;
-    }
-    if (targetContent === null) {
-      const stageContent = await this.fs.read(stagePath);
+    completedActions.push('stage');
+    const readTarget = async (): Promise<string | null> => {
+      try {
+        return await this.fs.read(targetPath);
+      } catch (err) {
+        if (isFileNotFound(err)) return null;
+        await fail('read', targetPath, err, stagePath);
+        throw err;
+      }
+    };
+    const readStage = async (): Promise<string | null> => {
+      try {
+        return await this.fs.read(stagePath);
+      } catch (err) {
+        if (isFileNotFound(err)) return null;
+        await fail('read', stagePath, err, targetPath);
+        throw err;
+      }
+    };
+    const deleteStage = async (): Promise<void> => {
+      try {
+        this.fs.deleteSync(stagePath);
+      } catch (err) {
+        if (isFileNotFound(err)) return;
+        await fail('delete', stagePath, err, targetPath);
+        throw err;
+      }
+    };
+    const publish = async (stageContent: string): Promise<void> => {
       try {
         this.fs.writeExclusiveSync(targetPath, stageContent);
-        // claimed the name → drop the stage copy
-        try {
-          this.fs.deleteSync(stagePath);
-        } catch (err) {
-          if (!isFileNotFound(err)) throw err;
-        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST' || isFileNotFound(err)) throw err;
+        await fail('restore', targetPath, err, stagePath);
+        throw err;
+      }
+    };
+
+    // Stage 2 — atomic create-if-absent via O_EXCL exclusive write
+    let targetContent = await readTarget();
+    if (targetContent === null) {
+      const stageContent = await readStage();
+      if (stageContent === null) return 'vanished';
+      try {
+        await publish(stageContent);
+        completedActions.push('publish');
+        await deleteStage();
         return 'restored';
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
         // target appeared concurrently → re-read and fall through to Stage 3
-        targetContent = await this.fs.read(targetPath);
+        targetContent = await readTarget();
+        if (targetContent === null) return 'vanished';
       }
     }
 
     // Stage 3 — conflict resolution: target exists
-    const stageContent = await this.fs.read(stagePath);
+    const stageContent = await readStage();
+    if (stageContent === null) return 'vanished';
     if (stageContent === targetContent) {
       // same content → archive the stage copy to done/, keep the pending target
       const archivePath = path.join(this.doneDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
-      await this.fs.move(stagePath, archivePath);
+      try {
+        await this.fs.move(stagePath, archivePath);
+      } catch (err) {
+        if (isFileNotFound(err)) return 'vanished';
+        await fail('move', stagePath, err, archivePath);
+        throw err;
+      }
       emitInboxDeduped(this.audit, { file: originalName });
       return 'deduped';
     }
     // different content → keep both: stage copy goes to failed/ DLQ
     const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
-    await this.fs.move(stagePath, dlqPath);
+    try {
+      await this.fs.move(stagePath, dlqPath);
+    } catch (err) {
+      if (isFileNotFound(err)) return 'vanished';
+      await fail('move', stagePath, err, dlqPath);
+      throw err;
+    }
     emitInboxRestoreConflict(this.audit, { file: originalName, op, stageName });
     return 'conflict';
   }
@@ -1293,18 +1575,15 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
 
   /**
    * Lightweight pending message count — no file reads, directory list only.
-   *
-   * Use case: health checks, watchdog, status views that only need "how many pending"
-   * without the metadata parse cost of peekMetas().
-   *
-   * @returns number of .md files in pending/ (0 if dir missing/empty)
+   * ENOENT is a legitimate empty result; all other list failures remain unavailable.
    */
-  async peekPendingCount(): Promise<number> {
+  async peekPendingCount(): Promise<InboxPeekResult<number>> {
     try {
       const entries = await this.fs.list(this.pendingDir, { includeDirs: false });
-      return entries.filter(e => e.name.endsWith('.md')).length;
+      const value = entries.filter(e => e.name.endsWith('.md')).length;
+      return { kind: value === 0 ? 'empty' : 'found', value };
     } catch (err) {
-      if (isFileNotFound(err)) return 0;
+      if (isFileNotFound(err)) return { kind: 'empty', value: 0 };
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.pendingDir,
@@ -1312,19 +1591,17 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         errorCode: classifyErrno(err),
         reason,
       });
-      return 0;
+      return { kind: 'unavailable', stage: 'list', path: this.pendingDir, error: err };
     }
   }
 
-  /**
-   * Non-consuming peek of inbox meta entries (no file move, no delete).
-   */
-  async peekMetas(filter?: { priority?: Priority[] }): Promise<InboxMessageMeta[]> {
+  /** Non-consuming peek of inbox meta entries (no file move, no delete). */
+  async peekMetas(filter?: { priority?: Priority[] }): Promise<InboxPeekResult<InboxMessageMeta[]>> {
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err) {
-      if (isFileNotFound(err)) return [];
+      if (isFileNotFound(err)) return { kind: 'empty', value: [] };
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.pendingDir,
@@ -1332,27 +1609,38 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
         errorCode: classifyErrno(err),
         reason,
       });
-      return [];
+      return { kind: 'unavailable', stage: 'list', path: this.pendingDir, error: err };
     }
 
     const results: InboxMessageMeta[] = [];
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
       const filePath = path.join(this.pendingDir, entry.name);
-      const result = InboxWriter.readMeta(this.fs, filePath);
+      let result: ReturnType<typeof InboxWriter.readMeta>;
+      try {
+        result = InboxWriter.readMeta(this.fs, filePath);
+      } catch (error) {
+        // silent: the thrown metadata error is returned unchanged as typed unavailable evidence.
+        return { kind: 'unavailable', stage: 'read', path: filePath, error };
+      }
       if (!result.ok) {
         if (result.error.kind === 'not_found') {
           emitInboxPeekRaceSkip(this.audit, { file: entry.name });
-        } else {
-          emitInboxMetaFailed(this.audit, { file: entry.name, kind: result.error.kind });
+          continue;
         }
-        continue;
+        emitInboxMetaFailed(this.audit, { file: entry.name, kind: result.error.kind });
+        return {
+          kind: 'unavailable',
+          stage: result.error.kind === 'parse_failed' ? 'decode' : 'read',
+          path: filePath,
+          error: result.error.cause,
+        };
       }
       const meta = result.value;
       if (filter?.priority && !filter.priority.includes(meta.priority as Priority)) continue;
       results.push(meta);
     }
-    return results;
+    return { kind: results.length === 0 ? 'empty' : 'found', value: results };
   }
 
   /**
@@ -1557,17 +1845,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
 export function createInboxReader(
   fs: FileSystem,
   audit: MessagingAuditSink,
-  baseDir: string,
+  clawRoot: string,
 ): InboxReader {
-  // β 方案：子目录名是 Messaging 模块不可变约定（phase148），工厂固定拼接。
-  // ctor 顺序 (pendingDir, doneDir, failedDir, fs, audit, inflightDir?, misroutedDir?)。
-  // phase 1780: inflight/misrouted 不在工厂内联重复 —— 省略参数，由 ctor 按
-  // owner 常量（dirs.ts）从 pendingDir 同级派生，单一推导点。
-  return new InboxReader(
-    `${baseDir}/pending`,
-    `${baseDir}/done`,
-    `${baseDir}/failed`,
-    fs,
-    audit,
-  );
+  return InboxReader.create(fs, audit, clawRoot);
 }

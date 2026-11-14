@@ -1,15 +1,12 @@
 /**
  * @module L2c.Messaging.Notify
  *
- * Unified notification helpers. Standardizes error handling and formatting for
- * inbox notifications.
- *
- * phase 705: notifyClaw 不再持 chestnut 拓扑知识；target claw 根目录、inbox 目录、
- * dead-letter 目录由 L4+ caller 注入。
+ * Unified notification helpers. Callers identify claws by root; Messaging owns
+ * every inbox and dead-letter leaf derivation.
  */
 
 import * as path from 'path';
-import { InboxWriter, makeInboxPath } from './inbox-writer.js';
+import { createInboxDeadLetterWriter, createInboxWriter } from './inbox-writer.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import { MESSAGING_WRITER_LIMITS_DEFAULT } from './config-schema.js';
 import type { InboxMessage } from './types.js';
@@ -19,46 +16,27 @@ import {
   emitUnknownDestinationDlq,
   emitUnknownDestinationRejected,
 } from './audit-emit.js';
-import { INBOX_PENDING_DIR } from './dirs.js';
-
-export function assertInboxTarget(fs: FileSystem, targetClawRoot: string, targetInboxDir: string): void {
-  const resolvedRoot = fs.resolve(targetClawRoot);
-  const expected = path.normalize(path.join(resolvedRoot, INBOX_PENDING_DIR));
-  const normalizedInbox = path.normalize(fs.resolve(targetInboxDir));
-  const hasParentSegment = targetInboxDir.split(/[\\/]/).includes('..');
-  if (hasParentSegment || normalizedInbox !== expected) {
-    throw new Error(
-      `notifyClaw: targetInboxDir must be ${expected}, got "${targetInboxDir}"`,
-    );
-  }
-}
 
 /**
  * Notify a target claw by writing a message to its inbox.
  *
- * @param targetClawRoot - caller-computed target claw root directory
- * @param targetInboxDir - caller-computed target inbox pending directory
- * @param dlqDir - optional dead-letter queue directory; when provided and
- *   targetClawRoot does not exist, the message is routed to dlqDir instead of
- *   creating an orphan claw directory.
+ * When targetClawRoot does not exist and dlqClawRoot is provided, route to that
+ * root's dead-letter queue instead of creating an orphan claw directory.
  */
 export function notifyClaw(
   fs: FileSystem,
   targetClawRoot: string,
-  targetInboxDir: string,
-  dlqDir: string | undefined,
+  dlqClawRoot: string | undefined,
   message: InboxMessageOptionsBase,
   audit: MessagingAuditSink,
 ): void {
-  assertInboxTarget(fs, targetClawRoot, targetInboxDir);
-
   // phase 1170: unknown target fail-closed — never create an orphan claw root
   if (!fs.existsSync(targetClawRoot)) {
     const targetClawId = path.basename(targetClawRoot);
 
-    if (dlqDir !== undefined) {
+    if (dlqClawRoot !== undefined) {
       try {
-        const fileName = InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
+        const fileName = createInboxDeadLetterWriter(fs, dlqClawRoot, audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
           ...message,
           source: message.source ?? 'unknown',
         });
@@ -85,7 +63,7 @@ export function notifyClaw(
   }
 
   try {
-    InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(message);
+    createInboxWriter(fs, targetClawRoot, audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(message);
   } catch {
     // InboxWriter.writeSync already audits INBOX_WRITE_FAILED.
     // This catch is a best-effort barrier against TUI raw-mode render pollution.
@@ -96,7 +74,6 @@ export function notifyClaw(
 /**
  * Async inbox write with error propagation.
  * Used by result-delivery where fallback-path retry requires throw semantics.
- * Kept in Messaging module so InboxWriter direct construct stays within module boundary.
  *
  * Phase 1869 (Step D) 边界声明（owner 显式契约）：
  * - resolve = 写入已提交（rename 完成）；目录耐久性降级（平台受限 / 未知）不拒绝
@@ -106,36 +83,22 @@ export function notifyClaw(
  */
 export async function writeInboxAsync(
   fs: FileSystem,
-  inboxDir: string,
+  clawRoot: string,
   message: InboxMessage,
   audit: MessagingAuditSink,
 ): Promise<void> {
-  await InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).write(message);
+  await createInboxWriter(fs, clawRoot, audit, MESSAGING_WRITER_LIMITS_DEFAULT).write(message);
 }
 
-/**
- * Send an inbox notification with standardized error handling.
- * Logs warning on failure but does not throw.
- *
- * @deprecated since phase 1334 — use notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, ...) instead.
- * Caller expressing fs path inboxDir is the wrong abstraction level;
- * cross-claw delivery destination = Messaging business semantics;
- * caller should express targetClawId.
- *
- * @note (per phase 264 reframe): deprecated 仅适用 cross-claw push 场景。
- * self-inbox 写（claw 写自家 inbox / daemon 写自家 inbox）不属 notifyClaw scope
- * （不需 chestnutRoot / targetClawId / DLQ），仍是 by-design use of notifyInbox SoT。
- * 当前 self-inbox by-design caller：deep-dream.ts / heartbeat.ts callback /
- * assembly/contract-notification-adapter.ts × 3 / daemon-loop.ts。
- */
+/** Send a best-effort inbox notification to a claw root. */
 export function notifyInbox(
   fs: FileSystem,
-  opts: InboxMessageOptionsBase & { inboxDir: string },
+  opts: InboxMessageOptionsBase & { clawRoot: string },
   audit: MessagingAuditSink,
 ): void {
   try {
-    const { inboxDir, ...rest } = opts;
-    InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(rest);
+    const { clawRoot, ...rest } = opts;
+    createInboxWriter(fs, clawRoot, audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(rest);
   } catch {
     // InboxWriter.writeSync 已 audit INBOX_WRITE_FAILED
     // 此处 catch 是防 TUI raw mode 渲染污染的 best-effort barrier

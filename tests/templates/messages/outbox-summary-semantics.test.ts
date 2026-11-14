@@ -30,10 +30,11 @@ import { writeNewSummary, SUMMARY_INBOX_TYPE } from '../../../src/core/claw-topo
 import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/claw-topology/jobs/outbox-summary/dedup.js';
 import { decodeOutboxSummaryGuidance } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { InboxReader, InboxWriter, makeInboxPath, INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/index.js';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
-import { createInboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, createOutboxReader, MESSAGING_WRITER_LIMITS_DEFAULT, createInboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
+import { INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/dirs.js';
+
+
+
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
@@ -44,14 +45,7 @@ import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/reg
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { registerCliGuidance } from '../../../src/cli-protocol/index.js';
 import { drainOutbox } from '../../../src/cli/commands/claw-outbox.js';
-import {
-  outboxSummaryHead,
-  outboxSummaryClawLine,
-  outboxSummaryScopeHint,
-  outboxSummaryRepeatHint,
-  outboxSummaryIncompleteWarning,
-  outboxSummaryBody,
-} from '../../../src/templates/messages/index.js';
+import { outboxSummaryHead, outboxSummaryClawLine, outboxSummaryScopeHint, outboxSummaryRepeatHint, outboxSummaryIncompleteWarning, outboxSummaryBody } from '../../../src/templates/messages/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 const SCOPE_LINE_1 = '预览仅展示各 claw 最后一条消息的首行片段，不代表全部未读内容。';
@@ -152,7 +146,7 @@ describe('phase 1834: claw_outbox_summary 新语义真实生产链', () => {
   let events: ReturnType<typeof makeAudit>['events'];
   let inboxReader: InboxReader;
   let inboxWriter: InboxWriter;
-  let outboxReader: OutboxReader;
+  let outboxReaderFactory: (clawRoot: string) => ReturnType<typeof createOutboxReader>;
   let topology: ClawTopology;
 
   beforeEach(async () => {
@@ -165,20 +159,14 @@ describe('phase 1834: claw_outbox_summary 新语义真实生产链', () => {
     await fsAsync.mkdir(path.join(root, 'motion', INBOX_INFLIGHT_DIR), { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     ({ audit, events } = makeAudit());
-    inboxReader = new InboxReader(
-      path.join(root, 'motion/inbox/pending'),
-      path.join(root, 'motion/inbox/done'),
-      path.join(root, 'motion/inbox/failed'),
+    inboxReader = createInboxReader(fs, audit, path.join(root, 'motion'));
+    inboxWriter = createInboxWriter(
       fs,
-      audit,
-    );
-    inboxWriter = InboxWriter.__internal_create(
-      fs,
-      makeInboxPath(path.join(root, 'motion/inbox/pending')),
+      path.join(root, 'motion'),
       audit,
       MESSAGING_WRITER_LIMITS_DEFAULT,
     );
-    outboxReader = new OutboxReader(fs, audit);
+    outboxReaderFactory = (clawRoot: string) => createOutboxReader({ clawRoot, fs, audit });
     topology = createClawTopology({
       fs,
       chestnutRoot: root,
@@ -205,7 +193,7 @@ describe('phase 1834: claw_outbox_summary 新语义真实生产链', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
   }
@@ -403,11 +391,11 @@ describe('phase 1834: claw_outbox_summary 新语义真实生产链', () => {
 
     // ③ 原消息被他人消费：另一 reader 先消费 1 条，limit=2 实际只读到剩余 1 条
     await seedOutbox('claw-a', { 'c1.md': '会被他人消费', 'c2.md': '剩余可读' });
-    const otherReader = new OutboxReader(fs, audit);
-    const claimed = await otherReader.claimNext('claws/claw-a');
+    const otherReader = createOutboxReader({ clawRoot: 'claws/claw-a', fs, audit });
+    const claimed = await otherReader.claimNext();
     expect(claimed.status).toBe('claimed');
     if (claimed.status !== 'claimed') throw new Error('unreachable');
-    await otherReader.markDone('claws/claw-a', claimed.claimPath, claimed.filename);
+    await claimed.markDone();
     const fourth = await drainOutbox(clawFs, drainAudit, { limit: 2 });
     expect(fourth.drained).toHaveLength(1);
     expect(fourth.remaining).toBe(0);

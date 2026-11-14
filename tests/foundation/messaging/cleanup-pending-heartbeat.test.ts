@@ -11,13 +11,9 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import {
-  createInboxReader,
-  InboxWriter,
-  makeInboxPath,
-  INBOX_PENDING_DIR,
-} from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
+
 import { encodeInbox, decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -36,7 +32,7 @@ describe('cleanupPendingByType (phase 1804)', () => {
     await fsAsync.mkdir(pendingDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     const { audit } = makeAudit();
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    writer = createInboxWriter(fs, '.', audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   afterEach(async () => {
@@ -45,7 +41,7 @@ describe('cleanupPendingByType (phase 1804)', () => {
 
   function makeReader(overrideFs?: NodeFileSystem) {
     const { audit, events } = makeAudit();
-    const reader = createInboxReader(overrideFs ?? fs, audit, path.join(root, 'inbox'));
+    const reader = createInboxReader(overrideFs ?? fs, audit, root);
     return { reader, events };
   }
 

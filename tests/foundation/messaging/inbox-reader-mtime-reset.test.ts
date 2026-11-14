@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
@@ -14,7 +14,8 @@ function makeMockFs(): FileSystem {
     move: vi.fn().mockResolvedValue(undefined),
     utimes: vi.fn().mockResolvedValue(undefined),
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    mkdirExclusiveSync: vi.fn(),
+    mkdirExclusiveSync: vi.fn().mockImplementation((targetPath: string) => targetPath),
+    syncSync: vi.fn(),
     writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
   } as unknown as FileSystem;
 }
@@ -40,7 +41,7 @@ describe('inbox-reader drainAndDeliver mtime reset (phase 1372 sub-2)', () => {
   it('resets mtime after moving file to inflight', async () => {
     const mockFs = makeMockFs();
     const { audit } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit, '/inbox/inflight');
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const before = Date.now();
     const result = await reader.drainAndDeliver();
@@ -66,7 +67,7 @@ describe('inbox-reader drainAndDeliver mtime reset (phase 1372 sub-2)', () => {
     const mockFs = makeMockFs();
     (mockFs.move as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('EIO'));
     const { audit } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit, '/inbox/inflight');
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const result = await reader.drainAndDeliver();
 
@@ -79,7 +80,7 @@ describe('inbox-reader drainAndDeliver mtime reset (phase 1372 sub-2)', () => {
     const mockFs = makeMockFs();
     (mockFs.utimes as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('EIO'));
     const { audit, events } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit, '/inbox/inflight');
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const result = await reader.drainAndDeliver();
 

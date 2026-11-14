@@ -2,15 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { InboxReader, OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxReader, createOutboxReader, type OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { ClaimRecord } from '../../../src/foundation/messaging/claim-observation-store.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import {
-  decodeProcessRef,
-  inspectProcessRef,
-  type ProcessRef,
-} from '../../../src/foundation/process-exec/index.js';
+import { decodeProcessRef, inspectProcessRef, type ProcessRef } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
 type Kind = 'inbox' | 'outbox';
@@ -171,21 +167,15 @@ function makeReader(kind: Kind): InboxReader | OutboxReader {
   const { pendingDir, doneDir } = dirs(kind);
   const fileSystem = new NodeFileSystem({ baseDir: tempDir });
   return kind === 'inbox'
-    ? new InboxReader(
-        pendingDir,
-        doneDir,
-        path.join(tempDir, 'inbox', 'failed'),
-        fileSystem,
-        noopAudit,
-      )
-    : new OutboxReader(fileSystem, noopAudit);
+    ? createInboxReader(fileSystem, noopAudit, tempDir)
+    : createOutboxReader({ clawRoot: tempDir, fs: fileSystem, audit: noopAudit });
 }
 
 async function initReader(kind: Kind): Promise<void> {
   if (kind === 'inbox') {
     await (makeReader(kind) as InboxReader).init();
   } else {
-    await (makeReader(kind) as OutboxReader).init('.');
+    await (makeReader(kind) as OutboxReader).init();
   }
 }
 
@@ -246,13 +236,13 @@ async function settleRecovered(kind: Kind, expected: ReadyFile['files']): Promis
   } else {
     const reader = makeReader(kind) as OutboxReader;
     for (let count = 0; count < expected.length; count += 1) {
-      const claimed = await reader.claimNext('.');
+      const claimed = await reader.claimNext();
       expect(claimed.status).toBe('claimed');
       if (claimed.status !== 'claimed') throw new Error('expected outbox claim');
       const expectedFile = expected.find(file => file.originalName === claimed.filename);
       expect(expectedFile).toBeDefined();
       expect(claimed.content).toBe(expectedFile?.content);
-      await reader.markDone('.', claimed.claimPath, claimed.filename);
+      await claimed.markDone();
     }
   }
   expect(mdFiles(doneDir)).toHaveLength(2);

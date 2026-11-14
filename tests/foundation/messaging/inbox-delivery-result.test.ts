@@ -14,12 +14,12 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader, InboxWriter, InboxListFailed, InboxMoveFailed } from '../../../src/foundation/messaging/index.js';
-import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, InboxListFailed, InboxMoveFailed, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import type { InboxDeliveryResult, Priority } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
+
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 function makeAudit() {
@@ -58,7 +58,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
     await fsAsync.mkdir(inflightDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     const { audit } = makeAudit();
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    writer = createInboxWriter(fs, '.', audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   afterEach(async () => {
@@ -67,7 +67,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
 
   function makeReader(overrideFs?: NodeFileSystem) {
     const { audit, events } = makeAudit();
-    const reader = new InboxReader(pendingDir, doneDir, failedDir, overrideFs ?? fs, audit, inflightDir);
+    const reader = createInboxReader(overrideFs ?? fs, audit, root);
     return { reader, events };
   }
 
@@ -81,13 +81,13 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
     }) as unknown as NodeFileSystem;
   }
 
-  async function writeMsg(id: string, priority: Priority = 'normal') {
+  async function writeMsg(id: string, priority: Priority = 'normal', content = `body-${id}`) {
     await writer.write({
       id,
       type: 'message',
       from: 'sender',
       to: 'claw',
-      content: `body-${id}`,
+      content,
       priority,
       timestamp: new Date().toISOString(),
     });
@@ -138,7 +138,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
 
     const first = await reader.drainAndDeliver();
     expect(first.kind).toBe('partial_failure');
-    if (first.kind !== 'partial_failure') throw new Error('unreachable');
+    if (first.kind !== 'partial_failure' || first.stage !== 'move') throw new Error('unreachable');
     expect(first.stage).toBe('move');
     expect(first.entry).toBe(path.basename(failedSrc));
     expect(first.error).toBe(boom);
@@ -179,7 +179,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
 
     const result = await reader.drainAndDeliver();
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('unreachable');
+    if (result.kind !== 'partial_failure' || result.stage !== 'move') throw new Error('unreachable');
     expect(result.stage).toBe('move');
     expect(result.error).toBe(boom);
     // 已 claim 的 high entry 保留在 result（不压平、不丢 evidence）
@@ -212,7 +212,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
 
     const result = await reader.drainAndDeliver();
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('unreachable');
+    if (result.kind !== 'partial_failure' || result.stage !== 'claim') throw new Error('unreachable');
     expect(result.stage).toBe('claim');
     expect(result.entry).toBeUndefined();
     expect(result.error).toBeInstanceOf(InboxListFailed);
@@ -237,7 +237,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
 
     const result = await reader.drainAndDeliver();
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('unreachable');
+    if (result.kind !== 'partial_failure' || result.stage !== 'claim') throw new Error('unreachable');
     expect(result.stage).toBe('claim');
     // markFailed 包装为 InboxMoveFailed（op=failed）→ claim 阶段也可保留 entry identity
     expect(result.error).toBeInstanceOf(InboxMoveFailed);
@@ -247,5 +247,85 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
     // quarantine move 失败的 malformed 文件留 pending/（不静默丢失）
     expect(await pendingFiles()).toContain('malformed.md');
     expect(await fsAsync.readdir(failedDir)).toHaveLength(0);
+  });
+
+  it('partial_failure stage=quarantine: duplicate failures retain every path/error and block delivery until retry', async () => {
+    const content = JSON.stringify({ taskId: 'task-quarantine' });
+    await writeMsg('primary', 'normal', content);
+    await writeMsg('duplicate-1', 'normal', content);
+    await writeMsg('duplicate-2', 'normal', content);
+    const boom = makeErrno('EIO', 'duplicate quarantine failed');
+    let fail = true;
+    const errFs = wrapFs({
+      move: async (src: string, dst: string) => {
+        if (fail && path.dirname(src) === pendingDir && path.dirname(dst) === doneDir) throw boom;
+        return fs.move(src, dst);
+      },
+    });
+    const { reader } = makeReader(errFs);
+
+    const first = await reader.drainAndDeliver();
+    if (first.kind !== 'partial_failure' || first.stage !== 'quarantine') {
+      throw new Error('expected quarantine partial failure');
+    }
+    expect(first.entries).toEqual([]);
+    expect(first.handles).toEqual([]);
+    expect(first.failures).toHaveLength(2);
+    expect(first.failures.map(failure => failure.error)).toEqual([boom, boom]);
+    const pendingAfterFailure = await pendingFiles();
+    for (const failure of first.failures) {
+      expect(path.dirname(failure.file)).toBe(pendingDir);
+      expect(pendingAfterFailure).toContain(path.basename(failure.file));
+    }
+    expect(pendingAfterFailure).toHaveLength(3);
+    expect(await inflightFiles()).toHaveLength(0);
+    expect(await fsAsync.readdir(doneDir)).toHaveLength(0);
+
+    fail = false;
+    const retry = await reader.drainAndDeliver();
+    expect(retry.kind).toBe('complete');
+    expect(retry.entries).toHaveLength(1);
+    expect(JSON.parse(retry.entries[0].message.content).taskId).toBe('task-quarantine');
+    expect(retry.handles).toHaveLength(1);
+    expect(await pendingFiles()).toHaveLength(0);
+    expect(await fsAsync.readdir(doneDir)).toHaveLength(2);
+
+    await reader.ack(retry.handles[0]);
+    const restarted = makeReader().reader;
+    expect(await restarted.init()).toEqual({ kind: 'ready', recovered: 0 });
+    const afterRestart = await restarted.drainAndDeliver();
+    expect(afterRestart.kind).toBe('complete');
+    expect(afterRestart.entries).toEqual([]);
+    expect(await pendingFiles()).toHaveLength(0);
+  });
+
+  it('concurrent drains quarantine duplicates before exactly one main delivery', async () => {
+    const content = JSON.stringify({ taskId: 'task-concurrent' });
+    await writeMsg('primary', 'normal', content);
+    await writeMsg('duplicate', 'normal', content);
+    const firstReader = makeReader().reader;
+    const secondReader = makeReader().reader;
+
+    const results = await Promise.all([
+      firstReader.drainAndDeliver(),
+      secondReader.drainAndDeliver(),
+    ]);
+
+    const delivered = results.flatMap(result => result.entries);
+    const handles = results.flatMap(result => result.handles);
+    expect(delivered).toHaveLength(1);
+    expect(JSON.parse(delivered[0].message.content).taskId).toBe('task-concurrent');
+    expect(handles).toHaveLength(1);
+    expect(await pendingFiles()).toHaveLength(0);
+    expect(await inflightFiles()).toHaveLength(1);
+    expect(await fsAsync.readdir(doneDir)).toHaveLength(1);
+
+    const owner = results[0].handles.length === 1 ? firstReader : secondReader;
+    await owner.ack(handles[0]);
+    const restarted = makeReader().reader;
+    await restarted.init();
+    const afterRestart = await restarted.drainAndDeliver();
+    expect(afterRestart.entries).toEqual([]);
+    expect(afterRestart.handles).toEqual([]);
   });
 });

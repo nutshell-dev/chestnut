@@ -15,15 +15,16 @@ import type { AuditLog } from '../../src/foundation/audit/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
-import { createInboxReader } from '../../src/foundation/messaging/index.js';
+import { createInboxReader, createClawNotifier } from '../../src/foundation/messaging/index.js';
+import type { InboxReader } from '../../src/foundation/messaging/index.js';
 import { makeClawNotifyTargetResolver } from '../../src/core/claw-topology/index.js';
-import { createClawNotifier } from '../../src/foundation/messaging/index.js';
+
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 
 function createTestHeartbeat(tempDir: string, intervalSec?: number): Heartbeat {
   const nodeFs = new NodeFileSystem({ baseDir: tempDir });
   const audit = createSystemAudit(nodeFs, tempDir);
-  const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion', 'inbox'));
+  const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion'));
   // phase 84: DI callback - bind chestnutRoot + MOTION_CLAW_ID + fs + audit at caller
   const chestnutRoot = makeChestnutRoot(tempDir);
   return new Heartbeat({
@@ -174,6 +175,39 @@ describe('Heartbeat', () => {
       });
     });
 
+    it('does not notify or advance cursor when inbox metadata is unavailable', async () => {
+      const { audit, events } = makeAudit();
+      const notifyInbox = vi.fn();
+      const writeCursor = vi.fn();
+      const boom = Object.assign(new Error('I/O failed'), { code: 'EIO' });
+      heartbeat = new Heartbeat({
+        interval: 1,
+        audit,
+        inboxReader: {
+          peekMetas: vi.fn().mockResolvedValue({
+            kind: 'unavailable', stage: 'read', path: 'inbox/pending/bad.md', error: boom,
+          }),
+        } as unknown as InboxReader,
+        notifyInbox,
+        cursorStore: {
+          read: vi.fn().mockResolvedValue({ kind: 'absent' }),
+          write: writeCursor,
+        },
+      });
+
+      await heartbeat.fire();
+
+      expect(notifyInbox).not.toHaveBeenCalled();
+      expect(writeCursor).not.toHaveBeenCalled();
+      expect(events).toContainEqual([
+        'heartbeat_fire_failed',
+        'context=Heartbeat.fire',
+        'stage=read',
+        'path=inbox/pending/bad.md',
+        'error=[EIO] I/O failed',
+      ]);
+    });
+
     it('should create inbox pending directory when motion root exists', async () => {
       // phase 1170: claw root lifecycle is owned by topology; Messaging only owns inbox subdirs.
       const newBaseDir = path.join(tempDir, 'newbase');
@@ -215,7 +249,7 @@ describe('Heartbeat', () => {
       audit: AuditLog,
     ): Heartbeat {
       const nodeFs = new NodeFileSystem({ baseDir: tempDir });
-      const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion', 'inbox'));
+      const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion'));
       const chestnutRoot = makeChestnutRoot(tempDir);
       return new Heartbeat({
         interval: intervalSec,

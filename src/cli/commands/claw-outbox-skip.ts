@@ -15,7 +15,7 @@ import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { OutboxReader } from '../../foundation/messaging/index.js';
+import { createOutboxReader } from '../../foundation/messaging/index.js';
 
 export interface OutboxSkipOptions {
   limit?: number;
@@ -31,19 +31,21 @@ export async function skipOutbox(
   audit: AuditLog,
   options: OutboxSkipOptions = {},
 ): Promise<{ skipped: string[]; remaining: number }> {
-  const outboxReader = new OutboxReader(fs, audit);
+  const outboxReader = createOutboxReader({ clawRoot: '.', fs, audit });
 
-  // Reconcile orphaned processing files back to pending before skipping.
-  await outboxReader.init('.');
-
-  // Peek initial pending count for empty-check.
-  // claimNext handles races internally; this list is best-effort.
-  let initialFiles: string[] = [];
-  try {
-    initialFiles = await outboxReader.listClawOutboxPending('.');
-  } catch (e) {
-    throw new CliError(`Failed to list outbox pending: ${formatErr(e)}`);
+  const init = await outboxReader.init();
+  if (init.kind === 'degraded') {
+    throw new CliError(
+      `Outbox init degraded at ${init.stage} (${init.path}): ${formatErr(init.error)}`,
+      { cause: init.error },
+    );
   }
+
+  const initial = await outboxReader.listPendingResult();
+  if (initial.kind === 'failed') {
+    throw new CliError(`Failed to list outbox pending: ${formatErr(initial.error)}`);
+  }
+  const initialFiles = initial.files;
 
   if (initialFiles.length === 0) {
     return { skipped: [], remaining: 0 };
@@ -57,7 +59,7 @@ export async function skipOutbox(
   let raceCount = 0;
   while (skipped.length < limit) {
     // phase 1748: claim without reading content — skip 不读正文
-    const claimed = await outboxReader.claimNext('.', { readContent: false });
+    const claimed = await outboxReader.claimNext({ readContent: false });
     if (claimed.status === 'empty') break;
     if (claimed.status === 'race_lost') {
       if (++raceCount >= MAX_RACE_RETRIES) break;
@@ -80,23 +82,23 @@ export async function skipOutbox(
     }
 
     raceCount = 0;
-    await outboxReader.markSkipped('.', claimed.claimPath, claimed.filename);
+    try {
+      await claimed.markSkipped();
+    } catch (settlementError) {
+      throw new CliError(
+        `Outbox skip settlement failed for ${claimed.claimPath}: ${formatErr(settlementError)}`,
+      );
+    }
     skipped.push(claimed.filename);
   }
 
   // calculate remaining from actual post-skip state rather than the
   // pre-skip snapshot, which is inaccurate when races or fewer messages exist.
-  let remaining = 0;
-  try {
-    const remainingFiles = await outboxReader.listClawOutboxPending('.');
-    remaining = remainingFiles.length;
-  } catch (e) {
-    // Fallback to the pre-skip snapshot minus successfully skipped messages.
-    process.stderr.write(`[claw-outbox-skip] post-skip list failed: ${formatErr(e)}\n`);
-    remaining = Math.max(0, initialFiles.length - skipped.length);
+  const remainingResult = await outboxReader.listPendingResult();
+  if (remainingResult.kind === 'failed') {
+    throw new CliError(`Post-skip outbox list failed: ${formatErr(remainingResult.error)}`);
   }
-
-  return { skipped, remaining };
+  return { skipped, remaining: remainingResult.files.length };
 }
 
 /**

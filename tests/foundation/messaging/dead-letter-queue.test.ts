@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { CLAWS_DIR } from '../../../src/foundation/claw-identity/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -17,8 +16,7 @@ function makeNotifyArgs(tempDir: string, targetClawId: string) {
     : path.join(tempDir, CLAWS_DIR, targetClawId);
   return {
     targetClawRoot,
-    targetInboxDir: path.join(targetClawRoot, INBOX_PENDING_DIR),
-    dlqDir: isMotion ? undefined : path.join(tempDir, MOTION_CLAW_ID, 'inbox', 'dead-letter'),
+    dlqClawRoot: isMotion ? undefined : path.join(tempDir, MOTION_CLAW_ID),
   };
 }
 
@@ -39,8 +37,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
 
   it('unknown targetClawId → writes to motion/inbox/dead-letter/ + emits UNKNOWN_DESTINATION_DLQ', () => {
     // Do NOT create claws/ghost-claw — simulate unknown destination
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, 'ghost-claw');
-    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(tempDir, 'ghost-claw');
+    notifyClaw(fs, targetClawRoot, dlqClawRoot, {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -48,7 +46,6 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     }, audit.audit);
 
     // Verify DLQ dir created and file written
-    const dlqDirExpected = path.join(tempDir, 'motion', 'inbox', 'dead-letter');
     const dlqFiles = fs.listSync(path.join('motion', 'inbox', 'dead-letter'));
     expect(dlqFiles.length).toBe(1);
 
@@ -64,8 +61,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('unknown targetClawId → 0 silent routing motion (no orphan claw dir created)', () => {
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, 'nonexistent-claw');
-    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(tempDir, 'nonexistent-claw');
+    notifyClaw(fs, targetClawRoot, dlqClawRoot, {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -85,8 +82,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     // Pre-create target claw
     fs.ensureDirSync(path.join('claws', 'known-claw'));
 
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, 'known-claw');
-    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(tempDir, 'known-claw');
+    notifyClaw(fs, targetClawRoot, dlqClawRoot, {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -109,8 +106,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     // phase 1170: motion root must exist; Messaging no longer owns claw root creation.
     fs.ensureDirSync(MOTION_CLAW_ID);
 
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
-    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
+    notifyClaw(fs, targetClawRoot, dlqClawRoot, {
       type: 'message',
       source: 'system',
       priority: 'high',
@@ -130,9 +127,9 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('missing target without DLQ rejects without creating an orphan root', () => {
-    const { targetClawRoot, targetInboxDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
+    const { targetClawRoot } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
 
-    notifyClaw(fs, targetClawRoot, targetInboxDir, undefined, {
+    notifyClaw(fs, targetClawRoot, undefined, {
       type: 'message',
       source: 'system',
       body: 'must not be written',
@@ -153,7 +150,7 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('rejected audit failure still fail-closed', () => {
-    const { targetClawRoot, targetInboxDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
+    const { targetClawRoot } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
     const message = {
       type: 'message',
       source: 'system',
@@ -169,7 +166,6 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     expect(() => notifyClaw(
       fs,
       targetClawRoot,
-      targetInboxDir,
       undefined,
       message,
       throwingAudit,

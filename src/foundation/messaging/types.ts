@@ -24,6 +24,17 @@ export interface InboxMessage {
   extraMeta?: Record<string, string>;
 }
 
+/** Non-consuming inbox peek outcome; absence is distinct from unavailable I/O. */
+export type InboxPeekResult<T> =
+  | { kind: 'empty'; value: T }
+  | { kind: 'found'; value: T }
+  | {
+      kind: 'unavailable';
+      stage: 'list' | 'read' | 'stat' | 'decode';
+      path: string;
+      error: unknown;
+    };
+
 export interface OutboxMessage {
   id: string;
   type: 'report' | 'question' | 'result' | 'error';
@@ -35,6 +46,38 @@ export interface OutboxMessage {
   in_reply_to?: string;
   metadata?: Record<string, string>;
 }
+
+/** Pending outbox listing: a missing directory is empty; other I/O failures are explicit. */
+export type OutboxListResult =
+  | { kind: 'empty'; files: [] }
+  | { kind: 'found'; files: string[] }
+  | { kind: 'failed'; stage: 'list'; path: string; error: unknown };
+
+/** Startup recovery outcome; degraded initialization must be handled by the caller. */
+export type OutboxInitResult =
+  | { kind: 'ready'; recovered: number }
+  | {
+      kind: 'degraded';
+      stage: 'ensure_dir' | 'list' | 'read' | 'move';
+      path: string;
+      error: unknown;
+      recovered: number;
+    };
+
+declare const OutboxClaimHandleBrand: unique symbol;
+
+/**
+ * Opaque, reader-minted claim identity. Runtime settlement additionally requires
+ * the exact object minted by the same reader, not merely this structural type.
+ */
+export type OutboxClaimHandle = {
+  readonly claimPath: string;
+  readonly filename: string;
+  readonly [OutboxClaimHandleBrand]: true;
+  markDone(): Promise<void>;
+  markSkipped(): Promise<void>;
+  markFailed(error: unknown): Promise<void>;
+};
 
 declare const InboxHandleBrand: unique symbol;
 

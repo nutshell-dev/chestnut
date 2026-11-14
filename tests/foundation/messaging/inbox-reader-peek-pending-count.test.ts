@@ -3,7 +3,7 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxReader } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
@@ -35,14 +35,7 @@ describe('InboxReader.peekPendingCount', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const { audit, events } = makeAudit();
     auditEvents = events;
-    reader = new InboxReader(
-      pendingDir,
-      path.join(root, 'inbox/done'),
-      path.join(root, 'inbox/failed'),
-      fs,
-      audit,
-      path.join(root, 'inbox/inflight'),
-    );
+    reader = createInboxReader(fs, audit, root);
   });
 
   afterEach(async () => {
@@ -51,12 +44,12 @@ describe('InboxReader.peekPendingCount', () => {
 
   it('returns 0 when pending dir is missing', async () => {
     await fsAsync.rm(pendingDir, { recursive: true });
-    expect(await reader.peekPendingCount()).toBe(0);
+    expect(await reader.peekPendingCount()).toEqual({ kind: 'empty', value: 0 });
     expect(auditEvents.filter(e => String(e[0]).includes('list_failed'))).toEqual([]);
   });
 
   it('returns 0 when pending is empty', async () => {
-    expect(await reader.peekPendingCount()).toBe(0);
+    expect(await reader.peekPendingCount()).toEqual({ kind: 'empty', value: 0 });
   });
 
   it('counts only .md files', async () => {
@@ -64,24 +57,23 @@ describe('InboxReader.peekPendingCount', () => {
     await fsAsync.writeFile(path.join(pendingDir, 'b.md'), 'x');
     await fsAsync.writeFile(path.join(pendingDir, 'c.json'), 'x');
     await fsAsync.writeFile(path.join(pendingDir, 'd.tmp'), 'x');
-    expect(await reader.peekPendingCount()).toBe(2);
+    expect(await reader.peekPendingCount()).toEqual({ kind: 'found', value: 2 });
   });
 
-  it('emits list_failed audit on non-ENOENT errors and returns 0', async () => {
+  it.each(['EACCES', 'EIO'])('emits list_failed audit and preserves %s as unavailable', async (code) => {
+    const boom = Object.assign(new Error(code), { code });
     const mockFs: FileSystem = {
       ...fs,
-      list: vi.fn().mockRejectedValue(Object.assign(new Error('EIO'), { code: 'EIO' })),
+      list: vi.fn().mockRejectedValue(boom),
     };
     const { audit, events } = makeAudit();
-    const mockReader = new InboxReader(
-      pendingDir,
-      path.join(root, 'inbox/done'),
-      path.join(root, 'inbox/failed'),
-      mockFs,
-      audit,
-      path.join(root, 'inbox/inflight'),
-    );
-    expect(await mockReader.peekPendingCount()).toBe(0);
+    const mockReader = createInboxReader(mockFs, audit, root);
+    expect(await mockReader.peekPendingCount()).toEqual({
+      kind: 'unavailable',
+      stage: 'list',
+      path: pendingDir,
+      error: boom,
+    });
     expect(events.some(e => String(e[0]).includes('list_failed') && String(e).includes("op=peek_count"))).toBe(true);
   });
 });

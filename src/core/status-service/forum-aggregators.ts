@@ -101,8 +101,19 @@ export async function computeClawInboxUnread(
   clawLabel: string,
 ): Promise<number | undefined> {
   try {
-    const inboxReader = createInboxReader(clawFs, audit, 'inbox');
-    return await inboxReader.peekPendingCount();
+    const inboxReader = createInboxReader(clawFs, audit, '.');
+    const peek = await inboxReader.peekPendingCount();
+    if (peek.kind === 'unavailable') {
+      audit.write(
+        STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR,
+        `claw=${clawLabel}`,
+        `stage=${peek.stage}`,
+        `path=${peek.path}`,
+        `error=${formatErr(peek.error)}`,
+      );
+      return undefined;
+    }
+    return peek.value;
   } catch (err) {
     audit.write(STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR, `claw=${clawLabel}`, `error=${formatErr(err)}`);
     return undefined; // I/O error → unavailable

@@ -5,8 +5,8 @@
  * phase 938: per-claw I/O failure recorded in failed_claws + incomplete flag.
  *
  * 业主仅 own claw outbox/pending 计数 + 文件身份扫描。MOTION_CLAW_ID 跳过
- * （motion 自家不该写 outbox-summary 到自家 outbox）。失败 silent skip per claw
- * （per-tick handler 异常隔离归 cron runner / 详 l5_cron.md §1）.
+ * （motion 自家不该写 outbox-summary 到自家 outbox）。typed list/peek failure
+ * 记录 failed_claws；其他异常继续抛出，不在 scan 内吞掉。
  */
 
 import type { FileSystem } from '../../../../foundation/fs/index.js';
@@ -24,7 +24,8 @@ interface ScanDeps {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   fs: FileSystem;             // 仅供 enumerate claws/
-  outboxReader: OutboxReader; // Messaging 对外入口：单 claw outbox/pending 列举
+  /** One root-bound reader per claw; readers/claims are never shared across roots. */
+  outboxReaderFactory: (clawRoot: string) => OutboxReader;
   /** phase 938: cooperative abort signal checked before each claw scan. */
   signal?: AbortSignal;
 }
@@ -36,7 +37,7 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> {
-  const { clawTopology, outboxReader, signal } = deps;
+  const { clawTopology, outboxReaderFactory, signal } = deps;
 
   let clawIds: ClawId[];
   try {
@@ -55,31 +56,33 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
   for (const clawId of clawIds) {
     throwIfAborted(signal);
 
-    try {
-      const location = clawTopology.resolve(clawId);
-
-      const files = await outboxReader.listClawOutboxPending(location.clawDir);
-      if (files.length === 0) continue;
-
-      const last = await outboxReader.peekLastOutboxPending(location.clawDir);
-      // phase 1784: typed peek outcome —— `found` 才入快照；`failed`（list/read/decode
-      // 系统故障）与 `empty`（list 非空但 peek 快照已空 = consumer race 不一致快照）
-      // 都不得当空队列，记 failed_claws + incomplete（fail-closed 延续 phase 938）。
-      switch (last.kind) {
-        case 'found':
-          counts[clawId] = files.length;
-          for (const f of files) fileSet.push(`${clawId}:${f}`);
-          previews[clawId] = truncatePreview(last.message.content);
-          break;
-        case 'empty':
-        case 'failed':
-          failedClaws.push(clawId);
-          break;
-      }
-    } catch (err) {
+    const location = clawTopology.resolve(clawId);
+    const outboxReader = outboxReaderFactory(location.clawDir);
+    const listed = await outboxReader.listPendingResult().catch((error: unknown) => {
       if (signal?.aborted) throw makeExternalAbortError(signal.reason);
-      // phase 938: fail-closed — record the failed claw and mark summary incomplete.
+      throw error;
+    });
+    if (listed.kind === 'failed') {
       failedClaws.push(clawId);
+      continue;
+    }
+    if (listed.kind === 'empty') continue;
+
+    const last = await outboxReader.peekLastOutboxPending().catch((error: unknown) => {
+      if (signal?.aborted) throw makeExternalAbortError(signal.reason);
+      throw error;
+    });
+    // `found` 才入快照；typed failure 与快照竞态均 fail-closed。
+    switch (last.kind) {
+      case 'found':
+        counts[clawId] = listed.files.length;
+        for (const f of listed.files) fileSet.push(`${clawId}:${f}`);
+        previews[clawId] = truncatePreview(last.message.content);
+        break;
+      case 'empty':
+      case 'failed':
+        failedClaws.push(clawId);
+        break;
     }
   }
 

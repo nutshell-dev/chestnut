@@ -8,12 +8,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader, InboxWriter, makeInboxPath, OutboxWriter } from '../../../src/foundation/messaging/index.js';
-import { makeOutboxPath } from '../../../src/foundation/messaging/outbox-writer.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
+
 
 describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () => {
   let testDir: string;
@@ -39,13 +38,7 @@ describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () =>
     const legacyContent = `---\nid: legacy-1\ntype: message\nfrom: sender\nto: claw\npriority: high\ntimestamp: 2024-01-01T00:00:00.000Z\n---\n\nLegacy body`;
     await fs.writeFile(path.join(pendingDir, legacyFile), legacyContent, 'utf-8');
 
-    const reader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit as any,
-    );
+    const reader = createInboxReader(nfs, audit as any, testDir);
     const { entries } = await reader.drainInbox();
     expect(entries).toHaveLength(1);
     expect(entries[0].message.content).toBe('Legacy body');
@@ -59,9 +52,9 @@ describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () =>
     const legacyContent = `---\nid: legacy-ob-1\ntype: report\nfrom: claw-a\nto: claw-b\ncontent: Legacy outbox\npriority: normal\ntimestamp: 2024-01-01T00:00:00.000Z\n---\n\nLegacy outbox body`;
     await fs.writeFile(path.join(pendingDir, legacyFile), legacyContent, 'utf-8');
 
-    const { OutboxReader } = await import('../../../src/foundation/messaging/outbox-reader.js');
-    const reader = new OutboxReader(nfs, audit as any);
-    const latest = await reader.peekLastOutboxPending(testDir);
+    const { createOutboxReader } = await import('../../../src/foundation/messaging/outbox-reader.js');
+    const reader = createOutboxReader({ clawRoot: testDir, fs: nfs, audit });
+    const latest = await reader.peekLastOutboxPending();
     // phase 1784: typed peek outcome
     expect(latest.kind).toBe('found');
     if (latest.kind !== 'found') throw new Error('unreachable');
@@ -74,7 +67,7 @@ describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () =>
     const legacyFile = `sender-000000123456789_high_${randomUUID().slice(0, 8)}.md`;
     await fs.writeFile(path.join(pendingDir, legacyFile), 'legacy', 'utf-8');
 
-    const writer = InboxWriter.__internal_create(nfs, makeInboxPath(pendingDir), audit as any, MESSAGING_WRITER_LIMITS_DEFAULT);
+    const writer = createInboxWriter(nfs, testDir, audit as any, MESSAGING_WRITER_LIMITS_DEFAULT);
     const msg: InboxMessage = {
       id: 'new-1', type: 'message', from: 'sender', to: 'claw',
       content: 'New', priority: 'high', timestamp: new Date().toISOString(),

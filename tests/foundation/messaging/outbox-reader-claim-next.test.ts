@@ -3,7 +3,7 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { createOutboxReader, OutboxClaimBindingError, type OutboxClaimHandle, type OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -58,7 +58,7 @@ describe('OutboxReader.claimNext + markDone', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const { audit, events } = makeAudit();
     auditEvents = events;
-    reader = new OutboxReader(fs, audit);
+    reader = createOutboxReader({ clawRoot: clawDir, fs, audit });
   });
 
   afterEach(async () => {
@@ -66,7 +66,7 @@ describe('OutboxReader.claimNext + markDone', () => {
   });
 
   it('returns empty when pending is empty', async () => {
-    expect(await reader.claimNext(clawDir)).toEqual({ status: 'empty' });
+    expect(await reader.claimNext()).toEqual({ status: 'empty' });
   });
 
   it('claims oldest pending message and moves it to processing', async () => {
@@ -81,7 +81,7 @@ describe('OutboxReader.claimNext + markDone', () => {
       encodeOutbox(makeMsg('earlier', '2026-06-04T10:00:00Z')),
     );
 
-    const claimed = await reader.claimNext(clawDir);
+    const claimed = await reader.claimNext();
     expect(claimed.status).toBe('claimed');
     if (claimed.status !== 'claimed') throw new Error('unreachable');
     expect(claimed.filename).toBe(`${t1}_normal_aaa.md`);
@@ -104,7 +104,7 @@ describe('OutboxReader.claimNext + markDone', () => {
     await fsAsync.utimes(pendingPath, old, old);
 
     const before = Date.now();
-    const claimed = await reader.claimNext(clawDir);
+    const claimed = await reader.claimNext();
     const after = Date.now();
 
     expect(claimed.status).toBe('claimed');
@@ -115,8 +115,9 @@ describe('OutboxReader.claimNext + markDone', () => {
     expect(stat.mtimeMs).toBeLessThanOrEqual(after + 1000);
   });
 
-  it('rejects path traversal in markDone', async () => {
-    await expect(reader.markDone(clawDir, '../../../etc', 'test.md')).rejects.toThrow(/traversal/i);
+  it('rejects a forged bare-path settlement handle before any move', async () => {
+    const forged = { claimPath: '../../../etc', filename: 'test.md' } as unknown as OutboxClaimHandle;
+    await expect(reader.markDone(forged)).rejects.toBeInstanceOf(OutboxClaimBindingError);
   });
 
   it('markDone moves processing file to done and emits delivered audit', async () => {
@@ -127,11 +128,11 @@ describe('OutboxReader.claimNext + markDone', () => {
       encodeOutbox(makeMsg('hello', '2026-06-04T10:00:00Z')),
     );
 
-    const claimed = await reader.claimNext(clawDir);
+    const claimed = await reader.claimNext();
     expect(claimed.status).toBe('claimed');
     if (claimed.status !== 'claimed') throw new Error('unreachable');
 
-    await reader.markDone(clawDir, claimed.claimPath, claimed.filename);
+    await claimed.markDone();
 
     expect(await fsAsync.readdir(processingDir).catch(() => [])).toEqual([]);
     const doneFiles = await fsAsync.readdir(doneDir);
@@ -148,12 +149,12 @@ describe('OutboxReader.claimNext + markDone', () => {
       encodeOutbox(makeMsg('hello', '2026-06-04T10:00:00Z')),
     );
 
-    const claimed = await reader.claimNext(clawDir);
+    const claimed = await reader.claimNext();
     expect(claimed.status).toBe('claimed');
     if (claimed.status !== 'claimed') throw new Error('unreachable');
 
     const before = Date.now();
-    await reader.markDone(clawDir, claimed.claimPath, claimed.filename);
+    await claimed.markDone();
     const after = Date.now();
 
     const delivered = auditEvents.find(e => String(e[0]).includes('outbox_delivered'));
@@ -171,9 +172,9 @@ describe('OutboxReader.claimNext + markDone', () => {
       move: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
     });
     const { audit: raceAudit } = makeAudit();
-    const reader = new OutboxReader(fs, raceAudit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit: raceAudit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result).toEqual({ status: 'race_lost', error: 'file already claimed by concurrent consumer' });
   });
@@ -185,7 +186,7 @@ describe('OutboxReader.claimNext + markDone', () => {
     const processingFile = `cli_99999_${startTimeHex}_abc123_${filename}`;
     await fsAsync.writeFile(path.join(processingDir, processingFile), encodeOutbox(makeMsg('orphan', '2026-06-04T10:00:00Z')));
 
-    await reader.init(clawDir);
+    await reader.init();
 
     const pendingFiles = await fsAsync.readdir(pendingDir);
     expect(pendingFiles).toContain(filename);
@@ -202,7 +203,7 @@ function makeMockOutboxFs(overrides?: {
   utimes?: () => Promise<void>;
   writeExclusiveSync?: (path: string, content: string) => void;
   deleteSync?: (path: string) => void;
-  mkdirExclusiveSync?: (path: string) => void;
+  mkdirExclusiveSync?: (path: string) => string;
 }): FileSystem {
   return {
     list: overrides?.list ?? vi.fn().mockResolvedValue([{ name: '1717480000000_normal_aaa.md', path: '/outbox/pending/1717480000000_normal_aaa.md' }]),
@@ -220,7 +221,8 @@ function makeMockOutboxFs(overrides?: {
     utimes: overrides?.utimes ?? vi.fn().mockResolvedValue(undefined),
     writeExclusiveSync: overrides?.writeExclusiveSync ?? vi.fn(),
     deleteSync: overrides?.deleteSync ?? vi.fn(),
-    mkdirExclusiveSync: overrides?.mkdirExclusiveSync ?? vi.fn(),
+    mkdirExclusiveSync: overrides?.mkdirExclusiveSync ?? vi.fn().mockImplementation((targetPath: string) => targetPath),
+    syncSync: vi.fn(),
   } as unknown as FileSystem;
 }
 
@@ -237,9 +239,9 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
 
   it('audits non-ENOENT move error and returns null', async () => {
     const fs = makeMockOutboxFs({ move: vi.fn().mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' })) });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EACCES') });
     expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=move'))).toBe(true);
@@ -254,9 +256,9 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
         return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       }),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EIO') });
     // First move: pending -> processing; second: processing -> unique staging.
@@ -278,9 +280,9 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
     const fs = makeMockOutboxFs({
       utimes: vi.fn().mockRejectedValue(new Error('EPERM utimes')),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result.status).toBe('claimed');
     expect(auditEvents.some(e =>
@@ -292,9 +294,9 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
     const fs = makeMockOutboxFs({
       list: vi.fn().mockRejectedValue(Object.assign(new Error('EACCES list'), { code: 'EACCES' })),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EACCES list') });
     expect(auditEvents.some(e => e[0] === 'outbox_list_failed')).toBe(true);
@@ -307,9 +309,9 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
         .mockRejectedValueOnce(Object.assign(new Error('EPERM rollback'), { code: 'EPERM' })),
       read: vi.fn().mockRejectedValue(Object.assign(new Error('EIO read'), { code: 'EIO' })),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result.status).toBe('recovery_required');
     if (result.status !== 'recovery_required') throw new Error('unreachable');
@@ -330,9 +332,9 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
         .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
       read: vi.fn().mockRejectedValue(Object.assign(new Error('EIO'), { code: 'EIO' })),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     // File location is not provably pending → caller must observe recovery_required
     // (conservative), not a plain io_error that would claim settlement completed.
@@ -346,7 +348,6 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
 
 
 describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () => {
-  const filename = '1717480000000_normal_aaa.md';
   let audit: ReturnType<typeof makeAudit>['audit'];
   let auditEvents: ReturnType<typeof makeAudit>['events'];
 
@@ -368,9 +369,9 @@ describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () =
     const fs = makeMockOutboxFs({
       read: rollbackRead('staged content'),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result.status).toBe('io_error');
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
@@ -380,7 +381,7 @@ describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () =
     );
     expect(fs.move).not.toHaveBeenCalledWith(
       expect.stringContaining('/processing/'),
-      `/claw/outbox/pending/${filename}`,
+      '/claw/outbox/pending/1717480000000_normal_aaa.md',
     );
     expect(auditEvents.some(e =>
       e[0] === 'outbox_reconcile' && String(e).includes('reason=claim_rollback_dedupe')
@@ -391,9 +392,9 @@ describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () =
     const fs = makeMockOutboxFs({
       read: rollbackRead('different pending content'),
     });
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    const result = await reader.claimNext('/claw');
+    const result = await reader.claimNext();
 
     expect(result.status).toBe('io_error');
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
@@ -403,7 +404,7 @@ describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () =
     );
     expect(fs.move).not.toHaveBeenCalledWith(
       expect.stringContaining('/processing/'),
-      `/claw/outbox/pending/${filename}`,
+      '/claw/outbox/pending/1717480000000_normal_aaa.md',
     );
     expect(auditEvents.some(e =>
       e[0] === 'outbox_stage_quarantine' && String(e).includes('reason=conflict')
@@ -411,11 +412,14 @@ describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () =
   });
 
   it('audits markDone move failure and throws OutboxMoveFailed', async () => {
-    const fs = makeMockOutboxFs({ move: vi.fn().mockRejectedValue(new Error('EPERM archive')) });
-    const reader = new OutboxReader(fs, audit);
+    const fs = makeMockOutboxFs({
+      move: vi.fn().mockResolvedValueOnce(undefined).mockRejectedValue(new Error('EPERM archive')),
+    });
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
+    const claimed = await reader.claimNext();
+    if (claimed.status !== 'claimed') throw new Error('expected claim');
 
-    await expect(reader.markDone('/claw', `outbox/processing/cli_1_0_abc_${filename}`, filename))
-      .rejects.toBeInstanceOf(OutboxMoveFailed);
+    await expect(claimed.markDone()).rejects.toBeInstanceOf(OutboxMoveFailed);
 
     expect(auditEvents.some(e =>
       e[0] === 'outbox_claim_failed' && String(e).includes('op=done')
@@ -424,11 +428,14 @@ describe('OutboxReader rollback and settlement safety (Phase 2049 Step F)', () =
   });
 
   it('audits markSkipped move failure and throws OutboxMoveFailed', async () => {
-    const fs = makeMockOutboxFs({ move: vi.fn().mockRejectedValue(new Error('EPERM archive')) });
-    const reader = new OutboxReader(fs, audit);
+    const fs = makeMockOutboxFs({
+      move: vi.fn().mockResolvedValueOnce(undefined).mockRejectedValue(new Error('EPERM archive')),
+    });
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
+    const claimed = await reader.claimNext({ readContent: false });
+    if (claimed.status !== 'claimed') throw new Error('expected claim');
 
-    await expect(reader.markSkipped('/claw', `outbox/processing/cli_1_0_abc_${filename}`, filename))
-      .rejects.toBeInstanceOf(OutboxMoveFailed);
+    await expect(claimed.markSkipped()).rejects.toBeInstanceOf(OutboxMoveFailed);
 
     expect(auditEvents.some(e =>
       e[0] === 'outbox_claim_failed' && String(e).includes('op=skipped')

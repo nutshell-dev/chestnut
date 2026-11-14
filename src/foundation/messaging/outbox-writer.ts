@@ -14,6 +14,7 @@ import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize, emitOutbo
 import { assertMessageShape } from './invariants.js';
 import type { ClawId } from '../claw-identity/index.js';
 import type { MessagingWriterLimits } from './config-schema.js';
+import { OUTBOX_PENDING_DIR } from './dirs.js';
 
 
 /**
@@ -32,32 +33,27 @@ export interface OutboxWriteOptions {
 // result) ≤ 4KB。phase 1820：上限数值归 messaging config-schema（配置 owner），
 // writer 构造期注入（MessagingWriterLimits），不再读 env、不持默认值。
 
-/** Branded outbox directory path — only makeOutboxPath() can construct. */
-declare const OutboxPathBrand: unique symbol;
-export type OutboxPath = string & { readonly [OutboxPathBrand]: true };
-
-/** Factory: construct an OutboxPath from a clawId and clawDir. */
-export function makeOutboxPath(clawId: ClawId, clawDir: string): OutboxPath {
-  void clawId; // semantic param — aligns with createOutboxWriter signature
-  return path.join(clawDir, 'outbox', 'pending') as OutboxPath;
-}
-
 /**
  * Outbox message writer
  */
 export class OutboxWriter {
+  static create(
+    clawId: ClawId,
+    clawRoot: string,
+    fs: FileSystem,
+    audit: MessagingAuditSink,
+    limits: MessagingWriterLimits,
+  ): OutboxWriter {
+    return new OutboxWriter(clawId, path.join(clawRoot, OUTBOX_PENDING_DIR), fs, audit, limits);
+  }
+
   private constructor(
     private readonly clawId: ClawId,
-    private readonly outboxDir: OutboxPath,
+    private readonly outboxDir: string,
     private readonly fs: FileSystem,
     private readonly audit: MessagingAuditSink,
     private readonly limits: MessagingWriterLimits,
   ) {}
-
-  /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: MessagingAuditSink, limits: MessagingWriterLimits): OutboxWriter {
-    return new OutboxWriter(clawId, outboxDir, fs, audit, limits);
-  }
 
   /**
    * Write a message to outbox
@@ -148,5 +144,5 @@ export function createOutboxWriter(
   audit: MessagingAuditSink,
   limits: MessagingWriterLimits,
 ): OutboxWriter {
-  return OutboxWriter.__internal_create(clawId, makeOutboxPath(clawId, clawDir), fs, audit, limits);
+  return OutboxWriter.create(clawId, clawDir, fs, audit, limits);
 }

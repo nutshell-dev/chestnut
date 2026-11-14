@@ -7,12 +7,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader, InboxWriter } from '../../../src/foundation/messaging/index.js';
-import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
+
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { getProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
 import type { InboxHandle } from '../../../src/foundation/messaging/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -38,14 +37,8 @@ describe('InboxReader phase 930', () => {
         auditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
-    reader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit,
-    );
+    writer = createInboxWriter(nfs, '.', audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    reader = createInboxReader(nfs, audit, testDir);
     await reader.init();
   });
 
@@ -97,13 +90,7 @@ describe('InboxReader phase 930', () => {
         freshAuditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    const freshReader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      freshAudit,
-    );
+    const freshReader = createInboxReader(nfs, freshAudit, testDir);
     await freshReader.init();
 
     const pendingFiles = await fs.readdir(pendingDir);
@@ -132,13 +119,7 @@ describe('InboxReader phase 930', () => {
     const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
     await fs.utimes(inflightPath, oldMtime, oldMtime);
 
-    const freshReader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit,
-    );
+    const freshReader = createInboxReader(nfs, audit, testDir);
     await freshReader.init();
 
     const pendingFiles = (await fs.readdir(pendingDir)).filter(f => f.endsWith('.md'));
@@ -164,13 +145,7 @@ describe('InboxReader phase 930', () => {
     const recentMtime = new Date();
     await fs.utimes(inflightPath, recentMtime, recentMtime);
 
-    const freshReader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit,
-    );
+    const freshReader = createInboxReader(nfs, audit, testDir);
     await freshReader.init();
 
     const pendingFiles = (await fs.readdir(pendingDir)).filter(f => f.endsWith('.md'));
@@ -236,7 +211,7 @@ describe('InboxReader phase 930', () => {
       ensureDir: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileSystem;
 
-    const r = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const r = createInboxReader(mockFs, audit, '/');
     const { entries } = await r.drainInbox();
 
     expect(entries).toHaveLength(0);
@@ -267,7 +242,7 @@ describe('InboxReader phase 930', () => {
       ensureDir: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileSystem;
 
-    const r = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const r = createInboxReader(mockFs, audit, '/');
     const { entries } = await r.drainInbox();
 
     expect(entries).toHaveLength(0);

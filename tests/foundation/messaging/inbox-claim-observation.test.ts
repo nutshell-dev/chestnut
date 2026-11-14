@@ -1,15 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
-import {
-  ClaimObservationPersistenceError,
-  type ClaimRecord,
-} from '../../../src/foundation/messaging/claim-observation-store.js';
+import { createInboxReader, InboxReader } from '../../../src/foundation/messaging/index.js';
+import { ClaimObservationPersistenceError, type ClaimRecord } from '../../../src/foundation/messaging/claim-observation-store.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
-import {
-  decodeProcessRef,
-  inspectProcessRef,
-  type ProcessRefObservation,
-} from '../../../src/foundation/process-exec/index.js';
+import { decodeProcessRef, inspectProcessRef, type ProcessRefObservation } from '../../../src/foundation/process-exec/index.js';
 import { encodeProcessEvidence } from '../../../src/foundation/process-exec/process-evidence.js';
 
 vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOriginal) => {
@@ -134,7 +127,8 @@ function makeMockFs(options: {
     )),
     move: vi.fn().mockResolvedValue(undefined),
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    mkdirExclusiveSync: vi.fn(),
+    mkdirExclusiveSync: vi.fn().mockImplementation((targetPath: string) => targetPath),
+    syncSync: vi.fn(),
     writeAtomic: vi.fn().mockImplementation(async (targetPath: string, content: string) => {
       writes.push({ targetPath, content });
       return options.writeAtomic
@@ -148,14 +142,7 @@ function makeMockFs(options: {
 }
 
 function makeReader(fs: FileSystem, audit: ReturnType<typeof makeAudit>['audit']): InboxReader {
-  return new InboxReader(
-    PENDING_DIR,
-    '/claw/inbox/done',
-    '/claw/inbox/failed',
-    fs,
-    audit,
-    INFLIGHT_DIR,
-  );
+  return createInboxReader(fs, audit, '/claw');
 }
 
 function capturedRecords(writes: CapturedWrite[]): ClaimRecord[] {
@@ -503,7 +490,7 @@ describe('InboxReader claim observation and recovery decisions', () => {
     const result = await makeReader(fs, audit).drainAndDeliver();
 
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('unreachable');
+    if (result.kind !== 'partial_failure' || result.stage !== 'claim') throw new Error('unreachable');
     expect(result.stage).toBe('claim');
     expect(result.entry).toBe(DEFAULT_RAW_NAME);
     expect(result.error).toBeInstanceOf(ClaimObservationPersistenceError);

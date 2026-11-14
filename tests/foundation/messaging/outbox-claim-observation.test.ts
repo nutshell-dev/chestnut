@@ -1,15 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
-import {
-  ClaimObservationPersistenceError,
-  type ClaimRecord,
-} from '../../../src/foundation/messaging/claim-observation-store.js';
+import { createOutboxReader } from '../../../src/foundation/messaging/index.js';
+import { ClaimObservationPersistenceError, type ClaimRecord } from '../../../src/foundation/messaging/claim-observation-store.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
-import {
-  decodeProcessRef,
-  inspectProcessRef,
-  type ProcessRefObservation,
-} from '../../../src/foundation/process-exec/index.js';
+import { decodeProcessRef, inspectProcessRef, type ProcessRefObservation } from '../../../src/foundation/process-exec/index.js';
 import { encodeProcessEvidence } from '../../../src/foundation/process-exec/process-evidence.js';
 
 vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOriginal) => {
@@ -133,7 +126,8 @@ function makeMockFs(options: {
     )),
     move: vi.fn().mockResolvedValue(undefined),
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    mkdirExclusiveSync: vi.fn(),
+    mkdirExclusiveSync: vi.fn().mockImplementation((targetPath: string) => targetPath),
+    syncSync: vi.fn(),
     writeAtomic: vi.fn().mockImplementation(async (targetPath: string, content: string) => {
       writes.push({ targetPath, content });
       return options.writeAtomic
@@ -188,7 +182,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs();
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(fs.move).not.toHaveBeenCalled();
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
@@ -225,7 +219,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ rawName });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(fs.move).toHaveBeenCalledWith(
       `${PROCESSING_DIR}/${rawName}`,
@@ -246,7 +240,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ rawName, mtimeMs: NOW - THRESHOLD_MS });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(fs.move).not.toHaveBeenCalled();
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
@@ -294,7 +288,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ rawName, mtimeMs: NOW - THRESHOLD_MS });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith(PENDING_TARGET, 'message content');
     const records = capturedRecords(writes);
@@ -310,7 +304,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(inspectProcessRef).not.toHaveBeenCalled();
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith(PENDING_TARGET, 'message content');
@@ -332,7 +326,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ mtimeMs });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(fs.move).not.toHaveBeenCalled();
     const records = capturedRecords(writes);
@@ -359,7 +353,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     });
     const { audit } = makeAudit();
 
-    const error = await persistenceError(new OutboxReader(fs, audit).init('/claw'));
+    const error = await persistenceError(createOutboxReader({ clawRoot: '/claw', fs, audit }).init());
 
     expect(error.cause).toBe(durabilityError);
     expect(error.writeResult).toBe(writeResult);
@@ -382,7 +376,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     });
     const { audit } = makeAudit();
 
-    const error = await persistenceError(new OutboxReader(fs, audit).init('/claw'));
+    const error = await persistenceError(createOutboxReader({ clawRoot: '/claw', fs, audit }).init());
 
     expect(error.cause).toBe(writeError);
     expect(error.pendingRecord.event).toBe('process_observed');
@@ -406,7 +400,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     });
     const { audit, events } = makeAudit();
 
-    const error = await persistenceError(new OutboxReader(fs, audit).init('/claw'));
+    const error = await persistenceError(createOutboxReader({ clawRoot: '/claw', fs, audit }).init());
 
     expect(error.originalStatError).toBe(originalStatError);
     expect(error.cause).toBe(storageError);
@@ -430,7 +424,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ statError: enoent('processing source') });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(inspectProcessRef).not.toHaveBeenCalled();
     expect(fs.move).not.toHaveBeenCalled();
@@ -448,7 +442,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ rawName, mtimeMs: NOW - THRESHOLD_MS });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(inspectProcessRef).not.toHaveBeenCalled();
     expect(fs.move).not.toHaveBeenCalled();

@@ -13,7 +13,6 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
 import { createClawNotifier } from '../../../src/foundation/messaging/claw-notify.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { CLAWS_DIR } from '../../../src/foundation/claw-identity/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
@@ -27,8 +26,7 @@ function makeNotifyArgs(chestnutRoot: string, targetClawId: string) {
     : path.join(chestnutRoot, CLAWS_DIR, targetClawId);
   return {
     targetClawRoot,
-    targetInboxDir: path.join(targetClawRoot, INBOX_PENDING_DIR),
-    dlqDir: isMotion ? undefined : path.join(chestnutRoot, MOTION_CLAW_ID, 'inbox', 'dead-letter'),
+    dlqClawRoot: isMotion ? undefined : path.join(chestnutRoot, MOTION_CLAW_ID),
   };
 }
 
@@ -61,8 +59,8 @@ describe('notifyClaw API', () => {
   });
 
   it("notifyClaw('motion', ...) writes to motion/inbox/pending with correct codec", () => {
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    notifyClaw(nodeFs, targetClawRoot, dlqClawRoot, {
       type: 'heartbeat',
       source: 'system',
       priority: 'low',
@@ -85,8 +83,8 @@ describe('notifyClaw API', () => {
   it("notifyClaw('worker-1', ...) writes to claws/worker-1/inbox/pending", async () => {
     await fs.mkdir(path.join(chestnutRoot, 'claws', 'worker-1'), { recursive: true });
 
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, 'worker-1');
-    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(chestnutRoot, 'worker-1');
+    notifyClaw(nodeFs, targetClawRoot, dlqClawRoot, {
       type: 'test_message',
       source: 'test',
       priority: 'normal',
@@ -104,8 +102,8 @@ describe('notifyClaw API', () => {
   });
 
   it('emits INBOX_WRITTEN audit on happy path', () => {
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    notifyClaw(nodeFs, targetClawRoot, dlqClawRoot, {
       type: 'audit_test',
       source: 'system',
       body: 'audit me',
@@ -116,9 +114,9 @@ describe('notifyClaw API', () => {
   });
 
   it('keeps best-effort delivery while preserving early write failure audit', () => {
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
 
-    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+    expect(() => notifyClaw(nodeFs, targetClawRoot, dlqClawRoot, {
       type: 'audit_test',
       source: 'system',
       body: 'audit me',
@@ -131,8 +129,8 @@ describe('notifyClaw API', () => {
   });
 
   it('uses priority + filename convention via InboxWriter codec', () => {
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+    const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    notifyClaw(nodeFs, targetClawRoot, dlqClawRoot, {
       type: 'priority_test',
       source: 'priority_src',
       priority: 'high',
@@ -149,8 +147,8 @@ describe('notifyClaw API', () => {
 
   it('dedup: multiple calls produce multiple distinct files', () => {
     for (let i = 0; i < 3; i++) {
-      const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-      notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+      const { targetClawRoot, dlqClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+      notifyClaw(nodeFs, targetClawRoot, dlqClawRoot, {
         type: 'dedup_test',
         source: 'system',
         body: `msg ${i}`,
@@ -162,71 +160,55 @@ describe('notifyClaw API', () => {
     expect(files.length).toBe(3);
   });
 
-  it('rejects targetInboxDir outside targetClawRoot (containment)', () => {
+  it('root/leaf mismatch cannot redirect delivery through a legacy resolver leaf', async () => {
     const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    const targetInboxDir = path.join(chestnutRoot, 'other', 'inbox', 'pending');
-
-    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, undefined, {
-      type: 'containment_test',
-      source: 'system',
-      body: 'should not write',
-    }, audit)).toThrow(/targetInboxDir must be/);
-  });
-
-  it('accepts targetInboxDir inside targetClawRoot (containment)', () => {
-    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-
-    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
-      type: 'containment_inbox_test',
-      source: 'system',
-      body: 'inbox is allowed',
-    }, audit);
-
-    const motionInboxDir = path.join(chestnutRoot, 'motion', 'inbox', 'pending');
-    const files = fsSync.readdirSync(motionInboxDir);
-    expect(files.length).toBe(1);
-  });
-
-  it.each([
-    ['nested inbox', path.join('nested', 'inbox', 'pending')],
-    ['parent segment', 'inbox/pending/../pending'],
-    ['suffix lookalike', 'inbox/pending-extra'],
-  ])('rejects non-exact targetInboxDir: %s', (_label, suffix) => {
-    const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    const targetInboxDir = `${targetClawRoot}/${suffix}`;
-
-    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, undefined, {
-      type: 'containment_test',
-      source: 'system',
-      body: 'should not write',
-    }, audit)).toThrow(/targetInboxDir must be/);
-  });
-
-  it('createClawNotifier.notifyAsync uses the same exact containment guard', async () => {
-    const { targetClawRoot, targetInboxDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    const nestedInbox = path.join(targetClawRoot, 'nested', 'inbox', 'pending');
+    const wrongLeaf = path.join(chestnutRoot, 'other', 'inbox', 'pending');
     const notifier = createClawNotifier({
       fs: nodeFs,
       audit,
-      resolveTarget: () => ({ clawRoot: targetClawRoot, inboxDir: nestedInbox }),
+      resolveTarget: () => ({ clawRoot: targetClawRoot, inboxDir: wrongLeaf }) as never,
     });
 
-    await expect(notifier.notifyAsync('motion', {
+    await notifier.notifyAsync('motion', {
+      type: 'containment_test',
+      source: 'system',
+      body: 'root wins',
+    });
+
+    expect(fsSync.readdirSync(path.join(targetClawRoot, 'inbox', 'pending'))).toHaveLength(1);
+    expect(fsSync.existsSync(wrongLeaf)).toBe(false);
+  });
+
+  it('path traversal fails in the resolver without creating an orphan directory', async () => {
+    const notifier = createClawNotifier({
+      fs: nodeFs,
+      audit,
+      resolveTarget: () => { throw new Error('invalid claw id'); },
+    });
+
+    await expect(notifier.notifyAsync('../escape', {
       type: 'containment_test',
       source: 'system',
       body: 'should not write',
-    })).rejects.toThrow(/targetInboxDir must be/);
-    expect(fsSync.existsSync(targetInboxDir)).toBe(false);
+    })).rejects.toThrow('invalid claw id');
+    expect(fsSync.existsSync(path.join(chestnutRoot, 'escape'))).toBe(false);
+    expect(fsSync.existsSync(path.join(chestnutRoot, 'claws'))).toBe(false);
   });
 
-  it('rejects targetInboxDir not ending in inbox/pending (phase 937)', () => {
-    const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
-    const targetInboxDir = path.join(targetClawRoot, 'inbox');
+  it('resolver failure does not create the target root or any messaging leaf', async () => {
+    const { targetClawRoot } = makeNotifyArgs(chestnutRoot, 'worker-1');
+    const notifier = createClawNotifier({
+      fs: nodeFs,
+      audit,
+      resolveTarget: () => { throw new Error('resolution unavailable'); },
+    });
 
-    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, undefined, {
-      type: 'suffix_test',
+    await expect(notifier.notifyAsync('worker-1', {
+      type: 'containment_test',
       source: 'system',
       body: 'should not write',
-    }, audit)).toThrow(/targetInboxDir must be/);
+    })).rejects.toThrow('resolution unavailable');
+    expect(fsSync.existsSync(targetClawRoot)).toBe(false);
+    expect(fsSync.existsSync(path.join(chestnutRoot, 'claws'))).toBe(false);
   });
 });

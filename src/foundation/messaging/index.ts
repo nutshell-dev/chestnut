@@ -12,11 +12,11 @@ export { OutboxWriter } from './outbox-writer.js';
 export { MESSAGING_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
 
 // phase 42: outbox 读侧（业主入口、用于聚合查询如 outbox-summary 未读计数）
-export { OutboxReader } from './outbox-reader.js';
+export { OutboxReader, createOutboxReader } from './outbox-reader.js';
 // phase 1784: outbox peek typed outcome — empty 与 list/read/decode failure 可区分
-export type { OutboxPeekResult } from './outbox-reader.js';
+export type { OutboxPeekResult, OutboxReaderOptions } from './outbox-reader.js';
 
-export { InboxWriter, makeInboxPath } from './inbox-writer.js';
+export { InboxWriter, createInboxWriter } from './inbox-writer.js';
 export type { InboxMessageOptionsBase } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
@@ -26,33 +26,35 @@ export type {
   InboxDeliveryBatch,
   InboxDeliverySession,
 } from './inbox-reader.js';
-// phase 1782: delivery batch typed outcome — claim/move partial failure 不再压平为成功
+// delivery batch typed outcome — claim/quarantine/move partial failure 不再压平为成功
 export type { InboxDeliveryResult } from './inbox-reader.js';
 // phase 1804: Messaging-owned pending cleanup（Daemon 不见目录/文件名/删除动作）
 export type { CleanupPendingResult, InboxMaintenance } from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
-export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
+export type {
+  InboxHandle,
+  OutboxClaimHandle,
+  OutboxInitResult,
+  OutboxListResult,
+  OutboxMessage,
+  InboxMessage,
+  InboxPeekResult,
+  Priority,
+} from './types.js';
 // phase 1781: init typed recovery outcome — runtime caller 显式处理 degraded
 export type { InboxInitResult } from './types.js';
 export { PRIORITY_ORDER } from './types.js';
-export { InboxListFailed, InboxMoveFailed } from './errors.js';
-
-// phase 1423 F4: dirs path const re-export — 跨模块 (daemon / core) 路径合成走 barrel。
-// phase 1780: INBOX_INFLIGHT_DIR / INBOX_MISROUTED_DIR 补 barrel（owner 常量单源）。
-// sister L2 foundation/paths.ts 内部 sister 保留 deep import (depcruise rule allowlist)。
 export {
-  INBOX_PENDING_DIR,
-  INBOX_INFLIGHT_DIR,
-  INBOX_MISROUTED_DIR,
-  INBOX_DONE_DIR,
-  INBOX_FAILED_DIR,
-  OUTBOX_PENDING_DIR,
-  OUTBOX_DONE_DIR,
-  OUTBOX_FAILED_DIR,
-} from './dirs.js';
+  InboxListFailed,
+  InboxMoveFailed,
+  OutboxClaimBindingError,
+  OutboxMoveFailed,
+  OutboxSettlementRequired,
+} from './errors.js';
 
-import { resolveDlqDir } from './dirs.js';
-export { resolveDlqDir };
+// Callers provide roots; leaf constants remain private to Messaging.
+export { makeInboxTarget, initializeMessagingLayout } from './dirs.js';
+export type { InboxTarget } from './dirs.js';
 
 // phase 746: lightweight standalone query helpers (0-instance-dep)
 export {

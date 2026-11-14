@@ -14,22 +14,20 @@
 import type { FileSystem } from '../fs/index.js';
 import type { MessagingAuditSink } from './audit-sink.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
-import { InboxWriter, makeInboxPath } from './inbox-writer.js';
+import { createInboxWriter } from './inbox-writer.js';
 import { MESSAGING_WRITER_LIMITS_DEFAULT } from './config-schema.js';
-import { assertInboxTarget, notifyClaw } from './notify.js';
+import { notifyClaw } from './notify.js';
 import type { Priority } from './types.js';
 
 /**
  * 目标 claw 的物理位置事实（拓扑 owner 解析；Messaging 只消费）。
  *
  * - clawRoot：目标 claw 根（`<chestnut-root>/motion` 或 `<chestnut-root>/claws/<id>`）
- * - inboxDir：`<clawRoot>/inbox/pending`
- * - dlqDir：目标缺失时的 dead-letter 落点；motion 目标无 DLQ（undefined）
+ * - dlqClawRoot：目标缺失时使用的 DLQ 所属 claw 根；motion 目标无 DLQ
  */
 export interface ClawNotifyTarget {
   readonly clawRoot: string;
-  readonly inboxDir: string;
-  readonly dlqDir?: string;
+  readonly dlqClawRoot?: string;
 }
 
 /** 目标位置解析 capability（拓扑 owner 注入；非法 id 由 resolver 侧抛错）。 */
@@ -75,7 +73,7 @@ export function createClawNotifier(deps: ClawNotifierDeps): ClawNotifier {
 
   const notify = (targetClawId: string, message: InboxMessageOptionsBase): void => {
     const target = resolveTarget(targetClawId);
-    notifyClaw(fs, target.clawRoot, target.inboxDir, target.dlqDir, message, audit);
+    notifyClaw(fs, target.clawRoot, target.dlqClawRoot, message, audit);
   };
 
   const notifyAsync = async (targetClawId: string, message: InboxMessageOptionsBase): Promise<void> => {
@@ -86,16 +84,9 @@ export function createClawNotifier(deps: ClawNotifierDeps): ClawNotifier {
     if (!fs.existsSync(target.clawRoot)) {
       throw new Error(`Target claw root does not exist: ${target.clawRoot}`);
     }
-    assertInboxTarget(fs, target.clawRoot, target.inboxDir);
-
     // phase 942/943: writeSync 的落盘失败必须上抛（工具侧统一边界转 ToolResult）；
     // 保持同步写语义（原 routeNotifyClawAsync 同形）。
-    InboxWriter.__internal_create(
-      fs,
-      makeInboxPath(target.inboxDir),
-      audit,
-      MESSAGING_WRITER_LIMITS_DEFAULT,
-    ).writeSync(message);
+    createInboxWriter(fs, target.clawRoot, audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(message);
   };
 
   const notifyIntentAsync = async (targetClawId: string, intent: ClawNotifyIntent): Promise<void> => {

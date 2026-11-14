@@ -3,18 +3,19 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { createOutboxReader, type OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { formatErr } from '../../../src/foundation/node-utils/index.js';
 
 function makeAudit() {
   const events: Array<[string, ...unknown[]]> = [];
   return {
-    audit: { write: (t: string, ...c: unknown[]) => { events.push([t, ...c]); } , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s},
+    audit: { write: (t: string, ...c: unknown[]) => { events.push([t, ...c]); } },
     events,
   };
 }
 
-describe('OutboxReader.listClawOutboxPending', () => {
+describe('OutboxReader.listPendingResult', () => {
   let root: string;
   let clawDir: string;
   let fs: NodeFileSystem;
@@ -29,16 +30,15 @@ describe('OutboxReader.listClawOutboxPending', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const { audit, events } = makeAudit();
     auditEvents = events;
-    reader = new OutboxReader(fs, audit);
+    reader = createOutboxReader({ clawRoot: clawDir, fs, audit });
   });
 
   afterEach(async () => {
     await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  it('returns empty array when outbox/pending dir missing', async () => {
-    const files = await reader.listClawOutboxPending(clawDir);
-    expect(files).toEqual([]);
+  it('returns empty when outbox/pending dir missing', async () => {
+    await expect(reader.listPendingResult()).resolves.toEqual({ kind: 'empty', files: [] });
     expect(auditEvents.filter(e => String(e[0]).includes('list_failed'))).toEqual([]);
   });
 
@@ -47,34 +47,33 @@ describe('OutboxReader.listClawOutboxPending', () => {
     await fsAsync.mkdir(pendingDir, { recursive: true });
     await fsAsync.writeFile(path.join(pendingDir, 'b.md'), 'x');
     await fsAsync.writeFile(path.join(pendingDir, 'a.md'), 'x');
-    const files = await reader.listClawOutboxPending(clawDir);
-    expect(files).toEqual(['a.md', 'b.md']);
+    await expect(reader.listPendingResult()).resolves.toEqual({ kind: 'found', files: ['a.md', 'b.md'] });
   });
 
-  it('filters non-.md files', async () => {
+  it('filters non-.md files and reports an empty result', async () => {
     const pendingDir = path.join(clawDir, 'outbox/pending');
     await fsAsync.mkdir(pendingDir, { recursive: true });
-    await fsAsync.writeFile(path.join(pendingDir, 'a.md'), 'x');
     await fsAsync.writeFile(path.join(pendingDir, 'b.json'), 'x');
     await fsAsync.writeFile(path.join(pendingDir, 'c.tmp'), 'x');
-    const files = await reader.listClawOutboxPending(clawDir);
-    expect(files).toEqual(['a.md']);
+    await expect(reader.listPendingResult()).resolves.toEqual({ kind: 'empty', files: [] });
   });
 
-  it('returns empty when pending is empty', async () => {
-    const pendingDir = path.join(clawDir, 'outbox/pending');
-    await fsAsync.mkdir(pendingDir, { recursive: true });
-    const files = await reader.listClawOutboxPending(clawDir);
-    expect(files).toEqual([]);
-  });
+  it('returns failed with the original error and audits the same reason', async () => {
+    const error = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    const mockFs = { list: vi.fn().mockRejectedValue(error) } as unknown as NodeFileSystem;
+    const { audit, events } = makeAudit();
+    const failedReader = createOutboxReader({ clawRoot: clawDir, fs: mockFs, audit });
 
-  it('propagates non-ENOENT list errors (EACCES)', async () => {
-    const mockFs = {
-      list: vi.fn().mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' })),
-    } as unknown as NodeFileSystem;
-    const { audit } = makeAudit();
-    const readerWithMock = new OutboxReader(mockFs, audit);
-
-    await expect(readerWithMock.listClawOutboxPending(clawDir)).rejects.toThrow(/EACCES/);
+    await expect(failedReader.listPendingResult()).resolves.toEqual({
+      kind: 'failed',
+      stage: 'list',
+      path: path.join(clawDir, 'outbox/pending'),
+      error,
+    });
+    expect(events).toEqual([[
+      'outbox_list_failed',
+      `dir=${path.join(clawDir, 'outbox/pending')}`,
+      `reason=${formatErr(error)}`,
+    ]]);
   });
 });

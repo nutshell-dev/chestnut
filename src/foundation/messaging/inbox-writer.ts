@@ -24,7 +24,7 @@ import { assertMessageShape } from './invariants.js';
 import { assertSafeWireToken } from './codec-validation.js';
 import { sanitizeMessageIdentifier } from './sanitize.js';
 import type { MessagingWriterLimits } from './config-schema.js';
-import { INBOX_DONE_DIR, INBOX_INFLIGHT_DIR } from './dirs.js';
+import { INBOX_DONE_DIR, INBOX_INFLIGHT_DIR, makeInboxTarget } from './dirs.js';
 
 type Result<T, E> =
   | { ok: true; value: T }
@@ -59,27 +59,21 @@ export interface InboxMessageOptionsBase {
   metadata?: Record<string, string>;
 }
 
-/** Branded inbox directory path — only makeInboxPath() can construct. */
-declare const InboxPathBrand: unique symbol;
-export type InboxPath = string & { readonly [InboxPathBrand]: true };
-
-/** Factory: construct an InboxPath from an absolute directory string. */
-export function makeInboxPath(absoluteDir: string): InboxPath {
-  return absoluteDir as InboxPath;
-}
-
 export class InboxWriter {
+  static create(fs: FileSystem, clawRoot: string, audit: MessagingAuditSink, limits: MessagingWriterLimits): InboxWriter {
+    return new InboxWriter(fs, makeInboxTarget(clawRoot).pendingDir, audit, limits);
+  }
+
+  static createDeadLetter(fs: FileSystem, clawRoot: string, audit: MessagingAuditSink, limits: MessagingWriterLimits): InboxWriter {
+    return new InboxWriter(fs, makeInboxTarget(clawRoot).deadLetterDir, audit, limits);
+  }
+
   private constructor(
     private readonly fs: FileSystem,
-    private readonly inboxDir: InboxPath,
+    private readonly inboxDir: string,
     private readonly audit: MessagingAuditSink,
     private readonly limits: MessagingWriterLimits,
   ) {}
-
-  /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(fs: FileSystem, inboxDir: InboxPath, audit: MessagingAuditSink, limits: MessagingWriterLimits): InboxWriter {
-    return new InboxWriter(fs, inboxDir, audit, limits);
-  }
 
   /** async 写，atomic */
   async write(
@@ -289,7 +283,7 @@ export class InboxWriter {
   private identityDirs(includeDoneWithinMs?: number): Array<{ dir: string; done: boolean }> {
     const inboxRoot = path.dirname(this.inboxDir);
     const dirs = [
-      { dir: this.inboxDir as string, done: false },
+      { dir: this.inboxDir, done: false },
       { dir: path.join(inboxRoot, path.basename(INBOX_INFLIGHT_DIR)), done: false },
     ];
     if (includeDoneWithinMs !== undefined && includeDoneWithinMs > 0) {
@@ -384,4 +378,25 @@ export class InboxWriter {
         return { ok: false as const, error: { kind: 'parse_failed', cause: e } };
     }
   }
+}
+
+
+/** Public writers are bound to a claw root, never a caller-supplied leaf. */
+export function createInboxWriter(
+  fs: FileSystem,
+  clawRoot: string,
+  audit: MessagingAuditSink,
+  limits: MessagingWriterLimits,
+): InboxWriter {
+  return InboxWriter.create(fs, clawRoot, audit, limits);
+}
+
+/** Messaging-internal dead-letter destination, likewise derived from a root. */
+export function createInboxDeadLetterWriter(
+  fs: FileSystem,
+  clawRoot: string,
+  audit: MessagingAuditSink,
+  limits: MessagingWriterLimits,
+): InboxWriter {
+  return InboxWriter.createDeadLetter(fs, clawRoot, audit, limits);
 }

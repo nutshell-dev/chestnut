@@ -35,7 +35,7 @@ interface OutboxSummaryJobOptions {
   audit: TopologyEventSink;
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
-  outboxReader: OutboxReader;
+  outboxReaderFactory: (clawRoot: string) => OutboxReader;
   signal?: AbortSignal;
 }
 
@@ -45,7 +45,7 @@ interface OutboxSummaryJobDeps {
   audit: TopologyEventSink;
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
-  outboxReader: OutboxReader;
+  outboxReaderFactory: (clawRoot: string) => OutboxReader;
 }
 
 export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<void> {
@@ -56,7 +56,7 @@ export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<v
       audit: opts.audit,
       inboxReader: opts.inboxReader,
       inboxWriter: opts.inboxWriter,
-      outboxReader: opts.outboxReader,
+      outboxReaderFactory: opts.outboxReaderFactory,
       signal: opts.signal,
     });
   } catch (err) {

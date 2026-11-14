@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsAsync from 'node:fs/promises';
 import * as path from 'node:path';
-import { InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
+import { createInboxReader, InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
 import type { InboxDeliveryResult } from '../../../src/foundation/messaging/inbox-reader.js';
 import { decodeInbox, encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { ClaimDescriptor } from '../../../src/foundation/messaging/claim-record.js';
@@ -40,16 +40,16 @@ beforeEach(async () => {
   pendingDir = path.join(root, 'inbox/pending');
   doneDir = path.join(root, 'inbox/done');
   failedDir = path.join(root, 'inbox/failed');
-  inflightDir = path.join(root, 'custom/inflight-active');
-  misroutedDir = path.join(root, 'custom/misrouted-active');
+  inflightDir = path.join(root, 'inbox/inflight');
+  misroutedDir = path.join(root, 'inbox/misrouted');
   await Promise.all(
     [pendingDir, doneDir, failedDir, inflightDir, misroutedDir]
       .map(dir => fsAsync.mkdir(dir, { recursive: true })),
   );
   fs = new NodeFileSystem({ baseDir: root });
-  reader = new InboxReader(pendingDir, doneDir, failedDir, fs, {
+  reader = createInboxReader(fs, {
     write() { /* noop */ },
-  }, inflightDir, misroutedDir);
+  }, root);
   vi.spyOn(processExec, 'captureCurrentProcessRef').mockReturnValue(CAPTURE);
 });
 
@@ -200,7 +200,7 @@ describe('InboxReader claim references', () => {
     const result = await reader.drainAndDeliver();
 
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('expected partial failure');
+    if (result.kind !== 'partial_failure' || result.stage !== 'claim') throw new Error('expected partial failure');
     expect(result.stage).toBe('claim');
     expect(result.entry).toBe('02-second.md');
     expect(result.error).toBe(prepareError);
@@ -227,7 +227,7 @@ describe('InboxReader claim references', () => {
     const result = await reader.drainAndDeliver();
 
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('expected partial failure');
+    if (result.kind !== 'partial_failure' || result.stage !== 'move') throw new Error('expected partial failure');
     expect(result.stage).toBe('move');
     expect(result.entry).toBe(originalName);
     expect(result.error).toBe(moveError);

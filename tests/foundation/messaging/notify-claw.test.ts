@@ -18,9 +18,7 @@ describe('notify_claw tool', () => {
   let tempDir: string;
   let fs: NodeFileSystem;
   let audit: ReturnType<typeof makeAudit>;
-  const chestnutRoot = '/test/root';
   const targetClaw = 'worker-1';
-  const targetInboxDir = path.join(chestnutRoot, 'claws', targetClaw, 'inbox', 'pending');
 
   beforeEach(async () => {
     tempDir = await createTempDir();

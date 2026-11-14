@@ -1250,19 +1250,27 @@ export class Runtime {
   }
 
   private async _drainEntriesOrEmpty(): Promise<InboxDeliveryBatch> {
-    // phase 1782: claim/move 首个失败以 typed partial_failure 返回（不再以异常穿越
-    // drain 边界、不再把 partial batch 压平为完整成功）。audit 保留停止原因 evidence；
+    // claim/quarantine/move 失败以 typed partial_failure 返回（不以异常穿越
+    // drain 边界、不把 partial batch 压平为完整成功）。audit 保留停止原因 evidence；
     // 已 claim entries/handles 照常交付，未处理 entries 留 pending/ 下轮幂等重试。
     const result = await this.inboxReader.drainAndDeliver();
     if (result.kind === 'partial_failure') {
+      const failureEvidence = result.stage === 'quarantine'
+        ? [
+            `failures=${result.failures.length}`,
+            ...result.failures.map(failure => `failure=${failure.file}:${formatErr(failure.error)}`),
+          ]
+        : [
+            `entry=${result.entry ?? ''}`,
+            `error=${result.error instanceof Error ? result.error.constructor.name : 'unknown'}`,
+            `reason=${formatErr(result.error)}`,
+          ];
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.INBOX_DRAIN_FAILED,
         `stage=${result.stage}`,
-        `entry=${result.entry ?? ''}`,
         `delivered=${result.entries.length}`,
+        ...failureEvidence,
         // phase 567: 加 trace_id forensic field（optional chain 兜底 init 调用路径）
-        `error=${result.error instanceof Error ? result.error.constructor.name : 'unknown'}`,
-        `reason=${formatErr(result.error)}`,
         `trace_id=${String(this.execContext?.trace_id ?? '')}`,
       );
     }
@@ -1802,8 +1810,11 @@ export class Runtime {
    * Check if inbox has high/critical priority messages
    */
   private async _hasHighPriorityInbox(): Promise<boolean> {
-    const metas = await this.inboxReader.peekMetas({ priority: ['high', 'critical'] });
-    return metas.length > 0;
+    const peek = await this.inboxReader.peekMetas({ priority: ['high', 'critical'] });
+    if (peek.kind === 'unavailable') {
+      throw new Error(`Inbox metadata unavailable during ${peek.stage}: ${peek.path}`, { cause: peek.error });
+    }
+    return peek.value.length > 0;
   }
 
   /**

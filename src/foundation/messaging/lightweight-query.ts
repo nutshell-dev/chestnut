@@ -23,8 +23,8 @@ type Result<T> = { ok: true; value: T } | { ok: false; error: string };
  */
 export function peekPendingCount(fs: FileSystem, clawDir: string): Result<number> {
   const dir = path.join(clawDir, INBOX_PENDING_DIR);
-  if (!fs.existsSync(dir)) return { ok: true, value: 0 };
   try {
+    if (!fs.existsSync(dir)) return { ok: true, value: 0 };
     return { ok: true, value: fs.listSync(dir, { includeDirs: false })
       .filter(e => e.name.endsWith('.md')).length };
   } catch (err) {
@@ -38,8 +38,8 @@ export function peekPendingCount(fs: FileSystem, clawDir: string): Result<number
  */
 export function peekPendingFilenames(fs: FileSystem, clawDir: string): Result<string[]> {
   const dir = path.join(clawDir, INBOX_PENDING_DIR);
-  if (!fs.existsSync(dir)) return { ok: true, value: [] };
   try {
+    if (!fs.existsSync(dir)) return { ok: true, value: [] };
     return { ok: true, value: fs.listSync(dir, { includeDirs: false })
       .filter(e => e.name.endsWith('.md'))
       .map(e => e.name) };
@@ -50,7 +50,8 @@ export function peekPendingFilenames(fs: FileSystem, clawDir: string): Result<st
 
 /**
  * Sync list of outbox pending filenames.
- * Standalone sync equivalent of OutboxReader.listClawOutboxPending().
+ * Standalone sync query counterpart to OutboxReader.listPendingResult().
+ * Its legacy Result<string[]> API remains unchanged for lightweight CLI callers.
  *
  * phase 934: returns Result so callers can distinguish I/O errors from an
  * actually empty pending outbox.

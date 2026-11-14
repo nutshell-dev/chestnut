@@ -11,8 +11,8 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -54,7 +54,7 @@ describe('inbox 写入耐久性降级留证 (phase 1869 Step D)', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const made = makeAudit();
     events = made.events;
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(pendingDir), made.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    writer = createInboxWriter(fs, root, made.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   const CLEANUP_TIMEOUT_MS = 2000;

@@ -32,7 +32,7 @@ import type { Gateway } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_EVENT_NAMES, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../core/claw-topology/index.js';
 import { formatClawStatusHint } from '../cli-protocol/index.js';
-import { OutboxReader } from '../foundation/messaging/index.js';
+import { createOutboxReader } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId, makeChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
@@ -357,7 +357,11 @@ export async function createMotionAddons(
           audit: auditWriter,
           inboxReader,
           inboxWriter: business.selfInbox,
-          outboxReader: new OutboxReader(chestnutFs, auditWriter),
+          outboxReaderFactory: (clawRoot) => createOutboxReader({
+            clawRoot,
+            fs: chestnutFs,
+            audit: auditWriter,
+          }),
         }, globalConfig),
       ];
       // phase 1445 Step D（裁定②）：start 内化进 createCronRunner 工厂、tickMs 经工厂参数传入；

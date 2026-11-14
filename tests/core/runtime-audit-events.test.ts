@@ -300,7 +300,7 @@ Test message
   });
 
   describe('Runtime audit events - inbox_meta_failed (zero-coverage)', () => {
-    it('_hasHighPriorityInbox emits inbox_meta_failed when readMeta fails', async () => {
+    it('_hasHighPriorityInbox fails closed when peekMetas decode is unavailable', async () => {
       const runtime = trackRuntime(await createTestRuntime({
         clawId: 'test-claw',
         clawDir,
@@ -313,8 +313,8 @@ Test message
       await fs.writeFile(path.join(pendingDir, 'bad.md'), '---\nthis is not valid frontmatter');
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      const result = await (runtime as unknown as RuntimeTestInternals)._hasHighPriorityInbox();
-      expect(result).toBe(false);
+      await expect((runtime as unknown as RuntimeTestInternals)._hasHighPriorityInbox())
+        .rejects.toThrow('Inbox metadata unavailable during decode');
       expect(auditSpy).toHaveBeenCalledWith('inbox_meta_failed', expect.stringContaining('file='), expect.stringContaining('kind='));
       auditSpy.mockRestore();
     });

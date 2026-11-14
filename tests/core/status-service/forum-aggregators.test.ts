@@ -16,17 +16,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
-import {
-  computeForumStatusView,
-  formatForumStatusView,
-} from '../../../src/core/status-service/index.js';
-import {
-  computeProcessUptimeMs,
-  computeClawInboxUnread,
-  computeClawLastActivityAgoMs,
-  computeOrphans,
-  type ForumStatusDeps,
-} from '../../../src/core/status-service/forum-aggregators.js';
+import { computeForumStatusView, formatForumStatusView } from '../../../src/core/status-service/index.js';
+import { computeProcessUptimeMs, computeClawInboxUnread, computeClawLastActivityAgoMs, computeOrphans, type ForumStatusDeps } from '../../../src/core/status-service/forum-aggregators.js';
 import { humanizeUptime, humanizeAgo } from '../../../src/core/status-service/forum-formatter.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager, LivenessResult } from '../../../src/foundation/process-manager/index.js';
@@ -148,9 +139,12 @@ describe('computeClawInboxUnread', () => {
     expect(await computeClawInboxUnread(fs, makeDummyAudit(), TEST_CLAW_LABEL)).toBe(0);
   });
 
-  it('returns undefined inboxUnread and writes audit when peekPendingCount fails', async () => {
+  it('returns undefined inboxUnread and writes audit for typed unavailable', async () => {
+    const boom = Object.assign(new Error('EACCES'), { code: 'EACCES' });
     vi.spyOn(messaging, 'createInboxReader').mockReturnValue({
-      peekPendingCount: vi.fn().mockRejectedValue(new Error('EACCES')),
+      peekPendingCount: vi.fn().mockResolvedValue({
+        kind: 'unavailable', stage: 'list', path: 'inbox/pending', error: boom,
+      }),
     } as unknown as ReturnType<typeof messaging.createInboxReader>);
     const audit = makeDummyAudit();
     const result = await computeClawInboxUnread(makeFs({}), audit, TEST_CLAW_LABEL);
@@ -158,7 +152,9 @@ describe('computeClawInboxUnread', () => {
     expect(audit.write).toHaveBeenCalledWith(
       STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR,
       `claw=${TEST_CLAW_LABEL}`,
-      'error=EACCES',
+      'stage=list',
+      'path=inbox/pending',
+      'error=[EACCES] EACCES',
     );
     vi.restoreAllMocks();
   });

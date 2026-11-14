@@ -188,6 +188,44 @@ export function emitOutboxDelivered(
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED, ...cols);
 }
 
+// ─── OUTBOX_INIT_DEGRADED / FAILED / SETTLEMENT_FAILED ───────────────────────
+export function emitOutboxInitDegraded(
+  audit: MessagingAuditSink,
+  opts: { stage: string; path: string; reason: string; recovered: number },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_INIT_DEGRADED,
+    `stage=${opts.stage}`,
+    `path=${opts.path}`,
+    `reason=${opts.reason}`,
+    `recovered=${opts.recovered}`,
+  );
+}
+
+export function emitOutboxFailed(
+  audit: MessagingAuditSink,
+  opts: { file: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_FAILED,
+    `file=${opts.file}`,
+    `reason=${opts.reason}`,
+  );
+}
+
+export function emitOutboxSettlementFailed(
+  audit: MessagingAuditSink,
+  opts: { file: string; claimPath: string; reason: string; settlementReason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_SETTLEMENT_FAILED,
+    `file=${opts.file}`,
+    `claim_path=${opts.claimPath}`,
+    `reason=${opts.reason}`,
+    `settlement_reason=${opts.settlementReason}`,
+  );
+}
+
 // ─── OUTBOX_SKIPPED (phase 1748) ──────────────────────────────────────────────
 // outbox-skip 不读内容直接归档、独立审计（区别于 delivered）
 export function emitOutboxSkipped(

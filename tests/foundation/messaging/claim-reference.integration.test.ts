@@ -2,18 +2,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
-import { OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
+import { createInboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
+import { createOutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
 import type { ClaimDescriptor } from '../../../src/foundation/messaging/claim-record.js';
 import type { ClaimRecord } from '../../../src/foundation/messaging/claim-observation-store.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import {
-  decodeProcessRef,
-  inspectProcessRef,
-  type ProcessRefCapture,
-} from '../../../src/foundation/process-exec/index.js';
+import { decodeProcessRef, inspectProcessRef, type ProcessRefCapture } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
 const CHANNELS = ['inbox', 'outbox'] as const;
@@ -68,8 +64,8 @@ function fixtureSource(): string {
   return `
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { InboxReader } from ${JSON.stringify(inboxReader)};
-import { OutboxReader } from ${JSON.stringify(outboxReader)};
+import { createInboxReader } from ${JSON.stringify(inboxReader)};
+import { createOutboxReader } from ${JSON.stringify(outboxReader)};
 import { NodeFileSystem } from ${JSON.stringify(nodeFs)};
 import { captureCurrentProcessRef } from ${JSON.stringify(processExec)};
 
@@ -96,14 +92,7 @@ try {
   const audit = { write: () => { /* no audit sink needed in the child */ } };
   let claimName;
   if (scenario.channel === 'inbox') {
-    const reader = new InboxReader(
-      scenario.pendingDir,
-      scenario.doneDir,
-      scenario.failedDir,
-      fileSystem,
-      audit,
-      scenario.inflightDir,
-    );
+    const reader = createInboxReader(fileSystem, audit, scenario.rootDir);
     const drained = await reader.drainAndDeliver();
     if (drained.kind !== 'complete') {
       throw new Error('drainAndDeliver failed: ' + JSON.stringify(drained) + '; error=' + String(drained.error));
@@ -121,8 +110,8 @@ try {
     }
     claimName = path.basename(handle.filePath);
   } else if (scenario.channel === 'outbox') {
-    const reader = new OutboxReader(fileSystem, audit);
-    const claimed = await reader.claimNext(scenario.clawDir);
+    const reader = createOutboxReader({ clawRoot: scenario.clawDir, fs: fileSystem, audit });
+    const claimed = await reader.claimNext();
     if (claimed.status !== 'claimed') {
       throw new Error('claimNext failed: ' + JSON.stringify(claimed));
     }
@@ -186,16 +175,9 @@ async function initReader(channel: Channel) {
   const fileSystem = new NodeFileSystem({ baseDir: tempDir });
   switch (channel) {
     case 'inbox':
-      return new InboxReader(
-        layout.pendingDir,
-        layout.doneDir,
-        layout.failedDir,
-        fileSystem,
-        noopAudit,
-        layout.inflightDir,
-      ).init();
+      return createInboxReader(fileSystem, noopAudit, layout.clawDir).init();
     case 'outbox':
-      return new OutboxReader(fileSystem, noopAudit).init(layout.clawDir);
+      return createOutboxReader({ clawRoot: layout.clawDir, fs: fileSystem, audit: noopAudit }).init();
   }
 }
 

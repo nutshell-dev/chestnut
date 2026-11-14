@@ -231,11 +231,14 @@ describe('outboxSkipCommand', () => {
     fs.writeFileSync(path.join(processing, claimName), 'orphan content');
     const claimNext = vi.spyOn(OutboxReader.prototype, 'claimNext');
 
-    await expect(outboxSkipCommand({ fsFactory }, 'busy')).rejects.toMatchObject({
-      code: 'CLAIM_RECORD_UNAVAILABLE',
-      entry: claimName,
-      issue: { kind: 'missing' },
-    });
+    const error = await outboxSkipCommand({ fsFactory }, 'busy').catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ code: 1 });
+    const cause = (error as Error).cause as {
+      code: string; entry: string; issue: { kind: string };
+    };
+    expect(cause.code).toBe('CLAIM_RECORD_UNAVAILABLE');
+    expect(cause.entry).toBe(claimName);
+    expect(cause.issue.kind).toBe('missing');
 
     expect(claimNext).not.toHaveBeenCalled();
     expect(listMd(pending)).toEqual(['msg0.md']);

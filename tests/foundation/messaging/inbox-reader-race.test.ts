@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
-import { InboxWriter } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxWriter } from '../../../src/foundation/messaging/index.js';
+
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -26,7 +26,8 @@ function makeMockFs(): FileSystem {
   return {
     list: vi.fn().mockResolvedValue([{ name: 'msg.md', path: '/inbox/pending/msg.md' }]),
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    mkdirExclusiveSync: vi.fn(),
+    mkdirExclusiveSync: vi.fn().mockImplementation((targetPath: string) => targetPath),
+    syncSync: vi.fn(),
     writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
   } as unknown as FileSystem;
 }
@@ -52,7 +53,7 @@ describe('phase 1011 D.2: inbox-reader peekMetas race', () => {
   it('peekMetas readMeta not_found emits INBOX_PEEK_RACE_SKIP not INBOX_META_FAILED', async () => {
     const mockFs = makeMockFs();
     const { audit, events } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const { InboxWriter } = await import('../../../src/foundation/messaging/inbox-writer.js');
     vi.mocked(InboxWriter.readMeta).mockReturnValue({
@@ -60,7 +61,7 @@ describe('phase 1011 D.2: inbox-reader peekMetas race', () => {
       error: { kind: 'not_found' },
     } as any);
 
-    await reader.peekMetas();
+    expect(await reader.peekMetas()).toEqual({ kind: 'empty', value: [] });
 
     expect(events.some(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_PEEK_RACE_SKIP)).toBe(true);
     expect(events.some(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_META_FAILED)).toBe(false);
@@ -69,18 +70,46 @@ describe('phase 1011 D.2: inbox-reader peekMetas race', () => {
   it('peekMetas readMeta parse_failed still emits INBOX_META_FAILED', async () => {
     const mockFs = makeMockFs();
     const { audit, events } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const { InboxWriter } = await import('../../../src/foundation/messaging/inbox-writer.js');
+    const decodeError = new Error('bad frontmatter');
     vi.mocked(InboxWriter.readMeta).mockReturnValue({
       ok: false,
-      error: { kind: 'parse_failed' },
+      error: { kind: 'parse_failed', cause: decodeError },
     } as any);
 
-    await reader.peekMetas();
+    expect(await reader.peekMetas()).toEqual({
+      kind: 'unavailable',
+      stage: 'decode',
+      path: '/inbox/pending/msg.md',
+      error: decodeError,
+    });
 
     expect(events.some(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_PEEK_RACE_SKIP)).toBe(false);
     expect(events.some(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_META_FAILED)).toBe(true);
+  });
+
+  it.each([
+    ['EACCES', 'permission_denied'],
+    ['EIO', 'io_failed'],
+  ] as const)('peekMetas preserves %s read failure as unavailable', async (code, kind) => {
+    const mockFs = makeMockFs();
+    const { audit } = makeMockAudit();
+    const reader = createInboxReader(mockFs, audit, '/');
+    const readError = Object.assign(new Error(code), { code });
+    const { InboxWriter } = await import('../../../src/foundation/messaging/inbox-writer.js');
+    vi.mocked(InboxWriter.readMeta).mockReturnValue({
+      ok: false,
+      error: { kind, cause: readError },
+    } as any);
+
+    expect(await reader.peekMetas()).toEqual({
+      kind: 'unavailable',
+      stage: 'read',
+      path: '/inbox/pending/msg.md',
+      error: readError,
+    });
   });
 });
 
@@ -102,7 +131,8 @@ describe('phase 2046 Step C: pending read/markFailed races', () => {
       read: vi.fn(read),
       move: vi.fn(move),
       utimes: vi.fn().mockResolvedValue(undefined),
-      mkdirExclusiveSync: vi.fn(),
+      mkdirExclusiveSync: vi.fn().mockImplementation((targetPath: string) => targetPath),
+      syncSync: vi.fn(),
       writeAtomic: vi.fn().mockResolvedValue({ kind: 'durable' }),
     } as unknown as FileSystem;
   }
@@ -113,7 +143,7 @@ describe('phase 2046 Step C: pending read/markFailed races', () => {
       return goodWire;
     });
     const { audit, events } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const result = await reader.drainAndDeliver();
 
@@ -131,7 +161,7 @@ describe('phase 2046 Step C: pending read/markFailed races', () => {
       },
     );
     const { audit } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const result = await reader.drainAndDeliver();
 
@@ -146,7 +176,7 @@ describe('phase 2046 Step C: pending read/markFailed races', () => {
       return goodWire;
     });
     const { audit, events } = makeMockAudit();
-    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const reader = createInboxReader(mockFs, audit, '/');
 
     const result = await reader.drainAndDeliver();
 

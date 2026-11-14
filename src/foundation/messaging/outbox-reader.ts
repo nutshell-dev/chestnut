@@ -19,16 +19,28 @@ import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitOutboxClaimFailed,
   emitOutboxDelivered,
+  emitOutboxFailed,
+  emitOutboxInitDegraded,
   emitOutboxListFailed,
   emitOutboxPeekFailed,
   emitOutboxProcessingOrphanCleaned,
   emitOutboxReconcile,
   emitOutboxSkipped,
+  emitOutboxSettlementFailed,
   emitOutboxStageQuarantine,
 } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
-import type { OutboxMessage } from './types.js';
-import { OutboxMoveFailed } from './errors.js';
+import type {
+  OutboxClaimHandle,
+  OutboxInitResult,
+  OutboxListResult,
+  OutboxMessage,
+} from './types.js';
+import {
+  OutboxClaimBindingError,
+  OutboxMoveFailed,
+  OutboxSettlementRequired,
+} from './errors.js';
 import {
   OUTBOX_PENDING_DIR,
   OUTBOX_PROCESSING_DIR,
@@ -38,6 +50,7 @@ import {
 import { newShortUuid } from '../node-utils/index.js';
 import { observeLegacyClaim } from './claim-process-observation.js';
 import {
+  ClaimObservationPersistenceError,
   ClaimObservationStore,
   type ClaimDecision,
   type ClaimLease,
@@ -48,13 +61,41 @@ import {
   type ClaimRecordEvidence,
 } from './claim-record.js';
 import { prepareClaimRecord } from './claim-record-store.js';
+import { recordRecoveryIo } from './recovery-io-evidence.js';
 
 type ClaimResult =
   | { status: 'empty' }
   | { status: 'race_lost'; error: string }
   | { status: 'io_error'; error: string }
-  | { status: 'recovery_required'; readError: string; rollbackError: string; claimPath: string; filename: string }
-  | { status: 'claimed'; claimPath: string; filename: string; content: string };
+  | {
+      status: 'recovery_required';
+      readError: string;
+      rollbackError: string;
+      claimPath: string;
+      filename: string;
+      handle: OutboxClaimHandle;
+    }
+  | (OutboxClaimHandle & { status: 'claimed'; content: string });
+
+interface RecoveryProgress {
+  recovered: number;
+}
+
+class OutboxInitError extends Error {
+  constructor(
+    public readonly stage: 'ensure_dir' | 'list' | 'read' | 'move',
+    public readonly path: string,
+    public readonly error: unknown,
+  ) {
+    super(`Outbox init ${stage} failed at ${path}`);
+  }
+}
+
+export interface OutboxReaderOptions {
+  clawRoot: string;
+  fs: FileSystem;
+  audit: MessagingAuditSink;
+}
 
 /**
  * Phase 1784: typed outbox peek outcome.
@@ -72,20 +113,60 @@ export type OutboxPeekResult =
   | { kind: 'failed'; stage: 'list' | 'read' | 'decode'; path: string; error: unknown };
 
 export class OutboxReader {
-  constructor(
-    private readonly fs: FileSystem,
-    private readonly audit: MessagingAuditSink,
-  ) {}
+  readonly clawRoot: string;
+  private readonly fs: FileSystem;
+  private readonly audit: MessagingAuditSink;
+  private readonly mintedClaims = new WeakSet<OutboxClaimHandle>();
+  private readonly claimSettlements = new WeakMap<OutboxClaimHandle, 'settling' | 'settled'>();
+  private readonly failedTargets = new WeakMap<OutboxClaimHandle, { message: string; reason: string }>();
+
+  constructor(options: OutboxReaderOptions) {
+    this.clawRoot = options.clawRoot;
+    this.fs = options.fs;
+    this.audit = options.audit;
+  }
 
   /**
    * Ensure outbox directories exist + reconcile orphaned processing files back to pending.
+   * Every ensure/list/read/move failure is returned to the caller as degraded.
    */
-  async init(clawDir: string): Promise<void> {
-    await this.fs.ensureDir(path.join(clawDir, OUTBOX_PENDING_DIR));
-    await this.fs.ensureDir(path.join(clawDir, OUTBOX_PROCESSING_DIR));
-    await this.fs.ensureDir(path.join(clawDir, OUTBOX_DONE_DIR));
-    await this._reconcileProcessing(clawDir);
-    await this._recoverStaged(clawDir);
+  async init(): Promise<OutboxInitResult> {
+    const progress: RecoveryProgress = { recovered: 0 };
+    try {
+      for (const dir of [OUTBOX_PENDING_DIR, OUTBOX_PROCESSING_DIR, OUTBOX_DONE_DIR]) {
+        const fullPath = path.join(this.clawRoot, dir);
+        try {
+          await this.fs.ensureDir(fullPath);
+        } catch (error) {
+          emitOutboxClaimFailed(this.audit, {
+            file: fullPath,
+            op: 'init_ensure_dir',
+            reason: formatErr(error),
+          });
+          throw new OutboxInitError('ensure_dir', fullPath, error);
+        }
+      }
+      await this._reconcileProcessing(this.clawRoot, progress);
+      await this._recoverStaged(this.clawRoot, progress);
+      return { kind: 'ready', recovered: progress.recovered };
+    } catch (error) {
+      if (error instanceof OutboxInitError) {
+        emitOutboxInitDegraded(this.audit, {
+          stage: error.stage,
+          path: error.path,
+          reason: formatErr(error.error),
+          recovered: progress.recovered,
+        });
+        return {
+          kind: 'degraded',
+          stage: error.stage,
+          path: error.path,
+          error: error.error,
+          recovered: progress.recovered,
+        };
+      }
+      throw error;
+    }
   }
 
   /**
@@ -93,21 +174,36 @@ export class OutboxReader {
    * Guarantees crash recovery: a claimed message that was not marked done/failed
    * will eventually be re-delivered.
    */
-  private async _reconcileProcessing(clawDir: string): Promise<void> {
+  private async _reconcileProcessing(
+    clawDir: string,
+    progress: RecoveryProgress,
+  ): Promise<void> {
     const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
+
+    let observationStore: ClaimObservationStore | undefined;
+    const getObservationStore = (): ClaimObservationStore => {
+      observationStore ??= new ClaimObservationStore(this.fs, processingDir);
+      return observationStore;
+    };
 
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(processingDir, { includeDirs: false });
     } catch (err) {
-      if (isFileNotFound(err)) return;
-      emitOutboxListFailed(this.audit, {
-        dir: processingDir,
-        reason: formatErr(err),
-      });
-      return;
+      if (isFileNotFound(err)) {
+        entries = [];
+      } else {
+        emitOutboxListFailed(this.audit, {
+          dir: processingDir,
+          reason: formatErr(err),
+        });
+        await recordRecoveryIo(getObservationStore(), this.audit, {
+          operation: 'list', stage: 'list', path: processingDir, error: err,
+        });
+        throw new OutboxInitError('list', processingDir, err);
+      }
     }
 
     // pending 列目录失败仍中止 reconcile（保留 audit）；快照不再用于分流决策
@@ -115,20 +211,22 @@ export class OutboxReader {
     try {
       await this.fs.list(pendingDir, { includeDirs: false });
     } catch (err) {
-      emitOutboxListFailed(this.audit, {
-        dir: pendingDir,
-        op: 'reconcile',
-        reason: formatErr(err),
-      });
-      return;
+      if (isFileNotFound(err)) {
+        // A missing pending directory is an empty recovery target, not an I/O failure.
+      } else {
+        emitOutboxListFailed(this.audit, {
+          dir: pendingDir,
+          op: 'reconcile',
+          reason: formatErr(err),
+        });
+        await recordRecoveryIo(new ClaimObservationStore(this.fs, pendingDir), this.audit, {
+          operation: 'list', stage: 'list', path: pendingDir, error: err,
+        });
+        throw new OutboxInitError('list', pendingDir, err);
+      }
     }
 
     let revertedCount = 0;
-    let observationStore: ClaimObservationStore | undefined;
-    const getObservationStore = (): ClaimObservationStore => {
-      observationStore ??= new ClaimObservationStore(this.fs, processingDir);
-      return observationStore;
-    };
 
     const CLAIM_TOKEN_RE = /^cli_(\d+)_([0-9a-f]+)_[0-9a-z]+_(.+\.md)$/i;
     const OLD_TOKEN_RE = /^cli_(\d+)_[0-9a-z]+_(.+\.md)$/i;
@@ -157,12 +255,24 @@ export class OutboxReader {
             ...(error.raw !== undefined && { raw: error.raw }),
             issue: error.issue,
           };
+          const recoveryPath = error.recordPath ?? path.join(processingDir, entry.name);
+          const recoveryError = error.cause ?? error;
+          if (error.issue.kind === 'io') {
+            await recordRecoveryIo(getObservationStore(), this.audit, {
+              operation: 'read',
+              stage: 'read',
+              path: recoveryPath,
+              error: recoveryError,
+              rawName: entry.name,
+              originalName: entry.name,
+            });
+          }
           await getObservationStore().recordObservation({
             rawName: entry.name,
             originalName: entry.name,
             claim,
-          }, { originalClaimReadError: error.cause ?? error });
-          throw error;
+          }, { originalClaimReadError: recoveryError });
+          throw new OutboxInitError('read', recoveryPath, error);
         }
         originalName = loaded.descriptor.originalName;
         claim = { recordPath: loaded.recordPath, raw: loaded.raw };
@@ -173,18 +283,29 @@ export class OutboxReader {
         const stat = await this.fs.stat(sourcePath);
         mtime = stat.mtime.getTime();
       } catch (err) {
-        emitOutboxClaimFailed(this.audit, {
-          file: entry.name,
-          op: 'reconcile_stat',
-          reason: formatErr(err),
-        });
+        if (!isFileNotFound(err)) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_stat',
+            reason: formatErr(err),
+          });
+          await recordRecoveryIo(getObservationStore(), this.audit, {
+            operation: 'stat',
+            stage: 'read',
+            path: sourcePath,
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
+        }
         await getObservationStore().recordDecision({
           rawName: entry.name,
           originalName,
           ...(claim !== undefined && { claim }),
           decision: { kind: 'skip', reason: isFileNotFound(err) ? 'source_absent' : 'stat_failed' },
         }, { originalStatError: err });
-        continue;
+        if (isFileNotFound(err)) continue;
+        throw new OutboxInitError('read', sourcePath, err);
       }
 
       const observedAtMs = Date.now();
@@ -230,12 +351,13 @@ export class OutboxReader {
             decision,
           });
           if (decoded.kind !== 'decoded') {
-            throw new ClaimRecordUnavailableError(entry.name, {
+            const error = new ClaimRecordUnavailableError(entry.name, {
               kind: decoded.kind === 'unsupported_version' ? 'unsupported' : 'invalid',
               detail: decoded.kind === 'invalid'
                 ? `process reference is invalid: ${decoded.reason}`
                 : 'process reference version is not supported',
             }, { recordPath: loaded.recordPath, raw: loaded.raw });
+            throw new OutboxInitError('read', loaded.recordPath, error);
           }
         } else {
           await store.recordObservation({ rawName: entry.name, originalName, claim });
@@ -321,6 +443,7 @@ export class OutboxReader {
       //             异 → staging 进 failed/ DLQ（冲突，双保留）。
       const stageName = `.tmp_${newShortUuid()}_${originalName}.staging`;
       const stagePath = path.join(pendingDir, stageName);
+      const completedActions: string[] = [];
       try {
         await this.fs.move(sourcePath, stagePath);
       } catch (err) {
@@ -330,16 +453,44 @@ export class OutboxReader {
           op: 'reconcile_pending',
           reason: formatErr(err),
         });
-        continue;
+        await recordRecoveryIo(getObservationStore(), this.audit, {
+          operation: 'move',
+          stage: 'move',
+          path: sourcePath,
+          sourcePath,
+          targetPath: stagePath,
+          completedActions: [...completedActions],
+          error: err,
+          rawName: entry.name,
+          originalName,
+        });
+        throw new OutboxInitError('move', sourcePath, err);
       }
+      completedActions.push('stage');
 
-      // staging 出错时尽量搬回 processing，恢复原状等下次 reconcile，不滞留 pending。
+      // staging 出错时尽量搬回 processing；恢复失败同样是 init degraded。
       const restoreStage = async (): Promise<void> => {
         try {
           await this.fs.move(stagePath, sourcePath);
-        } catch {
-          // silent: staging 已不在（并发清理）或搬回失败 —— 残留 .staging 不可 drain，
-          // 错误已 audit，下轮启动人工/工具可检。
+        } catch (error) {
+          if (isFileNotFound(error)) return;
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_restore',
+            reason: formatErr(error),
+          });
+          await recordRecoveryIo(getObservationStore(), this.audit, {
+            operation: 'move',
+            stage: 'move',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath: sourcePath,
+            completedActions: [...completedActions],
+            error,
+            rawName: entry.name,
+            originalName,
+          });
+          throw new OutboxInitError('move', stagePath, error);
         }
       };
 
@@ -353,8 +504,19 @@ export class OutboxReader {
             op: 'reconcile_compare_read',
             reason: formatErr(err),
           });
+          await recordRecoveryIo(getObservationStore(), this.audit, {
+            operation: 'read',
+            stage: 'read',
+            path: targetPath,
+            sourcePath: stagePath,
+            targetPath,
+            completedActions: [...completedActions],
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
           await restoreStage();
-          continue;
+          throw new OutboxInitError('read', targetPath, err);
         }
         targetContent = null;
       }
@@ -365,13 +527,25 @@ export class OutboxReader {
         try {
           stageContent = await this.fs.read(stagePath);
         } catch (err) {
+          if (isFileNotFound(err)) continue;
           emitOutboxClaimFailed(this.audit, {
             file: entry.name,
             op: 'reconcile_compare_read',
             reason: formatErr(err),
           });
+          await recordRecoveryIo(getObservationStore(), this.audit, {
+            operation: 'read',
+            stage: 'read',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath,
+            completedActions: [...completedActions],
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
           await restoreStage();
-          continue;
+          throw new OutboxInitError('read', stagePath, err);
         }
         try {
           this.fs.writeExclusiveSync(targetPath, stageContent);
@@ -382,20 +556,49 @@ export class OutboxReader {
               op: 'reconcile_pending',
               reason: formatErr(err),
             });
+            if (!isFileNotFound(err)) {
+              await recordRecoveryIo(getObservationStore(), this.audit, {
+                operation: 'restore',
+                stage: 'move',
+                path: targetPath,
+                sourcePath: stagePath,
+                targetPath,
+                completedActions: [...completedActions],
+                error: err,
+                rawName: entry.name,
+                originalName,
+              });
+            }
             await restoreStage();
-            continue;
+            throw new OutboxInitError('move', targetPath, err);
           }
           // 目标在快照/读取后并发出现 —— 重读进 Stage 3
           try {
             targetContent = await this.fs.read(targetPath);
           } catch (readErr) {
-            emitOutboxClaimFailed(this.audit, {
-              file: entry.name,
-              op: 'reconcile_compare_read',
-              reason: formatErr(readErr),
-            });
-            await restoreStage();
-            continue;
+            if (isFileNotFound(readErr)) {
+              // The target vanished again; leave staging for the next idempotent pass.
+              continue;
+            } else {
+              emitOutboxClaimFailed(this.audit, {
+                file: entry.name,
+                op: 'reconcile_compare_read',
+                reason: formatErr(readErr),
+              });
+              await recordRecoveryIo(getObservationStore(), this.audit, {
+                operation: 'read',
+                stage: 'read',
+                path: targetPath,
+                sourcePath: stagePath,
+                targetPath,
+                completedActions: [...completedActions],
+                error: readErr,
+                rawName: entry.name,
+                originalName,
+              });
+              await restoreStage();
+              throw new OutboxInitError('read', targetPath, readErr);
+            }
           }
         }
         if (targetContent === null) {
@@ -409,9 +612,22 @@ export class OutboxReader {
                 op: 'reconcile_pending',
                 reason: formatErr(err),
               });
+              await recordRecoveryIo(getObservationStore(), this.audit, {
+                operation: 'delete',
+                stage: 'move',
+                path: stagePath,
+                sourcePath: stagePath,
+                targetPath,
+                completedActions: [...completedActions, 'publish'],
+                error: err,
+                rawName: entry.name,
+                originalName,
+              });
+              throw new OutboxInitError('move', stagePath, err);
             }
           }
           revertedCount++;
+          progress.recovered++;
           continue;
         }
       }
@@ -421,36 +637,80 @@ export class OutboxReader {
       try {
         stageContent = await this.fs.read(stagePath);
       } catch (err) {
+        if (isFileNotFound(err)) continue;
         emitOutboxClaimFailed(this.audit, {
           file: entry.name,
           op: 'reconcile_compare_read',
           reason: formatErr(err),
         });
+        await recordRecoveryIo(getObservationStore(), this.audit, {
+          operation: 'read',
+          stage: 'read',
+          path: stagePath,
+          error: err,
+          rawName: entry.name,
+          originalName,
+        });
         await restoreStage();
-        continue;
+        throw new OutboxInitError('read', stagePath, err);
       }
       if (stageContent === targetContent) {
         // 同内容 → 已被其他 consumer 重投递；归档 staging 副本（去重）
         try {
           await this.fs.move(stagePath, path.join(doneDir, entry.name));
         } catch (err) {
+          if (isFileNotFound(err)) continue;
           emitOutboxClaimFailed(this.audit, {
             file: entry.name,
             op: 'reconcile_archive',
             reason: formatErr(err),
           });
+          await recordRecoveryIo(getObservationStore(), this.audit, {
+            operation: 'move',
+            stage: 'move',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath: path.join(doneDir, entry.name),
+            completedActions: [...completedActions],
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
+          throw new OutboxInitError('move', stagePath, err);
         }
       } else {
         // 异内容 → 冲突，staging 副本进 DLQ（双保留）
         try {
           await this.fs.ensureDir(failedDir);
-          await this.fs.move(stagePath, path.join(failedDir, entry.name));
         } catch (err) {
           emitOutboxClaimFailed(this.audit, {
             file: entry.name,
             op: 'reconcile_dlq',
             reason: formatErr(err),
           });
+          throw new OutboxInitError('ensure_dir', failedDir, err);
+        }
+        try {
+          await this.fs.move(stagePath, path.join(failedDir, entry.name));
+        } catch (err) {
+          if (isFileNotFound(err)) continue;
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_dlq',
+            reason: formatErr(err),
+          });
+          await recordRecoveryIo(getObservationStore(), this.audit, {
+            operation: 'move',
+            stage: 'move',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath: path.join(failedDir, entry.name),
+            completedActions: [...completedActions],
+            error: err,
+            rawName: entry.name,
+            originalName,
+          });
+          throw new OutboxInitError('move', stagePath, err);
         }
       }
     }
@@ -464,11 +724,15 @@ export class OutboxReader {
    * Recover crash-leftover pending/.tmp_*.staging files after processing reconcile.
    * The pending target is published only with O_EXCL; existing targets are never overwritten.
    */
-  private async _recoverStaged(clawDir: string): Promise<void> {
+  private async _recoverStaged(
+    clawDir: string,
+    progress: RecoveryProgress,
+  ): Promise<void> {
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
     const STAGE_RE = /^\.tmp_[a-f0-9]{8}_(.+\.md)\.staging$/i;
 
+    const observationStore = new ClaimObservationStore(this.fs, pendingDir);
     let entries: { name: string }[];
     try {
       entries = await this.fs.list(pendingDir, { includeDirs: false });
@@ -479,7 +743,10 @@ export class OutboxReader {
         op: 'recover_stage',
         reason: formatErr(err),
       });
-      return;
+      await recordRecoveryIo(observationStore, this.audit, {
+        operation: 'list', stage: 'list', path: pendingDir, error: err,
+      });
+      throw new OutboxInitError('list', pendingDir, err);
     }
 
     let revertedCount = 0;
@@ -494,6 +761,15 @@ export class OutboxReader {
         );
         try {
           await this.fs.ensureDir(failedDir);
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'recover_stage_quarantine',
+            reason: formatErr(err),
+          });
+          throw new OutboxInitError('ensure_dir', failedDir, err);
+        }
+        try {
           await this.fs.move(stagePath, quarantinePath);
         } catch (err) {
           if (isFileNotFound(err)) continue;
@@ -502,7 +778,17 @@ export class OutboxReader {
             op: 'recover_stage_quarantine',
             reason: formatErr(err),
           });
-          continue;
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'move',
+            stage: 'move',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath: quarantinePath,
+            completedActions: ['stage_existing'],
+            error: err,
+            rawName: entry.name,
+          });
+          throw new OutboxInitError('move', stagePath, err);
         }
         emitOutboxStageQuarantine(this.audit, {
           file: entry.name,
@@ -517,15 +803,22 @@ export class OutboxReader {
           entry.name,
           match[1],
           'startup_stage_recover',
+          true,
         );
-        if (result === 'restored') revertedCount++;
+        if (result === 'restored') {
+          revertedCount++;
+          progress.recovered++;
+        }
       } catch (err) {
         if (isFileNotFound(err)) continue;
+        if (err instanceof ClaimObservationPersistenceError) throw err;
         emitOutboxClaimFailed(this.audit, {
           file: entry.name,
           op: 'recover_stage',
-          reason: formatErr(err),
+          reason: formatErr(err instanceof OutboxInitError ? err.error : err),
         });
+        if (err instanceof OutboxInitError) throw err;
+        throw new OutboxInitError('read', stagePath, err);
       }
     }
 
@@ -545,41 +838,127 @@ export class OutboxReader {
     stageName: string,
     originalName: string,
     recoveryReason: 'startup_stage_recover' | 'claim_rollback',
+    forInit = false,
   ): Promise<'restored' | 'deduped' | 'conflict'> {
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const stagePath = path.join(pendingDir, stageName);
     const targetPath = path.join(pendingDir, originalName);
-    const stageContent = await this.fs.read(stagePath);
+    const observationStore = new ClaimObservationStore(this.fs, pendingDir);
+    const identity = { rawName: stageName, originalName };
+    const completedActions = ['stage_existing'];
+    const read = async (filePath: string): Promise<string> => {
+      try {
+        return await this.fs.read(filePath);
+      } catch (error) {
+        if (!isFileNotFound(error)) {
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'read',
+            stage: 'read',
+            path: filePath,
+            sourcePath: filePath,
+            targetPath: filePath === targetPath ? stagePath : targetPath,
+            completedActions: [...completedActions],
+            error,
+            ...identity,
+          });
+          if (forInit) throw new OutboxInitError('read', filePath, error);
+        }
+        throw error;
+      }
+    };
+    const ensureDir = async (dir: string): Promise<void> => {
+      try {
+        await this.fs.ensureDir(dir);
+      } catch (error) {
+        if (forInit) throw new OutboxInitError('ensure_dir', dir, error);
+        throw error;
+      }
+    };
+    const move = async (from: string, to: string): Promise<void> => {
+      try {
+        await this.fs.move(from, to);
+      } catch (error) {
+        if (!isFileNotFound(error)) {
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'move',
+            stage: 'move',
+            path: from,
+            sourcePath: from,
+            targetPath: to,
+            completedActions: [...completedActions],
+            error,
+            ...identity,
+          });
+          if (forInit) throw new OutboxInitError('move', from, error);
+        }
+        throw error;
+      }
+    };
+    const publish = async (): Promise<void> => {
+      try {
+        this.fs.writeExclusiveSync(targetPath, stageContent);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' && !isFileNotFound(error)) {
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'restore',
+            stage: 'move',
+            path: targetPath,
+            sourcePath: stagePath,
+            targetPath,
+            completedActions: [...completedActions],
+            error,
+            ...identity,
+          });
+          if (forInit) throw new OutboxInitError('move', targetPath, error);
+        }
+        throw error;
+      }
+    };
+    const stageContent = await read(stagePath);
 
-    const deleteStage = (): void => {
+    const deleteStage = async (): Promise<void> => {
       try {
         this.fs.deleteSync(stagePath);
       } catch (err) {
-        if (!isFileNotFound(err)) throw err;
+        if (!isFileNotFound(err)) {
+          await recordRecoveryIo(observationStore, this.audit, {
+            operation: 'delete',
+            stage: 'move',
+            path: stagePath,
+            sourcePath: stagePath,
+            targetPath,
+            completedActions: [...completedActions],
+            error: err,
+            ...identity,
+          });
+          if (forInit) throw new OutboxInitError('move', stagePath, err);
+          throw err;
+        }
       }
     };
 
     let targetContent: string | null = null;
     try {
-      targetContent = await this.fs.read(targetPath);
+      targetContent = await read(targetPath);
     } catch (err) {
       if (!isFileNotFound(err)) throw err;
     }
 
     if (targetContent === null) {
       try {
-        this.fs.writeExclusiveSync(targetPath, stageContent);
-        deleteStage();
+        await publish();
+        completedActions.push('publish');
+        await deleteStage();
         return 'restored';
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
         try {
-          targetContent = await this.fs.read(targetPath);
+          targetContent = await read(targetPath);
         } catch (readErr) {
           if (!isFileNotFound(readErr)) throw readErr;
           // The target vanished between EEXIST and re-read; retry the exclusive publish once.
-          this.fs.writeExclusiveSync(targetPath, stageContent);
-          deleteStage();
+          await publish();
+          await deleteStage();
           return 'restored';
         }
       }
@@ -587,8 +966,8 @@ export class OutboxReader {
 
     if (stageContent === targetContent) {
       const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
-      await this.fs.ensureDir(doneDir);
-      await this.fs.move(
+      await ensureDir(doneDir);
+      await move(
         stagePath,
         path.join(doneDir, `${Date.now()}_${newShortUuid()}_${originalName}`),
       );
@@ -602,8 +981,8 @@ export class OutboxReader {
     }
 
     const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
-    await this.fs.ensureDir(failedDir);
-    await this.fs.move(
+    await ensureDir(failedDir);
+    await move(
       stagePath,
       path.join(failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`),
     );
@@ -622,59 +1001,47 @@ export class OutboxReader {
   ): Promise<'restored' | 'deduped' | 'conflict'> {
     const stageName = `.tmp_${newShortUuid()}_${fileName}.staging`;
     const stagePath = path.join(clawDir, OUTBOX_PENDING_DIR, stageName);
-    await this.fs.move(claimPath, stagePath);
+    try {
+      await this.fs.move(claimPath, stagePath);
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        await recordRecoveryIo(new ClaimObservationStore(this.fs, path.dirname(claimPath)), this.audit, {
+          operation: 'move',
+          stage: 'claim_rollback',
+          path: claimPath,
+          sourcePath: claimPath,
+          targetPath: stagePath,
+          completedActions: [],
+          error,
+          rawName: path.basename(claimPath),
+          originalName: fileName,
+        });
+      }
+      throw error;
+    }
     return this._resolveStagedFile(clawDir, stageName, fileName, 'claim_rollback');
   }
 
   /**
-   * List `.md` filenames in `<clawDir>/outbox/pending`.
-   *
-   * Use case: aggregator queries (outbox-summary unread count) 不该自己 fs.list outbox。
-   *
-   * @param clawDir absolute path to a claw root (per string convention)
-   * @returns sorted filename array (basename, not absolute path)
-   *   - empty array if dir missing / list failed (silent)
+   * List pending filenames. ENOENT is a legal empty state; every other list
+   * failure retains the original error and audits the exact same reason.
    */
-  async listClawOutboxPending(clawDir: string): Promise<string[]> {
-    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
-    let entries: Awaited<ReturnType<FileSystem['list']>>;
-    try {
-      entries = await this.fs.list(pendingDir, { includeDirs: false });
-    } catch (err) {
-      if (isFileNotFound(err)) return [];
-      throw err;
-    }
-    return entries
-      .filter(e => e.name.endsWith('.md'))
-      .map(e => e.name)
-      .sort();
-  }
-
-  /**
-   * List pending filenames with a discriminated result so callers can distinguish
-   * an empty outbox from an I/O failure.
-   */
-  private async listClawOutboxPendingResult(
-    clawDir: string,
-  ): Promise<{ ok: true; value: string[] } | { ok: false; error: string }> {
-    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+  async listPendingResult(): Promise<OutboxListResult> {
+    const pendingDir = path.join(this.clawRoot, OUTBOX_PENDING_DIR);
     try {
       const entries = await this.fs.list(pendingDir, { includeDirs: false });
-      return {
-        ok: true,
-        value: entries
-          .filter(e => e.name.endsWith('.md'))
-          .map(e => e.name)
-          .sort(),
-      };
-    } catch (err) {
-      if (isFileNotFound(err)) return { ok: true, value: [] };
-      const reason = formatErr(err);
+      const files = entries
+        .filter(e => e.name.endsWith('.md'))
+        .map(e => e.name)
+        .sort();
+      return files.length === 0 ? { kind: 'empty', files: [] } : { kind: 'found', files };
+    } catch (error) {
+      if (isFileNotFound(error)) return { kind: 'empty', files: [] };
       emitOutboxListFailed(this.audit, {
         dir: pendingDir,
-        reason,
+        reason: formatErr(error),
       });
-      return { ok: false, error: reason };
+      return { kind: 'failed', stage: 'list', path: pendingDir, error };
     }
   }
 
@@ -699,26 +1066,27 @@ export class OutboxReader {
    *     error — including ambiguous ones where the file location is not provably settled
    *     (e.g. transient EIO/timeout or vanished source) — maps here conservatively.
    *
-   * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed()/markSkipped().
+   * Successful claims are branded handles bound to this reader and clawRoot.
+   * Settlement accepts only that exact minted object, never a bare path or clone.
    *
    * phase 1748: opts.readContent === false 时跳过 fs.read（outbox-skip 不读内容、
    * rollback 语义只对已读失败保留）；默认行为不变（drain 调用点零改动）。
    *
-   * @param clawDir absolute path to a claw root
    * @param opts readContent === false → claim without reading content
    * @returns ClaimResult
    */
   async claimNext(
-    clawDir: string,
     opts: { readContent?: boolean } = {},
   ): Promise<ClaimResult> {
-    const listResult = await this.listClawOutboxPendingResult(clawDir);
-    if (!listResult.ok) return { status: 'io_error', error: listResult.error };
-    if (listResult.value.length === 0) return { status: 'empty' };
+    const listResult = await this.listPendingResult();
+    if (listResult.kind === 'failed') {
+      return { status: 'io_error', error: formatErr(listResult.error) };
+    }
+    if (listResult.kind === 'empty') return { status: 'empty' };
 
-    const fileName = listResult.value[0]; // oldest first
-    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
-    const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
+    const fileName = listResult.files[0]; // oldest first
+    const pendingDir = path.join(this.clawRoot, OUTBOX_PENDING_DIR);
+    const processingDir = path.join(this.clawRoot, OUTBOX_PROCESSING_DIR);
     const prepared = await prepareClaimRecord(this.fs, processingDir, 'outbox', fileName);
     const relPendingPath = path.join(pendingDir, fileName);
     const relClaimedPath = path.join(processingDir, prepared.claimName);
@@ -764,10 +1132,24 @@ export class OutboxReader {
           op: 'read',
           reason,
         });
+        if (!isFileNotFound(err)) {
+          await recordRecoveryIo(new ClaimObservationStore(this.fs, processingDir), this.audit, {
+            operation: 'read',
+            stage: 'claim_read',
+            path: relClaimedPath,
+            sourcePath: relClaimedPath,
+            targetPath: path.join(pendingDir, fileName),
+            completedActions: ['claim'],
+            error: err,
+            rawName: prepared.claimName,
+            originalName: fileName,
+          });
+        }
         // Roll back through the same no-overwrite staging protocol as startup recovery.
         try {
-          await this._restoreClaimToPending(clawDir, relClaimedPath, fileName);
+          await this._restoreClaimToPending(this.clawRoot, relClaimedPath, fileName);
         } catch (rollbackErr) {
+          if (rollbackErr instanceof ClaimObservationPersistenceError) throw rollbackErr;
           // Rollback failed (or outcome undecidable): the file stays in processing
           // and disposition is incomplete. Return recovery_required carrying both
           // errors + claim identity; do NOT delete the file — restart reconcile
@@ -784,83 +1166,142 @@ export class OutboxReader {
             rollbackError: rollbackReason,
             claimPath,
             filename: fileName,
+            handle: this.mintClaim(claimPath, fileName, {}),
           };
         }
         return { status: 'io_error', error: reason };
       }
     }
 
-    return { status: 'claimed', claimPath, filename: fileName, content };
+    return this.mintClaim(claimPath, fileName, { status: 'claimed' as const, content });
+  }
+
+  private mintClaim<T extends object>(
+    claimPath: string,
+    filename: string,
+    extra: T,
+  ): OutboxClaimHandle & T {
+    const reader = this;
+    const handle = {
+      claimPath,
+      filename,
+      ...extra,
+      async markDone(this: OutboxClaimHandle): Promise<void> {
+        await reader.markDone(this);
+      },
+      async markSkipped(this: OutboxClaimHandle): Promise<void> {
+        await reader.markSkipped(this);
+      },
+      async markFailed(this: OutboxClaimHandle, error: unknown): Promise<void> {
+        await reader.markFailed(this, error);
+      },
+    } as OutboxClaimHandle & T;
+    this.mintedClaims.add(handle);
+    return Object.freeze(handle);
+  }
+
+  private beginSettlement(handle: OutboxClaimHandle): void {
+    if (!this.mintedClaims.has(handle)) {
+      throw new OutboxClaimBindingError('Outbox claim handle was not minted by this reader');
+    }
+    if (this.claimSettlements.has(handle)) {
+      throw new OutboxClaimBindingError(`Outbox claim is already settling or settled: ${handle.claimPath}`);
+    }
+    this.claimSettlements.set(handle, 'settling');
+  }
+
+  private finishSettlement(handle: OutboxClaimHandle): void {
+    this.claimSettlements.set(handle, 'settled');
+  }
+
+  private retrySettlement(handle: OutboxClaimHandle): void {
+    this.claimSettlements.delete(handle);
   }
 
   private async archiveClaim(
-    clawDir: string,
-    claimPath: string,
-    originalFilename: string,
+    handle: OutboxClaimHandle,
     kind: 'done' | 'skipped',
   ): Promise<void> {
-    const normalizedClaimPath = path.normalize(claimPath);
-    const processingPrefix = path.join(OUTBOX_PROCESSING_DIR) + path.sep;
-    if (
-      normalizedClaimPath === '..' ||
-      normalizedClaimPath.startsWith('..' + path.sep) ||
-      normalizedClaimPath.startsWith('../') ||
-      !normalizedClaimPath.startsWith(processingPrefix)
-    ) {
-      throw new Error(`Path traversal detected in claimPath: "${claimPath}"`);
-    }
-
-    const safeOriginal = path.basename(originalFilename);
-    if (!safeOriginal.endsWith('.md') || safeOriginal.includes('..')) {
-      throw new Error(`Invalid originalFilename: "${originalFilename}"`);
-    }
-
-    const processingFullPath = path.join(clawDir, normalizedClaimPath);
-    const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
-    await this.fs.ensureDir(doneDir);
-    const donePath = path.join(doneDir, `${Date.now()}_${safeOriginal}`);
+    this.beginSettlement(handle);
+    const processingFullPath = path.join(this.clawRoot, handle.claimPath);
+    const doneDir = path.join(this.clawRoot, OUTBOX_DONE_DIR);
+    const donePath = path.join(doneDir, `${Date.now()}_${handle.filename}`);
     try {
+      await this.fs.ensureDir(doneDir);
       await this.fs.move(processingFullPath, donePath);
-    } catch (err) {
+    } catch (error) {
+      this.retrySettlement(handle);
       emitOutboxClaimFailed(this.audit, {
-        file: originalFilename,
+        file: handle.filename,
         op: kind,
-        reason: formatErr(err),
+        reason: formatErr(error),
       });
-      throw new OutboxMoveFailed(processingFullPath, kind, err);
+      throw new OutboxMoveFailed(processingFullPath, kind, error);
     }
 
+    this.finishSettlement(handle);
     if (kind === 'done') {
-      emitOutboxDelivered(this.audit, { file: originalFilename, deliveredAt: Date.now() });
+      emitOutboxDelivered(this.audit, { file: handle.filename, deliveredAt: Date.now() });
     } else {
-      emitOutboxSkipped(this.audit, { file: originalFilename, skippedAt: Date.now() });
+      emitOutboxSkipped(this.audit, { file: handle.filename, skippedAt: Date.now() });
     }
   }
 
-  /**
-   * Mark a claimed outbox message as done — move processing/ → done/.
-   *
-   * @param clawDir absolute path to a claw root
-   * @param claimPath relative path within clawDir (returned by claimNext)
-   * @param originalFilename original pending filename (for audit trail)
-   */
-  async markDone(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
-    await this.archiveClaim(clawDir, claimPath, originalFilename, 'done');
+  /** Settle only the exact handle minted by this reader. */
+  async markDone(handle: OutboxClaimHandle): Promise<void> {
+    await this.archiveClaim(handle, 'done');
+  }
+
+  /** Archive without reporting delivery. */
+  async markSkipped(handle: OutboxClaimHandle): Promise<void> {
+    await this.archiveClaim(handle, 'skipped');
   }
 
   /**
-   * Mark a claimed outbox message as skipped — move processing/ → done/ WITHOUT
-   * emitting delivered (phase 1748 outbox-skip).
-   *
-   * Path traversal 校验与 markDone 完全一致；归档目标同 done/<ts>_<origName>.md。
-   * 独立 audit 事件 outbox_skipped（不误报 delivered，区别于 markDone）。
-   *
-   * @param clawDir absolute path to a claw root
-   * @param claimPath relative path within clawDir (returned by claimNext)
-   * @param originalFilename original pending filename (for audit trail)
+   * Move processing → failed and atomically persist the consumption reason.
+   * Failure throws settlement_required with both errors; it never reports success.
    */
-  async markSkipped(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
-    await this.archiveClaim(clawDir, claimPath, originalFilename, 'skipped');
+  async markFailed(handle: OutboxClaimHandle, error: unknown): Promise<void> {
+    this.beginSettlement(handle);
+    const processingFullPath = path.join(this.clawRoot, handle.claimPath);
+    const failedDir = path.join(this.clawRoot, OUTBOX_FAILED_DIR);
+    const reason = formatErr(error);
+    try {
+      await this.fs.ensureDir(failedDir);
+      let target = this.failedTargets.get(handle);
+      if (target === undefined) {
+        const failedPath = path.join(
+          failedDir,
+          `${Date.now()}_${newShortUuid()}_${handle.filename}`,
+        );
+        target = { message: failedPath, reason: `${failedPath}.reason.json` };
+        this.failedTargets.set(handle, target);
+      }
+      await this.fs.writeAtomicExisting(target.reason, JSON.stringify({
+        schema_version: 1,
+        reason,
+        failed_at: new Date().toISOString(),
+        claim_path: handle.claimPath,
+        original_filename: handle.filename,
+      }, null, 2));
+      await this.fs.move(processingFullPath, target.message);
+    } catch (settlementError) {
+      this.retrySettlement(handle);
+      emitOutboxSettlementFailed(this.audit, {
+        file: handle.filename,
+        claimPath: handle.claimPath,
+        reason,
+        settlementReason: formatErr(settlementError),
+      });
+      throw new OutboxSettlementRequired(
+        handle.claimPath,
+        handle.filename,
+        error,
+        settlementError,
+      );
+    }
+    this.finishSettlement(handle);
+    emitOutboxFailed(this.audit, { file: handle.filename, reason });
   }
 
   /**
@@ -880,23 +1321,20 @@ export class OutboxReader {
    *  - failed：携带 stage/path/原始 error（audit 保留），caller 必须显式处理，
    *    不得当空队列降级展示
    *
-   * @param clawDir absolute path to a claw root
    */
-  async peekLastOutboxPending(clawDir: string): Promise<OutboxPeekResult> {
-    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
-    let filenames: string[];
-    try {
-      filenames = await this.listClawOutboxPending(clawDir);
-    } catch (err) {
+  async peekLastOutboxPending(): Promise<OutboxPeekResult> {
+    const pendingDir = path.join(this.clawRoot, OUTBOX_PENDING_DIR);
+    const listed = await this.listPendingResult();
+    if (listed.kind === 'failed') {
       emitOutboxPeekFailed(this.audit, {
-        file: pendingDir,
+        file: listed.path,
         stage: 'list',
-        reason: formatErr(err),
+        reason: formatErr(listed.error),
       });
-      return { kind: 'failed', stage: 'list', path: pendingDir, error: err };
+      return listed;
     }
-    if (filenames.length === 0) return { kind: 'empty' };
-    const latest = filenames[filenames.length - 1];
+    if (listed.kind === 'empty') return { kind: 'empty' };
+    const latest = listed.files[listed.files.length - 1];
     const filePath = path.join(pendingDir, latest);
     let raw: string;
     try {
@@ -922,4 +1360,10 @@ export class OutboxReader {
     }
     return { kind: 'found', filename: latest, message };
   }
+}
+
+
+/** Preferred construction entry point: every reader is bound to one claw root. */
+export function createOutboxReader(options: OutboxReaderOptions): OutboxReader {
+  return new OutboxReader(options);
 }

@@ -1,19 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsAsync from 'node:fs/promises';
 import * as path from 'node:path';
-import { InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
-import { OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
-import {
-  ClaimObservationPersistenceError,
-  type ClaimRecord,
-} from '../../../src/foundation/messaging/claim-observation-store.js';
+import { createInboxReader, InboxReader } from '../../../src/foundation/messaging/inbox-reader.js';
+import { createOutboxReader, type OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
+import { ClaimObservationPersistenceError, type ClaimRecord } from '../../../src/foundation/messaging/claim-observation-store.js';
 import { ClaimRecordUnavailableError } from '../../../src/foundation/messaging/claim-record.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import {
-  captureCurrentProcessRef,
-  decodeProcessRef,
-  type ProcessRefCapture,
-} from '../../../src/foundation/process-exec/index.js';
+import { captureCurrentProcessRef, decodeProcessRef, type ProcessRefCapture } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
 const CHANNELS = ['inbox', 'outbox'] as const;
@@ -49,14 +42,13 @@ afterEach(async () => {
 
 function dirs(channel: Channel) {
   if (channel === 'inbox') {
-    const base = path.join(root, 'custom-inbox');
+    const clawDir = path.join(root, 'inbox-claw');
     return {
-      clawDir: base,
-      pendingDir: path.join(base, 'pending'),
-      doneDir: path.join(base, 'done'),
-      failedDir: path.join(base, 'failed'),
-      // Deliberately neither the default name nor a sibling derived by string replacement.
-      sourceDir: path.join(base, 'held-messages'),
+      clawDir,
+      pendingDir: path.join(clawDir, 'inbox', 'pending'),
+      doneDir: path.join(clawDir, 'inbox', 'done'),
+      failedDir: path.join(clawDir, 'inbox', 'failed'),
+      sourceDir: path.join(clawDir, 'inbox', 'inflight'),
     };
   }
   const clawDir = path.join(root, 'outbox-claw');
@@ -76,25 +68,15 @@ function makeFs(): NodeFileSystem {
 function makeReader(channel: Channel, fs = makeFs()): InboxReader | OutboxReader {
   const layout = dirs(channel);
   return channel === 'inbox'
-    ? new InboxReader(
-        layout.pendingDir,
-        layout.doneDir,
-        layout.failedDir,
-        fs,
-        noopAudit,
-        layout.sourceDir,
-      )
-    : new OutboxReader(fs, noopAudit);
+    ? createInboxReader(fs, noopAudit, layout.clawDir)
+    : createOutboxReader({ clawRoot: layout.clawDir, fs, audit: noopAudit });
 }
 
-async function initialize(channel: Channel, fs = makeFs()): Promise<void> {
+async function initialize(channel: Channel, fs = makeFs()): Promise<unknown> {
   const reader = makeReader(channel, fs);
-  if (channel === 'inbox') {
-    const result = await (reader as InboxReader).init();
-    expect(result.kind).toBe('ready');
-  } else {
-    await (reader as OutboxReader).init(dirs(channel).clawDir);
-  }
+  return channel === 'inbox'
+    ? (reader as InboxReader).init()
+    : (reader as OutboxReader).init();
 }
 
 function liveCapture(): Captured {
@@ -211,9 +193,15 @@ async function observationRecords(channel: Channel): Promise<ClaimRecord[]> {
 }
 
 async function unavailable(promise: Promise<unknown>): Promise<ClaimRecordUnavailableError> {
+  let result: unknown;
   try {
-    await promise;
+    result = await promise;
   } catch (error) {
+    expect(error).toBeInstanceOf(ClaimRecordUnavailableError);
+    return error as ClaimRecordUnavailableError;
+  }
+  if (result !== null && typeof result === 'object' && 'kind' in result && result.kind === 'degraded') {
+    const error = (result as { error: unknown }).error;
     expect(error).toBeInstanceOf(ClaimRecordUnavailableError);
     return error as ClaimRecordUnavailableError;
   }
@@ -469,7 +457,7 @@ describe('mclaim_ process-reference recovery with real NodeFS', () => {
     expect(records.find(record => record.rawName === claim.rawName && record.event === 'decision'))
       .toMatchObject({ decision: { kind: 'retain', reason: 'unknown' } });
     if (channel === 'inbox') {
-      expect(claim.sourceDir).toBe(path.join(root, 'custom-inbox', 'held-messages'));
+      expect(claim.sourceDir).toBe(path.join(root, 'inbox-claw', 'inbox/inflight'));
       expect(claim.recordPath).toBe(`${claim.sourceDir}-claims/${CLAIM_ID}/record.json`);
     }
   });
@@ -522,7 +510,7 @@ describe('mclaim_ process-reference recovery with real NodeFS', () => {
     const result = await reader.drainAndDeliver();
 
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('unreachable');
+    if (result.kind !== 'partial_failure' || result.stage !== 'claim') throw new Error('unreachable');
     expect(result.stage).toBe('claim');
     expect(result.entry).toBe(claim.rawName);
     expect(result.error).toBeInstanceOf(ClaimRecordUnavailableError);
@@ -551,7 +539,7 @@ describe('mclaim_ process-reference recovery with real NodeFS', () => {
     const result = await reader.drainAndDeliver();
 
     expect(result.kind).toBe('partial_failure');
-    if (result.kind !== 'partial_failure') throw new Error('unreachable');
+    if (result.kind !== 'partial_failure' || result.stage !== 'claim') throw new Error('unreachable');
     expect(result.stage).toBe('claim');
     expect(result.entry).toBe(claim.rawName);
     expect(result.error).toBeInstanceOf(ClaimObservationPersistenceError);

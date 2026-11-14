@@ -7,12 +7,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader, InboxWriter } from '../../../src/foundation/messaging/index.js';
-import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
+
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
+
 
 describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
   let testDir: string;
@@ -33,14 +33,8 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
         auditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
-    reader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit,
-    );
+    writer = createInboxWriter(nfs, '.', audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    reader = createInboxReader(nfs, audit, testDir);
     await reader.init();
   });
 
@@ -175,13 +169,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
         freshAuditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    const freshReader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      freshAudit,
-    );
+    const freshReader = createInboxReader(nfs, freshAudit, testDir);
     await freshReader.init();
 
     const pendingFiles = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
@@ -230,7 +218,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
         },
       };
       return {
-        reader: new InboxReader(pendingDir(), doneDir(), failedDir(), nfs, audit),
+        reader: createInboxReader(nfs, audit, testDir),
         calls,
       };
     }
@@ -376,13 +364,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // target 恢复、stage 删除
@@ -409,13 +391,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // target 已恢复、旧 stage 已删除
@@ -444,13 +420,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // target 保留、stage 删除
@@ -479,13 +449,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // target 保留原内容
@@ -517,13 +481,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // pending 中旧文件已移除
@@ -558,13 +516,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // target 保留原内容（未覆盖）
@@ -593,13 +545,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // target 保留
@@ -626,13 +572,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
           calls.push({ type, cols: cols.map(String) });
         },
       };
-      const freshReader = new InboxReader(
-        pendingDir(),
-        path.join(testDir, 'inbox', 'done'),
-        path.join(testDir, 'inbox', 'failed'),
-        nfs,
-        audit,
-      );
+      const freshReader = createInboxReader(nfs, audit, testDir);
       await freshReader.init();
 
       // pending 中旧文件已移除

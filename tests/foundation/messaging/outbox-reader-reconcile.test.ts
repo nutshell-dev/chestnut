@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { createOutboxReader } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { encodeProcessEvidence } from '../../../src/foundation/process-exec/process-evidence.js';
@@ -66,15 +66,16 @@ function makeMockFs(overrides: {
   read?: (path: string) => Promise<string>;
   stat?: (path: string) => Promise<{ mtime: Date; ctime: Date; size: number; isDirectory: boolean; isFile: boolean }>;
   move?: (src: string, dest: string) => Promise<void>;
+  ensureDir?: (path: string) => Promise<void>;
   writeExclusiveSync?: (path: string, content: string) => void;
-  mkdirExclusiveSync?: (path: string) => void;
+  mkdirExclusiveSync?: (path: string) => string;
   writeAtomic?: (path: string, content: string) => Promise<{ kind: 'durable' }>;
 } = {}): FileSystem {
   return {
     list: overrides.list ?? vi.fn().mockResolvedValue([]),
     read: overrides.read ?? vi.fn().mockRejectedValue(enoent('default')),
     move: overrides.move ?? vi.fn().mockResolvedValue(undefined),
-    ensureDir: vi.fn().mockResolvedValue(undefined),
+    ensureDir: overrides.ensureDir ?? vi.fn().mockResolvedValue(undefined),
     writeAtomic: overrides.writeAtomic ?? vi.fn().mockResolvedValue({ kind: 'durable' }),
     append: vi.fn(),
     delete: vi.fn(),
@@ -94,7 +95,8 @@ function makeMockFs(overrides: {
     moveSync: vi.fn(),
     existsSync: vi.fn(),
     ensureDirSync: vi.fn(),
-    mkdirExclusiveSync: overrides.mkdirExclusiveSync ?? vi.fn(),
+    mkdirExclusiveSync: overrides.mkdirExclusiveSync
+      ?? vi.fn().mockImplementation((targetPath: string) => targetPath),
     listSync: vi.fn(),
     removeDirSync: vi.fn(),
     realpathSync: vi.fn(),
@@ -130,9 +132,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       stat: vi.fn().mockResolvedValue({ mtime: recentMtime, ctime: recentMtime, size: 0, isDirectory: false, isFile: true }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.move).not.toHaveBeenCalled();
   });
@@ -152,9 +154,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       }),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await expect(reader.init()).resolves.toEqual({ kind: 'ready', recovered: 1 });
 
     // Stage 1: processing → staging（绝不直接 rename 到 pending 目标）
     expect(fs.move).toHaveBeenCalledWith(
@@ -184,9 +186,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.move).toHaveBeenCalledWith(
       `/claw/outbox/processing/cli_${process.pid}_0_abc123_msg.md`,
@@ -208,9 +210,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       stat: vi.fn().mockResolvedValue({ mtime: recentMtime, ctime: recentMtime, size: 0, isDirectory: false, isFile: true }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(inspectProcessRef).toHaveBeenCalledWith(JSON.stringify({ version: 0, pid: process.pid }));
     expect(fs.move).not.toHaveBeenCalled();
@@ -233,9 +235,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.move).toHaveBeenCalledWith(
       `/claw/outbox/processing/cli_${process.pid}_abc123_msg.md`,
@@ -259,9 +261,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       stat: vi.fn().mockResolvedValue({ mtime: staleMtime, ctime: staleMtime, size: 0, isDirectory: false, isFile: true }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(inspectProcessRef).toHaveBeenCalledWith(JSON.stringify({
       version: 0,
@@ -272,20 +274,33 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
   });
 
-  it('aborts reconcile when pending list fails', async () => {
+  it('returns degraded when pending list fails and preserves stage/path/error', async () => {
+    const error = new Error('EACCES');
     const fs = makeMockFs({
       list: vi.fn().mockImplementation((dir: string) => {
         if (dir.includes('/processing')) return Promise.resolve([{ name: 'cli_99999_abc123_msg.md' }]);
-        return Promise.reject(new Error('EACCES'));
+        return Promise.reject(error);
       }),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
-
+    await expect(reader.init()).resolves.toEqual({
+      kind: 'degraded',
+      stage: 'list',
+      path: '/claw/outbox/pending',
+      error,
+      recovered: 0,
+    });
     expect(fs.move).not.toHaveBeenCalled();
     expect(events.some(e => e[0] === 'outbox_list_failed' && String(e).includes('op=reconcile'))).toBe(true);
+    expect(events).toContainEqual([
+      'outbox_init_degraded',
+      'stage=list',
+      'path=/claw/outbox/pending',
+      'reason=EACCES',
+      'recovered=0',
+    ]);
   });
 
   it('archives staging copy when pending target already has identical content (dedupe)', async () => {
@@ -301,9 +316,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       read: vi.fn().mockResolvedValue('same content'),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     // 目标已存在 → 不 O_EXCL，staging 副本归档 done/
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
@@ -329,9 +344,9 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
       }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
     expect(fs.ensureDir).toHaveBeenCalledWith('/claw/outbox/failed');
@@ -374,9 +389,9 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
       }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     // 快照后出现的 pending 目标不被覆盖：EEXIST 后重读比较，异内容 → staging 进 DLQ
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'stale content');
@@ -415,9 +430,9 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
       }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.move).toHaveBeenCalledWith(
       expect.stringMatching(stagingPathFor('msg.md')),
@@ -435,27 +450,69 @@ describe('OutboxReader._reconcileProcessing no-overwrite protocol (Phase 1908 St
       move: vi.fn().mockRejectedValue(enoent('processing gone')),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
     expect(fs.deleteSync).not.toHaveBeenCalled();
+  });
+
+  it('returns degraded when an init directory cannot be ensured', async () => {
+    const error = new Error('EACCES ensure');
+    const fs = makeMockFs({ ensureDir: vi.fn().mockRejectedValue(error) });
+    const { audit } = makeAudit();
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
+
+    await expect(reader.init()).resolves.toEqual({
+      kind: 'degraded',
+      stage: 'ensure_dir',
+      path: '/claw/outbox/pending',
+      error,
+      recovered: 0,
+    });
+  });
+
+  it('returns degraded when staged recovery cannot read its source', async () => {
+    const error = new Error('EIO read');
+    const stageName = '.tmp_deadbeef_msg.md.staging';
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => Promise.resolve(
+        dir.includes('/pending') ? [{ name: stageName }] : [],
+      )),
+      read: vi.fn().mockRejectedValue(error),
+    });
+    const { audit } = makeAudit();
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
+
+    await expect(reader.init()).resolves.toEqual({
+      kind: 'degraded',
+      stage: 'read',
+      path: `/claw/outbox/pending/${stageName}`,
+      error,
+      recovered: 0,
+    });
   });
 
   it('non-ENOENT staging failure is audited and does not touch pending target', async () => {
     const { inspectProcessRef } = await import('../../../src/foundation/process-exec/index.js');
     vi.mocked(inspectProcessRef).mockReturnValue(goneObservation());
 
+    const error = new Error('EIO');
     const fs = makeMockFs({
       list: deadOwnerList(),
-      move: vi.fn().mockRejectedValue(new Error('EIO')),
+      move: vi.fn().mockRejectedValue(error),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
-
+    await expect(reader.init()).resolves.toEqual({
+      kind: 'degraded',
+      stage: 'move',
+      path: '/claw/outbox/processing/cli_99999_abc123_msg.md',
+      error,
+      recovered: 0,
+    });
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
     expect(events.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=reconcile_pending'))).toBe(true);
   });
@@ -480,9 +537,9 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
       }),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'staged content');
     expect(fs.deleteSync).toHaveBeenCalledWith(`/claw/outbox/pending/${stageName}`);
@@ -519,9 +576,9 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
       }),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'same content');
     expect(fs.deleteSync).not.toHaveBeenCalled();
@@ -543,9 +600,9 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
       read: vi.fn().mockResolvedValue('same content'),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
     expect(fs.move).toHaveBeenCalledWith(
@@ -568,9 +625,9 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
       )),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
     expect(fs.move).toHaveBeenCalledWith(
@@ -590,9 +647,9 @@ describe('OutboxReader startup staging recovery (Phase 2049 Step C)', () => {
       )),
     });
     const { audit, events } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(fs.read).not.toHaveBeenCalled();
     expect(fs.move).toHaveBeenCalledWith(
@@ -624,9 +681,9 @@ describe('OutboxReader startTime-less claim lease (Phase 2049 Step D)', () => {
       }),
     });
     const { audit } = makeAudit();
-    const reader = new OutboxReader(fs, audit);
+    const reader = createOutboxReader({ clawRoot: '/claw', fs, audit });
 
-    await reader.init('/claw');
+    await reader.init();
 
     expect(inspectProcessRef).toHaveBeenCalledWith(JSON.stringify({ version: 0, pid }));
     expect(fs.writeExclusiveSync).toHaveBeenCalledWith('/claw/outbox/pending/msg.md', 'msg content');

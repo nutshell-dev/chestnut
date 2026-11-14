@@ -10,7 +10,7 @@ import { noopAuditLog } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { OutboxReader } from '../../foundation/messaging/index.js';
+import { createOutboxReader } from '../../foundation/messaging/index.js';
 
 export interface OutboxDrainOptions {
   limit?: number;
@@ -25,19 +25,22 @@ export async function drainOutbox(
   audit: AuditLog,
   options: OutboxDrainOptions = {},
 ): Promise<{ drained: string[]; remaining: number }> {
-  const outboxReader = new OutboxReader(fs, audit);
+  const outboxReader = createOutboxReader({ clawRoot: '.', fs, audit });
 
-  // Reconcile orphaned processing files back to pending before draining.
-  await outboxReader.init('.');
-
-  // Peek initial pending count for empty-check.
-  // claimNext handles races internally; this list is best-effort.
-  let initialFiles: string[] = [];
-  try {
-    initialFiles = await outboxReader.listClawOutboxPending('.');
-  } catch (e) {
-    throw new CliError(`Failed to list outbox pending: ${formatErr(e)}`);
+  // Degraded recovery is not a ready consumer: fail closed before claiming.
+  const init = await outboxReader.init();
+  if (init.kind === 'degraded') {
+    throw new CliError(
+      `Outbox init degraded at ${init.stage} (${init.path}): ${formatErr(init.error)}`,
+      { cause: init.error },
+    );
   }
+
+  const initial = await outboxReader.listPendingResult();
+  if (initial.kind === 'failed') {
+    throw new CliError(`Failed to list outbox pending: ${formatErr(initial.error)}`);
+  }
+  const initialFiles = initial.files;
 
   if (initialFiles.length === 0) {
     return { drained: [], remaining: 0 };
@@ -52,7 +55,7 @@ export async function drainOutbox(
   let successCount = 0;
   let raceCount = 0;
   while (successCount < limit) {
-    const claimed = await outboxReader.claimNext('.');
+    const claimed = await outboxReader.claimNext();
     if (claimed.status === 'empty') break;
     if (claimed.status === 'race_lost') {
       if (++raceCount >= MAX_RACE_RETRIES) break;
@@ -72,28 +75,46 @@ export async function drainOutbox(
         `rollback failed (${claimed.rollbackError}); ` +
         `file remains in processing: ${claimed.claimPath} (original: ${claimed.filename})`;
       process.stderr.write(`[claw-outbox] ${msg}\n`);
+      try {
+        await claimed.handle.markFailed(new Error(msg));
+      } catch (settlementError) {
+        throw new CliError(`${msg}; failed settlement also failed: ${formatErr(settlementError)}`);
+      }
       throw new CliError(msg);
     }
 
     raceCount = 0;
-    results.push(claimed.content);
-    await outboxReader.markDone('.', claimed.claimPath, claimed.filename);
+    try {
+      results.push(claimed.content);
+    } catch (consumeError) {
+      try {
+        await claimed.markFailed(consumeError);
+      } catch (settlementError) {
+        throw new CliError(
+          `Outbox consumption failed (${formatErr(consumeError)}); ` +
+          `failed settlement also failed (${formatErr(settlementError)}); ` +
+          `claim=${claimed.claimPath}`,
+        );
+      }
+      throw new CliError(`Failed to consume outbox message: ${formatErr(consumeError)}`);
+    }
+    try {
+      await claimed.markDone();
+    } catch (settlementError) {
+      throw new CliError(
+        `Outbox done settlement failed for ${claimed.claimPath}: ${formatErr(settlementError)}`,
+      );
+    }
     successCount++;
   }
 
   // phase 938: calculate remaining from actual post-drain state rather than the
   // pre-drain snapshot, which is inaccurate when races or fewer messages exist.
-  let remaining = 0;
-  try {
-    const remainingFiles = await outboxReader.listClawOutboxPending('.');
-    remaining = remainingFiles.length;
-  } catch (e) {
-    // Fallback to the pre-drain snapshot minus successfully consumed messages.
-    process.stderr.write(`[claw-outbox] post-drain list failed: ${formatErr(e)}\n`);
-    remaining = Math.max(0, initialFiles.length - results.length);
+  const remainingResult = await outboxReader.listPendingResult();
+  if (remainingResult.kind === 'failed') {
+    throw new CliError(`Post-drain outbox list failed: ${formatErr(remainingResult.error)}`);
   }
-
-  return { drained: results, remaining };
+  return { drained: results, remaining: remainingResult.files.length };
 }
 
 /**

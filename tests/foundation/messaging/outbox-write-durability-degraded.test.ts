@@ -3,9 +3,8 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { OutboxWriter } from '../../../src/foundation/messaging/index.js';
-import { makeOutboxPath } from '../../../src/foundation/messaging/outbox-writer.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createOutboxWriter, OutboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -39,9 +38,9 @@ describe('outbox write durability degradation (Phase 2049 Step E)', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const made = makeAudit();
     events = made.events;
-    writer = OutboxWriter.__internal_create(
+    writer = createOutboxWriter(
       'claw-a',
-      makeOutboxPath('claw-a', root),
+      root,
       fs,
       made.audit,
       MESSAGING_WRITER_LIMITS_DEFAULT,

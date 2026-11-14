@@ -170,6 +170,27 @@ describe('outboxCommand', () => {
     expect(logs.some(l => l.includes('outbox is empty'))).toBe(false);
   });
 
+  it('routes consumption exceptions through markFailed and exposes settlement failure', async () => {
+    seedPending(root, 'busy', 1);
+    const consumeError = new Error('consumer exploded');
+    const settlementError = new Error('failed settlement unavailable');
+    const markFailed = vi.fn().mockRejectedValue(settlementError);
+    const claimed = {
+      status: 'claimed',
+      claimPath: 'outbox/processing/mclaim_test.md',
+      filename: 'msg0.md',
+      markFailed,
+      get content(): string { throw consumeError; },
+    };
+    vi.spyOn(OutboxReader.prototype, 'claimNext').mockResolvedValue(claimed as never);
+
+    await expect(outboxCommand({ fsFactory }, 'busy')).rejects.toThrow(
+      /consumer exploded[\s\S]*failed settlement unavailable/,
+    );
+    expect(markFailed).toHaveBeenCalledWith(consumeError);
+    expect(logs).not.toContain('message 0');
+  });
+
   it('rejects an unavailable mclaim_ record during init before claimNext or empty output', async () => {
     const pending = seedPending(root, 'busy', 1);
     const clawDir = path.join(root, '.chestnut', 'claws', 'busy');
@@ -179,11 +200,14 @@ describe('outboxCommand', () => {
     fs.writeFileSync(path.join(processing, claimName), 'orphan content');
     const claimNext = vi.spyOn(OutboxReader.prototype, 'claimNext');
 
-    await expect(outboxCommand({ fsFactory }, 'busy')).rejects.toMatchObject({
-      code: 'CLAIM_RECORD_UNAVAILABLE',
-      entry: claimName,
-      issue: { kind: 'missing' },
-    });
+    const error = await outboxCommand({ fsFactory }, 'busy').catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ code: 1 });
+    const cause = (error as Error).cause as {
+      code: string; entry: string; issue: { kind: string };
+    };
+    expect(cause.code).toBe('CLAIM_RECORD_UNAVAILABLE');
+    expect(cause.entry).toBe(claimName);
+    expect(cause.issue.kind).toBe('missing');
 
     expect(claimNext).not.toHaveBeenCalled();
     expect(listMd(pending)).toEqual(['msg0.md']);

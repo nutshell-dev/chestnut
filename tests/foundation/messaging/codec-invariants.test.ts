@@ -5,22 +5,11 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
-import {
-  decodeInbox,
-  encodeInbox,
-  parseFrontmatter,
-} from '../../../src/foundation/messaging/codec-inbox.js';
-import {
-  decodeOutbox,
-  encodeOutbox,
-} from '../../../src/foundation/messaging/codec-outbox.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
-import {
-  InboxReader,
-  InboxWriter,
-  makeInboxPath,
-} from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { decodeInbox, encodeInbox, parseFrontmatter } from '../../../src/foundation/messaging/codec-inbox.js';
+import { decodeOutbox, encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
+
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import type {
   InboxMessage,
   OutboxMessage,
@@ -79,14 +68,8 @@ describe('phase 1132 D.2: inbox-reader legacy claw_id audit', () => {
         auditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
-    reader = new InboxReader(
-      path.join(testDir, 'inbox', 'pending'),
-      path.join(testDir, 'inbox', 'done'),
-      path.join(testDir, 'inbox', 'failed'),
-      nfs,
-      audit,
-    );
+    writer = createInboxWriter(nfs, '.', audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    reader = createInboxReader(nfs, audit, testDir);
     await reader.init();
   });
 

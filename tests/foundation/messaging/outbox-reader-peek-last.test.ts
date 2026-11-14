@@ -3,7 +3,7 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { createOutboxReader, type OutboxReader } from '../../../src/foundation/messaging/index.js';
 import type { OutboxPeekResult } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';
@@ -52,7 +52,7 @@ describe('OutboxReader.peekLastOutboxPending', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const { audit, events } = makeAudit();
     auditEvents = events;
-    reader = new OutboxReader(fs, audit);
+    reader = createOutboxReader({ clawRoot: clawDir, fs, audit });
   });
 
   afterEach(async () => {
@@ -70,14 +70,14 @@ describe('OutboxReader.peekLastOutboxPending', () => {
   }
 
   it('returns empty when pending empty', async () => {
-    const result = await reader.peekLastOutboxPending(clawDir);
+    const result = await reader.peekLastOutboxPending();
     expect(result).toEqual({ kind: 'empty' } satisfies OutboxPeekResult);
     expect(auditEvents.filter(e => String(e[0]).includes('peek_failed'))).toEqual([]);
   });
 
   it('returns empty when pending dir missing', async () => {
     await fsAsync.rm(pendingDir, { recursive: true });
-    const result = await reader.peekLastOutboxPending(clawDir);
+    const result = await reader.peekLastOutboxPending();
     expect(result).toEqual({ kind: 'empty' } satisfies OutboxPeekResult);
   });
 
@@ -92,7 +92,7 @@ describe('OutboxReader.peekLastOutboxPending', () => {
       path.join(pendingDir, `${t2}_normal_bbb.md`),
       encodeOutbox(makeMsg('LATER', '2026-06-04T11:00:00Z')),
     );
-    const result = await reader.peekLastOutboxPending(clawDir);
+    const result = await reader.peekLastOutboxPending();
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') throw new Error('unreachable');
     expect(result.message.content).toBe('LATER');
@@ -106,7 +106,7 @@ describe('OutboxReader.peekLastOutboxPending', () => {
       encodeOutbox(makeMsg('hello', '2026-06-04T10:00:00Z')),
     );
     await fsAsync.writeFile(path.join(pendingDir, 'zzz_garbage.tmp'), 'noise');
-    const result = await reader.peekLastOutboxPending(clawDir);
+    const result = await reader.peekLastOutboxPending();
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') throw new Error('unreachable');
     expect(result.message.content).toBe('hello');
@@ -116,7 +116,7 @@ describe('OutboxReader.peekLastOutboxPending', () => {
     const t1 = '1717480000000';
     const filePath = path.join(pendingDir, `${t1}_normal_aaa.md`);
     await fsAsync.writeFile(filePath, 'NOT VALID YAML/FRONTMATTER');
-    const result = await reader.peekLastOutboxPending(clawDir);
+    const result = await reader.peekLastOutboxPending();
     expect(result.kind).toBe('failed');
     if (result.kind !== 'failed') throw new Error('unreachable');
     expect(result.stage).toBe('decode');
@@ -133,15 +133,15 @@ describe('OutboxReader.peekLastOutboxPending', () => {
       encodeOutbox(makeMsg('x', '2026-06-04T10:00:00Z')),
     );
     // Hook: list sees the file, then delete before read
-    const originalList = reader.listClawOutboxPending.bind(reader);
-    reader.listClawOutboxPending = async (dir: string) => {
-      const list = await originalList(dir);
-      if (list.includes(filename)) {
+    const originalList = reader.listPendingResult.bind(reader);
+    reader.listPendingResult = async () => {
+      const list = await originalList();
+      if (list.kind !== 'failed' && list.files.includes(filename)) {
         await fsAsync.rm(path.join(pendingDir, filename)).catch(() => { /* silent: cleanup */ });
       }
       return list;
     };
-    const result = await reader.peekLastOutboxPending(clawDir);
+    const result = await reader.peekLastOutboxPending();
     expect(result.kind).toBe('failed');
     if (result.kind !== 'failed') throw new Error('unreachable');
     expect(result.stage).toBe('read');
@@ -162,9 +162,9 @@ describe('OutboxReader.peekLastOutboxPending', () => {
       },
     });
     const { audit, events } = makeAudit();
-    const errReader = new OutboxReader(errFs, audit);
+    const errReader = createOutboxReader({ clawRoot: clawDir, fs: errFs, audit });
 
-    const result = await errReader.peekLastOutboxPending(clawDir);
+    const result = await errReader.peekLastOutboxPending();
     expect(result.kind).toBe('failed');
     if (result.kind !== 'failed') throw new Error('unreachable');
     expect(result.stage).toBe('list');

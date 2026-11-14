@@ -8,11 +8,11 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-import { InboxReader } from '../../src/foundation/messaging/index.js';
-import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
-import { OutboxWriter } from '../../src/foundation/messaging/index.js';
-import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxReader, createOutboxWriter, OutboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
+
+
+
+
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
@@ -50,7 +50,7 @@ describe('Messaging', () => {
       await mockFs.ensureDir(INBOX_FAILED_DIR);
       const { audit, events } = makeAudit();
       auditEvents = events;
-      reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, mockFs, audit);
+      reader = createInboxReader(mockFs, audit, '.');
       await reader.init();
     });
 
@@ -205,7 +205,9 @@ describe('Messaging', () => {
         await mockFs.writeAtomic('inbox/pending/high.md', buildMdMessage(msg2));
 
         const metas = await reader.peekMetas();
-        expect(metas).toHaveLength(2);
+        if (metas.kind === 'unavailable') throw new Error('unexpected unavailable');
+        expect(metas.kind).toBe('found');
+        expect(metas.value).toHaveLength(2);
       });
 
       it('filters by priority', async () => {
@@ -215,23 +217,23 @@ describe('Messaging', () => {
         await mockFs.writeAtomic('inbox/pending/high.md', buildMdMessage(msg2));
 
         const metas = await reader.peekMetas({ priority: ['high', 'critical'] });
-        expect(metas).toHaveLength(1);
-        expect(metas[0].priority).toBe('high');
+        if (metas.kind === 'unavailable') throw new Error('unexpected unavailable');
+        expect(metas.kind).toBe('found');
+        expect(metas.value).toHaveLength(1);
+        expect(metas.value[0].priority).toBe('high');
       });
 
       it('returns empty array when no matching priority', async () => {
         const msg1: InboxMessage = { id: 'msg-1', type: 'message', from: 'a', to: 'b', content: 'Low', priority: 'low', timestamp: new Date().toISOString() };
         await mockFs.writeAtomic('inbox/pending/low.md', buildMdMessage(msg1));
 
-        const metas = await reader.peekMetas({ priority: ['critical'] });
-        expect(metas).toHaveLength(0);
+        expect(await reader.peekMetas({ priority: ['critical'] })).toEqual({ kind: 'empty', value: [] });
       });
 
       it('returns empty array when pendingDir does not exist', async () => {
         const nonExistentPending = path.join(tempDir, 'nonexistent', 'pending');
-        const freshReader = new InboxReader(nonExistentPending, INBOX_DONE_DIR, INBOX_FAILED_DIR, mockFs, makeAudit().audit);
-        const metas = await freshReader.peekMetas();
-        expect(metas).toEqual([]);
+        const freshReader = createInboxReader(mockFs, makeAudit().audit, path.join(tempDir, 'nonexistent'));
+        expect(await freshReader.peekMetas()).toEqual({ kind: 'empty', value: [] });
       });
 
       it('does not consume files (non-destructive)', async () => {
@@ -248,7 +250,11 @@ describe('Messaging', () => {
         await mockFs.writeAtomic('inbox/pending/bad.md', '---\nthis is not valid frontmatter');
 
         const metas = await reader.peekMetas();
-        expect(metas).toHaveLength(0);
+        expect(metas.kind).toBe('unavailable');
+        if (metas.kind !== 'unavailable') throw new Error('expected unavailable');
+        expect(metas.stage).toBe('decode');
+        expect(metas.path).toBe(path.join(INBOX_PENDING_DIR, 'bad.md'));
+        expect(metas.error).toBeInstanceOf(Error);
         expect(auditEvents).toEqual(
           expect.arrayContaining([
             expect.arrayContaining(['inbox_meta_failed', 'file=bad.md', 'kind=parse_failed']),
@@ -256,16 +262,21 @@ describe('Messaging', () => {
         );
       });
 
-      it('audit on list failure (non-ENOENT) + returns empty', async () => {
+      it('audit on list failure (non-ENOENT) + returns unavailable with original error', async () => {
+        const boom = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
         const throwingFs = {
           ...mockFs,
-          list: vi.fn().mockRejectedValue(Object.assign(new Error('Permission denied'), { code: 'EACCES' })),
+          list: vi.fn().mockRejectedValue(boom),
         } as unknown as NodeFileSystem;
         const { audit, events } = makeAudit();
-        const throwingReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, throwingFs, audit);
+        const throwingReader = createInboxReader(throwingFs, audit, '.');
 
-        const metas = await throwingReader.peekMetas();
-        expect(metas).toEqual([]);
+        expect(await throwingReader.peekMetas()).toEqual({
+          kind: 'unavailable',
+          stage: 'list',
+          path: INBOX_PENDING_DIR,
+          error: boom,
+        });
         const listFailEvent = events.find(e => e[0] === 'inbox_list_failed');
         expect(listFailEvent).toBeDefined();
         expect(listFailEvent).toEqual(

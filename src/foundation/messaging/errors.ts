@@ -20,9 +20,9 @@ export class InboxMoveFailed extends Error {
   }
 }
 
-type OutboxMoveOp = 'done' | 'skipped';
+type OutboxMoveOp = 'done' | 'skipped' | 'failed';
 
-/** Internal settlement error; deliberately not exported through the messaging barrel. */
+/** Settlement move error with the original filesystem cause. */
 export class OutboxMoveFailed extends Error {
   readonly code = 'OUTBOX_MOVE_FAILED' as const;
   constructor(
@@ -30,8 +30,33 @@ export class OutboxMoveFailed extends Error {
     public readonly op: OutboxMoveOp,
     public readonly cause: unknown,
   ) {
-    super(`Failed to move outbox file ${filePath} to done/`);
+    super(`Failed to move outbox file ${filePath} to ${op === 'skipped' ? 'done' : op}/`);
     this.name = 'OutboxMoveFailed';
+  }
+}
+
+/** A settlement handle was not minted by this reader or was already settled. */
+export class OutboxClaimBindingError extends Error {
+  readonly code = 'OUTBOX_CLAIM_BINDING_ERROR' as const;
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = 'OutboxClaimBindingError';
+  }
+}
+
+/** Failed settlement is incomplete; both the consumption and settlement errors survive. */
+export class OutboxSettlementRequired extends Error {
+  readonly code = 'OUTBOX_SETTLEMENT_REQUIRED' as const;
+  readonly status = 'settlement_required' as const;
+
+  constructor(
+    public readonly claimPath: string,
+    public readonly filename: string,
+    public readonly error: unknown,
+    public readonly settlementError: unknown,
+  ) {
+    super(`Outbox failed settlement required for ${claimPath}`, { cause: settlementError });
+    this.name = 'OutboxSettlementRequired';
   }
 }
 

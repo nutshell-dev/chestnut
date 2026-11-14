@@ -26,9 +26,10 @@ import { SUMMARY_INBOX_TYPE } from '../../../src/core/claw-topology/jobs/outbox-
 import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/claw-topology/jobs/outbox-summary/dedup.js';
 import { decodeOutboxSummaryGuidance } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { InboxReader, InboxWriter, makeInboxPath, INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/index.js';
-import { OutboxReader } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, createOutboxReader, type OutboxReader, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/dirs.js';
+
+
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
@@ -85,7 +86,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
   let events: ReturnType<typeof makeAudit>['events'];
   let inboxReader: InboxReader;
   let inboxWriter: InboxWriter;
-  let outboxReader: OutboxReader;
+  let outboxReaderFactory: (clawRoot: string) => OutboxReader;
   let topology: ClawTopology;
 
   beforeEach(async () => {
@@ -98,21 +99,14 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'motion', INBOX_INFLIGHT_DIR), { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     ({ audit, events } = makeAudit());
-    inboxReader = new InboxReader(
-      path.join(root, 'motion/inbox/pending'),
-      path.join(root, 'motion/inbox/done'),
-      path.join(root, 'motion/inbox/failed'),
+    inboxReader = createInboxReader(fs, audit, path.join(root, 'motion'));
+    inboxWriter = createInboxWriter(
       fs,
-      audit,
-      // phase 1780: inflight 省略 —— ctor 从 owner 常量（dirs.ts）按 pendingDir 同级派生
-    );
-    inboxWriter = InboxWriter.__internal_create(
-      fs,
-      makeInboxPath(path.join(root, 'motion/inbox/pending')),
+      path.join(root, 'motion'),
       audit,
       MESSAGING_WRITER_LIMITS_DEFAULT,
     );
-    outboxReader = new OutboxReader(fs, audit);
+    outboxReaderFactory = clawRoot => createOutboxReader({ clawRoot, fs, audit });
     topology = createClawTopology({
       fs,
       chestnutRoot: root,
@@ -131,7 +125,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toEqual([]);
@@ -146,7 +140,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const summaries = await listSummaries(root, 'pending', fs);
@@ -188,7 +182,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
@@ -198,7 +192,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect((await listSummaries(root, 'pending', fs))[0]).toBe(firstSummary);
@@ -213,7 +207,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const drained = await inboxReader.drainAndDeliver();
@@ -226,7 +220,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toEqual([]);
@@ -241,7 +235,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const drained = await inboxReader.drainAndDeliver();
@@ -256,7 +250,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
@@ -270,7 +264,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const drained = await inboxReader.drainAndDeliver();
@@ -285,7 +279,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect((await listSummaries(root, 'pending', fs)).length).toBe(1);
@@ -300,7 +294,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
@@ -312,7 +306,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const summaries = await listSummaries(root, 'pending', fs);
@@ -329,7 +323,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const summary = (await listSummaries(root, 'pending', fs))[0];
@@ -341,7 +335,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toContain(summary);
@@ -354,18 +348,19 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), encodeOutbox(makeMsg('a1', '2026-06-04T10:00:00Z')));
     await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), encodeOutbox(makeMsg('b1', '2026-06-04T10:00:00Z')));
 
-    const failingReader = {
-      listClawOutboxPending: async (clawDir: string) => {
-        const clawId = path.basename(clawDir);
-        if (clawId === 'clawB') throw new Error('mock I/O failure');
-        return outboxReader.listClawOutboxPending(clawDir);
-      },
-      peekLastOutboxPending: async (clawDir: string) => {
-        const clawId = path.basename(clawDir);
-        if (clawId === 'clawB') throw new Error('mock I/O failure');
-        return outboxReader.peekLastOutboxPending(clawDir);
-      },
-    } as unknown as OutboxReader;
+    const failingReader = (clawRoot: string): OutboxReader => {
+      if (path.basename(clawRoot) === 'clawB') {
+        return {
+          listPendingResult: async () => ({
+            kind: 'failed',
+            stage: 'list',
+            path: path.join(clawRoot, 'outbox/pending'),
+            error: new Error('mock I/O failure'),
+          }),
+        } as unknown as OutboxReader;
+      }
+      return createOutboxReader({ clawRoot, fs, audit });
+    };
 
     await expect(
       runOutboxSummaryTick({
@@ -373,7 +368,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         fs,
         inboxReader,
         inboxWriter,
-        outboxReader: failingReader,
+        outboxReaderFactory: failingReader,
         audit,
       }),
     ).rejects.toThrow(/incomplete/i);
@@ -385,14 +380,14 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
   it('phase 939: throws and audits when all claw scans fail', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
 
-    const failingReader = {
-      listClawOutboxPending: async () => {
-        throw new Error('mock I/O failure');
-      },
-      peekLastOutboxPending: async () => {
-        throw new Error('mock I/O failure');
-      },
-    } as unknown as OutboxReader;
+    const failingReader = (clawRoot: string): OutboxReader => ({
+      listPendingResult: async () => ({
+        kind: 'failed',
+        stage: 'list',
+        path: path.join(clawRoot, 'outbox/pending'),
+        error: new Error('mock I/O failure'),
+      }),
+    } as unknown as OutboxReader);
 
     await expect(
       runOutboxSummaryTick({
@@ -400,7 +395,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         fs,
         inboxReader,
         inboxWriter,
-        outboxReader: failingReader,
+        outboxReaderFactory: failingReader,
         audit,
       }),
     ).rejects.toThrow(/incomplete/i);
@@ -422,7 +417,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         fs,
         inboxReader,
         inboxWriter,
-        outboxReader,
+        outboxReaderFactory,
         audit,
         signal: controller.signal,
       }),
@@ -440,7 +435,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
@@ -449,15 +444,17 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), encodeOutbox(makeMsg('m2', '2026-06-04T10:00:01Z')));
     const controller = new AbortController();
 
-    const interceptReader = {
-      listClawOutboxPending: async (clawDir: string) => {
-        const files = await outboxReader.listClawOutboxPending(clawDir);
-        // Abort after dedup scan returns (signal is checked right after scan).
-        controller.abort();
-        return files;
-      },
-      peekLastOutboxPending: outboxReader.peekLastOutboxPending.bind(outboxReader),
-    } as unknown as OutboxReader;
+    const interceptReader = (clawRoot: string): OutboxReader => {
+      const realReader = createOutboxReader({ clawRoot, fs, audit });
+      return {
+        listPendingResult: async () => {
+          const listed = await realReader.listPendingResult();
+          controller.abort();
+          return listed;
+        },
+        peekLastOutboxPending: realReader.peekLastOutboxPending.bind(realReader),
+      } as unknown as OutboxReader;
+    };
 
     events.length = 0;
     await expect(
@@ -466,7 +463,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         fs,
         inboxReader,
         inboxWriter,
-        outboxReader: interceptReader,
+        outboxReaderFactory: interceptReader,
         audit,
         signal: controller.signal,
       }),
@@ -486,7 +483,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const drained = await inboxReader.drainAndDeliver();
@@ -502,7 +499,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const summaries = await listSummaries(root, 'pending', fs);
@@ -538,7 +535,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const summaries = await listSummaries(root, 'pending', fs);
@@ -558,7 +555,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
@@ -570,7 +567,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       inboxReader,
       inboxWriter,
-      outboxReader,
+      outboxReaderFactory,
       audit,
     });
     const summaries = await listSummaries(root, 'pending', fs);

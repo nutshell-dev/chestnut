@@ -2,20 +2,20 @@
  * Phase 858: lightweight-query Result semantics.
  */
 import { describe, it, expect, vi } from 'vitest';
-import {
-  peekPendingCount,
-  peekPendingFilenames,
-  listOutboxPendingSync,
-} from '../../../src/foundation/messaging/lightweight-query.js';
+import { peekPendingCount, peekPendingFilenames, listOutboxPendingSync } from '../../../src/foundation/messaging/lightweight-query.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 
 function makeFs(opts: {
   exists?: boolean;
   listError?: NodeJS.ErrnoException;
+  existsError?: NodeJS.ErrnoException;
   entries?: { name: string; isDirectory: () => boolean; isFile: () => boolean }[];
 }): FileSystem {
   return {
-    existsSync: vi.fn(() => opts.exists ?? true),
+    existsSync: vi.fn(() => {
+      if (opts.existsError) throw opts.existsError;
+      return opts.exists ?? true;
+    }),
     listSync: vi.fn(() => {
       if (opts.listError) throw opts.listError;
       return opts.entries ?? [];
@@ -51,6 +51,16 @@ describe('lightweight-query Result (phase 858)', () => {
     if (!result.ok) {
       expect(result.error).toContain('EIO');
     }
+  });
+
+  it.each(['peekPendingCount', 'peekPendingFilenames'] as const)('%s returns error when existsSync throws', (query) => {
+    const existsError = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    const fs = makeFs({ existsError });
+    const result = query === 'peekPendingCount'
+      ? peekPendingCount(fs, '.')
+      : peekPendingFilenames(fs, '.');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('EACCES');
   });
 
   it('peekPendingFilenames returns ok [] when pending dir does not exist', () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fsAsync from 'node:fs/promises';
 import * as path from 'node:path';
-import { OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
+import { createOutboxReader, type OutboxReader } from '../../../src/foundation/messaging/outbox-reader.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { ClaimDescriptor } from '../../../src/foundation/messaging/claim-record.js';
 import * as claimRecordStore from '../../../src/foundation/messaging/claim-record-store.js';
@@ -61,11 +61,12 @@ beforeEach(async () => {
   );
   fs = new NodeFileSystem({ baseDir: root });
   auditEvents = [];
-  reader = new OutboxReader(fs, {
-    write: (event: string, ...cols: unknown[]) => { auditEvents.push([event, ...cols]); },
-    preview: (value: string) => value,
-    message: (value: string) => value,
-    summary: (value: string) => value,
+  reader = createOutboxReader({
+    clawRoot: clawDir,
+    fs,
+    audit: {
+      write: (event: string, ...cols: unknown[]) => { auditEvents.push([event, ...cols]); },
+    },
   });
   vi.spyOn(processExec, 'captureCurrentProcessRef').mockReturnValue(CAPTURED);
 });
@@ -92,7 +93,7 @@ async function writeOriginal(originalName: string, id = 'message-1') {
 }
 
 async function claim(options: { readContent?: boolean } = {}): Promise<Claimed> {
-  const result = await reader.claimNext(clawDir, options);
+  const result = await reader.claimNext(options);
   expect(result.status).toBe('claimed');
   if (result.status !== 'claimed') throw new Error(`expected claimed result: ${JSON.stringify(result)}`);
   return result;
@@ -168,7 +169,7 @@ describe('OutboxReader claim references', () => {
     const prepare = vi.spyOn(claimRecordStore, 'prepareClaimRecord').mockRejectedValue(prepareError);
     const move = vi.spyOn(fs, 'move');
 
-    await expect(reader.claimNext(clawDir)).rejects.toBe(prepareError);
+    await expect(reader.claimNext()).rejects.toBe(prepareError);
 
     expect(prepare).toHaveBeenCalledWith(fs, processingDir, 'outbox', originalName);
     expect(move).not.toHaveBeenCalled();
@@ -197,12 +198,16 @@ describe('OutboxReader claim references', () => {
         await realMove(fromPath, toPath);
         if (fromPath === sourcePath) successfulClaimMoves += 1;
       });
-      return new OutboxReader(competingFs, { write: () => { /* audit is not under test */ } });
+      return createOutboxReader({
+        clawRoot: clawDir,
+        fs: competingFs,
+        audit: { write: () => { /* audit is not under test */ } },
+      });
     }
 
     const results = await Promise.all([
-      competingReader().claimNext(clawDir),
-      competingReader().claimNext(clawDir),
+      competingReader().claimNext(),
+      competingReader().claimNext(),
     ]);
 
     expect(results.map(result => result.status).sort()).toEqual(['claimed', 'race_lost']);
@@ -262,7 +267,7 @@ describe('OutboxReader claim references', () => {
       return realRead(targetPath);
     });
 
-    const result = await reader.claimNext(clawDir);
+    const result = await reader.claimNext();
 
     expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EIO claimed read') });
     expect(await mdFiles(processingDir)).toEqual([]);
@@ -287,7 +292,7 @@ describe('OutboxReader claim references', () => {
       return realRead(targetPath);
     });
 
-    const result = await reader.claimNext(clawDir);
+    const result = await reader.claimNext();
 
     expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EIO claimed read') });
     expect(await mdFiles(processingDir)).toEqual([]);
@@ -322,7 +327,7 @@ describe('OutboxReader claim references', () => {
       return realMove(fromPath, toPath);
     });
 
-    const result = await reader.claimNext(clawDir);
+    const result = await reader.claimNext();
 
     expect(result.status).toBe('recovery_required');
     if (result.status !== 'recovery_required') throw new Error('unreachable');
@@ -346,9 +351,9 @@ describe('OutboxReader claim references', () => {
     const { recordPath, raw: recordRaw } = await readRecord(claimName);
 
     if (operation === 'done') {
-      await reader.markDone(clawDir, claimed.claimPath, claimed.filename);
+      await claimed.markDone();
     } else {
-      await reader.markSkipped(clawDir, claimed.claimPath, claimed.filename);
+      await claimed.markSkipped();
     }
 
     expect(await mdFiles(processingDir)).toEqual([]);
@@ -363,12 +368,12 @@ describe('OutboxReader claim references', () => {
       event[0] === auditName && String(event).includes(`file=${originalName}`)
     )).toBe(true);
 
-    await reader.init(clawDir);
+    await reader.init();
 
     expect(await mdFiles(pendingDir)).toEqual([]);
     expect(await mdFiles(processingDir)).toEqual([]);
     expect(await mdFiles(doneDir)).toEqual(doneFiles);
     await expect(fsAsync.readFile(recordPath, 'utf8')).resolves.toBe(recordRaw);
-    await expect(reader.claimNext(clawDir)).resolves.toEqual({ status: 'empty' });
+    await expect(reader.claimNext()).resolves.toEqual({ status: 'empty' });
   });
 });

@@ -11,8 +11,8 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
-import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+import { createInboxWriter, createInboxReader, InboxReader, InboxWriter, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
+
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 function makeAudit() {
@@ -53,8 +53,8 @@ describe('InboxReader.peekUnsettled (phase 1869 Step C)', () => {
     await fsAsync.mkdir(inflightDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     const { audit } = makeAudit();
-    reader = new InboxReader(pendingDir, doneDir, failedDir, fs, audit, inflightDir);
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(pendingDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
+    reader = createInboxReader(fs, audit, root);
+    writer = createInboxWriter(fs, root, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   const CLEANUP_TIMEOUT_MS = 2000;
@@ -153,7 +153,7 @@ describe('InboxReader.peekUnsettled (phase 1869 Step C)', () => {
       },
     }) as unknown as NodeFileSystem;
     const { audit } = makeAudit();
-    const fragileReader = new InboxReader(pendingDir, doneDir, failedDir, errFs, audit, inflightDir);
+    const fragileReader = createInboxReader(errFs, audit, root);
     await expect(fragileReader.peekUnsettled(FILTER)).rejects.toThrow();
   });
 
@@ -175,7 +175,7 @@ describe('InboxReader.peekUnsettled (phase 1869 Step C)', () => {
       },
     }) as unknown as NodeFileSystem;
     const { audit } = makeAudit();
-    const fragileReader = new InboxReader(pendingDir, doneDir, failedDir, errFs, audit, inflightDir);
+    const fragileReader = createInboxReader(errFs, audit, root);
     await expect(fragileReader.peekUnsettled(FILTER)).rejects.toThrow();
   });
 

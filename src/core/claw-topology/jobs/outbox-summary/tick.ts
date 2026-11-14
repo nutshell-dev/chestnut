@@ -27,7 +27,7 @@ interface OutboxSummaryTickDeps {
   fs: FileSystem;
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
-  outboxReader: OutboxReader;
+  outboxReaderFactory: (clawRoot: string) => OutboxReader;
   audit: TopologyEventSink;
   now?: () => number;
   /** phase 938: cooperative abort signal checked at stage boundaries. */
@@ -44,7 +44,7 @@ export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise
   const state = await scanOutboxes({
     clawTopology: deps.clawTopology,
     fs: deps.fs,
-    outboxReader: deps.outboxReader,
+    outboxReaderFactory: deps.outboxReaderFactory,
     signal: deps.signal,
   });
 

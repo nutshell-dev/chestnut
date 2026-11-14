@@ -218,8 +218,18 @@ export class Heartbeat {
     if (!this.enabled) return;
     try {
       // 走 InboxReader 受信路径（phase1059）：peek 不消费，带 dedup + race 处理
-      const metas = await this.inboxReader.peekMetas();
-      const hasPendingHeartbeat = metas.some((m) => m.type === 'heartbeat');
+      const peek = await this.inboxReader.peekMetas();
+      if (peek.kind === 'unavailable') {
+        this.audit.write(
+          HEARTBEAT_AUDIT_EVENTS.FIRE_FAILED,
+          'context=Heartbeat.fire',
+          `stage=${peek.stage}`,
+          `path=${peek.path}`,
+          `error=${formatErr(peek.error)}`,
+        );
+        return; // unavailable is not empty: do not notify or advance the cursor
+      }
+      const hasPendingHeartbeat = peek.value.some((m) => m.type === 'heartbeat');
       if (hasPendingHeartbeat) {
         // phase 1791: 去重跳过也记录 cursor（最近一次成功发送或去重跳过的时间）
         await this.persist(this.observeNow());

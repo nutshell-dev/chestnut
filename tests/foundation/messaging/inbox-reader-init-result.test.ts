@@ -13,7 +13,7 @@ import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { InboxReader } from '../../../src/foundation/messaging/index.js';
+import { createInboxReader, InboxReader } from '../../../src/foundation/messaging/index.js';
 import type { InboxInitResult } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -59,7 +59,7 @@ describe('InboxReader.init() InboxInitResult (phase 1781)', () => {
 
   function makeReader(overrideFs?: NodeFileSystem) {
     const { audit, events } = makeAudit();
-    const reader = new InboxReader(pendingDir, doneDir, failedDir, overrideFs ?? fs, audit, inflightDir);
+    const reader = createInboxReader(overrideFs ?? fs, audit, root);
     return { reader, events };
   }
 

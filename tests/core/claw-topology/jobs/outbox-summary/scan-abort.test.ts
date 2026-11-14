@@ -25,22 +25,22 @@ describe('scanOutboxes abort propagation', () => {
     } as unknown as ClawTopology;
 
     await expect(
-      scanOutboxes({ clawTopology: topology, fs: {} as FileSystem, outboxReader: {} as OutboxReader, signal: controller.signal }),
+      scanOutboxes({ clawTopology: topology, fs: {} as FileSystem, outboxReaderFactory: () => ({} as OutboxReader), signal: controller.signal }),
     ).rejects.toThrow('Execution aborted');
   });
 
   it('propagates abort instead of treating as failed claw', async () => {
     const controller = new AbortController();
     const outboxReader = {
-      listClawOutboxPending: async () => {
+      listPendingResult: async () => {
         controller.abort();
-        throw new Error('peek boom');
+        throw new Error('list boom');
       },
       peekLastOutboxPending: vi.fn(),
     } as unknown as OutboxReader;
 
     await expect(
-      scanOutboxes({ clawTopology: makeTopology(), fs: {} as FileSystem, outboxReader, signal: controller.signal }),
+      scanOutboxes({ clawTopology: makeTopology(), fs: {} as FileSystem, outboxReaderFactory: () => outboxReader, signal: controller.signal }),
     ).rejects.toThrow('Execution aborted');
   });
 });
