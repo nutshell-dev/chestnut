@@ -30,9 +30,11 @@ describe('chat viewport recovered-turn Esc integration', () => {
         daemonPid: 4242,
       }));
       agentFs.writeAtomicSync(DAEMON_HEARTBEAT_FILE, JSON.stringify({
-        schema_version: 1,
+        schema_version: 2,
         ts: now - 1_000,
         pid: 4242,
+        generation_id: 'generation-current',
+        start_time: 'start-current',
       }));
 
       let active = false;

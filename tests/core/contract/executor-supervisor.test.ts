@@ -37,6 +37,27 @@ import {
 const NOW = 1_800_000_000_000;
 const STALE_TIMEOUT_MS = 180_000;
 const CONTRACT_ID = '1700000000000-abcd';
+const LIVE_PID = 4242;
+const GENERATION_ID = 'generation-current';
+const START_TIME = 'Fri Nov 13 10:00:00 2026';
+
+function currentLiveness(): LivenessResult {
+  return aliveLiveness(LIVE_PID, START_TIME, GENERATION_ID);
+}
+
+function currentHeartbeat(
+  ts: number,
+  overrides: Partial<{ pid: number; generationId: string; startTime: string }> = {},
+): ExecutorHeartbeatRead {
+  return {
+    kind: 'ok',
+    ts,
+    pid: LIVE_PID,
+    generationId: GENERATION_ID,
+    startTime: START_TIME,
+    ...overrides,
+  };
+}
 
 interface AuditRecord {
   event: string;
@@ -111,7 +132,7 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
           ensured: { kind: 'spawned', pid: 4343 },
         };
       }),
-      readHeartbeat: opts.heartbeat ?? (() => ({ kind: 'ok', ts: NOW })),
+      readHeartbeat: opts.heartbeat ?? (() => currentHeartbeat(NOW)),
       heartbeatStaleTimeoutMs: STALE_TIMEOUT_MS,
       now: () => NOW,
     };
@@ -161,8 +182,8 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
   it('active + alive + 心跳 fresh → 无任何动作', async () => {
     publishActiveContract('clawA');
     const { deps, audits, ensureCalls, restartCalls } = makeHarness({
-      liveness: () => aliveLiveness(),
-      heartbeat: () => ({ kind: 'ok', ts: NOW - 60_000 }),
+      liveness: () => currentLiveness(),
+      heartbeat: () => currentHeartbeat(NOW - 60_000),
     });
     await runExecutorSupervisorTick(deps);
     expect(ensureCalls).toEqual([]);
@@ -174,8 +195,8 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
   it('active + alive + heartbeat stale → restart 一次并 audit stale + restarted(stop_outcome)', async () => {
     publishActiveContract('clawA');
     const { deps, audits, restartCalls } = makeHarness({
-      liveness: () => aliveLiveness(),
-      heartbeat: () => ({ kind: 'ok', ts: NOW - STALE_TIMEOUT_MS - 1 }),
+      liveness: () => currentLiveness(),
+      heartbeat: () => currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1),
     });
     await runExecutorSupervisorTick(deps);
     expect(restartCalls).toEqual(['clawA']);
@@ -190,8 +211,8 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
   it('restart 的 stop failed outcome 不吞：显式记录 stop_outcome=failed', async () => {
     publishActiveContract('clawA');
     const { deps, audits } = makeHarness({
-      liveness: () => aliveLiveness(),
-      heartbeat: () => ({ kind: 'ok', ts: NOW - STALE_TIMEOUT_MS - 1 }),
+      liveness: () => currentLiveness(),
+      heartbeat: () => currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1),
       restartDaemon: async () => ({
         stop: { kind: 'failed', stage: 'signal', reason: 'kill EPERM' },
         ensured: { kind: 'spawned', pid: 4343 },
@@ -205,7 +226,7 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
   it.each(['missing', 'corrupt'] as const)('active + alive + heartbeat %s → 不 restart、audit unknown', async (kind) => {
     publishActiveContract('clawA');
     const { deps, audits, restartCalls, ensureCalls } = makeHarness({
-      liveness: () => aliveLiveness(),
+      liveness: () => currentLiveness(),
       heartbeat: () => ({ kind }),
     });
     await runExecutorSupervisorTick(deps);
@@ -213,6 +234,76 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
     expect(ensureCalls).toEqual([]);
     expect(findAudit(audits, EV.HEARTBEAT_UNKNOWN)?.cols).toEqual(
       expect.arrayContaining(['claw=clawA', `reason=${kind}`]),
+    );
+  });
+
+  it.each([
+    ['generation', currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1, { generationId: 'generation-old' })],
+    ['pid', currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1, { pid: LIVE_PID + 1 })],
+    ['start_time', currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1, { startTime: 'Sat Nov 14 10:00:00 2026' })],
+  ])('stale 但 heartbeat %s mismatch → identity unknown，不 restart', async (_field, heartbeat) => {
+    publishActiveContract('clawA');
+    const now = vi.fn(() => NOW);
+    const { deps, audits, restartCalls, ensureCalls } = makeHarness({
+      liveness: () => currentLiveness(),
+      heartbeat: () => heartbeat,
+    });
+    await runExecutorSupervisorTick({ ...deps, now });
+    expect(restartCalls).toEqual([]);
+    expect(ensureCalls).toEqual([]);
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(findAudit(audits, EV.HEARTBEAT_UNKNOWN)?.cols).toEqual(
+      expect.arrayContaining([
+        'claw=clawA',
+        'reason=identity_mismatch_or_missing',
+        `live_generation=${GENERATION_ID}`,
+        `live_pid=${LIVE_PID}`,
+        `live_start_time=${START_TIME}`,
+        `heartbeat_ts=${NOW - STALE_TIMEOUT_MS - 1}`,
+        `observed_at=${NOW}`,
+      ]),
+    );
+  });
+
+  it.each([
+    ['generation', aliveLiveness(LIVE_PID, START_TIME)],
+    ['start_time', aliveLiveness(LIVE_PID, undefined, GENERATION_ID)],
+  ])('liveness 缺失 %s identity → unknown，不 restart', async (_field, liveness) => {
+    publishActiveContract('clawA');
+    const { deps, audits, restartCalls } = makeHarness({
+      liveness: () => liveness,
+      heartbeat: () => currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1),
+    });
+    await runExecutorSupervisorTick(deps);
+    expect(restartCalls).toEqual([]);
+    expect(findAudit(audits, EV.HEARTBEAT_UNKNOWN)?.cols).toContain('reason=identity_mismatch_or_missing');
+  });
+
+  it('identity 匹配但 heartbeat.ts 在未来 → unknown，不 restart，now 只取一次', async () => {
+    publishActiveContract('clawA');
+    const now = vi.fn(() => NOW);
+    const { deps, audits, restartCalls } = makeHarness({
+      liveness: () => currentLiveness(),
+      heartbeat: () => currentHeartbeat(NOW + 1),
+    });
+    await runExecutorSupervisorTick({ ...deps, now });
+    expect(restartCalls).toEqual([]);
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(findAudit(audits, EV.HEARTBEAT_UNKNOWN)?.cols).toEqual(
+      expect.arrayContaining(['reason=future_timestamp', `heartbeat_ts=${NOW + 1}`, `observed_at=${NOW}`]),
+    );
+  });
+
+  it('legacy schema 经 adapter 投影为 corrupt unknown，保留原因且不 restart', async () => {
+    publishActiveContract('clawA');
+    const { deps, audits, restartCalls } = makeHarness({
+      liveness: () => currentLiveness(),
+      heartbeat: () => ({ kind: 'corrupt', reason: 'legacy schema_version=1' }),
+    });
+    await runExecutorSupervisorTick(deps);
+    expect(restartCalls).toEqual([]);
+    expect(findAudit(audits, EV.HEARTBEAT_UNKNOWN)?.cols).toEqual(
+      expect.arrayContaining(['reason=corrupt', 'error=legacy schema_version=1']),
     );
   });
 
@@ -246,8 +337,8 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
   it('restart 抛错 → audit restart_failed、tick 正常返回', async () => {
     publishActiveContract('clawA');
     const { deps, audits } = makeHarness({
-      liveness: () => aliveLiveness(),
-      heartbeat: () => ({ kind: 'ok', ts: NOW - STALE_TIMEOUT_MS - 1 }),
+      liveness: () => currentLiveness(),
+      heartbeat: () => currentHeartbeat(NOW - STALE_TIMEOUT_MS - 1),
       restartDaemon: async () => { throw new Error('restart boom'); },
     });
     await expect(runExecutorSupervisorTick(deps)).resolves.toBeUndefined();

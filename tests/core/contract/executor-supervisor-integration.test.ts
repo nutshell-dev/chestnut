@@ -23,10 +23,13 @@ import { createClawTopology } from '../../../src/core/claw-topology/topology.js'
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import { createExecutorSupervisorJob } from '../../../src/core/contract/jobs/executor-supervisor/index.js';
 import { runExecutorSupervisorTick } from '../../../src/core/contract/jobs/executor-supervisor/tick.js';
-import type { ExecutorSupervisorDeps } from '../../../src/core/contract/jobs/executor-supervisor/types.js';
+import type {
+  ExecutorHeartbeatRead,
+  ExecutorSupervisorDeps,
+} from '../../../src/core/contract/jobs/executor-supervisor/types.js';
 import { CONTRACT_ACTIVE_DIR } from '../../../src/core/contract/dirs.js';
 import type { EnsureRunningOutcome, LivenessResult } from '../../../src/foundation/process-manager/index.js';
-import { absentLiveness } from '../../helpers/liveness-fixtures.js';
+import { absentLiveness, aliveLiveness } from '../../helpers/liveness-fixtures.js';
 import { createTrackedTempDirSync } from '../../utils/temp.js';
 
 const CONTRACT_ID = '1700000000000-abcd';
@@ -63,6 +66,7 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
 
   interface HarnessOptions {
     liveness?: (rawClawId: string) => LivenessResult;
+    heartbeat?: (rawClawId: string) => ExecutorHeartbeatRead;
   }
 
   function makeHarness(opts: HarnessOptions = {}) {
@@ -92,7 +96,7 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
           ensured: { kind: 'spawned', pid: 5151 },
         };
       },
-      readHeartbeat: () => ({ kind: 'missing' }),
+      readHeartbeat: opts.heartbeat ?? (() => ({ kind: 'missing' })),
       heartbeatStaleTimeoutMs: 180_000,
     };
     return { deps, audits, ensureCalls, restartCalls };
@@ -130,6 +134,51 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
     // motion 自身不被本 job 监督（归 watchdog）
     expect(audits.filter(a => a.cols.includes('claw=motion'))).toEqual([]);
     expect(ensureCalls).not.toContain('motion');
+  });
+
+  it('集成 2c：当前 generation/PID/start_time 完全匹配且 stale 才 restart', async () => {
+    publishActiveContract('clawA');
+    const now = 1_800_000_000_000;
+    const { deps, restartCalls } = makeHarness({
+      liveness: () => aliveLiveness(5150, 'start-current', 'generation-b'),
+      heartbeat: () => ({
+        kind: 'ok',
+        ts: now - 180_001,
+        pid: 5150,
+        generationId: 'generation-b',
+        startTime: 'start-current',
+      }),
+    });
+
+    await runExecutorSupervisorTick({ ...deps, now: () => now });
+
+    expect(restartCalls).toEqual(['clawA']);
+  });
+
+  it('集成 2d：注入上一代旧 heartbeat，即使 stale 也 unknown、不 restart 当前 generation', async () => {
+    publishActiveContract('clawA');
+    const now = 1_800_000_000_000;
+    const { deps, audits, restartCalls } = makeHarness({
+      liveness: () => aliveLiveness(5150, 'start-current', 'generation-b'),
+      heartbeat: () => ({
+        kind: 'ok',
+        ts: now - 180_001,
+        pid: 5150,
+        generationId: 'generation-a',
+        startTime: 'start-current',
+      }),
+    });
+
+    await runExecutorSupervisorTick({ ...deps, now: () => now });
+
+    expect(restartCalls).toEqual([]);
+    expect(audits.find(a => a.event === 'executor_supervisor_heartbeat_unknown')?.cols).toEqual(
+      expect.arrayContaining([
+        'reason=identity_mismatch_or_missing',
+        'live_generation=generation-b',
+        'heartbeat_generation=generation-a',
+      ]),
+    );
   });
 
   it('集成 3：空 workspace（无 claws/ 目录）——handler 不 throw、不 spawn、0 audit', async () => {

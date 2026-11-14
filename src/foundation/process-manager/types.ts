@@ -228,9 +228,10 @@ export type ReadinessNotReadyReason =
  * - probe_unavailable: probe 抛非 ESRCH 异常（EPERM/未知错误），error 保留原始 identity
  */
 export type LivenessResult =
-  | { kind: 'alive'; pid: number; startTime?: string; processRef?: ProcessRef; evidence: ProcessEvidence }
+  | { kind: 'alive'; generationId?: string; pid: number; startTime?: string; processRef?: ProcessRef; evidence: ProcessEvidence }
   | {
       kind: 'dead';
+      generationId?: string;
       pid: number;
       startTime?: string;
       processRef?: ProcessRef;

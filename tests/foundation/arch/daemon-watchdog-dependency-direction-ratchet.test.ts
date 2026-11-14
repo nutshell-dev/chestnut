@@ -38,6 +38,15 @@ describe('Daemon→Watchdog dependency direction ratchet (phase 1247)', () => {
     expect(scanForWatchdogImports(daemonDir)).toEqual([]);
   });
 
+  it('executor-supervisor 不深读 daemon heartbeat 私有路径或实现', () => {
+    const supervisorDir = path.join(projectRoot, 'src', 'core', 'contract', 'jobs', 'executor-supervisor');
+    for (const entry of fs.readdirSync(supervisorDir)) {
+      if (!entry.endsWith('.ts')) continue;
+      const source = fs.readFileSync(path.join(supervisorDir, entry), 'utf8');
+      expect(source).not.toMatch(/daemon\/(heartbeat-fact|index)|DAEMON_HEARTBEAT_FILE|heartbeat\.json/);
+    }
+  });
+
   it('scanner detects Daemon violation fixture', () => {
     expect(scanForWatchdogImports(fixturesDir)).toContain(
       'tests/foundation/arch/fixtures/daemon-watchdog-import-violation.ts',

@@ -19,9 +19,9 @@ import type {
 
 /** Daemon 心跳读取结果（装配期把 daemon 协议收窄为本三分 typed result）。 */
 export type ExecutorHeartbeatRead =
-  | { kind: 'ok'; ts: number }
+  | { kind: 'ok'; ts: number; pid: number; generationId: string; startTime: string }
   | { kind: 'missing' }
-  | { kind: 'corrupt' };
+  | { kind: 'corrupt'; reason?: string };
 
 /** restartDaemon 的 typed 结果：stop outcome 显式保留（failed 不吞、仍尝试 ensure）。 */
 export interface RestartDaemonResult {

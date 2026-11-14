@@ -336,7 +336,10 @@ describe('daemonCommand - A4a startup success', () => {
 
     // Wait for mockStartDaemonLoop call event instead of fragile flushMicrotasks (phase 779 Step C)
     const [loopCallOptions] = await once(mockStartDaemonLoopCallEvent, 'call');
-    const loopCallOptionsCaptured = loopCallOptions as { eventLoop?: unknown };
+    const loopCallOptionsCaptured = loopCallOptions as {
+      eventLoop?: unknown;
+      heartbeatIdentity?: { generationId: string; startTime: string };
+    };
     if (mockState.stopFn) mockState.stopFn();
     await cmdPromise.catch(() => { /* silent: expected-failure */ });  // 忽略 process.exit 抛错（若有）
 
@@ -348,6 +351,15 @@ describe('daemonCommand - A4a startup success', () => {
     expect(mockState.mockRuntime.initialize).toHaveBeenCalled();
     // phase 1873 Step C: daemon 把装配交付的 eventLoop 原样传入驱动循环（只驱动、不构造）
     expect(loopCallOptionsCaptured.eventLoop).toBe(mockEventLoop);
+    // Phase 2153 B2：heartbeat 与 activation 复用同一次 capture 的 generation/startTime。
+    expect(loopCallOptionsCaptured.heartbeatIdentity).toEqual({
+      generationId: TEST_GENERATION_ID,
+      startTime: 'Tue Nov 10 13:27:59 2026',
+    });
+    const activationInput = mockState.mockProcessManager.activateChildGeneration.mock.calls[0][1];
+    expect(activationInput.generationId).toBe(loopCallOptionsCaptured.heartbeatIdentity?.generationId);
+    expect(activationInput.startTime).toBe(loopCallOptionsCaptured.heartbeatIdentity?.startTime);
+    expect(mockState.mockCaptureCurrentProcessIdentity).toHaveBeenCalledTimes(1);
     // phase 1873 Step F: 内层 graceful handler 就绪后 shim 已让位
     expect(mockShimStandDown).toHaveBeenCalled();
     // phase 1873 Step E: 装配完成、职责段结束 → preAssembleAudit 成功路径 dispose
@@ -389,6 +401,31 @@ describe('daemonCommand - A4a startup success', () => {
     expect(fact['generationId']).toBe(TEST_GENERATION_ID);
     expect(fact['llmIdentity']).toBe('test-llm-identity');
     expect(typeof fact['committedAt']).toBe('string');
+
+    // Phase 2153 B2：daemon owner → Assembly capability 的唯一字段名适配点。
+    const protocol = mockState.mockAssemble.mock.calls[0][0].executorDaemonProtocol;
+    const heartbeatFs = {
+      readSync: vi.fn()
+        .mockReturnValueOnce(JSON.stringify({
+          schema_version: 2,
+          ts: 1234,
+          pid: 5150,
+          generation_id: TEST_GENERATION_ID,
+          start_time: 'Tue Nov 10 13:27:59 2026',
+        }))
+        .mockReturnValueOnce(JSON.stringify({ schema_version: 1, ts: 1234, pid: 5150 })),
+    };
+    expect(protocol.readHeartbeat(heartbeatFs)).toEqual({
+      kind: 'ok',
+      ts: 1234,
+      pid: 5150,
+      generationId: TEST_GENERATION_ID,
+      startTime: 'Tue Nov 10 13:27:59 2026',
+    });
+    expect(protocol.readHeartbeat(heartbeatFs)).toEqual({
+      kind: 'corrupt',
+      reason: 'legacy schema_version=1',
+    });
   });
 
   it('Phase 1927 Step C：claw 不发布 LLM 身份业务事实（motion 专属协议）', async () => {
@@ -418,6 +455,8 @@ describe('daemonCommand - A4a startup success', () => {
 
     const activationInput = mockState.mockProcessManager.activateChildGeneration.mock.calls[0][1];
     expect(activationInput.startTime).toBeUndefined();
+    const loopOptions = mockState.mockStartDaemonLoop.mock.calls[0][0];
+    expect(loopOptions.heartbeatIdentity).toBeUndefined();
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
       'daemon_process_identity_unknown',
       'kind=unknown',

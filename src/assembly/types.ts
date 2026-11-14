@@ -67,7 +67,7 @@ export interface ExecutorDaemonProtocol {
     agentDir: string;
     chestnutRoot: ChestnutRoot;
   }) => SpawnOptions;
-  /** 读 daemon 心跳事实并收窄为三分 typed result（= readDaemonHeartbeat 语义本体）。 */
+  /** 读 daemon 心跳并保留 ts/pid/generation/start_time；legacy/corrupt 均收窄为 unknown。 */
   readonly readHeartbeat: (agentDirFs: FileSystem) => ExecutorHeartbeatRead;
 }
 

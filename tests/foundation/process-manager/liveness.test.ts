@@ -81,7 +81,9 @@ describe('liveness typed owner', () => {
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid, startTime });
 
     const result = liveness(ctx, daemonDir);
-    expect(result).toMatchObject({ kind: 'alive', pid: process.pid, startTime, evidence: { version: 1 } });
+    expect(result).toMatchObject({
+      kind: 'alive', generationId: 'gen-1', pid: process.pid, startTime, evidence: { version: 1 },
+    });
   });
 
   it('active + pid 无 start_time → alive{pid} 无 startTime 字段', () => {
@@ -90,7 +92,7 @@ describe('liveness typed owner', () => {
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
     const result = liveness(ctx, daemonDir);
-    expect(result).toMatchObject({ kind: 'alive', pid: process.pid, evidence: { version: 1 } });
+    expect(result).toMatchObject({ kind: 'alive', generationId: 'gen-1', pid: process.pid, evidence: { version: 1 } });
     expect(result).not.toHaveProperty('startTime');
   });
 
@@ -100,7 +102,7 @@ describe('liveness typed owner', () => {
     writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
     expect(liveness(ctx, daemonDir)).toMatchObject({
-      kind: 'dead', pid: process.pid, evidence: { version: 1 },
+      kind: 'dead', generationId: 'gen-1', pid: process.pid, evidence: { version: 1 },
     });
   });
 
@@ -116,7 +118,7 @@ describe('liveness typed owner', () => {
     });
 
     expect(liveness(ctx, daemonDir)).toMatchObject({
-      kind: 'dead', pid: process.pid, evidence: { version: 1 },
+      kind: 'dead', generationId: 'gen-1', pid: process.pid, evidence: { version: 1 },
     });
   });
 

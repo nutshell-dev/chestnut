@@ -11,6 +11,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
+import {
+  DAEMON_HEARTBEAT_FILE,
+  readDaemonHeartbeat,
+} from '../../src/daemon/heartbeat-fact.js';
 import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
 import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
 import { EventLoop } from '../../src/core/event-loop/index.js';
@@ -51,6 +55,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
 
   afterEach(() => {
     fsNative.rmSync(agentDir, { recursive: true, force: true });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -208,6 +213,132 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       await promise;
 
       expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('Phase 2153 B2：启动与 60 秒 tick 写 v2 heartbeat，复用注入的 activation identity', async () => {
+      const now = 1_800_000_000_000;
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
+      let releaseRun: (() => void) | undefined;
+      const eventLoop = {
+        run: vi.fn(() => new Promise<void>(resolve => { releaseRun = resolve; })),
+        abort: vi.fn(),
+      } as unknown as EventLoop;
+      const heartbeatIdentity = { generationId: 'generation-a', startTime: 'start-a' };
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        heartbeatIdentity,
+        createWatcher: () => fakeWatcher,
+      });
+
+      try {
+        const startup = readDaemonHeartbeat(fsFactory(agentDir));
+        expect(startup).toEqual({
+          kind: 'ok',
+          fact: {
+            schema_version: 2,
+            ts: now,
+            pid: process.pid,
+            generation_id: heartbeatIdentity.generationId,
+            start_time: heartbeatIdentity.startTime,
+          },
+        });
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        const tick = readDaemonHeartbeat(fsFactory(agentDir));
+        expect(tick.kind).toBe('ok');
+        if (tick.kind === 'ok') expect(tick.fact.ts).toBe(now + 60_000);
+      } finally {
+        stop();
+        releaseRun?.();
+        await promise;
+      }
+    });
+
+    it('Phase 2153 B2：activation identity 缺失 → 启动写失败审计，不产生 heartbeat', async () => {
+      const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
+      let releaseRun: (() => void) | undefined;
+      const eventLoop = {
+        run: vi.fn(() => new Promise<void>(resolve => { releaseRun = resolve; })),
+        abort: vi.fn(),
+      } as unknown as EventLoop;
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        createWatcher: () => fakeWatcher,
+      });
+
+      try {
+        expect(readDaemonHeartbeat(fsFactory(agentDir)).kind).toBe('missing');
+        expect(audit.entries).toContainEqual([
+          DAEMON_AUDIT_EVENTS.HEARTBEAT_WRITE_FAILED,
+          'error=daemon heartbeat identity unavailable',
+        ]);
+      } finally {
+        stop();
+        releaseRun?.();
+        await promise;
+      }
+    });
+
+    it('Phase 2153 B2：atomic write failure → HEARTBEAT_WRITE_FAILED，业务 loop 继续', async () => {
+      const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
+      let releaseRun: (() => void) | undefined;
+      const eventLoop = {
+        run: vi.fn(() => new Promise<void>(resolve => { releaseRun = resolve; })),
+        abort: vi.fn(),
+      } as unknown as EventLoop;
+      const failingFsFactory = (dir: string): FileSystem => {
+        const base = fsFactory(dir);
+        if (path.resolve(dir) !== path.resolve(agentDir)) return base;
+        return new Proxy(base, {
+          get(target, prop) {
+            if (prop === 'writeAtomicSync') {
+              return (file: string, contents: string) => {
+                if (file === DAEMON_HEARTBEAT_FILE) throw new Error('injected heartbeat write failure');
+                return target.writeAtomicSync(file, contents);
+              };
+            }
+            const value = Reflect.get(target, prop);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        }) as FileSystem;
+      };
+      const { promise, stop } = startDaemonLoop({
+        fsFactory: failingFsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        heartbeatIdentity: { generationId: 'generation-a', startTime: 'start-a' },
+        createWatcher: () => fakeWatcher,
+      });
+
+      try {
+        await vi.waitFor(() => expect(eventLoop.run).toHaveBeenCalled());
+        expect(audit.entries).toContainEqual([
+          DAEMON_AUDIT_EVENTS.HEARTBEAT_WRITE_FAILED,
+          'error=injected heartbeat write failure',
+        ]);
+      } finally {
+        stop();
+        releaseRun?.();
+        await promise;
+      }
     });
 
     it('phase 1838: 多 tick 仅一条启动通知；查询失败记 RETRY 且 EventLoop 仍驱动、下 tick 恢复', async () => {

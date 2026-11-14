@@ -34,12 +34,14 @@ export function liveness(ctx: ProcessManagerContext, daemonDir: DaemonDir): Live
   const observation = observeProcessFact(ctx, pid.record);
   if (observation.kind === 'alive') {
     return {
-      kind: 'alive', pid: pid.record.pid, ...startTimeOpt, evidence: observation.evidence,
+      kind: 'alive', generationId: active.record.generation_id,
+      pid: pid.record.pid, ...startTimeOpt, evidence: observation.evidence,
     };
   }
   if (observation.kind === 'gone') {
     return {
-      kind: 'dead', pid: pid.record.pid, ...startTimeOpt,
+      kind: 'dead', generationId: active.record.generation_id,
+      pid: pid.record.pid, ...startTimeOpt,
       reason: observation.reason, evidence: observation.evidence,
     };
   }

@@ -6,12 +6,22 @@
  */
 import type { LivenessResult } from '../../src/foundation/process-manager/index.js';
 
-export function aliveLiveness(pid = 123, startTime?: string): LivenessResult {
-  return { kind: 'alive', pid, ...(startTime !== undefined ? { startTime } : {}) };
+export function aliveLiveness(pid = 123, startTime?: string, generationId?: string): LivenessResult {
+  return {
+    kind: 'alive',
+    pid,
+    ...(startTime !== undefined ? { startTime } : {}),
+    ...(generationId !== undefined ? { generationId } : {}),
+  };
 }
 
-export function deadLiveness(pid = 123, startTime?: string): LivenessResult {
-  return { kind: 'dead', pid, ...(startTime !== undefined ? { startTime } : {}) };
+export function deadLiveness(pid = 123, startTime?: string, generationId?: string): LivenessResult {
+  return {
+    kind: 'dead',
+    pid,
+    ...(startTime !== undefined ? { startTime } : {}),
+    ...(generationId !== undefined ? { generationId } : {}),
+  };
 }
 
 export function absentLiveness(reason: 'missing_active' | 'missing_pid' = 'missing_active'): LivenessResult {

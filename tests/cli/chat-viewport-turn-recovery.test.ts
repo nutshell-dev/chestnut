@@ -43,9 +43,11 @@ describe('motion viewport turn recovery (phase 2135 Step B)', () => {
 
   function writeHeartbeat(overrides: Record<string, unknown> = {}): void {
     agentFs.writeAtomicSync(DAEMON_HEARTBEAT_FILE, JSON.stringify({
-      schema_version: 1,
+      schema_version: 2,
       ts: NOW - 1_000,
       pid: 4242,
+      generation_id: 'generation-current',
+      start_time: 'start-current',
       ...overrides,
     }));
   }
@@ -116,6 +118,7 @@ describe('motion viewport turn recovery (phase 2135 Step B)', () => {
     ['turn-state corrupt', '{broken', undefined],
     ['turn-state schema invalid', JSON.stringify({ schema_version: 2 }), undefined],
     ['heartbeat corrupt', undefined, '{broken'],
+    ['heartbeat legacy', undefined, JSON.stringify({ schema_version: 1, ts: NOW - 1_000, pid: 4242 })],
   ] as const)('%s 时审计并 forceReset', (_name, turnRaw, heartbeatRaw) => {
     if (turnRaw === undefined) writeTurn();
     else agentFs.writeAtomicSync(DAEMON_TURN_STATE_FILE, turnRaw);
@@ -128,6 +131,18 @@ describe('motion viewport turn recovery (phase 2135 Step B)', () => {
       'viewport_motion_turn_recovery_failed',
       expect.stringMatching(/^source=/),
       expect.stringMatching(/^reason=/),
+    );
+  });
+
+  it.each(['generation_id', 'start_time'] as const)('heartbeat 缺失 %s 身份时审计并 fail-closed', (field) => {
+    writeTurn();
+    writeHeartbeat({ [field]: undefined });
+    const { turnTracker, audit } = recover();
+    expectReset(turnTracker);
+    expect(audit.write).toHaveBeenCalledWith(
+      'viewport_motion_turn_recovery_failed',
+      'source=heartbeat',
+      expect.stringContaining(field),
     );
   });
 

@@ -35,6 +35,10 @@ describe('ProcessManager public liveness surface (phase 1382, ratchet phase 1773
     expect(manager).toMatch(/\bliveness\s*\(daemonDir:\s*DaemonDir\):\s*LivenessResult/);
     expect(alive).toMatch(/export function liveness\s*\(/);
     expect(types).toMatch(/export type LivenessResult\s*=/);
+    // Phase 2153 B2：公共 union 可选以保持旧 fixture 兼容，生产 owner 必须投影当前 generation。
+    expect(types).toMatch(/kind: 'alive'; generationId\?: string/);
+    expect(types).toMatch(/kind: 'dead';[\s\S]*?generationId\?: string/);
+    expect(alive).toMatch(/generationId: active\.record\.generation_id/);
 
     // B2: 不再提供把 unknown/malformed 压成 false 的公共 boolean 出口。
     expect(manager).not.toMatch(/\bisAlive\s*\(/);

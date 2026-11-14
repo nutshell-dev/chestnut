@@ -177,7 +177,17 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
             createSpawnOptions: createDaemonSpawnOptions,
             readHeartbeat: (agentDirFs) => {
               const hb = readDaemonHeartbeat(agentDirFs);
-              return hb.kind === 'ok' ? { kind: 'ok' as const, ts: hb.fact.ts } : { kind: hb.kind };
+              if (hb.kind === 'ok') {
+                return {
+                  kind: 'ok' as const,
+                  ts: hb.fact.ts,
+                  pid: hb.fact.pid,
+                  generationId: hb.fact.generation_id,
+                  startTime: hb.fact.start_time,
+                };
+              }
+              if (hb.kind === 'missing') return { kind: 'missing' as const };
+              return { kind: 'corrupt' as const, reason: hb.error };
             },
           },
         };
@@ -258,8 +268,19 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         })
       : undefined;
 
+    let heartbeatIdentity: { generationId: string; startTime: string } | undefined;
     try {
       const identity = captureCurrentProcessRef();
+      if (
+        identity.kind === 'captured'
+        && processGenerationId !== undefined
+        && identity.target.startTime !== undefined
+      ) {
+        heartbeatIdentity = {
+          generationId: processGenerationId,
+          startTime: identity.target.startTime,
+        };
+      }
       if (identity.kind !== 'captured') {
         auditWriter.write(
           DAEMON_AUDIT_EVENTS.PROCESS_IDENTITY_UNKNOWN,
@@ -401,6 +422,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       label: isMotion ? '[motion daemon]' : '[daemon]',
       audit: auditWriter,
       turnState,
+      ...(heartbeatIdentity !== undefined ? { heartbeatIdentity } : {}),
       motion: isMotion ? { heartbeat: heartbeat ?? undefined } : undefined,
       // phase 1873 Step I: fatal 恢复预算耗尽 → 走既有 teardown 语义（gracefulShutdown
       // 的 dispose→retire 链）后退出，交 Watchdog 重启接管。

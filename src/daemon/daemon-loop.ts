@@ -187,6 +187,8 @@ interface DaemonLoopOptions {
   motion?: DaemonMotionExtensions;
   /** Phase 2135 Step B：liveness 成功时刷新长 turn 的持久状态新鲜度。 */
   turnState?: Pick<DaemonTurnStateStore, 'refreshActive'>;
+  /** 与 generation activation 同一次 capture 的身份；缺失时心跳写失败并审计。 */
+  heartbeatIdentity?: { generationId: string; startTime: string };
 
   /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
   createWatcher?: WatcherFactory;
@@ -236,7 +238,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   // 供 Watchdog 判 alive-but-loop-stale）；写失败 audit 不阻断 daemon。
   const writeHeartbeatFact = () => {
     try {
-      writeDaemonHeartbeat(agentFs, Date.now());
+      writeDaemonHeartbeat(agentFs, Date.now(), options.heartbeatIdentity);
       try {
         options.turnState?.refreshActive();
       } catch (refreshErr) {

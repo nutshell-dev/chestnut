@@ -82,26 +82,66 @@ async function superviseOne(
 
     switch (live.kind) {
       case 'alive': {
+        const observedAt = now();
+        const evidenceCols = (hb?: ReturnType<ExecutorSupervisorDeps['readHeartbeat']>): string[] => [
+          `live_generation=${live.generationId ?? 'unknown'}`,
+          `live_pid=${live.pid}`,
+          `live_start_time=${live.startTime ?? 'unknown'}`,
+          `heartbeat_generation=${hb?.kind === 'ok' ? hb.generationId : 'unknown'}`,
+          `heartbeat_pid=${hb?.kind === 'ok' ? hb.pid : 'unknown'}`,
+          `heartbeat_start_time=${hb?.kind === 'ok' ? hb.startTime : 'unknown'}`,
+          `heartbeat_ts=${hb?.kind === 'ok' ? hb.ts : 'unknown'}`,
+          `observed_at=${observedAt}`,
+        ];
+        const auditUnknown = (
+          reason: string,
+          hb?: ReturnType<ExecutorSupervisorDeps['readHeartbeat']>,
+          error?: unknown,
+        ): void => {
+          deps.audit.write(
+            EV.HEARTBEAT_UNKNOWN,
+            `claw=${rawClawId}`,
+            `reason=${reason}`,
+            ...evidenceCols(hb),
+            ...(error !== undefined ? [`error=${formatErr(error)}`] : []),
+          );
+        };
+
         let hb: ReturnType<ExecutorSupervisorDeps['readHeartbeat']>;
         try {
           hb = deps.readHeartbeat(rawClawId);
         } catch (err) {
           // 心跳读取系统故障 → unknown 语义（不重启、不误杀）。
-          deps.audit.write(EV.HEARTBEAT_UNKNOWN, `claw=${rawClawId}`, `reason=read_failed`, `error=${formatErr(err)}`);
+          auditUnknown('read_failed', undefined, err);
           return;
         }
         if (hb.kind !== 'ok') {
-          // 升级窗口（missing）/ 读取损坏（corrupt）→ 显式 unknown：不重启、不误判。
-          deps.audit.write(EV.HEARTBEAT_UNKNOWN, `claw=${rawClawId}`, `reason=${hb.kind}`);
+          // 升级窗口（missing/legacy）/ 读取损坏（corrupt）→ 显式 unknown。
+          auditUnknown(hb.kind, hb, hb.kind === 'corrupt' ? hb.reason : undefined);
           return;
         }
-        if (now() - hb.ts > deps.heartbeatStaleTimeoutMs) {
+        // 身份核对必须先于 freshness：旧 generation、PID reuse、start time 不明均不得重启。
+        if (
+          live.generationId === undefined
+          || live.startTime === undefined
+          || hb.generationId !== live.generationId
+          || hb.pid !== live.pid
+          || hb.startTime !== live.startTime
+        ) {
+          auditUnknown('identity_mismatch_or_missing', hb);
+          return;
+        }
+        if (hb.ts > observedAt) {
+          auditUnknown('future_timestamp', hb);
+          return;
+        }
+        if (observedAt - hb.ts > deps.heartbeatStaleTimeoutMs) {
           deps.audit.write(
             EV.HEARTBEAT_STALE,
             `claw=${rawClawId}`,
-            `heartbeat_ts=${hb.ts}`,
-            `now=${now()}`,
+            `now=${observedAt}`,
             `stale_timeout_ms=${deps.heartbeatStaleTimeoutMs}`,
+            ...evidenceCols(hb),
           );
           await restartOne(rawClawId, deps);
         }

@@ -45,7 +45,9 @@ export function recoverMotionTurnState(deps: MotionTurnRecoveryDeps): void {
   const turn = readDaemonTurnState(deps.fs);
   const heartbeat = readDaemonHeartbeat(deps.fs);
   if (turn.kind === 'corrupt') auditCorrupt(deps, 'turn_state', turn.error);
-  if (heartbeat.kind === 'corrupt') auditCorrupt(deps, 'heartbeat', heartbeat.error);
+  if (heartbeat.kind === 'corrupt' || heartbeat.kind === 'legacy') {
+    auditCorrupt(deps, 'heartbeat', heartbeat.error);
+  }
 
   const recoverActive = turn.kind === 'ok'
     && turn.fact.phase === 'active'
