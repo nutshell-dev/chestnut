@@ -115,6 +115,7 @@ export async function stopAllCommand(
   // preserves unknown/malformed evidence instead of skipping a live process.
   const running = clawNames;
   let stopFailed: string[] = [];
+  const markerFailures: string[] = [];
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
     const results = await Promise.allSettled(running.map(async name => {
@@ -142,7 +143,10 @@ export async function stopAllCommand(
     // writeAtomic 完成后 moveSync 前会留 clean-stop.<pid>.<ts>.tmp 孤儿、累积 in .chestnut/。
     // 改后直接 writeAtomicSync 到 'clean-stop'、原子 + 无中间 .tmp 残留。
     baseFs.writeAtomicSync('clean-stop', String(Date.now()));
-  } catch { /* silent: clean-stop marker 写失败 best-effort / 缺 marker 仅次启动 spurious "ungraceful shutdown" warn 不影响功能 */ }
+  } catch (err) {
+    markerFailures.push(`global: ${formatErr(err)}`);
+    audit?.write(CLI_AUDIT_EVENTS.DAEMON_STOP, `scope=all`, `status=clean_stop_marker_failed`, `error=${formatErr(err)}`);
+  }
 
   // phase 2 γ4: 同时为每只被 stop 的 claw 写 per-claw marker so watchdog can classify
   // CrashClass.active_user_stopped vs active_unexpected per claw (not just global).
@@ -156,13 +160,13 @@ export async function stopAllCommand(
       // tmp+rename、外层 wrap 去除、防 .tmp 孤儿累积 in .chestnut/claws/<name>/。
       const clawFs = deps.fsFactory(path.join(baseDir, getRelativeClawDir(name)));
       clawFs.writeAtomicSync('clean-stop', String(Date.now()));
-    } catch {
-      // silent: per-claw marker 写失败 best-effort（同全局 marker 处理）
+    } catch (err) {
+      markerFailures.push(`${name}: ${formatErr(err)}`);
+      audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=clean_stop_marker_failed`, `error=${formatErr(err)}`);
     }
   }
 
   audit?.write(CLI_AUDIT_EVENTS.DAEMON_STOP, `scope=all`);
-  console.log('Done.');
 
   // Cleanup: pgrep兜底，清理残留的daemon-entry.js孤儿进程
   // Use full path as pattern to only match current installation
@@ -229,13 +233,15 @@ export async function stopAllCommand(
   // phase 355 C2: cleanup 完后才 throw、保 cleanup 不被 partial-failure 跳过。
   // 无 action scope 直调时本处为唯一终态点（正常 return / CliError throw 同在此后）
   if (!watchdogAuditScoped) watchdogActionAudit.dispose();
-  if (stopFailed.length > 0 || orphanSweep.failures.length > 0) {
+  if (stopFailed.length > 0 || orphanSweep.failures.length > 0 || markerFailures.length > 0) {
     const details = [
       ...(stopFailed.length > 0 ? [`claws: ${stopFailed.join(', ')}`] : []),
       ...(orphanSweep.failures.length > 0
         ? [`orphan watchdogs: ${orphanSweep.failures.map(f => f.pid ?? 'discovery').join(', ')}`]
         : []),
+      ...(markerFailures.length > 0 ? [`clean-stop markers: ${markerFailures.join(', ')}`] : []),
     ];
     throw new CliError(`Failed to stop ${details.join('; ')}`, 1);
   }
+  console.log('Done.');
 }
