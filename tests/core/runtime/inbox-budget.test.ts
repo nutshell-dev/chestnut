@@ -25,6 +25,7 @@ import {
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../../../src/foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
+import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../../../src/core/async-task-system/inbox-formatter.js';
 import type { InboxMessage, InboxHandle } from '../../../src/foundation/messaging/index.js';
 import type { PreparedInboxEntry } from '../../../src/core/runtime/index.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
@@ -38,10 +39,16 @@ function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[
   };
 }
 
-function buildRuntime(audit: AuditLog): Runtime {
+function buildRuntime(
+  audit: AuditLog,
+  inboxReader: { ack?: ReturnType<typeof vi.fn>; nack?: ReturnType<typeof vi.fn>; defer?: ReturnType<typeof vi.fn> } = {},
+  customizeRegistry?: (registry: ReturnType<typeof createInboxMessageTypeRegistry>) => void,
+): Runtime {
   const registry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(registry, MESSAGING_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(registry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
+  customizeRegistry?.(registry);
   return new Runtime({
     clawId: 'test-claw',
     clawDir: '/tmp/test-claw',
@@ -56,7 +63,7 @@ function buildRuntime(audit: AuditLog): Runtime {
       auditWriter: audit,
       snapshot: {} as never,
       sessionManager: {} as never,
-      inboxReader: {} as never,
+      inboxReader: inboxReader as never,
       llm: {} as never,
       llmOrchestrator: {} as never,
       toolRegistry: {} as never,
@@ -242,6 +249,72 @@ describe('inbox-budget: formatPreparedInbox 预算选择 (Phase 1967 Step B)', (
     );
     expect(formatted.selected.map(e => e.message.id)).toEqual(['critical-new', 'normal-mid']);
     expect(formatted.deferred.map(e => e.message.id)).toEqual(['low-old']);
+  });
+
+  it('task_result 与 B3 聚合正文保持 opaque：不合并、不展开、不替 deferred/selected 结算', async () => {
+    const audit = createMockAudit();
+    const disposition = { ack: vi.fn(), nack: vi.fn(), defer: vi.fn() };
+    const runtime = buildRuntime(audit, disposition);
+    const ordinaryBody = JSON.stringify({ taskId: 'aaaaaaaa', result: 'ordinary', is_error: false });
+    const aggregateBody = JSON.stringify({
+      schema_version: 1,
+      batchId: 'batch-1',
+      parentClawId: 'test-claw',
+      createdAt: '2026-11-14T00:00:00.000Z',
+      aggregated: true,
+      partial: false,
+      omittedCount: 0,
+      items: [
+        { taskId: 'bbbbbbbb', fullTaskId: 'bbbbbbbb-0000-0000-0000-000000000000', is_error: true, reason: 'failed', resultRef: 'tasks/queues/results/b/result.txt' },
+        { taskId: 'cccccccc', fullTaskId: 'cccccccc-0000-0000-0000-000000000000', is_error: false, reason: 'done', resultRef: 'tasks/queues/results/c/result.txt' },
+      ],
+    });
+    const entries = [entry('ordinary'), entry('aggregate'), entry('deferred-task')];
+    for (const [index, body] of [ordinaryBody, aggregateBody, ordinaryBody].entries()) {
+      entries[index].message.type = 'task_result';
+      entries[index].message.from = 'system';
+      entries[index].message.content = body;
+      entries[index].message.metadata = { producer: 'async-task-system' };
+    }
+
+    const formatted = await runtime.formatPreparedInbox(
+      { entries },
+      { maxItems: 2, maxFormattedBytes: INBOX_BATCH_MAX_FORMATTED_BYTES },
+    );
+
+    expect(formatted.selected.map(e => e.message.id)).toEqual(['ordinary', 'aggregate']);
+    expect(formatted.selected[0].handle).toBe(entries[0].handle);
+    expect(formatted.selected[1].handle).toBe(entries[1].handle);
+    expect(formatted.deferred.map(e => e.message.id)).toEqual(['deferred-task']);
+    expect(formatted.injected).toHaveLength(2);
+    expect(formatted.sources[0].body).toBe(ordinaryBody);
+    expect(formatted.sources[1].body).toBe(aggregateBody);
+    expect(formatted.infos[1].content).toBe(aggregateBody);
+    expect(formatted.infos[1].metadata).toEqual({ producer: 'async-task-system' });
+    expect(formatted.injected[1].content).toContain(aggregateBody);
+    expect(disposition.ack).not.toHaveBeenCalled();
+    expect(disposition.nack).not.toHaveBeenCalled();
+    expect(disposition.defer).not.toHaveBeenCalled();
+  });
+
+  it('formatter 中途失败保留同一 error，且不返回半批或执行 inbox disposition', async () => {
+    const audit = createMockAudit();
+    const disposition = { ack: vi.fn(), nack: vi.fn(), defer: vi.fn() };
+    const marker = new Error('formatter failed');
+    const runtime = buildRuntime(audit, disposition, registry => {
+      registry.register({
+        owner: 'runtime-test',
+        type: 'exploding',
+        rendering: { kind: 'custom', formatter: () => { throw marker; } },
+      });
+    });
+    const entries = [entry('first'), entry('explode')];
+    entries[1].message.type = 'exploding';
+
+    await expect(runtime.formatPreparedInbox({ entries })).rejects.toBe(marker);
+    expect(disposition.ack).not.toHaveBeenCalled();
+    expect(disposition.nack).not.toHaveBeenCalled();
+    expect(disposition.defer).not.toHaveBeenCalled();
   });
 
   it('deferred 不产生交付记录：INBOX_INJECT 计数 == selected 计数', async () => {
