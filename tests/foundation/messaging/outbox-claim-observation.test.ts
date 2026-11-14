@@ -262,7 +262,7 @@ describe('OutboxReader claim observation and recovery decisions', () => {
     const { fs, writes } = makeMockFs({ mtimeMs: NOW - THRESHOLD_MS });
     const { audit } = makeAudit();
 
-    await new OutboxReader(fs, audit).init('/claw');
+    await createOutboxReader({ clawRoot: '/claw', fs, audit }).init();
 
     expect(fs.move).not.toHaveBeenCalled();
     expect(fs.writeExclusiveSync).not.toHaveBeenCalled();
