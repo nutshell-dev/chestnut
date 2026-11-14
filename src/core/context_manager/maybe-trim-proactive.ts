@@ -18,6 +18,7 @@ import {
   CONTEXT_TRIM_PROACTIVE_TARGET_RATIO,
 } from './constants.js';
 import { buildProactiveTrimPolicy } from './trim-v2.js';
+import { ContextInputMeasurementError } from './errors.js';
 
 import type { AuditWriter } from './trim-v2.js';
 
@@ -48,7 +49,7 @@ export interface MaybeTrimProactiveInputs {
  *
  * 触发条件（3 件全满足）：
  * 1. 缓存已失效（caller 注入 cacheExpired；TTL 判据与「非首次」归 caller/Runtime）
- * 2. 占用率 ≥ 0.75（estimateMessagesTokens ≥ targetMessagesTokens）
+ * 2. 完整输入占用率 ≥ 0.75（优先使用 measureComplete；无 meter 时保留 legacy fallback）
  * 3. dialogStore 可用（caller 已提供）
  *
  * 不触发返 null；触发则返 TrimAndPersistResult（含 newMessages 引用、caller 替换自身引用）。
@@ -64,12 +65,21 @@ export async function maybeTrimProactive(
   // 2. 算消息历史上限（proactive target 为完整 prompt 上限；减去 fixed 得消息上限）
   const proactiveTargetRatio = inputs.policy.proactiveTargetRatio ?? inputs.policy.targetRatio ?? CONTEXT_TRIM_PROACTIVE_TARGET_RATIO;
   const proactiveTriggerRatio = inputs.policy.proactiveTriggerRatio ?? CONTEXT_TRIM_PROACTIVE_TRIGGER_RATIO;
-  const fixedTokens = estimateTextTokens(inputs.systemPrompt) + estimateToolsTokens(inputs.toolsForLLM);
   const triggerTokens = Math.floor(inputs.contextWindow * proactiveTriggerRatio);
 
-  // 3. 占用率 < 0.75 不触发
-  const estimatedTokens = estimateMessagesTokens(inputs.messages);
-  if (fixedTokens + estimatedTokens < triggerTokens) return null;
+  // 3. 占用率 < 0.75 不触发。完整 meter 是可用时的唯一触发事实，不能与
+  // legacy fixed/message estimate 混算；unavailable 必须保留 typed recovery 语义。
+  if (inputs.measureComplete) {
+    const measurement = inputs.measureComplete(inputs.messages);
+    if (measurement.kind === 'unavailable') {
+      throw new ContextInputMeasurementError(measurement.reason, inputs.measurementDescriptor);
+    }
+    if (measurement.tokens < triggerTokens) return null;
+  } else {
+    const fixedTokens = estimateTextTokens(inputs.systemPrompt) + estimateToolsTokens(inputs.toolsForLLM);
+    const estimatedTokens = estimateMessagesTokens(inputs.messages);
+    if (fixedTokens + estimatedTokens < triggerTokens) return null;
+  }
 
   // 5. 触发顺手裁
   return await trimAndPersist({

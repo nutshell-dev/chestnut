@@ -9,6 +9,7 @@ import {
   classifyMessage,
   buildContextTrimSummaryMessage,
   findToolPairSafeInsertionIndex,
+  assertDialogShapeInvariants,
   type ContextTrimSummaryStats,
 } from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
@@ -17,6 +18,7 @@ import { ContextInputMeasurementError } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
+  CONTEXT_TRIM_CANDIDATE,
 } from './audit-events.js';
 import {
   CONTEXT_TRIM_TARGET_RATIO,
@@ -181,6 +183,7 @@ interface TrimV2Result {
     droppedSystemMessages: number;
     collapsedToolResults: number;
     collapsedToolUseFields: number;
+    /** @deprecated 恒为 0；保留历史审计/读取兼容，collapse 不构成 result replacement。 */
     supersededRedundantResults: number;
     summaryMessageInjected: boolean;
   };
@@ -195,6 +198,7 @@ interface CompressResult {
   collapsedToolUseFields: number;
   collapsedTextBlocks: number;
   collapsedThinkingBlocks: number;
+  /** @deprecated 恒为 0；同参数结果各自保留，不存在 supersede 生产路径。 */
   supersededRedundantResults: number;
   /** 在 proactive 场景下，摘要应插入此位置（处理过的 target 消息之后、未处理的非 target 消息之前）。reactive 时为 messages.length。 */
   boundaryIndex: number;
@@ -268,6 +272,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     opts.policy.kind === 'proactive' ? initialSplit.olderIndices : initialSplit.olderIndices,
     targetTokens,
     initialSplit.olderIndices.length,
+    'old_shorten',
     ledger,
   );
   let droppedMessages: Message[] = [];
@@ -293,7 +298,10 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     }
     if (currentTokens(compressed.messages, opts, ledger) > targetTokens) {
       const split = splitBy24h(compressed.messages, opts.recentWindowMs, opts.now);
-      compressed = compressSequential(compressed.messages, opts, split.newerIndices, targetTokens, split.olderIndices.length, ledger);
+      compressed = compressSequential(
+        compressed.messages, opts, split.newerIndices, targetTokens,
+        split.olderIndices.length, 'new_shorten', ledger,
+      );
     }
     if (currentTokens(compressed.messages, opts, ledger) > targetTokens) {
       const split = splitBy24h(compressed.messages, opts.recentWindowMs, opts.now);
@@ -367,6 +375,8 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
       `tool_results_collapsed=${result.metrics.collapsedToolResults}`,
       `tool_use_fields_collapsed=${result.metrics.collapsedToolUseFields}`,
       `redundant_results_superseded=${result.metrics.supersededRedundantResults}`,
+      'result_identity=tool_use_id',
+      'replacement=false',
       `summary_message_injected=${result.metrics.summaryMessageInjected ? 1 : 0}`,
       ...(ledger?.auditDetails ?? [
         'token_count_mode=complete_measurement',
@@ -460,6 +470,7 @@ function compressSequential(
   targetIndices: readonly number[],
   targetTokens: number,
   boundaryIndex: number,
+  stage: 'old_shorten' | 'new_shorten',
   ledger?: MessageTokenLedger,
 ): CompressResult {
   let result = emptyCompressResult(messages, boundaryIndex);
@@ -469,7 +480,15 @@ function compressSequential(
     const candidate = compressMessages(result.messages, opts, new Set([index]));
     const replacement = ledger?.measureReplacement(index, index + 1, [candidate.messages[index]]);
     const candidateTokens = replacement?.total ?? completeTokens(candidate.messages, opts);
-    if (candidateTokens >= compressedTokens) continue;
+    if (candidateTokens >= compressedTokens) {
+      auditCandidate(opts, stage, `message:${index}`, [
+        `before=${compressedTokens}`, `after=${candidateTokens}`, 'changed=false', 'skip_reason=transform_did_not_reduce',
+      ]);
+      continue;
+    }
+    auditCandidate(opts, stage, `message:${index}`, [
+      `before=${compressedTokens}`, `after=${candidateTokens}`, 'changed=true',
+    ]);
     if (ledger && replacement) {
       ledger.commitReplacement(index, index + 1, replacement);
     }
@@ -510,6 +529,39 @@ function makePolicyConflict(
 interface MessageSegment {
   start: number;
   endExclusive: number;
+}
+
+function dialogShapeViolationKeys(messages: readonly Message[]): string[] {
+  const violations: string[] = [];
+  assertDialogShapeInvariants(messages, {
+    write: (_event, ...details) => {
+      const columns = details.map(String);
+      const kind = columns.find(column => column.startsWith('kind=')) ?? 'kind=unknown';
+      const identity = columns.find(column => column.startsWith('tool_use_id=')) ?? '';
+      violations.push(`${kind}|${identity}`);
+    },
+  });
+  return violations.sort();
+}
+
+/** 合法输入的候选必须合法；历史非法输入只允许减少、不得新增同类违例。 */
+function introducesDialogShapeViolation(current: readonly Message[], candidate: readonly Message[]): boolean {
+  const remaining = dialogShapeViolationKeys(current);
+  for (const violation of dialogShapeViolationKeys(candidate)) {
+    const index = remaining.indexOf(violation);
+    if (index === -1) return true;
+    remaining.splice(index, 1);
+  }
+  return false;
+}
+
+function auditCandidate(
+  opts: TrimV2Options,
+  stage: 'old_shorten' | 'old_remove' | 'new_shorten' | 'new_remove',
+  candidate: string,
+  details: string[],
+): void {
+  opts.audit.write(CONTEXT_TRIM_CANDIDATE, `stage=${stage}`, `candidate=${candidate}`, ...details);
 }
 
 function completeTurnSegments(messages: readonly Message[]): MessageSegment[] {
@@ -566,8 +618,10 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
 
   for (const m of turnMessages) {
     const { origin } = classifyMessage(m);
-    // 系统消息 → 丢弃
-    if (m.role === 'user' && origin === 'system') {
+    // 普通系统消息 → 丢弃；含 tool_result 的 system-origin 容器必须先走
+    // 下方 tool_use_id 配对过滤，不能把仍保留的 send 结果整条删掉。
+    if (m.role === 'user' && origin === 'system'
+        && (typeof m.content === 'string' || !m.content.some(b => b.type === 'tool_result'))) {
       dropped.push(m);
       continue;
     }
@@ -644,6 +698,9 @@ function dropTurnsSelective(
   let bestMessages = result.messages;
   let bestAfter = currentTokens(bestMessages, opts, ledger);
   const allDropped: Message[] = [];
+  const stage = opts.policy.kind === 'reactive' && options?.onlyAfterIndex !== undefined
+    ? 'new_remove'
+    : 'old_remove';
 
   // 从最旧 turn 开始逐个处理
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -664,6 +721,9 @@ function dropTurnsSelective(
 
     if (!modified) {
       // 此 turn 没有任何内容被丢弃（Tier 1 全保），跳过
+      auditCandidate(opts, stage, `turn:${seg.start}-${seg.endExclusive}`, [
+        `before=${bestAfter}`, `after=${bestAfter}`, 'changed=false', 'skip_reason=protected_or_unchanged',
+      ]);
       continue;
     }
 
@@ -674,11 +734,26 @@ function dropTurnsSelective(
       ...kept,
       ...bestMessages.slice(seg.endExclusive),
     ];
+    const candidateId = `turn:${seg.start}-${seg.endExclusive}`;
+    if (introducesDialogShapeViolation(bestMessages, candidate)) {
+      auditCandidate(opts, stage, candidateId, [
+        `before=${bestAfter}`, `after=${bestAfter}`, 'changed=false', 'skip_reason=dialog_shape_violation',
+      ]);
+      continue;
+    }
     const replacement = ledger?.measureReplacement(seg.start, seg.endExclusive, kept);
     const after = replacement?.total ?? completeTokens(candidate, opts);
+    if (after >= bestAfter) {
+      auditCandidate(opts, stage, candidateId, [
+        `before=${bestAfter}`, `after=${after}`, 'changed=false', 'skip_reason=transform_did_not_reduce',
+      ]);
+      continue;
+    }
 
     // 目标是上限；低于目标仍然合法，不再因为输出预算制造下限。
-
+    auditCandidate(opts, stage, candidateId, [
+      `before=${bestAfter}`, `after=${after}`, 'changed=true',
+    ]);
     allDropped.push(...dropped);
     if (ledger && replacement) {
       ledger.commitReplacement(seg.start, seg.endExclusive, replacement);
@@ -687,6 +762,10 @@ function dropTurnsSelective(
     bestAfter = after;
 
     if (after <= targetTokens) break;
+
+    // 整段移除后，下一个 turn 已移动到当前下标；不能随 for 递增把它跳过。
+    // 每次接受都至少缩短一条消息或删除一个 block，因此该回退仍有界。
+    if (kept.length === 0) segIdx--;
 
     // 重建 segments（消息数组已变，segment 边界可能偏移）
     const newSegments = completeTurnSegments(bestMessages);
@@ -843,7 +922,13 @@ function compressMessages(
       continue;
     }
 
-    // user role 含 tool_result → 折叠 content（P1a）+ 应用 P2 superseded
+    // 显式用户来源的数组消息同样不可缩短；tool_result 容器身份不改变用户数据保护。
+    if (m.role === 'user' && origin === 'user') {
+      newMessages.push(m);
+      continue;
+    }
+
+    // 其余 user role 含 tool_result → 每个 block 按自身正文独立折叠，不做参数级取代。
     if (m.role === 'user' && typeof m.content !== 'string') {
       const { newMsg, collapsedCount } = collapseToolResults(m, opts.previewBytes, opts.now);
       collapsedToolResults += collapsedCount;

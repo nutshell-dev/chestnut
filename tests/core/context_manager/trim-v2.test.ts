@@ -70,7 +70,15 @@ function makeMultiTurnTrimFixture(): Message[] {
     messages.push(makeTextMsg(`old request ${i}`, { addedAt }));
     messages.push({
       role: 'assistant',
-      content: [{ type: 'text', text: `assistant ${i} ${'测'.repeat(400)}` }],
+      content: [
+        { type: 'text', text: `assistant ${i} ${'测'.repeat(400)}` },
+        { type: 'tool_use', id: `ledger-send-${i}`, name: 'send', input: { content: `keep ${i}` } },
+      ],
+      addedAt,
+    });
+    messages.push({
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: `ledger-send-${i}`, content: `sent ${i}` }],
       addedAt,
     });
   }
@@ -173,7 +181,7 @@ describe('trimV2', () => {
       },
       {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: id1, content: 'old result ' + '测'.repeat(500) }],
+        content: [{ type: 'tool_result', tool_use_id: id1, content: 'old result ' + '测'.repeat(500), blockId: 'old-result-block' }],
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 99).toISOString(),
       },
       {
@@ -183,19 +191,28 @@ describe('trimV2', () => {
       },
       {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: id2, content: 'new result ' + '测'.repeat(500) }],
+        content: [{ type: 'tool_result', tool_use_id: id2, content: 'new result ' + '测'.repeat(500), blockId: 'new-result-block' }],
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 49).toISOString(),
       },
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_500) }));
+    const audit = { write: vi.fn() } satisfies AuditWriter;
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_500), audit }));
     expect(result.metrics.supersededRedundantResults).toBe(0);
     // 两个结果都来自自身正文，各自折叠，不产生 superseded 引用。
-    const old = (result.outcome.newMessages[1].content as [{ type: 'tool_result'; content: string }])[0];
-    const newest = (result.outcome.newMessages[3].content as [{ type: 'tool_result'; content: string }])[0];
+    const old = (result.outcome.newMessages[1].content as [{ type: 'tool_result'; content: string; tool_use_id: string; blockId: string }])[0];
+    const newest = (result.outcome.newMessages[3].content as [{ type: 'tool_result'; content: string; tool_use_id: string; blockId: string }])[0];
     expect(old.content).toContain('old result');
     expect(old.content).toContain('<...>');
     expect(old.content).not.toContain('superseded');
+    expect(newest.content).toContain('new result');
     expect(newest.content).toContain('<...>');
+    expect(old.tool_use_id).toBe(id1);
+    expect(newest.tool_use_id).toBe(id2);
+    expect(old.blockId).toBe('old-result-block');
+    expect(newest.blockId).toBe('new-result-block');
+    const completed = audit.write.mock.calls.find(([event]) => event === CONTEXT_TRIM_COMPLETED);
+    expect(completed).toContain('result_identity=tool_use_id');
+    expect(completed).toContain('replacement=false');
   });
 
   it('6. 折叠后变大跳过（content 短）', () => {
@@ -1007,5 +1024,229 @@ describe('trimV2 input measurement capability routing (phase 2138)', () => {
     const completed = audit.write.mock.calls.find(([event]) => event === CONTEXT_TRIM_COMPLETED);
     expect(completed).toContain('token_count_mode=complete_measurement');
     expect(completed).toContain(`token_count_capability=${kind}`);
+  });
+});
+
+
+describe('Phase 2149 result identity and protected message classification', () => {
+  it('keeps same-parameter results in one turn distinct by tool_use_id and blockId', () => {
+    const messages = withAnchor([{
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: 'same-turn-a', name: 'read', input: { path: '/same' } },
+        { type: 'tool_use', id: 'same-turn-b', name: 'read', input: { path: '/same' } },
+      ],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString(),
+    }, {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'same-turn-a', content: `result-a ${'甲'.repeat(400)}`, blockId: 'result-block-a' },
+        { type: 'tool_result', tool_use_id: 'same-turn-b', content: `result-b ${'乙'.repeat(400)}`, blockId: 'result-block-b' },
+      ],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+    }]);
+
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_500) }));
+    const resultMessage = result.outcome.newMessages.find(message => Array.isArray(message.content)
+      && message.content.some(block => block.type === 'tool_result'));
+    const blocks = (resultMessage?.content as Array<{
+      type: string; tool_use_id: string; content: string; blockId: string;
+    }>).filter(block => block.type === 'tool_result');
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks.map(block => block.tool_use_id)).toEqual(['same-turn-a', 'same-turn-b']);
+    expect(blocks.map(block => block.blockId)).toEqual(['result-block-a', 'result-block-b']);
+    expect(blocks[0].content).toContain('result-a');
+    expect(blocks[1].content).toContain('result-b');
+    expect(result.metrics.supersededRedundantResults).toBe(0);
+  });
+
+  it('does not shorten or mutate an origin=user array message even when it contains tool_result', () => {
+    const original: Message = {
+      role: 'user',
+      origin: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'user-owned-result',
+        content: `用户原文 ${'测'.repeat(500)}`,
+        blockId: 'user-owned-block',
+      }],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+    };
+    const messages = withAnchor([original]);
+    const before = JSON.stringify(messages);
+
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+
+    expect(result.outcome.newMessages[0]).toBe(original);
+    expect(result.outcome.newMessages[0]).toEqual(original);
+    expect(JSON.stringify(messages)).toBe(before);
+    expect(result.metrics.collapsedToolResults).toBe(0);
+  });
+
+  it('filters system-origin tool_result blocks by tool_use_id without orphaning a retained send pair', () => {
+    const messages = withAnchor([
+      makeTextMsg('old request', { addedAt: new Date(NOW - RECENT_WINDOW_MS - 3).toISOString() }),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'remove-read', name: 'read', input: { path: '/x' } },
+          { type: 'tool_use', id: 'keep-send', name: 'send', input: { content: 'keep input' } },
+        ],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString(),
+      },
+      {
+        role: 'user',
+        origin: 'system',
+        content: [
+          { type: 'tool_result', tool_use_id: 'remove-read', content: 'remove result' },
+          { type: 'tool_result', tool_use_id: 'keep-send', content: 'keep result' },
+        ],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const out = result.outcome.newMessages;
+
+    expect(findMessageWithToolUse(out, 'keep-send')).toBeDefined();
+    expect(out.some(message => Array.isArray(message.content)
+      && message.content.some(block => block.type === 'tool_result'
+        && block.tool_use_id === 'keep-send' && block.content === 'keep result'))).toBe(true);
+    expect(findMessageWithToolUse(out, 'remove-read')).toBeUndefined();
+    expect(out.some(message => Array.isArray(message.content)
+      && message.content.some(block => block.type === 'tool_result'
+        && block.tool_use_id === 'remove-read'))).toBe(false);
+  });
+});
+
+
+describe('Phase 2149 bounded candidate stages and final summary measurement', () => {
+  it('rejects a removal candidate that would create consecutive plain user messages', () => {
+    const messages = withAnchor([
+      makeTextMsg('first user', { addedAt: new Date(NOW - RECENT_WINDOW_MS - 3).toISOString() }),
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '测'.repeat(500) }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString(),
+      },
+      makeTextMsg('second user', { addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() }),
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'second response ' + '测'.repeat(500) }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+
+    const audit = { write: vi.fn() };
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50), audit }));
+    const out = result.outcome.newMessages;
+    expect(out.some(message => message.role === 'assistant')).toBe(true);
+    expect(audit.write.mock.calls.some(([event, ...details]) => event === 'context_trim_candidate'
+      && details.includes('stage=old_remove')
+      && details.includes('skip_reason=dialog_shape_violation'))).toBe(true);
+  });
+
+  it('continues at the shifted segment after a whole removal and stops before the next candidate once target is reached', () => {
+    const old = (offset: number) => new Date(NOW - RECENT_WINDOW_MS - 100 + offset).toISOString();
+    const system = makeSystemMsg(`[system message] ${'x'.repeat(500)}`, 'task_result', NOW - RECENT_WINDOW_MS - 101);
+    const turn = (name: string, offset: number): Message[] => [
+      makeTextMsg(`u${name}`, { addedAt: old(offset) }),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: `${name} ${'测'.repeat(500)}` },
+          { type: 'tool_use', id: `send-${name}`, name: 'send', input: { content: 'keep' } },
+        ],
+        addedAt: old(offset + 1),
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: `send-${name}`, content: 'sent' }],
+        addedAt: old(offset + 2),
+      },
+    ];
+    const messages = [
+      system,
+      ...turn('a1', 0), ...turn('a2', 3), ...turn('a3', 6),
+      makeTextMsg('anchor'),
+    ];
+    const weight = (message: Message): number => {
+      if (message.systemSubtype === 'context_trim_summary') return 0;
+      if (message === system || message.content === system.content) return 30;
+      if (message.role === 'assistant' && typeof message.content !== 'string'
+          && message.content.some(block => block.type === 'text')) return 50;
+      return 10;
+    };
+    const measureComplete = vi.fn((candidate: readonly Message[]) => ({
+      kind: 'counted' as const,
+      tokens: candidate.reduce((sum, message) => sum + weight(message), 0),
+      method: 'deepseek-v41-template' as const,
+    }));
+    const hasText = (name: string) => (message: Message) => message.role === 'assistant'
+      && typeof message.content !== 'string'
+      && message.content.some(block => block.type === 'text' && block.text.startsWith(name));
+
+    const result = trimV2(messages, baseOpts({
+      policy: buildProactiveTrimPolicy(200, { targetRatio: 1 }),
+      measureComplete,
+    }));
+    const out = result.outcome.newMessages;
+
+    expect(out.some(message => message.content === system.content)).toBe(false);
+    expect(out.some(hasText('a1'))).toBe(false);
+    expect(out.some(hasText('a2'))).toBe(true);
+    expect(out.some(hasText('a3'))).toBe(true);
+    expect(result.outcome.status).toBe('target_reached');
+    expect(result.outcome.after).toBe(180);
+  });
+
+  it.each([
+    { summaryTokens: 50, expectedStatus: 'target_reached' as const },
+    { summaryTokens: 70, expectedStatus: 'progress' as const },
+  ])('uses the final summary candidate for status when summary tokens=$summaryTokens', ({ summaryTokens, expectedStatus }) => {
+    const messages = withAnchor([
+      makeSystemMsg(`[system message] ${'测'.repeat(500)}`, 'task_result', NOW - RECENT_WINDOW_MS - 1),
+    ]);
+    const measure = (candidate: readonly Message[]) => {
+      const hasSummary = candidate.some(message => message.systemSubtype === 'context_trim_summary');
+      const hasCollapsed = candidate.some(message => typeof message.content === 'string' && message.content.includes('<...>'));
+      return {
+        kind: 'counted' as const,
+        tokens: hasSummary ? summaryTokens : hasCollapsed ? 40 : 100,
+        method: 'deepseek-v41-template' as const,
+      };
+    };
+
+    const result = trimV2(messages, baseOpts({
+      policy: buildProactiveTrimPolicy(100, { targetRatio: 0.5 }),
+      measureComplete: measure,
+    }));
+
+    expect(result.metrics.summaryMessageInjected).toBe(true);
+    expect(result.outcome.status).toBe(expectedStatus);
+    expect(result.outcome.after).toBe(summaryTokens);
+    expect(measure(result.outcome.newMessages).tokens).toBe(result.outcome.after);
+  });
+});
+
+
+describe('Phase 2149 reactive stage audit order', () => {
+  it('enumerates old shorten/remove before new shorten/remove', () => {
+    const audit = { write: vi.fn() } satisfies AuditWriter;
+    const result = trimV2(makeMultiTurnTrimFixture(), baseOpts({
+      policy: buildReactiveTrimPolicy({ contextWindow: 0, explicitMaxTokens: 9_999 }),
+      audit,
+    }));
+    const stages = audit.write.mock.calls
+      .filter(([event]) => event === 'context_trim_candidate')
+      .map(([, stage]) => stage);
+    const first = (stage: string) => stages.indexOf(`stage=${stage}`);
+
+    expect(result.outcome.status).toBe('progress');
+    expect(first('old_shorten')).toBeGreaterThanOrEqual(0);
+    expect(first('old_remove')).toBeGreaterThan(first('old_shorten'));
+    expect(first('new_shorten')).toBeGreaterThan(first('old_remove'));
+    expect(first('new_remove')).toBeGreaterThan(first('new_shorten'));
   });
 });

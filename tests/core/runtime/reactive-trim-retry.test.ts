@@ -22,6 +22,7 @@ import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
 import type { StreamEvent } from '../../../src/foundation/stream/index.js';
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
+import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 // Step H: EventLoop 的 trim 重试退避（30s 起）与 dispatchError fallback 退避
 // 是生产值；测试用小值锁状态机（对齐 tests/core/event-loop/event-loop.test.ts）。
@@ -369,5 +370,43 @@ describe('runtime reactive trim+retry path', () => {
 
     expect(runReactCalls).toBe(1);
     expect(trimSpy).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Phase 2149 reactive persisted-candidate gate', () => {
+  it('does not schedule retry for a target_reached candidate that was not archived', async () => {
+    const testTempDir = await createTempDir('chestnut-phase2149-reactive-');
+    const testClawDir = path.join(testTempDir, 'claws', 'test-claw');
+    await fs.mkdir(testClawDir, { recursive: true });
+    const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
+    const runtime = new Runtime({
+      clawId: 'test-claw', clawDir: testClawDir, llmConfig: createMockLLMConfig(),
+      dependencies: deps, idleTimeoutMs: 0, contextTrimmingEnabled: true,
+    });
+    try {
+      await runtime.initialize();
+      vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+      vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+        status: 'target_reached', before: 1_000, after: 100,
+        newMessages: [{ role: 'user', content: 'unpersisted candidate' } as Message], archived: false,
+      });
+      vi.spyOn(loopModule, 'runReact').mockImplementation(async () => {
+        throw new LLMContextExceededError('test-provider', 400, 'prompt is too long');
+      });
+      const content = `---\nid: m1\ntype: message\nfrom: sender\npriority: normal\ntimestamp: ${new Date().toISOString()}\n---\n\nhi\n`;
+      await fs.writeFile(path.join(testClawDir, 'inbox', 'pending', 'm1.md'), content);
+      const capture = captureStreamEvents();
+      const loop = createTestEventLoop({
+        runtime, clawDir: testClawDir, clawId: 'test-claw', streamWriter: capture.streamWriter,
+      });
+
+      await loop.run();
+
+      expect(capture.events.filter(event => event.type === 'context_trim_retry_scheduled')).toEqual([]);
+    } finally {
+      await runtime.stop().catch(() => { /* silent: cleanup */ });
+      await cleanupTempDir(testTempDir);
+    }
   });
 });

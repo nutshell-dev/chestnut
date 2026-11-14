@@ -152,6 +152,7 @@ describe('trimAndPersist', () => {
     expect(failed).toBeDefined();
     expect(failed).toContain('stage=save');
     expect(failed?.join(' ')).toContain('write failed');
+    expect(audit.events.some(event => event[0] === CONTEXT_TRIM_ARCHIVED)).toBe(false);
   });
 
   it('4b. 裁前 save 失败 → 不归档、不交付候选、emit FAILED(stage=before_save)', async () => {
@@ -404,6 +405,165 @@ describe('trimAndPersist additive measurement lifecycle (phase 2138)', () => {
       expect(completed.every(event => event.includes('token_count_mode=message_ledger'))).toBe(true);
     } finally {
       trimSpy.mockRestore();
+    }
+  });
+});
+
+
+describe('Phase 2149 real DialogStore failure recovery', () => {
+  async function makeFixture() {
+    const tempDir = await createTempDir('chestnut-phase2149-persist-');
+    const fs = new NodeFileSystem({ baseDir: tempDir });
+    const { audit, events } = makeRealAudit();
+    const store = new RealDialogStore(fs, 'dialog', audit, 'current.json', 'trim-test');
+    const oldSystem: Message = {
+      role: 'user', origin: 'system', systemSubtype: 'task_result',
+      content: '[system message] ' + '原文'.repeat(600),
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+    };
+    const recent: Message = { role: 'user', content: 'recent', addedAt: new Date(NOW).toISOString() };
+    const injected: Message = { role: 'user', content: 'not yet persisted', addedAt: new Date(NOW).toISOString() };
+    const messages = [oldSystem, recent, injected];
+    await store.save({ systemPrompt: 'sys', messages: [oldSystem], toolsForLLM: [] });
+    const inputs = baseInputs({
+      messages,
+      dialogStore: store,
+      audit,
+      triggerKind: 'proactive_cache_idle',
+      policy: buildProactiveTrimPolicy(1_000),
+    });
+    return { tempDir, fs, audit, events, store, oldSystem, recent, injected, messages, inputs };
+  }
+
+  it('same-parameter tool results keep distinct identities through archive and reload', async () => {
+    const fixture = await makeFixture();
+    try {
+      const old = (offset: number) => new Date(NOW - RECENT_WINDOW_MS - 10 + offset).toISOString();
+      const turn = (id: string, body: string, offset: number): Message[] => [
+        { role: 'user', origin: 'user', content: `request ${id}`, addedAt: old(offset) },
+        { role: 'assistant', content: [{ type: 'tool_use', id, name: 'read', input: { path: '/same' } }], addedAt: old(offset + 1) },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `${body} ${'测'.repeat(500)}` }], addedAt: old(offset + 2) },
+      ];
+      const messages = [
+        ...turn('archive-a', 'result-a', 0),
+        ...turn('archive-b', 'result-b', 3),
+        { role: 'user', origin: 'user', content: 'anchor', addedAt: new Date(NOW).toISOString() },
+      ];
+      const originalContents = messages.map(message => JSON.parse(JSON.stringify(message.content)) as Message['content']);
+
+      const result = await trimAndPersist({
+        ...fixture.inputs,
+        messages,
+        contextWindow: 1_000,
+        policy: buildProactiveTrimPolicy(1_000),
+      });
+
+      expect(result.archived).toBe(true);
+      const archives = await fixture.store.listArchives();
+      const archived = await fixture.store.readArchive(archives[0]);
+      const withoutBlockIds = (content: Message['content']) => Array.isArray(content)
+        ? content.map(block => Object.fromEntries(Object.entries(block).filter(([key]) => key !== 'blockId')))
+        : content;
+      expect(archived.messages.map(message => withoutBlockIds(message.content))).toEqual(originalContents);
+      const archivedResults = archived.messages.flatMap(message => Array.isArray(message.content)
+        ? message.content.flatMap(block => block.type === 'tool_result' ? [block] : [])
+        : []);
+      expect(archivedResults.map(block => block.tool_use_id)).toEqual(['archive-a', 'archive-b']);
+      expect(archivedResults.every(block => typeof block.blockId === 'string')).toBe(true);
+      const current = await fixture.store.load();
+      const results = current.session?.messages.flatMap(message => Array.isArray(message.content)
+        ? message.content.flatMap(block => block.type === 'tool_result' ? [block] : [])
+        : []) ?? [];
+      expect(results.map(block => block.tool_use_id)).toEqual(['archive-a', 'archive-b']);
+      expect(results.map(block => block.blockId)).toHaveLength(2);
+      expect(new Set(results.map(block => block.blockId)).size).toBe(2);
+      expect(results[0].content).toContain('result-a');
+      expect(results[1].content).toContain('result-b');
+    } finally {
+      await cleanupTempDir(fixture.tempDir);
+    }
+  });
+
+  it('candidate_save failure reloads the exact active input from archive without a success audit', async () => {
+    const fixture = await makeFixture();
+    try {
+      let saveCalls = 0;
+      const saveError = new Error('candidate disk failure');
+      const failingStore = {
+        archive: () => fixture.store.archive(),
+        save: async (snapshot: Parameters<RealDialogStore['save']>[0]) => {
+          saveCalls++;
+          if (saveCalls === 2) throw saveError;
+          return fixture.store.save(snapshot);
+        },
+      };
+
+      await expect(trimAndPersist({ ...fixture.inputs, dialogStore: failingStore })).rejects.toMatchObject({
+        name: 'ContextTrimPersistError', stage: 'save', cause: saveError,
+      });
+
+      expect(await fixture.store.hasCurrent()).toBe(false);
+      const reloaded = await new RealDialogStore(
+        fixture.fs, 'dialog', fixture.audit, 'current.json', 'trim-test',
+      ).load();
+      expect(reloaded.source).toBe('archive');
+      expect(reloaded.session?.messages.map(message => message.content)).toEqual(
+        fixture.messages.map(message => message.content),
+      );
+      expect(reloaded.session?.messages.some(message => message.content === 'not yet persisted')).toBe(true);
+      expect(reloaded.session?.messages.some(message => message.systemSubtype === 'context_trim_summary')).toBe(false);
+      expect(fixture.events.some(event => event[0] === CONTEXT_TRIM_ARCHIVED)).toBe(false);
+      expect(fixture.events.some(event => event[0] === CONTEXT_TRIM_FAILED && event.includes('stage=save'))).toBe(true);
+    } finally {
+      await cleanupTempDir(fixture.tempDir);
+    }
+  });
+
+  it('archive failure leaves the complete before snapshot as current and emits no success audit', async () => {
+    const fixture = await makeFixture();
+    try {
+      const archiveError = new Error('archive disk failure');
+      const failingStore = {
+        archive: async () => { throw archiveError; },
+        save: (snapshot: Parameters<RealDialogStore['save']>[0]) => fixture.store.save(snapshot),
+      };
+
+      await expect(trimAndPersist({ ...fixture.inputs, dialogStore: failingStore })).rejects.toMatchObject({
+        name: 'ContextTrimPersistError', stage: 'archive', cause: archiveError,
+      });
+
+      const reloaded = await fixture.store.load();
+      expect(reloaded.source).toBe('current');
+      expect(reloaded.session?.messages.map(message => message.content)).toEqual(
+        fixture.messages.map(message => message.content),
+      );
+      expect(await fixture.store.listArchives()).toEqual([]);
+      expect(fixture.events.some(event => event[0] === CONTEXT_TRIM_ARCHIVED)).toBe(false);
+    } finally {
+      await cleanupTempDir(fixture.tempDir);
+    }
+  });
+
+  it('before_save failure preserves the previous current and creates no archive', async () => {
+    const fixture = await makeFixture();
+    try {
+      const saveError = new Error('before disk failure');
+      const failingStore = {
+        archive: () => fixture.store.archive(),
+        save: async () => { throw saveError; },
+      };
+
+      await expect(trimAndPersist({ ...fixture.inputs, dialogStore: failingStore })).rejects.toMatchObject({
+        name: 'ContextTrimPersistError', stage: 'before_save', cause: saveError,
+      });
+
+      const reloaded = await fixture.store.load();
+      expect(reloaded.source).toBe('current');
+      expect(reloaded.session?.messages.map(message => message.content)).toEqual([fixture.oldSystem.content]);
+      expect(await fixture.store.listArchives()).toEqual([]);
+      expect(fixture.events.some(event => event[0] === CONTEXT_TRIM_ARCHIVED)).toBe(false);
+    } finally {
+      await cleanupTempDir(fixture.tempDir);
     }
   });
 });

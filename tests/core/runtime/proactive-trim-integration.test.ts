@@ -312,7 +312,9 @@ describe('runtime proactive trim integration', () => {
     const trimmed = await runtime.proactiveTrimIfNeeded(messages, 'sys', []);
 
     expect(prepare).toHaveBeenCalledWith({ kind: 'preview' });
-    expect(meter.measure).not.toHaveBeenCalled();
+    // Phase 2149: proactive trigger consumes the same complete-input meter once;
+    // candidate evaluation still uses the additive capability without full scans.
+    expect(meter.measure).toHaveBeenCalledTimes(1);
     expect(measureMessage).toHaveBeenCalled();
     expect(trimmed).not.toEqual(messages);
     expect(trimmed.some(message => message.systemSubtype === 'context_trim_summary')).toBe(true);

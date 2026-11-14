@@ -166,11 +166,6 @@ export async function trimAndPersist(
     );
     throw new ContextTrimPersistError('archive', 'trim archive failed', { cause: e });
   }
-  inputs.audit.write(
-    CONTEXT_TRIM_ARCHIVED,
-    `trigger_kind=${inputs.triggerKind}`,
-  );
-
   let saved;
   try {
     saved = await inputs.dialogStore.save({
@@ -189,6 +184,13 @@ export async function trimAndPersist(
   }
   // phase 1850 Step C: 显式回传 blockId 到 outcome.newMessages（该数组被上层继续持有）
   applyBlockIdAssignments(outcomeWithIds.newMessages, saved.assignedBlockIds);
+  // ARCHIVED 表示整个 candidate 已可提交；candidate save 失败时不得留下假成功事件。
+  inputs.audit.write(
+    CONTEXT_TRIM_ARCHIVED,
+    `trigger_kind=${inputs.triggerKind}`,
+    'stage=candidate_saved',
+    'submitted=true',
+  );
 
   return { ...outcomeWithIds, archived: true };
 }

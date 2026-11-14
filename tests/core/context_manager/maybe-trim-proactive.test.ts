@@ -6,6 +6,7 @@ import {
   maybeTrimProactive,
   type MaybeTrimProactiveInputs,
 } from '../../../src/core/context_manager/maybe-trim-proactive.js';
+import { ContextInputMeasurementError } from '../../../src/core/context_manager/errors.js';
 import * as tokenEstimator from '../../../src/foundation/llm-provider/token-estimator.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
 import {
@@ -223,5 +224,66 @@ describe('maybeTrimProactive measurement forwarding (phase 2138)', () => {
       measurementCapability,
       measurementDescriptor,
     }));
+  });
+});
+
+
+describe('Phase 2149 proactive complete-input trigger', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('triggers at exactly 75% according to measureComplete even when legacy message estimate is lower', async () => {
+    vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1);
+    const persist = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached', before: 1_500, after: 100, newMessages: [], archived: true,
+    });
+    const measureComplete = vi.fn(() => ({
+      kind: 'counted' as const,
+      tokens: 1_500,
+      method: 'deepseek-v41-template' as const,
+    }));
+
+    const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000, measureComplete }));
+
+    expect(result).not.toBeNull();
+    expect(measureComplete).toHaveBeenCalledWith(makeInputs().messages);
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not trigger from a high legacy estimate when complete measurement is below 75%', async () => {
+    vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
+    const persist = vi.spyOn(trimAndPersistModule, 'trimAndPersist');
+
+    const result = await maybeTrimProactive(makeInputs({
+      contextWindow: 2_000,
+      measureComplete: () => ({
+        kind: 'counted', tokens: 1_499, method: 'deepseek-v41-template',
+      }),
+    }));
+
+    expect(result).toBeNull();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with ContextInputMeasurementError when trigger measurement is unavailable', async () => {
+    const persist = vi.spyOn(trimAndPersistModule, 'trimAndPersist');
+    const measurementDescriptor = {
+      revision: 'phase2149-unavailable', provider: 'test', model: 'test', api: 'test',
+      contextWindow: 2_000, profile: 'test',
+    };
+
+    const failure = maybeTrimProactive(makeInputs({
+      measureComplete: () => ({ kind: 'unavailable', reason: 'asset_missing' }),
+      measurementDescriptor,
+    }));
+    await expect(failure).rejects.toBeInstanceOf(ContextInputMeasurementError);
+    await expect(failure).rejects.toMatchObject({
+      reason: 'asset_missing',
+      descriptor: measurementDescriptor,
+    });
+    expect(persist).not.toHaveBeenCalled();
   });
 });
