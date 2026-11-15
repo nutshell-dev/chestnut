@@ -20,6 +20,7 @@ export interface HttpErrorCapture {
   status?: number;
   retryAfter?: string | null;
   body?: string;
+  bodyReadError?: unknown;
   networkError?: unknown;
 }
 
@@ -37,8 +38,9 @@ export function createCapturingFetch(capture: HttpErrorCapture): typeof globalTh
         capture.retryAfter = response.headers.get('retry-after');
         try {
           capture.body = await response.clone().text();
-        } catch {
-          // silent: body 读取失败不阻断错误分类（status/header 已在手）
+        } catch (error) {
+          // silent: body 读取失败不阻断错误分类；原始异常保留在 bodyReadError。
+          capture.bodyReadError = error;
         }
       }
       return response;

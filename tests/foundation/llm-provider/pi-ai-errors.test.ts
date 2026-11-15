@@ -204,6 +204,26 @@ describe('classifyCapturedHttpError 固定优先级', () => {
     expect((err as LLMContextExceededError).providerMessage).toBe('Request Entity Too Large');
   });
 
+  it('HTTP 413 body read failure 保留诊断原因', async () => {
+    const err = await classifyCapturedHttpError('anthropic', 'claude-3', {
+      status: 413,
+      bodyReadError: new Error('body stream failed'),
+    });
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as LLMContextExceededError).providerMessage)
+      .toBe('HTTP error body read failed: body stream failed');
+  });
+
+  it('真实 body 与 bodyReadError 同时存在时真实 body 优先', async () => {
+    const err = await classifyCapturedHttpError('anthropic', 'claude-3', {
+      status: 413,
+      body: 'actual provider body',
+      bodyReadError: new Error('stale read failure'),
+    });
+    expect(err).toBeInstanceOf(LLMContextExceededError);
+    expect((err as LLMContextExceededError).providerMessage).toBe('actual provider body');
+  });
+
   it('HTTP 413 先于 event predicate（status 权威）', async () => {
     const eventError = assistantMessage({ errorMessage: 'prompt is too long' });
     const err = await classifyCapturedHttpError(
@@ -338,6 +358,21 @@ describe('classifyCapturedHttpError 固定优先级', () => {
     const err = await classifyCapturedHttpError('openai', 'gpt-4o', capture);
     expect(err).toBeInstanceOf(LLMError);
     expect(err).not.toBeInstanceOf(LLMContextExceededError);
+  });
+
+  it('body read failure 进入诊断但不进入 output-budget/context predicate', async () => {
+    const bodyReadError = new Error(
+      'maximum context length is 8192 tokens. requested 9000 tokens (8000 in the messages, 1000 in the completion)',
+    );
+    const err = await classifyCapturedHttpError('openai', 'gpt-4o', {
+      status: 400,
+      bodyReadError,
+    });
+
+    expect(err).toBeInstanceOf(LLMError);
+    expect(err).not.toBeInstanceOf(LLMOutputBudgetExceededError);
+    expect(err).not.toBeInstanceOf(LLMContextExceededError);
+    expect((err as Error).message).toContain('HTTP error body read failed: maximum context length');
   });
 
   it('网络错误优先于一切分类', async () => {

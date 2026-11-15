@@ -16,6 +16,7 @@
  */
 
 import type * as PiAi from '@earendil-works/pi-ai';
+import { formatErr } from '../node-utils/index.js';
 import {
   LLMError,
   LLMAuthError,
@@ -105,6 +106,10 @@ export async function classifyCapturedHttpError(
   const runtime = await loadPiAiRuntime();
   const status = capture.status;
   const body = capture.body ?? '';
+  const bodyReadFailure = capture.bodyReadError === undefined
+    ? undefined
+    : `HTTP error body read failed: ${formatErr(capture.bodyReadError)}`;
+  const diagnosticBody = body || bodyReadFailure || '';
 
   // 1) OpenAI 族 output budget 形态（400 特例，先于 context 判定——
   //    budget 文本同时含 "maximum context length"，先跑 context 会吞掉自动调低重试）
@@ -124,7 +129,7 @@ export async function classifyCapturedHttpError(
 
   // 2) 413 的 status 是权威事实，先于 event 文本判定
   if (status === 413) {
-    return new LLMContextExceededError(provider, 413, body || 'Request Entity Too Large', inputBudget);
+    return new LLMContextExceededError(provider, 413, diagnosticBody || 'Request Entity Too Large', inputBudget);
   }
 
   // 3) pi-ai 官方 predicate（error event 完整消息；display form 先归一化）
@@ -141,7 +146,7 @@ export async function classifyCapturedHttpError(
   // 4) capture 原文兜底：只对 400 / 无 status；429/401/403/404/5xx 不进此步。
   //    顶层 message JSON（DashScope 等）经 pi-ai 归一化后只剩 "400 status code
   //    (no body)"，只有 capture.body 能恢复原文。
-  if (status === 400 || status === undefined) {
+  if ((status === 400 || status === undefined) && body !== '') {
     const text = extractProviderErrorText(body);
     if (text !== '' && isPiAiContextOverflowText(runtime.isContextOverflow, provider, text)) {
       return new LLMContextExceededError(provider, status ?? DEFAULT_CONTEXT_OVERFLOW_STATUS, body, inputBudget);
@@ -155,13 +160,13 @@ export async function classifyCapturedHttpError(
     headers: capture.retryAfter ? { 'retry-after': capture.retryAfter } : {},
   });
   try {
-    await throwHttpErrorResponse(provider, model, synthetic, body, inputBudget);
+    await throwHttpErrorResponse(provider, model, synthetic, diagnosticBody, inputBudget);
   } catch (err) {
     // silent: throw→return 形态转换（typed error 作为返回值上抛给调用方，非吞错）
     return err as Error;
   }
   // throwHttpErrorResponse 对 2xx 不抛——capture 只记非 2xx，防御兜底
-  return new LLMError(`Provider ${provider} error (${status}): ${body}`, { provider, status });
+  return new LLMError(`Provider ${provider} error (${status}): ${diagnosticBody}`, { provider, status });
 }
 
 // ── 退化族文本判定（Google 族；HTTP 事实不可得时的唯一通路，已登记） ──────────
