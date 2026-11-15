@@ -15,7 +15,12 @@ import { fileURLToPath } from 'url';
 import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
-import { resolveClawDaemonDir, resolveClawLocation, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import {
+  resolveClawDaemonDir,
+  resolveClawLocation,
+  MOTION_CLAW_ID,
+  requireMotionAccess,
+} from '../../core/claw-topology/index.js';
 
 // phase 1874 Step B: viewport 独立模块入口（CLIProcess 只经 barrel 消费）
 import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
@@ -37,6 +42,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { getHostHomeDirectory, type FileSystem } from '../../foundation/fs/index.js';
 import { copyDir } from '../utils/copy-dir.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 // Get current file directory (ESM compatible)
 const __filename = fileURLToPath(import.meta.url);
@@ -134,6 +140,7 @@ async function writeTemplate(deps: { fsFactory: (baseDir: string) => FileSystem 
  * motion init - create Motion configuration directory and template files
  */
 export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('configure'), 'configure', 'motion/init');
   const audit = extraDeps?.audit;
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const motionConfigDir = getMotionConfigDir();
@@ -201,6 +208,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
  * motion chat - start interactive chat session (viewport mode)
  */
 export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('start'), 'start', 'motion/chat');
   const globalConfig = deps.rootConfig.loadGlobal();
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
@@ -214,7 +222,7 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
 
   await runChatViewport({
     clawId: MOTION_CLAW_ID,
-    location: resolveClawLocation(MOTION_CLAW_ID),
+    location: resolveClawLocation(MOTION_CLAW_ID, getCapturedCliMotionAccess('start'), 'start'),
     label: MOTION_CLAW_ID,
     audit: systemAudit,
     fsFactory: deps.fsFactory,
@@ -223,7 +231,11 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
       // Phase 1936 Step B: ensureDaemon 改由 viewport 在 TUI 可见后后台运行，
       // 启动中/失败文案归 viewport 系统消息——本回调不再 console.log（会破坏 TUI 帧）。
       // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner；precheck/conflict/join 归 PM。
-      await pm.ensureRunning(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+      await pm.ensureRunning(resolveClawDaemonDir(
+        MOTION_CLAW_ID,
+        getCapturedCliMotionAccess('start'),
+        'start',
+      ), createDaemonSpawnOptions({
         clawId: MOTION_CLAW_ID,
         agentDir: motionDir,
         chestnutRoot: getChestnutRoot(),
@@ -245,6 +257,7 @@ export async function motionOutboxCommand(
   options: OutboxDrainOptions = {},
   extraDeps?: { audit?: AuditLog },
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('dispatch'), 'dispatch', 'motion/outbox');
   const audit = extraDeps?.audit;
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const motionFs = deps.fsFactory(motionDir);
@@ -270,13 +283,18 @@ export async function motionOutboxCommand(
  * motion stop - 停止 Motion 守护进程
  */
 export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?: AuditLog }): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('stop'), 'stop', 'motion/stop');
   const audit = extraDeps?.audit;
   deps.rootConfig.loadGlobal();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
   console.log('Stopping Motion daemon...');
   // phase 1769: typed outcome——按 discriminant 处理，不再由 boolean 反推终局
-  const outcome = await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID));
+  const outcome = await pm.stop(resolveClawDaemonDir(
+    MOTION_CLAW_ID,
+    getCapturedCliMotionAccess('stop'),
+    'stop',
+  ));
   if (outcome.kind === 'stopped' || outcome.kind === 'intent_recorded') {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=success`);
     console.log('✓ Stopped Motion daemon');

@@ -25,7 +25,12 @@ import { createViewportObservability } from './chat-viewport-observability.js';
 import { createScrollbackPreservingTerminal } from './chat-viewport-terminal.js';
 import { CLAWS_DIR, getChestnutRoot } from '../foundation/claw-identity/index.js';
 import type { ClawId } from '../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../core/claw-topology/index.js';
+import {
+  createClawTopology,
+  createInternalSystemMotionAccess,
+  MOTION_CLAW_ID,
+  resolveClawDaemonDir,
+} from '../core/claw-topology/index.js';
 import type { ClawLocation } from '../core/claw-topology/index.js';
 import { resolveViewportRoots } from './viewport-identity.js';
 
@@ -422,7 +427,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     observability.recordShutdown('daemon_dead');
   };
   const daemonLivenessWatcher = createDaemonLivenessMonitor({
-    pidFilePath: path.join(getActiveDir(resolveClawDaemonDir(options.clawId)), PID_FILE),
+    pidFilePath: path.join(getActiveDir(resolveClawDaemonDir(
+      options.clawId,
+      createInternalSystemMotionAccess('read'),
+    )), PID_FILE),
     onDead: onDaemonDead,
     onError: (err) => process.stderr.write(`[viewport] daemon liveness watcher error: ${err.message}\n`),
   });

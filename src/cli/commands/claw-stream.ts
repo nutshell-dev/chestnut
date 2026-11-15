@@ -36,6 +36,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { observeProcessTarget } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 type StreamStartMode =
   | { kind: 'recent-turn' }
@@ -93,7 +94,7 @@ export async function streamCommand(
   const pm = createProcessManagerForCLI({ ...deps, baseDir });
   let initialDaemonPid: number | null = null;
   try {
-    const daemonDir = resolveClawDaemonDir(target.clawId);
+    const daemonDir = resolveClawDaemonDir(target.clawId, getCapturedCliMotionAccess('read'));
     const daemonLiveness = pm.liveness(daemonDir);
     // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
     // phase 1773: probe_unavailable/malformed 不伪装 alive（fail-closed warn）

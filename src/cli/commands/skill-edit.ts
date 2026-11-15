@@ -17,7 +17,8 @@
  */
 
 import { getNamedSubrootDir, getChestnutRoot } from '../../foundation/claw-identity/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { MOTION_CLAW_ID, requireMotionAccess } from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 import {
   deriveShortIdFromTaskId,
   loadSubAgentTask,
@@ -130,6 +131,7 @@ export async function skillEditBeginCommand(
   opts: { reason?: string },
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('dispatch'), 'dispatch', 'dispatch-skill/edit/begin');
   const { basis, note } = await resolveEditBasis(deps, opts.reason);
   const versions = await openVersions(deps, extraDeps);
   let handle;
@@ -159,6 +161,7 @@ export async function skillEditSubmitCommand(
   editId: string,
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('dispatch'), 'dispatch', 'dispatch-skill/edit/submit');
   const versions = await openVersions(deps, extraDeps);
   let result;
   try {
@@ -210,6 +213,7 @@ export async function skillEditBasisCommand(
   opts: { actor?: string; reason?: string; ref?: string[] },
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('dispatch'), 'dispatch', 'dispatch-skill/edit/basis');
   if (typeof opts.actor !== 'string' || opts.actor.trim() === '') {
     throw new CliError('--actor <identity> is required: the amended basis must be attributable (never fabricated)');
   }
@@ -245,6 +249,7 @@ export async function skillEditRetryCommand(
   editId: string,
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('dispatch'), 'dispatch', 'dispatch-skill/edit/retry');
   const versions = await openVersions(deps, extraDeps);
   let handle;
   try {
@@ -301,6 +306,7 @@ export async function skillEditStatusCommand(
   editId: string,
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('read'), 'read', 'dispatch-skill/edit/status');
   const versions = await openVersions(deps, extraDeps);
   let info: SkillEditInfo;
   try {
@@ -352,6 +358,7 @@ export async function skillHistoryCommand(
   name: string,
   extraDeps?: SkillEditExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('read'), 'read', 'dispatch-skill/history');
   const versions = await openVersions(deps, extraDeps);
   let entries: readonly SkillHistoryEntry[];
   try {

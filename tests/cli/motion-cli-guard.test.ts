@@ -15,7 +15,9 @@ import * as path from 'node:path';
 import { Command } from 'commander';
 import { createConfigCommand } from '../../src/cli/commands/config.js';
 import {
+  assertMotionCliAccessAllowed,
   captureCliCallerIdentity,
+  getCapturedCliMotionAccess,
   registerMotionCliGuard,
 } from '../../src/cli/motion-cli-guard.js';
 import { CALLER_AGENT_ID_ENV } from '../../src/foundation/command-tool/index.js';
@@ -52,20 +54,25 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
   }
 
   const motion = program.command('motion');
-  motion.command('inbox').action(actionSpy);
+  motion.command('steps').action(actionSpy);
 
   const watchdog = program.command('watchdog');
   watchdog.command('start').action(actionSpy);
   watchdog.command('stop').action(actionSpy);
 
+  program.command('status').action(actionSpy);
   program.command('stop').action(actionSpy);
   program.command('start').action(actionSpy);
   program.command('init').action(actionSpy);
 
   const contract = program.command('contract');
-  contract.command('status').option('--claw <id>').action(actionSpy);
+  contract.command('show').option('--claw <id>').action(actionSpy);
+  contract.command('events <claw>').action(actionSpy);
 
-  program.command('audit').option('--claw <id>').action(actionSpy);
+  const audit = program.command('audit');
+  for (const verb of ['query', 'lookup', 'info']) {
+    audit.command(verb).option('--claw <id>').action(actionSpy);
+  }
 
   program
     .command('claw [subject] [args...]')
@@ -73,6 +80,11 @@ function buildProgram(actionSpy: ReturnType<typeof vi.fn>): Command {
     .allowUnknownOption()
     .helpOption(false)
     .action(actionSpy);
+
+  const subagent = program.command('subagent');
+  for (const verb of ['list', 'steps', 'step']) {
+    subagent.command(verb).option('--claw <id>').action(actionSpy);
+  }
 
   const skill = program.command('skill');
   skill.command('install').option('--claw <id>').action(actionSpy);
@@ -145,13 +157,49 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
     expect(process.env[CALLER_AGENT_ID_ENV]).toBeUndefined();
   });
 
+  it('capture 后不回读 env，后续伪造 marker 不改变 caller capability', () => {
+    vi.stubEnv(CALLER_AGENT_ID_ENV, 'alice');
+    captureCliCallerIdentity();
+    vi.stubEnv(CALLER_AGENT_ID_ENV, 'motion');
+    expect(getCapturedCliMotionAccess('read').caller).toEqual({ kind: 'agent', agentId: 'alice' });
+  });
+
+  it('argv/env 不能自称内部 system', () => {
+    vi.stubEnv(CALLER_AGENT_ID_ENV, 'system');
+    captureCliCallerIdentity();
+    expect(getCapturedCliMotionAccess('read').caller).toEqual({ kind: 'agent', agentId: 'system' });
+  });
+
+  it('拒绝审计保留 caller kind、operation、命令名且不包含 marker', () => {
+    const program = new Command();
+    const command = program.command('motion').command('steps');
+    const onDenied = vi.fn();
+    vi.stubEnv(CALLER_AGENT_ID_ENV, 'secret-agent-token');
+    captureCliCallerIdentity();
+    expect(() => assertMotionCliAccessAllowed(command, { onDenied })).toThrowError(/caller=agent/);
+    expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({
+      callerKind: 'agent',
+      operation: 'read',
+      commandName: 'motion/steps',
+    }));
+    expect(onDenied.mock.calls[0][0].message).not.toContain('secret-agent-token');
+  });
+
   // ── 其他 agent 调用者：motion 目标一律拒（exit 1、action 不执行）────────────
   it.each([
-    ['顶层 motion 家族', ['motion', 'inbox']],
+    ['顶层 motion 家族', ['motion', 'steps']],
+    ['顶层 status', ['status']],
     ['顶层 stop', ['stop']],
     ['顶层 start', ['start']],
-    ['--claw motion（contract）', ['contract', 'status', '--claw', 'motion']],
-    ['--claw motion（audit）', ['audit', '--claw', 'motion']],
+    ['--claw motion（contract）', ['contract', 'show', '--claw', 'motion']],
+    ['--claw motion（audit query）', ['audit', 'query', '--claw', 'motion']],
+    ['--claw motion（audit lookup）', ['audit', 'lookup', '--claw', 'motion']],
+    ['--claw motion（audit info）', ['audit', 'info', '--claw', 'motion']],
+    ['contract events 的 motion 位置参数', ['contract', 'events', 'motion']],
+    ['--claw motion（subagent list）', ['subagent', 'list', '--claw', 'motion']],
+    ['--claw motion（subagent steps）', ['subagent', 'steps', '--claw', 'motion']],
+    ['--claw motion（subagent step）', ['subagent', 'step', '--claw', 'motion']],
+    ['claw list（含 motion 状态）', ['claw', 'list']],
     ['claw motion <verb>', ['claw', 'motion', 'send', 'hello']],
     ['skill install 缺省 claw=motion', ['skill', 'install']],
     ['skill list 缺省 claw=motion', ['skill', 'list']],
@@ -163,10 +211,10 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
 
   // ── 其他 agent 调用者：非 motion 目标放行 ─────────────────────────────────
   it.each([
-    ['--claw alice（contract）', ['contract', 'status', '--claw', 'alice']],
+    ['--claw alice（contract）', ['contract', 'show', '--claw', 'alice']],
     ['--claw alice（skill install）', ['skill', 'install', '--claw', 'alice']],
     ['claw alice <verb>', ['claw', 'alice', 'send', 'hello']],
-    ['claw list', ['claw', 'list']],
+    ['claw list --help 放行', ['claw', 'list', '--help']],
     ['claw motion <verb> --help 放行', ['claw', 'motion', 'send', '--help']],
     ['claw motion -h 放行', ['claw', 'motion', '-h']],
   ])('caller=alice → %s 放行：action 1 次', async (_label, argv) => {
@@ -177,9 +225,11 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
 
   // ── motion 主代理调用者：全放行 ────────────────────────────────────────────
   it.each([
+    ['顶层 status', ['status']],
     ['顶层 stop', ['stop']],
+    ['claw list', ['claw', 'list']],
     ['claw motion <verb>', ['claw', 'motion', 'ps']],
-    ['顶层 motion 家族', ['motion', 'inbox']],
+    ['顶层 motion 家族', ['motion', 'steps']],
   ])('caller=motion → %s 放行：action 1 次', async (_label, argv) => {
     const result = await runCli(argv, 'motion');
     expect(result.exitCode).toBeUndefined();
@@ -189,7 +239,7 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
   // ── 无 marker（用户终端）：全放行 ──────────────────────────────────────────
   it.each([
     ['顶层 stop', ['stop']],
-    ['顶层 motion 家族', ['motion', 'inbox']],
+    ['顶层 motion 家族', ['motion', 'steps']],
     ['claw motion <verb>', ['claw', 'motion', 'ps']],
   ])('无 marker → %s 放行：action 1 次', async (_label, argv) => {
     const result = await runCli(argv, undefined);
@@ -325,6 +375,7 @@ describe('motion CLI guard (phase 1986 Step G/H)', () => {
       'utf8',
     );
     expect(source).toContain('captureCliCallerIdentity();');
-    expect(source).toContain('registerMotionCliGuard(program);');
+    expect(source).toContain('registerMotionCliGuard(program, {');
+    expect(source).toContain('CLI_AUDIT_EVENTS.MOTION_ACCESS_DENIED');
   });
 });

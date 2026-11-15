@@ -14,10 +14,15 @@ import { actionAuditFor } from '../action-scope.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import {
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+  requireMotionAccess,
+} from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { DaemonPM } from './claw-daemon.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 interface MotionDaemonDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -27,6 +32,7 @@ interface MotionDaemonDeps {
 }
 
 export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { audit?: AuditLog }): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('start'), 'start', 'motion/daemon');
   deps.rootConfig.loadGlobal();
   const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
@@ -35,7 +41,11 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { 
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
-  const outcome = await pm.ensureRunning(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+  const outcome = await pm.ensureRunning(resolveClawDaemonDir(
+    MOTION_CLAW_ID,
+    getCapturedCliMotionAccess('start'),
+    'start',
+  ), createDaemonSpawnOptions({
     clawId: MOTION_CLAW_ID,
     agentDir: motionDir,
     chestnutRoot: getChestnutRoot(),

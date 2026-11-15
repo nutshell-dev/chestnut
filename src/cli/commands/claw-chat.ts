@@ -10,6 +10,7 @@ import { runChatViewport, createViewportAudit } from '../../viewport/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<void> {
   const globalConfig = deps.rootConfig.loadGlobal();
@@ -22,7 +23,7 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
   const systemAudit = createViewportAudit(deps.fsFactory(clawDir), clawDir);
   await runChatViewport({
     clawId: target.clawId,
-    location: resolveClawLocation(target.clawId),
+    location: resolveClawLocation(target.clawId, getCapturedCliMotionAccess('start'), 'start'),
     label: name,
     audit: systemAudit,
     fsFactory: deps.fsFactory,
@@ -36,7 +37,11 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
       // typed failure 原样上抛，由 viewport 呈现为系统事件（显示归 viewport owner，
       // CLI 不再向 stdout 拼接启动文案）。
       // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
-      await pm.ensureRunning(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
+      await pm.ensureRunning(resolveClawDaemonDir(
+        clawId,
+        getCapturedCliMotionAccess('start'),
+        'start',
+      ), createDaemonSpawnOptions({
         clawId,
         agentDir: clawDir,
         chestnutRoot: getChestnutRoot(),

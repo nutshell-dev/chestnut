@@ -15,6 +15,8 @@ import {
   spawnWatchdogCandidate,
 } from '../../watchdog/index.js';
 import { CliError } from '../errors.js';
+import { requireMotionAccess } from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 /** Spawn watchdog candidate + CLI 外壳（console 输出 + CliError 错误格式）。
  *  核心 spawn + poll 委托 spawnWatchdogCandidate（watchdog/spawn.ts）。 */
@@ -22,6 +24,7 @@ export async function startCommand(
   fsFactory: (baseDir: string) => FileSystem,
   _deps?: WatchdogProcessDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('start'), 'start', 'watchdog/start');
   // 幂等：本 workspace 的 watchdog 已在运行则直接返回
   try {
     if (inspectWatchdogLivenessForCli(fsFactory, _deps) === 'alive') {
@@ -57,6 +60,7 @@ export async function stopCommand(
   fsFactory: (baseDir: string) => FileSystem,
   deps?: WatchdogProcessDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('stop'), 'stop', 'watchdog/stop');
   // Phase 1878 Step I: writer 生命周期归 action——stop-all / wrapper 已安装则复用
   // （非 owner handle），未安装则本调用 scoped own + 终态 dispose（不悬挂）。
   const actionAudit = createWatchdogActionAudit(fsFactory);

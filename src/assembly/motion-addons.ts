@@ -34,7 +34,11 @@ import { createNotifyClawTool } from '../core/claw-topology/index.js';
 import { formatClawStatusHint } from '../cli-protocol/index.js';
 import { createOutboxReader } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import {
+  createInternalSystemMotionAccess,
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+} from '../core/claw-topology/index.js';
 import { makeClawId, makeChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
@@ -134,7 +138,7 @@ export async function createMotionAddons(
     authorized: true,
     // phase 1864 Step I（CT-D12）：最小 sink（AuditLog 结构兼容）。
     sink: auditWriter,
-    clawLiveness: (clawId: string) => core.processManager.liveness(resolveClawDaemonDir(makeClawId(clawId))), // phase 232
+    clawLiveness: (clawId: string) => core.processManager.liveness(resolveClawDaemonDir(makeClawId(clawId), createInternalSystemMotionAccess('read'))), // phase 232
     formatClawStatusHint, // phase 232: M#1 single source
     clawExists: (clawId: string) => parentFs.existsSync(getRelativeClawDir(clawId)), // phase 241
     hasActiveContract: (clawId: string) => { // phase 241
@@ -323,9 +327,9 @@ export async function createMotionAddons(
               motionClawId: MOTION_CLAW_ID,
               fsFactory,
               audit: auditWriter,
-              liveness: (rawId) => core.processManager.liveness(resolveClawDaemonDir(makeClawId(rawId))),
+              liveness: (rawId) => core.processManager.liveness(resolveClawDaemonDir(makeClawId(rawId), createInternalSystemMotionAccess('read'))),
               ensureDaemon: (rawId) => core.processManager.ensureRunning(
-                resolveClawDaemonDir(makeClawId(rawId)),
+                resolveClawDaemonDir(makeClawId(rawId), createInternalSystemMotionAccess('read')),
                 executorProtocol.createSpawnOptions({
                   clawId: makeClawId(rawId),
                   agentDir: getClawDir(rawId),
@@ -333,7 +337,7 @@ export async function createMotionAddons(
                 }),
               ),
               restartDaemon: async (rawId) => {
-                const daemonDir = resolveClawDaemonDir(makeClawId(rawId));
+                const daemonDir = resolveClawDaemonDir(makeClawId(rawId), createInternalSystemMotionAccess('read'));
                 // stop outcome 不吞：failed 也仍尝试 ensureRunning 收敛，结果由 job audit。
                 const stop = await core.processManager.stop(daemonDir);
                 const ensured = await core.processManager.ensureRunning(

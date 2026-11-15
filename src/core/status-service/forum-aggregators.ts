@@ -23,7 +23,11 @@ import { listAuditFiles } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { createInboxReader } from '../../foundation/messaging/index.js';
 import { STATUS_AUDIT_EVENTS } from './audit-events.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../claw-topology/index.js';
+import {
+  createInternalSystemMotionAccess,
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+} from '../claw-topology/index.js';
 import type { ClawTopology } from '../claw-topology/index.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
@@ -232,7 +236,10 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
 
   // ── System: motion ──
   // phase 1773: liveness discriminant；probe_unavailable/malformed 不伪装 alive
-  const motionLiveness = deps.pm.liveness(resolveClawDaemonDir(MOTION_CLAW_ID));
+  const motionLiveness = deps.pm.liveness(resolveClawDaemonDir(
+    MOTION_CLAW_ID,
+    createInternalSystemMotionAccess('read'),
+  ));
   const motionAlive = motionLiveness.kind === 'alive';
   // pid evidence：alive/dead/probe_unavailable 携带 pid（dead 亦计入 trackedPids，同旧行为）
   const motionPid = motionLiveness.kind === 'absent' || motionLiveness.kind === 'malformed'

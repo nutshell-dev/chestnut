@@ -29,7 +29,8 @@ export const CLI_AUDIT_EVENTS = {
   MOTION_OUTBOX_DRAIN_START: 'cli_motion_outbox_drain_start',
   MOTION_OUTBOX_DRAIN_DONE: 'cli_motion_outbox_drain_done',
   MOTION_STOP: 'cli_motion_stop',
-  MOTION_DAEMON_START: 'cli_motion_daemon_start',                          // NEW phase 1452: motion daemon spawn 成功侧（失败侧由 PM 承载）
+  MOTION_DAEMON_START: 'cli_motion_daemon_start',
+  MOTION_ACCESS_DENIED: 'cli_motion_access_denied',                          // NEW phase 1452: motion daemon spawn 成功侧（失败侧由 PM 承载）
   SKILL_INSTALL: 'cli_skill_install',
   STREAM_SHUTDOWN_FAILED: 'cli_stream_shutdown_failed',                       // NEW phase 1377: claw stream signal/daemon-dead stop() rejection convergence
   DAEMON_START: 'cli_daemon_start',

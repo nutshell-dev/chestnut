@@ -17,6 +17,7 @@
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { type DaemonDir, makeDaemonDirFromLocation } from '../../foundation/process-manager/index.js';
 import { resolveClawLocation } from './location.js';
+import type { MotionAccessCapability, MotionOperation } from './motion-access.js';
 
 /**
  * Resolve daemonDir for one clawId.
@@ -30,7 +31,11 @@ import { resolveClawLocation } from './location.js';
  * Returns DaemonDir branded string — brand 由 PM adapter（makeDaemonDirFromLocation）
  * 构造；本函数只解析位置。
  */
-export function resolveClawDaemonDir(clawId: ClawId): DaemonDir {
-  const clawDir = resolveClawLocation(clawId).clawDir;
+export function resolveClawDaemonDir(
+  clawId: ClawId,
+  motionAccess?: MotionAccessCapability,
+  operation: MotionOperation = 'read',
+): DaemonDir {
+  const clawDir = resolveClawLocation(clawId, motionAccess, operation).clawDir;
   return makeDaemonDirFromLocation({ kind: 'local', clawDir });
 }

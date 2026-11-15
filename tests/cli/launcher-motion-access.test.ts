@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
@@ -16,9 +16,13 @@ describe('Launcher CLI caller access', () => {
       });
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain('agent-initiated CLI calls (caller=alice) are not allowed');
+      expect(result.stderr).toContain('motion access denied: caller=agent');
+      expect(result.stderr).not.toContain('caller=alice');
       expect(result.stdout).toBe('');
-      expect(await readdir(root)).toEqual([]);
+      expect(await readdir(path.join(root, '.chestnut'))).toEqual(['audit.tsv']);
+      const audit = await readFile(path.join(root, '.chestnut', 'audit.tsv'), 'utf8');
+      expect(audit).toContain('cli_motion_access_denied');
+      expect(audit).toContain('caller=agent');
     } finally {
       await cleanupTempDir(root);
     }

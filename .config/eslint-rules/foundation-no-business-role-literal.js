@@ -107,6 +107,8 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   // phase 1986 Step B: claw 位置解析唯一出口（motion-vs-claw discriminant 定义点）—
   // 同 phase 553 家族、拓扑 owner 声明 motion identity 的合法面
   'src/core/claw-topology/location.ts',
+  // Phase 2151: caller-scoped motion access is the topology owner's authorization boundary.
+  'src/core/claw-topology/motion-access.ts',
 ];
 
 const BANNED_REEXPORTS = ['CallerType', 'DispatchCallerType', 'callerTypeToProfile'];

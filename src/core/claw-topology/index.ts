@@ -7,6 +7,18 @@ export { makeClawNotifyTargetResolver } from './notify-target.js';
 export { resolveClawDaemonDir } from './daemon-dir.js';
 export { resolveClawLocation } from './location.js';
 export type { ClawLocation } from './location.js';
+export {
+  createInternalSystemMotionAccess,
+  createCapturedCliMotionAccess,
+  createUserMotionAccess,
+  MotionAccessDeniedError,
+  requireMotionAccess,
+} from './motion-access.js';
+export type {
+  MotionAccessCapability,
+  MotionCaller,
+  MotionOperation,
+} from './motion-access.js';
 // phase 765: notify_claw tool (moved from L2c Messaging)
 export { createNotifyClawTool } from './tools/notify-claw.js';
 export type {

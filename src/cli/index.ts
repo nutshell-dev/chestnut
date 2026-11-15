@@ -50,6 +50,7 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { actionAuditFor } from './action-scope.js';
+import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import { getChestnutRoot, getClawDir } from '../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
@@ -107,7 +108,18 @@ program
 }
 
 // phase 1986 Step G：motion CLI 调用者守卫——全局 preAction 钩子，早于一切 action/supervision/audit
-registerMotionCliGuard(program);
+registerMotionCliGuard(program, {
+  onDenied: (error) => {
+    const audit = actionAuditFor(getChestnutRoot(), { fsFactory });
+    audit.write(
+      CLI_AUDIT_EVENTS.MOTION_ACCESS_DENIED,
+      `caller=${error.callerKind}`,
+      `operation=${error.operation}`,
+      `command=${error.commandName}`,
+    );
+    void audit.dispose?.();
+  },
+});
 
 // config command
 program.addCommand(createConfigCommand({ fsFactory, rootConfig, llmConfiguration }));

@@ -12,6 +12,7 @@ import { hasActiveContract } from '../../core/contract/index.js';
 import { peekPendingCount, listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 /**
  * Display Claw health status (reads directory in real time)
@@ -27,7 +28,10 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const systemAudit = actionAuditFor(baseDir, deps);
 
-  const liveness = processManager.liveness(resolveClawDaemonDir(target.clawId));
+  const liveness = processManager.liveness(resolveClawDaemonDir(
+    target.clawId,
+    getCapturedCliMotionAccess('read'),
+  ));
   const status = liveness.kind === 'alive'
     ? 'running'
     : liveness.kind === 'dead' || liveness.kind === 'absent' ? 'stopped' : 'unknown';

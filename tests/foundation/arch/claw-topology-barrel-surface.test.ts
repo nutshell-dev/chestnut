@@ -26,6 +26,11 @@ const VALUE_EXPORTS = [
   'resolveClawDaemonDir',
   // phase 1986 Step B：位置解析唯一出口（motion → <root>/motion，普通 claw → <root>/claws/<id>）
   'resolveClawLocation',
+  'createInternalSystemMotionAccess',
+  'createCapturedCliMotionAccess',
+  'createUserMotionAccess',
+  'MotionAccessDeniedError',
+  'requireMotionAccess',
   'createNotifyClawTool',
   'createCrossClawReadTool',
   'createCrossClawLsTool',
@@ -39,6 +44,9 @@ const TYPE_EXPORTS = [
   'ClawTopology',
   'ClawLocation',
   'ClawEnumerationSnapshot',
+  'MotionAccessCapability',
+  'MotionCaller',
+  'MotionOperation',
   'CrossTargetAccess',
   'OutboxSummaryGuidanceState',
 ] as const;

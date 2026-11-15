@@ -7,7 +7,12 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigReader } from '../../assembly/index.js';
 import { getChestnutRoot, getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import { enumerateClaws, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import {
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+  requireMotionAccess,
+} from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 import { createWatchdogActionAudit } from '../../watchdog/index.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
@@ -46,6 +51,7 @@ export async function stopAllCommand(
     isAlive?: (pid: number, expectedStartTime?: string) => boolean;
   },
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('stop'), 'stop', 'stop');
   deps.rootConfig.loadGlobal();
 
   // motion-level audit（α 模板复用 / 同 daemon-entry shim / fail-soft）

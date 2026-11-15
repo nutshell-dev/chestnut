@@ -31,6 +31,7 @@ import { CONFIG_YAML_FILE } from '../../foundation/claw-identity/index.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 /** claw-list title console 显示截断 cap（防 list 行过长）*/
 const CLAW_TITLE_DISPLAY_CHARS = 28;
@@ -138,7 +139,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   }
 
   async function readPidField(clawName: string): Promise<FieldValue> {
-    const daemonDir = resolveClawDaemonDir(makeClawId(clawName));
+    const daemonDir = resolveClawDaemonDir(makeClawId(clawName), getCapturedCliMotionAccess('read'));
     try {
       const spawning = processManager.inspectSpawning(daemonDir);
       if (spawning.status === 'ok') {
@@ -184,13 +185,19 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
 
   for (const entry of entries) {
     const isMotion = entry === MOTION_CLAW_ID;
-    const clawFs = deps.fsFactory(resolveClawLocation(makeClawId(entry)).clawDir);
+    const clawFs = deps.fsFactory(resolveClawLocation(
+      makeClawId(entry),
+      getCapturedCliMotionAccess('read'),
+    ).clawDir);
     // motion 以 <root>/motion 布局存在为依据；普通 claw 维持「已发布 = config.yaml」。
     if (isMotion ? !clawFs.existsSync('.') : !clawFs.existsSync(CONFIG_YAML_FILE)) {
       continue;
     }
     {
-      const liveness = processManager.liveness(resolveClawDaemonDir(makeClawId(entry)));
+      const liveness = processManager.liveness(resolveClawDaemonDir(
+        makeClawId(entry),
+        getCapturedCliMotionAccess('read'),
+      ));
       const status: ClawEntry['status'] = liveness.kind === 'alive'
         ? 'running'
         : liveness.kind === 'dead' || liveness.kind === 'absent' ? 'stopped' : 'unknown';
@@ -259,7 +266,10 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
 
   // Helper: get a FileSystem scoped to a specific claw directory
   function clawFsForClaw(name: string): FileSystem {
-    return deps.fsFactory(resolveClawLocation(makeClawId(name)).clawDir);
+    return deps.fsFactory(resolveClawLocation(
+      makeClawId(name),
+      getCapturedCliMotionAccess('read'),
+    ).clawDir);
   }
 
   if (opts?.json) {

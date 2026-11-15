@@ -14,6 +14,7 @@ import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 import { commitCleanStopMarker } from './clean-stop-marker.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
@@ -22,7 +23,11 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
   const target = assertPublishedClaw(deps, name);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-  const daemonDir = resolveClawDaemonDir(target.clawId);
+  const daemonDir = resolveClawDaemonDir(
+    target.clawId,
+    getCapturedCliMotionAccess('stop'),
+    'stop',
+  );
 
   console.log(`Stopping Claw "${name}"...`);
 

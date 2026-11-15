@@ -29,6 +29,8 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
 import { actionAuditFor } from '../action-scope.js';
+import { requireMotionAccess } from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 interface StatusCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -36,6 +38,7 @@ interface StatusCommandDeps {
 }
 
 export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('read'), 'read', 'status');
   deps.rootConfig.loadGlobal();
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);

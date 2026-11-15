@@ -16,6 +16,11 @@
 import { getClawDir, getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
+import {
+  requireMotionAccess,
+  type MotionAccessCapability,
+  type MotionOperation,
+} from './motion-access.js';
 
 /**
  * claw identity 的磁盘位置事实。
@@ -29,8 +34,12 @@ export type ClawLocation =
   | { readonly kind: 'motion'; readonly clawDir: string }
   | { readonly kind: 'claw'; readonly clawDir: string };
 
-export function resolveClawLocation(clawId: ClawId): ClawLocation {
-  return clawId === MOTION_CLAW_ID
-    ? { kind: 'motion', clawDir: getNamedSubrootDir(MOTION_CLAW_ID) }
-    : { kind: 'claw', clawDir: getClawDir(clawId) };
+export function resolveClawLocation(
+  clawId: ClawId,
+  motionAccess?: MotionAccessCapability,
+  operation: MotionOperation = 'read',
+): ClawLocation {
+  if (clawId !== MOTION_CLAW_ID) return { kind: 'claw', clawDir: getClawDir(clawId) };
+  requireMotionAccess(motionAccess, operation, 'resolve-claw-location');
+  return { kind: 'motion', clawDir: getNamedSubrootDir(MOTION_CLAW_ID) };
 }

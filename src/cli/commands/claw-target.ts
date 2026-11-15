@@ -16,6 +16,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { MOTION_CLAW_ID, resolveClawLocation } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export interface ClawTarget {
   readonly clawId: ClawId;
@@ -26,7 +27,7 @@ export interface ClawTarget {
 /** 位置解析入口；存在性判定在 Step D 的 helper 中。 */
 export function resolveClawTarget(name: string): ClawTarget {
   const clawId = makeClawId(name);
-  const location = resolveClawLocation(clawId);
+  const location = resolveClawLocation(clawId, getCapturedCliMotionAccess('read'));
   return {
     clawId,
     clawDir: location.clawDir,

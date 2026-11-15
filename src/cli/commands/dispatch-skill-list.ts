@@ -22,6 +22,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 import { createDispatchVersions } from './skill.js';
+import { requireMotionAccess } from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export interface DispatchSkillListDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -36,6 +38,7 @@ export async function dispatchSkillListCommand(
   deps: DispatchSkillListDeps,
   extraDeps?: DispatchSkillListExtraDeps,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('read'), 'read', 'dispatch-skill/list');
   let summary: string;
   try {
     const versions = await createDispatchVersions(deps, getChestnutRoot(), extraDeps?.audit, extraDeps?.createSkillVersions);

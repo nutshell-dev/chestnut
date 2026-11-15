@@ -28,6 +28,7 @@ import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export interface SendCommandOptions {
   priority?: Priority;
@@ -94,7 +95,11 @@ export async function deliverClawMessage(
   });
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
-  const liveness = processManager.liveness(resolveClawDaemonDir(target.clawId));
+  const liveness = processManager.liveness(resolveClawDaemonDir(
+    target.clawId,
+    getCapturedCliMotionAccess('dispatch'),
+    'dispatch',
+  ));
   const statusHint = formatClawStatusHint(name, liveness);
   if (statusHint) process.stderr.write(statusHint + '\n');
 

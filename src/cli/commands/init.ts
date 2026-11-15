@@ -12,6 +12,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { VerifiedLLMConfig } from '../llm-connection-check.js';
 import { runFirstRunSetup } from '../first-run-setup.js';
+import { requireMotionAccess } from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -28,6 +30,7 @@ export interface InitCommandResult {
 }
 
 export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<InitCommandResult> {
+  requireMotionAccess(getCapturedCliMotionAccess('configure'), 'configure', 'init');
   const audit = extraDeps?.audit;
   // Phase 1911 Step D（RACE-CONFIG-INIT-PARTIAL-PUBLISH）：typed 初始化状态。
   // ready 依据 = root config + ready marker + 必需布局核验，不是 root YAML exists。

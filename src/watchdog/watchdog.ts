@@ -24,6 +24,7 @@ import { setTimeout } from 'timers/promises';
 import {
   resolveClawDaemonDir,
   MOTION_CLAW_ID,
+  createInternalSystemMotionAccess,
 } from '../core/claw-topology/index.js';
 import {
   enumerateClaws,
@@ -455,7 +456,11 @@ async function attemptMotionRestart(
     //     (a) 真 stale PID 文件 → safe to ignore (audit captures)
     //     (b) motion 仍活（race / 另 watchdog instance spawn 中）→ spawn 抛 ProcessSpawnConflictError、捕获后 reset 计数
     //   - cleanup 失败不阻塞 respawn / spawn 自身判 race / failure 仅 audit observability
-    await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID)).catch((e) => {
+    await pm.stop(resolveClawDaemonDir(
+      MOTION_CLAW_ID,
+      createInternalSystemMotionAccess('stop'),
+      'stop',
+    )).catch((e) => {
       const msg = `[watchdog] Failed to clean up motion before restart: ${formatErr(e)}`;
       // phase 718: payload 加 message= prefix、forensic 解析可 join message 维度
       logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, `message=${audit.message(msg)}`);
@@ -463,7 +468,11 @@ async function attemptMotionRestart(
     // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner；CLI 入口与
     // watchdog 统一经 createDaemonSpawnOptions 取得 log/env/cwd 协议（phase 458
     // 显式 cwd 语义由 helper 兑现，不再本地组装）。
-    const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+    const pid = await pm.spawn(resolveClawDaemonDir(
+      MOTION_CLAW_ID,
+      createInternalSystemMotionAccess('start'),
+      'start',
+    ), createDaemonSpawnOptions({
       clawId: MOTION_CLAW_ID,
       agentDir: getNamedSubrootDir('motion'),
       chestnutRoot: getChestnutRoot(),
@@ -579,7 +588,10 @@ export async function runWatchdogLoop(
   while (!stopped) {
     const now = Date.now();
     // 1. Check motion liveness
-    const status = pm.liveness(resolveClawDaemonDir(MOTION_CLAW_ID));
+    const status = pm.liveness(resolveClawDaemonDir(
+      MOTION_CLAW_ID,
+      createInternalSystemMotionAccess('read'),
+    ));
 
     // watchdog_check: 枚举所有存活进程
     aliveIds = [];

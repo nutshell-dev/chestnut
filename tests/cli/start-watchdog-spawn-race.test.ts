@@ -39,6 +39,7 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../src/foundation/process-manag
 import { makeAudit } from '../helpers/audit.js';
 import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.js';
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
+import { createUserMotionAccess } from '../../src/core/claw-topology/index.js';
 
 const h = vi.hoisted(() => ({
   counts: { contractCreate: 0, notify: 0, chat: 0, motionInit: 0 },
@@ -221,7 +222,7 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const { resolveClawDaemonDir, MOTION_CLAW_ID } = await import('../../src/core/claw-topology/index.js');
 
-    const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID);
+    const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID, createUserMotionAccess('read'));
 
     // --- Watchdog 侧：真实存活 child + 真实 generation 协议提交 spawning winner ---
     const { audit: winnerAudit } = makeAudit();
@@ -307,7 +308,7 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const { resolveClawDaemonDir, MOTION_CLAW_ID } = await import('../../src/core/claw-topology/index.js');
 
-    const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID);
+    const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID, createUserMotionAccess('read'));
 
     // --- Watchdog 侧：真实存活 child + spawning winner（不写 business.json，
     //     模拟旧 daemon 或早期版本的 watchdog winner）---

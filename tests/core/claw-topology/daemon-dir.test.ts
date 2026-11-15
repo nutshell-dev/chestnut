@@ -8,10 +8,11 @@ import { resolveClawLocation } from '../../../src/core/claw-topology/location.js
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/motion-claw-id.js';
 import { getClawDir, makeClawId } from '../../../src/foundation/claw-identity/index.js';
 import { makeDaemonDirFromLocation } from '../../../src/foundation/process-manager/index.js';
+import { createUserMotionAccess } from '../../../src/core/claw-topology/motion-access.js';
 
 describe('resolveClawDaemonDir', () => {
   it('motion clawId → motion subroot', () => {
-    const dir = resolveClawDaemonDir(MOTION_CLAW_ID);
+    const dir = resolveClawDaemonDir(MOTION_CLAW_ID, createUserMotionAccess('read'));
     // motion 路径 = <workspaceRoot>/.chestnut/motion
     expect(dir.endsWith(path.join('.chestnut', 'motion'))).toBe(true);
   });
@@ -42,7 +43,7 @@ describe('resolveClawDaemonDir', () => {
 
 describe('resolveClawLocation (phase 1986 Step B)', () => {
   it('motion clawId → kind motion + <root>/motion', () => {
-    const loc = resolveClawLocation(MOTION_CLAW_ID);
+    const loc = resolveClawLocation(MOTION_CLAW_ID, createUserMotionAccess('read'));
     expect(loc.kind).toBe('motion');
     expect(loc.clawDir.endsWith(path.join('.chestnut', 'motion'))).toBe(true);
   });
@@ -56,8 +57,9 @@ describe('resolveClawLocation (phase 1986 Step B)', () => {
 
   it('与 resolveClawDaemonDir 位置事实等价（motion + regular）', () => {
     for (const id of [MOTION_CLAW_ID, makeClawId('test-claw')]) {
-      expect(resolveClawDaemonDir(id)).toBe(
-        makeDaemonDirFromLocation({ kind: 'local', clawDir: resolveClawLocation(id).clawDir }),
+      const access = createUserMotionAccess('read');
+      expect(resolveClawDaemonDir(id, access)).toBe(
+        makeDaemonDirFromLocation({ kind: 'local', clawDir: resolveClawLocation(id, access).clawDir }),
       );
     }
   });
