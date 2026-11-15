@@ -96,7 +96,7 @@ describe('UnixDomainSocketTransport', () => {
     vi.restoreAllMocks();
     for (const c of clients) c.destroy();
     clients = [];
-    if (transport) await transport.close();
+    if (transport) await transport.close().catch(() => undefined);
     transport = null;
     // 清理 socket 文件（transport.close() 不保证 unlink）
     for (const p of createdSockets) {
@@ -115,6 +115,71 @@ describe('UnixDomainSocketTransport', () => {
     await transport.close();
     // second close is no-op (idempotent / 0 throw)
     await expect(transport.close()).resolves.toBeUndefined();
+  });
+
+  it('concurrent close calls share one successful release', async () => {
+    const path = makeSocketPath();
+    transport = makeTransport(path);
+    let finishServerClose!: (err?: Error) => void;
+    const closeSpy = vi.fn((callback?: (err?: Error) => void) => {
+      finishServerClose = callback ?? (() => undefined);
+    });
+    const server = { close: closeSpy } as unknown as Server;
+    const internals = transport as unknown as { server: Server | null; socketPath: string | null };
+    internals.server = server;
+    internals.socketPath = path;
+    const deleteSpy = vi.spyOn(NodeFileSystem.prototype, 'delete').mockResolvedValueOnce(undefined);
+
+    const first = transport.close();
+    const second = transport.close();
+    expect(second).toBe(first);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    finishServerClose();
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).toHaveBeenCalledWith(path);
+  });
+
+  it('concurrent close calls share one failed release result', async () => {
+    const path = makeSocketPath();
+    transport = makeTransport(path);
+    const closeError = new Error('server close failed');
+    const unlinkError = Object.assign(new Error('endpoint cleanup failed'), { code: 'EPERM' });
+    let finishServerClose!: (err?: Error) => void;
+    const closeSpy = vi.fn((callback?: (err?: Error) => void) => {
+      finishServerClose = callback ?? (() => undefined);
+    });
+    const server = { close: closeSpy } as unknown as Server;
+    const internals = transport as unknown as { server: Server | null; socketPath: string | null };
+    internals.server = server;
+    internals.socketPath = path;
+    const deleteSpy = vi.spyOn(NodeFileSystem.prototype, 'delete').mockRejectedValueOnce(unlinkError);
+
+    const first = transport.close();
+    const second = transport.close();
+    expect(second).toBe(first);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    finishServerClose(closeError);
+    const firstFailure = await first.catch((error: unknown) => error);
+    const secondFailure = await second.catch((error: unknown) => error);
+    expect(secondFailure).toBe(firstFailure);
+    expect(firstFailure).toBeInstanceOf(AggregateError);
+    const aggregate = firstFailure as AggregateError;
+    expect(aggregate.errors).toEqual([closeError, unlinkError]);
+    expect(aggregate.cause).toBe(closeError);
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+
+    const later = transport.close();
+    expect(later).toBe(first);
+    const laterFailure = await later.catch((error: unknown) => error);
+    expect(laterFailure).toBe(firstFailure);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
   });
 
   it('close resolves when endpoint cleanup reports ENOENT', async () => {
@@ -139,7 +204,8 @@ describe('UnixDomainSocketTransport', () => {
     await expect(transport.close()).rejects.toBe(unlinkError);
     expect(deleteSpy).toHaveBeenCalledWith(path);
     await expect(transport.listen()).rejects.toThrow(/already closed/);
-    await expect(transport.close()).resolves.toBeUndefined();
+    await expect(transport.close()).rejects.toBe(unlinkError);
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
   });
 
   it('close preserves server and endpoint cleanup failures in an AggregateError', async () => {

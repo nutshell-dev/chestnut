@@ -49,6 +49,7 @@ export class UnixDomainSocketTransport implements Transport {
   private transportErrorCbs: ((evt: TransportErrorEvent) => void)[] = [];
   private messageCbs: ((c: Connection, data: string) => void)[] = [];
   private closed = false;
+  private closePromise: Promise<void> | null = null;
 
   constructor(private readonly deps: UnixDomainSocketTransportDeps) {
     if (!deps.socketPath) throw new Error('socketPath required');
@@ -309,8 +310,14 @@ export class UnixDomainSocketTransport implements Transport {
     }
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    if (this.closed) return Promise.resolve();
+    this.closePromise = this.performClose();
+    return this.closePromise;
+  }
+
+  private async performClose(): Promise<void> {
     for (const { sock } of this.connections.values()) sock.destroy();
     this.connections.clear();
 
