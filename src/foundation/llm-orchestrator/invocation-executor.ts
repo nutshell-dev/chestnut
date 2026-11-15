@@ -298,7 +298,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         ...(invocationId !== undefined ? { invocationId } : {}),
         ...(attemptId !== undefined ? { attemptId } : {}),
         ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
-        errorClass: classifyLLMError(failure.error),
+        errorClass: failure.errorClass ?? classifyLLMError(failure.error),
         message: failure.error.message,
         ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
         ...(resetAtMs !== undefined ? { resetAtMs } : {}),
@@ -592,11 +592,12 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     errorClassOverride?: LLMErrorClass,
     recordImmediately = true,
   ): void {
+    const errorClass = errorClassOverride ?? classifyLLMError(error);
     const attemptIndex = this.recordAttemptResult(inv, provider, providerId, 'failure', {
-      errorClass: errorClassOverride ?? classifyLLMError(error),
+      errorClass,
       error: error.message,
     });
-    const failure = { provider, error, providerId, attemptIndex };
+    const failure = { provider, error, providerId, attemptIndex, errorClass };
     failures.push(failure);
     inv.failures.push(failure);
     if (recordImmediately && !inv.recordedFailures.has(failure)) {
@@ -620,7 +621,14 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   ): void {
     const attemptIndex = this.recordAttemptResult(inv, provider, providerId, 'skipped', { reason });
     if (aggregateError) {
-      const failure = { provider, error: aggregateError, providerId, attemptIndex, localSkip: true };
+      const failure = {
+        provider,
+        error: aggregateError,
+        providerId,
+        attemptIndex,
+        localSkip: true,
+        errorClass: classifyLLMError(aggregateError),
+      };
       failures.push(failure);
       inv.failures.push(failure);
     }

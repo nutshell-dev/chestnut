@@ -52,8 +52,8 @@ export {
 // errors.ts 内 symbol 会漏）。如 future caller 需更多 symbol、按需逐个 append。
 // SDK 顶层 re-export (src/index.ts) + sister L2 (foundation/config/schemas.ts) 按 by-design
 // 保留 deep import、depcruise rule 显式 pathNot allowlist 这两 entry。
-export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, LLMOrchestratorClosedError, LLMRecoveryWaitRequiredError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
-export type { LLMProviderFailure } from './errors.js';
+export { LLMAllProvidersFailedError, LLMCircuitBreakerOpenError, LLMOrchestratorClosedError, LLMRecoveryWaitRequiredError, classifyLLMError, isContextExceededError, getUserActionHint, makeLLMFailureEvidence } from './errors.js';
+export type { LLMProviderFailure, LLMFailureEvidence, SerializedErrorEvidence } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
 export { llmOrchestratorConfigSchema } from './config-schema.js';

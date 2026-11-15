@@ -9,7 +9,6 @@
  * operate on L1 error classes; they belong to L2b where retry logic lives.
  */
 
-import { formatErr } from '../node-utils/index.js';
 import type { LLMRecoverySchedule } from './recovery-state.js';
 import {
   LLMError,
@@ -61,6 +60,8 @@ export interface LLMProviderFailure {
   provider: string;
   error: Error;
   providerId?: string;
+  /** L2b 在审计入口已决定的分类；恢复与序列化不得再次猜测或覆盖。 */
+  errorClass?: LLMErrorClass;
   /**
    * Phase 1968 Step B：该候选在本次 invocation 实际执行序列中的序位（含跳过），
    * 与 llm_call_attempt_result 审计事件的 attemptIndex 同源。缺省仅出现于外部
@@ -71,11 +72,90 @@ export interface LLMProviderFailure {
   localSkip?: boolean;
 }
 
+/** 有界、非 secret 的 Error/cause 投影；对象 cause 不做未经审查的属性展开。 */
+export interface SerializedErrorEvidence {
+  name: string;
+  message?: string;
+  code?: string;
+  cause?: SerializedErrorEvidence;
+  failures?: readonly LLMFailureEvidence[];
+}
+
+/** L1 typed code + L2b family + 候选关系的稳定序列化契约。 */
+export interface LLMFailureEvidence {
+  family: LLMErrorClass;
+  provider: string;
+  providerId?: string;
+  attemptIndex?: number;
+  localSkip?: boolean;
+  errorCode?: string;
+  cause: SerializedErrorEvidence;
+}
+
+const ERROR_EVIDENCE_DEPTH_LIMIT = 8;
+
+function redactErrorText(text: string): string {
+  return text
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer <redacted>')
+    .replace(/\b(?:sk|pk)-[A-Za-z0-9_-]{8,}\b/g, '<redacted>')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<redacted>')
+    .replace(/\b(api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|token|secret|password)(\s*[=:]\s*|\s+)("[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1=<redacted>')
+    .slice(0, 500);
+}
+
+function errorCodeOf(error: Error): string | undefined {
+  if (error instanceof LLMError || error instanceof LLMAllProvidersFailedError || error instanceof LLMCircuitBreakerOpenError) {
+    return error.code;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function serializeErrorEvidence(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): SerializedErrorEvidence {
+  if (depth >= ERROR_EVIDENCE_DEPTH_LIMIT) return { name: 'DepthLimit' };
+  if (!(value instanceof Error)) {
+    return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      ? { name: 'NonErrorCause', message: redactErrorText(String(value)) }
+      : { name: 'NonErrorCause' };
+  }
+  if (seen.has(value)) return { name: 'CircularCause' };
+  seen.add(value);
+  const result: SerializedErrorEvidence = {
+    name: value.name,
+    message: redactErrorText(value.message),
+    ...(errorCodeOf(value) !== undefined ? { code: errorCodeOf(value) } : {}),
+    ...(value instanceof LLMAllProvidersFailedError ? { failures: value.evidence } : {}),
+    ...(value.cause !== undefined
+      ? { cause: serializeErrorEvidence(value.cause, depth + 1, seen) }
+      : {}),
+  };
+  seen.delete(value);
+  return result;
+}
+
+/** 从同一 failure 构造 family/code/cause/候选证据，原始 Error 仍由 failures 保留。 */
+export function makeLLMFailureEvidence(failure: LLMProviderFailure): LLMFailureEvidence {
+  return {
+    family: failure.errorClass ?? classifyLLMError(failure.error),
+    provider: failure.provider,
+    ...(failure.providerId !== undefined ? { providerId: failure.providerId } : {}),
+    ...(failure.attemptIndex !== undefined ? { attemptIndex: failure.attemptIndex } : {}),
+    ...(failure.localSkip !== undefined ? { localSkip: failure.localSkip } : {}),
+    ...(errorCodeOf(failure.error) !== undefined ? { errorCode: errorCodeOf(failure.error) } : {}),
+    cause: serializeErrorEvidence(failure.error),
+  };
+}
+
 export class LLMAllProvidersFailedError extends Error {
   readonly code: OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
   readonly context?: Record<string, unknown>;
   readonly timestamp: string = new Date().toISOString();
   readonly failures: LLMProviderFailure[];
+  readonly evidence: readonly LLMFailureEvidence[];
 
   constructor(failures: LLMProviderFailure[]) {
     const summary = failures
@@ -86,6 +166,7 @@ export class LLMAllProvidersFailedError extends Error {
     );
     this.name = this.constructor.name;
     this.failures = failures;
+    this.evidence = failures.map(makeLLMFailureEvidence);
     this.context = { failures: failures.map(f => ({ provider: f.provider, error: f.error.message })) };
   }
 
@@ -94,7 +175,10 @@ export class LLMAllProvidersFailedError extends Error {
       code: this.code,
       message: this.message,
       context: this.context,
-      ...(this.cause !== undefined && { cause: formatErr(this.cause) }),
+      evidenceVersion: 1,
+      evidenceComplete: true,
+      failures: this.evidence,
+      ...(this.cause !== undefined && { cause: serializeErrorEvidence(this.cause) }),
     };
   }
 }
@@ -131,7 +215,7 @@ export function classifyLLMError(err: unknown): LLMErrorClass {
   // phase 690: context_exceeded 必须先于 LLMError 通用判定（subclass 关系）
   if (err instanceof LLMContextExceededError || err instanceof LLMOutputBudgetExceededError) return 'context_exceeded';
   if (err instanceof LLMAllProvidersFailedError) {
-    const classes = err.failures.map(failure => classifyLLMError(failure.error));
+    const classes = err.failures.map(failure => failure.errorClass ?? classifyLLMError(failure.error));
     // phase 1776: 聚合归类顺序——transient 优先（可重试快）；全 permanent（无 quota）
     // 保持 permanent；rate_limit 次之（服务端 Retry-After 驱动）；含 quota → quota
     // （时间窗退避归 EventLoop quota 调度，不进配置类 blocked gate）。
