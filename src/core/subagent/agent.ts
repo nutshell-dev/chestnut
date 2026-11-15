@@ -35,7 +35,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { SubAgentRecoveryStore, ResumeCursor } from './recovery-state.js';
 // Phase 1933 Step G: 不确定副作用 typed 错误（值导入：resume 段 throw 用）
 // Phase 1958 Step B: SubAgentRecoveryRequiredError —— 恢复事实不可判定的 typed 阻断
-import { RecoveryUncertainSideEffectError, SubAgentRecoveryRequiredError, SubAgentRecoveryStoreError } from './recovery-state.js';
+import { RecoveryUncertainSideEffectError, SubAgentRecoveryRequiredError } from './recovery-state.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
@@ -486,7 +486,9 @@ export class SubAgent {
       }
       // Phase 1933 Step G: finally save 成功同样允许推进游标（onStepComplete 不覆盖
       // 最终 step —— end_turn/终态不触发步进回调）；save 失败 → 不推进。
-      if (finalSaved) await this.commitRecoveryConversationBestEffort('final_save');
+      if (!this.recoveryBlocked && finalSaved) {
+        await this.commitRecoveryConversationBestEffort('final_save');
+      }
 
       // phase 270 Step B: multi-artifact completeness cross-source
       // phase 1858 Step D (SA-D3): 纳入结算（await）——rejection 不再被空 catch 静默吞掉；
@@ -611,7 +613,12 @@ export class SubAgent {
       blocks.push(toToolResultBlock(makeToolUseId(id), fact.result));
     }
     appendToolResults(messages, blocks);
-    await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_repair_save');
+    const saved = await this.persistMessagesBestEffort(opts.systemPrompt, opts.tools, 'resume_repair_save');
+    if (!saved) {
+      // Phase 2155 Step B2: 修补事实未落盘前不得发起下一 LLM；finally 也不得
+      // 用普通 best-effort 保存覆盖原对话或推进原 next-llm 游标。
+      this.blockRecovery('resume_repair_save_failed');
+    }
     await this.appendToLog(`Recovery: repaired dangling tool_use tail with ${toolUseIds.length} committed result(s)\n`);
   }
 
@@ -678,6 +685,7 @@ export class SubAgent {
     } catch (err) {
       const unprovable = this.firstUnprovablePendingId(cursor);
       if (unprovable) {
+        this.recoveryBlocked = true;
         this.sink.recoveryFallback({ reason: `uncertain_side_effect_results_unreadable: ${unprovable}` });
         throw new RecoveryUncertainSideEffectError(unprovable, `committed tool results unreadable: ${formatErr(err)}`);
       }
@@ -719,6 +727,7 @@ export class SubAgent {
       // （不自动重试、不当成功/失败/未开始；进入既有 catch 分类/audit 路径）。
       const provablyNotStarted = cursor.startedToolIds !== undefined && !cursor.startedToolIds.includes(id);
       if (!provablyNotStarted) {
+        this.recoveryBlocked = true;
         this.sink.recoveryFallback({ reason: `uncertain_side_effect_started_without_result: ${id}` });
         throw new RecoveryUncertainSideEffectError(id);
       }
@@ -753,14 +762,14 @@ export class SubAgent {
       executedCount++;
     }
 
-    // d. 全部就绪 → appendToolResults → 落盘（best-effort，与既有 save 点同策略）→ 正常 runReact
+    // d. 全部就绪 → appendToolResults → 严格落盘 + cursor commit → 正常 runReact
     if (resultBlocks.length > 0) {
       appendToolResults(messages, resultBlocks);
     }
     // Phase 1934 Step B: 严格提交屏障（与 onStepComplete 同一保存函数、同一提交
     // 顺序）——save 或游标 commit 失败即 throw 入既有分类路径；游标停留
     // awaiting-conversation-commit，已提交响应/工具结果保留可重建。
-    await this.persistDialogAndCommitStrict(opts.systemPrompt, opts.tools, 'resume_save');
+    await this.persistDialogAndCommitStrict(opts.systemPrompt, opts.tools, 'resume_save', true);
     await this.appendToLog(
       `Recovery: resumed awaiting-tools response=${cursor.responseId} restored=${restoredCount} executed=${executedCount}\n`,
     );
@@ -770,7 +779,7 @@ export class SubAgent {
    * Phase 1933 Step G: awaiting-conversation-commit 续跑 —— 完整响应 + 全部工具结果
    * 已提交、仅对话消息未证明持久化。**不请求 LLM、不执行任何工具**：仅凭已提交事实
    * 重建 assistant + tool_result 消息 → messageStore.save → store.commitConversation()
-   * → 进 runReact。任一事实缺失/损坏 → 停在 uncertain：sink/audit 留证 + typed error
+   * → 进 runReact。任一事实缺失/损坏 → recovery-required：sink/audit 留证 + typed error
    * 传播（不删 recovery 文件绕过不一致、不静默全新重启——已提交工具可能有外部副作用）。
    */
   private async resumeAwaitingConversationCommit(
@@ -783,8 +792,7 @@ export class SubAgent {
     try {
       committed = await store.loadCommittedResponse(cursor.responseId);
     } catch (err) {
-      this.sink.recoveryFallback({ reason: `committed_response_unreadable: ${formatErr(err)}` });
-      throw err;
+      this.blockRecovery(`committed_response_unreadable: ${formatErr(err)}`, err);
     }
     const response = committed.response;
     const toolUses = response.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
@@ -797,8 +805,7 @@ export class SubAgent {
     try {
       committedResults = await store.loadCommittedToolResults();
     } catch (err) {
-      this.sink.recoveryFallback({ reason: `committed_tool_results_unreadable: ${formatErr(err)}` });
-      throw err;
+      this.blockRecovery(`committed_tool_results_unreadable: ${formatErr(err)}`, err);
     }
     const executableIds = responseToolUseIds.filter((id) => !prebuiltIds.has(id));
     const resultIdSet = new Set(cursor.toolResultIds);
@@ -806,24 +813,14 @@ export class SubAgent {
       || executableIds.some((id) => !resultIdSet.has(id))
       || cursor.toolResultIds.some((id) => !executableIds.includes(id));
     if (inconsistent) {
-      this.sink.recoveryFallback({ reason: `conversation_commit_fact_mismatch: ${cursor.responseId}` });
-      throw new SubAgentRecoveryStoreError(
-        'invalid_state',
-        `awaiting-conversation-commit facts inconsistent (response=${cursor.responseId})`,
-      );
+      this.blockRecovery(`conversation_commit_fact_mismatch: ${cursor.responseId}`);
     }
 
     // c. 持久 messages 基底。empty → 在全新构建序列上重建；io_error/无 session →
     //    持久边界不可读、不猜 → 留证 + throw（不静默全新重启）
     const persisted = await this.messageStore.load();
     if (persisted.source === 'io_error' || !persisted.session) {
-      this.sink.recoveryFallback({
-        reason: `dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
-      });
-      throw new SubAgentRecoveryStoreError(
-        'io',
-        `dialog unreadable during awaiting-conversation-commit resume: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`,
-      );
+      this.blockRecovery(`dialog_load_failed: ${persisted.source === 'io_error' ? persisted.error : 'no_session'}`);
     }
     const messages = this.messages!;
     if (persisted.session.messages.length > 0) {
@@ -851,7 +848,7 @@ export class SubAgent {
 
     // e. Phase 1934 Step B: 严格提交屏障 —— 对话落盘 + 游标 commit 均完成才允许
     //    进 runReact；失败即 throw（内存对话不得掩护未提交游标发起下一 LLM）。
-    await this.persistDialogAndCommitStrict(opts.systemPrompt, opts.tools, 'resume_conversation_commit_save');
+    await this.persistDialogAndCommitStrict(opts.systemPrompt, opts.tools, 'resume_conversation_commit_save', true);
     await this.appendToLog(`Recovery: rebuilt conversation from committed facts response=${cursor.responseId}\n`);
   }
 
@@ -907,8 +904,8 @@ export class SubAgent {
   /**
    * Phase 1934 Step B (F-12): 恢复启用时的严格提交屏障 —— 对话 save 与游标
    * commitConversation 按同一顺序完成前不发起下一 LLM。任一失败留证（保留执行
-   * 事实）并传播原错（不吞没：onStepComplete 的 throw 经 runReact 中止循环、
-   * resume 段 throw 入既有 classifyAndAuditError 路径）；游标停留
+   * 事实）；onStepComplete 传播原错（经 runReact 中止循环），resume 段以原错为
+   * cause 作 recovery-required 阻断并关闭 finally 写屏障；游标停留
    * awaiting-conversation-commit，重启仅凭已提交事实重建（安全方向）。
    * onStepComplete / resumeAwaitingTools / resumeAwaitingConversationCommit
    * 三处共用本函数；非恢复调用（无 recoveryStore）保留 best-effort 降级规则，
@@ -918,6 +915,7 @@ export class SubAgent {
     systemPrompt: string,
     tools: ToolDefinition[],
     stage: string,
+    blockRecoveryOnFailure = false,
   ): Promise<void> {
     const messages = this.messages ?? [];
     try {
@@ -932,13 +930,18 @@ export class SubAgent {
     } catch (err) {
       this.recordDegraded('dialog', stage, err);
       this.sink.persistFailed({ stage, error: formatErr(err) });
+      if (blockRecoveryOnFailure) {
+        // 恢复段的严格失败必须同时关闭 finally 的普通保存/提交屏障；保留原错
+        // 为 cause，避免一次瞬时 commit 失败被 finally 重试后悄悄推进游标。
+        this.blockRecovery(`${stage}_failed: ${formatErr(err)}`, err);
+      }
       throw err;
     }
   }
 
   /**
-   * dangling 修补落盘（next-llm 续跑段）：best-effort、失败留证不终止。
-   * 返回是否落盘成功 —— 仅成功才允许 commitConversation 推进 next-llm。
+   * dangling 修补落盘（next-llm 续跑段）：底层保存保持 best-effort 返回形态，
+   * 恢复调用方必须检查 false 并 typed 阻断；不得忽略失败进入 runReact。
    */
   private async persistMessagesBestEffort(
     systemPrompt: string,

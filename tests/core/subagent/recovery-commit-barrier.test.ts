@@ -45,6 +45,7 @@ import { SubAgent } from '../../../src/core/subagent/agent.js';
 import {
   createSubAgentRecoveryStore,
   RecoveryUncertainSideEffectError,
+  SubAgentRecoveryRequiredError,
   SubAgentRecoveryStoreError,
 } from '../../../src/core/subagent/recovery-state.js';
 import type { CompleteLLMResponse } from '../../../src/core/step-executor/index.js';
@@ -392,6 +393,53 @@ describe('Phase 1934 Step B: 严格恢复提交屏障（F-12）', () => {
     expect(resume.llm.callCount()).toBe(1);
     const post = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
     expect(post.cursor?.kind).toBe('next-llm');
+  });
+
+  it('A2b Phase 2155 B2：resume cursor commit 失败 → 保留原 cursor/cause，finally 不重试 save/commit', async () => {
+    const { tempDir: dir } = await setup('resume-commit-eio');
+    await buildConversationCommitCheckpoint(fs, resultDir);
+    const cursorPath = path.join(dir, resultDir, 'recovery', 'cursor.json');
+    const cursorBefore = await fsp.readFile(cursorPath, 'utf-8');
+    expect(JSON.parse(cursorBefore)).toMatchObject({ schema_version: 1, kind: 'awaiting-conversation-commit' });
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    let saveCalls = 0;
+    const { agent, store } = makeAgent(fs, resultDir, {
+      llm: llm.orchestrator,
+      executor: exec.executor,
+      auditRows,
+      wrapMessageStore: (ms) => {
+        const originalSave = ms.save.bind(ms);
+        (ms as unknown as { save: DialogStore['save'] }).save = async (snapshot) => {
+          saveCalls++;
+          return originalSave(snapshot);
+        };
+        return ms;
+      },
+    });
+    const commitError = Object.assign(new Error('injected resume commit EIO'), { code: 'EIO' });
+    // 仅第一次失败：若 finally 越过 recoveryBlocked，第二次 commit 会错误推进 next-llm。
+    const commitSpy = vi.spyOn(store, 'commitConversation').mockRejectedValueOnce(commitError);
+
+    const err = await captureRunError(agent);
+
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('resume_conversation_commit_save_failed');
+    expect((err as Error).cause).toBe(commitError);
+    expect(llm.callCount()).toBe(0);
+    expect(exec.calls).toHaveLength(0);
+    expect(saveCalls).toBe(1);
+    expect(commitSpy).toHaveBeenCalledTimes(1);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('resume_conversation_commit_save_failed');
+    // 严格 save 已留下完整对话，但 cursor 必须原样停留，不能生成空/新 cursor。
+    expect(await fsp.readFile(cursorPath, 'utf-8')).toBe(cursorBefore);
+    const dialogRaw = await fsp.readFile(path.join(dir, resultDir, 'messages.json'), 'utf-8');
+    expect(dialogRaw).toContain('toolu_a');
+    expect(dialogRaw).toContain('toolu_b');
   });
 
   it('A3 初始 dialog 缺席：checkpoint 仅经 recovery 写路径 → 全新构建基底上重建并推进 next-llm', async () => {

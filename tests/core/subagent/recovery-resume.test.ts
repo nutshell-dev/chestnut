@@ -231,6 +231,35 @@ async function buildConversationCommitCheckpoint(fs: NodeFileSystem, resultDir: 
   }
 }
 
+/** next-llm + dangling assistant 尾部：工具事实已提交，配对 tool_result 对话尚未落盘。 */
+async function buildNextLlmDanglingCheckpoint(fs: NodeFileSystem, resultDir: string) {
+  const store = createSubAgentRecoveryStore({ fs, resultDir });
+  const fact = twoToolResponseFact();
+  await store.llmResponseCommitted(fact);
+  for (const t of [
+    { id: 'toolu_a', name: 'tool_a', input: { x: 1 } },
+    { id: 'toolu_b', name: 'tool_b', input: { y: 2 } },
+  ]) {
+    await store.toolStarted({ toolUseId: makeToolUseId(t.id), toolName: t.name, input: t.input, startedAtMs: Date.now() });
+    await store.toolResultCommitted({
+      toolUseId: makeToolUseId(t.id),
+      toolName: t.name,
+      result: { success: true, content: `${t.name}-ok` },
+      resultAtMs: Date.now(),
+    });
+  }
+  const dialog = createDialogStore(fs, resultDir, { write: vi.fn() } as never, 'messages.json');
+  await dialog.save({
+    systemPrompt: 'sys',
+    messages: [
+      { role: 'user', content: 'do the task' },
+      { role: 'assistant', content: fact.response.content },
+    ],
+    toolsForLLM: [],
+  });
+  await store.commitConversation();
+}
+
 /** 阶段 2：同 resultDir 新建 store/agent 续跑（fake llm 第二步返回 end_turn）。 */
 async function runResumePhase(
   fs: NodeFileSystem,
@@ -725,6 +754,83 @@ describe('Phase 1933 Step D: SubAgent 通用安全续跑', () => {
     expect(String(fallbackRows[0].join(' '))).toContain('committed_response_unreadable');
     // 损坏事实现场保留（不清理、不覆盖）
     expect(await fsp.readFile(path.join(responsesDir, responseFile), 'utf-8')).toBe('corrupt{{{');
+  });
+
+  it('⑮ Phase 2155 B2：next-llm dangling 修补保存失败 → typed 阻断，finally 不覆盖对话、不推进游标', async () => {
+    const { tempDir: dir } = await setup('next-llm-repair-save-fail');
+    await buildNextLlmDanglingCheckpoint(fs, resultDir);
+    const cursorPath = path.join(dir, resultDir, 'recovery', 'cursor.json');
+    const dialogPath = path.join(dir, resultDir, 'messages.json');
+    const cursorBefore = await fsp.readFile(cursorPath, 'utf-8');
+    const dialogBefore = await fsp.readFile(dialogPath, 'utf-8');
+    expect(JSON.parse(cursorBefore)).toMatchObject({ schema_version: 1, kind: 'next-llm' });
+    expect(dialogBefore).not.toContain('tool_result');
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent, store } = makeAgent(fs, resultDir, {
+      llm: llm.orchestrator,
+      executor: exec.executor,
+      auditRows,
+      wrapMessageStore: (ms) => {
+        (ms as unknown as { save: unknown }).save = async () => {
+          throw new Error('injected repair save EIO');
+        };
+        return ms;
+      },
+    });
+    const commitSpy = vi.spyOn(store, 'commitConversation');
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toBe('resume_repair_save_failed');
+    expect(llm.callCount()).toBe(0);
+    expect(exec.calls).toHaveLength(0);
+    expect(commitSpy).not.toHaveBeenCalled();
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('resume_repair_save_failed');
+    // 原 cursor / dialog 字节保持，finally 不得把内存中已修补但未提交的消息落盘。
+    expect(await fsp.readFile(cursorPath, 'utf-8')).toBe(cursorBefore);
+    expect(await fsp.readFile(dialogPath, 'utf-8')).toBe(dialogBefore);
+  });
+
+  it('⑯ Phase 2155 B2：next-llm dangling 的 committed result 不可读 → 阻断并保留全部磁盘事实', async () => {
+    const { tempDir: dir } = await setup('next-llm-repair-result-unreadable');
+    await buildNextLlmDanglingCheckpoint(fs, resultDir);
+    const cursorPath = path.join(dir, resultDir, 'recovery', 'cursor.json');
+    const dialogPath = path.join(dir, resultDir, 'messages.json');
+    const resultPath = path.join(dir, resultDir, 'recovery', 'tool-results', 'toolu_a.json');
+    await fsp.writeFile(resultPath, 'corrupt{{{');
+    const cursorBefore = await fsp.readFile(cursorPath, 'utf-8');
+    const dialogBefore = await fsp.readFile(dialogPath, 'utf-8');
+
+    const llm = makeFakeLlm([endTurnChunks('unreachable')]);
+    const exec = makeFakeExecutor(async (toolName) => ({ success: true, content: `${toolName}-ok` }));
+    const auditRows: unknown[][] = [];
+    const { agent } = makeAgent(fs, resultDir, { llm: llm.orchestrator, executor: exec.executor, auditRows });
+
+    const err = await agent.run().then(
+      () => { throw new Error('expected run to reject'); },
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(SubAgentRecoveryRequiredError);
+    expect((err as SubAgentRecoveryRequiredError).reason).toContain('committed_tool_results_unreadable');
+    expect(llm.callCount()).toBe(0);
+    expect(exec.calls).toHaveLength(0);
+    const fallbackRows = auditRows.filter((r) => r[0] === SUBAGENT_AUDIT_EVENTS.RECOVERY_FALLBACK);
+    expect(fallbackRows).toHaveLength(1);
+    expect(String(fallbackRows[0].join(' '))).toContain('committed_tool_results_unreadable');
+    expect(JSON.parse(await fsp.readFile(cursorPath, 'utf-8'))).toMatchObject({ schema_version: 1, kind: 'next-llm' });
+    expect(await fsp.readFile(cursorPath, 'utf-8')).toBe(cursorBefore);
+    expect(await fsp.readFile(dialogPath, 'utf-8')).toBe(dialogBefore);
+    expect(await fsp.readFile(resultPath, 'utf-8')).toBe('corrupt{{{');
   });
 
   it('⑩ 正常完成路径末尾：cursor 为 next-llm 且含 responseId（对话持久化后才发布）', async () => {

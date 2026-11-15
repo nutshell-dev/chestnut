@@ -228,6 +228,8 @@ describe('Phase 1933 Step G: 恢复游标安全边界 —— 不确定副作用'
     // 不停在损坏/删除：cursor 保持 awaiting-tools（可再次进入同一 uncertain 判定）
     const loaded = await createSubAgentRecoveryStore({ fs, resultDir }).loadCursor();
     expect(loaded.cursor?.kind).toBe('awaiting-tools');
+    // Phase 2155 B2：uncertain 同样关闭 finally 保存，不以 fresh/partial 对话覆盖现场。
+    expect(await fs.exists(`${resultDir}/messages.json`)).toBe(false);
   });
 
   it('② 可证明未开始则执行：pending=[A]、startedToolIds=[] → A 正常执行并推进', async () => {
@@ -342,5 +344,6 @@ describe('Phase 1933 Step G: 恢复游标安全边界 —— 不确定副作用'
       pendingToolIds: ['toolu_a'],
       startedToolIds: ['toolu_a'],
     });
+    expect(await fs.exists(`${resultDir}/messages.json`)).toBe(false);
   });
 });
