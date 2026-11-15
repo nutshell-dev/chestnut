@@ -174,6 +174,7 @@ const VI_MOCK_FILES = [
   // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — adapter 改 DI 注入；Phase 1925 Step D 删除下两项（vi.mock @anthropic-ai/sdk 消亡；llm.test.ts 重构为 orchestrator-only、不再 mock）。
   // 'tests/foundation/llm.test.ts',
   // 'tests/foundation/llm-provider/anthropic-adapter.test.ts',
+  'tests/foundation/llm-provider/deepseek-input-meter-asset.test.ts',
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/messaging/claim-process-observation.test.ts',
   'tests/foundation/messaging/claim-record-store.test.ts',

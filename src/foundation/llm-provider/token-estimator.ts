@@ -23,6 +23,11 @@ import type { ProviderWireMessage, ContentBlock, ToolDefinition } from './types.
  * 复用 cl100k 精确结果，避免 CJK encode 热点且不改变 token 决策语义。
  */
 
+/** Stable legacy estimate identity; these facts never imply provider-exact counting. */
+export const LEGACY_CL100K_METHOD = 'legacy-cl100k' as const;
+export const LEGACY_CL100K_ASSET_REVISION = 'js-tiktoken:cl100k_base' as const;
+export const LEGACY_CL100K_UNSUPPORTED_REASON = 'unsupported_model_or_protocol' as const;
+
 /** Per-message overhead tokens (model boilerplate per Anthropic / OpenAI doc) */
 const PER_MESSAGE_OVERHEAD_TOKENS = 4;
 

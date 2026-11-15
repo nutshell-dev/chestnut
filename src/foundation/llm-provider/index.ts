@@ -7,7 +7,7 @@
 
 export { THINKING_LEVELS } from './thinking-levels.js';
 export type { ThinkingLevel } from './thinking-levels.js';
-export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, ModelInputMeter } from './input-meter.js';
+export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, MeterQualification, ModelInputMeter } from './input-meter.js';
 export {
   emitInputMeasurement,
   inputProjectionHash,

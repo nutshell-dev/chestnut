@@ -65,6 +65,17 @@ export function createDeepseekInputProjection(
         throw new Error('unsupported server/deferred tool');
       }
     }
+    // The SDK context builder may omit unknown blocks. Reject them before that
+    // projection so multimodal input can never be reported as exactly counted.
+    for (const message of input.messages) {
+      if (!Array.isArray(message.content)) continue;
+      for (const block of message.content) {
+        const candidate = block as { type?: unknown };
+        if (!['text', 'thinking', 'tool_use', 'tool_result'].includes(String(candidate.type))) {
+          throw new Error(`unsupported content: ${String(candidate.type)}`);
+        }
+      }
+    }
     const context = buildPiAiContext(config, input as unknown as LLMCallOptions, model);
     const payload = buildApiKeyRequest(anthropicModel, context, effective);
     // Anthropic SDK consumes betas as request headers; the final fetch body does

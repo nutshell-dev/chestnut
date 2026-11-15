@@ -80,9 +80,18 @@ describe('resolved model input meter', () => {
     }],
   ])('keeps %s on the legacy estimated path', async (_name, overrides: Partial<ProviderConfig>) => {
     const meter = await createLLMProvider({ ...config, ...overrides }).prepareInputMeter();
-    expect(meter.descriptor.profile).toBe('legacy-cl100k-v2');
+    expect(meter.descriptor).toMatchObject({
+      profile: 'legacy-cl100k-v2',
+      method: 'legacy-cl100k',
+      projection: 'estimate-only:no-final-wire-projection',
+      assetRevision: 'js-tiktoken:cl100k_base',
+      limits: { supportedTools: 'declared' },
+    });
+    expect(meter.project).toBeUndefined();
     expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
-      kind: 'estimated', method: 'legacy-cl100k', reason: 'unsupported_model_or_protocol',
+      kind: 'estimated',
+      method: 'legacy-cl100k',
+      reason: expect.stringMatching(/^unsupported_model_or_protocol:catalog=/),
     });
   });
 
@@ -102,8 +111,24 @@ describe('resolved model input meter', () => {
   it('labels unknown models as estimates', async () => {
     const meter = await createLLMProvider({ ...config, catalogProvider: undefined,
       catalogModel: undefined, model: 'unknown-model' }).prepareInputMeter();
-    expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toMatchObject({
-      kind: 'estimated', method: 'legacy-cl100k', reason: 'unsupported_model_or_protocol',
+    expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }] })).toEqual({
+      kind: 'estimated',
+      method: 'legacy-cl100k',
+      reason: 'unsupported_model_or_protocol:catalog=custom;provider=unresolved;model=unknown-model;wireModel=unknown-model;api=anthropic-messages',
+      tokens: expect.any(Number),
+    });
+  });
+
+  it('keeps multimodal content on the explicitly estimated fallback', async () => {
+    const meter = await createLLMProvider({ ...config, catalogProvider: undefined,
+      catalogModel: undefined, model: 'unknown-model' }).prepareInputMeter();
+    const measurement = meter.measure({ messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } },
+    ] }] });
+    expect(measurement).toMatchObject({
+      kind: 'estimated',
+      method: 'legacy-cl100k',
+      reason: expect.stringContaining('model=unknown-model'),
     });
   });
 

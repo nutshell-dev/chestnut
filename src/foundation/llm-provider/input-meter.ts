@@ -2,8 +2,20 @@
 import type * as PiAi from '@earendil-works/pi-ai';
 import { sha256Hex } from '../node-utils/index.js';
 import type { ProviderConfig, ProviderWireMessage, ToolDefinition } from './types.js';
-import type { InputMeterDescriptor, MessageAdditiveInputCounter, ModelInputMeter } from './input-meter-types.js';
-import { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } from './token-estimator.js';
+import type {
+  InputMeterDescriptor,
+  MessageAdditiveInputCounter,
+  MeterQualification,
+  ModelInputMeter,
+} from './input-meter-types.js';
+import {
+  estimateMessagesTokens,
+  estimateTextTokens,
+  estimateToolsTokens,
+  LEGACY_CL100K_ASSET_REVISION,
+  LEGACY_CL100K_METHOD,
+  LEGACY_CL100K_UNSUPPORTED_REASON,
+} from './token-estimator.js';
 import { createDeepseekV41Meter } from './deepseek-v41-meter.js';
 import type { CatalogResolution } from './catalog-strategy.js';
 import {
@@ -11,7 +23,7 @@ import {
   DEEPSEEK_PROJECTION_REVISION,
   DEEPSEEK_V41_ASSET_REVISION,
 } from './deepseek-input-projection.js';
-export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, ModelInputMeter } from './input-meter-types.js';
+export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, MeterQualification, ModelInputMeter } from './input-meter-types.js';
 
 /** Exact resolved identity required for the fixed DeepSeek template; names alone never qualify. */
 export function isDeepseekV41MeterProfile(
@@ -27,6 +39,38 @@ export function isDeepseekV41MeterProfile(
     && resolution.wire.api === String(model.api);
 }
 
+/** Stable audit reason with resolved identity; no credentials or request content are included. */
+function unsupportedMeterReason(
+  resolution: CatalogResolution,
+  model: PiAi.Model<PiAi.Api>,
+): string {
+  return `${LEGACY_CL100K_UNSUPPORTED_REASON}:catalog=${resolution.kind};provider=${resolution.providerId ?? 'unresolved'};model=${resolution.modelId};wireModel=${model.id};api=${String(model.api)}`;
+}
+
+/** Only a resolved identity with final-wire projection and bound assets may be counted. */
+export function qualifyMeter(
+  resolution: CatalogResolution,
+  model: PiAi.Model<PiAi.Api>,
+): MeterQualification {
+  if (isDeepseekV41MeterProfile(model, resolution)) {
+    return {
+      kind: 'counted',
+      method: 'deepseek-v41-template',
+      projection: DEEPSEEK_PROJECTION_REVISION,
+      assetRevision: DEEPSEEK_V41_ASSET_REVISION,
+      limits: Object.freeze({ supportedTools: 'client' }),
+    };
+  }
+  return {
+    kind: 'estimated',
+    method: LEGACY_CL100K_METHOD,
+    projection: 'estimate-only:no-final-wire-projection',
+    assetRevision: LEGACY_CL100K_ASSET_REVISION,
+    reason: unsupportedMeterReason(resolution, model),
+    limits: Object.freeze({ supportedTools: 'declared' }),
+  };
+}
+
 /** Metadata and effective request options, never credentials, define the counting revision. */
 export function createInputMeter(
   config: ProviderConfig,
@@ -38,12 +82,9 @@ export function createInputMeter(
     ...effective,
     ...(effective.thinkingBudgets && { thinkingBudgets: Object.freeze({ ...effective.thinkingBudgets }) }),
   });
-  const deepseek = isDeepseekV41MeterProfile(model, resolution);
-  const profile = deepseek ? 'deepseek-v41-flash-1017-v1' : 'legacy-cl100k-v2';
-  const method = deepseek ? 'deepseek-v41-template' : 'legacy-cl100k';
-  const projection = deepseek ? DEEPSEEK_PROJECTION_REVISION : 'legacy-chestnut-provider-wire-v1';
-  const assetRevision = deepseek ? DEEPSEEK_V41_ASSET_REVISION : 'js-tiktoken:cl100k_base';
-  const limits = Object.freeze({ supportedTools: deepseek ? 'client' as const : 'declared' as const });
+  const qualification = qualifyMeter(resolution, model);
+  const profile = qualification.kind === 'counted' ? 'deepseek-v41-flash-1017-v1' : 'legacy-cl100k-v2';
+  const { method, projection, assetRevision, limits } = qualification;
   const effectiveMaxTokens = effectiveOptions.maxTokens ?? model.maxTokens;
   const descriptor: Readonly<InputMeterDescriptor> = Object.freeze({
     provider: resolution.providerId ?? config.name,
@@ -69,7 +110,7 @@ export function createInputMeter(
       dropThinkingBlocks: config.dropThinkingBlocks === true, effective: effectiveOptions,
     })),
   });
-  if (deepseek) {
+  if (qualification.kind === 'counted') {
     return createDeepseekV41Meter(
       descriptor,
       createDeepseekInputProjection(config, model, effectiveOptions),
@@ -91,8 +132,8 @@ export function createInputMeter(
     measure(input) {
       return {
         kind: 'estimated',
-        method: 'legacy-cl100k',
-        reason: 'unsupported_model_or_protocol',
+        method: LEGACY_CL100K_METHOD,
+        reason: qualification.reason ?? LEGACY_CL100K_UNSUPPORTED_REASON,
         tokens: capability.measureFixed(input)
           + input.messages.reduce((sum, message) => sum + capability.measureMessage(message), 0),
       };

@@ -18,6 +18,17 @@ export interface CompleteInput {
   tools?: readonly CompleteInputTool[];
 }
 
+export interface MeterQualification {
+  kind: 'counted' | 'estimated' | 'unavailable';
+  method: string;
+  projection: string;
+  assetRevision: string;
+  reason?: string;
+  limits: Readonly<{
+    supportedTools: 'none' | 'client' | 'server' | 'declared';
+  }>;
+}
+
 export interface InputMeterDescriptor {
   revision: string;
   provider: string;

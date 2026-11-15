@@ -29,10 +29,25 @@ describe('DeepSeek V4.1 input meter', () => {
 
   it('returns unavailable for unsupported server/deferred tools', async () => {
     const meter = await createLLMProvider(config).prepareInputMeter();
-    expect(meter.measure({ messages: [{ role: 'user', content: 'hello' }], tools: [{
+    const measurement = meter.measure({ messages: [{ role: 'user', content: 'hello' }], tools: [{
       name: 'server', description: '', input_schema: { type: 'object' },
       type: 'computer_20250101',
-    } as never] }).kind).toBe('unavailable');
+    } as never] });
+    expect(measurement).toMatchObject({
+      kind: 'unavailable',
+      reason: expect.stringMatching(/^deepseek_v41_projection_failed:/),
+    });
+  });
+
+  it('returns unavailable rather than estimating unsupported multimodal projection', async () => {
+    const meter = await createLLMProvider(config).prepareInputMeter();
+    const measurement = meter.measure({ messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } },
+    ] }] });
+    expect(measurement).toMatchObject({
+      kind: 'unavailable',
+      reason: expect.stringMatching(/^deepseek_v41_projection_failed:/),
+    });
   });
 
 });
