@@ -561,6 +561,7 @@
       "status_forum",
       "status_forum_claw_error",
       "status_forum_orphan_error",
+      "status_forum_uptime_unavailable",
       "status_inbox_unread_error",
       "status_task_pending_error",
       "status_task_running_error"
