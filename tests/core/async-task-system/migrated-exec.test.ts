@@ -915,18 +915,19 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
-  // persistOverflow 落盘到 ctx.syncDir/exec/<id>.md；ctx 必须带真实 syncDir（Step B §7 风险核对）
+  // persistOverflow 使用 ctx.clawDir 对应的 baseDir-relative tasks/sync/exec 路径。
   function makeWrapperCtx() {
     return makeExecContext({
       fs: nodeFs,
+      clawDir: tmpDir,
       workspaceDir: tmpDir,
-      syncDir: path.join(tmpDir, '.sync'),
+      syncDir: path.join(tmpDir, 'tasks', 'sync'),
     });
   }
 
   async function readOverflowFiles(): Promise<string[]> {
-    const names = await fs.readdir(path.join(tmpDir, '.sync', 'exec')).catch(() => [] as string[]);
-    return Promise.all(names.map(n => fs.readFile(path.join(tmpDir, '.sync', 'exec', n), 'utf8')));
+    const names = await fs.readdir(path.join(tmpDir, 'tasks', 'sync', 'exec')).catch(() => [] as string[]);
+    return Promise.all(names.map(n => fs.readFile(path.join(tmpDir, 'tasks', 'sync', 'exec', n), 'utf8')));
   }
 
   it('pure sync (timeoutMs set) large output → truncated content + overflow file with full output', async () => {
@@ -939,13 +940,13 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const result = await tool.execute({ command: bigCommand, timeoutMs: 5000 }, makeWrapperCtx());
 
     expect(result.success).toBe(true);
-    // head 600 + tail 1400 截断协议
+    // head/tail 在最终 footer 预算内等比收缩，仍保留两端。
     expect(result.content).toMatch(/\[\.\.\.truncated \d+ bytes\.\.\.\]/);
-    expect(result.content.startsWith(bigExpected.slice(0, 600))).toBe(true);
-    expect(result.content).toContain(bigExpected.slice(-1400));
+    expect(result.content.startsWith(bigExpected.slice(0, 100))).toBe(true);
+    expect(result.content).toContain('5000\n');
     expect(result.content).toContain(`Full output (${bigExpected.length} bytes) saved`);
     expect(result.content).toContain('read:');
-    expect(result.content).toContain('.sync/exec/');
+    expect(result.content).toContain('tasks/sync/exec/');
     // 中间部分（第 2500 行）被截掉、全文不进 tool_result
     expect(result.content).not.toContain('\n2500\n');
     expect(result.content).not.toBe(bigExpected);
@@ -1026,7 +1027,7 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     expect(result.content).toContain('Full output (2001 bytes) saved.');
     expect(result.content).toContain('[artifact committed but durability unconfirmed: committed_platform_limited]');
     expect(result.content).toContain('async directory sync unsupported');
-    expect(result.content).toContain('[path]: .sync/exec/');
+    expect(result.content).toContain('[path]: tasks/sync/exec/');
     expect(write).toHaveBeenCalledTimes(1);
     const overflowFiles = await readOverflowFiles();
     expect(overflowFiles).toHaveLength(1);
@@ -1061,16 +1062,14 @@ describe('phase 1750: wrapper sync return path truncation', () => {
 
     const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
 
-    const prefix = 'Error: Command timed out after 1000ms\n[command]: unused\n[output]: ';
-    const previewBudget = EXEC_MAX_OUTPUT
-      - Buffer.byteLength(prefix, 'utf8')
-      - Buffer.byteLength('\n[truncated]', 'utf8');
-    const preview = truncateUtf8Prefix(output, previewBudget);
     expect(result.success).toBe(false);
-    expect(result.content).toBe(`${prefix}${preview}\n[truncated]`);
+    expect(result.content).toContain('Error: Command timed out after 1000ms');
+    expect(result.content).toContain('Full output (2004 bytes) saved.');
     expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
     expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
-    expect(await readOverflowFiles()).toHaveLength(0);
+    const overflowFiles = await readOverflowFiles();
+    expect(overflowFiles).toHaveLength(1);
+    expect(overflowFiles[0].endsWith(output)).toBe(true);
   });
 
   it('pure sync (timeoutMs set) small output → unchanged content, no overflow file', async () => {
@@ -1098,7 +1097,10 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const result = await tool.execute({ command: bigCommand }, makeWrapperCtx());
 
     expect(result.success).toBe(true);
-    expect(result.metadata).toBeUndefined();
+    expect(result.metadata?.output).toMatchObject({
+      ownerBounded: true,
+      artifact: { kind: 'durable', path: expect.stringContaining('tasks/sync/exec/') },
+    });
     expect(result.content).toMatch(/\[\.\.\.truncated \d+ bytes\.\.\.\]/);
     expect(result.content).not.toContain('\n2500\n');
 

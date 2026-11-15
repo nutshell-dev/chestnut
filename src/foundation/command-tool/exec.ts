@@ -9,15 +9,15 @@
  */
 
 import type { ExecContext } from '../tools/index.js';
-import type { ToolResult } from '../tool-protocol/index.js';
+import type { ToolResult, ToolResultArtifact } from '../tool-protocol/index.js';
 import type { Tool } from '../tools/index.js';
 import { newShortUuid } from  '../node-utils/index.js';
 import * as path from 'path';
 import {
   COMMAND_TOOL_DEFAULT_TIMEOUT_MS,
   EXEC_MAX_OUTPUT,
-  EXEC_OVERFLOW_DIR_NAME,
   EXEC_COMMAND_PLACEHOLDER_CHARS,
+  TASKS_SYNC_EXEC_DIR,
 } from './constants.js';
 import { CALLER_AGENT_ID_ENV } from './env.js';
 
@@ -109,20 +109,56 @@ function resolveExecArgs(
   };
 }
 
-function truncate(str: string, maxLen: number): string {
-  if (!str || str.length <= maxLen) return str || '';
-  return str.slice(0, maxLen) + '\n[truncated]';
+const TRUNCATION_NOTICE = '\n[truncated]';
+const PERSIST_FAILED_FOOTER = `${TRUNCATION_NOTICE}\n[full output persistence failed; no artifact was saved.]`;
+const MIN_CLASSIFICATION_BYTES = 32;
+const PREVIEW_HEAD_LIMIT = 600;
+const PREVIEW_TAIL_LIMIT = 1400;
+
+const utf8Bytes = (value: string): number => Buffer.byteLength(value, 'utf8');
+
+/** Last guard for every createExecTool exit, including non-output rejections. */
+function boundToolResult(result: ToolResult): ToolResult {
+  return {
+    ...result,
+    content: utf8Bytes(result.content) > EXEC_MAX_OUTPUT
+      ? truncateUtf8Prefix(result.content, EXEC_MAX_OUTPUT)
+      : result.content,
+    ...(utf8Bytes(result.content) > EXEC_MAX_OUTPUT || result.metadata?.output !== undefined
+      ? {
+          metadata: {
+            ...result.metadata,
+            output: result.metadata?.output ?? { ownerBounded: true },
+          },
+        }
+      : result.metadata === undefined ? {} : { metadata: result.metadata }),
+  };
 }
 
-const TRUNCATION_NOTICE = '\n[truncated]';
+function outputResult(
+  success: boolean,
+  content: string,
+  artifact?: ToolResultArtifact,
+): ToolResult {
+  return boundToolResult({
+    success,
+    content,
+    ...(artifact === undefined ? {} : {
+      metadata: { output: { ownerBounded: true, artifact } },
+    }),
+  });
+}
 
-/** Keep error diagnostics intact and fit only their output preview into the shared byte budget. */
+/** Fit a non-overflow output behind diagnostics; a long diagnostic is bounded too. */
 function formatErrorContent(prefix: string, outputSuffix: string, output: string): string {
   const fixed = `${prefix}${outputSuffix}`;
-  const outputBudget = Math.max(0, EXEC_MAX_OUTPUT - Buffer.byteLength(fixed, 'utf8'));
-  if (Buffer.byteLength(output, 'utf8') <= outputBudget) return fixed + output;
-  const previewBudget = Math.max(0, outputBudget - Buffer.byteLength(TRUNCATION_NOTICE, 'utf8'));
-  return `${fixed}${truncateUtf8Prefix(output, previewBudget)}${TRUNCATION_NOTICE}`;
+  const fixedBytes = utf8Bytes(fixed);
+  if (fixedBytes >= EXEC_MAX_OUTPUT) return truncateUtf8Prefix(fixed, EXEC_MAX_OUTPUT);
+  const outputBudget = EXEC_MAX_OUTPUT - fixedBytes;
+  if (utf8Bytes(output) <= outputBudget) return fixed + output;
+  const noticeBytes = utf8Bytes(TRUNCATION_NOTICE);
+  if (noticeBytes >= outputBudget) return fixed + truncateUtf8Prefix(output, outputBudget);
+  return `${fixed}${truncateUtf8Prefix(output, outputBudget - noticeBytes)}${TRUNCATION_NOTICE}`;
 }
 
 // phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts。
@@ -131,7 +167,7 @@ function formatErrorContent(prefix: string, outputSuffix: string, output: string
 
 function formatNoOutput(command: string): string {
   const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
-    ? command.slice(0, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
+    ? truncateUtf8Prefix(command, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
     : command;
   return `(no output)\n[command]: ${short}`;
 }
@@ -168,40 +204,55 @@ function auditExecTermination(ctx: ExecContext, t: ExecutionTerminationFact): vo
   );
 }
 
-export function processExecErrorToToolResult(
+export async function processExecErrorToToolResult(
   error: ProcessExecError,
   command: string,
-): ToolResult {
+  ctx: ExecContext,
+): Promise<ToolResult> {
   const isRealFailure = error.killed === true || error.exitCode === null;
   const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
-    ? command.slice(0, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
+    ? truncateUtf8Prefix(command, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
     : command;
+
+  if (error.maxBufferExceeded) {
+    const overflows = utf8Bytes(error.output) > EXEC_MAX_OUTPUT;
+    const prefix = overflows
+      ? `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit.`
+      : `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit. Use head/tail to truncate, or redirect to a file.`;
+    return formatExecResult(ctx, error.output, {
+      success: false,
+      prefix,
+      outputSuffix: overflows ? '\n[output]: ' : '\n[partial output]: ',
+    });
+  }
 
   if (isRealFailure) {
     const cleanupSuffix = error.termination !== undefined
       ? `\n[cleanup]: ${formatTerminationCleanup(error.termination)}`
       : '';
     const prefix = `Error: ${error.message}\n[command]: ${short}${cleanupSuffix}`;
-    return {
+    return formatExecResult(ctx, error.output, {
       success: false,
-      content: error.output
-        ? formatErrorContent(prefix, '\n[output]: ', error.output)
-        : prefix,
-    };
+      prefix,
+      outputSuffix: '\n[output]: ',
+    });
   }
 
   // 纯非零退出码：command 自己语义信号、tool 已完成契约
   const prefix = `[exit ${error.exitCode}]\n[command]: ${short}`;
-  const content = error.output
-    ? formatErrorContent(prefix, '\n', error.output)
-    : `[exit ${error.exitCode}]\n${formatNoOutput(command)}`;
-  return { success: true, content };
+  return formatExecResult(ctx, error.output, {
+    success: true,
+    prefix,
+    outputSuffix: '\n',
+    emptyContent: `[exit ${error.exitCode}]\n${formatNoOutput(command)}`,
+  });
 }
 
 type AtomicWriteResult = Awaited<ReturnType<ExecContext['fs']['writeAtomic']>>;
 
 interface PersistedOverflow {
   relPath: string;
+  fullPath: string;
   writeResult: AtomicWriteResult;
 }
 
@@ -210,12 +261,15 @@ async function persistOverflow(
   output: string,
 ): Promise<PersistedOverflow | null> {
   try {
+    const writeSide = ctx.toolOutput ?? ctx;
     const id = newShortUuid();
-    // exec_overflow scratch 写到 tasks/sync/exec/ 子目录（phase 511 / phase772 const 归正 / phase 1475 常量化消 non-null assertion）
-    const fullPath = path.join(ctx.syncDir, EXEC_OVERFLOW_DIR_NAME, `${id}.md`);
+    // exec_overflow scratch 写到写侧 baseDir 下的 tasks/sync/exec/ 子目录。
+    const relativePath = `${TASKS_SYNC_EXEC_DIR}/${id}.md`;
     const frontmatter = `---\nsource: exec_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    const writeResult = await ctx.fs.writeAtomic(fullPath, frontmatter + output);
-    const relPath = path.relative(ctx.workspaceDir, fullPath);
+    const writeResult = await writeSide.fs.writeAtomic(relativePath, frontmatter + output);
+    // Keep B7's baseDir-relative write; display/audit must resolve that same fixed artifact.
+    const fullPath = path.join(ctx.toolOutput?.baseDir ?? ctx.clawDir, relativePath);
+    const relPath = path.relative(writeSide.workspaceDir, fullPath);
     if (writeResult.kind !== 'durable') {
       ctx.auditWriter?.write(
         COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED,
@@ -225,34 +279,142 @@ async function persistOverflow(
         `reason=${formatErr(writeResult.error)}`,
       );
     }
-    return { relPath, writeResult };
+    return { relPath, fullPath, writeResult };
   } catch (err) {
     ctx.auditWriter?.write(COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_PERSIST_FAILED, `reason=${formatErr(err)}`);
     return null;
   }
 }
 
-function formatPersistedOverflow(output: string, persisted: PersistedOverflow): string {
-  const preview = truncateHeadTail(output, persisted.relPath);
-  if (persisted.writeResult.kind === 'durable') return preview;
-  return `${preview}\n[artifact committed but durability unconfirmed: ${persisted.writeResult.kind}]` +
+function formatPersistedFooter(output: string, persisted: PersistedOverflow): string {
+  const preview = truncateHeadTail(output);
+  const withPath = truncateHeadTail(output, persisted.relPath);
+  const footer = withPath.slice(preview.length);
+  if (persisted.writeResult.kind === 'durable') return footer;
+  return `${footer}\n[artifact committed but durability unconfirmed: ${persisted.writeResult.kind}]` +
     `\n[reason]: ${formatErr(persisted.writeResult.error)}\n[path]: ${persisted.relPath}`;
 }
 
-/**
- * exec 输出呈现协议单实现（phase 1750）：LLM 边界统一截断——UTF-8 字节数超 EXEC_MAX_OUTPUT
- * 完整落盘 tasks/sync/exec/<uuid>.md（frontmatter 记 content_length）+ head/tail
- * 截断 + relPath read 提示；落盘失败退化为纯 truncate（内容不丢但无文件）。
- * createExecTool（subagent）与 async-exec-wrapper（主 agent）共同调用，
- * 防止「同一边界、两种实现」漂移（phase 1750 根因形态）。
- */
+/** Keep both ends of output while shrinking the existing 600/1400 preview to its final budget. */
+function formatHeadTailPreview(output: string, budget: number): string {
+  if (budget <= 0) return '';
+  const original = truncateHeadTail(output);
+  if (utf8Bytes(original) <= budget) return original;
+
+  const bytes = Buffer.from(output, 'utf8');
+  let headLimit = Math.min(PREVIEW_HEAD_LIMIT, Math.floor(budget * 0.3));
+  let tailLimit = Math.min(PREVIEW_TAIL_LIMIT, budget - headLimit);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const head = truncateUtf8Prefix(output, headLimit);
+    const headBytes = utf8Bytes(head);
+    let tailStart = Math.max(headBytes, bytes.length - tailLimit);
+    while (tailStart < bytes.length && (bytes[tailStart]! & 0xc0) === 0x80) tailStart++;
+    const tail = bytes.subarray(tailStart).toString('utf8');
+    const truncatedBytes = bytes.length - headBytes - utf8Bytes(tail);
+    const marker = `\n[...truncated ${truncatedBytes} bytes...]\n`;
+    const candidate = `${head}${marker}${tail}`;
+    if (utf8Bytes(candidate) <= budget) return candidate;
+    const available = Math.max(0, budget - utf8Bytes(marker));
+    headLimit = Math.min(PREVIEW_HEAD_LIMIT, Math.floor(available * 0.3));
+    tailLimit = Math.min(PREVIEW_TAIL_LIMIT, available - headLimit);
+  }
+  return truncateUtf8Prefix(original, budget);
+}
+
+function artifactFor(persisted: PersistedOverflow): ToolResultArtifact {
+  return { kind: persisted.writeResult.kind, path: persisted.relPath };
+}
+
+function fitOverflowContent(
+  ctx: ExecContext,
+  lead: string,
+  output: string,
+  persisted: PersistedOverflow | null,
+): string {
+  let footer = persisted === null ? PERSIST_FAILED_FOOTER : formatPersistedFooter(output, persisted);
+  const minLeadBytes = Math.min(utf8Bytes(lead), MIN_CLASSIFICATION_BYTES);
+  if (persisted !== null && utf8Bytes(footer) + minLeadBytes > EXEC_MAX_OUTPUT) {
+    ctx.auditWriter?.write(
+      COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_FOOTER_OMITTED,
+      `path=${persisted.fullPath}`,
+      `commit=${persisted.writeResult.kind}`,
+      `reason=footer_exceeds_${EXEC_MAX_OUTPUT}_byte_budget`,
+    );
+    footer = `\n[full output saved; artifact=${persisted.writeResult.kind}; path omitted; see audit log.]`;
+  }
+
+  const leadBudget = EXEC_MAX_OUTPUT - utf8Bytes(footer);
+  if (utf8Bytes(lead) >= leadBudget) {
+    return truncateUtf8Prefix(lead, leadBudget) + footer;
+  }
+  return lead + formatHeadTailPreview(output, leadBudget - utf8Bytes(lead)) + footer;
+}
+
+interface ExecResultFormat {
+  success: boolean;
+  prefix?: string;
+  outputSuffix?: string;
+  emptyContent?: string;
+}
+
+/** Persist complete oversized output before constructing its bounded preview. */
+async function formatExecResult(
+  ctx: ExecContext,
+  output: string,
+  format: ExecResultFormat,
+): Promise<ToolResult> {
+  const lead = `${format.prefix ?? ''}${output ? (format.outputSuffix ?? '') : ''}`;
+  if (!output) {
+    const rawContent = format.emptyContent ?? format.prefix ?? '';
+    if (utf8Bytes(rawContent) <= EXEC_MAX_OUTPUT) return outputResult(format.success, rawContent);
+    const persisted = await persistOverflow(ctx, rawContent);
+    return outputResult(
+      persisted === null ? false : format.success,
+      fitOverflowContent(ctx, '', rawContent, persisted),
+      persisted === null ? { kind: 'failed' } : artifactFor(persisted),
+    );
+  }
+  if (utf8Bytes(output) <= EXEC_MAX_OUTPUT) {
+    const prefix = format.prefix ?? '';
+    const outputSuffix = format.outputSuffix ?? '';
+    const rawContent = `${prefix}${outputSuffix}${output}`;
+    if (utf8Bytes(rawContent) <= EXEC_MAX_OUTPUT) {
+      return outputResult(format.success, formatErrorContent(prefix, outputSuffix, output));
+    }
+    const persisted = await persistOverflow(ctx, rawContent);
+    return outputResult(
+      persisted === null ? false : format.success,
+      fitOverflowContent(ctx, '', rawContent, persisted),
+      persisted === null ? { kind: 'failed' } : artifactFor(persisted),
+    );
+  }
+
+  const persisted = await persistOverflow(ctx, output);
+  return outputResult(
+    persisted === null ? false : format.success,
+    fitOverflowContent(ctx, lead, output, persisted),
+    persisted === null ? { kind: 'failed' } : artifactFor(persisted),
+  );
+}
+
+/** Structured owner-bounded success result for createExecTool and the async wrapper. */
+export async function formatExecOutputToolResult(
+  ctx: ExecContext,
+  output: string,
+  command?: string,
+): Promise<ToolResult> {
+  return formatExecResult(ctx, output, {
+    success: true,
+    emptyContent: command === undefined ? '' : formatNoOutput(command),
+  });
+}
+
+/** Compatibility content-only view; new callers should consume the ToolResult metadata. */
 export async function formatExecOutputForToolResult(
   ctx: ExecContext,
   output: string,
 ): Promise<string> {
-  if (Buffer.byteLength(output, 'utf8') <= EXEC_MAX_OUTPUT) return output;
-  const persisted = await persistOverflow(ctx, output);
-  return persisted ? formatPersistedOverflow(output, persisted) : truncate(output, EXEC_MAX_OUTPUT);
+  return (await formatExecOutputToolResult(ctx, output)).content;
 }
 
 export const EXEC_TOOL_NAME = 'exec' as const;
@@ -291,6 +453,8 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
     readonly: false,
     idempotent: false,
     defaultTimeoutMs: COMMAND_TOOL_DEFAULT_TIMEOUT_MS,
+    // With at most one byte per newline, this finite line bound cannot tighten the byte contract.
+    outputBounds: { maxBytes: EXEC_MAX_OUTPUT, maxLines: EXEC_MAX_OUTPUT + 1, artifactKind: 'exec' },
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const { command, cwd, timeoutMs, env, stdin } = resolveExecArgs({
@@ -310,12 +474,12 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
             `guard_kind=${result.guardKind}`,
             `reason=${result.reason}`,
           );
-          return { success: false, content: result.reason };
+          return formatExecResult(ctx, result.reason, { success: false });
         }
       }
 
       const longBlockingRejection = rejectLongBlockingExec(command, timeoutMs, ctx);
-      if (longBlockingRejection) return longBlockingRejection;
+      if (longBlockingRejection) return boundToolResult(longBlockingRejection);
 
       // phase 1280: allow/deny reject 路径已 REFRAMED-OUT by-design 2026-05-25 user ratify
       // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup
@@ -331,44 +495,18 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
         });
 
         // phase 1750 Step B: 成功路径截断协议内聚进公共 helper（与 async-exec-wrapper 单实现复用）
-        const content = await formatExecOutputForToolResult(ctx, result.output);
-        return { success: true, content: content || formatNoOutput(command) };
+        return formatExecOutputToolResult(ctx, result.output, command);
       } catch (error) {
         // cwd hint 已删（phase: 心智收敛 workspace-relative / error 已含 LLM 自己的 tool_use，cwd 信息冗余）
         if (!(error instanceof ProcessExecError)) {
-          return {
-            success: false,
-            content: `Error: ${formatErr(error)}`,
-          };
-        }
-
-        // maxBuffer exceeded
-        if (error.maxBufferExceeded) {
-          if (error.termination !== undefined) {
-            auditExecTermination(ctx, error.termination);
-          }
-          if (Buffer.byteLength(error.output, 'utf8') > EXEC_MAX_OUTPUT) {
-            const persisted = await persistOverflow(ctx, error.output);
-            const prefix = `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit.`;
-            const content = persisted
-              ? `${prefix}\n[output]: ${formatPersistedOverflow(error.output, persisted)}`
-              : formatErrorContent(prefix, '\n[output]: ', error.output);
-            return { success: false, content };
-          }
-          const prefix = `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit. Use head/tail to truncate, or redirect to a file.`;
-          return {
-            success: false,
-            content: error.output
-              ? formatErrorContent(prefix, '\n[partial output]: ', error.output)
-              : prefix,
-          };
+          return formatExecResult(ctx, `Error: ${formatErr(error)}`, { success: false });
         }
 
         // phase 1417 + phase 809: isRealFailure 判据单源在 processExecErrorToToolResult
         if (error.termination !== undefined) {
           auditExecTermination(ctx, error.termination);
         }
-        return processExecErrorToToolResult(error, command);
+        return processExecErrorToToolResult(error, command, ctx);
       }
     },
   };

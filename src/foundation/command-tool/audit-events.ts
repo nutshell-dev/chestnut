@@ -7,6 +7,8 @@ export const COMMAND_TOOL_AUDIT_EVENTS = {
   EXEC_LONG_BLOCKING_REJECTED: 'exec_long_blocking_rejected',
   // NEW phase 272 Step B: raw audit emit migration to const SoT
   OVERFLOW_PERSIST_FAILED: 'overflow_persist_failed',
+  // NEW phase 2154 Step B2: complete artifact path is audited when its footer cannot fit.
+  OVERFLOW_FOOTER_OMITTED: 'overflow_footer_omitted',
   // NEW phase 1269 Step D: structured exec termination conclusion (L1 facts)
   EXEC_TERMINATION: 'exec_termination',
 } as const;
@@ -18,5 +20,6 @@ export const COMMAND_TOOL_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   exec_guard_rejected: 'audit',
   exec_long_blocking_rejected: 'audit',
   overflow_persist_failed: 'audit',
+  overflow_footer_omitted: 'audit',
   exec_termination: 'audit',
 } as const;

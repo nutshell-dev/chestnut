@@ -7,6 +7,7 @@
 export const FILE_TOOL_AUDIT_EVENTS = {
   /** sync-backup catch swallow → audit injection / phase 684 B-P2.10 / phase 706 L1-P1.1 dotcase → snake_case */
   BACKUP_FAILED: 'file_tool_backup_failed',
+  BACKUP_DURABILITY_DEGRADED: 'file_tool_backup_durability_degraded',
 
   /** phase 1109 Step C: edit committed successfully、payload: tool path before_hash after_hash backup_path replaced edit_count */
   FILE_EDIT_COMMITTED: 'file_edit_committed',
@@ -22,6 +23,7 @@ export const FILE_TOOL_AUDIT_EVENTS = {
 
   /** read overflow > READ_OUTPUT_HARD_CAP_BYTES、persist 落盘失败（phase 1430 字面 → phase 1443 const） */
   READ_OVERFLOW_PERSIST_FAILED: 'read_overflow_persist_failed',
+  READ_OVERFLOW_FOOTER_TOO_LONG: 'read_overflow_footer_too_long',
 
   /** read stat failure invalidates one path、payload: claw_dir path invalidated previous_* reason (phase 2099) */
   READ_FILE_STAT_FAILED: 'read_file_stat_failed',
@@ -49,5 +51,7 @@ export const FILE_TOOL_AUDIT_EVENTS = {
  * Phase 159 业主声明 file 归属（phase 122 §5.A + §6.7）.
  */
 export const FILE_TOOL_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
+  file_tool_backup_durability_degraded: 'audit',
+  read_overflow_footer_too_long: 'audit',
   search_overflow_persist_failed: 'audit',
 } as const;

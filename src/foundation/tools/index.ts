@@ -6,6 +6,8 @@
 
 // Registry
 export { createToolRegistry } from './registry.js';
+export { enforceToolResultBounds } from './output-cap.js';
+export { DEFAULT_TOOL_OUTPUT_BOUNDS } from './constants.js';
 
 // Executor (interfaces + implementation)
 export {
@@ -25,6 +27,7 @@ export { ExecContextImpl } from './context.js';
 // Types (Tool, ExecContext now owned by L2c Tools)
 export type {
   Tool,
+  ToolOutputBounds,
   ExecContext,
   FileState,
   ToolRegistry,

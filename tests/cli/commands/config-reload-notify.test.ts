@@ -7,7 +7,7 @@
  *   - 多 daemon（motion + 2 claws）→ 各自 inbox 都有
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -22,6 +22,15 @@ const deps = {
   fsFactory,
   llmConfiguration: { readRevision: () => ({ id: '7', revision: 7 }) },
 };
+
+const notification = vi.hoisted(() => ({ record: vi.fn() }));
+vi.mock('../../../src/core/llm-configuration/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/llm-configuration/index.js')>();
+  return {
+    ...actual,
+    createLLMNotificationStore: () => ({ record: notification.record }),
+  };
+});
 
 function writeActiveGeneration(rootDir: string, agentSubpath: string, pid: number) {
   const daemonDir = makeDaemonDir(path.join(rootDir, '.chestnut', agentSubpath));
@@ -54,9 +63,12 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
     process.env.CHESTNUT_ROOT = tmpDir;
     // Ensure chestnut root exists
     fs.mkdirSync(path.join(tmpDir, '.chestnut'), { recursive: true });
+    notification.record.mockReset();
+    notification.record.mockReturnValue({ kind: 'durable' });
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     if (originalRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = originalRoot;
     await cleanupTempDir(tmpDir);
@@ -104,5 +116,32 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
 
     expect(listInbox(tmpDir, 'motion').length).toBe(1);
     expect(listInbox(tmpDir, 'claws/dead').length).toBe(0);
+  });
+
+  it.each([
+    { kind: 'committed_platform_limited' as const },
+    { kind: 'committed_durability_unknown' as const },
+  ])('notification record $kind → degraded notice、继续且不重写', async ({ kind }) => {
+    const error = Object.assign(new Error(`directory fsync failed: ${kind}`), { code: 'EIO' });
+    notification.record.mockReturnValue({ kind, error });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(notifyRunningDaemons(deps, 'remove')).resolves.toBeUndefined();
+
+    expect(notification.record).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
+  });
+
+  it('notification record throw → 保持既有独立故障提示、继续且不重试', async () => {
+    const failure = new Error('rename failed');
+    notification.record.mockImplementation(() => { throw failure; });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(notifyRunningDaemons(deps, 'remove')).resolves.toBeUndefined();
+
+    expect(notification.record).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('LLM notification fact persistence failed'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('rename failed'));
   });
 });

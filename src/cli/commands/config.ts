@@ -41,7 +41,7 @@ import {
 } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
 import { createClawNotifier } from '../../foundation/messaging/index.js';
@@ -82,6 +82,12 @@ import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../..
 import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
 import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
+function reportDegradedConfigWrite(target: string, write: AtomicWriteResult): void {
+  if (write.kind === 'durable') return;
+  const errorSummary = formatErr(write.error).replace(/\s+/g, ' ').trim().slice(0, 240);
+  console.error(`⚠ ${target} committed with degraded durability (kind=${write.kind}): ${errorSummary}`);
+}
+
 /**
  * phase 320: 通知所有运行中的 daemon（motion + 所有 claws）重新加载 LLM 配置。
  * Producer 侧 / consumer 侧在 Runtime._drainOwnInbox 拦截路径。
@@ -109,7 +115,8 @@ export async function notifyRunningDaemons(
     error?: unknown,
   ): void => {
     try {
-      notifications.record({ revision, target, status, ...(error !== undefined ? { error } : {}) });
+      const write = notifications.record({ revision, target, status, ...(error !== undefined ? { error } : {}) });
+      reportDegradedConfigWrite(`LLM notification fact for ${target}`, write);
     } catch (persistenceError) {
       // 配置与消息发送结果均不因记账失败被伪装成未提交；明确显示独立故障。
       console.error(
@@ -500,7 +507,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
       verifiedModel = probe.model;
     }
 
-    await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
+    const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
       if (findProviderIndex(fresh, label)) {
         throw new CliError(`A provider with label "${label}" already exists`);
       }
@@ -515,6 +522,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
         fresh.llm.fallbacks = currentFallbacks;
       }
     });
+    reportDegradedConfigWrite('LLM global config', write);
     if (role === 'primary') {
       console.log(`\n✓ Provider "${label}" is now primary`);
     } else {
@@ -596,7 +604,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   }
 
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
-  await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
+  const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
     const freshFound = findProviderIndex(fresh, label);
     if (!freshFound) {
       throw new CliError(`Provider "${label}" not found`);
@@ -606,6 +614,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
     }
     fresh.llm.fallbacks!.splice(freshFound.index, 1);
   });
+  reportDegradedConfigWrite('LLM global config', write);
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_remove', `label=${label}`);
   console.log(`✓ Removed "${label}" from fallbacks`);
   await notifyRunningDaemons(deps, 'remove');
@@ -641,7 +650,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   }
 
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于确认提示）
-  await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
+  const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
     const freshFound = findProviderIndex(fresh, label);
     if (!freshFound) {
       throw new CliError(`Provider "${label}" not found`);
@@ -655,6 +664,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
     fresh.llm.fallbacks!.unshift(freshPrimary);
     fresh.llm.primary = target;
   });
+  reportDegradedConfigWrite('LLM global config', write);
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_set_primary', `label=${label}`);
   console.log(`✓ "${label}" is now primary`);
   await notifyRunningDaemons(deps, 'set-primary');
@@ -706,7 +716,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   }
 
   // Phase 1910 Step D：锁内对新鲜配置重放（快照只用于预检）
-  await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
+  const write = await deps.llmConfiguration.mutateGlobalLocked((fresh) => {
     const freshFound = findProviderIndex(fresh, label);
     if (!freshFound) {
       throw new CliError(`Provider "${label}" not found`);
@@ -719,6 +729,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
     const [removed] = freshFallbacks.splice(freshFound.index, 1);
     freshFallbacks.splice(clampedPos, 0, removed);
   });
+  reportDegradedConfigWrite('LLM global config', write);
   configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_move', `label=${label}`, `position=${newPos + 1}`);
   console.log(`✓ "${label}" moved to fallback #${newPos + 1}`);
   await notifyRunningDaemons(deps, 'move');

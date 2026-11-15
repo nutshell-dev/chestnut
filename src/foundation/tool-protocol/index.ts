@@ -11,6 +11,8 @@ export type {
   ToolProfile,
   ToolDescriptor,
   ToolResult,
+  ToolResultArtifact,
+  ToolResultOutput,
   CallerSnapshot,
 } from './types.js';
 // ============================================================================

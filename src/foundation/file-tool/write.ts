@@ -18,6 +18,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 
 import { backupToSync } from './sync-backup.js';
+import type { BackupDurabilityNotice } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { recordWriteResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
@@ -112,6 +113,7 @@ export const writeTool: Tool = {
 
     try {
       let backupPath: string | null = null;
+      let backupNotice: BackupDurabilityNotice | null = null;
       if (!append) {
         const backup = await backupToSync(ctx, resolved, 'file_backup');
         throwIfFileToolAborted(ctx.signal);
@@ -137,6 +139,9 @@ export const writeTool: Tool = {
           };
         }
         backupPath = backup.kind === 'created' ? backup.path : null;
+        backupNotice = backup.kind === 'created' && backup.durability !== 'durable'
+          ? { durability: backup.durability, error: backup.error }
+          : null;
       }
 
       throwIfFileToolAborted(ctx.signal);
@@ -150,7 +155,14 @@ export const writeTool: Tool = {
       }
 
       const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
-      return { success: true, content: `Written: ${filePath} (${content.length} chars)${backupHint}` };
+      const durabilityHint = backupNotice
+        ? ` [backup committed; durability ${backupNotice.durability}]`
+        : '';
+      return {
+        success: true,
+        content: `Written: ${filePath} (${content.length} chars)${backupHint}${durabilityHint}`,
+        ...(backupNotice ? { metadata: { backup_notice: backupNotice } } : {}),
+      };
     } catch (error) {
       if (isFileToolAbortError(error)) throw error;
       return {

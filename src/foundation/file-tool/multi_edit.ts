@@ -209,6 +209,10 @@ export const multiEditTool: Tool = {
     }
 
     const backupHint = commitResult.backupPath ? ` (backup: ${commitResult.backupPath})` : '';
+    const backupNotice = commitResult.backupNotice;
+    const durabilityHint = backupNotice
+      ? ` [backup committed; durability ${backupNotice.durability}]`
+      : '';
     const totalDelta = edits.reduce(
       (sum, e, i) => sum + lineDelta(e.oldText, e.newText) * results[i].replaced,
       0,
@@ -223,8 +227,11 @@ export const multiEditTool: Tool = {
     const moreHint = edits.length > 1 ? `\n(${edits.length - 1} more edit${edits.length - 1 === 1 ? '' : 's'} applied; preview shows edits[0])` : '';
     return {
       success: true,
-      content: `Multi-edited: ${filePath} (${edits.length} edits applied${deltaHint})${backupHint}\n\nApplied:\n${summary}${previewBlock}${moreHint}`,
-      metadata: { results },
+      content: `Multi-edited: ${filePath} (${edits.length} edits applied${deltaHint})${backupHint}${durabilityHint}\n\nApplied:\n${summary}${previewBlock}${moreHint}`,
+      metadata: {
+        results,
+        ...(backupNotice ? { backup_notice: backupNotice } : {}),
+      },
     };
   },
 };

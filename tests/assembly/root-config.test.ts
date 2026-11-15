@@ -15,7 +15,18 @@ import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { getClawConfigPath } from '../../src/foundation/claw-identity/index.js';
-import { createRootConfig, type RootConfigAdmin } from '../../src/assembly/index.js';
+import {
+  ClawConfigAlreadyExistsError,
+  createRootConfig,
+  type RootConfigAdmin,
+} from '../../src/assembly/index.js';
+import {
+  mutateGlobalConfigLocked,
+  patchGlobalConfigPrimary,
+  saveClawConfig,
+} from '../../src/assembly/config/config-load.js';
+import type { ClawConfig } from '../../src/assembly/config/compose-config.js';
+import type { AtomicWriteResult } from '../../src/foundation/fs/index.js';
 import {
   createLLMConfiguration,
   resolveLLMConfig,
@@ -48,6 +59,43 @@ llm:
     model: claude-test
 ${extraLlmYaml}
 `);
+}
+
+function makeClawConfig(name = 'testclaw'): ClawConfig {
+  return {
+    name,
+    tool_profile: 'full',
+    max_concurrent_tasks: 3,
+    llm: { primary: { preset: 'openai', api_key: '${ROOT_CONFIG_TEST_API_KEY}', model: 'gpt-test', temperature: 0.7, timeout_ms: 120000 } },
+  };
+}
+
+function atomicWriteResults(): AtomicWriteResult[] {
+  return [
+    { kind: 'durable' },
+    { kind: 'committed_platform_limited', error: Object.assign(new Error('unsupported fsync'), { code: 'EINVAL' }) },
+    { kind: 'committed_durability_unknown', error: Object.assign(new Error('unknown fsync failure'), { code: 'EIO' }) },
+  ];
+}
+
+function controlledWriteDeps(write: () => AtomicWriteResult) {
+  return {
+    fsFactory: (baseDir: string) => new (class extends NodeFileSystem {
+      override writeAtomicSync(path: string, content: string): AtomicWriteResult {
+        if (path.endsWith('config.yaml')) return write();
+        return super.writeAtomicSync(path, content);
+      }
+    })({ baseDir }),
+  };
+}
+
+function expectThrowIdentity(fn: () => unknown, expected: unknown): void {
+  try {
+    fn();
+    expect.unreachable();
+  } catch (error) {
+    expect(error).toBe(expected);
+  }
 }
 
 beforeEach(() => {
@@ -112,6 +160,61 @@ describe('RootConfigReader/Admin: claw load/save', () => {
     const claw = admin.loadClaw(clawPath);
     expect(claw?.name).toBe('testclaw');
     expect(claw?.llm?.primary?.model).toBe('gpt-test');
+  });
+});
+
+describe('Assembly config write results (Phase 2154 Step B3)', () => {
+  it('saveClawConfig 与 RootConfigAdmin.saveClaw 原样返回三种 AtomicWriteResult', () => {
+    const clawPath = getClawConfigPath('write-result');
+    for (const result of atomicWriteResults()) {
+      expect(saveClawConfig(controlledWriteDeps(() => result), clawPath, makeClawConfig())).toBe(result);
+      expect(createRootConfig(controlledWriteDeps(() => result)).saveClaw(clawPath, makeClawConfig())).toBe(result);
+    }
+  });
+
+  it('mutateGlobalConfigLocked 与 patchGlobalConfigPrimary 原样返回三种 AtomicWriteResult', async () => {
+    writeGlobalConfig();
+    admin.loadGlobal();
+
+    for (const result of atomicWriteResults()) {
+      const mutated = await mutateGlobalConfigLocked(controlledWriteDeps(() => result), (config) => {
+        config.llm.primary.model = 'claude-mutated';
+      });
+      expect(mutated).toBe(result);
+
+      const patched = await patchGlobalConfigPrimary(controlledWriteDeps(() => result), { model: 'claude-patched' });
+      expect(patched).toBe(result);
+    }
+  });
+
+  it('普通配置写的 rename-before 异常保持 identity', async () => {
+    const clawPath = getClawConfigPath('write-throw');
+    const clawFailure = new Error('injected claw rename failure');
+    expectThrowIdentity(
+      () => saveClawConfig(controlledWriteDeps(() => { throw clawFailure; }), clawPath, makeClawConfig()),
+      clawFailure,
+    );
+    expectThrowIdentity(
+      () => createRootConfig(controlledWriteDeps(() => { throw clawFailure; })).saveClaw(clawPath, makeClawConfig()),
+      clawFailure,
+    );
+
+    writeGlobalConfig();
+    admin.loadGlobal();
+    const globalFailure = new Error('injected global rename failure');
+    const throwingDeps = () => controlledWriteDeps(() => { throw globalFailure; });
+    await expect(mutateGlobalConfigLocked(throwingDeps(), () => {})).rejects.toBe(globalFailure);
+    await expect(patchGlobalConfigPrimary(throwingDeps(), { model: 'claude-patched' })).rejects.toBe(globalFailure);
+  });
+
+  it('saveClawExclusive 首次创建仍返回 void，already_exists 保持 typed 异常且不覆盖', () => {
+    const clawPath = getClawConfigPath('exclusiveclaw');
+    const winner = makeClawConfig('exclusiveclaw');
+    expect(admin.saveClawExclusive(clawPath, winner)).toBeUndefined();
+
+    expect(() => admin.saveClawExclusive(clawPath, { ...winner, max_concurrent_tasks: 99 }))
+      .toThrow(ClawConfigAlreadyExistsError);
+    expect(admin.loadClaw(clawPath)?.max_concurrent_tasks).toBe(3);
   });
 });
 

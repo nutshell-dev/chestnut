@@ -216,6 +216,69 @@ describe('edit tool', () => {
 
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('hello world');
+    expect(writeSpy.mock.calls.filter(([p]) => p.includes('tasks/sync/write/'))).toHaveLength(1);
+    expect(writeSpy.mock.calls.filter(([p]) => p === 'clawspace/file.txt')).toHaveLength(0);
+    expect(await fs.readdir(path.join(tempDir, 'tasks', 'sync', 'write')).catch(() => [])).toEqual([]);
+    expect(auditWriter.write.mock.calls.some((call: string[]) => call[0] === 'file_tool_backup_failed')).toBe(true);
+    expect(auditWriter.write.mock.calls.some((call: string[]) => call[0] === 'file_edit_backup_failed')).toBe(true);
+    writeSpy.mockRestore();
+  });
+
+  it.each([
+    ['durable', 'durable'],
+    ['committed_platform_limited', 'platform_limited'],
+    ['committed_durability_unknown', 'unknown'],
+  ] as const)('phase 2154 B6 edit 消费 %s：一次备份/一次编辑，artifact path 与 notice/audit 可观察', async (kind, durability) => {
+    await mockFs.ensureDir('clawspace');
+    await mockFs.writeAtomic('clawspace/file.txt', 'hello world');
+    const originalWriteAtomic = mockFs.writeAtomic.bind(mockFs);
+    const error = Object.assign(new Error(`synthetic ${kind} after rename`), { code: 'EIO' });
+    const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockImplementation(async (p: string, content: string) => {
+      const written = await originalWriteAtomic(p, content);
+      if (!p.includes('tasks/sync/write/')) return written;
+      const override: Awaited<ReturnType<NodeFileSystem['writeAtomic']>> = kind === 'durable'
+        ? { kind }
+        : { kind, error };
+      return override;
+    });
+    const auditWriter = makeMockAudit();
+    const testCtx = new ExecContextImpl({
+      clawId: 'test-claw',
+      clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
+      syncDir: path.join(tempDir, 'tasks', 'sync'),
+      profile: 'subagent',
+      fs: mockFs,
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
+      auditWriter,
+    });
+
+    const result = await editTool.execute({ path: 'file.txt', oldText: 'hello', newText: 'hi' }, testCtx);
+
+    expect(result.success).toBe(true);
+    expect(await mockFs.read('clawspace/file.txt')).toBe('hi world');
+    expect(writeSpy.mock.calls.filter(([p]) => p.includes('tasks/sync/write/'))).toHaveLength(1);
+    expect(writeSpy.mock.calls.filter(([p]) => p === 'clawspace/file.txt')).toHaveLength(1);
+    const backupPath = /\(backup: ([^)]+)\)/.exec(result.content)?.[1];
+    expect(backupPath).toBeDefined();
+    expect(path.isAbsolute(backupPath!)).toBe(false);
+    expect(backupPath).not.toContain('durability');
+    expect(await fs.readFile(path.resolve(testCtx.workspaceDir, backupPath!), 'utf8')).toContain('hello world');
+    const committed = auditWriter.write.mock.calls.find((call: string[]) => call[0] === 'file_edit_committed');
+    expect(committed).toContain(`backup_durability=${durability}`);
+    expect(committed).toContain(`backup_path=${backupPath}`);
+    if (durability === 'durable') {
+      expect(result.metadata).toEqual({ replaced: 1 });
+      expect(auditWriter.write.mock.calls.some((call: string[]) => call[0] === 'file_tool_backup_durability_degraded')).toBe(false);
+    } else {
+      expect(result.content).toContain(`[backup committed; durability ${durability}]`);
+      expect(result.metadata).toEqual({
+        replaced: 1,
+        backup_notice: { durability, error: expect.stringContaining('EIO') },
+      });
+      expect(committed?.join(' ')).toContain('backup_durability_error=');
+      expect(auditWriter.write.mock.calls.some((call: string[]) => call[0] === 'file_tool_backup_durability_degraded')).toBe(true);
+    }
     writeSpy.mockRestore();
   });
 

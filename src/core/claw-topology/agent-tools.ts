@@ -64,6 +64,7 @@ function buildTargetCtx(
   // 不被二次 target 化。
   const callerToolOutput = baseCtx.toolOutput ?? {
     fs: baseCtx.fs,
+    baseDir: baseCtx.clawDir,
     syncDir: baseCtx.syncDir,
     workspaceDir: baseCtx.workspaceDir,
   };

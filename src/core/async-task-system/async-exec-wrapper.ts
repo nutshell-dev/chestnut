@@ -14,9 +14,9 @@ import type { ExecHandle, ExecutionGroupTarget, ExecutionIdentity, ExecutionTerm
 import { captureExecutionTarget, ProcessExecError, resolveHostCommand } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs, AsyncMigrationPolicy } from '../../foundation/command-tool/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
-import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
+import { EXEC_MAX_OUTPUT, EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
-import { formatExecOutputForToolResult } from '../../foundation/command-tool/index.js';
+import { formatExecOutputToolResult } from '../../foundation/command-tool/index.js';
 import { rejectLongBlockingExec } from '../../foundation/command-tool/index.js';
 import { executeToolTask } from './tool-executor.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
@@ -205,6 +205,7 @@ export function createAsyncExecWrapper(
     },
     readonly: false,
     idempotent: false,
+    outputBounds: { maxBytes: EXEC_MAX_OUTPUT, maxLines: EXEC_MAX_OUTPUT + 1, artifactKind: 'exec' },
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
@@ -235,14 +236,10 @@ export function createAsyncExecWrapper(
           );
 
           const result = await handle.promise;
-          const content = await formatExecOutputForToolResult(ctx, result.output);
-          return {
-            success: true,
-            content: content || `(no output)\n[command]: ${command}`,
-          };
+          return formatExecOutputToolResult(ctx, result.output, command);
         } catch (err) {
           if (err instanceof ProcessExecError) {
-            return processExecErrorToToolResult(err, command);
+            return processExecErrorToToolResult(err, command, ctx);
           }
           throw err;
         }
@@ -263,14 +260,10 @@ export function createAsyncExecWrapper(
 
           const result = await handle.promise;
           // phase 1750 Step B: 同步返回路径施加与 createExecTool 一致的截断协议
-          const content = await formatExecOutputForToolResult(ctx, result.output);
-          return {
-            success: true,
-            content: content || `(no output)\n[command]: ${command}`,
-          };
+          return formatExecOutputToolResult(ctx, result.output, command);
         } catch (err) {
           if (err instanceof ProcessExecError) {
-            return processExecErrorToToolResult(err, command);
+            return processExecErrorToToolResult(err, command, ctx);
           }
           throw err;
         }
@@ -551,7 +544,7 @@ export function createAsyncExecWrapper(
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         if (err instanceof ProcessExecError) {
           if (handle === undefined || task === undefined || handle.identity === undefined) {
-            return processExecErrorToToolResult(err, command);
+            return processExecErrorToToolResult(err, command, ctx);
           }
           const fact = err.termination;
           if (fact !== undefined) {
@@ -571,7 +564,7 @@ export function createAsyncExecWrapper(
             });
             // A rejected execution promise is not proof that the process group
             // is gone. Keep all artifacts running and do not commit exit.json.
-            if (fact.status !== 'gone') return processExecErrorToToolResult(err, command);
+            if (fact.status !== 'gone') return processExecErrorToToolResult(err, command, ctx);
           }
           const classification: MigratedExecResultClassification =
             err.maxBufferExceeded || fact?.trigger === 'max_buffer' ? 'max_buffer'
@@ -594,7 +587,7 @@ export function createAsyncExecWrapper(
             return { success: false, content: 'Failed to persist migrated exec exit record; task remains running' };
           }
           await moveTaskToDone(task.id);
-          return processExecErrorToToolResult(err, command);
+          return processExecErrorToToolResult(err, command, ctx);
         }
         throw err;
       }
@@ -634,11 +627,7 @@ export function createAsyncExecWrapper(
           `taskId=${task.id}`,
           `shortTaskId=${shortId}`,
         );
-        const content = await formatExecOutputForToolResult(ctx, result.output);
-        return {
-          success: true,
-          content: content || `(no output)\n[command]: ${command}`,
-        };
+        return formatExecOutputToolResult(ctx, result.output, command);
       }
 
       // 5. Abort: terminate the execution group via L1 and wait for the

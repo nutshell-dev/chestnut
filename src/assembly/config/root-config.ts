@@ -27,7 +27,7 @@ import type {
   ClawGlobalConfigInput,
   ClawConfig,
 } from './compose-config.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 import { createLLMConfiguration } from '../../core/llm-configuration/index.js';
 
 /** RootConfig 只读面：日常 init/start 分支判断与读盘。 */
@@ -53,7 +53,7 @@ export interface RootConfigAdmin extends RootConfigReader {
   migrateClawLegacyApiKeys(configPath: string): Promise<void>;
   /** Delegate shared-document credential migration to the L4 owner. */
   migrateLegacyApiKeys(): Promise<void>;
-  saveClaw(configPath: string, config: ClawConfig): void;
+  saveClaw(configPath: string, config: ClawConfig): AtomicWriteResult;
   /**
    * Phase 1910 Step E：claw 创建独占发布提交（O_EXCL）；config 已存在时 throw
    * ClawConfigAlreadyExistsError，loser 不得覆盖。

@@ -404,7 +404,7 @@ describe('phase 2093 Step B: backup result union consumption', () => {
     expect(await syncFs.list('tasks/sync/write').catch(() => [])).toEqual([]);
   });
 
-  it('helper 返回 created：备份含旧全文，path 相对 clawDir', async () => {
+  it('helper 返回 created：备份含旧全文，path 相对 workspaceDir', async () => {
     await syncFs.ensureDir('clawspace');
     await syncFs.writeAtomic('clawspace/file.txt', 'hello world');
     const ctx = makeCtx(syncFs);
@@ -414,9 +414,54 @@ describe('phase 2093 Step B: backup result union consumption', () => {
     expect(result.kind).toBe('created');
     if (result.kind !== 'created') return;
     expect(result.path).toContain('tasks/sync/write/');
-    const backup = await syncFs.read(result.path);
+    expect(result.durability).toBe('durable');
+    const backupPath = path.relative(tempDir, path.resolve(ctx.workspaceDir, result.path));
+    const backup = await syncFs.read(backupPath);
     expect(backup).toContain('source: edit_backup');
     expect(backup).toContain('hello world');
+  });
+
+  it.each([
+    ['committed_platform_limited', 'platform_limited', 'EINVAL'],
+    ['committed_durability_unknown', 'unknown', 'EIO'],
+  ] as const)('helper 保留 %s：created + notice + 相对 artifact path + audit，单次写', async (kind, durability, code) => {
+    await syncFs.ensureDir('clawspace');
+    await syncFs.writeAtomic('clawspace/file.txt', 'hello world');
+    const error = Object.assign(new Error(`synthetic ${code} after rename`), { code });
+    let backupWrites = 0;
+    const committedFs = new Proxy(syncFs, {
+      get(target, prop, receiver) {
+        if (prop === 'writeAtomic') {
+          return async (p: string, content: string) => {
+            if (!p.includes('tasks/sync/write/')) return target.writeAtomic(p, content);
+            backupWrites++;
+            await target.writeAtomic(p, content);
+            return { kind, error };
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as unknown as NodeFileSystem;
+    const auditWriter = createAuditWriter();
+    const ctx = makeCtx(committedFs, auditWriter);
+
+    const result = await backupToSync(ctx, 'clawspace/file.txt', 'edit_backup');
+
+    expect(result.kind).toBe('created');
+    if (result.kind !== 'created') return;
+    expect(result).toMatchObject({ durability, error: expect.stringContaining(code) });
+    expect(path.isAbsolute(result.path)).toBe(false);
+    expect(result.path).not.toContain('durability');
+    expect(backupWrites).toBe(1);
+    const backupPath = path.relative(tempDir, path.resolve(ctx.workspaceDir, result.path));
+    expect(await syncFs.read(backupPath)).toContain('hello world');
+    const event = auditWriter.write.mock.calls.find((call: string[]) =>
+      call[0] === 'file_tool_backup_durability_degraded'
+    );
+    expect(event).toBeDefined();
+    expect(event).toContain(`commit=${kind}`);
+    expect(event).toContain(`backup_path=${result.path}`);
+    expect(event?.join(' ')).toContain(code);
   });
 
   it('helper 返回 failed 且 error 可读：备份写失败不吞成 absent', async () => {
@@ -443,6 +488,79 @@ describe('phase 2093 Step B: backup result union consumption', () => {
     expect(result.error).toContain('EIO');
     const failedCall = auditWriter.write.mock.calls.find((call: string[]) => call[0] === 'file_tool_backup_failed');
     expect(failedCall).toBeDefined();
+  });
+
+  it.each([
+    ['durable', 'durable'],
+    ['committed_platform_limited', 'platform_limited'],
+    ['committed_durability_unknown', 'unknown'],
+  ] as const)('editCommit 消费 %s：继续一次目标写，保留 artifact 并传递 notice/audit', async (kind, durability) => {
+    await syncFs.ensureDir('clawspace');
+    await syncFs.writeAtomic('clawspace/file.txt', 'hello world');
+    const error = Object.assign(new Error(`synthetic ${kind} after rename`), { code: 'EIO' });
+    let backupWrites = 0;
+    const committedFs = new Proxy(syncFs, {
+      get(target, prop, receiver) {
+        if (prop === 'writeAtomic') {
+          return async (p: string, content: string) => {
+            if (!p.includes('tasks/sync/write/')) return target.writeAtomic(p, content);
+            backupWrites++;
+            await target.writeAtomic(p, content);
+            const result: Awaited<ReturnType<FileSystem['writeAtomic']>> = kind === 'durable'
+              ? { kind }
+              : { kind, error };
+            return result;
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as unknown as NodeFileSystem;
+    const auditWriter = createAuditWriter();
+    const ctx = makeCtx(committedFs, auditWriter);
+    const guarded = await ctx.permissionChecker!.prepareWrite('clawspace/file.txt');
+    let targetWrites = 0;
+
+    const result = await editCommit({
+      ctx,
+      tool: 'edit',
+      path: 'file.txt',
+      resolved: 'clawspace/file.txt',
+      guardedWrite: {
+        target: guarded.target,
+        write: async (content: string) => {
+          targetWrites++;
+          return guarded.write(content);
+        },
+        append: guarded.append.bind(guarded),
+      },
+      original: 'hello world',
+      candidate: 'hi world',
+      backupSource: 'edit_backup',
+      replaced: 1,
+      editCount: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.backupNotice).toEqual(durability === 'durable'
+      ? null
+      : { durability, error: expect.stringContaining('EIO') });
+    expect(path.isAbsolute(result.backupPath)).toBe(false);
+    expect(result.backupPath).not.toContain('durability');
+    expect(backupWrites).toBe(1);
+    expect(targetWrites).toBe(1);
+    expect(await syncFs.read('clawspace/file.txt')).toBe('hi world');
+    const backupPath = path.relative(tempDir, path.resolve(ctx.workspaceDir, result.backupPath));
+    expect(await syncFs.read(backupPath)).toContain('hello world');
+    const committed = auditWriter.write.mock.calls.find((call: string[]) => call[0] === 'file_edit_committed');
+    expect(committed).toContain(`backup_durability=${durability}`);
+    expect(committed).toContain(`backup_path=${result.backupPath}`);
+    if (durability !== 'durable') {
+      expect(committed?.join(' ')).toContain('backup_durability_error=');
+      expect(auditWriter.write.mock.calls.some((call: string[]) =>
+        call[0] === 'file_tool_backup_durability_degraded'
+      )).toBe(true);
+    }
   });
 
   it('editCommit 消费 absent：备份前目标消失 → backup-failed 且 0 目标写入，文件仍缺失', async () => {

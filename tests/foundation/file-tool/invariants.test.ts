@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { throwIfFileToolAborted } from '../../../src/foundation/file-tool/abort.js';
 import { readTool } from '../../../src/foundation/file-tool/read.js';
+import { READ_OUTPUT_HARD_CAP_BYTES } from '../../../src/foundation/file-tool/constants.js';
 import { writeTool } from '../../../src/foundation/file-tool/write.js';
 import { lsTool } from '../../../src/foundation/file-tool/ls.js';
 import { editTool } from '../../../src/foundation/file-tool/edit.js';
@@ -190,6 +191,8 @@ describe('phase 2093 Step B: write backup result gating', () => {
   interface Faults {
     /** sync 备份 writeAtomic 抛错（EIO / ENOSPC） */
     backupWriteThrows?: Error;
+    /** 真实备份写完成后替换 AtomicWriteResult，模拟目录 fsync 结果。 */
+    backupWriteResult?: Awaited<ReturnType<NodeFileSystem['writeAtomic']>>;
     /** 目标 read 抛错（在 readTool 建立 gate 之后设置） */
     targetReadThrows?: Error;
     /** 第 N 次之后的 exists 调用抛错（1 = gate 之后的备份 exists） */
@@ -238,12 +241,14 @@ describe('phase 2093 Step B: write backup result gating', () => {
       get(target, prop, receiver) {
         if (prop === 'writeAtomic') {
           return async (p: string, content: string) => {
-            if (faults.backupWriteThrows && p.includes('tasks/sync/write/')) {
+            const isBackup = p.includes('tasks/sync/write/');
+            if (isBackup) faults.backupWrites++;
+            if (faults.backupWriteThrows && isBackup) {
               throw faults.backupWriteThrows;
             }
             if (p === TARGET) faults.targetWrites++;
-            if (p.includes('tasks/sync/write/')) faults.backupWrites++;
-            return target.writeAtomic(p, content);
+            const written = await target.writeAtomic(p, content);
+            return isBackup && faults.backupWriteResult ? faults.backupWriteResult : written;
           };
         }
         if (prop === 'read') {
@@ -331,8 +336,10 @@ describe('phase 2093 Step B: write backup result gating', () => {
 
     // 原字节不变 / 0 目标写（writeAtomic 与 guarded.write 双证）
     expect(await fs.readFile(targetAbs(), 'utf8')).toBe('ORIGINAL');
+    expect(faults.backupWrites).toBe(1);
     expect(faults.targetWrites).toBe(0);
     expect(guardedCalls.write).toBe(0);
+    expect(await backupFiles()).toEqual([]);
 
     // read-state 条目不变
     const stateAfter = ctx.readFileState.get(TARGET);
@@ -438,9 +445,44 @@ describe('phase 2093 Step B: write backup result gating', () => {
     expect(events.some((e) => e[0] === BACKUP_FAILED)).toBe(false);
   });
 
+  it.each([
+    ['committed_platform_limited', 'platform_limited', 'EINVAL'],
+    ['committed_durability_unknown', 'unknown', 'EIO'],
+  ] as const)('write 消费 %s：继续覆盖一次、保留 artifact、ToolResult/audit 披露 notice', async (kind, durability, code) => {
+    await fs.writeFile(targetAbs(), 'ORIGINAL');
+    const { ctx, events, faults, guardedCalls } = makeHarness();
+    expect((await readTool.execute({ path: 'data.txt' }, ctx)).success).toBe(true);
+    faults.backupWriteResult = {
+      kind,
+      error: Object.assign(new Error(`synthetic ${code} after rename`), { code }),
+    };
+
+    const result = await writeTool.execute({ path: 'data.txt', content: 'REPLACEMENT' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain(`[backup committed; durability ${durability}]`);
+    expect(result.metadata?.backup_notice).toEqual({
+      durability,
+      error: expect.stringContaining(code),
+    });
+    expect(await fs.readFile(targetAbs(), 'utf8')).toBe('REPLACEMENT');
+    expect(faults.backupWrites).toBe(1);
+    expect(guardedCalls.write).toBe(1);
+    const backupPath = /\(backup: ([^)]+)\)/.exec(result.content)?.[1];
+    expect(backupPath).toBeDefined();
+    expect(path.isAbsolute(backupPath!)).toBe(false);
+    expect(backupPath).not.toContain('durability');
+    expect(await backupFiles()).toEqual([path.basename(backupPath!)]);
+    expect(await fs.readFile(path.resolve(clawspaceDir, backupPath!), 'utf8')).toContain('ORIGINAL');
+    const event = events.find((entry) => entry[0] === 'file_tool_backup_durability_degraded');
+    expect(event).toContain(`commit=${kind}`);
+    expect(event).toContain(`backup_path=${backupPath}`);
+    expect(event?.join(' ')).toContain(code);
+  });
+
   it('正常备份成功：备份含旧全文、目标为新全文、read-state 更新', async () => {
     await fs.writeFile(targetAbs(), 'ORIGINAL');
-    const { ctx, faults, guardedCalls } = makeHarness();
+    const { ctx, events, faults, guardedCalls } = makeHarness();
 
     const readResult = await readTool.execute({ path: 'data.txt' }, ctx);
     expect(readResult.success).toBe(true);
@@ -450,7 +492,10 @@ describe('phase 2093 Step B: write backup result gating', () => {
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('Written: data.txt');
-    expect(result.content).toContain('(backup: tasks/sync/write/');
+    expect(result.content).toContain('(backup: ../tasks/sync/write/');
+    expect(result.content).not.toContain('durability');
+    expect(result.metadata).toBeUndefined();
+    expect(events.some((event) => event[0] === 'file_tool_backup_durability_degraded')).toBe(false);
     expect(await fs.readFile(targetAbs(), 'utf8')).toBe('REPLACEMENT');
     expect(faults.backupWrites).toBe(1);
     expect(guardedCalls.write).toBe(1);
@@ -578,6 +623,11 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
     expect(result.success).toBe(true);
     expect(result.content).not.toContain('durability unconfirmed');
     expect(result.content).not.toContain('overflow persist failed');
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(READ_OUTPUT_HARD_CAP_BYTES);
+    expect(result.metadata?.output).toEqual({
+      ownerBounded: true,
+      artifact: { kind: 'durable', path: parseReadHint(result.content) },
+    });
     expect(events.filter((event) => event[0] === OVERFLOW_FAILED)).toEqual([]);
     expect(writes()).toBe(1);
     expect(await artifactFiles()).toHaveLength(1);
@@ -596,7 +646,12 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
     expect(result.success).toBe(true);
     expect(result.content).toContain(`[artifact committed but durability unconfirmed: ${kind}]`);
     expect(result.content).not.toContain('overflow persist failed');
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(READ_OUTPUT_HARD_CAP_BYTES);
     const relPath = parseReadHint(result.content)!;
+    expect(result.metadata?.output).toEqual({
+      ownerBounded: true,
+      artifact: { kind, path: relPath },
+    });
     expect(relPath).toBeDefined();
     expect(writes()).toBe(1);
     expect(await artifactFiles()).toEqual([path.basename(relPath)]);
@@ -642,6 +697,11 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
       // 可交付的部分内容仍保留（预览首部可辨识）+ 固定失败说明
       expect(result.content).toContain('overflow-0000');
       expect(result.content).toContain('[truncated - overflow persist failed]');
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(READ_OUTPUT_HARD_CAP_BYTES);
+      expect(result.metadata?.output).toEqual({
+        ownerBounded: true,
+        artifact: { kind: 'failed' },
+      });
       expect(result.content).not.toContain('durability unconfirmed');
       expect(parseReadHint(result.content)).toBeUndefined();
       expect(writes()).toBe(1);
@@ -650,6 +710,33 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
       expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
     },
   );
+
+  it('phase 2154 B5/B8：默认 executor 原样交付恰好 100 KiB 的 read，不误用 64 KiB cap', async () => {
+    const exactCap = 'x'.repeat(READ_OUTPUT_HARD_CAP_BYTES);
+    await fs.writeFile(path.join(workspaceDir, 'exact-cap.txt'), exactCap);
+    const { ctx, writes } = makeHarness();
+    const registry = new ToolRegistryImpl();
+    registry.register(readTool);
+    const executor = createToolExecutor(registry, 60_000);
+
+    const result = await executor.execute({
+      toolName: 'read',
+      args: { path: 'exact-cap.txt' },
+      ctx,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.content).toBe(exactCap);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBe(READ_OUTPUT_HARD_CAP_BYTES);
+    expect(result.metadata).toBeUndefined();
+    expect(readTool.outputBounds).toEqual({
+      maxBytes: READ_OUTPUT_HARD_CAP_BYTES,
+      maxLines: READ_OUTPUT_HARD_CAP_BYTES + 1,
+      artifactKind: 'read',
+    });
+    expect(writes()).toBe(0);
+    expect(await artifactFiles()).toEqual([]);
+  });
 
   // phase 2098 Step B：真实 ToolExecutor 消费链——业务失败进入 tool_exec=err，
   // 且后续短读仍可执行（不终止 turn）。
@@ -675,7 +762,10 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
     expect(failedExec[0]).toContain('err');
 
     const ok = await executor.execute({ toolName: 'read', args: { path: 'small.txt' }, ctx });
-    expect(ok).toEqual({ success: true, content: 'small body' });
+    expect(ok).toEqual({
+      success: true,
+      content: 'small body',
+    });
     const okExec = events.filter((entry) => entry[0] === 'tool_exec');
     expect(okExec).toHaveLength(2);
     expect(okExec[1]).toContain('read');
@@ -720,7 +810,10 @@ describe('phase 2095 Step B: read overflow commit result visibility', () => {
     const { ctx, events, writes } = makeHarness();
     const result = await readTool.execute({ path: 'small.txt' }, ctx);
 
-    expect(result).toEqual({ success: true, content: 'small body' });
+    expect(result).toEqual({
+      success: true,
+      content: 'small body',
+    });
     expect(writes()).toBe(0);
     expect(await artifactFiles()).toEqual([]);
     expect(events.filter((event) => event[0] === OVERFLOW_FAILED)).toEqual([]);

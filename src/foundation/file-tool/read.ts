@@ -19,7 +19,7 @@ import * as nodePath from 'path';
 import { newShortUuid, truncateUtf8Prefix } from  '../node-utils/index.js';
 import { z } from 'zod';
 import type { Tool, ExecContext } from '../tools/index.js';
-import type { ToolResult } from '../tool-protocol/index.js';
+import type { ToolResult, ToolResultArtifact } from '../tool-protocol/index.js';
 import {
   READ_DEFAULT_LINES,
   READ_OUTPUT_HARD_CAP_BYTES,
@@ -28,7 +28,10 @@ import {
 
 import { resolveWorkspacePath } from './resolve-path.js';
 import { formatErr } from '../node-utils/index.js';
-import { truncateHeadTail } from './truncate-head-tail.js';
+import {
+  formatHeadTailReadHint,
+  truncateHeadTailWithinBudget,
+} from './truncate-head-tail.js';
 import { recordReadResult, recordReadStatFailure } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
@@ -42,6 +45,8 @@ function toSafeNumber(v: unknown): number | undefined {
 
 const READ_TOOL_NAME = 'read' as const;
 const READ_OVERFLOW_FAILURE_NOTE = '\n[truncated - overflow persist failed]';
+const READ_OVERFLOW_FOOTER_FAILURE =
+  '[read overflow preview failed: complete artifact footer exceeds response budget; see audit log for the complete path]';
 
 const ReadInputSchema = z.object({
   path: z.string().describe(
@@ -65,15 +70,42 @@ type ReadOverflowResult =
   | { kind: 'committed_platform_limited' | 'committed_durability_unknown'; relPath: string }
   | { kind: 'failed' };
 
+type CommittedReadOverflowResult = Exclude<ReadOverflowResult, { kind: 'failed' }>;
+
+function readResult(
+  success: boolean,
+  content: string,
+  artifact?: ToolResultArtifact,
+): ToolResult {
+  return {
+    success,
+    content,
+    ...(artifact === undefined ? {} : {
+      metadata: { output: { ownerBounded: true, artifact } },
+    }),
+  };
+}
+
+function formatReadOverflowFooter(
+  output: string,
+  overflow: CommittedReadOverflowResult,
+): string {
+  const readHint = formatHeadTailReadHint(Buffer.byteLength(output, 'utf8'), overflow.relPath);
+  return overflow.kind === 'durable'
+    ? readHint
+    : `${readHint}\n[artifact committed but durability unconfirmed: ${overflow.kind}]`;
+}
+
 async function persistOverflow(ctx: ExecContext, output: string): Promise<ReadOverflowResult> {
   try {
     // phase 2092 Step B：产物写 caller 的输出面（跨 claw 时 ctx.fs 已重绑到 target）。
     // 源文件读取仍用 ctx.fs / ctx.workspaceDir；这里只换写入与提示基准。
     const writeSide = ctx.toolOutput ?? ctx;
     const id = newShortUuid();
-    const fullPath = nodePath.join(writeSide.syncDir, TASKS_SYNC_READ_DIR.split('/').pop()!, `${id}.md`);
+    const relativePath = `${TASKS_SYNC_READ_DIR}/${id}.md`;
     const frontmatter = `---\nsource: read_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    const written = await writeSide.fs.writeAtomic(fullPath, frontmatter + output);
+    const written = await writeSide.fs.writeAtomic(relativePath, frontmatter + output);
+    const fullPath = nodePath.join(ctx.toolOutput?.baseDir ?? ctx.clawDir, relativePath);
     const relPath = nodePath.relative(writeSide.workspaceDir, fullPath);
     switch (written.kind) {
       case 'durable':
@@ -116,6 +148,13 @@ export const readTool: Tool = {
   schema: defineFileToolSchema(ReadInputSchema),
   readonly: true,
   idempotent: true,
+  // A byte-bounded string has at most maxBytes + 1 lines. Declaring both
+  // dimensions keeps the executor's 64 KiB default away from valid 100 KiB reads.
+  outputBounds: {
+    maxBytes: READ_OUTPUT_HARD_CAP_BYTES,
+    maxLines: READ_OUTPUT_HARD_CAP_BYTES + 1,
+    artifactKind: 'read',
+  },
 
   async execute(rawArgs: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     let args: ReadInput;
@@ -128,10 +167,7 @@ export const readTool: Tool = {
         `tool=read`,
         `error=${formatErr(err)}`,
       );
-      return {
-        success: false,
-        content: `read tool input validation failed: ${(err as Error).message}`,
-      };
+      return readResult(false, `read tool input validation failed: ${(err as Error).message}`);
     }
 
     throwIfFileToolAborted(ctx.signal);
@@ -142,10 +178,7 @@ export const readTool: Tool = {
 
     const resolved = resolveWorkspacePath(ctx, filePath);
     if (resolved.startsWith('..') || resolved.startsWith('/')) {
-      return {
-        success: false,
-        content: `Error: Path escapes claw root: "${filePath}"`,
-      };
+      return readResult(false, `Error: Path escapes claw root: "${filePath}"`);
     }
 
     // Phase430: claw-space boundary check — caller autonomy
@@ -209,6 +242,8 @@ export const readTool: Tool = {
       // phase 2098 Step B: 溢出保存失败 = 本次 read 未能完整交付所选输出 → 工具业务失败。
       // 只在 kind === 'failed'（无任何产物）置位；durable / committed 两态仍成功（2095）。
       let overflowPersistFailed = false;
+      let overflowFooterFailed = false;
+      let overflowArtifact: ToolResultArtifact | undefined;
       if (Buffer.byteLength(content, 'utf8') > READ_OUTPUT_HARD_CAP_BYTES) {
         byteCapTriggered = true;
         const overflow = await persistOverflow(ctx, content);
@@ -217,13 +252,31 @@ export const readTool: Tool = {
           // 不得提前 return：保留预览交给调用方，并让后续 recordReadResult 照常把
           // 旧 isFullRead=true 降级为 false（否则覆盖门会放行伪全文状态）。
           overflowPersistFailed = true;
+          overflowArtifact = { kind: 'failed' };
           const previewBytes = READ_OUTPUT_HARD_CAP_BYTES
             - Buffer.byteLength(READ_OVERFLOW_FAILURE_NOTE, 'utf8');
           content = truncateUtf8Prefix(content, previewBytes) + READ_OVERFLOW_FAILURE_NOTE;
         } else {
-          content = truncateHeadTail(content, overflow.relPath);
-          if (overflow.kind !== 'durable') {
-            content += `\n[artifact committed but durability unconfirmed: ${overflow.kind}]`;
+          overflowArtifact = { kind: overflow.kind, path: overflow.relPath };
+          const footer = formatReadOverflowFooter(content, overflow);
+          const preview = truncateHeadTailWithinBudget(
+            content,
+            READ_OUTPUT_HARD_CAP_BYTES,
+            footer,
+          );
+          if (preview === null) {
+            // The artifact remains committed and its exact path stays available
+            // through metadata/audit; never return a truncated, unusable path.
+            overflowFooterFailed = true;
+            ctx.auditWriter?.write(
+              FILE_TOOL_AUDIT_EVENTS.READ_OVERFLOW_FOOTER_TOO_LONG,
+              `path=${overflow.relPath}`,
+              `footer_bytes=${Buffer.byteLength(footer, 'utf8')}`,
+              `reason=exceeds_read_output_hard_cap`,
+            );
+            content = READ_OVERFLOW_FOOTER_FAILURE;
+          } else {
+            content = preview;
           }
         }
       }
@@ -239,16 +292,14 @@ export const readTool: Tool = {
         recordReadResult(ctx, resolved, fullFileContent, fileMtime, isFullRead);
       }
 
-      return {
-        success: !overflowPersistFailed,
+      return readResult(
+        !overflowPersistFailed && !overflowFooterFailed,
         content,
-      };
+        overflowArtifact,
+      );
     } catch (error) {
       if (isFileToolAbortError(error)) throw error;
-      return {
-        success: false,
-        content: `Error reading file: ${formatErr(error)}`,
-      };
+      return readResult(false, `Error reading file: ${formatErr(error)}`);
     }
   },
 };

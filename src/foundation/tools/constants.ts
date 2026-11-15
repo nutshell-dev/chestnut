@@ -21,4 +21,14 @@ export const DEFAULT_TOOL_TIMEOUT_MS = 3_600_000;
  */
 export const TOOL_EXEC_CLEANUP_BUDGET_MS = 3000;
 
+/** Default final-response guard for tools without a stricter owner policy. */
+export const DEFAULT_TOOL_OUTPUT_BOUNDS = Object.freeze({
+  maxBytes: 64 * 1024,
+  maxLines: 1_000,
+  artifactKind: 'tool',
+});
+
+/** Executor-owned artifacts live below this caller/claw-relative directory. */
+export const TOOL_OUTPUT_ARTIFACT_ROOT = 'tasks/sync';
+
 

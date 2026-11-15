@@ -22,7 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { NodeFileSystem } from '../../src/foundation/fs/index.js';
+import { NodeFileSystem, type AtomicWriteResult } from '../../src/foundation/fs/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import {
   START_GATE_EXIT_CODE,
@@ -149,7 +149,7 @@ function makeGlobal(model: string) {
 function makeGateDeps(globalOf: () => ReturnType<typeof makeGlobal>) {
   const llmConfiguration = {
     loadGlobal: vi.fn(() => globalOf()),
-    patchPrimary: vi.fn(async () => {}),
+    patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
   };
   return {
     fsFactory,
@@ -520,6 +520,35 @@ describe('start LLM gate (unit)', () => {
     expect(deps3.rootConfig.saveGlobalExclusive).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { kind: 'committed_platform_limited' as const },
+    { kind: 'committed_durability_unknown' as const },
+  ])('S2. initialized patch $kind：显示 degraded notice、继续且不重写', async ({ kind }) => {
+    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+    const error = Object.assign(new Error(`directory fsync failed: ${kind}`), { code: 'EIO' });
+    deps.llmConfiguration.patchPrimary.mockResolvedValue({ kind, error });
+
+    await applyStartLLMOptions(deps, { model: 'claude-new', nonInteractive: true });
+
+    expect(deps.llmConfiguration.patchPrimary).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.error)).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
+    expect(vi.mocked(console.error)).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
+  });
+
+  it('S3. initialized patch throw：保持原失败且不重试', async () => {
+    const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
+    const deps = makeGateDeps(() => makeGlobal('claude-x'));
+    const failure = new Error('rename failed');
+    deps.llmConfiguration.patchPrimary.mockRejectedValue(failure);
+
+    await expect(applyStartLLMOptions(deps, {
+      model: 'claude-new', nonInteractive: true,
+    })).rejects.toBe(failure);
+
+    expect(deps.llmConfiguration.patchPrimary).toHaveBeenCalledTimes(1);
+  });
+
   it('S. initialized patch：catalog 换边清 preset，preset 换边清 provider_id', async () => {
     process.env.MISTRAL_API_KEY = 'sk-mistral-test';
     const { applyStartLLMOptions } = await import('../../src/cli/start-llm-gate.js');
@@ -550,14 +579,14 @@ describe('start command gate wiring', () => {
       fsFactory,
       llmConfiguration: {
         loadGlobal: vi.fn(() => makeGlobal('claude-x')),
-        patchPrimary: vi.fn(async () => {}),
+        patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
       },
       rootConfig: {
         isInitialized: () => true,
         loadGlobal: vi.fn(() => makeGlobal('claude-x')),
         saveGlobal: vi.fn(),
         saveGlobalExclusive: vi.fn(),
-        patchPrimary: vi.fn(async () => {}),
+        patchPrimary: vi.fn(async (): Promise<AtomicWriteResult> => ({ kind: 'durable' })),
         getInitializationState: () => 'ready' as const,
         completeInitialization: vi.fn(),
       },

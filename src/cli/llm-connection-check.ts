@@ -27,7 +27,7 @@ import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { FORMAT_MAP } from './provider-format-map.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { ProviderConfig, PiAiCredentialStore } from '../foundation/llm-provider/index.js';
-import type { FileSystem } from '../foundation/fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 // Phase 1925 Step B：reconfigure 的明文 key 经 Credentials owner 落凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from './credentials-prompt.js';
 
@@ -42,6 +42,12 @@ export interface VerifiedLLMConfig {
   snapshot: LLMConfigSnapshot;
   probe: { model: string };
   via: 'init' | 'start';
+}
+
+function reportDegradedConfigWrite(write: AtomicWriteResult): void {
+  if (write.kind === 'durable') return;
+  const errorSummary = formatErr(write.error).replace(/\s+/g, ' ').trim().slice(0, 240);
+  console.error(`⚠ LLM primary config committed with degraded durability (kind=${write.kind}): ${errorSummary}`);
 }
 
 interface LLMConfigDeps {
@@ -301,13 +307,13 @@ export async function promptReconfigure(
       const stored = await storeKeyAsCredential(deps, raw, envReady
         ? { seed, onShadowedEnv: 'error' as const }
         : { envVar, seed, onShadowedEnv: 'error' as const });
-      await deps.llmConfiguration.patchPrimary({ api_key: stored });
+      reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ api_key: stored }));
 
     } else if (choice === '2') {
       const raw = await question('New model (b = back, "auto" = preset default)');
       if (raw === 'b') continue;
       if (!raw) { console.log('Model is required. Type "auto" to use preset default.'); continue; }
-      await deps.llmConfiguration.patchPrimary({ model: raw });
+      reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ model: raw }));
 
     } else if (choice === '3') {
       type FmtStep = 'pick' | 'customFormat' | 'baseUrl' | 'done';
@@ -341,14 +347,14 @@ export async function promptReconfigure(
             chosenPreset = p.id;
             chosenBaseUrl = p.defaultBaseUrl ?? '';
             // provider 换边清除互斥的 provider_id（patch 语义：undefined = 删键）
-            await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl || undefined });
+            reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl || undefined }));
             console.log(`✓ Set provider to ${p.displayName}`);
             step = 'done';
           } else if (idx >= catalogStart && idx < customIdx) {
             const providerId = catalogOnly[idx - catalogStart];
             const modelRaw = await question(`Model (required for ${providerId})`);
             if (!modelRaw || modelRaw === 'b') { console.log('Model is required.'); continue; }
-            await deps.llmConfiguration.patchPrimary({ provider_id: providerId, preset: undefined, model: modelRaw, base_url: undefined });
+            reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ provider_id: providerId, preset: undefined, model: modelRaw, base_url: undefined }));
             console.log(`✓ Set provider to ${providerId} (catalog), model ${modelRaw}`);
             step = 'done';
           } else if (idx === customIdx) {
@@ -373,7 +379,7 @@ export async function promptReconfigure(
           if (raw === 'b') { step = 'customFormat'; continue; }
           if (!raw) { console.log('Base URL is required.'); continue; }
           chosenBaseUrl = raw;
-          await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl });
+          reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary({ preset: chosenPreset, provider_id: undefined, base_url: chosenBaseUrl }));
           step = 'done';
         }
       }

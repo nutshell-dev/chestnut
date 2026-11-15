@@ -913,7 +913,7 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
   });
 
-  it('B7 已有 toolOutput 时保留同一能力对象、不被二次 target 化（产物落原 syncDir）', async () => {
+  it('B7 已有 toolOutput 时保留同一能力对象、不被二次 target 化（产物按 baseDir 相对路径写入）', async () => {
     const caller = makeClawRoot('caller-e');
     const target = makeClawRoot('target-e');
     await seedTarget(target.workspaceDir, 'MARKER-E');
@@ -922,6 +922,7 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     fsSync.mkdirSync(outerSync, { recursive: true });
     const outerOutput = {
       fs: new NodeFileSystem({ baseDir: caller.clawDir }),
+      baseDir: caller.clawDir,
       syncDir: outerSync,
       workspaceDir: caller.workspaceDir,
     };
@@ -935,9 +936,9 @@ describe('phase 2092 B: cross-claw overflow output ownership', () => {
     });
     const result = await read.execute({ path: 'big.txt', limit: BIG_ROWS + 10, claw: 'target-claw' }, callerCtx);
 
-    // 落在既有 toolOutput.syncDir（不是 caller.syncDir、也不是 target）
-    expect(await listDirSafe(path.join(outerSync, 'read'))).toHaveLength(1);
-    expect(await listDirSafe(path.join(caller.syncDir, 'read'))).toHaveLength(0);
+    // writeAtomic 只接收相对 baseDir 的 tasks/sync 路径；syncDir 不再拼入写路径。
+    expect(await listDirSafe(path.join(outerSync, 'read'))).toHaveLength(0);
+    expect(await listDirSafe(path.join(caller.syncDir, 'read'))).toHaveLength(1);
     expect(await fileCountDeep(path.join(target.clawDir, 'tasks'))).toBe(0);
 
     // 同一对象不被替换（能力对象身份守恒）

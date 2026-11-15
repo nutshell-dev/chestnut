@@ -98,6 +98,8 @@ export interface ExecutionInfra {
    */
   readonly toolOutput?: {
     readonly fs: Pick<FileSystem, 'writeAtomic'>;
+    /** Actual baseDir of the write-side FileSystem; never replaced by a target claw. */
+    readonly baseDir: string;
     readonly syncDir: string;
     readonly workspaceDir: string;
   };
@@ -188,6 +190,18 @@ export interface ExecContext extends
 {}
 
 /**
+ * Final response limits declared by a tool. Both dimensions are mandatory and
+ * must be positive safe integers; there is no unlimited opt-out.
+ * artifactKind is one safe path segment below tasks/sync/ for executor-owned
+ * overflow artifacts.
+ */
+export interface ToolOutputBounds {
+  readonly maxBytes: number;
+  readonly maxLines: number;
+  readonly artifactKind: string;
+}
+
+/**
  * Tool interface — all tools implement this.
  *
  * Extends the pure LLM-facing ToolDescriptor (L2b) with execution-framework
@@ -198,6 +212,8 @@ export interface Tool extends ToolDescriptor {
   readonly: boolean;
   idempotent: boolean;
   defaultTimeoutMs?: number;
+  /** Omit to use DEFAULT_TOOL_OUTPUT_BOUNDS; overrides may only be finite. */
+  readonly outputBounds?: ToolOutputBounds;
   /** Which profiles this tool belongs to. Each tool declares its own (M#3). */
   profiles: readonly ToolProfile[];
   /**

@@ -8,12 +8,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { fileURLToPath } from 'url';
-import { createExecTool, formatExecOutputForToolResult, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
+import { createExecTool, formatExecOutputForToolResult, formatExecOutputToolResult, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
 import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS, EXEC_MAX_OUTPUT } from '../../../src/foundation/command-tool/constants.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from '../../../src/foundation/command-tool/audit-events.js';
 import { ProcessExecError, resolveHostCommand } from '../../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { assertWellFormedUnicode, truncateUtf8Prefix } from '../../../src/foundation/node-utils/utf8.js';
+import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { cleanupTempDir, createTempDir } from '../../utils/temp.js';
 import {
@@ -46,6 +46,11 @@ describe('phase 1472 Step B: agent exec 默认时限 ownership（CommandTool 三
   it('owner 常量 = 30_000，Tool default 与 schema description 同源', () => {
     expect(COMMAND_TOOL_DEFAULT_TIMEOUT_MS).toBe(30_000);
     expect(execTool.defaultTimeoutMs).toBe(COMMAND_TOOL_DEFAULT_TIMEOUT_MS);
+    expect(execTool.outputBounds).toEqual({
+      maxBytes: EXEC_MAX_OUTPUT,
+      maxLines: EXEC_MAX_OUTPUT + 1,
+      artifactKind: 'exec',
+    });
     const props = execTool.schema.properties as Record<string, { description?: string }> | undefined;
     expect(props?.timeoutMs).toBeDefined();
     expect(props?.timeoutMs?.description).toContain(String(COMMAND_TOOL_DEFAULT_TIMEOUT_MS));
@@ -177,8 +182,10 @@ describe('phase 2107 exec UTF-8 overflow preview', () => {
 
       const content = await formatExecOutputForToolResult(ctx, output);
 
-      expect(content.startsWith(`${'a'.repeat(599)}\n[...truncated 3008 bytes...]\n`)).toBe(true);
-      expect(content).toContain(`${'z'.repeat(1399)}\nFull output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
+      expect(content.startsWith('a')).toBe(true);
+      expect(content).toMatch(/\n\[\.\.\.truncated \d+ bytes\.\.\.\]\n/);
+      expect(content).toContain(`z\nFull output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
+      expect(Buffer.byteLength(content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
       expect(() => assertWellFormedUnicode(content)).not.toThrow();
       expect(content).not.toContain('\uFFFD');
       const relPath = parseReadHint(content);
@@ -191,13 +198,13 @@ describe('phase 2107 exec UTF-8 overflow preview', () => {
   });
 });
 
-describe('phase 2126 exec overflow path serialization', () => {
-  it.runIf(!IS_WINDOWS)('特殊字符与长路径提示可解析并读回真实 artifact', async () => {
+describe('phase 2154 B7 exec overflow path serialization', () => {
+  it.runIf(!IS_WINDOWS)('自定义 syncDir 不进入写路径，固定 artifact 提示可读', async () => {
     const tempDir = await createTempDir();
     try {
       const workspaceDir = path.join(tempDir, 'clawspace');
       const longSegments = Array.from({ length: 5 }, (_, i) => `${i}-${'p'.repeat(120)}`);
-      const syncDir = path.join(tempDir, 'tasks', 'sync"\\\nphase2126', ...longSegments);
+      const syncDir = path.join(tempDir, 'ignored-sync"\\\nphase2154', ...longSegments);
       await fs.promises.mkdir(workspaceDir, { recursive: true });
       const ctx = makeExecContext({
         clawDir: tempDir,
@@ -210,8 +217,10 @@ describe('phase 2126 exec overflow path serialization', () => {
       const content = await formatExecOutputForToolResult(ctx, output);
       const relPath = parseReadHint(content);
 
+      expect(Buffer.byteLength(content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
       expect(relPath).toBeDefined();
-      expect(Buffer.byteLength(relPath!, 'utf8')).toBeGreaterThan(600);
+      expect(relPath!.startsWith('../tasks/sync/exec/')).toBe(true);
+      expect(Buffer.byteLength(relPath!, 'utf8')).toBeLessThan(100);
       const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
       expect(artifact.endsWith(output)).toBe(true);
     } finally {
@@ -258,6 +267,7 @@ describe('phase 2110 exec UTF-8 byte threshold', () => {
       expect(Buffer.byteLength(output, 'utf8')).toBeGreaterThan(EXEC_MAX_OUTPUT);
       expect(files).toHaveLength(1);
       expect(content).toContain(`Full output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
+      expect(Buffer.byteLength(content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
       const artifact = await fs.promises.readFile(path.join(overflowDir, files[0]), 'utf8');
       expect(artifact.endsWith(output)).toBe(true);
     } finally {
@@ -286,6 +296,9 @@ describe('phase 2110 exec UTF-8 byte threshold', () => {
       expect(output.length).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
       expect(result.success).toBe(true);
       expect(result.content).toContain('Full output (2001 bytes) saved.');
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(result.metadata?.output?.ownerBounded).toBe(true);
+      expect(result.metadata?.output?.artifact).toMatchObject({ kind: 'durable' });
       const overflowDir = path.join(syncDir, 'exec');
       const files = await fs.promises.readdir(overflowDir);
       expect(files).toHaveLength(1);
@@ -348,11 +361,18 @@ describe('phase 2120 exec overflow durability results', () => {
       const write = injectWriteResult(ctx, outcome);
       const output = 'x'.repeat(EXEC_MAX_OUTPUT + 1);
 
-      const content = await formatExecOutputForToolResult(ctx, output);
+      const result = await formatExecOutputToolResult(ctx, output);
+      const content = result.content;
 
       expect(write).toHaveBeenCalledTimes(1);
+      expect(Buffer.byteLength(content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(result.metadata?.output).toEqual({
+        ownerBounded: true,
+        artifact: { kind: outcome.kind, path: expect.any(String) },
+      });
       const relPath = parseReadHint(content);
       expect(relPath).toBeDefined();
+      expect(result.metadata?.output?.artifact).toMatchObject({ path: relPath });
       const artifact = await fs.promises.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
       expect(artifact.endsWith(output)).toBe(true);
       expect(content).toContain(`Full output (${Buffer.byteLength(output, 'utf8')} bytes) saved.`);
@@ -389,9 +409,12 @@ describe('phase 2120 exec overflow durability results', () => {
       const write = vi.spyOn(ctx.fs, 'writeAtomic').mockRejectedValue(writeError);
       const output = 'x'.repeat(EXEC_MAX_OUTPUT + 1);
 
-      const content = await formatExecOutputForToolResult(ctx, output);
+      const result = await formatExecOutputToolResult(ctx, output);
+      const content = result.content;
 
       expect(write).toHaveBeenCalledTimes(1);
+      expect(result.metadata?.output).toEqual({ ownerBounded: true, artifact: { kind: 'failed' } });
+      expect(Buffer.byteLength(content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
       expect(content).toContain('[truncated]');
       expect(content).not.toContain('Full output');
       expect(content).not.toContain('read:');
@@ -400,6 +423,82 @@ describe('phase 2120 exec overflow durability results', () => {
         expect.stringContaining(writeError.message),
       ]]);
       expect(await fs.promises.readdir(path.join(syncDir, 'exec')).catch(() => [])).toHaveLength(0);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+
+  it('omits an over-budget long artifact path, audits it, and keeps metadata retrievable', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace', ...Array.from({ length: 700 }, () => 'd'));
+      const events: Array<[string, ...(string | number)[]]> = [];
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir: path.join(tempDir, 'tasks', 'sync'),
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+        auditWriter: {
+          write: (type: string, ...cols: (string | number)[]) => { events.push([type, ...cols]); },
+          preview: (value: string) => value,
+          message: (value: string) => value,
+          summary: (value: string) => value,
+        },
+      });
+      const output = `HEAD${'x'.repeat(EXEC_MAX_OUTPUT)}TAIL`;
+
+      const result = await formatExecOutputToolResult(ctx, output);
+
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(result.content).toContain('path omitted; see audit log.');
+      expect(result.content).toContain('artifact=durable');
+      expect(result.content).not.toContain('read:');
+      const artifact = result.metadata?.output?.artifact;
+      expect(artifact?.kind).toBe('durable');
+      if (artifact === undefined || artifact.kind === 'failed') throw new Error('expected durable artifact');
+      expect(Buffer.byteLength(artifact.path, 'utf8')).toBeGreaterThan(EXEC_MAX_OUTPUT);
+      const saved = await fs.promises.readFile(path.resolve(workspaceDir, artifact.path), 'utf8');
+      expect(saved.endsWith(output)).toBe(true);
+      const omitted = events.find(event => event[0] === COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_FOOTER_OMITTED);
+      expect(omitted).toContain(`path=${path.join(tempDir, 'tasks', 'sync', 'exec', path.basename(artifact.path))}`);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
+  });
+
+  it('uses a fixed footer and audits the complete path when durability text is too long', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const { ctx, events, workspaceDir } = await makeContext(tempDir);
+      const outcome = {
+        kind: 'committed_durability_unknown',
+        error: Object.assign(new Error(`directory sync failed: ${'中'.repeat(EXEC_MAX_OUTPUT)}`), { code: 'EIO' }),
+      } satisfies Awaited<ReturnType<NodeFileSystem['writeAtomic']>>;
+      const write = injectWriteResult(ctx, outcome);
+      const output = `HEAD${'x'.repeat(EXEC_MAX_OUTPUT)}TAIL`;
+
+      const result = await formatExecOutputToolResult(ctx, output);
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(result.content).toContain('path omitted; see audit log.');
+      expect(result.content).toContain(`artifact=${outcome.kind}`);
+      expect(result.content).not.toContain('read:');
+      expect(result.metadata?.output).toEqual({
+        ownerBounded: true,
+        artifact: { kind: outcome.kind, path: expect.any(String) },
+      });
+      const omitted = events.find(event => event[0] === COMMAND_TOOL_AUDIT_EVENTS.OVERFLOW_FOOTER_OMITTED);
+      expect(omitted).toBeDefined();
+      const auditedPath = omitted!.find(col => typeof col === 'string' && col.startsWith('path='));
+      expect(auditedPath).toBeDefined();
+      expect(path.isAbsolute(String(auditedPath).slice('path='.length))).toBe(true);
+      expect(String(auditedPath)).toContain('tasks');
+      const artifact = result.metadata?.output?.artifact;
+      expect(artifact?.kind).toBe(outcome.kind);
+      if (artifact === undefined || artifact.kind === 'failed') throw new Error('expected committed artifact');
+      const saved = await fs.promises.readFile(path.resolve(workspaceDir, artifact.path), 'utf8');
+      expect(saved.endsWith(output)).toBe(true);
     } finally {
       await cleanupTempDir(tempDir);
     }
@@ -421,6 +520,10 @@ describe('phase 2120 exec overflow durability results', () => {
       expect(result.content).toContain('[artifact committed but durability unconfirmed: committed_durability_unknown]');
       expect(result.content).toContain('directory sync failed');
       expect(result.content).toContain('[path]: ');
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(result.metadata?.output?.artifact).toMatchObject({
+        kind: 'committed_durability_unknown',
+      });
       expect(write).toHaveBeenCalledTimes(1);
       const files = await fs.promises.readdir(path.join(syncDir, 'exec'));
       expect(files).toHaveLength(1);
@@ -437,64 +540,120 @@ describe('phase 2120 exec overflow durability results', () => {
   }, 15_000);
 });
 
+describe('phase 2154 B2 non-output result guards', () => {
+  it('bounds a long UTF-8 guard rejection and marks it owner-bounded', async () => {
+    const reason = `guard denied: ${'😀'.repeat(EXEC_MAX_OUTPUT)}`;
+    const result = await createExecTool(() => ({
+      allow: false,
+      guardKind: 'test',
+      reason,
+    })).execute({ command: 'unused' }, makeExecContext());
+
+    expect(result.success).toBe(false);
+    expect(result.content.startsWith('guard denied: 😀')).toBe(true);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+    expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+    expect(result.metadata?.output).toEqual({
+      ownerBounded: true,
+      artifact: { kind: 'failed' },
+    });
+  });
+});
+
 describe('processExecErrorToToolResult', () => {
   const outputByteCases = [
+    { name: 'ASCII real failure', output: 'a'.repeat(2001), exitCode: null, killed: true, success: false },
     { name: 'Chinese real failure', output: '中'.repeat(1001), exitCode: null, killed: true, success: false },
     { name: 'emoji real failure', output: '😀'.repeat(501), exitCode: null, killed: true, success: false },
     { name: 'Chinese non-zero exit', output: '中'.repeat(1001), exitCode: 1, killed: false, success: true },
     { name: 'emoji non-zero exit', output: '😀'.repeat(501), exitCode: 1, killed: false, success: true },
   ];
 
-  it.each(outputByteCases)('$name keeps the complete prefix and a UTF-8-safe output preview', ({ output, exitCode, killed, success }) => {
-    const result = processExecErrorToToolResult(new ProcessExecError({
-      message: 'Command failed',
-      output,
-      exitCode,
-      killed,
-    }), 'sleep 5');
-    const prefix = success
-      ? '[exit 1]\n[command]: sleep 5\n'
-      : 'Error: Command failed\n[command]: sleep 5\n[output]: ';
-    const previewBudget = EXEC_MAX_OUTPUT
-      - Buffer.byteLength(prefix, 'utf8')
-      - Buffer.byteLength('\n[truncated]', 'utf8');
-    const preview = truncateUtf8Prefix(output, previewBudget);
+  it.each(outputByteCases)('$name persists full output and returns a bounded UTF-8 head/tail preview', async ({ output, exitCode, killed, success }) => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace');
+      await fs.promises.mkdir(workspaceDir, { recursive: true });
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir: path.join(tempDir, 'tasks', 'sync'),
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+      });
+      const result = await processExecErrorToToolResult(new ProcessExecError({
+        message: 'Command failed',
+        output,
+        exitCode,
+        killed,
+      }), 'sleep 5', ctx);
 
-    expect(result.success).toBe(success);
-    expect(result.content).toBe(`${prefix}${preview}\n[truncated]`);
-    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
-    expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
-    expect(result.content).not.toContain('\uFFFD');
+      expect(result.success).toBe(success);
+      expect(result.content).toContain(success ? '[exit 1]' : 'Error: Command failed');
+      expect(result.content).toMatch(/\n\[\.\.\.truncated \d+ bytes\.\.\.\]\n/);
+      expect(result.content).toContain('Full output');
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+      expect(result.content).not.toContain('\uFFFD');
+      expect(result.metadata?.output?.ownerBounded).toBe(true);
+      const artifact = result.metadata?.output?.artifact;
+      expect(artifact?.kind).toBe('durable');
+      if (artifact === undefined || artifact.kind === 'failed') throw new Error('expected durable artifact');
+      expect(parseReadHint(result.content)).toBe(artifact.path);
+      const saved = await fs.promises.readFile(path.resolve(workspaceDir, artifact.path), 'utf8');
+      expect(saved.endsWith(output)).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
   });
 
-  it('keeps complete diagnostics and an explicit truncation notice when the prefix exceeds the budget', () => {
-    const message = 'x'.repeat(EXEC_MAX_OUTPUT + 100);
-    const result = processExecErrorToToolResult(new ProcessExecError({
-      message,
-      output: '中'.repeat(1001),
-      exitCode: null,
-      killed: true,
-      termination: {
-        status: 'gone',
-        trigger: 'timeout',
-        termSent: true,
-        killSent: false,
-      },
-    }), 'sleep 5');
-    const prefix = `Error: ${message}\n[command]: sleep 5\n[cleanup]: gone after SIGTERM\n[output]: `;
+  it('bounds a long error prefix without losing classification or the complete artifact', async () => {
+    const tempDir = await createTempDir();
+    try {
+      const workspaceDir = path.join(tempDir, 'clawspace');
+      await fs.promises.mkdir(workspaceDir, { recursive: true });
+      const ctx = makeExecContext({
+        clawDir: tempDir,
+        workspaceDir,
+        syncDir: path.join(tempDir, 'tasks', 'sync'),
+        fs: new NodeFileSystem({ baseDir: tempDir }),
+      });
+      const message = 'x'.repeat(EXEC_MAX_OUTPUT + 100);
+      const output = '中'.repeat(1001);
+      const result = await processExecErrorToToolResult(new ProcessExecError({
+        message,
+        output,
+        exitCode: null,
+        killed: true,
+        termination: {
+          status: 'gone',
+          trigger: 'timeout',
+          termSent: true,
+          killSent: false,
+        },
+      }), 'sleep 5', ctx);
 
-    expect(result.success).toBe(false);
-    expect(result.content).toBe(`${prefix}\n[truncated]`);
-    expect(Buffer.byteLength(result.content, 'utf8')).toBeGreaterThan(EXEC_MAX_OUTPUT);
+      expect(result.success).toBe(false);
+      expect(result.content.startsWith('Error: xxx')).toBe(true);
+      expect(result.content).toContain('Full output');
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
+      expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
+      const artifact = result.metadata?.output?.artifact;
+      expect(artifact?.kind).toBe('durable');
+      if (artifact === undefined || artifact.kind === 'failed') throw new Error('expected durable artifact');
+      const saved = await fs.promises.readFile(path.resolve(workspaceDir, artifact.path), 'utf8');
+      expect(saved.endsWith(output)).toBe(true);
+    } finally {
+      await cleanupTempDir(tempDir);
+    }
   });
 
-  it('keeps short non-zero output unchanged and successful', () => {
-    const result = processExecErrorToToolResult(new ProcessExecError({
+  it('keeps short non-zero output unchanged and successful', async () => {
+    const result = await processExecErrorToToolResult(new ProcessExecError({
       message: 'Command exited with code 1',
       output: 'partial output',
       exitCode: 1,
       killed: false,
-    }), 'exit 1');
+    }), 'exit 1', makeExecContext());
 
     expect(result).toEqual({
       success: true,
@@ -502,7 +661,7 @@ describe('processExecErrorToToolResult', () => {
     });
   });
 
-  it('maps a killed timeout to a failed ToolResult with command and output', () => {
+  it('maps a killed timeout to a failed ToolResult with command and output', async () => {
     const error = new ProcessExecError({
       message: 'Command timed out after 1000ms',
       output: 'partial output',
@@ -510,14 +669,14 @@ describe('processExecErrorToToolResult', () => {
       killed: true,
     });
 
-    expect(processExecErrorToToolResult(error, 'sleep 5')).toEqual({
+    expect(await processExecErrorToToolResult(error, 'sleep 5', makeExecContext())).toEqual({
       success: false,
       content: 'Error: Command timed out after 1000ms\n[command]: sleep 5\n[output]: partial output',
     });
   });
 
   // phase 1269 Step D: structured termination → user-visible cleanup line
-  it('appends stable cleanup wording from structured termination facts', () => {
+  it('appends stable cleanup wording from structured termination facts', async () => {
     const base = {
       message: 'Command timed out after 1000ms',
       output: '',
@@ -525,33 +684,34 @@ describe('processExecErrorToToolResult', () => {
       killed: true,
     };
     const identity = { leaderPid: 1234, processGroupId: 1234 };
+    const ctx = makeExecContext();
 
-    expect(processExecErrorToToolResult(new ProcessExecError({
+    expect((await processExecErrorToToolResult(new ProcessExecError({
       ...base,
       termination: { status: 'gone', trigger: 'timeout', termSent: true, killSent: false, identity },
-    }), 'sleep 5').content).toContain('[cleanup]: gone after SIGTERM');
+    }), 'sleep 5', ctx)).content).toContain('[cleanup]: gone after SIGTERM');
 
-    expect(processExecErrorToToolResult(new ProcessExecError({
+    expect((await processExecErrorToToolResult(new ProcessExecError({
       ...base,
       termination: { status: 'gone', trigger: 'timeout', termSent: true, killSent: true, identity },
-    }), 'sleep 5').content).toContain('[cleanup]: gone after SIGKILL');
+    }), 'sleep 5', ctx)).content).toContain('[cleanup]: gone after SIGKILL');
 
     // 反向 2: indeterminate 不得写成 killed/cleaned 完成式表述
-    const indeterminate = processExecErrorToToolResult(new ProcessExecError({
+    const indeterminate = await processExecErrorToToolResult(new ProcessExecError({
       ...base,
       termination: { status: 'indeterminate', trigger: 'abort', termSent: true, killSent: true, identity, reason: 'sigkill_send_failed' },
-    }), 'sleep 5');
+    }), 'sleep 5', ctx);
     expect(indeterminate.content).toContain('[cleanup]: indeterminate (sigkill_send_failed)');
     expect(indeterminate.content).not.toContain('gone');
 
-    expect(processExecErrorToToolResult(new ProcessExecError({
+    expect((await processExecErrorToToolResult(new ProcessExecError({
       ...base,
-      termination: { status: 'still_alive', trigger: 'timeout', termSent: true, killSent: true, identity },
-    }), 'sleep 5').content).toContain('[cleanup]: still_alive after SIGKILL');
+      termination: { status: 'still_alive', trigger: 'abort', termSent: true, killSent: true, identity },
+    }), 'sleep 5', ctx)).content).toContain('[cleanup]: still_alive after SIGKILL');
 
-    expect(processExecErrorToToolResult(new ProcessExecError({
+    expect((await processExecErrorToToolResult(new ProcessExecError({
       ...base,
       termination: { status: 'gone', trigger: 'abort', termSent: false, killSent: false, reason: 'not_started' },
-    }), 'sleep 5').content).toContain('[cleanup]: not_started');
+    }), 'sleep 5', ctx)).content).toContain('[cleanup]: not_started');
   });
 });

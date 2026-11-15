@@ -179,6 +179,10 @@ export const editTool: Tool = {
     }
 
     const backupHint = commitResult.backupPath ? ` (backup: ${commitResult.backupPath})` : '';
+    const backupNotice = commitResult.backupNotice;
+    const durabilityHint = backupNotice
+      ? ` [backup committed; durability ${backupNotice.durability}]`
+      : '';
     const delta = lineDelta(oldText, newText) * replacedCount;
     const deltaHint = delta === 0 ? '' : ` / line delta ${delta >= 0 ? '+' : ''}${delta}`;
     const diff = formatEditDiff(content, oldText, newText);
@@ -187,8 +191,11 @@ export const editTool: Tool = {
       : '';
     return {
       success: true,
-      content: `Edited: ${filePath} (replaced ${replacedCount}/${replaceResult.matches} matches${deltaHint})${backupHint}\n\n${diff}${moreHint}`,
-      metadata: { replaced: replacedCount },
+      content: `Edited: ${filePath} (replaced ${replacedCount}/${replaceResult.matches} matches${deltaHint})${backupHint}${durabilityHint}\n\n${diff}${moreHint}`,
+      metadata: {
+        replaced: replacedCount,
+        ...(backupNotice ? { backup_notice: backupNotice } : {}),
+      },
     };
   },
 };

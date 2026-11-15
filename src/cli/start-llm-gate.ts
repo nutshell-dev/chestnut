@@ -34,7 +34,8 @@ import {
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { FileSystem } from '../foundation/fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { CliError } from './errors.js';
 import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import { findSetupProvider } from './setup-provider-catalog.js';
@@ -68,6 +69,12 @@ export const START_LLM_API_KEY_ENV = 'CHESTNUT_LLM_API_KEY';
 export const START_USAGE_EXIT_CODE = 2;
 /** LLM 验证失败 / 用户取消退出码。 */
 export const START_GATE_EXIT_CODE = 3;
+
+function reportDegradedConfigWrite(write: AtomicWriteResult): void {
+  if (write.kind === 'durable') return;
+  const errorSummary = formatErr(write.error).replace(/\s+/g, ' ').trim().slice(0, 240);
+  console.error(`⚠ LLM primary config committed with degraded durability (kind=${write.kind}): ${errorSummary}`);
+}
 
 interface GateDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -198,7 +205,7 @@ export async function applyStartLLMOptions(
   if (opts.baseUrl) patch.base_url = opts.baseUrl;
   if (apiKey) patch.api_key = apiKey;
   if (Object.keys(patch).length > 0) {
-    await deps.llmConfiguration.patchPrimary(patch);
+    reportDegradedConfigWrite(await deps.llmConfiguration.patchPrimary(patch));
   }
 }
 

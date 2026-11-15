@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { truncateHeadTail } from '../../../src/foundation/file-tool/truncate-head-tail.js';
+import * as path from 'path';
+import {
+  formatHeadTailReadHint,
+  truncateHeadTail,
+  truncateHeadTailWithinBudget,
+} from '../../../src/foundation/file-tool/truncate-head-tail.js';
+import { READ_OUTPUT_HARD_CAP_BYTES } from '../../../src/foundation/file-tool/constants.js';
 import {
   assertWellFormedUnicode,
   InvalidUnicodeStringError,
@@ -104,6 +110,42 @@ describe('truncateHeadTail UTF-8 preview', () => {
     const parsed = expectByteConservation(input, truncateHeadTail(input, relPath));
 
     expect(parseReadHint(parsed.hint)).toBe(relPath);
+  });
+
+  it('新总预算入口保留完整长路径与 durability footer，多字节 head/tail 仍守恒', () => {
+    const input = `${'a'.repeat(599)}😀${'中'.repeat(40000)}😀${'z'.repeat(1399)}`;
+    const workspace = path.join(path.sep, 'tmp', 'workspace');
+    const artifact = path.join(
+      path.sep,
+      'tmp',
+      'artifacts',
+      ...Array.from({ length: 12 }, (_, i) => `${i}-${'长'.repeat(30)}`),
+      'full.md',
+    );
+    const relPath = path.relative(workspace, artifact);
+    const footer = `${formatHeadTailReadHint(Buffer.byteLength(input, 'utf8'), relPath)}\n[artifact committed but durability unconfirmed: committed_durability_unknown]`;
+    const preview = truncateHeadTailWithinBudget(input, READ_OUTPUT_HARD_CAP_BYTES, footer);
+
+    expect(preview).not.toBeNull();
+    expect(Buffer.byteLength(preview!, 'utf8')).toBeLessThanOrEqual(READ_OUTPUT_HARD_CAP_BYTES);
+    expect(preview!.endsWith(footer)).toBe(true);
+    expect(parseReadHint(preview!)).toBe(relPath);
+    expectByteConservation(input, preview!);
+  });
+
+  it('真实 path.relative 产生的超长 footer 无法入 cap 时返回 null，不伪造截断路径', () => {
+    const workspace = path.join(path.sep, 'tmp', 'workspace');
+    const artifact = path.join(
+      path.sep,
+      'tmp',
+      ...Array.from({ length: 1_100 }, (_, i) => `${i}-${'p'.repeat(100)}`),
+      'full.md',
+    );
+    const relPath = path.relative(workspace, artifact);
+    const footer = formatHeadTailReadHint(READ_OUTPUT_HARD_CAP_BYTES + 1, relPath);
+
+    expect(Buffer.byteLength(relPath, 'utf8')).toBeGreaterThan(READ_OUTPUT_HARD_CAP_BYTES);
+    expect(truncateHeadTailWithinBudget('x'.repeat(READ_OUTPUT_HARD_CAP_BYTES + 1), READ_OUTPUT_HARD_CAP_BYTES, footer)).toBeNull();
   });
 
   it.each(['x\uD800', 'x\uDC00'])('非法 Unicode 显式抛错：%j', (input) => {

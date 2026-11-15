@@ -785,6 +785,7 @@
       "file_edit_committed",
       "file_edit_conflict",
       "file_edit_verification_failed",
+      "file_tool_backup_durability_degraded",
       "file_tool_backup_failed",
       "file_tool_input_validation_failed",
       "overwrite_gate_rejected",
@@ -793,6 +794,7 @@
       "read_file_state_loaded",
       "read_file_state_persist_failed",
       "read_file_state_recorded",
+      "read_overflow_footer_too_long",
       "read_overflow_persist_failed",
       "search_overflow_persist_failed"
     ],
@@ -906,12 +908,14 @@
       "exec_guard_rejected",
       "exec_long_blocking_rejected",
       "exec_termination",
+      "overflow_footer_omitted",
       "overflow_persist_failed"
     ],
     "foundation_tools_audit-events": [
       "tool_caller_access_violation",
       "tool_invalid_input",
       "tool_not_found",
+      "tool_output_cap",
       "tools_invariant_violation",
       "tool_exec_race_loser",
       "stop_requested"

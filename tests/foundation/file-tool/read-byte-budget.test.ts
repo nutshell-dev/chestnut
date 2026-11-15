@@ -115,12 +115,19 @@ describe('phase 2102: read UTF-8 byte budget', () => {
     expect(result.success).toBe(true);
     expect(files).toHaveLength(overflows ? 1 : 0);
     expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(!overflows);
+    expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(CAP);
+    expect(result.metadata?.output?.ownerBounded).toBe(overflows ? true : undefined);
     if (!overflows) {
       expect(result.content).toBe(source);
+      expect(result.metadata?.output?.artifact).toBeUndefined();
       return;
     }
     expect(result.content).not.toBe(source);
     expect(parseReadHint(result.content)).toBeDefined();
+    expect(result.metadata?.output?.artifact).toEqual({
+      kind: 'durable',
+      path: parseReadHint(result.content),
+    });
     expect(parseFullOutputBytes(result.content)).toBe(Buffer.byteLength(source, 'utf8'));
     expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
     expect(result.content).not.toContain('\uFFFD');
@@ -170,13 +177,16 @@ describe('phase 2102: read UTF-8 byte budget', () => {
     expect(head.success).toBe(true);
     expect(head.content).toContain('source: read_overflow');
     expect(head.content).toContain(source.split('\n')[0]!);
-    expect(tail).toEqual({ success: true, content: source.split('\n').at(-1)! });
+    expect(tail).toEqual({
+      success: true,
+      content: source.split('\n').at(-1)!,
+    });
     expect(await artifactFiles()).toEqual(files);
   });
 
-  it.runIf(process.platform !== 'win32')('phase 2126：特殊字符与长路径提示可解析并读回真实 artifact', async () => {
+  it.runIf(process.platform !== 'win32')('phase 2154 B7：自定义 syncDir 不进入写路径，固定 artifact 提示可读', async () => {
     const longSegments = Array.from({ length: 5 }, (_, i) => `${i}-${'p'.repeat(120)}`);
-    syncDir = path.join(tempDir, 'tasks', 'sync"\\\nphase2126', ...longSegments);
+    syncDir = path.join(tempDir, 'ignored-sync"\\\nphase2154', ...longSegments);
     const source = Array.from({ length: 2000 }, (_, i) => `${i}:${'x'.repeat(80)}`).join('\n');
     await writeSource(source);
     const { ctx } = makeCtx();
@@ -186,7 +196,8 @@ describe('phase 2102: read UTF-8 byte budget', () => {
 
     expect(result.success).toBe(true);
     expect(relPath).toBeDefined();
-    expect(Buffer.byteLength(relPath!, 'utf8')).toBeGreaterThan(600);
+    expect(relPath!.startsWith('../tasks/sync/read/')).toBe(true);
+    expect(Buffer.byteLength(relPath!, 'utf8')).toBeLessThan(100);
     const artifact = await fs.readFile(path.resolve(workspaceDir, relPath!), 'utf8');
     expect(artifact.endsWith(source)).toBe(true);
 
@@ -203,7 +214,10 @@ describe('phase 2102: read UTF-8 byte budget', () => {
 
     const result = await readTool.execute({ path: 'data.txt', offset: 150, limit: 1 }, ctx);
 
-    expect(result).toEqual({ success: true, content: lines[149] });
+    expect(result).toEqual({
+      success: true,
+      content: lines[149],
+    });
     expect(await artifactFiles()).toEqual([]);
     expect(ctx.readFileState.get(TARGET)?.isFullRead).toBe(false);
   });
@@ -261,6 +275,10 @@ describe('phase 2102: read UTF-8 byte budget', () => {
       const result = await readTool.execute({ path: 'data.txt' }, ctx);
 
       expect(result.success).toBe(false);
+      expect(result.metadata?.output).toEqual({
+        ownerBounded: true,
+        artifact: { kind: 'failed' },
+      });
       expect(writes()).toBe(1);
       expect(await artifactFiles()).toEqual([]);
       expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(CAP);

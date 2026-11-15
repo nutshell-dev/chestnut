@@ -51,7 +51,7 @@ import {
   initWorkspaceWatchdogConfig,
   publishWatchdogLayout,
 } from '../../watchdog/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 
 /**
  * Phase 1925 Step B：`${VAR}` 解析注入 —— 用户级 Credentials owner 分层解析
@@ -336,10 +336,10 @@ export function saveGlobalConfigExclusive(deps: { fsFactory: (baseDir: string) =
 export async function mutateGlobalConfigLocked(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   mutator: (config: ClawGlobalConfig) => void,
-): Promise<void> {
+): Promise<AtomicWriteResult> {
   // 兼容旧 Assembly 调用方面；实际 LLM RMW 已归 L4，root 不再承载业务写。
   loadGlobalConfig(deps);
-  await createLLMConfiguration(deps).mutateGlobalLocked((fresh) => {
+  return createLLMConfiguration(deps).mutateGlobalLocked((fresh) => {
     mutator(fresh as ClawGlobalConfig);
   });
 }
@@ -374,17 +374,17 @@ export async function migrateClawLegacyApiKeys(
   await migrateLegacyApiKeysAtPath(deps, configPath);
 }
 
-export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, patch: Record<string, unknown>): Promise<void> {
+export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, patch: Record<string, unknown>): Promise<AtomicWriteResult> {
   const raw = readYamlDocument(deps, getGlobalConfigPath());
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error(`config parse failed: expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`);
   }
   loadGlobalConfig(deps);
-  await createLLMConfiguration(deps).patchPrimary(patch);
+  return createLLMConfiguration(deps).patchPrimary(patch);
 }
 
-export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string, config: ClawConfig): void {
-  writeYamlConfig(
+export function saveClawConfig(deps: { fsFactory: (baseDir: string) => FileSystem }, configPath: string, config: ClawConfig): AtomicWriteResult {
+  return writeYamlConfig(
     { fsFactory: deps.fsFactory },
     configPath,
     config,

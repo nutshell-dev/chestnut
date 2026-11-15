@@ -18,15 +18,21 @@ type BackupSource = 'file_backup' | 'edit_backup' | 'multi_edit_backup' | 'exec_
  * phase 2093 Step B：备份结果判别联合（私有文件级 export，仅供 write.ts /
  * edit-commit.ts 两个内部 consumer 消费，不进入模块 barrel）。
  *
- * - `created`：备份内容已由 `writeAtomic` 返回。**只代表已提交**，不代表目录
- *   耐久或断电安全（耐久性不确定仍由 FILE-TOOL-BACKUP-DURABILITY-RESULT 单独登记）。
+ * - `created`：备份内容已由 `writeAtomic` 返回，并显式保留 durable /
+ *   platform_limited / unknown 耐久性语义；后两者携带最小错误证据。
  * - `absent` ：目标确定不存在（`fs.exists` 为 false；NodeFileSystem 仅 ENOENT
  *   返回 false），可以走「新建」路径。
  * - `failed` ：`exists` / `read` / `writeAtomic` 抛错——BACKUP_FAILED 已按原格式
  *   审计，调用方必须 fail-closed。`error` 是展示用摘要，不作为完整异常图保证。
  */
+export type BackupDurabilityNotice = {
+  durability: 'platform_limited' | 'unknown';
+  error: string;
+};
+
 export type BackupResult =
-  | { kind: 'created'; path: string }
+  | { kind: 'created'; path: string; durability: 'durable' }
+  | ({ kind: 'created'; path: string } & BackupDurabilityNotice)
   | { kind: 'absent' }
   | { kind: 'failed'; error: string };
 
@@ -39,12 +45,39 @@ export async function backupToSync(
     const exists = await ctx.fs.exists(filePath);
     if (!exists) return { kind: 'absent' };
     const content = await ctx.fs.read(filePath);
+    const writeSide = ctx.toolOutput ?? ctx;
     const id = newShortUuid();
-    // file_backup scratch 写到 tasks/sync/write/ 子目录（phase 511 / phase772 const 归正）
-    const fullPath = path.join(ctx.syncDir, TASKS_SYNC_WRITE_DIR.split('/').pop()!, `${id}.md`);
+    // file_backup scratch 写到写侧 baseDir 下的 tasks/sync/write/ 子目录。
+    const relativePath = `${TASKS_SYNC_WRITE_DIR}/${id}.md`;
     const frontmatter = `---\nsource: ${source}\noriginal_path: ${filePath}\ncontent_length: ${content.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    await ctx.fs.writeAtomic(fullPath, frontmatter + content);
-    return { kind: 'created', path: path.relative(ctx.clawDir, fullPath) };
+    const written = await writeSide.fs.writeAtomic(relativePath, frontmatter + content);
+    const fullPath = path.join(ctx.toolOutput?.baseDir ?? ctx.clawDir, relativePath);
+    const displayPath = path.relative(writeSide.workspaceDir, fullPath);
+    switch (written.kind) {
+      case 'durable':
+        return { kind: 'created', path: displayPath, durability: 'durable' };
+      case 'committed_platform_limited':
+      case 'committed_durability_unknown': {
+        const notice: BackupDurabilityNotice = {
+          durability: written.kind === 'committed_platform_limited' ? 'platform_limited' : 'unknown',
+          error: formatErr(written.error),
+        };
+        ctx.auditWriter?.write(
+          FILE_TOOL_AUDIT_EVENTS.BACKUP_DURABILITY_DEGRADED,
+          `source=${source}`,
+          `path=${filePath}`,
+          `backup_path=${displayPath}`,
+          `commit=${written.kind}`,
+          `durability=${notice.durability}`,
+          `reason=${notice.error}`,
+        );
+        return { kind: 'created', path: displayPath, ...notice };
+      }
+      default: {
+        const unreachable: never = written;
+        throw new Error(`Unexpected atomic write result: ${String(unreachable)}`);
+      }
+    }
   } catch (err) {
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.BACKUP_FAILED,

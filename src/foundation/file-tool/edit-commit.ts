@@ -16,6 +16,7 @@ import type { ExecContext } from '../tools/index.js';
 import type { GuardedWrite } from '../tool-protocol/index.js';
 import { computeContentHash } from './file-hash.js';
 import { backupToSync } from './sync-backup.js';
+import type { BackupDurabilityNotice } from './sync-backup.js';
 import { recordEditResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
@@ -47,6 +48,7 @@ type EditCommitResult =
       beforeHash: string;
       afterHash: string;
       backupPath: string;
+      backupNotice: BackupDurabilityNotice | null;
       mtime: number;
     }
   | {
@@ -116,6 +118,9 @@ export async function editCommit(
     } as EditCommitResult;
   }
   const backupPath = backup.path;
+  const backupNotice: BackupDurabilityNotice | null = backup.durability === 'durable'
+    ? null
+    : { durability: backup.durability, error: backup.error };
 
   // 4. Atomic write — phase 1817: 经 GuardedWrite 绑定 canonical target，不用裸 path
   await guardedWrite.write(candidate);
@@ -152,6 +157,8 @@ export async function editCommit(
     `before_hash=${beforeHash}`,
     `after_hash=${committedHash}`,
     `backup_path=${backupPath}`,
+    `backup_durability=${backup.durability}`,
+    ...(backupNotice ? [`backup_durability_error=${backupNotice.error}`] : []),
     `replaced=${replaced}`,
     `edit_count=${editCount}`,
   );
@@ -161,6 +168,7 @@ export async function editCommit(
     beforeHash,
     afterHash: committedHash,
     backupPath,
+    backupNotice,
     mtime,
   } as EditCommitResult;
 }

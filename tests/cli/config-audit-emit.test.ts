@@ -87,4 +87,38 @@ describe('config provider remove/move — audit emit (phase 1452 Step B)', () =>
     expect(auditContent).toContain('label=fb-two');
     expect(auditContent).toContain('position=1');
   });
+
+  it.each([
+    { kind: 'committed_platform_limited' as const },
+    { kind: 'committed_durability_unknown' as const },
+  ])('provider remove $kind：notice 后继续 saved/notify，不重写', async ({ kind }) => {
+    const error = Object.assign(new Error(`directory fsync failed: ${kind}`), { code: 'EIO' });
+    const write = vi.spyOn(configDeps.llmConfiguration, 'mutateGlobalLocked').mockResolvedValue({ kind, error });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const cmd = createConfigCommand(configDeps);
+    await cmd.parseAsync(['node', 'test', 'provider', 'remove', 'fb-one']);
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
+    expect(vi.mocked(console.log)).toHaveBeenCalledWith('✓ Removed "fb-one" from fallbacks');
+    expect(readAudit()).toContain('command=provider_remove');
+  });
+
+  it('provider remove throw：保持原 CLI 失败分类且不重试', async () => {
+    const failure = new Error('rename failed');
+    const write = vi.spyOn(configDeps.llmConfiguration, 'mutateGlobalLocked').mockRejectedValue(failure);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+
+    const cmd = createConfigCommand(configDeps);
+    await expect(cmd.parseAsync(['node', 'test', 'provider', 'remove', 'fb-one']))
+      .rejects.toThrow('process.exit(1)');
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith('Error:', expect.stringContaining('rename failed'));
+  });
 });

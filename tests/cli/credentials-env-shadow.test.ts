@@ -212,4 +212,40 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
     expect(rawYaml).toContain('${ANTHROPIC_API_KEY}');
   });
+
+  it.each([
+    { kind: 'committed_platform_limited' as const },
+    { kind: 'committed_durability_unknown' as const },
+  ])('patchPrimary $kind → degraded notice 后继续 probe，不重写', async ({ kind }) => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    const configDeps = deps();
+    const error = Object.assign(new Error(`directory fsync failed: ${kind}`), { code: 'EIO' });
+    const patch = vi.spyOn(configDeps.llmConfiguration, 'patchPrimary').mockResolvedValue({ kind, error });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    rlAnswers.queue = ['2', 'claude-new'];
+
+    try {
+      const rl = mockRl as unknown as import('readline').Interface;
+      const snapshot = await promptReconfigure(configDeps, rl, 'model');
+
+      expect(snapshot).not.toBeNull();
+      expect(patch).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`kind=${kind}`));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`directory fsync failed: ${kind}`));
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('patchPrimary throw → 保持原失败且不重试', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
+    const configDeps = deps();
+    const failure = new Error('rename failed');
+    const patch = vi.spyOn(configDeps.llmConfiguration, 'patchPrimary').mockRejectedValue(failure);
+    rlAnswers.queue = ['2', 'claude-new'];
+
+    const rl = mockRl as unknown as import('readline').Interface;
+    await expect(promptReconfigure(configDeps, rl, 'model')).rejects.toBe(failure);
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
 });

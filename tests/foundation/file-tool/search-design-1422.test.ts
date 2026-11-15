@@ -338,12 +338,13 @@ function isWellFormedString(text: string): boolean {
 /** 记录 writeAtomic 调用但不真正落盘（仅用于「路径极长、OS 不允许真实落盘」的防御分支） */
 function recordingFs(baseDir: string) {
   const inner = new NodeFileSystem({ baseDir });
-  const control = { writeAtomicCalls: 0, lastContent: '' };
+  const control = { writeAtomicCalls: 0, lastPath: '', lastContent: '' };
   const fs = new Proxy(inner, {
     get(target, prop) {
       if (prop === 'writeAtomic') {
-        return async (_p: string, content: string): Promise<{ kind: 'durable' }> => {
+        return async (p: string, content: string): Promise<{ kind: 'durable' }> => {
           control.writeAtomicCalls += 1;
+          control.lastPath = p;
           control.lastContent = content;
           return { kind: 'durable' };
         };
@@ -591,13 +592,12 @@ describe('phase 2086 C: bounded search preview (line / total byte budget)', () =
     expect(await overflowFiles()).toHaveLength(0);
   });
 
-  it('C/footer 自身放不下（异常长 artifact 路径）：固定短 success=false，不伪造可用路径，审计留全量路径', async () => {
+  it('phase 2154 B7：异常长 syncDir 不进入 writeAtomic 或展示路径', async () => {
     const lines = Array.from({ length: SEARCH_PREVIEW_LIMIT + 5 }, () => 'needle line').join('\n');
     await fs.writeFile(path.join(workspace(), 'a.txt'), lines);
 
-    // 构造超长 syncDir（真实 OS 不允许这么长的路径，因此注入只记录的 writeAtomic）
     const deepSegment = 'd'.repeat(200);
-    const deepSync = path.join(clawDir, 'tasks', 'sync', ...Array.from({ length: 60 }, () => deepSegment));
+    const deepSync = path.join(clawDir, 'ignored-sync', ...Array.from({ length: 60 }, () => deepSegment));
     const recorder = recordingFs(clawDir);
     const audit = makeMockAudit();
     const ctx = new ExecContextImpl({
@@ -612,21 +612,16 @@ describe('phase 2086 C: bounded search preview (line / total byte budget)', () =
     });
 
     const result = await searchTool.execute({ text: 'needle' }, ctx);
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
     expect(bytesOf(result.content)).toBeLessThanOrEqual(SEARCH_OUTPUT_MAX_BYTES);
-    expect(result.content).toContain('preview unavailable');
-    // 不得把被截断的长路径当成可用路径返回
+    expect(result.content).not.toContain('preview unavailable');
     expect(result.content).not.toContain(deepSegment);
-    expect(result.content).not.toContain('read({');
-    // artifact 仍有一次写入尝试，审计记录完整路径与状态
+    expect(parseReadPath(result.content)?.startsWith('../tasks/sync/search/')).toBe(true);
     expect(recorder.control.writeAtomicCalls).toBe(1);
-    const budgetCall = auditCalls(audit).find(([type, ...cols]) =>
-      type === FILE_TOOL_AUDIT_EVENTS.SEARCH_OVERFLOW_PERSIST_FAILED && cols.includes('stage=output-budget'));
-    expect(budgetCall).toBeDefined();
-    const pathCol = budgetCall!.find((col) => typeof col === 'string' && col.startsWith('path='));
-    expect(pathCol).toBeDefined();
-    expect(String(pathCol).length).toBeGreaterThan(deepSegment.length);
-    expect(budgetCall!.some((col) => String(col).startsWith('commit=durable'))).toBe(true);
+    expect(path.isAbsolute(recorder.control.lastPath)).toBe(false);
+    expect(recorder.control.lastPath).toMatch(/^tasks\/sync\/search\/[^/]+\.md$/);
+    expect(auditCalls(audit).some(([type, ...cols]) =>
+      type === FILE_TOOL_AUDIT_EVENTS.SEARCH_OVERFLOW_PERSIST_FAILED && cols.includes('stage=output-budget'))).toBe(false);
   });
 
   it('C/取回：提示路径交给 read 能从 offset 1 取回首段（含 frontmatter 与标题）', async () => {

@@ -11,7 +11,7 @@ import * as nodePath from 'path';
 import { z } from 'zod';
 import { isFileNotFound, type FileSystem } from '../fs/index.js';
 import type { Tool, ExecContext } from '../tools/index.js';
-import type { ToolResult } from '../tool-protocol/index.js';
+import type { ToolResult, ToolResultArtifact } from '../tool-protocol/index.js';
 
 import { resolveWorkspacePath } from './resolve-path.js';
 import { defineFileToolSchema } from './_zod-helper.js';
@@ -364,13 +364,10 @@ async function persistOverflow(ctx: ExecContext, fullContent: string): Promise<O
     // 扫描读取仍用 ctx.fs / ctx.workspaceDir；2086 的三态与有界预览预算完全保留。
     const writeSide = ctx.toolOutput ?? ctx;
     const id = newShortUuid();
-    const fullPath = nodePath.join(
-      writeSide.syncDir,
-      TASKS_SYNC_SEARCH_DIR.split('/').pop()!,
-      `${id}.md`,
-    );
+    const relativePath = `${TASKS_SYNC_SEARCH_DIR}/${id}.md`;
     const frontmatter = `---\nsource: search_overflow\ncontent_length: ${fullContent.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    const written = await writeSide.fs.writeAtomic(fullPath, frontmatter + fullContent);
+    const written = await writeSide.fs.writeAtomic(relativePath, frontmatter + fullContent);
+    const fullPath = nodePath.join(ctx.toolOutput?.baseDir ?? ctx.clawDir, relativePath);
     const relPath = nodePath.relative(writeSide.workspaceDir, fullPath);
     if (written.kind === 'durable') return { kind: 'durable', relPath };
     // 已提交但耐久性未确认：artifact 已在 relPath 可见 → 不重写、不删除，只显式交付状态
@@ -403,6 +400,20 @@ function fitContentToBudget(body: string, footer: string): string | null {
   const markerBytes = utf8Bytes(BODY_TRUNCATION_MARKER);
   if (available <= markerBytes) return footer;
   return `${truncateUtf8Prefix(body, available - markerBytes)}${BODY_TRUNCATION_MARKER}${SECTION_SEPARATOR}${footer}`;
+}
+
+function searchResult(
+  success: boolean,
+  content: string,
+  artifact?: ToolResultArtifact,
+): ToolResult {
+  return {
+    success,
+    content,
+    ...(artifact === undefined ? {} : {
+      metadata: { output: { ownerBounded: true, artifact } },
+    }),
+  };
 }
 
 async function finalize(
@@ -438,7 +449,7 @@ async function finalize(
 
   // 3) 短且完整：保持原文本，零落盘
   if (!overCount && !overLineLimit && !overTotalBudget && !overSkipCount) {
-    return { success: true, content: preview.text };
+    return searchResult(true, preview.text);
   }
 
   // 4) 任何显示裁剪都先做一次完整结果保存尝试，再按预算拼 footer 与正文
@@ -453,7 +464,7 @@ async function finalize(
     const footer = `${previewHeader}${limitsNote} (overflow persist failed: ${shortError}; ${Math.max(0, totalMatches - SEARCH_PREVIEW_LIMIT)} additional matches not delivered)`;
     const fitted = fitContentToBudget(preview.text, footer);
     // 失败文本自身都放不下时同样只给固定短错误（完整诊断已在 audit）
-    return { success: false, content: fitted ?? BUDGET_ERROR_MESSAGE };
+    return searchResult(false, fitted ?? BUDGET_ERROR_MESSAGE, { kind: 'failed' });
   }
 
   const readCommand = `read({ "path": ${JSON.stringify(overflow.relPath)}, "offset": 1, "limit": 200 })`;
@@ -471,9 +482,9 @@ async function finalize(
       `path=${overflow.relPath}`,
       `reason=preview footer exceeds ${SEARCH_OUTPUT_MAX_BYTES}B output budget`,
     );
-    return { success: false, content: BUDGET_ERROR_MESSAGE };
+    return searchResult(false, BUDGET_ERROR_MESSAGE, { kind: overflow.kind, path: overflow.relPath });
   }
-  return { success: true, content: fitted };
+  return searchResult(true, fitted, { kind: overflow.kind, path: overflow.relPath });
 }
 
 const SEARCH_TOOL_NAME = 'search' as const;
@@ -498,6 +509,11 @@ export const searchTool: Tool = {
   schema: defineFileToolSchema(SearchInputSchema),
   readonly: true,
   idempotent: true,
+  outputBounds: {
+    maxBytes: SEARCH_OUTPUT_MAX_BYTES,
+    maxLines: SEARCH_OUTPUT_MAX_BYTES + 1,
+    artifactKind: 'search',
+  },
 
   async execute(rawArgs: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     let args: SearchInput;

@@ -15,7 +15,7 @@
  * 不感知具体 guard 规则，保持 L2c 与 runtime 存活语义解耦。
  */
 
-export { TASKS_SYNC_EXEC_DIR } from './constants.js';
+export { EXEC_MAX_OUTPUT, TASKS_SYNC_EXEC_DIR } from './constants.js';
 
 export { CALLER_AGENT_ID_ENV } from './env.js';
 
@@ -26,7 +26,7 @@ export { EXEC_TOOL_NAME } from './exec.js';
 export type { ExecWithHandleArgs, PreExecGuard, AsyncMigrationPolicy } from './exec.js';
 export { EXEC_ASYNC_MIGRATION } from './exec.js';
 export { processExecErrorToToolResult } from './exec.js';
-export { formatExecOutputForToolResult } from './exec.js';
+export { formatExecOutputForToolResult, formatExecOutputToolResult } from './exec.js';
 
 // Phase 2135 Step C: shared by the L4 async wrapper; policy ownership stays here.
 export { rejectLongBlockingExec } from './blocking-policy.js';

@@ -18,7 +18,12 @@ import type { FileSystem } from '../fs/index.js';
 
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
-import { DEFAULT_TOOL_TIMEOUT_MS, TOOL_EXEC_CLEANUP_BUDGET_MS } from './constants.js';
+import {
+  DEFAULT_TOOL_OUTPUT_BOUNDS,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  TOOL_EXEC_CLEANUP_BUDGET_MS,
+} from './constants.js';
+import { enforceToolResultBounds } from './output-cap.js';
 
 /** phase 1802: tool 执行 owner 自定义的 abort reason（L1 只承载 opaque evidence） */
 type ToolTimeoutAbortReason = { type: 'tool_timeout'; ms: number };
@@ -83,10 +88,10 @@ export class ToolExecutorImpl implements IToolExecutor {
         TOOL_AUDIT_EVENTS.TOOL_NOT_FOUND,
         `toolName=${toolName}`,
       );
-      return {
+      return enforceToolResultBounds(ctx, toolName, {
         success: false,
         content: `Tool '${toolName}' not found in registry. Available tools depend on caller profile.`,
-      };
+      }, DEFAULT_TOOL_OUTPUT_BOUNDS);
     }
 
     const timeoutMs = options.timeoutMs ?? tool.defaultTimeoutMs ?? this.defaultTimeoutMs;
@@ -100,10 +105,10 @@ export class ToolExecutorImpl implements IToolExecutor {
         `toolName=${toolName}`,
         `error=${errMsg}`,
       );
-      return {
+      return enforceToolResultBounds(ctx, toolName, {
         success: false,
         content: `Invalid input for tool '${toolName}': ${errMsg}`,
-      };
+      }, tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS);
     }
 
     // 4. Execute with timeout using Promise.race (sync path)
@@ -200,9 +205,19 @@ export class ToolExecutorImpl implements IToolExecutor {
       ]);
 
       if (winner.kind === 'completed') {
-        result = winner.result;
+        result = await enforceToolResultBounds(
+          ctxWithSignal,
+          toolName,
+          winner.result,
+          tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
+        );
       } else if (winner.kind === 'failed') {
-        result = { success: false, content: formatErr(winner.error) };
+        result = await enforceToolResultBounds(
+          ctxWithSignal,
+          toolName,
+          { success: false, content: formatErr(winner.error) },
+          tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
+        );
       } else {
         // Timeout won: the merged controller is already aborted (that is
         // what fired the winner) — make the abort explicit here instead of
@@ -282,10 +297,12 @@ export class ToolExecutorImpl implements IToolExecutor {
         args,
         ctx,
         timeoutMs: toSafeNumber((args as Record<string, unknown>)?.timeoutMs),
-      }).catch(err => ({
-        success: false,
-        content: formatErr(err),
-      } as ToolResult));
+      }).catch(err => enforceToolResultBounds(
+        ctx,
+        toolName,
+        { success: false, content: formatErr(err) },
+        tool.outputBounds ?? DEFAULT_TOOL_OUTPUT_BOUNDS,
+      ));
     });
 
     return Promise.all(promises);
