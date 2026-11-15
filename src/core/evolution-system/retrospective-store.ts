@@ -97,8 +97,11 @@ interface RetrospectiveIdentityClaim {
 
 type ClaimReadResult =
   | { kind: 'absent' }
+  | { kind: 'creating'; intent?: RetrospectiveIdentityClaim }
   | { kind: 'ok'; claim: RetrospectiveIdentityClaim }
   | { kind: 'corrupt'; reason: string };
+
+type ClaimFileReadResult = Exclude<ClaimReadResult, { kind: 'creating' }>;
 
 type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'missing';
 
@@ -121,10 +124,10 @@ interface RowLocation {
 const ENSURE_IDENTITY_SCAN_ATTEMPTS = 3;
 
 /**
- * phase 1920: loser 读 claim 的半写窗口退让预算。O_EXCL 先发布路径再完成内容写，
- * live winner 的在途写入需要有限时间落笔——无延迟的立即重读在高负载下会耗尽预算、
- * 把正常并发误判为 indeterminate。解析失败带微延迟重读；超过预算仍不可解析
- * = 崩溃半写/真损坏，维持 fail-closed。
+ * Phase 2155 Step B5: creating marker 尚无 intent、或 legacy claim 半写时的
+ * 有界观察预算。新 writer 的 intent/final 均 writeAtomic，路径首次可见即完整；
+ * creating 不再被归为 absent/corrupt，超过预算仍无 intent 则 indeterminate，
+ * 保留 marker 供人工恢复，绝不按时间自动删除或另建身份。
  */
 const CLAIM_STABLE_READ_ATTEMPTS = 8;
 const CLAIM_STABLE_READ_DELAY_MS = 5;
@@ -174,25 +177,15 @@ export class RetrospectiveStore {
    * identity (v2); existing v1 rows are matched read-only by (contractId,
    * executor) and never rewritten.
    *
-   * Phase 1902 Step C: 首次注册改为 writeExclusive (O_EXCL) 磁盘裁决。
+   * Phase 2155 Step B5：claims/<id>.creating/ 的原子 mkdir 取得身份创建权；
+   * creator 先原子写 intent.json，再原子发布 final claim，最后清理 marker。
+   * loser 可将 creating/intent 恢复为 final，但绝不把 creating 当 absent/corrupt
+   * 或另建 task identity。row 只由 final/intent 中的稳定身份发布。
    *
-   * Phase 1904 Step C（RACE-RETRO-LIFECYCLE-CLAIM 治理）：路径级 O_EXCL 在
-   * winner row 被 move 腾空后会失效，因此身份裁决迁到不随 lifecycle move 的
-   * 稳定 claim（claims/<contractId>.json，O_EXCL 创建）。row 只由 ensure 以
-   * claim 身份写入，lifecycle move 不复制身份，故 beginDispatch/markSubmitted/
-   * recovery 消费的 row 身份在创建点已被仲裁，无需重复校验。
-   *
-   * 提交协议与崩溃矩阵（claim 先行、row 后发布）：
-   * - crash before claim：无事实；下次 ensure 重新裁决。
-   * - crash during claim write（半写/空 claim）：loser 有限重读后仍不可解析
-   *   → fail-closed 保留证据，绝不覆盖。
-   * - crash after claim, before row：claim 为唯一身份事实；下次 ensure 由
-   *   claim 重建 ready row（RETRO_CLAIM_ROW_REBUILT），身份不变。
-   * - crash after row, before committed audit：row+claim 一致；下次 ensure
-   *   replay，不补发 committed（宁可少一条 audit，不多一条身份事实）。
-   * - 旧数据（无 claim 的 v1/v2 row）：首次 ensure 观察时一次性 O_EXCL 补建
-   *   claim（RETRO_CLAIM_BACKFILLED）；并发补建 EEXIST 后重读比较，冲突
-   *   保留证据并 fail-closed。
+   * 崩溃矩阵：marker 后无 intent → 有界观察后 indeterminate 并保留人工恢复
+   * 证据；intent 后无 final → 由 intent 完成发布；final 后无 row → 重建 ready
+   * row；row 后无 committed audit → replay 不补发，避免重复身份事实。legacy
+   * final/row 保持只读兼容，迁移不得覆盖既有 final。
    */
   async ensure(input: EnsureRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
     await this.ensureDirs();
@@ -202,6 +195,12 @@ export class RetrospectiveStore {
       // replay 路径也核对/补建稳定 claim（旧 row 的一次性迁移点）。
       await this._reconcileClaimWithRow(input, resolved);
       return resolved;
+    }
+
+    // 在生成随机身份前先观察 final/creating：恢复只采用已持久化身份。
+    const observed = await this._readClaimStable(input.contractId);
+    if (observed.kind !== 'absent') {
+      return this._resolveClaimObservation(input, observed);
     }
 
     const createdAt = new Date().toISOString();
@@ -214,12 +213,18 @@ export class RetrospectiveStore {
       created_at: createdAt,
     };
 
-    // 稳定 claim 是身份的唯一原子创建点；row 腾空的 ready 路径不再充当裁决。
+    // 目录 mkdir 是身份创建权的唯一原子裁决点；final JSON 不再承担锁语义。
     try {
-      await this.fs.writeExclusive(this._claimPath(input.contractId), JSON.stringify(claim, null, 2));
+      this.fs.mkdirExclusiveSync(this._claimCreatingPath(input.contractId));
     } catch (err) {
       if (!isAlreadyExists(err)) throw err;
       return this._resolveClaimRace(input);
+    }
+
+    const publication = await this._publishNewClaim(claim);
+    if (!publication.created) {
+      // 旧 final claim 已在 marker 裁决前存在：采用其身份，绝不写入候选身份。
+      return this._resolveRowFromClaim(input, publication.claim);
     }
 
     // claim 裁决成功 —— 以 claim 身份发布 ready row。
@@ -247,45 +252,91 @@ export class RetrospectiveStore {
     return { taskId, createdAt };
   }
 
-  /**
-   * Phase 1904 Step C: claim O_EXCL 败者路径。读取 winner claim 并比较
-   * producer input；winner row 未发布（崩溃窗口）时以 claim 身份重建。
-   */
+  /** marker EEXIST 败者路径：final 优先；creating 只能由 intent 恢复或显式 indeterminate。 */
   private async _resolveClaimRace(input: EnsureRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
-    const read = await this._readClaimStable(input.contractId);
-    if (read.kind !== 'ok') {
-      // EEXIST 已证明 claim 存在过；读不到有效内容 = 半写/损坏/消失，fail-closed。
-      const detail = read.kind === 'corrupt' ? `is corrupt (${read.reason})` : 'vanished after exclusive conflict';
-      this.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
-        `contractId=${input.contractId}`,
-        `state=claims`,
-        `reason=ensure_claim_indeterminate`,
-      );
-      throw new Error(
-        `Retrospective registration for ${input.contractId} is indeterminate: ` +
-        `exclusive create conflicted but claim ${detail}`,
-      );
+    return this._resolveClaimObservation(input, await this._readClaimStable(input.contractId));
+  }
+
+  private async _resolveClaimObservation(
+    input: EnsureRetrospectiveInput,
+    read: ClaimReadResult,
+  ): Promise<RegisterRetrospectiveResult> {
+    if (read.kind === 'ok') {
+      await this._cleanupClaimMarker(input.contractId);
+      return this._resolveRowFromClaim(input, read.claim);
+    }
+    if (read.kind === 'creating' && read.intent) {
+      this._assertClaimMatchesInput(input, read.intent);
+      await this._publishFinalClaim(read.intent);
+      await this._cleanupClaimMarker(input.contractId);
+      return this._resolveRowFromClaim(input, read.intent);
     }
 
-    const winnerClaim = read.claim;
-    if (winnerClaim.target_executor_id !== input.targetExecutorId) {
-      this.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
-        `contractId=${input.contractId}`,
-        `state=claims`,
-        `reason=producer_input_mismatch`,
-      );
-      throw new Error(`Retrospective registration conflict for ${input.contractId}`);
+    const detail = read.kind === 'corrupt'
+      ? `is corrupt (${read.reason})`
+      : read.kind === 'creating'
+        ? 'is still creating without a readable intent'
+        : 'vanished after exclusive conflict';
+    if (read.kind === 'corrupt') this._auditClaimCorrupt(input.contractId, read.reason);
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+      `contractId=${input.contractId}`,
+      `state=claims`,
+      `reason=ensure_claim_indeterminate`,
+    );
+    throw new Error(
+      `Retrospective registration for ${input.contractId} is indeterminate: claim ${detail}`,
+    );
+  }
+
+  /**
+   * marker 持有者的发布路径。若 legacy final 已存在则只采用、不覆盖；否则依次
+   * 原子发布 intent/final。任何写失败都保留当前阶段证据供下次 ensure 恢复。
+   */
+  private async _publishNewClaim(
+    claim: RetrospectiveIdentityClaim,
+  ): Promise<{ claim: RetrospectiveIdentityClaim; created: boolean }> {
+    const existing = await this._readClaimFile(this._claimPath(claim.contract_id), claim.contract_id);
+    if (existing.kind === 'ok') {
+      await this._cleanupClaimMarker(claim.contract_id);
+      return { claim: existing.claim, created: false };
+    }
+    if (existing.kind === 'corrupt') {
+      this._auditClaimCorrupt(claim.contract_id, existing.reason);
+      throw new Error(`Retrospective claim for ${claim.contract_id} exists but is corrupt`);
     }
 
+    const serialized = JSON.stringify(claim, null, 2);
+    await this.fs.writeAtomic(this._claimIntentPath(claim.contract_id), serialized);
+    await this.fs.writeAtomic(this._claimPath(claim.contract_id), serialized);
+    await this._cleanupClaimMarker(claim.contract_id);
+    return { claim, created: true };
+  }
+
+  /** creating/intent 恢复：final 若已被其他恢复者发布，必须逐字段同身份。 */
+  private async _publishFinalClaim(claim: RetrospectiveIdentityClaim): Promise<void> {
+    const existing = await this._readClaimFile(this._claimPath(claim.contract_id), claim.contract_id);
+    if (existing.kind === 'corrupt') {
+      this._auditClaimCorrupt(claim.contract_id, existing.reason);
+      throw new Error(`Retrospective claim for ${claim.contract_id} exists but is corrupt`);
+    }
+    if (existing.kind === 'ok') {
+      this._assertSameClaim(claim, existing.claim);
+      return;
+    }
+    await this.fs.writeAtomic(this._claimPath(claim.contract_id), JSON.stringify(claim, null, 2));
+  }
+
+  private async _resolveRowFromClaim(
+    input: EnsureRetrospectiveInput,
+    winnerClaim: RetrospectiveIdentityClaim,
+  ): Promise<RegisterRetrospectiveResult> {
+    this._assertClaimMatchesInput(input, winnerClaim);
     const existing = await this._resolveExistingIdentity(input, true);
     if (existing) {
-      // row 已发布 —— 必须与 winner claim 同一身份。
       return this._assertRowMatchesClaim(input, existing, winnerClaim);
     }
 
-    // 崩溃窗口：claim 已提交、row 从未发布 —— 以 claim 身份重建 ready row。
     const row: RetrospectiveWorkItemV2 = {
       schema_version: 2,
       contract_id: input.contractId,
@@ -320,6 +371,33 @@ export class RetrospectiveStore {
     return { taskId: winnerClaim.task_id, createdAt: winnerClaim.created_at };
   }
 
+  private _assertClaimMatchesInput(input: EnsureRetrospectiveInput, claim: RetrospectiveIdentityClaim): void {
+    if (claim.contract_id === input.contractId && claim.target_executor_id === input.targetExecutorId) return;
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
+      `contractId=${input.contractId}`,
+      `state=claims`,
+      `reason=producer_input_mismatch`,
+    );
+    throw new Error(`Retrospective registration conflict for ${input.contractId}`);
+  }
+
+  private _assertSameClaim(expected: RetrospectiveIdentityClaim, actual: RetrospectiveIdentityClaim): void {
+    if (
+      expected.contract_id === actual.contract_id &&
+      expected.task_id === actual.task_id &&
+      expected.target_executor_id === actual.target_executor_id &&
+      expected.created_at === actual.created_at
+    ) return;
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
+      `contractId=${expected.contract_id}`,
+      `state=claims`,
+      `reason=claim_identity_mismatch`,
+    );
+    throw new Error(`Retrospective claim identity mismatch for ${expected.contract_id}`);
+  }
+
   /** claim 裁决成功后 ready row O_EXCL 败者路径：重读并校验与本 claim 一致。 */
   private async _replayRowAgainstClaim(
     input: EnsureRetrospectiveInput,
@@ -344,9 +422,8 @@ export class RetrospectiveStore {
       target_executor_id: input.targetExecutorId,
       created_at: claimIdentity.createdAt,
     });
-    // phase 1920：row 被同身份并发重建者抢先发布时，注册事实上仍由本 claim 代数提交。
-    // 只有 claim O_EXCL 创建者能到达本路径（claim 永不删除、每 contract 至多创建一次），
-    // 故恰好一次的 committed 登记在此补发，不多发、不缺席。
+    // row 被同身份并发重建者抢先发布时，注册事实上仍由本 claim 代数提交。
+    // 只有 creating marker 创建者能到达本路径，故 committed 恰好补发一次。
     this.audit.write(
       RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED,
       `contractId=${input.contractId}`,
@@ -378,31 +455,17 @@ export class RetrospectiveStore {
     return row;
   }
 
-  /**
-   * Phase 1904 Step C: replay 路径的 claim↔row 一致性核对与旧数据一次性迁移。
-   * claim 缺失时以 row 身份 O_EXCL 补建（迁移只有一次，并发补建 EEXIST 后重读
-   * 比较）；claim 存在时必须与 row 身份一致，冲突/损坏保留证据并 fail-closed。
-   */
+  /** replay 的 claim↔row 核对，以及旧 row 经同一 creating/intent/final 协议补建。 */
   private async _reconcileClaimWithRow(
     input: EnsureRetrospectiveInput,
     row: RegisterRetrospectiveResult,
   ): Promise<void> {
     const read = await this._readClaimStable(input.contractId);
-    if (read.kind === 'ok') {
-      this._assertRowMatchesClaim(input, row, read.claim);
+    if (read.kind !== 'absent') {
+      await this._reconcileClaimObservation(input, row, read);
       return;
     }
-    if (read.kind === 'corrupt') {
-      this.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
-        `contractId=${input.contractId}`,
-        `state=claims`,
-        `reason=claim_${read.reason}`,
-      );
-      throw new Error(`Retrospective claim for ${input.contractId} exists but is corrupt`);
-    }
 
-    // claim 缺失 = 旧数据（v1/v2 row）—— 以 row 身份一次性补建。
     const claim: RetrospectiveIdentityClaim = {
       schema_version: 1,
       contract_id: input.contractId,
@@ -411,90 +474,167 @@ export class RetrospectiveStore {
       created_at: row.createdAt,
     };
     try {
-      await this.fs.writeExclusive(this._claimPath(input.contractId), JSON.stringify(claim, null, 2));
+      this.fs.mkdirExclusiveSync(this._claimCreatingPath(input.contractId));
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+      await this._reconcileClaimObservation(input, row, await this._readClaimStable(input.contractId));
+      return;
+    }
+
+    const publication = await this._publishNewClaim(claim);
+    this._assertRowMatchesClaim(input, row, publication.claim);
+    if (publication.created) {
       this.audit.write(
         RETRO_AUDIT_EVENTS.RETRO_CLAIM_BACKFILLED,
         `contractId=${input.contractId}`,
         `taskId=${row.taskId}`,
       );
-    } catch (err) {
-      if (!isAlreadyExists(err)) throw err;
-      const reread = await this._readClaimStable(input.contractId);
-      if (reread.kind !== 'ok') {
-        this.audit.write(
-          RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
-          `contractId=${input.contractId}`,
-          `state=claims`,
-          `reason=claim_backfill_race_unreadable`,
-        );
-        throw new Error(`Retrospective claim for ${input.contractId} exists but is corrupt`);
-      }
-      this._assertRowMatchesClaim(input, row, reread.claim);
     }
+  }
+
+  private async _reconcileClaimObservation(
+    input: EnsureRetrospectiveInput,
+    row: RegisterRetrospectiveResult,
+    read: ClaimReadResult,
+  ): Promise<void> {
+    if (read.kind === 'ok') {
+      this._assertRowMatchesClaim(input, row, read.claim);
+      await this._cleanupClaimMarker(input.contractId);
+      return;
+    }
+    if (read.kind === 'creating' && read.intent) {
+      this._assertRowMatchesClaim(input, row, read.intent);
+      await this._publishFinalClaim(read.intent);
+      await this._cleanupClaimMarker(input.contractId);
+      return;
+    }
+    if (read.kind === 'corrupt') {
+      this._auditClaimCorrupt(input.contractId, read.reason);
+      throw new Error(`Retrospective claim for ${input.contractId} exists but is corrupt`);
+    }
+
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+      `contractId=${input.contractId}`,
+      `state=claims`,
+      `reason=claim_backfill_indeterminate`,
+    );
+    throw new Error(`Retrospective claim for ${input.contractId} is indeterminate`);
   }
 
   private _claimPath(contractId: ContractId): string {
     return `${CLAIMS_DIR}/${contractId}.json`;
   }
 
+  private _claimCreatingPath(contractId: ContractId): string {
+    return `${CLAIMS_DIR}/${contractId}.creating`;
+  }
+
+  private _claimIntentPath(contractId: ContractId): string {
+    return `${this._claimCreatingPath(contractId)}/intent.json`;
+  }
+
+  private _auditClaimCorrupt(contractId: ContractId, reason: string): void {
+    this.audit.write(
+      RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
+      `contractId=${contractId}`,
+      `state=claims`,
+      `reason=claim_${reason}`,
+    );
+  }
+
+  /** final 已提交后清理仅为收敛；失败不影响身份，单独审计并保留现场。 */
+  private async _cleanupClaimMarker(contractId: ContractId): Promise<void> {
+    try {
+      await this.fs.removeDir(this._claimCreatingPath(contractId));
+    } catch (err) {
+      this.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED,
+        `contractId=${contractId}`,
+        `state=claims`,
+        `reason=claim_marker_cleanup_failed`,
+        `error=${formatErr(err)}`,
+      );
+    }
+  }
+
   /**
-   * Phase 1904 Step C: 读取稳定 claim。writeExclusive 先发布路径再完成内容写，
-   * loser 可能读到半写 JSON —— 解析失败带微延迟有限重读（phase 1920：退让给
-   * 在途写入落笔时间）；schema 不符 / 超预算 = corrupt。
+   * final → creating/intent 的 typed 观察。final 缺失且 marker 也缺失时重读
+   * final，关闭「final 发布后、marker 清理前」被误判 absent 的窗口。
+   * legacy final 的 invalid_json 保留有界退让；永久损坏原样保留并 fail-closed。
    */
   private async _readClaimStable(contractId: ContractId): Promise<ClaimReadResult> {
-    const path = this._claimPath(contractId);
+    let last: ClaimReadResult = { kind: 'absent' };
     for (let attempt = 0; attempt < CLAIM_STABLE_READ_ATTEMPTS; attempt++) {
-      let raw: string;
-      try {
-        raw = await this.fs.read(path);
-      } catch (err) {
-        if (isFileNotFound(err)) return { kind: 'absent' };
-        throw err;
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        // 半写窗口 —— 退让后重读（live writer 有限时间内落笔；崩溃半写最终 fail-closed）
-        if (attempt + 1 < CLAIM_STABLE_READ_ATTEMPTS) {
-          await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_STABLE_READ_DELAY_MS); });
+      const final = await this._readClaimFile(this._claimPath(contractId), contractId);
+      if (final.kind === 'ok') return final;
+      if (final.kind === 'corrupt') {
+        last = final;
+        if (final.reason !== 'invalid_json') return final;
+      } else {
+        if (!(await this.fs.exists(this._claimCreatingPath(contractId)))) {
+          const recheck = await this._readClaimFile(this._claimPath(contractId), contractId);
+          return recheck.kind === 'absent' ? { kind: 'absent' } : recheck;
         }
-        continue;
+        const intent = await this._readClaimFile(this._claimIntentPath(contractId), contractId);
+        if (intent.kind === 'corrupt') {
+          return { kind: 'corrupt', reason: `intent_${intent.reason}` };
+        }
+        last = intent.kind === 'ok'
+          ? { kind: 'creating', intent: intent.claim }
+          : { kind: 'creating' };
       }
-      if (parsed === null || typeof parsed !== 'object') {
-        return { kind: 'corrupt', reason: 'not_an_object' };
+      if (attempt + 1 < CLAIM_STABLE_READ_ATTEMPTS) {
+        await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_STABLE_READ_DELAY_MS); });
       }
-      const r = parsed as Record<string, unknown>;
-      if (r.schema_version !== 1) {
-        return { kind: 'corrupt', reason: 'unsupported_version' };
-      }
-      if (
-        typeof r.contract_id !== 'string' ||
-        typeof r.task_id !== 'string' ||
-        typeof r.target_executor_id !== 'string' ||
-        typeof r.created_at !== 'string'
-      ) {
-        return { kind: 'corrupt', reason: 'missing_required_fields' };
-      }
-      // Phase 1908 Step C: 路径 key 与内容 identity 绑定 —— 路径 A 的 claim
-      // 携带 contract B 的内容一律 fail-closed（RACE-RETRO-CLAIM-PATH-IDENTITY）。
-      if (r.contract_id !== contractId) {
-        return { kind: 'corrupt', reason: 'path_identity_mismatch' };
-      }
-      return {
-        kind: 'ok',
-        claim: {
-          schema_version: 1,
-          contract_id: makeContractId(r.contract_id),
-          task_id: adoptLegacyFullTaskId(r.task_id),
-          target_executor_id: r.target_executor_id,
-          created_at: r.created_at,
-        },
-      };
     }
-    return { kind: 'corrupt', reason: 'invalid_json' };
+    return last;
+  }
+
+  private async _readClaimFile(path: string, contractId: ContractId): Promise<ClaimFileReadResult> {
+    let raw: string;
+    try {
+      raw = await this.fs.read(path);
+    } catch (err) {
+      if (isFileNotFound(err)) return { kind: 'absent' };
+      throw err;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // silent: 解析失败转换为 typed corrupt，由调用方审计并 fail-closed。
+      return { kind: 'corrupt', reason: 'invalid_json' };
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      return { kind: 'corrupt', reason: 'not_an_object' };
+    }
+    const r = parsed as Record<string, unknown>;
+    if (r.schema_version !== 1) {
+      return { kind: 'corrupt', reason: 'unsupported_version' };
+    }
+    if (
+      typeof r.contract_id !== 'string' ||
+      typeof r.task_id !== 'string' ||
+      typeof r.target_executor_id !== 'string' ||
+      typeof r.created_at !== 'string'
+    ) {
+      return { kind: 'corrupt', reason: 'missing_required_fields' };
+    }
+    if (r.contract_id !== contractId) {
+      return { kind: 'corrupt', reason: 'path_identity_mismatch' };
+    }
+    return {
+      kind: 'ok',
+      claim: {
+        schema_version: 1,
+        contract_id: makeContractId(r.contract_id),
+        task_id: adoptLegacyFullTaskId(r.task_id),
+        target_executor_id: r.target_executor_id,
+        created_at: r.created_at,
+      },
+    };
   }
 
   /**

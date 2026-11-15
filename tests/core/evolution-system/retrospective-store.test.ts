@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { rmSync, mkdirSync, writeFileSync, existsSync, promises as fsp } from 'node:fs';
+import { rmSync, mkdirSync, writeFileSync, existsSync, renameSync, promises as fsp } from 'node:fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import {
@@ -387,19 +387,23 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
       created_at: '2026-01-01T00:00:00.000Z',
     });
 
-    // 屏障：L 初扫三态为空后，W 建 claim、写 ready row 并 move 到 dispatching
-    // （RACE-RETRO-LIFECYCLE-CLAIM 的原交错）；随后 L 的 claim O_EXCL 真实失败。
+    // 屏障：L 初扫三态为空后，W 建 final claim、写 ready row 并 move 到
+    // dispatching；L 取得 marker 后必须采用 final，而不是覆盖 W 的身份。
     class WinnerClaimedAndMovedFs extends NodeFileSystem {
       private barrierArmed = true;
-      override async writeExclusive(p: string, content: string): Promise<void> {
-        if (this.barrierArmed && p.startsWith(CLAIMS_DIR)) {
+      override mkdirExclusiveSync(p: string): string {
+        if (this.barrierArmed && p === `${CLAIMS_DIR}/${input.contractId}.creating`) {
           this.barrierArmed = false;
-          await super.writeAtomic(p, winnerClaim);
-          const winnerReadyPath = p.replace(CLAIMS_DIR, READY_DIR);
-          await super.writeAtomic(winnerReadyPath, winnerRow);
-          await super.move(winnerReadyPath, winnerReadyPath.replace(READY_DIR, DISPATCHING_DIR));
+          const finalPath = `${CLAIMS_DIR}/${input.contractId}.json`;
+          writeFileSync(path.join(baseDir, finalPath), winnerClaim);
+          const winnerReadyPath = `${READY_DIR}/${input.contractId}.json`;
+          writeFileSync(path.join(baseDir, winnerReadyPath), winnerRow);
+          renameSync(
+            path.join(baseDir, winnerReadyPath),
+            path.join(baseDir, winnerReadyPath.replace(READY_DIR, DISPATCHING_DIR)),
+          );
         }
-        return super.writeExclusive(p, content);
+        return super.mkdirExclusiveSync(p);
       }
     }
 
@@ -596,13 +600,13 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
     const input = makeInput();
 
     class PhantomClaimFs extends NodeFileSystem {
-      override async writeExclusive(p: string, content: string): Promise<void> {
-        if (p.startsWith(CLAIMS_DIR)) {
-          const err = new Error('file already exists') as NodeJS.ErrnoException;
+      override mkdirExclusiveSync(p: string): string {
+        if (p === `${CLAIMS_DIR}/${input.contractId}.creating`) {
+          const err = new Error('directory already exists') as NodeJS.ErrnoException;
           err.code = 'EEXIST';
           throw err;
         }
-        return super.writeExclusive(p, content);
+        return super.mkdirExclusiveSync(p);
       }
     }
 
@@ -629,6 +633,248 @@ describe('RetrospectiveStore.ensure concurrency (Phase 1902 Step C)', () => {
 
     const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
     expect(committedEvents).toHaveLength(1);
+  });
+
+  it('loser observes creating intent and completes publication without a second identity or corrupt audit (Phase 2155 B5)', async () => {
+    const input = makeInput();
+    const winnerTaskId = makeFullTaskId('00000000-0000-0000-0000-0000000000a5');
+    const intentPath = `${CLAIMS_DIR}/${input.contractId}.creating/intent.json`;
+    let releaseIntent!: () => void;
+    let signalIntent!: () => void;
+    const intentHeld = new Promise<void>((resolve) => { releaseIntent = resolve; });
+    const intentPublished = new Promise<void>((resolve) => { signalIntent = resolve; });
+
+    class CreatingBarrierFs extends NodeFileSystem {
+      private armed = true;
+      override async writeAtomic(p: string, content: string) {
+        if (this.armed && p === intentPath) {
+          this.armed = false;
+          const result = await super.writeAtomic(p, content);
+          signalIntent();
+          await intentHeld;
+          return result;
+        }
+        return super.writeAtomic(p, content);
+      }
+    }
+
+    const rigged = new CreatingBarrierFs({ baseDir });
+    const winnerStore = new RetrospectiveStore({
+      fs: rigged,
+      audit: audit.audit,
+      generateTaskId: () => winnerTaskId,
+    });
+    const loserStore = new RetrospectiveStore({
+      fs: rigged,
+      audit: audit.audit,
+      generateTaskId: () => { throw new Error('loser must not generate a second task id'); },
+    });
+
+    const winner = winnerStore.ensure(input);
+    await intentPublished;
+    expect(await fs.exists(intentPath)).toBe(true);
+    expect(await fs.exists(`${CLAIMS_DIR}/${input.contractId}.json`)).toBe(false);
+
+    // creator 仍暂停在 intent 返回前；loser 必须凭 creating/intent 完成 final+row。
+    const loser = await loserStore.ensure(input);
+    expect(loser.taskId).toBe(winnerTaskId);
+    releaseIntent();
+    const won = await winner;
+    expect(won.taskId).toBe(winnerTaskId);
+    expect(won.createdAt).toBe(loser.createdAt);
+
+    expect(await fs.list(READY_DIR, { includeDirs: false })).toHaveLength(1);
+    expect(await fs.exists(`${CLAIMS_DIR}/${input.contractId}.creating`)).toBe(false);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT)).toEqual([]);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toHaveLength(1);
+  });
+
+  it('crash after marker but before intent stays creating/indeterminate and preserves evidence', async () => {
+    const input = makeInput();
+    const marker = `${CLAIMS_DIR}/${input.contractId}.creating`;
+    const intent = `${marker}/intent.json`;
+
+    class CrashBeforeIntentFs extends NodeFileSystem {
+      override async writeAtomic(p: string, content: string) {
+        if (p === intent) throw new Error('simulated crash before intent');
+        return super.writeAtomic(p, content);
+      }
+    }
+    const crashed = new RetrospectiveStore({
+      fs: new CrashBeforeIntentFs({ baseDir }),
+      audit: audit.audit,
+      generateTaskId: () => makeFullTaskId('00000000-0000-0000-0000-0000000000b5'),
+    });
+    await expect(crashed.ensure(input)).rejects.toThrow(/simulated crash/);
+
+    const retry = new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => { throw new Error('creating marker must not mint another task id'); },
+    });
+    await expect(retry.ensure(input)).rejects.toThrow(/indeterminate/);
+    expect(await fs.exists(marker)).toBe(true);
+    expect(await fs.exists(intent)).toBe(false);
+    expect(await fs.exists(`${CLAIMS_DIR}/${input.contractId}.json`)).toBe(false);
+    expect(existsSync(path.join(baseDir, `${READY_DIR}/${input.contractId}.json`))).toBe(false);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toEqual([]);
+  });
+
+  it('recovers from a crash after atomic intent but before final claim', async () => {
+    const input = makeInput();
+    const taskId = makeFullTaskId('00000000-0000-0000-0000-0000000000c5');
+    const marker = `${CLAIMS_DIR}/${input.contractId}.creating`;
+    const intent = `${marker}/intent.json`;
+
+    class CrashAfterIntentFs extends NodeFileSystem {
+      private armed = true;
+      override async writeAtomic(p: string, content: string) {
+        if (this.armed && p === intent) {
+          this.armed = false;
+          await super.writeAtomic(p, content);
+          throw new Error('simulated crash after intent');
+        }
+        return super.writeAtomic(p, content);
+      }
+    }
+    const crashed = new RetrospectiveStore({
+      fs: new CrashAfterIntentFs({ baseDir }),
+      audit: audit.audit,
+      generateTaskId: () => taskId,
+    });
+    await expect(crashed.ensure(input)).rejects.toThrow(/simulated crash after intent/);
+    expect(await fs.exists(intent)).toBe(true);
+    expect(await fs.exists(`${CLAIMS_DIR}/${input.contractId}.json`)).toBe(false);
+
+    const retry = new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => { throw new Error('intent recovery must not generate a task id'); },
+    });
+    const recovered = await retry.ensure(input);
+    expect(recovered.taskId).toBe(taskId);
+    expect(JSON.parse(await fs.read(`${CLAIMS_DIR}/${input.contractId}.json`)).task_id).toBe(taskId);
+    expect(JSON.parse(await fs.read(`${READY_DIR}/${input.contractId}.json`)).task_id).toBe(taskId);
+    expect(await fs.exists(marker)).toBe(false);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_ROW_REBUILT)).toHaveLength(1);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toEqual([]);
+  });
+
+  it('recovers when atomic final claim write fails after intent', async () => {
+    const input = makeInput();
+    const taskId = makeFullTaskId('00000000-0000-0000-0000-0000000000d5');
+    const final = `${CLAIMS_DIR}/${input.contractId}.json`;
+
+    class FinalWriteFailsFs extends NodeFileSystem {
+      override async writeAtomic(p: string, content: string) {
+        if (p === final) throw new Error('simulated final write failure');
+        return super.writeAtomic(p, content);
+      }
+    }
+    const crashed = new RetrospectiveStore({
+      fs: new FinalWriteFailsFs({ baseDir }),
+      audit: audit.audit,
+      generateTaskId: () => taskId,
+    });
+    await expect(crashed.ensure(input)).rejects.toThrow(/simulated final write failure/);
+    expect(await fs.exists(`${CLAIMS_DIR}/${input.contractId}.creating/intent.json`)).toBe(true);
+    expect(await fs.exists(final)).toBe(false);
+
+    const recovered = await new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => { throw new Error('failed final write must recover from intent'); },
+    }).ensure(input);
+    expect(recovered.taskId).toBe(taskId);
+    expect(JSON.parse(await fs.read(final)).task_id).toBe(taskId);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toEqual([]);
+  });
+
+  it('final claim wins after a crash before row and stale marker cleanup', async () => {
+    const input = makeInput();
+    const taskId = makeFullTaskId('00000000-0000-0000-0000-0000000000e5');
+    const final = `${CLAIMS_DIR}/${input.contractId}.json`;
+    const marker = `${CLAIMS_DIR}/${input.contractId}.creating`;
+
+    class CrashAfterFinalFs extends NodeFileSystem {
+      private armed = true;
+      override async writeAtomic(p: string, content: string) {
+        if (this.armed && p === final) {
+          this.armed = false;
+          await super.writeAtomic(p, content);
+          throw new Error('simulated crash after final');
+        }
+        return super.writeAtomic(p, content);
+      }
+    }
+    const crashed = new RetrospectiveStore({
+      fs: new CrashAfterFinalFs({ baseDir }),
+      audit: audit.audit,
+      generateTaskId: () => taskId,
+    });
+    await expect(crashed.ensure(input)).rejects.toThrow(/simulated crash after final/);
+    const finalEvidence = await fs.read(final);
+    expect(await fs.exists(marker)).toBe(true);
+    expect(existsSync(path.join(baseDir, `${READY_DIR}/${input.contractId}.json`))).toBe(false);
+
+    const recovered = await new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => { throw new Error('final recovery must not generate a task id'); },
+    }).ensure(input);
+    expect(recovered.taskId).toBe(taskId);
+    expect(await fs.read(final)).toBe(finalEvidence);
+    expect(await fs.exists(marker)).toBe(false);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_CLAIM_ROW_REBUILT)).toHaveLength(1);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toEqual([]);
+  });
+
+  it('audits marker cleanup failure separately and replays without duplicate committed audit', async () => {
+    const input = makeInput();
+    const marker = `${CLAIMS_DIR}/${input.contractId}.creating`;
+
+    class CleanupFailsFs extends NodeFileSystem {
+      override async removeDir(p: string): Promise<void> {
+        if (p === marker) throw new Error('simulated marker cleanup failure');
+        return super.removeDir(p);
+      }
+    }
+    const cleanupStore = new RetrospectiveStore({
+      fs: new CleanupFailsFs({ baseDir }),
+      audit: audit.audit,
+      generateTaskId: () => makeFullTaskId('00000000-0000-0000-0000-0000000000f5'),
+    });
+    const first = await cleanupStore.ensure(input);
+    expect(await fs.exists(marker)).toBe(true);
+    expect(audit.events.some(e =>
+      e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED && e.includes('reason=claim_marker_cleanup_failed'),
+    )).toBe(true);
+
+    const second = await store.ensure(input);
+    expect(second).toEqual(first);
+    expect(await fs.exists(marker)).toBe(false);
+    expect(audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED)).toHaveLength(1);
+  });
+
+  it('permanently corrupt intent is preserved and never treated as absent', async () => {
+    const input = makeInput();
+    const marker = `${CLAIMS_DIR}/${input.contractId}.creating`;
+    const intent = `${marker}/intent.json`;
+    await fs.ensureDir(marker);
+    await fs.writeAtomic(intent, 'not-json');
+
+    const observing = new RetrospectiveStore({
+      fs,
+      audit: audit.audit,
+      generateTaskId: () => { throw new Error('corrupt intent must not mint a task id'); },
+    });
+    await expect(observing.ensure(input)).rejects.toThrow(/indeterminate/);
+    expect(await fs.read(intent)).toBe('not-json');
+    expect(await fs.exists(`${CLAIMS_DIR}/${input.contractId}.json`)).toBe(false);
+    expect(existsSync(path.join(baseDir, `${READY_DIR}/${input.contractId}.json`))).toBe(false);
+    expect(audit.events.some(e =>
+      e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_READ_FAILED && e.includes('reason=ensure_claim_indeterminate'),
+    )).toBe(true);
   });
 
 });
@@ -862,13 +1108,13 @@ describe('RetrospectiveStore claim identity binding (Phase 1908 Step C)', () => 
     const input = makeInput();
     await writeReadyRow(input.contractId, {});
 
-    // 并发补建竞赛：loser 的 O_EXCL 之前 winner 写入异身份 claim
+    // 并发补建竞赛：loser 的 marker mkdir 之前 winner 写入异身份 final claim
     class BackfillRaceFs extends NodeFileSystem {
       private armed = true;
-      override async writeExclusive(p: string, content: string): Promise<void> {
-        if (this.armed && p.startsWith(CLAIMS_DIR)) {
+      override mkdirExclusiveSync(p: string): string {
+        if (this.armed && p === `${CLAIMS_DIR}/${input.contractId}.creating`) {
           this.armed = false;
-          await super.writeAtomic(p, JSON.stringify({
+          writeFileSync(path.join(baseDir, `${CLAIMS_DIR}/${input.contractId}.json`), JSON.stringify({
             schema_version: 1,
             contract_id: input.contractId,
             task_id: '00000000-0000-0000-0000-000000000099',
@@ -876,7 +1122,7 @@ describe('RetrospectiveStore claim identity binding (Phase 1908 Step C)', () => 
             created_at: '2026-01-01T00:00:00.000Z',
           }));
         }
-        return super.writeExclusive(p, content);
+        return super.mkdirExclusiveSync(p);
       }
     }
 
