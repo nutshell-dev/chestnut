@@ -34,6 +34,15 @@ export type {
 } from './motion-guidance.js';
 export {
   computeForumStatusView,
+  mapProcessStartTimeToUptime,
+} from './forum-aggregators.js';
+export type {
+  ActiveClawView,
+  ForumStatusDeps,
+  ForumStatusView,
+  ProcessUptimeUnavailableReason,
+  ProcessUptimeView,
+  SystemComponentView,
 } from './forum-aggregators.js';
 export { formatForumStatusView } from './forum-formatter.js';
 

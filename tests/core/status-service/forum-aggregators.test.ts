@@ -2,7 +2,7 @@
  * Forum-level aggregator tests — phase 1478 Step A.
  *
  * Covers:
- *   - computeProcessUptimeMs (parses lstart-style start strings)
+ *   - mapProcessStartTimeToUptime (typed fact to partial uptime view)
  *   - computeClawInboxUnread (counts inbox/pending files)
  *   - computeClawLastActivityAgoMs (tails audit.tsv)
  *   - computeForumStatusView (composite — system + active claws + orphans)
@@ -17,13 +17,26 @@ import { describe, it, expect, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import { computeForumStatusView, formatForumStatusView } from '../../../src/core/status-service/index.js';
-import { computeProcessUptimeMs, computeClawInboxUnread, computeClawLastActivityAgoMs, computeOrphans, type ForumStatusDeps } from '../../../src/core/status-service/forum-aggregators.js';
+import {
+  computeClawInboxUnread,
+  computeClawLastActivityAgoMs,
+  computeOrphans,
+  mapProcessStartTimeToUptime,
+  type ForumStatusDeps,
+  type ProcessUptimeView,
+} from '../../../src/core/status-service/forum-aggregators.js';
 import { humanizeUptime, humanizeAgo } from '../../../src/core/status-service/forum-formatter.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager, LivenessResult } from '../../../src/foundation/process-manager/index.js';
 import { absentLiveness, aliveLiveness } from '../../helpers/liveness-fixtures.js';
 import * as messaging from '../../../src/foundation/messaging/index.js';
-import { ProcessListUnavailable } from '../../../src/foundation/process-exec/index.js';
+import {
+  makeProcessStartTime,
+  ProcessListUnavailable,
+  type ProcessEvidence,
+  type ProcessStartTimeFact,
+  type ProcessStartTimeUnavailableReason,
+} from '../../../src/foundation/process-exec/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';
@@ -87,31 +100,61 @@ function makeFs(files: Record<string, string | Buffer>, dirs: Record<string, str
   } as unknown as FileSystem;
 }
 
-// ── computeProcessUptimeMs ──────────────────────────────────────────────────
+// ── mapProcessStartTimeToUptime ─────────────────────────────────────────────
 
-describe('computeProcessUptimeMs', () => {
+const EVIDENCE: ProcessEvidence = { version: 1, atMs: 1, facts: [{ source: 'status-fixture' }] };
+
+function availableFact(pid: number, startedAtMs: number): ProcessStartTimeFact {
+  return {
+    kind: 'available', pid, startedAtMs, precision: 'second', evidence: EVIDENCE,
+    startTime: makeProcessStartTime('Tue Nov 10 13:27:59 2026'),
+  };
+}
+
+function unavailableFact(
+  pid: number,
+  reason: ProcessStartTimeUnavailableReason,
+): ProcessStartTimeFact {
+  return { kind: 'unavailable', pid, reason, evidence: EVIDENCE };
+}
+
+function availableUptime(uptimeMs: number): ProcessUptimeView {
+  return { kind: 'available', uptimeMs, precision: 'second', evidence: EVIDENCE };
+}
+
+describe('mapProcessStartTimeToUptime', () => {
   const NOW = Date.parse('2026-05-30T14:00:00Z');
 
-  it('returns elapsed ms when getStartTime returns parseable string', () => {
-    const start = '2026-05-30T13:00:00Z';
-    const v = computeProcessUptimeMs(1234, NOW, () => start);
-    expect(v).toBe(3600_000);
+  it('computes finite uptime and preserves second precision and evidence', () => {
+    const fact = availableFact(1234, NOW - 3600_000);
+    expect(mapProcessStartTimeToUptime(fact, NOW)).toEqual({
+      kind: 'available', uptimeMs: 3600_000, precision: 'second', evidence: EVIDENCE,
+    });
   });
 
-  it('returns undefined when getStartTime returns undefined (PID gone)', () => {
-    const v = computeProcessUptimeMs(1234, NOW, () => undefined);
-    expect(v).toBeUndefined();
+  it('keeps a real zero uptime distinct from unavailable', () => {
+    expect(mapProcessStartTimeToUptime(availableFact(1234, NOW), NOW))
+      .toMatchObject({ kind: 'available', uptimeMs: 0 });
   });
 
-  it('returns undefined when start string is unparseable', () => {
-    const v = computeProcessUptimeMs(1234, NOW, () => 'not-a-date');
-    expect(v).toBeUndefined();
+  it('uses undefined only when no fact was queried', () => {
+    expect(mapProcessStartTimeToUptime(undefined, NOW)).toBeUndefined();
   });
 
-  it('returns undefined when start is in the future (clock skew)', () => {
-    const future = '2026-05-30T15:00:00Z';
-    const v = computeProcessUptimeMs(1234, NOW, () => future);
-    expect(v).toBeUndefined();
+  it.each([
+    'invalid_pid', 'pid_gone', 'unsupported_platform', 'permission_denied',
+    'timed_out', 'query_failed', 'empty', 'malformed',
+  ] as const)('preserves L1 unavailable reason %s and evidence', reason => {
+    expect(mapProcessStartTimeToUptime(unavailableFact(1234, reason), NOW)).toEqual({
+      kind: 'unavailable', reason, evidence: EVIDENCE,
+    });
+  });
+
+  it('distinguishes future start time from an invalid clock', () => {
+    expect(mapProcessStartTimeToUptime(availableFact(1234, NOW + 1), NOW))
+      .toEqual({ kind: 'unavailable', reason: 'future_start_time', evidence: EVIDENCE });
+    expect(mapProcessStartTimeToUptime(availableFact(1234, NOW), Number.NaN))
+      .toEqual({ kind: 'unavailable', reason: 'clock_invalid', evidence: EVIDENCE });
   });
 });
 
@@ -250,7 +293,7 @@ describe('computeForumStatusView', () => {
       claws?: string[];
       clawFs?: Record<string, FileSystem>;
       aliveMap?: Record<string, LivenessResult>;
-      startTimes?: Record<number, string>;
+      startTimeFacts?: Record<number, ProcessStartTimeFact>;
       audit?: AuditLog;
     } = {},
   ): ForumStatusDeps {
@@ -259,7 +302,7 @@ describe('computeForumStatusView', () => {
     const claws = overrides.claws ?? [];
     const clawFs = overrides.clawFs ?? {};
     const aliveMap = overrides.aliveMap ?? {};
-    const startTimes = overrides.startTimes ?? {};
+    const startTimeFacts = overrides.startTimeFacts ?? {};
     const audit = overrides.audit ?? ({ write: vi.fn() } as unknown as AuditLog);
 
     const rootFs = makeFs({}, { claws: claws });
@@ -288,7 +331,7 @@ describe('computeForumStatusView', () => {
       motionDir,
       pm: makePm(aliveMap),
       now: () => NOW,
-      getStartTime: (pid: number) => startTimes[pid],
+      getProcessStartTimeFact: (pid: number) => startTimeFacts[pid] ?? unavailableFact(pid, 'query_failed'),
       watchdog: { pid: undefined, alive: false, entryPath: '/wd-entry' },
       daemonEntryPath: '/daemon-entry',
       audit,
@@ -307,7 +350,7 @@ describe('computeForumStatusView', () => {
   });
 
   it('watchdog + motion + 1 claw running: full happy path', async () => {
-    const fourHoursAgo = '2026-05-30T10:11:00Z';
+    const fourHoursAgo = Date.parse('2026-05-30T10:11:00Z');
     const motionFs = makeFs({}, { 'inbox/pending': ['m1.md', 'm2.md'] });
     const clawAuditTs = '2026-05-30T14:21:00Z';
     const clawAFs = makeFs(
@@ -323,7 +366,11 @@ describe('computeForumStatusView', () => {
         [String(MOTION_CLAW_ID)]: aliveLiveness(52703),
         [String('cmdtool-v3')]: aliveLiveness(53508),
       },
-      startTimes: { 52703: fourHoursAgo, 53508: fourHoursAgo, 52933: fourHoursAgo },
+      startTimeFacts: {
+        52703: availableFact(52703, fourHoursAgo),
+        53508: availableFact(53508, fourHoursAgo),
+        52933: availableFact(52933, fourHoursAgo),
+      },
       watchdog: { pid: 52933, alive: true, entryPath: '/wd-entry' },
       fsFactory: ((): ((d: string) => FileSystem) => {
         const baseRoot = makeFs({}, { claws: ['cmdtool-v3'] });
@@ -345,7 +392,70 @@ describe('computeForumStatusView', () => {
     expect(v.activeClaws[0].pid).toBe(53508);
     expect(v.activeClaws[0].inboxUnread).toBe(1);
     expect(v.activeClaws[0].lastActivityAgoMs).toBe(2 * 60_000 + 7 * 1000);
+    expect(v.system.watchdog.uptime).toMatchObject({ kind: 'available', uptimeMs: 4 * 3600_000 + 12 * 60_000 + 7 * 1000 });
+    expect(v.system.motion.uptime).toMatchObject({ kind: 'available', precision: 'second', evidence: EVIDENCE });
+    expect(v.activeClaws[0]).toMatchObject({ uptime: { kind: 'available', evidence: EVIDENCE } });
     expect(v.totalClawCount).toBe(1);
+  });
+
+  it('keeps watchdog, motion and claw failures distinct and audits their evidence', async () => {
+    const audit = { write: vi.fn() };
+    const deps = makeDeps({
+      claws: ['claw-a'],
+      aliveMap: {
+        [String(MOTION_CLAW_ID)]: aliveLiveness(200),
+        'claw-a': aliveLiveness(300),
+      },
+      watchdog: { pid: 100, alive: true, entryPath: '/wd-entry' },
+      startTimeFacts: {
+        100: unavailableFact(100, 'permission_denied'),
+        200: unavailableFact(200, 'malformed'),
+        300: unavailableFact(300, 'timed_out'),
+      },
+      audit,
+    });
+    const getFact = vi.spyOn(deps, 'getProcessStartTimeFact');
+
+    const view = await computeForumStatusView(deps);
+
+    expect(getFact.mock.calls.map(([pid]) => pid)).toEqual([100, 200, 300]);
+    expect(view.system.watchdog.uptime).toMatchObject({ kind: 'unavailable', reason: 'permission_denied' });
+    expect(view.system.motion.uptime).toMatchObject({ kind: 'unavailable', reason: 'malformed' });
+    expect(view.activeClaws[0]).toMatchObject({
+      status: 'ok', uptime: { kind: 'unavailable', reason: 'timed_out', evidence: EVIDENCE },
+    });
+    const events = audit.write.mock.calls.filter(
+      call => call[0] === STATUS_AUDIT_EVENTS.FORUM_UPTIME_UNAVAILABLE,
+    );
+    expect(events).toEqual([
+      [STATUS_AUDIT_EVENTS.FORUM_UPTIME_UNAVAILABLE, 'component=watchdog', 'pid=100',
+        'reason=permission_denied', `evidence=${JSON.stringify(EVIDENCE)}`],
+      [STATUS_AUDIT_EVENTS.FORUM_UPTIME_UNAVAILABLE, `component=${MOTION_CLAW_ID}`, 'pid=200',
+        'reason=malformed', `evidence=${JSON.stringify(EVIDENCE)}`],
+      [STATUS_AUDIT_EVENTS.FORUM_UPTIME_UNAVAILABLE, 'component=claw-a', 'pid=300',
+        'reason=timed_out', `evidence=${JSON.stringify(EVIDENCE)}`],
+    ]);
+  });
+
+  it('does not query start time for a stopped component without a live PID', async () => {
+    const getProcessStartTimeFact = vi.fn(() => unavailableFact(999, 'query_failed'));
+    await computeForumStatusView(makeDeps({ getProcessStartTimeFact }));
+    expect(getProcessStartTimeFact).not.toHaveBeenCalled();
+  });
+
+  it('propagates uptime audit write failures instead of flattening them', async () => {
+    const sentinel = new Error('uptime audit unavailable');
+    const audit = {
+      write: vi.fn((event: string) => {
+        if (event === STATUS_AUDIT_EVENTS.FORUM_UPTIME_UNAVAILABLE) throw sentinel;
+      }),
+    };
+    const deps = makeDeps({
+      watchdog: { pid: 100, alive: true, entryPath: '/wd-entry' },
+      startTimeFacts: { 100: unavailableFact(100, 'permission_denied') },
+      audit: audit as unknown as AuditLog,
+    });
+    await expect(computeForumStatusView(deps)).rejects.toBe(sentinel);
   });
 
   it('ProcessListUnavailable in findProcessesSyncForCli degrades to empty orphan list with error field', async () => {
@@ -467,11 +577,11 @@ describe('formatForumStatusView', () => {
     const lines = formatForumStatusView({
       timestamp: '2026-05-30T14:23:07.000Z',
       system: {
-        watchdog: { alive: true, pid: 52933, uptimeMs: 4 * 3600_000 + 12 * 60_000, reason: 'alive' },
+        watchdog: { alive: true, pid: 52933, uptime: availableUptime(4 * 3600_000 + 12 * 60_000), reason: 'alive' },
         motion: {
           alive: true,
           pid: 52703,
-          uptimeMs: 4 * 3600_000 + 12 * 60_000,
+          uptime: availableUptime(4 * 3600_000 + 12 * 60_000),
           inboxUnread: 2,
           reason: 'alive',
         },
@@ -481,7 +591,7 @@ describe('formatForumStatusView', () => {
           status: 'ok',
           name: 'cmdtool-v3',
           pid: 53508,
-          uptimeMs: 1 * 3600_000 + 3 * 60_000,
+          uptime: availableUptime(1 * 3600_000 + 3 * 60_000),
           lastActivityAgoMs: 2 * 60_000,
           inboxUnread: 0,
         },
@@ -489,7 +599,7 @@ describe('formatForumStatusView', () => {
           status: 'ok',
           name: 'tools-auditor',
           pid: 54201,
-          uptimeMs: 12 * 60_000,
+          uptime: availableUptime(12 * 60_000),
           lastActivityAgoMs: 18_000,
           inboxUnread: 1,
         },
@@ -542,7 +652,7 @@ describe('formatForumStatusView', () => {
     const lines = formatForumStatusView({
       timestamp: '2026-05-30T14:23:07.000Z',
       system: {
-        watchdog: { alive: true, pid: 1, uptimeMs: 1000, reason: 'alive' },
+        watchdog: { alive: true, pid: 1, uptime: availableUptime(1000), reason: 'alive' },
         motion: { alive: false, pid: undefined, reason: 'stopped' },
       },
       activeClaws: [],
@@ -558,7 +668,7 @@ describe('formatForumStatusView', () => {
     const lines = formatForumStatusView({
       timestamp: '2026-05-30T14:23:07.000Z',
       system: {
-        watchdog: { alive: true, pid: 1, uptimeMs: 1000, reason: 'alive', warning: 'PID file unreadable' },
+        watchdog: { alive: true, pid: 1, uptime: availableUptime(1000), reason: 'alive', warning: 'PID file unreadable' },
         motion: { alive: false, pid: undefined, reason: 'stopped' },
       },
       activeClaws: [],
@@ -566,6 +676,29 @@ describe('formatForumStatusView', () => {
       orphans: { watchdog: [], daemon: [] },
     });
     expect(lines).toContain('  watchdog  running (warning: PID file unreadable)   PID 1   uptime 1s');
+  });
+
+  it('renders unavailable uptime reasons without fabricating zero or stopped', () => {
+    const unavailable: ProcessUptimeView = {
+      kind: 'unavailable', reason: 'future_start_time', evidence: EVIDENCE,
+    };
+    const lines = formatForumStatusView({
+      timestamp: '2026-05-30T14:23:07.000Z',
+      system: {
+        watchdog: { alive: true, pid: 1, uptime: unavailable, reason: 'alive' },
+        motion: { alive: true, pid: 2, reason: 'alive' },
+      },
+      activeClaws: [{
+        status: 'ok', name: 'alpha', pid: 3,
+        uptime: { kind: 'unavailable', reason: 'permission_denied', evidence: EVIDENCE },
+      }],
+      totalClawCount: 1,
+      orphans: { watchdog: [], daemon: [] },
+    });
+    expect(lines).toContain('  watchdog  running   PID 1   uptime unknown (future_start_time)');
+    expect(lines).toContain('  motion    running   PID 2   uptime unknown');
+    expect(lines).toContain('  alpha             running   PID 3   uptime unknown (permission_denied)');
+    expect(lines.some(line => line.includes('uptime 0s'))).toBe(false);
   });
 
   it('renders error claw as unavailable with no activity/inbox lines', () => {
@@ -691,7 +824,7 @@ describe('phase 1759: computeClawLastActivityAgoMs degraded result', () => {
           status: 'ok',
           name: 'alpha',
           pid: 4242,
-          uptimeMs: 60_000,
+          uptime: availableUptime(60_000),
           lastActivityAgoMs: 2 * 60_000,
           lastActivityReadFailures: [{ file: 'tick.tsv', error: 'EACCES: EACCES' }],
           inboxUnread: 0,
@@ -717,7 +850,7 @@ describe('phase 1759: computeClawLastActivityAgoMs degraded result', () => {
           status: 'ok',
           name: 'alpha',
           pid: 4242,
-          uptimeMs: 60_000,
+          uptime: availableUptime(60_000),
           lastActivityAgoMs: 2 * 60_000,
           inboxUnread: 0,
         },

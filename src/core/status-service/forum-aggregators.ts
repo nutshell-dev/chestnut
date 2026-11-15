@@ -8,16 +8,21 @@
  * 设计原则：
  * - 全 pure / 0 side effect except FS reads
  * - 时间相关字段算成 elapsed ms（uptime、lastActivityAgo）让 view 自含 / formatter 0 时钟依赖
- * - 数据源解析失败折进 view（undefined 字段）/ caller 决定如何呈现 / 不抛
- * - composite `computeForumStatusView` 接 deps 注入 ProcessManager / now / getStartTime
- *   方便测试 + 与 CLI 命令解耦
+ * - 数据源解析失败折进 typed partial view / caller 决定如何呈现 / 不抛
+ * - composite `computeForumStatusView` 接 deps 注入 ProcessManager / now /
+ *   getProcessStartTimeFact，方便测试 + 与 CLI 命令解耦
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { ProcessManager, describeLiveness } from '../../foundation/process-manager/index.js';
-import { ProcessListUnavailable } from '../../foundation/process-exec/index.js';
+import {
+  ProcessListUnavailable,
+  type ProcessEvidence,
+  type ProcessStartTimeFact,
+  type ProcessStartTimeUnavailableReason,
+} from '../../foundation/process-exec/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -32,10 +37,27 @@ import type { ClawTopology } from '../claw-topology/index.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
 
+export type ProcessUptimeUnavailableReason = ProcessStartTimeUnavailableReason
+  | 'future_start_time'
+  | 'clock_invalid';
+
+export type ProcessUptimeView =
+  | {
+      kind: 'available';
+      uptimeMs: number;
+      precision: 'second';
+      evidence: ProcessEvidence;
+    }
+  | {
+      kind: 'unavailable';
+      reason: ProcessUptimeUnavailableReason;
+      evidence: ProcessEvidence;
+    };
+
 export interface SystemComponentView {
   alive: boolean;
   pid?: number;
-  uptimeMs?: number;
+  uptime?: ProcessUptimeView;
   inboxUnread?: number;
   reason: string;
   warning?: string;
@@ -46,7 +68,7 @@ export type ActiveClawView =
       status: 'ok';
       name: string;
       pid: number;
-      uptimeMs?: number;
+      uptime?: ProcessUptimeView;
       lastActivityAgoMs?: number;
       /**
        * phase 1759：activity 聚合 degraded 证据（STATUS-LAST-ACTIVITY-READ-FAILURE-SILENT）。
@@ -77,22 +99,28 @@ export interface ForumStatusView {
 
 // ── Pure helpers ────────────────────────────────────────────────────────────
 
-/**
- * Compute process uptime in ms by reading OS process start time via `getStartTime`
- * (typically `getProcessStartTime` from process-exec, which uses `ps -o lstart=`).
- * Returns undefined on missing PID or unparseable start string.
- */
-export function computeProcessUptimeMs(
-  pid: number,
-  now: number,
-  getStartTime: (pid: number) => string | undefined,
-): number | undefined {
-  const raw = getStartTime(pid);
-  if (raw === undefined) return undefined;
-  const startMs = Date.parse(raw);
-  if (Number.isNaN(startMs)) return undefined;
-  const elapsed = now - startMs;
-  return elapsed >= 0 ? elapsed : undefined;
+/** Map the L1 start-time fact without interpreting OS text or reading a clock. */
+export function mapProcessStartTimeToUptime(
+  fact: ProcessStartTimeFact | undefined,
+  nowMs: number,
+): ProcessUptimeView | undefined {
+  if (fact === undefined) return undefined;
+  if (fact.kind === 'unavailable') {
+    return { kind: 'unavailable', reason: fact.reason, evidence: fact.evidence };
+  }
+  if (!Number.isFinite(nowMs)) {
+    return { kind: 'unavailable', reason: 'clock_invalid', evidence: fact.evidence };
+  }
+  const uptimeMs = nowMs - fact.startedAtMs;
+  if (!Number.isFinite(uptimeMs) || uptimeMs < 0) {
+    return { kind: 'unavailable', reason: 'future_start_time', evidence: fact.evidence };
+  }
+  return {
+    kind: 'available',
+    uptimeMs,
+    precision: fact.precision,
+    evidence: fact.evidence,
+  };
 }
 
 /**
@@ -209,7 +237,7 @@ export interface ForumStatusDeps {
   motionDir: string; // .chestnut/motion (for motion-side inbox)
   pm: ProcessManager;
   now: () => number;
-  getStartTime: (pid: number) => string | undefined;
+  getProcessStartTimeFact: (pid: number) => ProcessStartTimeFact;
   audit: AuditLog;
   watchdog: {
     pid: number | undefined;
@@ -217,6 +245,22 @@ export interface ForumStatusDeps {
     entryPath: string;
   };
   daemonEntryPath: string;
+}
+
+function auditUnavailableUptime(
+  audit: AuditLog,
+  component: string,
+  pid: number | undefined,
+  uptime: ProcessUptimeView | undefined,
+): void {
+  if (uptime?.kind !== 'unavailable' || pid === undefined) return;
+  audit.write(
+    STATUS_AUDIT_EVENTS.FORUM_UPTIME_UNAVAILABLE,
+    `component=${component}`,
+    `pid=${pid}`,
+    `reason=${uptime.reason}`,
+    `evidence=${JSON.stringify(uptime.evidence)}`,
+  );
 }
 
 export async function computeForumStatusView(deps: ForumStatusDeps): Promise<ForumStatusView> {
@@ -228,9 +272,9 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
     alive: deps.watchdog.alive,
     pid: deps.watchdog.pid,
     reason: deps.watchdog.alive ? 'alive' : 'stopped',
-    uptimeMs:
+    uptime:
       deps.watchdog.alive && deps.watchdog.pid !== undefined
-        ? computeProcessUptimeMs(deps.watchdog.pid, nowMs, deps.getStartTime)
+        ? mapProcessStartTimeToUptime(deps.getProcessStartTimeFact(deps.watchdog.pid), nowMs)
         : undefined,
   };
 
@@ -250,9 +294,9 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
     alive: motionAlive,
     pid: motionPid,
     reason: describeLiveness(motionLiveness),
-    uptimeMs:
+    uptime:
       motionAlive && motionPid !== undefined
-        ? computeProcessUptimeMs(motionPid, nowMs, deps.getStartTime)
+        ? mapProcessStartTimeToUptime(deps.getProcessStartTimeFact(motionPid), nowMs)
         : undefined,
     inboxUnread: motionAlive ? await computeClawInboxUnread(motionFs, deps.audit, MOTION_CLAW_ID) : undefined,
   };
@@ -280,7 +324,7 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
         status: 'ok',
         name: clawId,
         pid: s.pid,
-        uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
+        uptime: mapProcessStartTimeToUptime(deps.getProcessStartTimeFact(s.pid), nowMs),
         lastActivityAgoMs: activity.agoMs,
         ...(activity.kind === 'degraded' ? { lastActivityReadFailures: activity.failures } : {}),
         inboxUnread: await computeClawInboxUnread(clawFs, deps.audit, clawId),
@@ -305,6 +349,11 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
   // audit.write 失败向上传播、由调用方观察（owner 不静默吞没写入故障）。
   const okCount = activeClaws.filter(c => c.status === 'ok').length;
   deps.audit.write(STATUS_AUDIT_EVENTS.FORUM_STATUS, `claws=${okCount}`, `total=${totalClawCount}`);
+  auditUnavailableUptime(deps.audit, 'watchdog', watchdog.pid, watchdog.uptime);
+  auditUnavailableUptime(deps.audit, MOTION_CLAW_ID, motion.pid, motion.uptime);
+  for (const c of activeClaws) {
+    if (c.status === 'ok') auditUnavailableUptime(deps.audit, c.name, c.pid, c.uptime);
+  }
   for (const c of activeClaws) {
     if (c.status === 'error') {
       deps.audit.write(STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR, `claw=${c.name}`, `error=${c.error}`);

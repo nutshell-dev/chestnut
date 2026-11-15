@@ -10,7 +10,12 @@
  * Format is intentionally close to mockup ratified in conversation 2026-05-30.
  */
 
-import type { ForumStatusView, SystemComponentView, ActiveClawView } from './forum-aggregators.js';
+import type {
+  ForumStatusView,
+  SystemComponentView,
+  ActiveClawView,
+  ProcessUptimeView,
+} from './forum-aggregators.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 
 /**
@@ -74,7 +79,7 @@ function formatSystemRow(name: string, c: SystemComponentView): string {
     return `${namePad}stopped${c.reason && c.reason !== 'stopped' ? `   (${c.reason})` : ''}`;
   }
   const pidStr = c.pid !== undefined ? `   PID ${c.pid}` : '';
-  const upStr = `   uptime ${humanizeUptime(c.uptimeMs)}`;
+  const upStr = `   uptime ${formatUptime(c.uptime)}`;
   const inboxStr = c.inboxUnread !== undefined ? `   inbox: ${c.inboxUnread} unread` : '';
   if (c.warning) {
     return `${namePad}running (warning: ${c.warning})${pidStr}${upStr}${inboxStr}`;
@@ -87,11 +92,17 @@ function formatActiveClawHeader(claw: ActiveClawView): string {
   if (claw.status === 'error') {
     return `${namePad}unavailable   (${claw.error})`;
   }
-  return `${namePad}running   PID ${claw.pid}   uptime ${humanizeUptime(claw.uptimeMs)}`;
+  return `${namePad}running   PID ${claw.pid}   uptime ${formatUptime(claw.uptime)}`;
 }
 
 function pad(s: string, width: number): string {
   return s.length >= width ? s + ' ' : s + ' '.repeat(width - s.length);
+}
+
+function formatUptime(uptime: ProcessUptimeView | undefined): string {
+  if (uptime === undefined) return 'unknown';
+  if (uptime.kind === 'available') return humanizeUptime(uptime.uptimeMs);
+  return `unknown (${uptime.reason})`;
 }
 
 export function humanizeUptime(ms: number | undefined): string {

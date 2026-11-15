@@ -24,4 +24,12 @@ describe('phase 1760: ForumStatusDeps unused-field ratchet', () => {
     // 字段声明形态（含 optional）；fsFactory 回调形参名不在此列
     expect(body).not.toMatch(/^\s*baseDir(\?)?\s*:/m);
   });
+
+  it('accepts only the typed ProcessExec start-time fact', () => {
+    const src = readFileSync(FORUM_AGGREGATORS_SRC, 'utf8');
+    const body = src.match(/export interface ForumStatusDeps \{([\s\S]*?)\n\}/)?.[1] ?? '';
+    expect(body).toContain('getProcessStartTimeFact: (pid: number) => ProcessStartTimeFact');
+    expect(body).not.toMatch(/^\s*getStartTime\??\s*:/m);
+    expect(src).not.toContain('computeProcessUptimeMs');
+  });
 });
