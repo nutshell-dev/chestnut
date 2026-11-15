@@ -137,7 +137,7 @@ export async function deleteFile(filePath: string): Promise<void> {
  * Delete a directory and all contents
  */
 export async function removeDir(dirPath: string): Promise<void> {
-  await fs.rm(dirPath, { recursive: true, force: true });
+  await fs.rm(dirPath, { recursive: true });
 }
 
 /**

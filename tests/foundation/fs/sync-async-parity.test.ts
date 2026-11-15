@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { FileNotFoundError, PathGuardError } from '../../../src/foundation/fs/types.js';
 
 describe('fs/types.ts: sync/async parity', () => {
   it('interface contains removeDirSync, moveDirSync, realpathSync, isDirectorySync', () => {
@@ -22,6 +23,69 @@ describe('fs/types.ts: sync/async parity', () => {
 
     nodeFs.removeDirSync('subdir');
     expect(fs.existsSync(path.join(tmpDir, 'subdir'))).toBe(false);
+
+    await cleanupTempDir(tmpDir);
+  });
+
+  it('removeDir async/sync report the same typed missing error', async () => {
+    const tmpDir = fs.realpathSync(await createTrackedTempDir('fs-parity-test-'));
+    const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+
+    const asyncError = await nodeFs.removeDir('missing-dir').then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    let syncError: unknown;
+    try {
+      nodeFs.removeDirSync('missing-dir');
+    } catch (error) {
+      syncError = error;
+    }
+
+    expect(asyncError).toBeInstanceOf(FileNotFoundError);
+    expect(syncError).toBeInstanceOf(FileNotFoundError);
+    expect(asyncError).toMatchObject({
+      code: 'FS_NOT_FOUND',
+      context: { path: 'missing-dir' },
+    });
+    expect(syncError).toMatchObject({
+      code: 'FS_NOT_FOUND',
+      context: { path: 'missing-dir' },
+    });
+
+    await cleanupTempDir(tmpDir);
+  });
+
+  it('removeDir async/sync preserve non-ENOENT failures', async () => {
+    const tmpDir = fs.realpathSync(await createTrackedTempDir('fs-parity-test-'));
+    const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, 'not-a-directory'), 'file');
+
+    const asyncError = await nodeFs.removeDir('not-a-directory/child').then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    let syncError: unknown;
+    try {
+      nodeFs.removeDirSync('not-a-directory/child');
+    } catch (error) {
+      syncError = error;
+    }
+
+    expect(asyncError).not.toBeInstanceOf(FileNotFoundError);
+    expect(syncError).not.toBeInstanceOf(FileNotFoundError);
+    expect(asyncError).toMatchObject({ code: 'ENOTDIR' });
+    expect(syncError).toMatchObject({ code: 'ENOTDIR' });
+
+    await cleanupTempDir(tmpDir);
+  });
+
+  it('removeDir async/sync apply the path guard before I/O', async () => {
+    const tmpDir = fs.realpathSync(await createTrackedTempDir('fs-parity-test-'));
+    const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+
+    await expect(nodeFs.removeDir('../outside')).rejects.toBeInstanceOf(PathGuardError);
+    expect(() => nodeFs.removeDirSync('../outside')).toThrow(PathGuardError);
 
     await cleanupTempDir(tmpDir);
   });

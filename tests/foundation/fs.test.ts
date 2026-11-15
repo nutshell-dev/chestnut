@@ -132,13 +132,35 @@ describe('FileSystem', () => {
     
     it('should delete files and directories', async () => {
       await fs.writeAtomic('to-delete.txt', 'bye');
-      await fs.ensureDir('to-delete-dir');
+      await fs.writeAtomic('to-delete-dir/nested/file.txt', 'bye');
       
       await fs.delete('to-delete.txt');
       await fs.removeDir('to-delete-dir');
       
       expect(await fs.exists('to-delete.txt')).toBe(false);
       expect(await fs.exists('to-delete-dir')).toBe(false);
+    });
+
+    it('should throw FileNotFoundError with the relative path for a missing directory', async () => {
+      const removal = fs.removeDir('missing-dir');
+
+      await expect(removal).rejects.toBeInstanceOf(FileNotFoundError);
+      await expect(removal).rejects.toMatchObject({
+        code: 'FS_NOT_FOUND',
+        context: { path: 'missing-dir' },
+      });
+    });
+
+    it('should preserve non-ENOENT removeDir failures', async () => {
+      await fs.writeAtomic('not-a-directory', 'file');
+      const removal = fs.removeDir('not-a-directory/child');
+
+      await expect(removal).rejects.not.toBeInstanceOf(FileNotFoundError);
+      await expect(removal).rejects.toMatchObject({ code: 'ENOTDIR' });
+    });
+
+    it('should apply the path guard before removeDir I/O', async () => {
+      await expect(fs.removeDir('../outside')).rejects.toBeInstanceOf(PathGuardError);
     });
   });
   

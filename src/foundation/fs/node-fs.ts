@@ -357,7 +357,7 @@ export class NodeFileSystem implements FileSystem {
   
   async removeDir(relativePath: string): Promise<void> {
     const absolute = this.resolveAndCheck(relativePath);
-    await removeDir(absolute);
+    await wrapENOENT(relativePath, () => removeDir(absolute));
   }
   
   async list(
@@ -744,7 +744,9 @@ export class NodeFileSystem implements FileSystem {
 
   removeDirSync(relativePath: string): void {
     const absolute = this.resolveAndCheck(relativePath);
-    fsSync.rmSync(absolute, { recursive: true, force: true });
+    return wrapENOENTSync(relativePath, () =>
+      fsSync.rmSync(absolute, { recursive: true }),
+    );
   }
 
   realpathSync(relativePath: string): string {
