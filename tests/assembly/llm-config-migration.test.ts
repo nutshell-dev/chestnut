@@ -88,11 +88,14 @@ afterEach(() => {
 });
 
 describe('legacy root LLM migration', () => {
-  it('自动迁移并记录 sourceDigest，清源后保留 root 的非 llm 字段', () => {
+  it('自动迁移并记录 sourceDigest，清源后保留 root 的非 llm 字段', async () => {
     const legacy = makeLegacyLLM();
     writeLegacyRoot(legacy);
 
-    const loaded = createRootConfig(deps).loadGlobal();
+    const admin = createRootConfig(deps);
+    await admin.migrateLLMConfiguration();
+    await admin.migrateLegacyApiKeys();
+    const loaded = admin.loadGlobal();
 
     expect(loaded.llm.primary.model).toBe('claude-legacy');
     expect(readYaml(rootConfigPath())).toEqual({
@@ -101,8 +104,12 @@ describe('legacy root LLM migration', () => {
       tool_timeout_ms: 12_345,
       root_marker: { preserved: true },
     });
-    expect(readYaml(targetConfigPath())).toEqual({
-      ...legacy,
+    expect(readYaml(targetConfigPath())).toMatchObject({
+      primary: {
+        preset: 'anthropic',
+        model: 'claude-legacy',
+        api_key: expect.stringMatching(/^\$\{CHESTNUT_/),
+      },
       schema_version: 1,
       revision: 1,
     });
@@ -233,7 +240,8 @@ describe('legacy root LLM migration', () => {
   });
 
   it('同内容目标下重复迁移与加载幂等，不重写目标或迁移证据', () => {
-    const legacy = makeLegacyLLM();
+    vi.stubEnv('LLM_MIGRATION_IDEMPOTENT_KEY', 'sk-legacy');
+    const legacy = makeLegacyLLM('${LLM_MIGRATION_IDEMPOTENT_KEY}');
     writeLegacyRoot(legacy);
     writeTarget(legacy, 4);
     const targetBefore = fs.readFileSync(targetConfigPath(), 'utf8');

@@ -13,7 +13,12 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { createClawNotifier } from '../foundation/messaging/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID, makeClawNotifyTargetResolver, resolveClawDaemonDir } from '../core/claw-topology/index.js';
+import {
+  MOTION_CLAW_ID,
+  makeClawNotifyTargetResolver,
+  requireMotionAccess,
+  resolveClawDaemonDir,
+} from '../core/claw-topology/index.js';
 import {
   ContractValidationError,
   ONBOARDING_CONTRACT_ID,
@@ -40,11 +45,19 @@ import { CLI_AUDIT_EVENTS } from './audit-events.js';
 import { ensureStartLLMVerified, type VerifiedLLMConfig } from './start-llm-gate.js';
 import type { EnsureSupervision } from './supervision-policy.js';
 import { initCommand as motionInitCommand } from './commands/motion.js';
+import { getCapturedCliMotionAccess } from './motion-cli-guard.js';
 
 export interface StartBootstrapDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'getInitializationState'>;
-  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
+  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'getInitializationState'> &
+    Partial<Pick<RootConfigAdmin, 'migrateLLMConfiguration'>>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'> &
+    Partial<Pick<LLMConfigurationAdmin, 'migrateLegacyApiKeys'>>;
+}
+
+export async function migrateStartLegacyApiKeys(deps: StartBootstrapDeps): Promise<void> {
+  await deps.rootConfig.migrateLLMConfiguration?.();
+  await deps.llmConfiguration?.migrateLegacyApiKeys?.();
 }
 
 export interface StartBootstrapRuntime {
@@ -220,6 +233,7 @@ export async function ensureStartBootstrap(
   runtime: StartBootstrapRuntime,
   options: StartBootstrapOptions,
 ): Promise<StartBootstrapResult> {
+  requireMotionAccess(getCapturedCliMotionAccess('start'), 'start', 'start-bootstrap');
   const verified = await ensureStartLLMVerified(deps, {
     audit: runtime.audit,
     interactive: options.interactive,
@@ -245,7 +259,11 @@ export async function ensureStartBootstrap(
   if (!deps.fsFactory(motionDir).existsSync(CLAW_SPEC_FILE)) await motionInitCommand(deps, true);
 
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-  const motionDaemonDir = resolveClawDaemonDir(MOTION_CLAW_ID);
+  const motionDaemonDir = resolveClawDaemonDir(
+    MOTION_CLAW_ID,
+    getCapturedCliMotionAccess('start'),
+    'start',
+  );
   const daemonReady = pm.ensureRunning(motionDaemonDir, motionSpawnOptions);
   const awaitVerifiedDaemonReady = async (): Promise<void> => {
     const timeoutMs = options.daemonReadyTimeoutMs;

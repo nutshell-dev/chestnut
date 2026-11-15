@@ -16,16 +16,18 @@ import {
 } from '../../cli-protocol/index.js';
 import { LauncherActivityMapper, LauncherEventMapper } from '../launcher-envelope-producer.js';
 import { assertPublishedClaw } from './claw-target.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 export interface LauncherCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'> & Pick<RootConfigAdmin, 'getInitializationState'>;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'> &
+    Pick<RootConfigAdmin, 'getInitializationState' | 'migrateLLMConfiguration'>;
 }
 
 export function readLauncherDaemon(deps: LauncherCommandDeps, name: ClawId = MOTION_CLAW_ID): LauncherDaemonPayload {
   try {
     const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-    const daemonDir = resolveClawDaemonDir(name);
+    const daemonDir = resolveClawDaemonDir(name, getCapturedCliMotionAccess('read'));
     const liveness = pm.liveness(daemonDir);
     if (liveness.kind === 'alive') {
       const readiness = pm.readiness(daemonDir);

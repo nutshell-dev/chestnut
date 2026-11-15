@@ -86,7 +86,7 @@ function writeGlobalConfig(): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'config.yaml'),
-    `version: '1'\nllm:\n  primary:\n    preset: anthropic\n    api_key: sk-test\n    model: claude-test\n`,
+    `version: '1'\nllm:\n  primary:\n    preset: anthropic\n    api_key: \${CLAW_CREATE_TEST_API_KEY}\n    model: claude-test\n`,
   );
 }
 
@@ -95,6 +95,7 @@ beforeEach(() => {
   tempDir = path.join(tmpdir(), `chestnut-claw-create-race-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
+  vi.stubEnv('CLAW_CREATE_TEST_API_KEY', 'sk-test');
   writeGlobalConfig();
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });

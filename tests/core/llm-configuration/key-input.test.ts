@@ -30,14 +30,16 @@ describe('credential key input recognition', () => {
     expect(deriveCredentialRef('---')).toBe('CHESTNUT_PRIMARY_API_KEY');
   });
 
-  it('解析引用，legacy 明文保持原值', () => {
+  it('解析引用并拒绝未迁移 legacy 明文', () => {
     const deps = {
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       env: { TEST_KEY: 'resolved-secret' },
     };
     expect(resolveCredentialReference(deps, '${TEST_KEY}')).toBe('resolved-secret');
     expect(resolveCredentialReference(deps, '${MISSING_KEY}')).toBeUndefined();
-    expect(resolveCredentialReference(deps, 'legacy-plaintext')).toBe('legacy-plaintext');
+    expect(() => resolveCredentialReference(deps, 'legacy-plaintext')).toThrow(
+      'legacy_plaintext_unmigrated',
+    );
   });
 });
 

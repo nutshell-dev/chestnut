@@ -15,6 +15,7 @@ import {
   loadClawConfig,
   saveGlobalConfigExclusive,
   migrateRootLLMConfigLocked,
+  migrateClawLegacyApiKeys,
   saveClawConfig,
   saveClawConfigExclusive,
   getInitializationState,
@@ -27,6 +28,7 @@ import type {
   ClawConfig,
 } from './compose-config.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { createLLMConfiguration } from '../../core/llm-configuration/index.js';
 
 /** RootConfig 只读面：日常 init/start 分支判断与读盘。 */
 export interface RootConfigReader {
@@ -47,6 +49,10 @@ export interface RootConfigAdmin extends RootConfigReader {
   saveGlobalExclusive(config: ClawGlobalConfigInput): void;
   /** root 锁内执行 legacy LLM 迁移；目标未确认 durable 时保留源。 */
   migrateLLMConfiguration(): Promise<void>;
+  /** Explicit async migration for a per-claw legacy plaintext override. */
+  migrateClawLegacyApiKeys(configPath: string): Promise<void>;
+  /** Delegate shared-document credential migration to the L4 owner. */
+  migrateLegacyApiKeys(): Promise<void>;
   saveClaw(configPath: string, config: ClawConfig): void;
   /**
    * Phase 1910 Step E：claw 创建独占发布提交（O_EXCL）；config 已存在时 throw
@@ -81,6 +87,8 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
     loadClaw: (configPath) => loadClawConfig(deps, configPath),
     saveGlobalExclusive: (config) => saveGlobalConfigExclusive(deps, config),
     migrateLLMConfiguration: () => migrateRootLLMConfigLocked(deps),
+    migrateClawLegacyApiKeys: (configPath) => migrateClawLegacyApiKeys(deps, configPath),
+    migrateLegacyApiKeys: async () => { await createLLMConfiguration(deps).migrateLegacyApiKeys(); },
     saveClaw: (configPath, config) => saveClawConfig(deps, configPath, config),
     saveClawExclusive: (configPath, config) => saveClawConfigExclusive(deps, configPath, config),
     getInitializationState: () => getInitializationState(deps),

@@ -25,11 +25,13 @@ describe('CLI Config', () => {
     originalRoot = process.env.CHESTNUT_ROOT;
     tempDir = await createTempDir();
     process.env.CHESTNUT_ROOT = tempDir;
+    process.env.CLI_TEST_API_KEY = 'test-key';
   });
 
   afterEach(async () => {
     if (originalRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = originalRoot;
+    delete process.env.CLI_TEST_API_KEY;
     cleanupTempDirSync(tempDir);
   });
 
@@ -117,7 +119,7 @@ describe('CLI Config', () => {
         llm: {
           primary: {
             preset: 'anthropic',
-            api_key: 'test-key',
+            api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-3-5-haiku',
             max_tokens: 4096,
             temperature: 0.7,
@@ -172,7 +174,7 @@ describe('CLI Config', () => {
         llm: {
           primary: {
             preset: 'anthropic',
-            api_key: 'test-key',
+            api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-3-5-haiku',
             max_tokens: 4096,
             temperature: 0.7,
@@ -203,7 +205,7 @@ describe('CLI Config', () => {
         llm: {
           primary: {
             preset: 'anthropic',
-            api_key: 'test-key',
+            api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-3-5-haiku',
             max_tokens: 4096,
             temperature: 0.7,
@@ -226,7 +228,7 @@ describe('CLI Config', () => {
         llm: {
           primary: {
             preset: 'anthropic',
-            api_key: 'test-key',
+            api_key: '${CLI_TEST_API_KEY}',
             model: 'claude-3-5-haiku',
             max_tokens: 4096,
             temperature: 0.7,

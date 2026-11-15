@@ -41,8 +41,13 @@ export {
   deriveCredentialRef,
   storeCredentialInput,
   resolveCredentialReference,
+  classifyApiKeyConfigValue,
+  assertNoLegacyPlaintextApiKey,
+  ApiKeyConfigError,
 } from './key-input.js';
-export type { StoredCredentialInput } from './key-input.js';
+export type { StoredCredentialInput, ApiKeyConfigValue } from './key-input.js';
+export { migrateLegacyApiKeysAtPath } from './api-key-migration.js';
+export type { ApiKeyMigrationAudit, ApiKeyMigrationOutcome } from './api-key-migration.js';
 export {
   createLLMConfiguration,
   createLLMConfigurationDocumentStore,

@@ -156,8 +156,10 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, configurable: true });
   });
 
-  function deps() {
-    createRootConfig({ fsFactory }).loadGlobal();
+  async function deps() {
+    const root = createRootConfig({ fsFactory });
+    await root.migrateLLMConfiguration();
+    await root.migrateLegacyApiKeys();
     return { fsFactory, llmConfiguration: createLLMConfiguration({ fsFactory }) };
   }
 
@@ -168,7 +170,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     rlAnswers.queue = ['1', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
-    const snapshot = await promptReconfigure(deps(), rl, 'auth');
+    const snapshot = await promptReconfigure(await deps(), rl, 'auth');
 
     expect(snapshot).not.toBeNull();
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
@@ -189,7 +191,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     rlAnswers.queue = ['1', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
-    const snapshot = await promptReconfigure(deps(), rl, 'auth');
+    const snapshot = await promptReconfigure(await deps(), rl, 'auth');
 
     expect(snapshot).not.toBeNull();
     const rawYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'llm', 'config.yaml'), 'utf8');
@@ -203,7 +205,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     rlAnswers.queue = ['1', 'typed-key', 'n'];
 
     const rl = mockRl as unknown as import('readline').Interface;
-    await expect(promptReconfigure(deps(), rl, 'auth')).rejects.toThrow(
+    await expect(promptReconfigure(await deps(), rl, 'auth')).rejects.toThrow(
       /Unset CHESTNUT_ANTHROPIC_API_KEY/,
     );
     // 配置保持 ${ANTHROPIC_API_KEY} 不被改写

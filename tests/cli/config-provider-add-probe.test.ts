@@ -329,7 +329,9 @@ describe('config provider add — API Key 输入矩阵（Phase 1984 Step C）', 
     const config = loadGlobalConfig({ fsFactory });
     const added = (config.llm.fallbacks ?? []).find(f => f.label === 'env-anthropic');
     expect(added?.api_key).toBe('env-key');
-    expect(fs.existsSync(path.join(tempDir, 'cred-home', 'credentials.yaml'))).toBe(false);
+    const credentials = fs.readFileSync(path.join(tempDir, 'cred-home', 'credentials.yaml'), 'utf8');
+    expect(credentials).toContain('sk-ant-old');
+    expect(credentials).not.toContain('env-key');
   });
 
   it('派生 ref 也被 env 遮蔽 → loud 失败，不写配置', async () => {

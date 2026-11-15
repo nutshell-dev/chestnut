@@ -68,6 +68,7 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     vi.restoreAllMocks();
     if (savedRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = savedRoot;
+    delete process.env.SKILL_INSTALL_TEST_KEY;
     await cleanupTempDir(tmpDir);
   });
 
@@ -389,9 +390,10 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     }));
     const src = makeSkillSource('a', 'origin', 'v1');
     // 池来源安装会 loadGlobal（与旧 --claw 路径一致）：预置最小全局配置
+    process.env.SKILL_INSTALL_TEST_KEY = 'test';
     fsSync.writeFileSync(
       path.join(tmpDir, '.chestnut', 'config.yaml'),
-      'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    api_key: test\n    model: claude-test\n',
+      'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    api_key: ${SKILL_INSTALL_TEST_KEY}\n    model: claude-test\n',
     );
 
     const runCli = (args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> =>

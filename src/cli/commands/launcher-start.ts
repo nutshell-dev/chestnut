@@ -18,7 +18,7 @@ import { readLauncherDaemon, type LauncherCommandDeps } from './launcher-runtime
 const DEFAULT_LAUNCHER_START_TIMEOUT_MS = 30_000;
 
 export interface LauncherStartDeps extends LauncherCommandDeps {
-  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary' | 'migrateLegacyApiKeys'>;
 }
 
 export async function executeLauncherStart(
@@ -29,6 +29,8 @@ export async function executeLauncherStart(
   if (deps.rootConfig.getInitializationState() !== 'ready') {
     throw new Error('workspace initialization is not ready; run launcher setup first');
   }
+  await deps.rootConfig.migrateLLMConfiguration?.();
+  await deps.llmConfiguration?.migrateLegacyApiKeys?.();
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const result = await ensureStartBootstrap(deps, runtime, {
     interactive: false,

@@ -773,8 +773,9 @@ export async function discardLauncherCreatedCredentials(
   deps: FirstRunDeps,
   refs: readonly string[],
 ): Promise<void> {
+  const credentials = createLocalCredentials(deps);
   const created = refs.flatMap((ref) => {
-    const value = resolveCredentialReference(deps, ref);
+    const value = credentials.resolve(ref)?.value;
     return value === undefined ? [] : [{ ref, value }];
   });
   await discardCreatedCredentials(deps, created, false);

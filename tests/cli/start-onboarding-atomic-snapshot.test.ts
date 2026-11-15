@@ -41,7 +41,7 @@ function writeConfig(tempDir: string): void {
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.yaml'),
-    'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    api_key: test\n    model: claude\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n',
+    'version: "1"\nllm:\n  primary:\n    preset: anthropic\n    api_key: ${ONBOARDING_TEST_API_KEY}\n    model: claude\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n',
   );
 }
 
@@ -75,6 +75,7 @@ describe('getInitializationSnapshot', () => {
   beforeEach(() => {
     tmpDir = makeTempDir();
     vi.stubEnv('CHESTNUT_ROOT', tmpDir);
+    vi.stubEnv('ONBOARDING_TEST_API_KEY', 'test');
   });
   afterEach(() => {
     vi.unstubAllEnvs();

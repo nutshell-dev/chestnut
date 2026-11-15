@@ -21,8 +21,14 @@ import {
   llmOrchestratorConfigSchema,
 } from '../../foundation/llm-orchestrator/index.js';
 import { formatErr, newShortUuid, sha256Hex } from '../../foundation/node-utils/index.js';
-import { createLocalCredentials, isCredentialsError } from './legacy-credentials/index.js';
+import { createLocalCredentials } from './legacy-credentials/index.js';
 import type { SharedLLM, SharedLLMInput } from './selection.js';
+import { assertNoLegacyPlaintextApiKey } from './key-input.js';
+import {
+  migrateLegacyApiKeysAtPath,
+  type ApiKeyMigrationAudit,
+  type ApiKeyMigrationOutcome,
+} from './api-key-migration.js';
 
 const DOCUMENT_SCHEMA_VERSION = 1 as const;
 const documentMetadataSchema = z.object({
@@ -49,6 +55,7 @@ export interface LLMConfigurationDocumentStore {
   read(): LLMConfigDocument;
   /** 展开引用并应用 owner schema defaults，供运行/probe 使用。 */
   readResolved(): ResolvedLLMConfigDocument;
+  migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
   readRevision(): LLMConfigurationRevision;
   /** 锁内重读 raw 文档；调用方返回完整新文档，revision 由 store 单调推进。 */
   mutate(
@@ -70,6 +77,7 @@ export interface LLMConfigurationAdmin {
     mutator: (config: { llm: SharedLLM }) => void,
   ): Promise<LLMConfigurationWriteResult>;
   patchPrimary(patch: Readonly<Record<string, unknown>>): Promise<LLMConfigurationWriteResult>;
+  migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
   readRevision(): LLMConfigurationRevision;
   readonly store: LLMConfigurationDocumentStore;
 }
@@ -140,14 +148,7 @@ function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument
 
 function makeEnvVarResolver(deps: { fsFactory(baseDir: string): FileSystem }) {
   const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
-  return (name: string): string | undefined => {
-    try {
-      return credentials.resolve(name)?.value;
-    } catch (error) {
-      if (isCredentialsError(error) && error.code === 'invalid_ref') return process.env[name];
-      throw error;
-    }
-  };
+  return (name: string): string | undefined => credentials.resolve(name)?.value;
 }
 
 export function getLLMConfigurationPath(): string {
@@ -190,7 +191,11 @@ export function createLLMConfigurationDocumentStore(deps: {
   const readResolved = (): ResolvedLLMConfigDocument => {
     try {
       return loadYamlConfig<ResolvedLLMConfigDocument>(
-        { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
+        {
+          fsFactory: deps.fsFactory,
+          resolveEnvVar: makeEnvVarResolver(deps),
+          validateRaw: assertNoLegacyPlaintextApiKey,
+        },
         configPath,
         resolvedDocumentSchema,
       );
@@ -327,6 +332,7 @@ export function createLLMConfigurationDocumentStore(deps: {
   return {
     read,
     readResolved,
+    migrateLegacyApiKeys: (audit) => migrateLegacyApiKeysAtPath(deps, configPath, audit),
     readRevision: () => {
       const document = read();
       return { id: String(document.revision), revision: document.revision };
@@ -358,6 +364,7 @@ export function createLLMConfiguration(deps: {
       return { ...view.llm, schema_version: fresh.schema_version, revision: fresh.revision } as LLMConfigDocument;
     }),
     patchPrimary: (patch) => store().patchPrimary({ ...patch }),
+    migrateLegacyApiKeys: (audit) => store().migrateLegacyApiKeys(audit),
     readRevision: () => store().readRevision(),
   };
 }

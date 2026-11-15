@@ -8,7 +8,7 @@
  */
 
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
+import { getChestnutRoot, getClawConfigPath } from '../../foundation/claw-identity/index.js';
 import { assertPublishedClaw } from './claw-target.js';
 import { actionAuditFor } from '../action-scope.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
@@ -17,11 +17,17 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
+import type { RootConfigAdmin } from '../../assembly/index.js';
 
 // 启动由 PM 单一能力封装 precheck/spawn/conflict/join，CLI 不再组合 liveness + spawn。
 export type DaemonPM = Pick<ProcessManager, 'ensureRunning'>;
 
 export interface ClawDaemonDeps extends ClawCommandDeps {
+  rootConfig: ClawCommandDeps['rootConfig'] & Partial<Pick<
+    RootConfigAdmin,
+    'migrateLLMConfiguration' | 'migrateClawLegacyApiKeys' | 'migrateLegacyApiKeys'
+  >>;
   /** Test seam — when provided, skips real ProcessManager construction. */
   processManager?: DaemonPM;
 }
@@ -31,6 +37,9 @@ export async function clawDaemonCommand(
   name: string,
   extraDeps?: { audit?: AuditLog },
 ): Promise<void> {
+  await deps.rootConfig.migrateLLMConfiguration?.();
+  await deps.rootConfig.migrateLegacyApiKeys?.();
+  await deps.rootConfig.migrateClawLegacyApiKeys?.(getClawConfigPath(name));
   deps.rootConfig.loadGlobal();
   const target = assertPublishedClaw(deps, name, {
     notFoundHint: 'Try `chestnut claw list` to see existing claws.',
@@ -42,7 +51,11 @@ export async function clawDaemonCommand(
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   const clawId = target.clawId;
   // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner，CLI 只提交 identity/agentDir/chestnutRoot
-  const outcome = await pm.ensureRunning(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
+  const outcome = await pm.ensureRunning(resolveClawDaemonDir(
+    clawId,
+    getCapturedCliMotionAccess('start'),
+    'start',
+  ), createDaemonSpawnOptions({
     clawId,
     agentDir: clawDir,
     chestnutRoot: getChestnutRoot(),

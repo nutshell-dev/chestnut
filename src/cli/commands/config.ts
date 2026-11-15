@@ -13,7 +13,9 @@ import type {
 import {
   createLegacyAuthenticationStore,
   createLLMNotificationStore,
+  createLocalCredentials,
   resolveCredentialReference,
+  classifyApiKeyConfigValue,
 } from '../../core/llm-configuration/index.js';
 import {
   PRESETS,
@@ -32,7 +34,11 @@ import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../../viewport/index.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import { FORMAT_MAP } from '../provider-format-map.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import {
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+  requireMotionAccess,
+} from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -74,6 +80,7 @@ import { question } from '../utils/prompt.js';
 import { shapeCommand, getConfigCommandSpec, type CommandShapeSpec } from '../../cli-protocol/index.js';
 // Phase 1926 Step D：provider login/logout 运行缝（pi-ai 原生 login 流 + Credentials owner 持久化）
 import { runProviderLogin, runProviderLogout, providerLoginTypes, type ProviderLoginType } from '../llm-login.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 
 /**
  * phase 320: 通知所有运行中的 daemon（motion + 所有 claws）重新加载 LLM 配置。
@@ -89,6 +96,7 @@ export async function notifyRunningDaemons(
   },
   source: string,
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('configure'), 'configure', 'config/provider');
   const chestnutRoot = getChestnutRoot();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: chestnutRoot });
   const rootFs = deps.fsFactory(chestnutRoot);
@@ -125,7 +133,11 @@ export async function notifyRunningDaemons(
   });
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
-    const liveness = pm.liveness(resolveClawDaemonDir(clawId));
+    const liveness = pm.liveness(resolveClawDaemonDir(
+      clawId,
+      getCapturedCliMotionAccess('configure'),
+      'configure',
+    ));
     if (liveness.kind === 'dead' || liveness.kind === 'absent') {
       recordNotification(id, 'offline');
       continue;
@@ -259,6 +271,7 @@ async function selectSetupService(
 async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
+  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   const rl = createRL();
 
@@ -516,21 +529,25 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   }
 }
 
-function formatApiKey(apiKey: string): string {
-  if (!apiKey) return '-';
-  if (/^\$\{[A-Z_]+\}$/.test(apiKey)) return apiKey;
-  if (apiKey.length <= 8) return apiKey.slice(0, 2) + '..' + apiKey.slice(-2);
-  return apiKey.slice(0, 4) + '...' + apiKey.slice(-4);
+function formatApiKeyStatus(apiKey: unknown, deps: ConfigCommandDeps): string {
+  const classified = classifyApiKeyConfigValue(apiKey);
+  if (classified.kind === 'missing') return '-';
+  if (classified.kind === 'legacy-plaintext') return 'legacy-unmigrated';
+  if (classified.kind === 'invalid-reference') return 'invalid-ref';
+  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+  return credentials.describe(classified.ref).configured
+    ? `ref=${classified.ref}`
+    : `ref=${classified.ref}/missing`;
 }
 
 // provider list command
 async function providerList(deps: ConfigCommandDeps): Promise<void> {
-  // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
+  // List is read-only: show legacy-unmigrated without resolving or exposing secrets.
   await deps.rootConfig.migrateLLMConfiguration();
-  const config = deps.llmConfiguration.loadGlobal();
+  const config = deps.llmConfiguration.store.read();
 
-  const primary = config.llm.primary;
-  const fallbacks = config.llm.fallbacks ?? [];
+  const primary = config.primary;
+  const fallbacks = config.fallbacks ?? [];
 
   const terminalWidth = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
   const fixedColWidth = 82; // "  PRIMARY   " + padEnd(10,15,18,24) + 4 spaces
@@ -545,7 +562,7 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
   const pLabel = primary.label || pPreset || '(unknown)';
   const pModel = primary.model || PRESETS[pPreset]?.defaultModel || 'unknown';
   const pBaseUrl = primary.base_url || PRESETS[pPreset]?.defaultBaseUrl || '-';
-  const pApiKey = formatApiKey(primary.api_key ?? '');
+  const pApiKey = formatApiKeyStatus(primary.api_key, deps);
   console.log(`  ${'PRIMARY'.padEnd(10)} ${pPreset.padEnd(10)} ${pLabel.padEnd(15)} ${pModel.padEnd(18)} ${pApiKey.padEnd(24)} ${fitLine(pBaseUrl, urlWidth)}`);
 
   // Fallbacks
@@ -554,7 +571,7 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
     const fLabel = f.label || fPreset || '(unknown)';
     const fModel = f.model || PRESETS[fPreset]?.defaultModel || 'unknown';
     const fBaseUrl = f.base_url || PRESETS[fPreset]?.defaultBaseUrl || '-';
-    const fApiKey = formatApiKey(f.api_key ?? '');
+    const fApiKey = formatApiKeyStatus(f.api_key, deps);
     const rowLabel = `#${i + 1}`;
     console.log(`  ${rowLabel.padEnd(10)} ${fPreset.padEnd(10)} ${fLabel.padEnd(15)} ${fModel.padEnd(18)} ${fApiKey.padEnd(24)} ${fitLine(fBaseUrl, urlWidth)}`);
   });
@@ -566,6 +583,7 @@ async function providerList(deps: ConfigCommandDeps): Promise<void> {
 async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
+  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   
   const found = findProviderIndex(config, label);
@@ -597,6 +615,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
 async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
+  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   
   const found = findProviderIndex(config, label);
@@ -667,6 +686,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
 async function providerMove(deps: ConfigCommandDeps, label: string, position: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
+  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   
   const found = findProviderIndex(config, label);
@@ -713,6 +733,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
 async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { type?: string }): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
+  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   const hit = findProviderIndex(config, label);
   if (!hit) {
@@ -757,6 +778,7 @@ async function providerLogin(deps: ConfigCommandDeps, label: string, opts: { typ
 async function providerLogout(deps: ConfigCommandDeps, label: string): Promise<void> {
   // Assembly 仅负责 legacy root 迁移协调；迁移后的业务读写全部走 L4。
   await deps.rootConfig.migrateLLMConfiguration();
+  await deps.llmConfiguration.migrateLegacyApiKeys(configAudit(deps));
   const config = deps.llmConfiguration.loadGlobal();
   const hit = findProviderIndex(config, label);
   if (!hit) {
@@ -782,7 +804,8 @@ interface ConfigCommandDeps {
   rootConfig: Pick<RootConfigAdmin, 'migrateLLMConfiguration'>;
   llmConfiguration: Pick<
     LLMConfigurationAdmin,
-    'loadGlobal' | 'mutateGlobalLocked' | 'patchPrimary' | 'readRevision'
+    'loadGlobal' | 'mutateGlobalLocked' | 'patchPrimary' | 'readRevision' |
+    'migrateLegacyApiKeys' | 'store'
   >;
 }
 

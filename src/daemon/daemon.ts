@@ -10,11 +10,19 @@
 
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
-import type { RootConfigReader } from '../assembly/index.js';
-import { resolveLLMConfig, llmConfigIdentity, LLMConfigIdentityMismatchError } from '../core/llm-configuration/index.js';
+import type { RootConfigAdmin, RootConfigReader } from '../assembly/index.js';
+import {
+  resolveLLMConfig,
+  llmConfigIdentity,
+  LLMConfigIdentityMismatchError,
+} from '../core/llm-configuration/index.js';
 import type { ClawGlobalConfig } from '../assembly/index.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import {
+  createInternalSystemMotionAccess,
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+} from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
@@ -57,7 +65,10 @@ export function _resetDaemonSignalHandlers(): void {
 
 interface DaemonCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'> & Partial<Pick<
+    RootConfigAdmin,
+    'migrateLLMConfiguration' | 'migrateClawLegacyApiKeys' | 'migrateLegacyApiKeys'
+  >>;
   // phase 386: inline anonymous type 替为 AssembleConfig (assembly/types.ts) —
   // ML#9 显式表达（不可消除耦合优先编译器检查）+ ML#1 单源真理（消 inline `any` 类型逃逸 + 类型字段重复）
   assemble: (config: AssembleConfig) => Promise<Instances>;
@@ -93,12 +104,18 @@ export function verifyExpectedLLMIdentity(
 export function createDaemonCommand(deps: DaemonCommandDeps) {
   return async function daemonCommand(name: string): Promise<void> {
     const clawId = name;
+    await deps.rootConfig.migrateLLMConfiguration?.();
+    await deps.rootConfig.migrateLegacyApiKeys?.();
     const globalConfig = deps.rootConfig.loadGlobal();
     const isMotion = name === MOTION_CLAW_ID;
 
     // 配置
     const dir = isMotion ? getNamedSubrootDir('motion') : getClawDir(name);
-    const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
+    const daemonDir = resolveClawDaemonDir(
+      makeClawId(clawId),
+      createInternalSystemMotionAccess('start'),
+      'start',
+    );
     const processGenerationId = process.env[PROCESS_GENERATION_ENV];
 
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
@@ -132,6 +149,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     let clawConfig: ReturnType<DaemonCommandDeps['rootConfig']['loadClaw']> | null = null;
     if (!isMotion) {
       try {
+        await deps.rootConfig.migrateClawLegacyApiKeys?.(getClawConfigPath(name));
         clawConfig = deps.rootConfig.loadClaw(getClawConfigPath(name));
       } catch (e) {
         const reason = formatErr(e);

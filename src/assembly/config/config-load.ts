@@ -33,8 +33,9 @@ import {
   createLLMConfigurationDocumentStore,
   createLocalCredentials,
   getLLMConfigurationPath,
-  isCredentialsError,
   llmConfigurationSourceDigest,
+  assertNoLegacyPlaintextApiKey,
+  migrateLegacyApiKeysAtPath,
   recordLLMMigrationSourceCleanup,
   recordLLMMigrationSourceCleanupFailure,
   LLMConfigurationMigrationError,
@@ -57,21 +58,11 @@ import type { FileSystem } from '../../foundation/fs/index.js';
  * （进程环境 > 用户级凭据文件 > 项目 .env > 用户级 .env）。
  * owner 无状态不缓存，每次 load 新建即等价「每次 loadYamlConfig 调用注入」。
  * permissions/io_error 等 CredentialsError loud 向上传播（ConfigStore 只包装
- * env 缺席为 missing_env，其余错误不吞）。ref 名不合法（如 `${MY-VAR}`）退化
- * 回 process.env 直查，保持 legacy 行为与 missing_env 文案不变。
+ * env 缺席为 missing_env，其余错误不吞）。非法 ref 不降级到另一套读取。
  */
 function makeEnvVarResolver(deps: { fsFactory: (baseDir: string) => FileSystem }): (name: string) => string | undefined {
   const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
-  return (name) => {
-    try {
-      return credentials.resolve(name)?.value;
-    } catch (err) {
-      if (isCredentialsError(err) && err.code === 'invalid_ref') {
-        return process.env[name];
-      }
-      throw err;
-    }
-  };
+  return (name) => credentials.resolve(name)?.value;
 }
 
 /**
@@ -359,7 +350,11 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
   }
   try {
     return loadYamlConfig<ClawConfig>(
-      { fsFactory: deps.fsFactory, resolveEnvVar: makeEnvVarResolver(deps) },
+      {
+        fsFactory: deps.fsFactory,
+        resolveEnvVar: makeEnvVarResolver(deps),
+        validateRaw: assertNoLegacyPlaintextApiKey,
+      },
       configPath,
       getClawConfigSchema(),
     );
@@ -369,6 +364,14 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
     }
     throw err;
   }
+}
+
+export async function migrateClawLegacyApiKeys(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  configPath: string,
+): Promise<void> {
+  if (!configExists(deps, configPath)) return;
+  await migrateLegacyApiKeysAtPath(deps, configPath);
 }
 
 export async function patchGlobalConfigPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, patch: Record<string, unknown>): Promise<void> {

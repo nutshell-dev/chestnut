@@ -11,6 +11,7 @@ import { formatErr } from "../foundation/node-utils/index.js";
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createLegacyAuthenticationStore,
+  ApiKeyConfigError,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
@@ -45,7 +46,8 @@ export interface VerifiedLLMConfig {
 
 interface LLMConfigDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'>;
+  llmConfiguration: Pick<LLMConfigurationAdmin, 'loadGlobal' | 'patchPrimary'> &
+    Partial<Pick<LLMConfigurationAdmin, 'migrateLegacyApiKeys'>>;
 }
 
 export function classifyLLMErrorForDisplay(err: unknown): LLMErrorType {
@@ -256,6 +258,15 @@ export async function promptReconfigure(
   rl: readline.Interface,
   _errorType: LLMErrorType,
 ): Promise<LLMConfigSnapshot | null> {
+  try {
+    deps.llmConfiguration.loadGlobal();
+  } catch (error) {
+    if (error instanceof ApiKeyConfigError && error.code === 'legacy_plaintext_unmigrated') {
+      await deps.llmConfiguration.migrateLegacyApiKeys?.();
+    } else {
+      throw error;
+    }
+  }
   const question = (prompt: string): Promise<string> =>
     new Promise(resolve => rl.question(`${prompt}: `, ans => resolve(ans.trim())));
 

@@ -19,6 +19,7 @@ function setupTempDir() {
   tempDir = path.join(tmpdir(), `chestnut-crud-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);
+  vi.stubEnv('CRUD_TEST_API_KEY', 'sk-test');
 }
 
 function teardownTempDir() {
@@ -105,7 +106,7 @@ version: '1'
 llm:
   primary:
     preset: anthropic
-    api_key: sk-test
+    api_key: \${CRUD_TEST_API_KEY}
     model: claude-test
 ${extraLlmYaml}
 `);
@@ -136,7 +137,7 @@ ${extraLlmYaml}
   });
 
   it('缺段 + primary+2 fallbacks 时不物化 breaker 配置', () => {
-    writeMinimalConfig(`  fallbacks:\n    - preset: openai\n      api_key: sk-fb1\n      model: gpt-test\n    - preset: moonshot\n      api_key: sk-fb2\n      model: kimi-test\n`);
+    writeMinimalConfig(`  fallbacks:\n    - preset: openai\n      api_key: \${CRUD_TEST_API_KEY}\n      model: gpt-test\n    - preset: moonshot\n      api_key: \${CRUD_TEST_API_KEY}\n      model: kimi-test\n`);
     const globalConfig = loadGlobalConfig({ fsFactory });
     const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.fallbacks).toHaveLength(2);

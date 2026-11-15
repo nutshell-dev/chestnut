@@ -83,6 +83,8 @@ interface LoaderDeps {
    * resolver 自身抛出的错误原样传播，不包装为 missing_env。
    */
   resolveEnvVar?: (name: string) => string | undefined;
+  /** Validate the exact parsed snapshot before any credential expansion. */
+  validateRaw?: (raw: unknown) => void;
 }
 
 /**
@@ -135,6 +137,7 @@ export function loadYamlConfig<T>(
   schema: ConfigSchema<T>,
 ): T {
   const parsed = readYamlDocument(deps, configPath);
+  deps.validateRaw?.(parsed);
 
   let expanded: unknown;
   try {

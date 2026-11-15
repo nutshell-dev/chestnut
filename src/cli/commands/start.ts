@@ -6,7 +6,8 @@
 
 import * as readline from 'readline';
 import type { InitializationState, RootConfigAdmin } from '../../assembly/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { MOTION_CLAW_ID, requireMotionAccess } from '../../core/claw-topology/index.js';
+import { getCapturedCliMotionAccess } from '../motion-cli-guard.js';
 import { getNamedSubrootDir } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -22,6 +23,7 @@ import {
 import {
   ensureStartBootstrap,
   getOnboardingStatus,
+  migrateStartLegacyApiKeys,
   type StartBootstrapDeps,
 } from '../start-bootstrap.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
@@ -74,6 +76,7 @@ export async function startCommand(
   runtime: StartCommandRuntime,
   llmOptions: StartLLMOptions = {},
 ): Promise<void> {
+  requireMotionAccess(getCapturedCliMotionAccess('start'), 'start', 'start');
   try {
     await _start(deps, runtime, llmOptions);
   } catch (error) {
@@ -85,6 +88,7 @@ export async function startCommand(
 async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime, llmOptions: StartLLMOptions): Promise<void> {
   const { audit } = runtime;
   validateStartLLMOptions(llmOptions);
+  if (deps.rootConfig.isInitialized?.()) await migrateStartLegacyApiKeys(deps);
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
