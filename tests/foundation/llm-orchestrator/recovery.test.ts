@@ -30,7 +30,7 @@ import {
   LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_MAX_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+} from '../../../src/foundation/llm-orchestrator/defaults.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AtomicWriteResult } from '../../../src/foundation/fs/types.js';

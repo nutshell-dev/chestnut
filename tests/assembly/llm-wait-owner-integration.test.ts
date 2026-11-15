@@ -25,7 +25,7 @@ import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/orc
 import {
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_COOLDOWN_MS,
-} from '../../src/foundation/llm-orchestrator/index.js';
+} from '../../src/foundation/llm-orchestrator/defaults.js';
 import type {
   LLMEvent,
   LLMEventSink,

@@ -6,7 +6,7 @@ import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orche
 import type { LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderStreamChunk } from '../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
-import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../src/foundation/llm-orchestrator/defaults.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMNetworkError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 import { pauseAutonomousProbe, providerStatesOf, replaceProviderStates } from './llm-orchestrator/test-internals.js';
