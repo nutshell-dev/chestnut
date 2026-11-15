@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { getHostTmpDir } from '../utils/run-root.js';
 import { join } from 'node:path';
-import { connect as netConnect, type Socket } from 'node:net';
+import { connect as netConnect, type Server, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { UnixDomainSocketTransport } from '../../src/foundation/transport/unix-socket.js';
@@ -93,6 +93,7 @@ describe('UnixDomainSocketTransport', () => {
   let clients: Socket[] = [];
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     for (const c of clients) c.destroy();
     clients = [];
     if (transport) await transport.close();
@@ -114,6 +115,54 @@ describe('UnixDomainSocketTransport', () => {
     await transport.close();
     // second close is no-op (idempotent / 0 throw)
     await expect(transport.close()).resolves.toBeUndefined();
+  });
+
+  it('close resolves when endpoint cleanup reports ENOENT', async () => {
+    const path = makeSocketPath();
+    transport = makeTransport(path);
+    await transport.listen();
+    const deleteSpy = vi.spyOn(NodeFileSystem.prototype, 'delete')
+      .mockRejectedValueOnce(Object.assign(new Error('socket already missing'), { code: 'ENOENT' }));
+
+    await expect(transport.close()).resolves.toBeUndefined();
+    expect(deleteSpy).toHaveBeenCalledWith(path);
+  });
+
+  it('close rejects with the original non-ENOENT endpoint cleanup error', async () => {
+    const path = makeSocketPath();
+    transport = makeTransport(path);
+    await transport.listen();
+    const unlinkError = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    const deleteSpy = vi.spyOn(NodeFileSystem.prototype, 'delete')
+      .mockRejectedValueOnce(unlinkError);
+
+    await expect(transport.close()).rejects.toBe(unlinkError);
+    expect(deleteSpy).toHaveBeenCalledWith(path);
+    await expect(transport.listen()).rejects.toThrow(/already closed/);
+    await expect(transport.close()).resolves.toBeUndefined();
+  });
+
+  it('close preserves server and endpoint cleanup failures in an AggregateError', async () => {
+    const path = makeSocketPath();
+    transport = makeTransport(path);
+    const closeError = new Error('server close failed');
+    const unlinkError = Object.assign(new Error('endpoint cleanup failed'), { code: 'EPERM' });
+    const server = {
+      close(callback?: (err?: Error) => void) {
+        callback?.(closeError);
+      },
+    } as unknown as Server;
+    const internals = transport as unknown as { server: Server | null; socketPath: string | null };
+    internals.server = server;
+    internals.socketPath = path;
+    vi.spyOn(NodeFileSystem.prototype, 'delete').mockRejectedValueOnce(unlinkError);
+
+    const failure = await transport.close().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    const aggregate = failure as AggregateError;
+    expect(aggregate.errors).toEqual([closeError, unlinkError]);
+    expect(aggregate.cause).toBe(closeError);
+    await expect(transport.listen()).rejects.toThrow(/already closed/);
   });
 
   it('accepts a client connection and fires onConnect', async () => {

@@ -316,6 +316,7 @@ export class UnixDomainSocketTransport implements Transport {
 
     const server = this.server;
     let closeError: Error | undefined;
+    let unlinkError: Error | undefined;
     if (server) {
       try {
         await new Promise<void>((resolve, reject) =>
@@ -334,13 +335,24 @@ export class UnixDomainSocketTransport implements Transport {
       try {
         // phase 398 Step B (review N5): 完整路径、同 probeAndCleanStale。
         await this.deps.fs.delete(this.socketPath);
-      } catch {
-        // silent: socket file may already be cleaned up by OS or prior close
+      } catch (err) {
+        // ENOENT is a benign cleanup race; every other failure must remain observable.
+        if (!isFileNotFound(err)) {
+          unlinkError = err instanceof Error ? err : new Error(String(err));
+        }
       }
       this.socketPath = null;
     }
 
     this.closed = true;
+    if (closeError && unlinkError) {
+      throw new AggregateError(
+        [closeError, unlinkError],
+        'Transport close failed: server close and endpoint cleanup both failed',
+        { cause: closeError },
+      );
+    }
     if (closeError) throw closeError;
+    if (unlinkError) throw unlinkError;
   }
 }
