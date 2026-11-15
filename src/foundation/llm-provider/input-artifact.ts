@@ -57,6 +57,7 @@ export async function captureInputArtifact(
       ...(manifest.reason !== undefined ? { reason: manifest.reason } : {}),
     };
   } catch {
+    // silent: converted to a stable unavailable manifest without leaking capture errors.
     // Do not leak capture errors (which may contain input) or block the provider request.
     return unavailableInputArtifact(input.requestId, 'artifact_capture_failed');
   }

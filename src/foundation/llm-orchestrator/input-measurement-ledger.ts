@@ -37,6 +37,7 @@ export class InputMeasurementLedger {
       try {
         events.push(JSON.parse(line));
       } catch {
+        // silent: malformed input is exposed as an invalid_json replay diagnostic below.
         diagnostics.push({
           code: 'invalid_json',
           requestKey: `line:${index + 1}`,
@@ -56,6 +57,7 @@ function replayEvents(
   try {
     for (const event of events) replayEvent(event, requests, diagnostics);
   } catch (error) {
+    // silent: iteration failure is exposed as replay_failed while retaining partial evidence.
     diagnostics.push({
       code: 'replay_failed',
       requestKey: 'unknown',
