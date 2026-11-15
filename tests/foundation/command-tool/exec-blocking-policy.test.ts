@@ -12,6 +12,8 @@ import { makeExecContext } from '../../helpers/exec-context.js';
 import { EMPTY_OUTPUT_COMMAND, IS_WINDOWS } from './platform-commands.js';
 
 const LONG_SYNC_TIMEOUT_MS = EXEC_TURN_SYNC_LIMIT_MS + 1;
+const BOUNDED_SYNC_TIMEOUT_MS = 1000; // Matches the minimum bounded sync budget used by real exec tests.
+const EXPLICIT_LONG_TIMEOUT_MS = 10 * 60_000; // Ten minutes is deliberately beyond the sync limit.
 
 describe('phase 2135 long-blocking exec structural classification', () => {
   it.each([
@@ -56,7 +58,7 @@ describe('phase 2135 long-blocking exec structural classification', () => {
 
   it('allows bounded execution and auto-migrating calls without an explicit sync timeout', () => {
     expect(evaluateLongBlockingExec('sleep 540', EXEC_TURN_SYNC_LIMIT_MS)).toBeNull();
-    expect(evaluateLongBlockingExec('sleep 540', 1000)).toBeNull();
+    expect(evaluateLongBlockingExec('sleep 540', BOUNDED_SYNC_TIMEOUT_MS)).toBeNull();
     expect(evaluateLongBlockingExec('sleep 540', undefined)).toBeNull();
     expect(evaluateLongBlockingExec('while true; do sleep 5; done', EXEC_TURN_SYNC_LIMIT_MS)).toBeNull();
     expect(evaluateLongBlockingExec('watch -n 5 chestnut status', EXEC_TURN_SYNC_LIMIT_MS)).toBeNull();
@@ -64,7 +66,7 @@ describe('phase 2135 long-blocking exec structural classification', () => {
 
   it('does not confuse a quoted sentence containing shell syntax with a command', () => {
     const command = 'echo "sleep 540; while true; do sleep 5; done; watch -n 1 status"';
-    expect(evaluateLongBlockingExec(command, 600_000)).toBeNull();
+    expect(evaluateLongBlockingExec(command, EXPLICIT_LONG_TIMEOUT_MS)).toBeNull();
   });
 });
 
@@ -74,7 +76,7 @@ describe('phase 2135 typed rejection and audit', () => {
     const ctx = makeExecContext({ auditWriter: audit, workspaceDir: process.cwd() });
     const command = 'sleep 540';
 
-    const result = await createExecTool().execute({ command, timeoutMs: 600_000 }, ctx);
+    const result = await createExecTool().execute({ command, timeoutMs: EXPLICIT_LONG_TIMEOUT_MS }, ctx);
 
     expect(result).toMatchObject({
       success: false,
@@ -97,7 +99,7 @@ describe('phase 2135 typed rejection and audit', () => {
       'rule_id=exec_long_sleep',
       'disposition=rejected',
       'command_summary=sleep 540',
-      'timeout_ms=600000',
+      `timeout_ms=${EXPLICIT_LONG_TIMEOUT_MS}`,
       'observed_sleep_ms=540000',
       'async_capability=async_exec_task_result',
     );
@@ -107,7 +109,7 @@ describe('phase 2135 typed rejection and audit', () => {
     const controller = new AbortController();
     controller.abort();
     const result = await createExecTool().execute(
-      { command: 'sleep 540', timeoutMs: 600_000 },
+      { command: 'sleep 540', timeoutMs: EXPLICIT_LONG_TIMEOUT_MS },
       makeExecContext({ workspaceDir: process.cwd(), signal: controller.signal }),
     );
 
@@ -118,7 +120,7 @@ describe('phase 2135 typed rejection and audit', () => {
 
   it.skipIf(IS_WINDOWS)('still executes a legal short sleep with a larger timeout', async () => {
     const result = await createExecTool().execute(
-      { command: 'sleep 0.01', timeoutMs: 600_000 },
+      { command: 'sleep 0.01', timeoutMs: EXPLICIT_LONG_TIMEOUT_MS },
       makeExecContext({ workspaceDir: process.cwd() }),
     );
     expect(result.success).toBe(true);
@@ -127,7 +129,7 @@ describe('phase 2135 typed rejection and audit', () => {
   it('keeps ordinary exec behavior unchanged even with a larger explicit timeout', async () => {
     const audit = makeMockAudit();
     const result = await createExecTool().execute(
-      { command: EMPTY_OUTPUT_COMMAND, timeoutMs: 600_000 },
+      { command: EMPTY_OUTPUT_COMMAND, timeoutMs: EXPLICIT_LONG_TIMEOUT_MS },
       makeExecContext({ auditWriter: audit, workspaceDir: process.cwd() }),
     );
 

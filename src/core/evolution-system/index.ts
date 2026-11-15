@@ -10,6 +10,7 @@ export {
   type CompletedContractRef,
 } from './system.js';
 export { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
+export { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from './retro-scheduler.js';
 export {
   type EnsureRetrospectiveInput,
   type RetrospectiveWorkItem,

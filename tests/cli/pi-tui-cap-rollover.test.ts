@@ -55,6 +55,7 @@ async function makeTui(cols = 80, rows = 24) {
 }
 
 const CAP = 5000;
+const PI_TUI_CAP_TEST_TIMEOUT_MS = 30_000; // Large terminal fixtures get loaded-host scheduling slack.
 const line = (i: number) => `cap history line ${i}`;
 
 describe('phase 1942 Step C: pi-tui cap rollover', () => {
@@ -80,7 +81,7 @@ describe('phase 1942 Step C: pi-tui cap rollover', () => {
     // 有界：单帧写出 ~ 行宽量级，远小于整帧（5000 行 × ~40 字节）
     expect(rec.bytes).toBeLessThan(2000);
     tui.stop();
-  }, 30_000);
+  }, PI_TUI_CAP_TEST_TIMEOUT_MS);
 
   it('cap 后连续多次单行移位均走追加写出', async () => {
     const { rec, tui, outputText } = await makeTui();
@@ -101,7 +102,7 @@ describe('phase 1942 Step C: pi-tui cap rollover', () => {
     expect(joined).toContain(line(CAP + 4));
     expect(rec.bytes).toBeLessThan(5 * 2000);
     tui.stop();
-  }, 30_000);
+  }, PI_TUI_CAP_TEST_TIMEOUT_MS);
 
   it('非单行移位（一次移 2 行）→ 回退 fullRender 整帧（正确性优先）', async () => {
     const { rec, tui, outputText } = await makeTui();
@@ -120,7 +121,7 @@ describe('phase 1942 Step C: pi-tui cap rollover', () => {
     expect(joined).not.toContain('\x1b[3J');          // adapter 3J 过滤不变
     expect(joined).toContain(line(CAP + 1));
     tui.stop();
-  }, 30_000);
+  }, PI_TUI_CAP_TEST_TIMEOUT_MS);
 
   it('同长度但中间行变化（非纯移位）→ 回退 fullRender 整帧', async () => {
     const { rec, tui, outputText } = await makeTui();
@@ -140,7 +141,7 @@ describe('phase 1942 Step C: pi-tui cap rollover', () => {
     expect(joined).toContain('\x1b[2J');
     expect(joined).toContain('edited middle line');
     tui.stop();
-  }, 30_000);
+  }, PI_TUI_CAP_TEST_TIMEOUT_MS);
 
   it('cap 状态下 resize → 整帧重写（基线语义：2J 保留、3J 过滤）', async () => {
     const { rec, tui, outputText } = await makeTui();
@@ -159,5 +160,5 @@ describe('phase 1942 Step C: pi-tui cap rollover', () => {
     expect(joined).not.toContain('\x1b[3J');
     expect(joined).toContain(line(CAP - 1));
     tui.stop();
-  }, 30_000);
+  }, PI_TUI_CAP_TEST_TIMEOUT_MS);
 });

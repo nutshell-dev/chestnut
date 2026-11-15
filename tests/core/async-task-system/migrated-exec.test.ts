@@ -36,6 +36,26 @@ import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types
 import { makeFullTaskId } from '../../../src/core/async-task-system/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
+const ASYNC_SETTLE_TIMEOUT_MS = 5_000; // Allows background persistence and delivery on a loaded host.
+const WAIT_POLL_INTERVAL_MS = 50; // Polls often enough without busy-waiting on task files.
+const RETRY_BASE_DELAY_MS = 50; // Keeps the existing immediate test retry schedule.
+const ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS = 1000; // Matches the existing bounded teardown budget.
+const FAST_SOFT_TIMEOUT_MS = 100; // Migrates quickly while allowing process startup first.
+const NO_MIGRATION_SOFT_TIMEOUT_MS = 10_000; // Long enough for commands intended to finish synchronously.
+const SYNC_SUCCESS_TIMEOUT_MS = 5_000; // Explicit success paths need only a short command budget.
+const CONTROLLED_EXPLICIT_TIMEOUT_MS = 1000; // Controlled handles use the minimum explicit timeout.
+const IMMEDIATE_MIGRATION_SOFT_TIMEOUT_MS = 10; // Forces controlled-handle migration almost immediately.
+const ASSEMBLY_SOFT_TIMEOUT_MS = 60_000; // Assembly budget must not preempt the migration-policy override.
+const PARTIAL_OUTPUT_SOFT_TIMEOUT_MS = 500; // Leaves time to emit partial output before migration.
+const LONG_BLOCKING_TIMEOUT_MS = 10 * 60_000; // Explicit ten-minute timeout exercises long-blocking rejection.
+const POST_ABORT_SURVIVAL_OBSERVATION_MS = 150; // Gives a stray abort time to kill a surviving process.
+const PRE_ABORT_SPAWN_WAIT_MS = 100; // Gives the real child a moment to spawn before aborting.
+const INDETERMINATE_SOFT_TIMEOUT_MS = 50; // Migrates before injecting indeterminate cleanup.
+const INDETERMINATE_HARD_TIMEOUT_MS = 100; // Hard timeout follows immediately after migration.
+const INDETERMINATE_CLEANUP_OBSERVATION_MS = 400; // Allows hard-timeout cleanup and persistence to settle.
+const GROUP_HARD_TIMEOUT_MS = 500; // Enough time for group output before forced termination.
+const DISTANT_HARD_TIMEOUT_MS = 5_000; // Stays beyond release-gated natural completion.
+
 function sleepMs(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -66,7 +86,7 @@ function makeBaseToolTask(id: TaskId): ToolTask {
   };
 }
 
-async function waitUntilGone(file: string, timeoutMs = 5000): Promise<void> {
+async function waitUntilGone(file: string, timeoutMs = ASYNC_SETTLE_TIMEOUT_MS): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -74,7 +94,7 @@ async function waitUntilGone(file: string, timeoutMs = 5000): Promise<void> {
     } catch {
       return;
     }
-    await sleepMs(50);
+    await sleepMs(WAIT_POLL_INTERVAL_MS);
   }
   throw new Error(`Timed out waiting for ${file} to disappear`);
 }
@@ -128,7 +148,7 @@ describe('executeToolTask migrated path', () => {
       {
         fs: nodeFs,
         auditWriter: audit,
-        retryBaseDelayMs: 50,
+        retryBaseDelayMs: RETRY_BASE_DELAY_MS,
         moveTaskToDone: async (id) => {
           await fs.mkdir(path.join(tmpDir, TASKS_QUEUES_DONE_DIR), { recursive: true });
           await fs.rename(
@@ -177,7 +197,7 @@ describe('executeToolTask migrated path', () => {
         {
           fs: nodeFs,
           auditWriter: audit,
-          retryBaseDelayMs: 50,
+          retryBaseDelayMs: RETRY_BASE_DELAY_MS,
           moveTaskToDone: async () => { throw new Error('should not move to done'); },
           moveTaskToFailed: async (id) => {
             await fs.mkdir(path.join(tmpDir, TASKS_QUEUES_FAILED_DIR), { recursive: true });
@@ -221,7 +241,7 @@ describe('createAsyncExecWrapper', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -252,7 +272,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -270,7 +290,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-long-taskid');
@@ -300,7 +320,7 @@ describe('createAsyncExecWrapper', () => {
 
     // Wait for the background chain to finish and move the running file to done.
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     // The durable result file exists from identity checkpoint and is updated by the replaying subscription.
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
@@ -314,7 +334,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
       migrationPolicy: { migratable: false },
     });
 
@@ -338,8 +358,8 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 60_000,          // 装配级预算：足够长，不应生效
-      migrationPolicy: { migratable: false, softTimeoutMs: 100 },   // 声明覆盖：100ms 即终止
+      softTimeoutMs: ASSEMBLY_SOFT_TIMEOUT_MS,          // 装配级预算：足够长，不应生效
+      migrationPolicy: { migratable: false, softTimeoutMs: FAST_SOFT_TIMEOUT_MS },   // 声明覆盖：100ms 即终止
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -354,7 +374,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 500,
+      softTimeoutMs: PARTIAL_OUTPUT_SOFT_TIMEOUT_MS,
     });
 
     // Produce 20 lines of output; the release-file gate tail (not duration)
@@ -372,7 +392,7 @@ describe('createAsyncExecWrapper', () => {
 
     // Wait for the background chain to finish and move the task to done.
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const output = await fs.readFile(resultFile, 'utf-8');
     for (let i = 1; i <= 20; i += 1) {
@@ -384,7 +404,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     // Release-file 门控进程退出（4f6c334f6 同文件先例）：保证软超时迁移必先于进程结束，
@@ -402,7 +422,7 @@ describe('createAsyncExecWrapper', () => {
     const exitMarkerFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json');
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const exitMarker = JSON.parse(await fs.readFile(exitMarkerFile, 'utf-8'));
     expect(exitMarker).toMatchObject({
@@ -418,7 +438,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-post-migration');
@@ -432,7 +452,7 @@ describe('createAsyncExecWrapper', () => {
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('before');
@@ -443,7 +463,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-exit-error');
@@ -459,7 +479,7 @@ describe('createAsyncExecWrapper', () => {
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('partial');
@@ -477,7 +497,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     expect(tool.profiles).toEqual(['full']);
@@ -485,10 +505,10 @@ describe('createAsyncExecWrapper', () => {
 
   it('phase 2135: rejects explicit long synchronous sleep before spawning a process', async () => {
     const execWithHandle = vi.fn();
-    const tool = system.createAsyncExecWrapper({ execWithHandle, softTimeoutMs: 100 });
+    const tool = system.createAsyncExecWrapper({ execWithHandle, softTimeoutMs: FAST_SOFT_TIMEOUT_MS });
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, auditWriter: audit });
 
-    const result = await tool.execute({ command: 'sleep 540', timeoutMs: 600_000 }, ctx);
+    const result = await tool.execute({ command: 'sleep 540', timeoutMs: LONG_BLOCKING_TIMEOUT_MS }, ctx);
 
     expect(result).toMatchObject({
       success: false,
@@ -503,7 +523,7 @@ describe('createAsyncExecWrapper', () => {
   it('should handle execWithHandle throwing', async () => {
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => { throw new Error('spawn denied'); },
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -514,7 +534,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const controller = new AbortController();
@@ -533,7 +553,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const controller = new AbortController();
@@ -556,14 +576,14 @@ describe('createAsyncExecWrapper', () => {
 
     // Abort the original turn signal after migration.
     controller.abort();
-    await sleepMs(150);
+    await sleepMs(POST_ABORT_SURVIVAL_OBSERVATION_MS);
 
     // The process must still be alive because we detached the proxy signal.
     expect(isAlive(pid)).toBe(true);
 
     // Wait for the process to finish naturally and the background chain to deliver output.
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     const output = await fs.readFile(resultFile, 'utf-8');
@@ -574,7 +594,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const controller = new AbortController();
@@ -582,7 +602,7 @@ describe('createAsyncExecWrapper', () => {
 
     const execPromise = tool.execute({ command: 'sleep 5' }, ctx);
     // Give spawn a moment to start before aborting.
-    await sleepMs(100);
+    await sleepMs(PRE_ABORT_SPAWN_WAIT_MS);
     controller.abort();
 
     const result = await execPromise;
@@ -622,13 +642,13 @@ describe('createAsyncExecWrapper', () => {
           },
         };
       },
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const controller = new AbortController();
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, signal: controller.signal });
     const execPromise = tool.execute({ command: 'sleep 5' }, ctx);
-    await sleepMs(100);
+    await sleepMs(PRE_ABORT_SPAWN_WAIT_MS);
     controller.abort();
 
     const result = await execPromise;
@@ -664,14 +684,14 @@ describe('createAsyncExecWrapper', () => {
           },
         };
       },
-      softTimeoutMs: 50,
-      migratedHardTimeoutMs: 100,
+      softTimeoutMs: INDETERMINATE_SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: INDETERMINATE_HARD_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'sleep 5' }, ctx);
     const fullId = result.metadata?.fullTaskId as string;
-    await sleepMs(400);
+    await sleepMs(INDETERMINATE_CLEANUP_OBSERVATION_MS);
 
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     expect(await fs.stat(runningFile).then(() => true).catch(() => false)).toBe(true);
@@ -685,7 +705,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-identity');
@@ -713,14 +733,14 @@ describe('createAsyncExecWrapper', () => {
     }
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
   });
 
   it('identity checkpoint failure terminates the execution group and audits the outcome', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation(() => { throw new Error('disk full'); });
@@ -747,7 +767,7 @@ describe('createAsyncExecWrapper', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     // The authoritative task file is durable before the rebuildable index.
@@ -806,7 +826,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -814,11 +834,11 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'echo hello', timeoutMs: 5000 }, ctx);
+    const result = await tool.execute({ command: 'echo hello', timeoutMs: SYNC_SUCCESS_TIMEOUT_MS }, ctx);
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('hello');
@@ -829,7 +849,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -838,7 +858,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     const result = await tool.execute({ command: 'sleep 5', timeoutMs: HARD_TIMEOUT_MS }, ctx);
 
     expect(result.success).toBe(false);
-    expect(result.content).toMatch(/Error: Command timed out after 1000ms/);
+    expect(result.content).toContain(`Error: Command timed out after ${HARD_TIMEOUT_MS}ms`);
     expect(result.content).toContain('[command]: sleep 5');
   });
 
@@ -846,7 +866,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-automigrate');
@@ -863,14 +883,14 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     const fullId = result.metadata?.fullTaskId as string;
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
   });
 
   it('should return sync result when timeoutMs is not set and command is fast', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -911,7 +931,7 @@ describe('phase 1750: wrapper sync return path truncation', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -934,10 +954,10 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
-    const result = await tool.execute({ command: bigCommand, timeoutMs: 5000 }, makeWrapperCtx());
+    const result = await tool.execute({ command: bigCommand, timeoutMs: SYNC_SUCCESS_TIMEOUT_MS }, makeWrapperCtx());
 
     expect(result.success).toBe(true);
     // head/tail 在最终 footer 预算内等比收缩，仍保留两端。
@@ -979,10 +999,10 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     };
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
-    const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
+    const result = await tool.execute({ command: 'unused', timeoutMs: CONTROLLED_EXPLICIT_TIMEOUT_MS }, makeWrapperCtx());
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('Full output (2001 bytes) saved.');
@@ -1018,10 +1038,10 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     });
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
-    const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
+    const result = await tool.execute({ command: 'unused', timeoutMs: CONTROLLED_EXPLICIT_TIMEOUT_MS }, makeWrapperCtx());
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('Full output (2001 bytes) saved.');
@@ -1048,7 +1068,7 @@ describe('phase 1750: wrapper sync return path truncation', () => {
       },
       detach: () => child.unref(),
       promise: Promise.reject(new ProcessExecError({
-        message: 'Command timed out after 1000ms',
+        message: `Command timed out after ${CONTROLLED_EXPLICIT_TIMEOUT_MS}ms`,
         output,
         exitCode: null,
         killed: true,
@@ -1057,13 +1077,13 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     };
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
-    const result = await tool.execute({ command: 'unused', timeoutMs: 1000 }, makeWrapperCtx());
+    const result = await tool.execute({ command: 'unused', timeoutMs: CONTROLLED_EXPLICIT_TIMEOUT_MS }, makeWrapperCtx());
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('Error: Command timed out after 1000ms');
+    expect(result.content).toContain(`Error: Command timed out after ${CONTROLLED_EXPLICIT_TIMEOUT_MS}ms`);
     expect(result.content).toContain('Full output (2004 bytes) saved.');
     expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(EXEC_MAX_OUTPUT);
     expect(() => assertWellFormedUnicode(result.content)).not.toThrow();
@@ -1076,10 +1096,10 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
-    const result = await tool.execute({ command: 'echo small-output', timeoutMs: 5000 }, makeWrapperCtx());
+    const result = await tool.execute({ command: 'echo small-output', timeoutMs: SYNC_SUCCESS_TIMEOUT_MS }, makeWrapperCtx());
 
     expect(result.success).toBe(true);
     expect(result.content).toBe('small-output\n');
@@ -1090,7 +1110,7 @@ describe('phase 1750: wrapper sync return path truncation', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     // 不传 timeoutMs → sync→async 模式；命令 10s 内完成 → sync completion 分支
@@ -1195,7 +1215,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -1203,8 +1223,8 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
-      migratedHardTimeoutMs: 500,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: GROUP_HARD_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -1217,12 +1237,12 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const fullId = result.metadata?.fullTaskId as string;
 
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('tick');
-    expect(output).toMatch(/\[Process timed out: Migrated process timed out after 500ms\]/);
+    expect(output).toContain(`[Process timed out: Migrated process timed out after ${GROUP_HARD_TIMEOUT_MS}ms]`);
 
     const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
@@ -1246,8 +1266,8 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
-      migratedHardTimeoutMs: 5000,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: DISTANT_HARD_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-before-hard-timeout');
@@ -1263,7 +1283,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('done');
@@ -1275,8 +1295,8 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
-      migratedHardTimeoutMs: 5000,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: DISTANT_HARD_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -1294,7 +1314,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('quick');
@@ -1340,7 +1360,7 @@ describe('Phase 833: migrated exec stream events', () => {
 
   afterEach(async () => {
     listeners.length = 0;
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -1362,7 +1382,7 @@ describe('Phase 833: migrated exec stream events', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-task-started');
@@ -1385,14 +1405,14 @@ describe('Phase 833: migrated exec stream events', () => {
 
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
   });
 
   it('emits task_completed after migrated process finishes', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-task-completed');
@@ -1420,7 +1440,7 @@ describe('Phase 833: migrated exec stream events', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 100,
+      softTimeoutMs: FAST_SOFT_TIMEOUT_MS,
     });
 
     const releaseFile = path.join(tmpDir, 'release-complete-command');
@@ -1447,7 +1467,7 @@ describe('Phase 833: migrated exec stream events', () => {
       expect(runningTask.args.command).toBe(command);
     } finally {
       await fs.writeFile(releaseFile, 'go', 'utf-8');
-      if (runningFile) await waitUntilGone(runningFile, 5000);
+      if (runningFile) await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
     }
   });
 
@@ -1455,7 +1475,7 @@ describe('Phase 833: migrated exec stream events', () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
@@ -1486,6 +1506,8 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
 
   const SOFT_TIMEOUT_MS = 100;
   const HARD_TIMEOUT_MS = 5_000;
+  const MIGRATION_TIMER_SLACK_MS = SOFT_TIMEOUT_MS / 2; // Half the soft budget advances past migration only.
+  const DEADLINE_TEST_TIMEOUT_MS = 20_000; // Covers fake-timer orchestration plus real cleanup.
 
   beforeEach(async () => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -1506,7 +1528,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
 
   afterEach(async () => {
     vi.useRealTimers();
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -1592,7 +1614,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     expect(task.migratedDeadlineMs).toBe(capturedArgs?.deadlineAtMs);
 
     await fs.writeFile(releaseFile, 'go', 'utf-8');
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
   });
 
   it('L1 winning the deadline race is still classified as migrated hard timeout', async () => {
@@ -1632,7 +1654,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const resultP = tool.execute({ command: 'sleep 30' }, ctx);
-    await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + 50); // migrate
+    await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + MIGRATION_TIMER_SLACK_MS); // migrate
     const result = await resultP;
     expect(result.success).toBe(true);
     const fullId = result.metadata?.fullTaskId as string;
@@ -1642,7 +1664,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     // the monitor's hard timer for the same instant.
     await vi.advanceTimersByTimeAsync(HARD_TIMEOUT_MS);
     vi.useRealTimers();
-    await waitUntilGone(runningFile, 5000);
+    await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     const output = await fs.readFile(resultFile, 'utf-8');
@@ -1666,7 +1688,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     expect(termEvents[0]).toContain('trigger=timeout');
     expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
     expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(true);
-  }, 20_000);
+  }, DEADLINE_TEST_TIMEOUT_MS);
 
   it('termination before the deadline preserves the structured L1 fact (no flat drop)', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
@@ -1697,7 +1719,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
     try {
       const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
       const resultP = tool.execute({ command: 'sleep 30' }, ctx);
-      await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + 50); // migrate
+      await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + MIGRATION_TIMER_SLACK_MS); // migrate
       const result = await resultP;
       expect(result.success).toBe(true);
       expect(captured.subscriptionOptions).toEqual([{ replay: true }]);
@@ -1706,7 +1728,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
 
       await vi.advanceTimersByTimeAsync(REJECT_AFTER_MS); // pre-deadline rejection fires
       vi.useRealTimers();
-      await waitUntilGone(runningFile, 5000);
+      await waitUntilGone(runningFile, ASYNC_SETTLE_TIMEOUT_MS);
 
       const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
       const output = await fs.readFile(resultFile, 'utf-8');
@@ -1735,7 +1757,7 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
         await captured.handle.terminate();
       }
     }
-  }, 20_000);
+  }, DEADLINE_TEST_TIMEOUT_MS);
 });
 
 /**
@@ -1747,6 +1769,8 @@ describe('phase 1272 Step C: single migrated deadline end to end', () => {
  * real createExecWithHandle() — no L1 timer mocks, no __testMinTimeoutMs.
  */
 describe('phase 1272 Step C: production 30s-default survival regression (real OS)', () => {
+  const SLOW_SURVIVAL_TEST_TIMEOUT_MS = 60_000; // Allows the ~31s command plus monitor and delivery slack.
+
   let tmpDir: string;
   let nodeFs: NodeFileSystem;
   let audit: AuditLog;
@@ -1771,7 +1795,7 @@ describe('phase 1272 Step C: production 30s-default survival regression (real OS
   });
 
   afterEach(async () => {
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
@@ -1830,7 +1854,7 @@ describe('phase 1272 Step C: production 30s-default survival regression (real OS
 
     const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
-  }, 60_000); // wall ~31s: command sleep + monitor/delivery slack
+  }, SLOW_SURVIVAL_TEST_TIMEOUT_MS); // wall ~31s: command sleep + monitor/delivery slack
 });
 
 
@@ -1941,7 +1965,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1000).catch(() => { /* silent */ });
+    await system.shutdown(ASYNC_SYSTEM_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     for (const controlled of controlledHandles) await controlled.stop();
     vi.restoreAllMocks();
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
@@ -1962,7 +1986,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
         checkpointObserved = true;
         return controlled.handle;
       },
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const execution = tool.execute(
@@ -1991,7 +2015,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     });
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => controlled.handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const execution = tool.execute(
@@ -2032,7 +2056,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     });
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => controlled.handle,
-      softTimeoutMs: 10,
+      softTimeoutMs: IMMEDIATE_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const migrated = await tool.execute(
@@ -2085,7 +2109,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     });
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => controlled.handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const execution = tool.execute(
@@ -2134,7 +2158,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     });
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => controlled.handle,
-      softTimeoutMs: 10,
+      softTimeoutMs: IMMEDIATE_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const result = await tool.execute(
@@ -2177,7 +2201,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     });
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => controlled.handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const result = await tool.execute(
@@ -2208,7 +2232,7 @@ describe('phase 2146 B5: migrated exec persistence owner', () => {
     const controller = new AbortController();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => controlled.handle,
-      softTimeoutMs: 10_000,
+      softTimeoutMs: NO_MIGRATION_SOFT_TIMEOUT_MS,
     });
 
     const execution = tool.execute(

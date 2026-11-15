@@ -22,6 +22,10 @@ import { ToolExecutorImpl } from '../../../src/foundation/tools/executor.js';
 import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
+const REAL_EXEC_TIMEOUT_MS = 1000; // L1 clamps short explicit timeouts to 1s.
+const EXEC_INTEGRATION_TEST_TIMEOUT_MS = 15_000; // Allows real process cleanup plus loaded-host scheduling slack.
+const EXECUTOR_OUTER_TIMEOUT_MS = 60_000; // Outer budget stays well beyond the 1s exec timeout.
+
 function isAlivePid(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -65,11 +69,11 @@ describe('exec tool real timeout', () => {
     const tool = createExecTool();
     const result = await tool.execute({
       command: "printf 'partial-output-before-timeout\\n' && sleep 5",
-      timeoutMs: 1000,
+      timeoutMs: REAL_EXEC_TIMEOUT_MS,
     }, ctx);
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('1000ms');
+    expect(result.content).toContain(`${REAL_EXEC_TIMEOUT_MS}ms`);
     expect(result.content).toContain('printf');
     expect(result.content).toContain('partial-output-before-timeout');
     expect(result.content).toContain('[output]:');
@@ -82,7 +86,7 @@ describe('exec tool real timeout', () => {
     const tool = createExecTool();
     const result = await tool.execute({
       command: `sleep 30 & echo $! > ${pidFile}; wait`,
-      timeoutMs: 1000,
+      timeoutMs: REAL_EXEC_TIMEOUT_MS,
     }, ctx);
 
     expect(result.success).toBe(false);
@@ -102,19 +106,19 @@ describe('exec tool real timeout', () => {
     expect(cols).toContain('term_sent=true');
     expect(cols.some((c) => c.startsWith('leader_pid='))).toBe(true);
     expect(cols.some((c) => c.startsWith('process_group_id='))).toBe(true);
-  }, 15_000);
+  }, EXEC_INTEGRATION_TEST_TIMEOUT_MS);
 
   it('executor timeout waits for exec cleanup barrier before returning (反向 1)', async () => {
     const pidFile = path.join(tempDir, 'clawspace', 'sleep.pid');
     const registry = new ToolRegistryImpl();
     registry.register(createExecTool());
-    const executor = new ToolExecutorImpl(registry, 60_000);
+    const executor = new ToolExecutorImpl(registry, EXECUTOR_OUTER_TIMEOUT_MS);
 
     const result = await executor.execute({
       toolName: 'exec',
       args: { command: `sleep 30 & echo $! > ${pidFile}; wait` },
       ctx,
-      timeoutMs: 1000,
+      timeoutMs: REAL_EXEC_TIMEOUT_MS,
     });
 
     // User result is the timeout, but the barrier already confirmed cleanup.
@@ -132,5 +136,5 @@ describe('exec tool real timeout', () => {
     expect(termEvents).toHaveLength(1);
     expect(termEvents[0].map(String)).toContain('trigger=abort');
     expect(termEvents[0].map(String)).toContain('status=gone');
-  }, 15_000);
+  }, EXEC_INTEGRATION_TEST_TIMEOUT_MS);
 });

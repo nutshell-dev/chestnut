@@ -42,6 +42,7 @@ import {
   TASKS_QUEUES_PENDING_DIR,
 } from '../../src/core/async-task-system/index.js';
 import { newUuid } from '../../src/foundation/node-utils/index.js';
+import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../src/core/evolution-system/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
@@ -57,6 +58,8 @@ const SKILL_MD = (name: string, body: string) => `---\nname: ${name}\ndescriptio
  * 但断言的是工作流语义而非 deadline。60s = 满载观察值的 ≥3× 余量。
  */
 const WORKFLOW_TEST_TIMEOUT_MS = 60_000;
+// The real CLI spawns several workflows, so allow twice the single-workflow budget.
+const REAL_CLI_WORKFLOW_TEST_TIMEOUT_MS = 2 * WORKFLOW_TEST_TIMEOUT_MS;
 
 describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
   let tmpDir: string;
@@ -341,7 +344,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
       kind: 'subagent',
       id: taskId,
       shortId: deriveShortIdFromTaskId(makeFullTaskId(taskId)),
-      timeoutMs: 600000,
+      timeoutMs: RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
       parentClawId: 'motion',
       createdAt: new Date().toISOString(),
       intent: 'retro prompt',
@@ -407,7 +410,7 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
       kind: 'subagent',
       id: taskId,
       shortId: deriveShortIdFromTaskId(makeFullTaskId(taskId)),
-      timeoutMs: 600000,
+      timeoutMs: RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
       parentClawId: 'motion',
       createdAt: new Date().toISOString(),
       intent: 'retro prompt',
@@ -465,5 +468,5 @@ describe.skipIf(!gitAvailable)('skill edit CLI（phase 1919 Step D）', () => {
     } finally {
       await cleanupTempDir(foreignCwd);
     }
-  }, 120_000);
+  }, REAL_CLI_WORKFLOW_TEST_TIMEOUT_MS);
 });

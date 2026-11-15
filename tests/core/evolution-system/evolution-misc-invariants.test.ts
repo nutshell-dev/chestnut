@@ -31,8 +31,10 @@ import { scheduleRetro } from '../../../src/core/evolution-system/retro-schedule
 import type { RetroConfig } from '../../../src/core/evolution-system/retro-scheduler.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { SUBAGENT_TIMEOUT_MS } from '../../../src/core/subagent/constants.js';
+import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+
+const CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS = 2 * 60_000; // Two minutes exercises an explicit non-default budget.
 
 async function setupFixtures(overrides?: {
   contractCompleted?: boolean;
@@ -363,7 +365,7 @@ describe('retro-scheduler', () => {
         expect.objectContaining({
           kind: 'subagent',
           intent: expect.stringContaining('yaml: true'),
-          timeoutMs: SUBAGENT_TIMEOUT_MS * 2,
+          timeoutMs: RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
           parentClawId: 'motion',
           originClawId: 'motion',
         }),
@@ -394,11 +396,11 @@ describe('retro-scheduler', () => {
     });
 
     it('uses custom retroSubagentTimeoutMs when provided', async () => {
-      const config = makeConfig({ retroSubagentTimeoutMs: 120000 });
+      const config = makeConfig({ retroSubagentTimeoutMs: CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS });
       await scheduleRetro(config);
       expect(mockSchedule).toHaveBeenCalledWith(
         'subagent',
-        expect.objectContaining({ timeoutMs: 120000 }),
+        expect.objectContaining({ timeoutMs: CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS }),
       );
     });
   });

@@ -72,7 +72,7 @@ describe('no-magic-sleep-in-tests', () => {
    */
 
   const TESTS_ROOT = path.resolve(__dirname, '..');
-  const SELF_RELATIVE = path.join('design', 'no-magic-sleep-in-tests.test.ts');
+  const SELF_RELATIVE = path.join('design', 'invariants.test.ts');
 
   const MAGIC_LITERAL_PATTERN = /\b(setTimeout|setInterval)\s*\([^,]+,\s*\d+\s*[,)]/;
 
@@ -243,7 +243,7 @@ describe('no-magic-timing-assertion-in-tests', () => {
    */
 
   const TESTS_ROOT = path.resolve(__dirname, '..');
-  const SELF_RELATIVE = path.join('design', 'no-magic-timing-assertion-in-tests.test.ts');
+  const SELF_RELATIVE = path.join('design', 'invariants.test.ts');
 
   const MS_RELATED_NAMES = [
     'elapsed',

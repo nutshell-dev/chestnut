@@ -10,8 +10,10 @@ import { RetrospectiveStore } from '../../../src/core/evolution-system/retrospec
 import { READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/retro-scheduler.js';
+import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+
+const CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS = 5 * 60_000; // Five minutes exercises an explicit non-default budget.
 
 const { mockSkillVersions } = vi.hoisted(() => {
   const format = vi.fn().mockReturnValue('No skills loaded');
@@ -262,7 +264,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
   });
 
   describe('retroSubagentTimeoutMs payload passthrough', () => {
-    it('default 600000ms when undefined', async () => {
+    it('uses the default timeout when undefined', async () => {
       fixtures = await setupFixtures();
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
@@ -274,14 +276,14 @@ describe('EvolutionSystem disk-state dispatch', () => {
     });
 
     it('override value is passed through', async () => {
-      fixtures = await setupFixtures({ retroSubagentTimeoutMs: 300000 });
+      fixtures = await setupFixtures({ retroSubagentTimeoutMs: CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS });
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
       await store.ensure({ contractId, targetExecutorId: 'claw-a' });
       await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
       const prepared = mockSchedulePrepared.mock.calls[0][1];
-      expect(prepared.payload.timeoutMs).toBe(300000);
+      expect(prepared.payload.timeoutMs).toBe(CUSTOM_RETRO_SUBAGENT_TIMEOUT_MS);
     });
   });
 });
