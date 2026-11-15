@@ -8,16 +8,32 @@ export interface InputMeasurementUsage {
   cacheReadInputTokens?: number;
 }
 
+export type InputArtifactStatus = 'available' | 'unavailable' | 'redacted';
+
+/** A durable manifest reference; never a substitute for the artifact bytes. */
+export interface InputArtifactRef {
+  artifactId: string;
+  schemaVersion: 1;
+  status: InputArtifactStatus;
+  hashAlgorithm: 'sha256';
+  contentHash?: string;
+  byteLength?: number;
+  redactionPolicy?: string;
+  /** Stable failure/degradation code; capture errors must not block provider calls. */
+  reason?: string;
+}
+
 interface InputMeasurementCorrelation {
   invocationId?: string;
   attemptId?: string;
+  artifactRef?: InputArtifactRef;
 }
 
 interface InputMeasurementTerminalFacts extends InputMeasurementCorrelation {
   descriptorRevision?: string;
   inputHash?: string;
   /** A hash correlates observations; it is not a durable, replayable input artifact. */
-  inputSource: 'unlinked';
+  inputSource: 'unlinked' | 'artifact';
   measurement?: InputMeasurement;
 }
 
@@ -30,7 +46,7 @@ export type InputMeasurementObservation =
       descriptor: Readonly<InputMeterDescriptor>;
       measurement: InputMeasurement;
       inputHash?: string;
-      inputSource: 'unlinked';
+      inputSource: 'unlinked' | 'artifact';
     })
   | (InputMeasurementTerminalFacts & {
       kind: 'completed';

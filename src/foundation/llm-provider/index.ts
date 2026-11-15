@@ -11,6 +11,8 @@ export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasur
 export {
   emitInputMeasurement,
   inputProjectionHash,
+  type InputArtifactRef,
+  type InputArtifactStatus,
   type InputMeasurementObservation,
   type InputMeasurementObserver,
   type InputMeasurementUsage,
