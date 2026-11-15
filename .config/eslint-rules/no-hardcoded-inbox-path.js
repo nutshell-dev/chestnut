@@ -1,6 +1,8 @@
 /**
  * Custom ESLint rule: no-hardcoded-inbox-path
  *
+ * 应然：Messaging 统一拥有 inbox/outbox 叶路径，其他模块只能通过其能力访问。
+ *
  * Messaging owns every inbox/outbox leaf. Other production modules pass a claw
  * root or targetClawId to root-bound Messaging capabilities.
  */

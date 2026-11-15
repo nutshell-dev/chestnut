@@ -25,6 +25,8 @@ const EVIDENCE: ProcessEvidence = { version: 1, atMs: 0, facts: [] };
 const SELF_CAPTURE = {
   kind: 'captured', value: 'self-ref' as ProcessRef, evidence: EVIDENCE,
 } as const;
+/** Full-file contention can delay this fake-timer/disk-observation test. */
+const LOCK_OBSERVATION_TEST_TIMEOUT_MS = 30_000;
 
 let tempDir: string;
 let configPath: string;
@@ -500,7 +502,7 @@ describe('ConfigStore persisted holder observations', () => {
     expect(fs.readFileSync(`${configPath}.lock`, 'utf8')).toBe(replacement);
     expect(readRecords()[0]).toMatchObject({ lockRaw: raw, decision: 'consider_reclaim' });
     expect(fs.readdirSync(tempDir).filter(name => name.includes('.reclaim-'))).toEqual([]);
-  });
+  }, LOCK_OBSERVATION_TEST_TIMEOUT_MS);
 
   it('keeps the original business exception object for both public lock entries', async () => {
     const syncError = new Error('sync business failure');
