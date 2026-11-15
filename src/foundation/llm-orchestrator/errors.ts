@@ -21,6 +21,7 @@ import {
   LLMContextExceededError,
   LLMOutputBudgetExceededError,
   LLMInvalidRequestError,
+  type InputBudgetEvidence,
   isAbortError,
 } from '../llm-provider/index.js';
 
@@ -79,6 +80,16 @@ export interface SerializedErrorEvidence {
   code?: string;
   cause?: SerializedErrorEvidence;
   failures?: readonly LLMFailureEvidence[];
+  retryAfter?: number;
+  resetAtMs?: number;
+  timeoutMs?: number;
+  status?: number;
+  contextLimit?: number;
+  inputTokens?: number;
+  requestedMaxTokens?: number;
+  inputBudget?: InputBudgetEvidence;
+  /** false = 深度、循环、对象 cause 或文本长度导致证据降级。 */
+  complete?: false;
 }
 
 /** L1 typed code + L2b family + 候选关系的稳定序列化契约。 */
@@ -98,8 +109,13 @@ function redactErrorText(text: string): string {
   return text
     .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer <redacted>')
     .replace(/\b(?:sk|pk)-[A-Za-z0-9_-]{8,}\b/g, '<redacted>')
+    .replace(/\bgh[pousr]_[A-Za-z0-9]{16,}\b/g, '<redacted>')
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{16,}\b/g, '<redacted>')
+    .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, '<redacted>')
+    .replace(/\bya29\.[0-9A-Za-z_-]+\b/g, '<redacted>')
+    .replace(/\bxox[baprs]-[0-9A-Za-z-]{10,}\b/g, '<redacted>')
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<redacted>')
-    .replace(/\b(api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|token|secret|password)(\s*[=:]\s*|\s+)("[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1=<redacted>')
+    .replace(/\b(api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|token|secret|password)(?:["']?\s*[=:]\s*|\s+)("[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1=<redacted>')
     .slice(0, 500);
 }
 
@@ -116,18 +132,40 @@ function serializeErrorEvidence(
   depth = 0,
   seen = new WeakSet<object>(),
 ): SerializedErrorEvidence {
-  if (depth >= ERROR_EVIDENCE_DEPTH_LIMIT) return { name: 'DepthLimit' };
+  if (depth >= ERROR_EVIDENCE_DEPTH_LIMIT) return { name: 'DepthLimit', complete: false };
   if (!(value instanceof Error)) {
-    return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-      ? { name: 'NonErrorCause', message: redactErrorText(String(value)) }
-      : { name: 'NonErrorCause' };
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const text = String(value);
+      return {
+        name: 'NonErrorCause',
+        message: redactErrorText(text),
+        ...(text.length > 500 ? { complete: false as const } : {}),
+      };
+    }
+    return { name: 'NonErrorCause', complete: false };
   }
-  if (seen.has(value)) return { name: 'CircularCause' };
+  if (seen.has(value)) return { name: 'CircularCause', complete: false };
   seen.add(value);
   const result: SerializedErrorEvidence = {
     name: value.name,
     message: redactErrorText(value.message),
     ...(errorCodeOf(value) !== undefined ? { code: errorCodeOf(value) } : {}),
+    ...(value.message.length > 500 ? { complete: false as const } : {}),
+    ...((value instanceof LLMRateLimitError || value instanceof LLMQuotaError) && value.retryAfter !== undefined
+      ? { retryAfter: value.retryAfter } : {}),
+    ...(value instanceof LLMQuotaError && value.resetAtMs !== undefined ? { resetAtMs: value.resetAtMs } : {}),
+    ...(value instanceof LLMTimeoutError ? { timeoutMs: value.timeoutMs } : {}),
+    ...(value instanceof LLMContextExceededError
+      ? { status: value.status, ...(value.inputBudget !== undefined ? { inputBudget: value.inputBudget } : {}) }
+      : {}),
+    ...(value instanceof LLMOutputBudgetExceededError
+      ? {
+        contextLimit: value.contextLimit,
+        inputTokens: value.inputTokens,
+        requestedMaxTokens: value.requestedMaxTokens,
+        ...(value.inputBudget !== undefined ? { inputBudget: value.inputBudget } : {}),
+      }
+      : {}),
     ...(value instanceof LLMAllProvidersFailedError ? { failures: value.evidence } : {}),
     ...(value.cause !== undefined
       ? { cause: serializeErrorEvidence(value.cause, depth + 1, seen) }
@@ -148,6 +186,12 @@ export function makeLLMFailureEvidence(failure: LLMProviderFailure): LLMFailureE
     ...(errorCodeOf(failure.error) !== undefined ? { errorCode: errorCodeOf(failure.error) } : {}),
     cause: serializeErrorEvidence(failure.error),
   };
+}
+
+function serializedEvidenceComplete(evidence: SerializedErrorEvidence): boolean {
+  return evidence.complete !== false
+    && (evidence.cause === undefined || serializedEvidenceComplete(evidence.cause))
+    && (evidence.failures === undefined || evidence.failures.every(failure => serializedEvidenceComplete(failure.cause)));
 }
 
 export class LLMAllProvidersFailedError extends Error {
@@ -173,10 +217,19 @@ export class LLMAllProvidersFailedError extends Error {
   toJSON() {
     return {
       code: this.code,
-      message: this.message,
-      context: this.context,
+      message: redactErrorText(this.message),
+      context: {
+        failures: this.failures.map(failure => ({
+          provider: failure.provider,
+          error: redactErrorText(failure.error.message),
+        })),
+      },
       evidenceVersion: 1,
-      evidenceComplete: true,
+      evidenceComplete: (this.cause === undefined || serializedEvidenceComplete(serializeErrorEvidence(this.cause)))
+        && this.failures.every(failure =>
+          failure.providerId !== undefined
+          && failure.attemptIndex !== undefined
+          && serializedEvidenceComplete(makeLLMFailureEvidence(failure).cause)),
       failures: this.evidence,
       ...(this.cause !== undefined && { cause: serializeErrorEvidence(this.cause) }),
     };

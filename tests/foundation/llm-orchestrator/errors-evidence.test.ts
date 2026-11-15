@@ -29,6 +29,7 @@ describe('LLMAllProvidersFailedError structured evidence', () => {
       {
         family: 'quota', provider: 'kimi', providerId: 'provider-b', attemptIndex: 3,
         localSkip: false, errorCode: 'LLM_QUOTA_EXCEEDED',
+        cause: { retryAfter: 12, resetAtMs: 1234 },
       },
     ]);
     expect(JSON.parse(JSON.stringify(aggregate))).toMatchObject({
@@ -67,11 +68,38 @@ describe('LLMAllProvidersFailedError structured evidence', () => {
     const aggregate = new LLMAllProvidersFailedError([{
       provider: 'openai', error: new LLMNetworkError('openai', cause),
     }]);
-    const serialized = JSON.stringify(aggregate.toJSON().failures);
+    const serialized = JSON.stringify(aggregate.toJSON());
     expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain('oauth-secret');
     expect(serialized).toContain('<redacted>');
     expect(serialized).toContain('NonErrorCause');
+  });
+
+  it.each([
+    'ghp_abcdefghijklmnopqrstuvwxyz1234567890',
+    'AIzaabcdefghijklmnopqrstuvwxyz1234567890',
+  ])('整个 toJSON 不泄露常见 provider token：%s', (secret) => {
+    const aggregate = new LLMAllProvidersFailedError([{
+      provider: 'provider',
+      error: new LLMNetworkError('provider', new Error(`401 Unauthorized: ${secret}`)),
+    }]);
+    expect(JSON.stringify(aggregate.toJSON())).not.toContain(secret);
+  });
+
+  it('JSON credential 字段在整个 toJSON 中 redact', () => {
+    const aggregate = new LLMAllProvidersFailedError([{
+      provider: 'provider', error: new Error('{"access_token":"opaque-secret-value"}'),
+    }]);
+    expect(JSON.stringify(aggregate.toJSON())).not.toContain('opaque-secret-value');
+  });
+
+  it('缺候选身份或 cause 降级时显式 incomplete', () => {
+    const aggregate = new LLMAllProvidersFailedError([{
+      provider: 'provider', error: new Error('failed', { cause: { token: 'not-expanded' } }),
+    }]);
+    expect(aggregate.toJSON().evidenceComplete).toBe(false);
+    aggregate.cause = { accessToken: 'not-expanded' };
+    expect(aggregate.toJSON().evidenceComplete).toBe(false);
   });
 
   it('诱导性普通 Error 文本不会伪造 typed family 或 errorCode', () => {

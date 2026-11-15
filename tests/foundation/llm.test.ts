@@ -370,7 +370,7 @@ function createAnthropicSseResponse(text: string): Response {
       );
       expect(primaryState).toMatchObject({
         status: 'waiting',
-        lastError: { class: 'transient' },
+        lastError: { class: 'unknown' },
         consecutiveFailures: 1,
       });
     });
