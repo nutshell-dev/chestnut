@@ -69,6 +69,7 @@ describe('phase 1297: ConfigStore caller 白名单经 barrel', () => {
     expect(deepImports).toEqual([]);
     expect([...new Set(edges.map((e) => e.file))].sort()).toEqual([
       path.join('src', 'assembly', 'config', 'config-load.ts'),
+      path.join('src', 'core', 'llm-configuration', 'api-key-migration.ts'),
       path.join('src', 'core', 'llm-configuration', 'document-store.ts'),
       path.join('src', 'core', 'llm-configuration', 'legacy-credentials', 'local.ts'),
       path.join('src', 'core', 'llm-configuration', 'propagation-store.ts'),

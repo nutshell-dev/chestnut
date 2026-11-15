@@ -72,6 +72,8 @@ describe('Phase 1218 Step B: DialogStore mutation authority ratchet', () => {
       // 与 EditStore（this.editStore）不是 DialogStore——宽正则误伤排除
       'this.store.save',
       'editStore.save',
+      // Phase 2151: contract cancellation delivery persistence is not DialogStore.
+      'cancellationDeliveryStore.save',
     ];
     const mutationLines = lines.filter(line => {
       const text = line.split(':').slice(2).join(':');

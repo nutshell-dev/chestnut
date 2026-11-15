@@ -99,7 +99,7 @@ function makeTempRoot(): string {
   fs.mkdirSync(path.join(dir, '.chestnut', 'claws', 'test-claw', 'outbox', 'pending'), { recursive: true });
   fs.writeFileSync(
     path.join(dir, '.chestnut', 'config.yaml'),
-    'llm:\n  primary:\n    api_key: test\n'
+    'llm:\n  primary:\n    api_key: ${PARSEINT_TEST_API_KEY}\n'
   );
   // phase 1247 Step C: claw outbox is now supervised 'required' and spawns a
   // detached watchdog. For this parseInt smoke test we switch to 'audit query',
@@ -123,11 +123,13 @@ describe('CLI smoke - parseInt NaN guard Layer B canary', () => {
     root = makeTempRoot();
     prevRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = root;
+    process.env.PARSEINT_TEST_API_KEY = 'test';
   });
 
   afterEach(() => {
     if (prevRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = prevRoot;
+    delete process.env.PARSEINT_TEST_API_KEY;
     fs.rmSync(root, { recursive: true, force: true });
   });
 
