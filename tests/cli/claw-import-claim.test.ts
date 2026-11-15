@@ -7,6 +7,8 @@ import {
   ImportClaimStateError,
   observeImportReference,
   readImportClaim,
+  readImportClaimSnapshot,
+  recoverImportClaim,
   writeImportClaim,
   type ImportClaimContext,
   type ImportClaimV1,
@@ -14,6 +16,7 @@ import {
 } from '../../src/cli/commands/claw-import-claim.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { decodeProcessRef } from '../../src/foundation/process-exec/index.js';
+import { sha256Hex } from '../../src/foundation/node-utils/index.js';
 import type {
   ProcessEvidence,
   ProcessRef,
@@ -338,6 +341,83 @@ describe('ImportClaimEvidenceStore durability', () => {
     expect(error.atomicResult).toBe(result);
     expect(error.pendingEvent).toMatchObject({ kind: 'holder_observed', raw, decision: 'eligible' });
     expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
+  });
+});
+
+describe('directory import recovery CAS', () => {
+  function snapshot(evidenceStore = store()) {
+    return readImportClaimSnapshot(fs, evidenceStore, claimRel, context, opsFor(GONE));
+  }
+
+  it('replays the same recovery token without rewriting the exclusive record', () => {
+    const raw = writeClaim(legacyClaim());
+    const evidenceStore = store();
+    const current = snapshot(evidenceStore);
+    const write = vi.spyOn(fs, 'writeExclusiveSync');
+
+    const first = recoverImportClaim(fs, fs, evidenceStore, claimRel, current, 'publishing', 'recovery-one');
+    // A fresh evidence store models restart: replay is reconstructed from the disk record.
+    const second = recoverImportClaim(fs, fs, store(), claimRel, current, 'publishing', 'recovery-one');
+
+    expect(second).toEqual(first);
+    expect(write).toHaveBeenCalledTimes(2); // replay reaches O_EXCL but never replaces the record
+    expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
+    const recordRaw = fs.readSync(`status/cli-import-recovery/${sha256Hex(raw)}.json`);
+    const record = JSON.parse(recordRaw) as Record<string, unknown>;
+    expect(record).toMatchObject({
+      oldToken: 'old-token', oldHash: sha256Hex(raw), expectedPhase: 'publishing',
+      recoveryToken: 'recovery-one', sourceHash: sha256Hex(SOURCE), targetHash: sha256Hex(TARGET),
+      manifestHash: 'abc', observedAt: expect.any(String),
+    });
+    const kinds = readEvents().map(event => event.kind);
+    expect(kinds.filter(kind => kind === 'recovery_cas_won')).toHaveLength(1);
+    expect(kinds.filter(kind => kind === 'recovery_cas_replayed')).toHaveLength(1);
+  });
+
+  it('lets only one different recovery token win and preserves the losing claim', () => {
+    const raw = writeClaim(legacyClaim());
+    const current = snapshot();
+
+    recoverImportClaim(fs, fs, store(), claimRel, current, 'publishing', 'recovery-winner');
+    const error = catchState(() => recoverImportClaim(
+      fs, fs, store(), claimRel, current, 'publishing', 'recovery-loser',
+    ));
+
+    expect(error.stage).toBe('recovery_cas_lost');
+    expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
+    expect(fs.readSync(`status/cli-import-recovery/${sha256Hex(raw)}.json`)).toContain('recovery-winner');
+  });
+
+  it('does not retry a record write or overwrite the claim after an unknown CAS result', () => {
+    const raw = writeClaim(legacyClaim());
+    const current = snapshot();
+    const cause = Object.assign(new Error('CAS I/O unknown'), { code: 'EIO' });
+    const evidenceStore = store();
+    const write = vi.spyOn(fs, 'writeExclusiveSync').mockImplementation(() => { throw cause; });
+
+    const error = catchState(() => recoverImportClaim(
+      fs, fs, evidenceStore, claimRel, current, 'publishing', 'recovery-unknown',
+    ));
+
+    expect(error).toMatchObject({ stage: 'recovery_cas', originalError: cause, published: false });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
+    expect(readEvents()).toContainEqual(expect.objectContaining({
+      kind: 'recovery_cas_unknown', outcome: 'unknown',
+    }));
+  });
+
+  it('rejects a phase mismatch before creating a recovery record', () => {
+    const raw = writeClaim(legacyClaim());
+    const current = snapshot();
+
+    const error = catchState(() => recoverImportClaim(
+      fs, fs, store(), claimRel, current, 'claimed', 'wrong-phase',
+    ));
+
+    expect(error.stage).toBe('recovery_phase');
+    expect(nodeFs.readFileSync(path.join(root, claimRel), 'utf8')).toBe(raw);
+    expect(nodeFs.existsSync(path.join(root, 'status/cli-import-recovery'))).toBe(false);
   });
 });
 

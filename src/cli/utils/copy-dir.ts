@@ -6,12 +6,20 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AtomicWriteResult, FileSystem } from '../../foundation/fs/index.js';
 
 export interface CopyStats {
   dirs: number;
   files: number;
   bytes: number;
+}
+
+/** A rename may be visible even when its directory durability is not proven. */
+export class CopyDirDurabilityError extends Error {
+  constructor(readonly path: string, readonly result: Exclude<AtomicWriteResult, { kind: 'durable' }>) {
+    super(`Directory copy durability unavailable at ${path}: ${result.kind}`, { cause: result.error });
+    this.name = 'CopyDirDurabilityError';
+  }
 }
 
 /**
@@ -33,11 +41,15 @@ export async function copyDir(
       await copyDir(deps, path.join(src, entry.name), path.join(dest, entry.name), stats);
     } else {
       const content = await srcFs.read(entry.name);
-      await destFs.writeAtomic(entry.name, content);
+      const result = await destFs.writeAtomic(entry.name, content);
+      if (result.kind !== 'durable') throw new CopyDirDurabilityError(entry.name, result);
       if (stats) {
         stats.files++;
         stats.bytes += Buffer.byteLength(content, 'utf-8');
       }
     }
   }
+  // Persist empty directories and newly-created child directory entries too.
+  // Atomic file writes have already fsynced their immediate parent.
+  destFs.syncSync('.');
 }

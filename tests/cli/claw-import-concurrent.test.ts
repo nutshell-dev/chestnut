@@ -580,6 +580,156 @@ describe('claw import target claim + staged publish (phase 1910 Step F)', () => 
       importCommand(makeClawCommandDeps(racingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
     ).rejects.toThrow(/placeholder identity was lost/);
   });
+
+  it('source stat unknown I/O is not reported as absent and creates no target', async () => {
+    const source = path.join(tmpDir, 'src-bundle');
+    const cause = Object.assign(new Error('source stat EIO'), { code: 'EIO' });
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.dirname(source)) {
+        const originalStat = real.stat.bind(real);
+        real.stat = async p => {
+          if (p === path.basename(source)) throw cause;
+          return originalStat(p);
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), source, 'alice'),
+    ).rejects.toThrow(/cannot be inspected.*source stat EIO/);
+
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle'))).toBe(false);
+  });
+
+  it('target stat unknown I/O fails closed instead of starting a fresh import', async () => {
+    const cause = Object.assign(new Error('target stat EIO'), { code: 'EIO' });
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawspaceDir())) {
+        real.stat = async () => { throw cause; };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/cannot be inspected.*target stat EIO/);
+
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle'))).toBe(false);
+  });
+
+  it('target ancestor directory fsync failure stops before claim and staging writes', async () => {
+    const clawDir = path.join(tmpDir, '.chestnut', 'claws', 'alice');
+    const cause = Object.assign(new Error('ancestor fsync EIO'), { code: 'EIO' });
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawDir)) {
+        const originalSync = real.syncSync.bind(real);
+        real.syncSync = p => {
+          if (p === 'clawspace') throw cause;
+          originalSync(p);
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'target_parent_durability', originalError: cause,
+    });
+
+    expect(fs.existsSync(path.join(clawspaceDir(), 'src-bundle'))).toBe(false);
+    expect(fs.readdirSync(clawspaceDir()).filter(name => name.startsWith('.import-staging-'))).toEqual([]);
+  });
+
+  it('staging atomic write with unknown directory durability never publishes its bytes', async () => {
+    const destParent = clawspaceDir();
+    const result = {
+      kind: 'committed_durability_unknown' as const,
+      error: Object.assign(new Error('staging rename fsync EIO'), { code: 'EIO' }),
+    };
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir).startsWith(path.resolve(destParent, '.import-staging-'))) {
+        const originalWrite = real.writeAtomic.bind(real);
+        real.writeAtomic = async (targetPath, content) => {
+          await originalWrite(targetPath, content);
+          return result;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toThrow(/failed.*durability unavailable.*evidence preserved/s);
+
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', '.import-claim'))).toBe(true);
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', 'a.txt'))).toBe(false);
+    expect(fs.readdirSync(destParent).filter(name => name.startsWith('.import-staging-'))).toHaveLength(1);
+  });
+
+  it('token replacement after publication_ready is rechecked before claim deletion', async () => {
+    const clawDir = path.join(tmpDir, '.chestnut', 'claws', 'alice');
+    const claimPath = path.join(clawspaceDir(), 'src-bundle', '.import-claim');
+    const racingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(clawDir)) {
+        const originalWrite = real.writeAtomicSync.bind(real);
+        real.writeAtomicSync = (targetPath, content) => {
+          const result = originalWrite(targetPath, content);
+          if (content.includes('"kind":"publication_ready"')) {
+            const claim = JSON.parse(fs.readFileSync(claimPath, 'utf8')) as { token: string };
+            claim.token = 'external-after-ready';
+            fs.writeFileSync(claimPath, JSON.stringify(claim, null, 2));
+          }
+          return result;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(racingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({ name: 'ImportClaimStateError', stage: 'verify_before_delete' });
+
+    expect(JSON.parse(fs.readFileSync(claimPath, 'utf8'))).toMatchObject({ token: 'external-after-ready' });
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
+
+  it('staging cleanup failure preserves published evidence and returns retryable published=true', async () => {
+    const destParent = clawspaceDir();
+    const cause = Object.assign(new Error('staging cleanup EIO'), { code: 'EIO' });
+    const failingFactory = (baseDir: string): FileSystem => {
+      const real = new NodeFileSystem({ baseDir });
+      if (path.resolve(baseDir) === path.resolve(destParent)) {
+        real.removeDir = async p => {
+          if (p.startsWith('.import-staging-')) throw cause;
+        };
+      }
+      return real;
+    };
+
+    await expect(
+      importCommand(makeClawCommandDeps(failingFactory), path.join(tmpDir, 'src-bundle'), 'alice'),
+    ).rejects.toMatchObject({
+      name: 'ImportClaimStateError', stage: 'cleanup_staging', published: true, originalError: cause,
+    });
+
+    expect(fs.readFileSync(path.join(destParent, 'src-bundle', 'a.txt'), 'utf8')).toBe('alpha');
+    expect(fs.existsSync(path.join(destParent, 'src-bundle', '.import-claim'))).toBe(false);
+    expect(fs.readdirSync(destParent).filter(name => name.startsWith('.import-staging-'))).toHaveLength(1);
+    const evidenceRoot = path.join(tmpDir, '.chestnut', 'claws', 'alice', 'status', 'cli-import-claims');
+    const events = fs.readdirSync(evidenceRoot, { recursive: true }).map(String)
+      .filter(name => /^\d{6}\.json$/.test(path.basename(name)))
+      .map(name => JSON.parse(fs.readFileSync(path.join(evidenceRoot, name), 'utf8')) as { kind: string });
+    expect(events.some(event => event.kind === 'committed')).toBe(true);
+    expect(events.some(event => event.kind === 'staging_cleanup_failed')).toBe(true);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('✓ Copied'));
+  });
 });
 
 

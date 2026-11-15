@@ -22,9 +22,13 @@ import {
   captureImportHolder,
   ImportClaimEvidenceStore,
   ImportClaimStateError,
-  readImportClaim,
+  ensureImportDirectoryDurable,
+  readImportClaimSnapshot,
+  recoverImportClaim,
+  syncImportDirectoryChain,
   writeImportClaim,
   type ImportClaim,
+  type ImportClaimSnapshot,
   type ImportClaimV1,
 } from './claw-import-claim.js';
 
@@ -110,11 +114,20 @@ export function importVisibility(fs: FileSystem, clawDirRelPath: string): Clawsp
   return { state: 'published' };
 }
 
-async function tryStat(fs: FileSystem, p: string): Promise<StatInfo | null> {
+type StatProbe =
+  | { kind: 'present'; stat: StatInfo }
+  | { kind: 'absent' }
+  | { kind: 'unknown'; error: unknown };
+
+async function tryStat(fs: FileSystem, p: string): Promise<StatProbe> {
   try {
-    return await fs.stat(p);
-  } catch {
-    return null;
+    return { kind: 'present', stat: await fs.stat(p) };
+  } catch (error) {
+    // silent: filesystem errors are classified as absent or unknown below
+    if (isFileNotFound(error) || (error as NodeJS.ErrnoException)?.code === 'ENOTDIR') {
+      return { kind: 'absent' };
+    }
+    return { kind: 'unknown', error };
   }
 }
 
@@ -135,10 +148,16 @@ export async function importCommand(
   const srcParentFs = deps.fsFactory(srcParentDir);
 
   // Check source exists
-  const srcStat = await tryStat(srcParentFs, srcName);
-  if (!srcStat) {
+  const srcProbe = await tryStat(srcParentFs, srcName);
+  if (srcProbe.kind === 'absent') {
     throw new CliError(`"${source}" does not exist`);
   }
+  if (srcProbe.kind === 'unknown') {
+    throw new CliError(`"${source}" cannot be inspected: ${formatErr(srcProbe.error)}`, {
+      cause: srcProbe.error,
+    });
+  }
+  const srcStat = srcProbe.stat;
 
   const clawDir = clawTarget.clawDir;
   const clawspaceDir = path.join(clawDir, CLAWSPACE_DIR);
@@ -157,8 +176,15 @@ export async function importCommand(
 
   // Check if target already exists in clawspace
   const clawspaceFs = deps.fsFactory(clawspaceDir);
-  const existing = await tryStat(clawspaceFs, relFromClawspace);
-  if (existing) {
+  const existingProbe = await tryStat(clawspaceFs, relFromClawspace);
+  if (existingProbe.kind === 'unknown') {
+    throw new CliError(
+      `"${displayRel}" cannot be inspected in ${clawName}/clawspace/: ${formatErr(existingProbe.error)}`,
+      { cause: existingProbe.error },
+    );
+  }
+  const existing = existingProbe.kind === 'present' ? existingProbe.stat : null;
+  if (existing !== null) {
     // Phase 1912 Step D：带 claim 的目录目标不再即时拒绝——交由下方目录分支
     // 做死 holder 恢复判读（同 payload 续传 / 活 holder·异 payload 冲突留证）；
     // 用户既有目标（无 claim）拒绝语义不变。
@@ -195,7 +221,7 @@ export async function importCommand(
     //   7. 删 claim = 提交；清 staging。claim 缺席即已提交（单向事实）。
     // 死 holder 恢复：同 manifestHash 幂等续传；异 payload 显式冲突不覆盖。
     const destParentFs = deps.fsFactory(destParent);
-    await destParentFs.ensureDir('.');
+    const clawDirFs = deps.fsFactory(clawDir);
     const claimRel = `${srcName}/${IMPORT_CLAIM_FILE}`;
     const stageName = `.import-staging-${newShortUuid()}`;
     const myToken = newShortUuid();
@@ -205,7 +231,21 @@ export async function importCommand(
       target: displayRel,
       claimPath: path.join(destParent, claimRel),
     };
-    const evidenceStore = new ImportClaimEvidenceStore(deps.fsFactory(clawDir), claimContext);
+    const evidenceStore = new ImportClaimEvidenceStore(clawDirFs, claimContext);
+    try {
+      ensureImportDirectoryDurable(clawDirFs, path.relative(clawDir, destParent));
+    } catch (error) {
+      evidenceStore.append('target_parent_durability_failed', {
+        path: destParent, token: myToken, error: formatErr(error),
+      }, { originalError: error });
+      throw new ImportClaimStateError(
+        `Import target parent durability is unknown; claim/evidence preserved (${destParent})`,
+        {
+          context: claimContext, stage: 'target_parent_durability',
+          evidencePath: evidenceStore.location, originalError: error, published: false,
+        },
+      );
+    }
 
     interface ImportManifestEntry { path: string; bytes: number; sha256: string }
 
@@ -218,24 +258,71 @@ export async function importCommand(
       target: displayRel,
       holder,
     };
-    const writeClaim = (manifestHash?: string): void => {
-      writeImportClaim(destParentFs, evidenceStore, claimRel, {
-        ...claimBase,
-        ...(manifestHash !== undefined ? { manifestHash } : {}),
-      });
-    };
+    const writeClaim = (manifestHash?: string): string => writeImportClaim(
+      destParentFs,
+      evidenceStore,
+      claimRel,
+      { ...claimBase, ...(manifestHash !== undefined ? { manifestHash } : {}) },
+    );
 
-    const readClaim = (): ImportClaim => readImportClaim(
+    const readClaim = (): ImportClaimSnapshot => readImportClaimSnapshot(
       destParentFs,
       evidenceStore,
       claimRel,
       claimContext,
     );
 
+    const syncDirectory = (stage: string, directory: string): void => {
+      try {
+        syncImportDirectoryChain(destParentFs, directory);
+      } catch (error) {
+        evidenceStore.append('directory_durability_failed', {
+          path: directory, token: myToken, error: formatErr(error),
+        }, { originalError: error });
+        throw new ImportClaimStateError(
+          `Import directory durability is unknown at ${directory}; claim/evidence preserved`,
+          {
+            context: claimContext, stage, evidencePath: evidenceStore.location,
+            originalError: error, published: false,
+          },
+        );
+      }
+    };
+
+    const readOwnedClaim = (expectedRaw: string, stage: string): string => {
+      let raw: string | undefined;
+      let error: unknown;
+      try {
+        raw = destParentFs.readSync(claimRel);
+        const parsed = JSON.parse(raw) as ImportClaim;
+        if (raw !== expectedRaw || parsed.token !== myToken || parsed.source !== srcAbs
+            || parsed.target !== displayRel) {
+          error = new Error('claim token, identity, or exact bytes changed');
+        }
+      } catch (cause) {
+        // silent: the original cause is appended to evidence and thrown below
+        error = cause;
+      }
+      if (error === undefined && raw !== undefined) return raw;
+      evidenceStore.append('claim_identity_check_failed', {
+        path: claimRel, token: myToken, ...(raw !== undefined ? { raw } : {}),
+        error: formatErr(error),
+      }, { originalError: error });
+      throw new ImportClaimStateError(
+        `"${displayRel}" placeholder identity was lost during import in ${clawName}/clawspace/; `
+          + `conflict — evidence preserved at ${path.join(destParent, srcName)}`,
+        {
+          context: claimContext, stage, evidencePath: evidenceStore.location,
+          originalError: error, published: false,
+        },
+      );
+    };
+
     // 1. 占有裁决
-    let resumedClaim: ImportClaim | null = null;
+    let resumedClaim: ImportClaimSnapshot | null = null;
+    let targetCreated: string | undefined;
     try {
-      destParentFs.mkdirExclusiveSync(srcName);
+      targetCreated = destParentFs.mkdirExclusiveSync(srcName);
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
       // 目标已存在：无 claim → 用户既有目标（拒绝语义不变）；有 claim → 恢复判读。
@@ -252,11 +339,34 @@ export async function importCommand(
       }
       resumedClaim = readClaim();
     }
+    syncDirectory('target_directory_durability', srcName);
+    evidenceStore.append('target_directory_durable', {
+      path: srcName, firstCreated: targetCreated ?? null, durability: 'durable', token: myToken,
+    });
     // Only mkdir EEXIST is recovery arbitration; claim/evidence write errors must
     // not be misclassified as target competition.
     if (resumedClaim === null) writeClaim();
 
     // 2. staging 复制 + manifest（源快照事实）
+    let stagingCreated: string;
+    try {
+      stagingCreated = destParentFs.mkdirExclusiveSync(stageName);
+    } catch (error) {
+      evidenceStore.append('staging_directory_failed', {
+        path: stageName, token: myToken, error: formatErr(error),
+      }, { originalError: error });
+      throw new ImportClaimStateError(
+        `Import staging directory could not be exclusively created: ${stageName}`,
+        {
+          context: claimContext, stage: 'staging_directory',
+          evidencePath: evidenceStore.location, originalError: error, published: false,
+        },
+      );
+    }
+    syncDirectory('staging_directory_durability', stageName);
+    evidenceStore.append('staging_directory_durable', {
+      path: stageName, firstCreated: stagingCreated, durability: 'durable', token: myToken,
+    });
     try {
       await copyDir(deps, srcAbs, path.join(destParent, stageName), stats);
     } catch (err) {
@@ -264,6 +374,7 @@ export async function importCommand(
       throw new CliError(
         `Import of "${displayRel}" failed: ${formatErr(err)}; ` +
         `evidence preserved at ${path.join(destParent, srcName)} and ${path.join(destParent, stageName)}`,
+        { cause: err },
       );
     }
     const stageFs = deps.fsFactory(path.join(destParent, stageName));
@@ -280,28 +391,33 @@ export async function importCommand(
       // manifestHash = 源快照事实未持久化（首次 claim 写入与 manifest 持久化
       // 之间崩溃）——只有 source 路径相同不构成 payload identity，fail-closed
       // 交 owner 显式决策，不得把变化后的 source 当旧 intent 续传。
-      if (resumedClaim.manifestHash === undefined) {
-        await destParentFs.removeDir(stageName).catch(() => {
-          // silent: 我方 staging 清理失败不掩盖冲突事实；残留 `.import-staging-*` 可人工删
-        });
+      if (resumedClaim.claim.manifestHash === undefined) {
         throw new CliError(
           `"${displayRel}" has an interrupted import whose original source payload cannot be proven ` +
           `(claim ${claimRel} lacks manifestHash) in ${clawName}/clawspace/; ` +
           `evidence preserved; inspect and remove the claim to retry`,
         );
       }
-      const sameIntent = resumedClaim.source === srcAbs && resumedClaim.manifestHash === manifestHash;
+      const sameIntent = resumedClaim.claim.source === srcAbs
+        && resumedClaim.claim.manifestHash === manifestHash;
       if (!sameIntent) {
-        await destParentFs.removeDir(stageName).catch(() => {
-          // silent: 我方 staging 清理失败不掩盖冲突事实；残留 `.import-staging-*` 可人工删
-        });
         throw new CliError(
           `"${displayRel}" has an interrupted import with a different source payload in ${clawName}/clawspace/ ` +
-          `(claim: ${claimRel}, source: ${resumedClaim.source}); evidence preserved, not overwritten`,
+          `(claim: ${claimRel}, source: ${resumedClaim.claim.source}); evidence preserved, not overwritten`,
         );
       }
+      recoverImportClaim(
+        destParentFs,
+        clawDirFs,
+        evidenceStore,
+        claimRel,
+        resumedClaim,
+        'publishing',
+        myToken,
+      );
     }
-    writeClaim(manifestHash);
+    const manifestClaimRaw = writeClaim(manifestHash);
+    readOwnedClaim(manifestClaimRaw, 'verify_before_publication');
 
     // 3. 逐文件 no-replace 落位（恢复重跑按 hash 收敛）
     for (const entry of manifest) {
@@ -312,14 +428,29 @@ export async function importCommand(
       } catch (err) {
         if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
         // 已落位：同 hash = 本方/并发同 intent 已提交 → 收敛；异内容 → 冲突留证
-        const destContent = await destParentFs.read(destRel).catch(() => null);
-        if (destContent === null || sha256Hex(destContent) !== entry.sha256) {
+        let destContent: string;
+        try {
+          destContent = await destParentFs.read(destRel);
+        } catch (error) {
+          evidenceStore.append('target_publication_read_failed', {
+            path: destRel, token: myToken, error: formatErr(error),
+          }, { originalError: error });
+          throw new ImportClaimStateError(
+            `Import target identity could not be read at ${destRel}; claim/evidence preserved`,
+            {
+              context: claimContext, stage: 'verify_target_file',
+              evidencePath: evidenceStore.location, originalError: error, published: false,
+            },
+          );
+        }
+        if (sha256Hex(destContent) !== entry.sha256) {
           throw new CliError(
             `"${displayRel}" target file "${entry.path}" exists with different bytes in ${clawName}/clawspace/; ` +
             `conflict — evidence preserved, not overwritten`,
           );
         }
       }
+      syncDirectory('target_file_durability', path.dirname(destRel));
     }
 
     // 4. 外部混入扫描：目标必须恰含 manifest 文件 + claim
@@ -337,40 +468,96 @@ export async function importCommand(
       );
     }
 
-    // 5. 占位身份复核（被外部删重建 → claim 丢失/token 不符 → 冲突留证）
-    const finalClaimRaw = await destParentFs.read(claimRel).catch(() => null);
-    if (finalClaimRaw === null || (JSON.parse(finalClaimRaw) as ImportClaim).token !== myToken) {
-      throw new CliError(
-        `"${displayRel}" placeholder identity was lost during import in ${clawName}/clawspace/; ` +
-        `conflict — evidence preserved at ${path.join(destParent, srcName)}`,
-      );
-    }
+    // 5. 发布前复核完整 token/source/target/原始字节与 target identity。
+    const finalClaimRaw = readOwnedClaim(manifestClaimRaw, 'verify_after_publication');
 
-    // 6. 提交：ready 证据先于删 claim；删除返回后发布事实已成立。
-    evidenceStore.append('publication_ready', { exactRaw: finalClaimRaw, token: myToken });
+    // 6. ready 证据先持久化；证据后、删除前再复核，最后持久化目录删除。
+    evidenceStore.append('publication_ready', {
+      exactRaw: finalClaimRaw,
+      token: myToken,
+      manifestHash,
+      manifest,
+      targetIdentity: sha256Hex(JSON.stringify(manifest)),
+      targetDirectoryDurability: 'durable',
+    });
+    const deleteClaimRaw = readOwnedClaim(manifestClaimRaw, 'verify_before_delete');
+    let deletion: 'deleted' | 'absent' = 'deleted';
     try {
       destParentFs.deleteSync(claimRel);
     } catch (error) {
+      if (isFileNotFound(error)) {
+        deletion = 'absent';
+      } else {
+        evidenceStore.append('claim_delete_failed', {
+          exactRaw: deleteClaimRaw, token: myToken, outcome: 'unknown', error: formatErr(error),
+        }, { originalError: error, published: 'unknown' });
+        throw new ImportClaimStateError(
+          `Import claim deletion failed; publication state must be checked on disk `
+            + `(claim: ${claimRel}, evidence: ${evidenceStore.location})`,
+          {
+            context: claimContext, stage: 'delete_claim', evidencePath: evidenceStore.location,
+            originalError: error, published: 'unknown',
+          },
+        );
+      }
+    }
+    try {
+      syncImportDirectoryChain(destParentFs, srcName);
+    } catch (error) {
       evidenceStore.append('claim_delete_failed', {
-        exactRaw: finalClaimRaw,
+        exactRaw: deleteClaimRaw, token: myToken, outcome: 'unknown', deletion,
         error: formatErr(error),
       }, { originalError: error, published: 'unknown' });
       throw new ImportClaimStateError(
-        `Import claim deletion failed; publication state must be checked on disk `
+        `Import claim deletion durability is unknown; do not overwrite the published target `
           + `(claim: ${claimRel}, evidence: ${evidenceStore.location})`,
         {
-          context: claimContext,
-          stage: 'delete_claim',
-          evidencePath: evidenceStore.location,
-          originalError: error,
-          published: 'unknown',
+          context: claimContext, stage: 'delete_claim_durability', evidencePath: evidenceStore.location,
+          originalError: error, published: 'unknown',
         },
       );
     }
-    evidenceStore.append('committed', { exactRaw: finalClaimRaw }, { published: true });
-    await destParentFs.removeDir(stageName).catch(() => {
-      // silent: staging 清理失败不影响已提交事实；残留 `.import-staging-*` 可人工删
-    });
+    evidenceStore.append('committed', {
+      exactRaw: deleteClaimRaw, token: myToken, manifestHash, deletion,
+    }, { published: true });
+
+    let stagingCleanup: 'removed' | 'absent' = 'removed';
+    try {
+      await destParentFs.removeDir(stageName);
+    } catch (error) {
+      if (isFileNotFound(error) || (error as NodeJS.ErrnoException)?.code === 'ENOTDIR') {
+        stagingCleanup = 'absent';
+      } else {
+        evidenceStore.append('staging_cleanup_failed', {
+          path: stageName, token: myToken, outcome: 'unknown', error: formatErr(error),
+        }, { originalError: error, published: true });
+        throw new ImportClaimStateError(
+          `Import is published but staging cleanup is incomplete and retryable: ${stageName}`,
+          {
+            context: claimContext, stage: 'cleanup_staging', evidencePath: evidenceStore.location,
+            originalError: error, published: true,
+          },
+        );
+      }
+    }
+    try {
+      syncImportDirectoryChain(destParentFs, '.');
+    } catch (error) {
+      evidenceStore.append('staging_cleanup_failed', {
+        path: stageName, token: myToken, outcome: 'unknown', cleanup: stagingCleanup,
+        error: formatErr(error),
+      }, { originalError: error, published: true });
+      throw new ImportClaimStateError(
+        `Import is published but staging cleanup durability is unknown: ${stageName}`,
+        {
+          context: claimContext, stage: 'cleanup_staging_durability', evidencePath: evidenceStore.location,
+          originalError: error, published: true,
+        },
+      );
+    }
+    evidenceStore.append('staging_cleanup_complete', {
+      path: stageName, token: myToken, outcome: stagingCleanup,
+    }, { published: true });
 
     const sizeStr = stats.bytes >= 1024
       ? `${(stats.bytes / 1024).toFixed(1)} KB`
