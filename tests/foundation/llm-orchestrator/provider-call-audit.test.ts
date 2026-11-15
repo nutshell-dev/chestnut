@@ -109,6 +109,40 @@ function observingProvider(name: string): ProviderAdapter {
   };
 }
 
+function artifactObservingProvider(name: string, requestId: string, error?: Error): ProviderAdapter {
+  const artifactRef = {
+    artifactId: `input-artifact-${requestId}`, schemaVersion: 1 as const,
+    status: 'unavailable' as const, hashAlgorithm: 'sha256' as const, reason: 'test_capture_unavailable',
+  };
+  return {
+    name,
+    model: 'model-x',
+    call: async (options) => {
+      const measurement = { kind: 'counted' as const, tokens: 12, method: 'deepseek-v41-template' as const };
+      options.onInputMeasurement?.({
+        kind: 'prepared', requestId, provider: name, model: 'model-x',
+        descriptor: {
+          revision: 'rev-artifact', provider: name, model: 'model-x', api: 'openai',
+          contextWindow: 1_000_000, profile: 'test-meter',
+        },
+        measurement, inputHash: `hash-${requestId}`, inputSource: 'unlinked', artifactRef,
+      });
+      options.onInputMeasurement?.(error
+        ? {
+            kind: 'failed', requestId, provider: name, model: 'model-x', inputSource: 'unlinked',
+            reason: error.message, measurement, measuredInputTokens: 12, artifactRef,
+          }
+        : {
+            kind: 'completed', requestId, provider: name, model: 'model-x', inputSource: 'unlinked',
+            reconciliation: 'matched', measurement, measuredInputTokens: 12,
+            usage: { inputTokens: 12, outputTokens: 2 }, normalizedUsageInputTokens: 12, artifactRef,
+          });
+      if (error) throw error;
+      return OK_RESPONSE;
+    },
+  };
+}
+
 function retryingObservingProvider(name: string): ProviderAdapter {
   let calls = 0;
   return {
@@ -338,6 +372,40 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     expect(observations).toHaveLength(4);
     expect(observations.every(fact => fact.invocationId === inv)).toBe(true);
     expect(new Set(observations.map(fact => fact.attemptId)).size).toBe(2);
+  });
+
+  it('keeps fallback request artifact ids distinct within one invocation', async () => {
+    const dir = await makeDir();
+    const h = makeHarness(dir, {
+      providers: {
+        primary: artifactObservingProvider('primary', 'req-primary', new LLMAuthError('primary', 401)),
+        fallback: artifactObservingProvider('fallback', 'req-fallback'),
+      },
+      primaryName: 'primary',
+      fallbackNames: ['fallback'],
+    });
+    const observations: InputMeasurementObservation[] = [];
+
+    await expect(h.service.call({
+      ...CALL, onInputMeasurement: fact => observations.push(fact),
+    })).resolves.toBe(OK_RESPONSE);
+
+    expect(observations.map(fact => [fact.requestId, fact.kind])).toEqual([
+      ['req-primary', 'prepared'], ['req-primary', 'failed'],
+      ['req-fallback', 'prepared'], ['req-fallback', 'completed'],
+    ]);
+    expect(new Set(observations.map(fact => fact.artifactRef?.artifactId))).toEqual(new Set([
+      'input-artifact-req-primary', 'input-artifact-req-fallback',
+    ]));
+    expect(new Set(observations.map(fact => fact.invocationId)).size).toBe(1);
+    const rows = await h.readRows();
+    const measurements = invocationRows(rows, lastInvocationId(rows))
+      .filter(row => row.type === 'llm_input_measurement')
+      .map(colMap);
+    expect(measurements.map(row => row.artifact_id)).toEqual([
+      'input-artifact-req-primary', 'input-artifact-req-primary',
+      'input-artifact-req-fallback', 'input-artifact-req-fallback',
+    ]);
   });
 
   it('isolates observer failure while preserving the result, audit facts and CRITICAL signal', async () => {

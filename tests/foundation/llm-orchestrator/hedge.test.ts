@@ -44,6 +44,10 @@ function createMockProvider(
         callOpts?.onInputMeasurement?.({
           kind: 'completed', requestId: opts.measurementRequestId,
           provider: name, model: 'mock-model', inputSource: 'unlinked', reconciliation: 'no_usage',
+          artifactRef: {
+            artifactId: `input-artifact-${opts.measurementRequestId}`, schemaVersion: 1,
+            status: 'unavailable', hashAlgorithm: 'sha256', reason: 'test_capture_unavailable',
+          },
         });
       }
       if (opts.callDelayMs) {
@@ -67,6 +71,10 @@ function createMockProvider(
             streamOpts?.onInputMeasurement?.({
               kind: 'completed', requestId: opts.measurementRequestId,
               provider: name, model: 'mock-model', inputSource: 'unlinked', reconciliation: 'no_usage',
+          artifactRef: {
+            artifactId: `input-artifact-${opts.measurementRequestId}`, schemaVersion: 1,
+            status: 'unavailable', hashAlgorithm: 'sha256', reason: 'test_capture_unavailable',
+          },
             });
           }
           if (opts.streamDelayMs) {
@@ -214,6 +222,9 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       fact.invocationId === started.invocationId
       && fact.attemptId === `${started.attemptId}:request:${fact.requestId}`)).toBe(true);
     expect(new Set(observations.map(fact => fact.attemptId)).size).toBe(2);
+    expect(new Set(observations.map(fact => fact.artifactRef?.artifactId))).toEqual(new Set([
+      'input-artifact-hedge-primary-request', 'input-artifact-hedge-fallback-request',
+    ]));
     expect(events.filter(e => e.type === 'input_measurement')).toHaveLength(2);
   });
 
