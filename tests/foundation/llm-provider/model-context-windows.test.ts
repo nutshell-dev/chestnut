@@ -162,6 +162,15 @@ describe('resolveContextWindow (phase 684 + Phase 1925 Step C + Phase 1977)', ()
         expect(resolveContextWindow(undefined, 'other-kimi-k3.1-pro')).toBe(256_000);
       });
 
+      it('裸 k 主版本 >= 3 与 kimi-k 系列使用同一 1M 规则', () => {
+        expect(resolveContextWindow(undefined, 'k3.1-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'k10-pro')).toBe(1_000_000);
+        expect(resolveContextWindow(undefined, 'k2.10-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'k-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'k3x-pro')).toBe(256_000);
+        expect(resolveContextWindow(undefined, 'other-k3.1-pro')).toBe(256_000);
+      });
+
       it('glm 主版本 >= 5 为 1M，旧 glm-5 行为保留且边界收紧', () => {
         expect(resolveContextWindow(undefined, 'glm-5.3')).toBe(1_000_000);
         expect(resolveContextWindow(undefined, 'glm-5-chat')).toBe(1_000_000);

@@ -36,6 +36,7 @@ const MILLION_TOKEN_PATTERNS: readonly string[] = ['claude', 'gemini', 'deepseek
 /** Phase 2144：版本阈值按数字段比较，模型族前缀和版本后的边界必须明确。 */
 const MILLION_MODEL_VERSION_RULES = [
   { prefix: 'doubao-seed-', minimumMajor: 2, minimumMinor: 1 },
+  { prefix: 'k', minimumMajor: 3, minimumMinor: 0 },
   { prefix: 'kimi-k', minimumMajor: 3, minimumMinor: 0 },
   { prefix: 'glm-', minimumMajor: 5, minimumMinor: 0 },
   { prefix: 'MiniMax-M', minimumMajor: 3, minimumMinor: 0 },
