@@ -7,16 +7,6 @@ import { watch as chokidarWatch } from 'chokidar';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
 
-/**
- * Async error settle budget (100ms). [B class: retained]
- * Derivation: phase 288 收紧 500ms→100ms / 等 onError throw 触发后再 close.
- * Phase 789 note: the mocked chokidar does not emit an error for a missing-file path,
- * so watcher.isActive() stays true until close(). Without changing test semantics,
- * keep the fixed sleep rather than an unstable waitFor poll.
- */
-const ASYNC_ERROR_SETTLE_MS = 100;
-
-
 // Mock chokidar with EventEmitter-based fake
 // phase 743 step C — L40+L62 mock chokidar for CI inotify compat
 // chokidar single-file watch on non-existent path 'add' event is unreliable on CI overlayfs / tmpfs
@@ -165,6 +155,24 @@ describe('FileWatcher', () => {
     await watcher.close();
   });
 
+  it.each([
+    { mode: 'sync throw', callback: () => { throw new Error('primary'); } },
+    { mode: 'async rejection', callback: async () => { throw new Error('primary'); } },
+  ])('callback $mode without onError is observable and preserves watcher lifecycle', async ({ callback }) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const watcher = createWatcher('/fake/watch.txt', callback, { stability: 'immediate' });
+
+    fakeWatcherInstance.emit('all', 'change', '/fake/watch.txt', { size: 1, mtime: new Date() });
+    await waitFor(() => consoleError.mock.calls.length === 1);
+
+    expect(String(consoleError.mock.calls[0]?.[0]))
+      .toContain('[file-watcher] callback failure: primary');
+    expect(watcher.isActive()).toBe(true);
+    await watcher.close();
+    expect(watcher.isActive()).toBe(false);
+    await expect(watcher.close()).resolves.toBeUndefined();
+  });
+
   it('onReady error triggers onError(err, "ready")', async () => {
     const errors = makeEventBuffer<{ err: Error; context: string }>();
     const watcher = createWatcher(
@@ -207,27 +215,50 @@ describe('FileWatcher', () => {
     expect(errors.some(e => e.context === 'watch')).toBe(true);
   });
 
-  it('onError handler error is swallowed and not propagated', async () => {
+  it('ready error with a throwing onError preserves primary and secondary failures', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const errors: { err: Error; context: string }[] = [];
     const watcher = createWatcher(
-      path.join(tmpDir, 'deep', 'nested', 'missing.txt'),
+      path.join(tmpDir, 'watch.txt'),
       () => {},
       {
         stability: 'immediate',
+        onReady: () => { throw new Error('ready primary'); },
         onError: (err, context) => {
           errors.push({ err, context });
-          throw new Error('onError boom');
+          throw new Error('ready sink');
         },
       },
     );
 
-    // sleep: async error trigger; no deterministic signal (phase 288: 500ms → 100ms)
-    await new Promise(r => setTimeout(r, ASYNC_ERROR_SETTLE_MS));
+    await waitFor(() => stderrWrite.mock.calls.length === 1);
+    const fallback = String(stderrWrite.mock.calls[0]?.[0]);
+    expect(fallback).toContain('context=ready');
+    expect(fallback).toContain('sink=ready sink');
+    expect(fallback).toContain('primary=ready primary');
+    expect(errors).toEqual([{ err: expect.any(Error), context: 'ready' }]);
+    expect(watcher.isActive()).toBe(true);
     await watcher.close();
-
-    // onError throwing should not cause infinite loop or unhandled rejection
-    // we just verify the watcher still closes cleanly
     expect(watcher.isActive()).toBe(false);
+    await expect(watcher.close()).resolves.toBeUndefined();
+  });
+
+  it('watch error with a throwing onError preserves context and separates health from release', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const watcher = createWatcher('/fake/watch.txt', () => {}, {
+      stability: 'immediate',
+      onError: () => { throw new Error('watch sink'); },
+    });
+
+    fakeWatcherInstance.emit('error', new Error('watch primary'));
+
+    expect(watcher.isActive()).toBe(false);
+    const fallback = String(stderrWrite.mock.calls[0]?.[0]);
+    expect(fallback).toContain('context=watch');
+    expect(fallback).toContain('sink=watch sink');
+    expect(fallback).toContain('primary=watch primary');
+    await watcher.close();
+    expect(fakeWatcherInstance.close).toHaveBeenCalledTimes(1);
   });
 
   it('close is idempotent', async () => {

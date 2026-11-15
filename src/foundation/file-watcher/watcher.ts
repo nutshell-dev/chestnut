@@ -5,6 +5,7 @@
  */
 
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar';
+import { formatErr } from '../node-utils/index.js';
 import type { Watcher, WatchEvent, WatchEventType, WatcherErrorContext } from './types.js';
 
 /**
@@ -47,6 +48,37 @@ const CHOKIDAR_STABILITY_THRESHOLD_MS = 100;
  * File-local implementation parameter; tests observe it through createWatcher's chokidar config.
  */
 const CHOKIDAR_POLL_INTERVAL_MS = 50;
+
+function reportWatcherError(
+  error: Error,
+  context: WatcherErrorContext,
+  sink?: (error: Error, context: WatcherErrorContext) => void,
+): void {
+  if (!sink) {
+    console.error( // console: L1 has no audit dependency; absent sinks retain an observable diagnostic
+      `[file-watcher] ${context} failure: ${formatErr(error)}`,
+    );
+    return;
+  }
+  try {
+    sink(error, context);
+  } catch (sinkError) {
+    try {
+      process.stderr.write(
+        `[file-watcher] error sink failed: context=${context}` +
+          ` sink=${formatErr(sinkError)} primary=${formatErr(error)}\n`,
+      );
+    } catch (stderrError) {
+      queueMicrotask(() => {
+        throw new AggregateError(
+          [error, sinkError, stderrError],
+          `FileWatcher ${context} failure and fallback reporting failed`,
+          { cause: error },
+        );
+      });
+    }
+  }
+}
 
 class ChokidarWatcher implements Watcher {
   private active = true;
@@ -170,6 +202,10 @@ export function createWatcher(
 ): Watcher {
   // phase 530 (review-round4 Foundation L): forward ref for watch-error markDisabled
   let instance: ChokidarWatcher | null = null;
+  const reportError = (err: unknown, context: WatcherErrorContext): void => {
+    const error = err instanceof Error ? err : new Error(String(err));
+    reportWatcherError(error, context, options?.onError);
+  };
   const watcher = chokidarWatch(absolutePath, {
     persistent: options?.persistent ?? true,
     ignoreInitial: true,
@@ -204,12 +240,10 @@ export function createWatcher(
 
     try {
       void Promise.resolve(callback(watchEvent)).catch((err: unknown) => {
-        const e = err instanceof Error ? err : new Error(String(err));
-        try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
+        reportError(err, 'callback');
       });
     } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
+      reportError(err, 'callback');
     }
   });
 
@@ -218,18 +252,16 @@ export function createWatcher(
     try {
       options?.onReady?.();
     } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      try { options?.onError?.(e, 'ready'); } catch { /* silent: caller onError callback own audit responsibility / fail-soft 防 callback bug 破 watcher init */ }
+      reportError(err, 'ready');
     }
   });
 
   // Error handling
   watcher.on('error', (raw) => {
-    const e = raw instanceof Error ? raw : new Error(String(raw));
     // phase 530 (review-round4 Foundation L): watch fatal error 时 flip active=false
     // 让 isActive() 真实反映状态、防 caller 误用 disabled watcher。
     instance?.markDisabled();
-    try { options?.onError?.(e, 'watch'); } catch { /* silent: caller onError callback own audit responsibility / fail-soft 防 callback bug 破 watcher init */ }
+    reportError(raw, 'watch');
   });
 
   // Fallback poll for chokidar native-watcher silent stall (cross-platform, phase 352 / 469 / 760)
@@ -246,16 +278,16 @@ export function createWatcher(
       // 保证连续 async 失败能正确触发 escalation（与主事件路径「不等 async」有
       // 语义差异，但 fallback 路径需观测完整 callback 生命周期）。
       const onFail = (err: unknown): void => {
-        const e = err instanceof Error ? err : new Error(String(err));
+        const error = err instanceof Error ? err : new Error(String(err));
         consecutiveCallbackFails++;
-        try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
+        reportError(error, 'callback');
         if (consecutiveCallbackFails >= FALLBACK_CONSECUTIVE_FAIL_LIMIT) {
           // phase 1082: reset counter instead of permanent disable to avoid silent stall
           consecutiveCallbackFails = 0;
-          const limitErr = new Error(
-            `fallback poller callback failure limit reached: ${e.message}`,
+          reportError(
+            new Error(`fallback poller callback failure limit reached: ${error.message}`),
+            'fallback_limit_reset',
           );
-          try { options?.onError?.(limitErr, 'fallback_limit_reset'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
         }
       };
       const onSuccess = (): void => {

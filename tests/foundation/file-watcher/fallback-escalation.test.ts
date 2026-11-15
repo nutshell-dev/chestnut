@@ -37,6 +37,7 @@ describe('fallback poller escalation', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -161,6 +162,46 @@ describe('fallback poller escalation', () => {
       expect(fallbackLimitReset!.err.message).toMatch(/callback failure limit reached/);
     },
   );
+
+  it('reports callback and escalation failures when the error sink throws', async () => {
+    const writes: string[] = [];
+    const contexts: string[] = [];
+    let escalationResolve!: () => void;
+    const escalationP = new Promise<void>((resolve) => { escalationResolve = resolve; });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      const text = String(chunk);
+      writes.push(text);
+      if (text.includes('context=fallback_limit_reset')) escalationResolve();
+      return true;
+    });
+    const setSpy = vi.spyOn(globalThis, 'setInterval');
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
+    const callback = vi.fn(() => { throw new Error('fallback primary'); });
+    const watcher = createWatcher(testFile, callback, {
+      stability: 'immediate',
+      fallbackPollMs: FAST_POLL_MS,
+      onError: (_err, context) => {
+        contexts.push(context);
+        throw new Error('fallback sink');
+      },
+    });
+
+    await escalationP;
+    expect(watcher.isActive()).toBe(true);
+    await watcher.close();
+
+    const callbackFallback = writes.find(text => text.includes('context=callback'));
+    expect(callbackFallback).toContain('sink=fallback sink');
+    expect(callbackFallback).toContain('primary=fallback primary');
+    const escalationFallback = writes.find(text => text.includes('context=fallback_limit_reset'));
+    expect(escalationFallback).toContain('sink=fallback sink');
+    expect(escalationFallback).toContain('fallback poller callback failure limit reached: fallback primary');
+    expect(contexts.filter(context => context === 'callback').length)
+      .toBeGreaterThanOrEqual(EXPECTED_ESCALATION_FAILURE_COUNT);
+    expect(contexts).toContain('fallback_limit_reset');
+    expect(clearSpy).toHaveBeenCalledWith(setSpy.mock.results[0]?.value);
+    expect(watcher.isActive()).toBe(false);
+  });
 
   it(
     'resets counter on successful callback',
