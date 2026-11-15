@@ -24,6 +24,10 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+
+const MIGRATED_TASK_EXPIRY_MARGIN_MS = 1000; // 早于当前时间 1s，确保 migrated 任务超过硬超时。
+const TEST_RESTART_SHUTDOWN_TIMEOUT_MS = 1000; // 1s 有界 teardown，避免恢复测试悬挂。
 
 /**
  * Phase 886: overflow parent notification + move propagation + corrupt cancel + cap boundary.
@@ -361,7 +365,7 @@ describe('phase 887', () => {
       parentClawId: 'parent-claw',
       parentClawDir: baseDir,
       createdAt: new Date().toISOString(),
-      timeoutMs: 60000,
+      timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       intent: 'test',
       ...extra,
     }));
@@ -628,7 +632,7 @@ describe('phase889.test.ts', () => {
       id: VALID_TASK_ID,
       shortId: VALID_TASK_SHORT_ID,
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
       parentClawId: 'parent',
       createdAt: new Date().toISOString(),
@@ -935,7 +939,7 @@ describe('phase 902', () => {
       parentClawId: 'parent-claw',
       parentClawDir: baseDir,
       createdAt: new Date().toISOString(),
-      timeoutMs: 60000,
+      timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       intent: 'test',
       ...extra,
     }));
@@ -1118,7 +1122,7 @@ describe('phase 1119', () => {
       args: {},
       parentClawDir: '/tmp',
       parentClawId: 'parent',
-      createdAt: new Date(Date.now() - ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS - 1000).toISOString(),
+      createdAt: new Date(Date.now() - ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS - MIGRATED_TASK_EXPIRY_MARGIN_MS).toISOString(),
       isIdempotent: true,
       maxRetries: 2,
       retryCount: 0,
@@ -1136,7 +1140,7 @@ describe('phase 1119', () => {
       id: VALID_TASK_ID,
       shortId: VALID_TASK_SHORT_ID,
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
       parentClawId: 'parent',
       createdAt: new Date().toISOString(),
@@ -1327,7 +1331,7 @@ describe('phase 2146 B5: migrated exec disk restart recovery', () => {
   });
 
   afterEach(async () => {
-    await system?.shutdown(1000).catch(() => { /* silent */ });
+    await system?.shutdown(TEST_RESTART_SHUTDOWN_TIMEOUT_MS).catch(() => { /* silent */ });
     vi.restoreAllMocks();
     fs.rmSync(baseDir, { recursive: true, force: true });
   });

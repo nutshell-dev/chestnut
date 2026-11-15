@@ -25,16 +25,29 @@ import type { StreamEvent } from '../../../src/foundation/stream/index.js';
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
+const {
+  TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS,
+  TEST_INTERRUPT_RECOVERY_DELAY_MS,
+  TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
+  TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS,
+} = vi.hoisted(() => ({
+  TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10, // 10ms 小预算，快速锁失败恢复状态机。
+  TEST_INTERRUPT_RECOVERY_DELAY_MS: 10, // 与失败恢复同量级，避免打断测试真实等待。
+  TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10, // 首次 trim 重试用小步长。
+  TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50, // 5 × 初值，覆盖退避封顶。
+}));
+const TEST_LLM_RETRY_DELAY_MS = 100; // 100ms 保留一次可观察的 LLM 重试间隔。
+
 // Step H: EventLoop 的 trim 重试退避（30s 起）与 dispatchError fallback 退避
 // 是生产值；测试用小值锁状态机（对齐 tests/core/event-loop/event-loop.test.ts）。
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
   return {
     ...actual,
-    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
-    INTERRUPT_RECOVERY_DELAY_MS: 10,
-    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
-    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS,
+    INTERRUPT_RECOVERY_DELAY_MS: TEST_INTERRUPT_RECOVERY_DELAY_MS,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS,
   };
 });
 
@@ -50,7 +63,7 @@ function createMockLLMConfig() {
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,
-    retryDelayMs: 100,
+    retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
     events: { emit: () => {} },
   };
 }
@@ -181,7 +194,7 @@ describe('runtime reactive trim+retry path', () => {
       type: 'context_trim_retry_scheduled',
       attempt: 1,
       maxAttempts: 3,
-      delayMs: 10,
+      delayMs: TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
       before: 1000,
       after: 100,
     });

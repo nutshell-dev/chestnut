@@ -13,6 +13,7 @@ import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { WatcherFactory } from '../../../src/foundation/file-watcher/index.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
@@ -237,7 +238,7 @@ describe('phase 906: cancel notification failure keeps task in pending', () => {
       kind: 'subagent' as const,
       mode: 'standard' as const,
       intent: 'test intent',
-      timeoutMs: 60000,
+      timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       parentClawId: 'parent-claw',
       parentClawDir: '/tmp/claw',
       createdAt: new Date().toISOString(),

@@ -18,6 +18,9 @@ import type { writeInboxAsync } from '../../../src/foundation/messaging/index.js
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ToolTask } from '../../../src/core/async-task-system/types.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+
+const TEST_RETRY_BASE_DELAY_MS = 1; // 1ms 基址使重试分支无需真实等待。
 
 const mockWriteInboxAsync = vi.fn().mockResolvedValue(undefined) as unknown as typeof writeInboxAsync;
 
@@ -132,7 +135,7 @@ describe('phase879.test.ts', () => {
         {
           fs: makeMockFs(),
           auditWriter: makeMockAudit().audit,
-          retryBaseDelayMs: 1,
+          retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS,
           moveTaskToDone,
           moveTaskToFailed,
         },
@@ -443,7 +446,7 @@ describe('phase881.test.ts', () => {
         mode: 'standard' as const,
         parentClawId: 'parent',
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
         maxSteps: 1,
         createdAt: new Date().toISOString(),
       };
@@ -520,7 +523,7 @@ describe('phase882.test.ts', () => {
         mode: 'standard' as const,
         parentClawId: 'parent',
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
         maxSteps: 1,
         createdAt: new Date().toISOString(),
       };

@@ -352,6 +352,7 @@ ${body}
 });
 
 describe('shutdown-timeout', () => {
+  const RUNTIME_SHUTDOWN_TEST_TIMEOUT_MS = 120_000; // 120s 与生产 shutdown 预算一致，同时驱动审计断言。
   /**
    * runtime.stop() shutdown timeout + abort path (phase 1332 N4)
    *
@@ -437,7 +438,7 @@ describe('shutdown-timeout', () => {
       await runtime.stop();
 
       const taskSystem = (runtime as any).taskSystem;
-      expect(taskSystem.shutdown).toHaveBeenCalledWith(120_000);
+      expect(taskSystem.shutdown).toHaveBeenCalledWith(RUNTIME_SHUTDOWN_TEST_TIMEOUT_MS);
       expect(taskSystem.abort).not.toHaveBeenCalled();
       expect((runtime as any).llm.close).toHaveBeenCalled();
     });
@@ -450,11 +451,11 @@ describe('shutdown-timeout', () => {
 
       await runtime.stop();
 
-      expect(shutdownImpl).toHaveBeenCalledWith(120_000);
+      expect(shutdownImpl).toHaveBeenCalledWith(RUNTIME_SHUTDOWN_TEST_TIMEOUT_MS);
       expect(abortImpl).toHaveBeenCalled();
       expect(auditEvents).toContainEqual({
         type: TASK_AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT_HIT,
-        args: expect.arrayContaining([expect.stringContaining('timeout_ms=120000')]),
+        args: expect.arrayContaining([expect.stringContaining(`timeout_ms=${RUNTIME_SHUTDOWN_TEST_TIMEOUT_MS}`)]),
       });
       expect((runtime as any).llm.close).toHaveBeenCalled();
     });

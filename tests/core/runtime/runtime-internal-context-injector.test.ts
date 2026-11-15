@@ -20,6 +20,8 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { LLMOrchestratorConfig } from '../../../../src/foundation/llm-orchestrator/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
+const TEST_LLM_RETRY_DELAY_MS = 100; // 100ms 保留一次可观察的 LLM 重试间隔。
+
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
     primary: {
@@ -32,7 +34,7 @@ function createMockLLMConfig(): LLMOrchestratorConfig {
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,
-    retryDelayMs: 100,
+    retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
   };
 }
 

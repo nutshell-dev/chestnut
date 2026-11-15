@@ -26,6 +26,8 @@ import { makeContractId, readContractTerminalFact } from '../../../src/core/cont
 import type { ContractTerminalFact } from '../../../src/core/contract/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
+const REAL_CHAIN_TEST_TIMEOUT_MS = 30_000; // 30s 覆盖真实文件链在 CI 下的调度余量。
+
 class TestRuntime extends Runtime {
   injectForTest(opts: { inboxReader: unknown; auditWriter: unknown }) {
     (this as unknown as Record<string, unknown>).inboxReader = opts.inboxReader;
@@ -355,7 +357,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     const decodedDone = decodeInbox(fs.readFileSync(path.join(doneDir, doneFiles()[0]), 'utf8'));
     expect(decodedDone.id).toBe('w-recover');
     expect(decodedDone.content).toBe('work w-recover');
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 
   it('恢复②：首次 unconfirmed 交付后 nack 回 pending；状态转终态后第二次 prepare 必须重新查询并过滤', async () => {
     // 第一次查询 unconfirmed，第二次起 terminal —— 若实现缓存了上次结果，第二次会误交付
@@ -389,7 +391,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(prepared2.entries).toHaveLength(0);
     expect(doneFiles()).toHaveLength(1);
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(1);
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 
   it('恢复③：前项已 ack 到 done 后，后项查询失败且错误审计抛出 → 整体 catch 只回队后项，不 nack 已处置前项', async () => {
     factQuery.mockImplementation(async (cid: string) => {
@@ -429,7 +431,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(pendingIds).toEqual(['w-second']);
     expect(nackedFiles.length).toBeGreaterThan(0);
     nackSpy.mockRestore();
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 
   it('恢复④：坏路径 contract_id 被真实 owner 查询拒绝 → query_failed 且仍交付；工作消息不输出恢复专用 delivery_id 列', async () => {
     // 真实 owner 查询（1846）：非单目录名在 stat 前就被拒绝
@@ -474,7 +476,7 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(failedText).toContain('contract=../escape');
     expect(failedText).toContain('not a single directory name');
     expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_CONTRACT_TERMINAL)).toHaveLength(0);
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 
   it('恢复④b：工作消息命中终态时不输出 delivery_id 列，execution_recovery 同目录消息仍输出（列语义按来源区分）', async () => {
     factQuery.mockResolvedValue({ kind: 'terminal', state: 'cancelled' });
@@ -510,5 +512,5 @@ describe('phase 2094 Step C: 排队工作指令终态过滤', () => {
     expect(workRowMatch).toBeUndefined();
     // execution_recovery 行：保留 delivery_id 列
     expect(terminalRows.some(t => t.includes('delivery_id=rec-recovery'))).toBe(true);
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 });

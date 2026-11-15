@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 describe('pending queue overflow motion notify', () => {
   function makeMockAudit(): { audit: AuditLog; writes: Array<{ type: string; cols: string[] }> } {
@@ -62,7 +63,7 @@ describe('pending queue overflow motion notify', () => {
       parentClawId: 'parent-claw',
       parentClawDir: baseDir,
       createdAt: new Date().toISOString(),
-      timeoutMs: 60000,
+      timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       intent: 'test',
     }));
   }
@@ -155,7 +156,7 @@ describe('pending queue overflow motion notify', () => {
       parentClawId: 'parent-claw',
       parentClawDir: baseDir,
       createdAt: new Date().toISOString(),
-      timeoutMs: 60000,
+      timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       intent: 'test',
     }));
 
@@ -253,7 +254,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       parentClawId: 'parent-claw',
       parentClawDir: baseDir,
       createdAt: new Date().toISOString(),
-      timeoutMs: 60000,
+      timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       intent: 'test',
     }));
   }

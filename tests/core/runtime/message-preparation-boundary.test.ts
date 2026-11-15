@@ -45,6 +45,7 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { createMockLLM, createMockLLMConfig } from '../_runtime-test-helpers.js';
 
 const CLAW_ID = 'claw-1';
+const TEST_INBOX_FALLBACK_TIMEOUT_MS = 20; // 20ms 短回退窗口，仅覆盖 inbox fallback 分支。
 
 interface PendingMsg {
   id: string;
@@ -155,7 +156,7 @@ function makeLoop(chain: RealChain): EventLoop {
     agentDir: chain.clawDir,
     clawId: CLAW_ID,
     audit: chain.audit,
-    inbox: { clawRoot: chain.clawDir, fallbackTimeoutMs: 20 },
+    inbox: { clawRoot: chain.clawDir, fallbackTimeoutMs: TEST_INBOX_FALLBACK_TIMEOUT_MS },
   });
 }
 

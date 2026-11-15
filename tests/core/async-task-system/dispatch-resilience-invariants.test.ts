@@ -18,6 +18,9 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ToolTask } from '../../../src/core/async-task-system/types.js';
 import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
+import { WAIT_FOR_DEFAULT_BUDGET_MS, SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+
+const DISPATCH_RETRY_ADVANCE_MS = 1100; // 推进 1.1s，跨过 dispatch 的 1s 重试间隔。
 
 function makeMockWatcherFactory(): WatcherFactory {
   return vi.fn((_path: string, _callback: (event: WatchEvent) => void) => ({
@@ -370,12 +373,12 @@ describe('phase 884: startDispatch + dispatch loop resilience', () => {
           c => typeof c === 'string' && c.includes('kind=dispatch_loop_error'),
         ),
       ),
-      { timeout: 5000 },
+      { timeout: WAIT_FOR_DEFAULT_BUDGET_MS },
     );
 
-    await vi.advanceTimersByTimeAsync(1100);
+    await vi.advanceTimersByTimeAsync(DISPATCH_RETRY_ADVANCE_MS);
 
-    await vi.waitFor(() => calls >= 2, { timeout: 5000 });
+    await vi.waitFor(() => calls >= 2, { timeout: WAIT_FOR_DEFAULT_BUDGET_MS });
     expect(calls).toBeGreaterThanOrEqual(2);
 
     vi.useRealTimers();
@@ -863,7 +866,7 @@ describe('phase905.test.ts', () => {
         kind: 'subagent',
         mode: 'standard',
         intent: 'test intent',
-        timeoutMs: 60000,
+        timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
         parentClawId: 'parent-claw',
         parentClawDir: '/tmp/claw',
         createdAt: new Date().toISOString(),

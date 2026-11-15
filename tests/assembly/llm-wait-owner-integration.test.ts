@@ -22,6 +22,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/orchestrator.js';
+import {
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+  LLM_RECOVERY_COOLDOWN_MS,
+} from '../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMEvent,
   LLMEventSink,
@@ -47,6 +51,11 @@ import { createSubagentTaskExecutor } from '../../src/assembly/subagent-task-exe
 import { makeTestRegistry } from '../helpers/task-system.js';
 
 const FULL_ID = '550e8400-e29b-41d4-a716-446655440000';
+const ASSEMBLY_PROVIDER_TIMEOUT_MS = 1000; // 1s provider 预算，集成测试不执行真实网络调用。
+const LLM_WAIT_TASK_TIMEOUT_MS = 600_000; // 10 分钟任务窗口，覆盖 owner 探针下界。
+const PERMANENT_WAIT_TASK_TIMEOUT_MS = 3_600_000; // 1 小时任务窗口，覆盖 permanent cooldown。
+const TEST_CIRCUIT_RESET_TIMEOUT_MS = 30_000; // 30s 测试 breaker 复位预算，对齐 transient 初值。
+const POST_RECOVERY_OBSERVATION_MS = 120_000; // 恢复后观察 2 分钟，低于 5 分钟健康复检 TTL。
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
   stop_reason: 'end_turn',
@@ -80,7 +89,7 @@ function providerConfig(name: string, extra?: Partial<ProviderConfig>): Provider
     apiKey: `key-${name}`,
     model: `model-${name}`,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: ASSEMBLY_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
     ...extra,
   };
@@ -150,7 +159,7 @@ function makeValidTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
     id: FULL_ID as SubAgentTask['id'],
     shortId: '550e8400' as SubAgentTask['shortId'],
     intent: 'test',
-    timeoutMs: 600_000,  // 等待窗口须覆盖 owner 探针下界（expiresAt 语义归 ATS）
+    timeoutMs: LLM_WAIT_TASK_TIMEOUT_MS,  // 等待窗口须覆盖 owner 探针下界（expiresAt 语义归 ATS）
     maxSteps: 1,
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
@@ -189,7 +198,7 @@ function makeAssembledStack(primaryBehavior: Behavior, fallbackBehavior: Behavio
     maxAttempts: 1,
     retryDelayMs: 0,
     events: sink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 30_000 },
+    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: TEST_CIRCUIT_RESET_TIMEOUT_MS },
     createProviderAdapter: (c: ProviderConfig) => adapters.get((sameName ? c.model : c.name) ?? '')!,
   };
   const owner = createLLMOrchestrator(orchestratorConfig);
@@ -271,11 +280,11 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     const waitPath = `tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`;
     expect(fileMap.has(waitPath)).toBe(true);
     const persisted = JSON.parse(fileMap.get(waitPath)!) as Record<string, unknown>;
-    expect(persisted.nextProbeAt).toBe(t0 + 30_000);
+    expect(persisted.nextProbeAt).toBe(t0 + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     expect(persisted.recordedAt).toBe(t0);
     // 业务等待事实只调度一次；owner 的自主持续 probe 另有调度，不混入此计数。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
-    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({ nextProbeAt: t0 + 30_000 }));
+    expect(onWaitScheduled).toHaveBeenCalledWith(expect.objectContaining({ nextProbeAt: t0 + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS }));
     expect(owner.getSharedRecoveryDecision().kind).toBe('at');
 
     // gate 非恒真：owner 未就绪时 resume 不移动任务
@@ -286,7 +295,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
 
     // 候选恢复 → 下界到点 → 探针验证 → ready 发布 → ATS 移动
     p.setBehavior('ok');
-    await vi.advanceTimersByTimeAsync(30_000 - 1);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_RETRY_INITIAL_DELAY_MS - 1);
     expect(p.calls()).toBe(1);  // 下界前无探针
     await vi.advanceTimersByTimeAsync(1);
     await flush();
@@ -302,7 +311,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     expect(resumedEvents.length).toBe(1);
     // 成功唤醒不产生新的业务等待事实；后台自主复检不属于业务等待调度。
     expect(onWaitScheduled).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(POST_RECOVERY_OBSERVATION_MS);
     // primary 已恢复；ready 后的健康复检使用 5 分钟 TTL，本窗口不重复调用。
     expect(p.calls()).toBe(2);
     expect(f.calls()).toBeGreaterThan(1);
@@ -313,7 +322,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
   it('Phase 2034 C：permanent 全故障按 cooldown 持续 probe，gate 就绪后恢复移动', async () => {
     const stack = makeAssembledStack('auth', 'auth');
     const { owner, p, f, fs, fileMap, system, executor, onWaitScheduled } = stack;
-    const task = makeValidTask({ timeoutMs: 3_600_000 });
+    const task = makeValidTask({ timeoutMs: PERMANENT_WAIT_TASK_TIMEOUT_MS });
     fileMap.set(`tasks/queues/running/${task.id}.json`, JSON.stringify(task));
 
     await executeSubAgentTask(task, new AbortController().signal, {
@@ -334,7 +343,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     expect(owner.getSharedRecoveryDecision().kind).toBe('at');
 
     // cooldown 下界前无探针、gate 不就绪。
-    await vi.advanceTimersByTimeAsync(299_999);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_COOLDOWN_MS - 1);
     expect(p.calls()).toBe(1);
     expect(f.calls()).toBe(1);
     expect(await system.resumeWaitingTasks()).toBe(0);
@@ -385,7 +394,7 @@ describe('Phase 1934 Step C：owner→Assembly→ATS 集成', () => {
     // 候选恢复 → 下界到点 → 探针验证 primary 成功 → ready 发布 → ATS 移动恰一次
     p.setBehavior('ok');
     f.setBehavior('ok');
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     await flush();
     await flush();  // ready listener → resumeWaitingTasks 异步落点
 

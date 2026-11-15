@@ -19,6 +19,10 @@ import { createMockLLMConfig } from '../_runtime-test-helpers.js';
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 import { processRuntimeMessage } from '../../helpers/process-runtime-message.js';
 
+const TEST_CACHE_EXPIRY_MARGIN_MS = 60_000; // 1 分钟余量，使时间戳明确落在 TTL 两侧。
+const TEST_RECENT_WINDOW_BOUNDARY_MARGIN_MS = 100; // 越过 recent window 100ms，确保消息归入旧窗口。
+const TEST_CACHE_EXPIRED_OBSERVATION_MS = 1000; // 超过 TTL 1s，构造完整链的 cacheExpired=true。
+
 function makeFakeBatch(injected: Message[]) {
   return {
     injected,
@@ -169,7 +173,7 @@ describe('runtime proactive trim integration', () => {
     const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runtime = await makeRuntime(true);
     runtime.fakeBatch = makeFakeBatch([{ role: 'user', content: 'hi' } as Message]);
-    (runtime as any).lastLLMCallAt = Date.now() - CACHE_TTL_MS + 60_000;
+    (runtime as any).lastLLMCallAt = Date.now() - CACHE_TTL_MS + TEST_CACHE_EXPIRY_MARGIN_MS;
 
     await driveLoop(runtime);
 
@@ -180,7 +184,7 @@ describe('runtime proactive trim integration', () => {
     const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runtime = await makeRuntime(true);
     runtime.fakeBatch = makeFakeBatch([{ role: 'user', content: 'hi' } as Message]);
-    (runtime as any).lastLLMCallAt = Date.now() - CACHE_TTL_MS - 60_000;
+    (runtime as any).lastLLMCallAt = Date.now() - CACHE_TTL_MS - TEST_CACHE_EXPIRY_MARGIN_MS;
 
     await driveLoop(runtime);
 
@@ -342,7 +346,7 @@ describe('runtime proactive trim integration', () => {
     const now = Date.now();
     const messages: Message[] = [];
     for (let i = 0; i < 6; i++) {
-      const addedAt = new Date(now - CONTEXT_TRIM_RECENT_WINDOW_MS - 100 + i).toISOString();
+      const addedAt = new Date(now - CONTEXT_TRIM_RECENT_WINDOW_MS - TEST_RECENT_WINDOW_BOUNDARY_MARGIN_MS + i).toISOString();
       messages.push({ role: 'user', content: `old request ${i}`, addedAt });
       messages.push({
         role: 'assistant',
@@ -351,7 +355,7 @@ describe('runtime proactive trim integration', () => {
       });
     }
     messages.push({ role: 'user', content: 'recent', addedAt: new Date(now).toISOString() });
-    (runtime as any).lastLLMCallAt = now - CACHE_TTL_MS - 1_000;
+    (runtime as any).lastLLMCallAt = now - CACHE_TTL_MS - TEST_CACHE_EXPIRED_OBSERVATION_MS;
 
     const trimmed = await runtime.proactiveTrimIfNeeded(messages, 'sys', []);
 

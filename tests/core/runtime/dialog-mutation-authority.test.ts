@@ -14,6 +14,8 @@ import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-ev
 import { makeAudit } from '../../helpers/audit.js';
 
 const MOCK_OPERATION_SETTLE_MS = 50;
+const TEST_OPERATION_START_TIMEOUT_MS = 1000; // 1s 轮询上限，等待受控操作进入。
+const TEST_SHUTDOWN_PROGRESS_INTERVAL_MS = 10; // 推进 10ms，让 stop 抵达 join 屏障。
 
 class AuthorityTestRuntime extends Runtime {
   public turnRelease: (() => void) | undefined;
@@ -151,7 +153,7 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     const { runtime } = makeRuntime(makeMockDialogStore());
 
     const turnPromise = runtime.processTurn([], 'sp', []);
-    await vi.waitUntil(() => runtime.turnStarted, { timeout: 1000 });
+    await vi.waitUntil(() => runtime.turnStarted, { timeout: TEST_OPERATION_START_TIMEOUT_MS });
 
     let closed = false;
     const llmClose = vi.spyOn((runtime as any).llm, 'close').mockImplementation(async () => {
@@ -161,7 +163,7 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     const stopPromise = runtime.stop();
 
     // Give stop() a chance to proceed past taskSystem.shutdown to the join barrier.
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(TEST_SHUTDOWN_PROGRESS_INTERVAL_MS);
     expect(closed).toBe(false);
 
     runtime.turnRelease!();
@@ -185,7 +187,7 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
 
     const first = runtime.processTurn([], 'sp', []);
-    await vi.waitUntil(() => runtime.turnStarted, { timeout: 1000 });
+    await vi.waitUntil(() => runtime.turnStarted, { timeout: TEST_OPERATION_START_TIMEOUT_MS });
 
     await expect(runtime.processTurn([], 'sp', [])).rejects.toThrow('Concurrent dialog operation detected');
 
@@ -209,7 +211,7 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
 
     const first = runtime.processTurn([], 'sp', []);
-    await vi.waitUntil(() => runtime.turnStarted, { timeout: 1000 });
+    await vi.waitUntil(() => runtime.turnStarted, { timeout: TEST_OPERATION_START_TIMEOUT_MS });
 
     await expect(runtime.reactiveTrim()).rejects.toThrow('Concurrent dialog operation detected');
 
@@ -224,7 +226,7 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     runtime.proactiveShouldBlock = true;
 
     const first = runtime.proactiveTrimIfNeeded([], 'sp', []);
-    await vi.waitUntil(() => runtime.proactiveStarted, { timeout: 1000 });
+    await vi.waitUntil(() => runtime.proactiveStarted, { timeout: TEST_OPERATION_START_TIMEOUT_MS });
 
     await expect(runtime.processTurn([], 'sp', [])).rejects.toThrow('Concurrent dialog operation detected');
 
@@ -253,13 +255,13 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     const llmClose = vi.spyOn((runtime as any).llm, 'close');
 
     const trimPromise = runtime.proactiveTrimIfNeeded([], 'sp', []);
-    await vi.waitUntil(() => runtime.proactiveStarted, { timeout: 1000 });
+    await vi.waitUntil(() => runtime.proactiveStarted, { timeout: TEST_OPERATION_START_TIMEOUT_MS });
 
     const stopPromise = runtime.stop();
 
     // Give stop() a chance to proceed; dependencies must remain open while the
     // active dialog mutation operation is in flight.
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(TEST_SHUTDOWN_PROGRESS_INTERVAL_MS);
     expect(taskSystemShutdown).not.toHaveBeenCalled();
     expect(contractClose).not.toHaveBeenCalled();
     expect(llmClose).not.toHaveBeenCalled();

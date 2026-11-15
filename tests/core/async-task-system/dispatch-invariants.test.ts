@@ -20,6 +20,7 @@ import { makeFullTaskId, deriveShortIdFromTaskId } from '../../../src/core/async
 import type { ShortIdIndex, AsyncTaskSystemOptions, SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { executeSubAgentTask } from '../../../src/core/async-task-system/subagent-executor.js';
+import { SUBAGENT_TIMEOUT_MS } from '../../../src/core/subagent/index.js';
 import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
@@ -537,7 +538,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       shortId: '550e8400',
       mode: 'standard',
       intent: 'test intent',
-      timeoutMs: 300_000,
+      timeoutMs: SUBAGENT_TIMEOUT_MS,
       maxSteps: 100,
       parentClawId: 'claw-a',
       createdAt: new Date().toISOString(),
@@ -589,7 +590,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       shortId: '550e8401',
       mode: 'standard',
       intent: 'test intent',
-      timeoutMs: 300_000,
+      timeoutMs: SUBAGENT_TIMEOUT_MS,
       maxSteps: 100,
       parentClawId: 'claw-a',
       createdAt: new Date().toISOString(),

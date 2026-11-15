@@ -29,16 +29,28 @@ import type { PreparedInboxBatch, FormattedInboxBatch } from '../../../src/core/
 import { createMockLLMConfig } from '../_runtime-test-helpers.js';
 import { createTestEventLoop } from '../../helpers/test-event-loop.js';
 
+const {
+  TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS,
+  TEST_INTERRUPT_RECOVERY_DELAY_MS,
+  TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
+  TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS,
+} = vi.hoisted(() => ({
+  TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10, // 10ms 小预算，快速锁 crash 恢复状态机。
+  TEST_INTERRUPT_RECOVERY_DELAY_MS: 10, // 与失败恢复同量级，避免打断测试真实等待。
+  TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10, // 首次 trim 重试用小步长。
+  TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50, // 5 × 初值，覆盖退避封顶。
+}));
+
 // Step H (phase1895): EventLoop 驱动 crash turn 时 fallback handler 有
 // UNKNOWN_ERROR_RECOVERY_DELAY_MS 退避；测试用小值锁状态机。
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
   return {
     ...actual,
-    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
-    INTERRUPT_RECOVERY_DELAY_MS: 10,
-    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
-    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: TEST_UNKNOWN_ERROR_RECOVERY_DELAY_MS,
+    INTERRUPT_RECOVERY_DELAY_MS: TEST_INTERRUPT_RECOVERY_DELAY_MS,
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS,
   };
 });
 

@@ -25,6 +25,8 @@ import { createContractCancellationDelivery } from '../../../src/assembly/contra
 import { notifyContractCreated } from '../../../src/cli/commands/contract-helpers.js';
 import { ensureOnboardingAndNotify } from '../../../src/cli/start-bootstrap.js';
 
+const REAL_CHAIN_TEST_TIMEOUT_MS = 30_000; // 30s 覆盖真实文件链在 CI 下的调度余量。
+
 type Prepared = Awaited<ReturnType<Runtime['prepareInbox']>>;
 
 interface TestRuntime {
@@ -192,7 +194,7 @@ describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前�
     expect(cols).toContain('contract=real-chain');
     expect(cols).toContain('state=cancelled');
     expect(cols).not.toContain('delivery_id=');
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 
   it('续作链：真实 ensureOnboardingAndNotify 产出 contract_resume → 取消后同样被过滤', async () => {
     const system = makeSystem();
@@ -268,5 +270,5 @@ describe('phase 2094 Step C/R: 真实创建 / 取消 / 续作链 → 交付前�
     const termRows = after.sink.events.filter(e => e[0] === 'runtime_inbox_contract_terminal');
     expect(termRows).toHaveLength(1);
     expect(termRows[0].slice(1).map(String).join(' ')).toContain(`contract=${ONBOARDING_CONTRACT_ID}`);
-  }, 30_000);
+  }, REAL_CHAIN_TEST_TIMEOUT_MS);
 });
