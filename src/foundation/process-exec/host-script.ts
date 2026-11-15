@@ -20,7 +20,10 @@ export function resolveHostScriptForPlatform(
   const allowedExtensions = platform === 'win32' ? ['.cmd', '.bat'] : ['.sh'];
 
   if (platform === 'win32' && (extension === '.cmd' || extension === '.bat')) {
-    return { executable: 'cmd.exe', args: ['/d', '/s', '/c', scriptPath] };
+    // `/s /c` strips the first and last quote from its command string. Keep a
+    // second pair so the path is still quoted when cmd parses metacharacters
+    // such as `&` and parentheses in a valid Windows filename.
+    return { executable: 'cmd.exe', args: ['/d', '/s', '/c', `""${scriptPath}""`] };
   }
   if (platform !== 'win32' && extension === '.sh') {
     return { executable: 'sh', args: [scriptPath] };
