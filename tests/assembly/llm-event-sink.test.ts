@@ -502,6 +502,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         requestId: 'req-1',
         provider: 'p',
         model: 'model-x',
+        inputSource: 'unlinked',
         usage: { inputTokens: 12, outputTokens: 3 },
         totalUsageInputTokens: 12,
         normalizedUsageInputTokens: 12,
@@ -526,7 +527,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
         'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=12', 'delta_tokens=0',
         'normalized_usage_input_tokens=12', 'raw_usage={"inputTokens":12,"outputTokens":3}',
-        'revision=rev-1', 'input_hash=hash-1', 'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
+        'revision=rev-1', 'input_hash=hash-1', 'input_source=unlinked', 'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
       ],
     ]);
     expect(stream.events).toEqual([

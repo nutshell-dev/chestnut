@@ -340,7 +340,7 @@ export class PiAiAdapter implements ProviderAdapter {
         if (event.type === 'error') {
           throw await this.constructStreamError(event, capture, options.signal, timeout, inputBudget);
         }
-        if (event.type === 'done') {
+        if (event.type === 'done' && !terminalObserved) {
           terminalObserved = true;
           const usage = rawMeasurementUsage(event.message.usage);
           const { normalizedUsageInputTokens, invalidFields } = normalizeUsageInputTokens(usage);
@@ -351,6 +351,7 @@ export class PiAiAdapter implements ProviderAdapter {
             model: model.id,
             ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
             ...(inputHash !== undefined ? { inputHash } : {}),
+            inputSource: 'unlinked',
             ...(measurement !== undefined ? { measurement } : {}),
             ...(usage !== undefined ? { usage } : {}),
             ...(normalizedUsageInputTokens !== undefined ? {
@@ -381,6 +382,7 @@ export class PiAiAdapter implements ProviderAdapter {
           reason: formatErr(err),
           ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
           ...(inputHash !== undefined ? { inputHash } : {}),
+          inputSource: 'unlinked',
           ...(measurement !== undefined ? { measurement } : {}),
           ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
         });
@@ -396,6 +398,7 @@ export class PiAiAdapter implements ProviderAdapter {
           reason: 'stream_ended_without_done',
           ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
           ...(inputHash !== undefined ? { inputHash } : {}),
+          inputSource: 'unlinked',
           ...(measurement !== undefined ? { measurement } : {}),
           ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
         });

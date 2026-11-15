@@ -214,10 +214,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
   ) {
     return (observation: import('../llm-provider/index.js').InputMeasurementObservation): void => {
+      // A recovery attempt may contain retries, fallbacks, or hedged requests. Bind
+      // each request-local observation pair to its own provider-attempt identity.
+      const attemptId = correlation?.attemptId === undefined
+        ? undefined
+        : `${correlation.attemptId}:request:${observation.requestId}`;
       const correlated: import('../llm-provider/index.js').InputMeasurementObservation = {
         ...observation,
         ...(correlation?.invocationId !== undefined ? { invocationId: correlation.invocationId } : {}),
-        ...(correlation?.attemptId !== undefined ? { attemptId: correlation.attemptId } : {}),
+        ...(attemptId !== undefined ? { attemptId } : {}),
       };
       try {
         options.onInputMeasurement?.(correlated);
@@ -230,7 +235,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         this.events.emit({
           type: 'input_measurement',
           ...(correlation?.invocationId !== undefined ? { invocationId: correlation.invocationId } : {}),
-          ...(correlation?.attemptId !== undefined ? { attemptId: correlation.attemptId } : {}),
+          ...(attemptId !== undefined ? { attemptId } : {}),
           provider: adapter.name,
           model: adapter.model,
           observation: correlated,

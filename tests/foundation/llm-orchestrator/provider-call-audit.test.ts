@@ -92,6 +92,7 @@ function observingProvider(name: string): ProviderAdapter {
         requestId: prepared.requestId,
         provider: name,
         model: 'model-x',
+        inputSource: 'unlinked',
         usage: { inputTokens: 12, outputTokens: 2 },
         totalUsageInputTokens: 12,
         normalizedUsageInputTokens: 12,
@@ -105,6 +106,44 @@ function observingProvider(name: string): ProviderAdapter {
       return OK_RESPONSE;
     },
     stream: async function* () { throw new Error('stream not enabled in this test'); },
+  };
+}
+
+function retryingObservingProvider(name: string): ProviderAdapter {
+  let calls = 0;
+  return {
+    name,
+    model: 'model-x',
+    call: async (options) => {
+      calls++;
+      const requestId = `req-retry-${calls}`;
+      const prepared: InputMeasurementObservation = {
+        kind: 'prepared', requestId, provider: name, model: 'model-x',
+        descriptor: {
+          revision: 'rev-retry', provider: name, model: 'model-x', api: 'openai',
+          contextWindow: 1_000_000, profile: 'test-meter',
+        },
+        measurement: { kind: 'counted', tokens: 12, method: 'deepseek-v41-template' },
+        inputHash: `hash-${requestId}`, inputSource: 'unlinked',
+      };
+      options.onInputMeasurement?.(prepared);
+      if (calls === 1) {
+        options.onInputMeasurement?.({
+          kind: 'failed', requestId, provider: name, model: 'model-x',
+          inputSource: 'unlinked', descriptorRevision: 'rev-retry', inputHash: `hash-${requestId}`,
+          measurement: prepared.measurement, measuredInputTokens: 12, reason: 'transient retry',
+        });
+        throw new LLMNetworkError(name, new Error('ECONNRESET'));
+      }
+      options.onInputMeasurement?.({
+        kind: 'completed', requestId, provider: name, model: 'model-x', inputSource: 'unlinked',
+        usage: { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 2 },
+        normalizedUsageInputTokens: 12, totalUsageInputTokens: 12,
+        measuredInputTokens: 12, deltaTokens: 0, reconciliation: 'matched',
+        descriptorRevision: 'rev-retry', inputHash: `hash-${requestId}`, measurement: prepared.measurement,
+      });
+      return OK_RESPONSE;
+    },
   };
 }
 
@@ -169,6 +208,7 @@ interface HarnessOpts {
   /** 注入式审计写失败（ENOSPC/IO），缺省用生产 writer 落盘。 */
   audit?: AuditLog;
   circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
+  maxAttempts?: number;
 }
 
 interface Harness {
@@ -199,7 +239,7 @@ function makeHarness(dir: string, opts: HarnessOpts): Harness {
       lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(opts.primaryName),
     fallbacks: (opts.fallbackNames ?? []).map(providerConfig),
-    maxAttempts: 1,
+    maxAttempts: opts.maxAttempts ?? 1,
     retryDelayMs: 1,
     events: sink,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
@@ -248,17 +288,56 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     expect(measurements).toHaveLength(2);
     expect(measurements.map(row => row.phase)).toEqual(['prepared', 'completed']);
     expect(measurements.every(row => row.request === 'req-observed')).toBe(true);
-    expect(measurements.every(row => row.attempt === attemptId)).toBe(true);
+    const providerAttemptId = `${attemptId}:request:req-observed`;
+    expect(measurements.every(row => row.attempt === providerAttemptId)).toBe(true);
     expect(measurements[0]).toEqual(expect.objectContaining({
       provider: 'observed', model: 'model-x', method: 'deepseek-v41-template', input_tokens: '12', input_source: 'unlinked',
     }));
     expect(measurements[1]).toEqual(expect.objectContaining({
       reconciliation: 'matched', measured_input_tokens: '12', usage_input_tokens: '12', delta_tokens: '0',
       normalized_usage_input_tokens: '12', revision: 'rev-observed', input_hash: 'hash-observed',
-      measurement_kind: 'counted', raw_usage: '{"inputTokens":12,"outputTokens":2}',
+      input_source: 'unlinked', measurement_kind: 'counted', raw_usage: '{"inputTokens":12,"outputTokens":2}',
     }));
     expect(observations).toHaveLength(2);
-    expect(observations.every(fact => fact.invocationId === inv && fact.attemptId === attemptId)).toBe(true);
+    expect(observations.every(fact => fact.invocationId === inv && fact.attemptId === providerAttemptId)).toBe(true);
+  });
+
+  it('keeps retry request facts distinct within one invocation and reloads both terminals', async () => {
+    const dir = await makeDir();
+    const h = makeHarness(dir, {
+      providers: { observed: retryingObservingProvider('observed') },
+      primaryName: 'observed', maxAttempts: 2,
+    });
+    const observations: InputMeasurementObservation[] = [];
+
+    await expect(h.service.call({
+      ...CALL, onInputMeasurement: fact => observations.push(fact),
+    })).resolves.toBe(OK_RESPONSE);
+
+    const rows = await h.readRows();
+    const inv = lastInvocationId(rows);
+    const started = invocationRows(rows, inv).find(row => row.type === 'llm_call_invocation_started');
+    const recoveryAttemptId = colMap(started!).attempt;
+    const measurements = invocationRows(rows, inv)
+      .filter(row => row.type === 'llm_input_measurement')
+      .map(colMap);
+    expect(measurements.map(row => [row.request, row.phase])).toEqual([
+      ['req-retry-1', 'prepared'], ['req-retry-1', 'failed'],
+      ['req-retry-2', 'prepared'], ['req-retry-2', 'completed'],
+    ]);
+    expect(measurements.map(row => row.attempt)).toEqual([
+      `${recoveryAttemptId}:request:req-retry-1`, `${recoveryAttemptId}:request:req-retry-1`,
+      `${recoveryAttemptId}:request:req-retry-2`, `${recoveryAttemptId}:request:req-retry-2`,
+    ]);
+    expect(measurements.every(row => row.input_source === 'unlinked')).toBe(true);
+    expect(measurements[1]).toEqual(expect.objectContaining({ reason: 'transient retry', measurement_kind: 'counted' }));
+    expect(measurements[3]).toEqual(expect.objectContaining({
+      raw_usage: '{"inputTokens":10,"outputTokens":2,"cacheReadInputTokens":2}',
+      normalized_usage_input_tokens: '12', reconciliation: 'matched',
+    }));
+    expect(observations).toHaveLength(4);
+    expect(observations.every(fact => fact.invocationId === inv)).toBe(true);
+    expect(new Set(observations.map(fact => fact.attemptId)).size).toBe(2);
   });
 
   it('isolates observer failure while preserving the result, audit facts and CRITICAL signal', async () => {
@@ -498,20 +577,23 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       loss: () => [],
     };
     const h = makeHarness(dir, {
-      providers: { 'kimi-year': okProvider('kimi-year') },
-      primaryName: 'kimi-year',
+      providers: { observed: observingProvider('observed') },
+      primaryName: 'observed',
       audit: failingAudit,
     });
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     // 调用本身成功（错误隔离），但审计失败必须成为显式事实
-    await h.service.call(CALL);
+    await expect(h.service.call(CALL)).resolves.toBe(OK_RESPONSE);
     const sawCritical = consoleSpy.mock.calls.some(args =>
       typeof args[0] === 'string' && args[0].includes('[LLM EVENT SINK CRITICAL]'));
     consoleSpy.mockRestore();
     expect(sawCritical).toBe(true);
 
     // stream.jsonl 独立通道：原事件 + 每个失败事件的 llm_call_audit_write_failed marker
+    const measurements = h.streamEvents.filter(e => e.type === 'input_measurement');
+    expect(measurements).toHaveLength(2);
     const markers = h.streamEvents.filter(e => e.type === 'call_audit_write_failed');
+    expect(markers.filter(m => (m as { eventType?: string }).eventType === 'input_measurement')).toHaveLength(2);
     expect(markers.length).toBeGreaterThan(0);
     const started = h.streamEvents.find(e => e.type === 'call_invocation_started') as { invocationId: string };
     const selection = h.streamEvents.find(e => e.type === 'call_selection') as { invocationId: string };

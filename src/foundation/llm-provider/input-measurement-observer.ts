@@ -16,6 +16,8 @@ interface InputMeasurementCorrelation {
 interface InputMeasurementTerminalFacts extends InputMeasurementCorrelation {
   descriptorRevision?: string;
   inputHash?: string;
+  /** A hash correlates observations; it is not a durable, replayable input artifact. */
+  inputSource: 'unlinked';
   measurement?: InputMeasurement;
 }
 

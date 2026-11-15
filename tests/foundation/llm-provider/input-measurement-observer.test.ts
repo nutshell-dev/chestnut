@@ -14,7 +14,7 @@ describe('input measurement observer', () => {
   it('keeps observation failures off the provider path and exposes them', () => {
     const critical = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => emitInputMeasurement(() => { throw new Error('sink failed'); }, {
-      kind: 'failed', requestId: 'r1', provider: 'p', model: 'm', reason: 'x',
+      kind: 'failed', requestId: 'r1', provider: 'p', model: 'm', reason: 'x', inputSource: 'unlinked',
     })).not.toThrow();
     expect(critical).toHaveBeenCalledWith(expect.stringContaining('[LLM INPUT MEASUREMENT CRITICAL]'));
   });
@@ -30,6 +30,7 @@ describe('input measurement observer', () => {
     const fact: InputMeasurementObservation = {
       kind: 'completed',
       requestId: 'r2', provider: 'p', model: 'm',
+      inputSource: 'unlinked',
       usage: { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 4 },
       totalUsageInputTokens: 14,
       measuredInputTokens: 12,
@@ -59,9 +60,33 @@ describe('input measurement observer', () => {
       kind: 'completed',
       totalUsageInputTokens: 3,
       normalizedUsageInputTokens: 3,
+      inputSource: 'unlinked',
       descriptorRevision: observations[0]!.kind === 'prepared' ? observations[0].descriptor.revision : undefined,
       inputHash: observations[0]!.kind === 'prepared' ? observations[0].inputHash : undefined,
     });
+  });
+
+  it('emits at most one completed terminal when the SDK repeats done', async () => {
+    const finalFrame = `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } })}`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response([
+      `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] })}`,
+      finalFrame,
+      finalFrame,
+      'data: [DONE]',
+      '',
+    ].join('\n\n'), { status: 200, headers: { 'content-type': 'text/event-stream' } })));
+    const observations: InputMeasurementObservation[] = [];
+    const adapter = createLLMProvider({
+      name: 'observer-duplicate-done', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
+    });
+
+    await adapter.call({
+      messages: [{ role: 'user', content: 'hello' }],
+      onInputMeasurement: fact => observations.push(fact),
+    });
+
+    expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
   });
 
   it('uses a fresh request id for each real automatic retry attempt', async () => {
@@ -142,6 +167,7 @@ describe('input measurement observer', () => {
     expect(observations[0]).toMatchObject({
       kind: 'completed',
       reconciliation: 'unavailable',
+      inputSource: 'unlinked',
       measurement: { kind: 'unavailable', reason: 'meter setup unavailable' },
       normalizedUsageInputTokens: 3,
     });
@@ -178,6 +204,7 @@ describe('input measurement observer', () => {
       usage: { inputTokens: 10, outputTokens: 4, cacheCreationInputTokens: 2, cacheReadInputTokens: 3 },
       normalizedUsageInputTokens: 15,
       totalUsageInputTokens: 15,
+      inputSource: 'unlinked',
       descriptorRevision: prepared.kind === 'prepared' ? prepared.descriptor.revision : undefined,
       inputHash: prepared.kind === 'prepared' ? prepared.inputHash : undefined,
     });
