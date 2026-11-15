@@ -5,6 +5,7 @@ import type { LLMEventSink, LLMEvent } from '../foundation/llm-orchestrator/inde
 import type { AuditLog, AuditWriteOutcome } from '../foundation/audit/index.js';
 import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
 import type { StreamLog, StreamEvent } from '../foundation/stream/index.js';
+import type { InputMeasurementObservation } from '../foundation/llm-provider/index.js';
 
 /**
  * phase 1765：AuditWriter/DispatchingAuditWriter 的 write 结构化返回 durability
@@ -117,6 +118,20 @@ function measurementReason(measurement: { kind: string } | undefined): string {
   return measurement && 'reason' in measurement && typeof measurement.reason === 'string'
     ? measurement.reason
     : 'none';
+}
+
+function artifactAuditColumns(observation: InputMeasurementObservation): string[] {
+  const ref = observation.artifactRef;
+  return [
+    `artifact_id=${ref?.artifactId ?? 'none'}`,
+    `artifact_status=${ref?.status ?? 'none'}`,
+    `artifact_schema=${ref?.schemaVersion ?? 'none'}`,
+    `artifact_hash_alg=${ref?.hashAlgorithm ?? 'none'}`,
+    `artifact_hash=${ref?.contentHash ?? 'none'}`,
+    `artifact_bytes=${ref?.byteLength ?? 'none'}`,
+    `redaction_policy=${ref?.redactionPolicy ?? 'none'}`,
+    `artifact_reason=${ref?.reason ?? 'none'}`,
+  ];
 }
 
 function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): AuditWriteOutcome | undefined {
@@ -390,6 +405,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
               `measurement_kind=${observation.measurement?.kind ?? 'none'}`,
               `measurement_reason=${measurementReason(observation.measurement)}`,
             ]),
+        ...artifactAuditColumns(observation),
       );
       break;
     }

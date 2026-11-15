@@ -521,6 +521,8 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         'invocation=inv-1', 'attempt=att-1', 'provider=p', 'model=model-x',
         'revision=rev-1', 'method=deepseek-v41-template', 'input_tokens=12', 'input_hash=hash-1', 'input_source=unlinked',
         'measurement_kind=counted', 'measurement_reason=none',
+        'artifact_id=none', 'artifact_status=none', 'artifact_schema=none', 'artifact_hash_alg=none',
+        'artifact_hash=none', 'artifact_bytes=none', 'redaction_policy=none', 'artifact_reason=none',
       ],
       [
         'llm_input_measurement', 'request=req-1', 'phase=completed',
@@ -528,12 +530,58 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
         'reconciliation=matched', 'measured_input_tokens=12', 'usage_input_tokens=12', 'delta_tokens=0',
         'normalized_usage_input_tokens=12', 'raw_usage={"inputTokens":12,"outputTokens":3}',
         'revision=rev-1', 'input_hash=hash-1', 'input_source=unlinked', 'measurement_kind=counted', 'measurement_reason=none', 'reason=none',
+        'artifact_id=none', 'artifact_status=none', 'artifact_schema=none', 'artifact_hash_alg=none',
+        'artifact_hash=none', 'artifact_bytes=none', 'redaction_policy=none', 'artifact_reason=none',
       ],
     ]);
     expect(stream.events).toEqual([
       expect.objectContaining({ type: 'input_measurement', invocationId: 'inv-1', attemptId: 'att-1' }),
       expect.objectContaining({ type: 'input_measurement', invocationId: 'inv-1', attemptId: 'att-1' }),
     ]);
+  });
+
+  it('persists the complete input artifact manifest without persisting input bytes', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'input_measurement',
+      invocationId: 'inv-artifact',
+      attemptId: 'att-artifact',
+      provider: 'p',
+      model: 'model-x',
+      observation: {
+        kind: 'failed',
+        requestId: 'req-artifact',
+        provider: 'p',
+        model: 'model-x',
+        inputSource: 'artifact',
+        reason: 'provider_failed',
+        artifactRef: {
+          artifactId: 'input-artifact-req-artifact',
+          schemaVersion: 1,
+          status: 'available',
+          hashAlgorithm: 'sha256',
+          contentHash: 'b'.repeat(64),
+          byteLength: 128,
+        },
+      },
+    });
+
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'artifact_id=input-artifact-req-artifact',
+      'artifact_status=available',
+      'artifact_schema=1',
+      'artifact_hash_alg=sha256',
+      `artifact_hash=${'b'.repeat(64)}`,
+      'artifact_bytes=128',
+      'redaction_policy=none',
+      'artifact_reason=none',
+    ]));
+    expect(stream.events[0]).toMatchObject({
+      observation: { artifactRef: { artifactId: 'input-artifact-req-artifact', status: 'available' } },
+    });
   });
 
   it('fans out provider_close_failed to audit and stream with the original error', () => {
