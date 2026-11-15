@@ -50,6 +50,11 @@ export { observePidArgv } from './argv-verify.js';
 export type { ProcessArgvObservation } from './argv-verify.js';
 export { makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
+export { observeProcessStartTime } from './process-starttime-fact.js';
+export type {
+  ProcessStartTimeFact,
+  ProcessStartTimeUnavailableReason,
+} from './process-starttime-fact.js';
 export {
   captureCurrentProcessRef,
   captureOwnedProcessRef,

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { observeProcess } from '../../../src/foundation/process-exec/process-observation.js';
+import { observeProcessStartTime } from '../../../src/foundation/process-exec/process-starttime-fact.js';
 
 const supported = process.platform === 'darwin' || process.platform === 'linux';
 
@@ -26,11 +27,22 @@ describe.skipIf(!supported)(`real process observation (${process.platform}; POSI
       const alive = observeProcess(child.pid!);
       expect(alive.kind, JSON.stringify(alive)).toBe('alive');
       expect(alive.evidence.map(fact => fact.operation)).toEqual(['signal0', 'start_time', 'signal0']);
+      const available = observeProcessStartTime(child.pid!);
+      expect(available).toMatchObject({
+        kind: 'available', pid: child.pid, precision: 'second',
+      });
+      if (available.kind !== 'available') throw new Error(JSON.stringify(available));
+      expect(Number.isFinite(available.startedAtMs)).toBe(true);
+      expect(available.evidence.facts).toHaveLength(1);
       child.stdin.end();
       expect(await closed).toEqual({ code: 0, signal: null });
       const gone = observeProcess(child.pid!);
       expect(gone.kind, JSON.stringify(gone)).toBe('gone');
       expect(gone.evidence).toHaveLength(1);
+      expect(observeProcessStartTime(child.pid!)).toMatchObject({
+        kind: 'unavailable', pid: child.pid, reason: 'pid_gone',
+        evidence: { version: 1, facts: [expect.any(Object)] },
+      });
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       await closed;
