@@ -15,6 +15,13 @@ import type { CronJobGlobalConfig } from '../../../../foundation/cron/index.js';
 import { runExecutorSupervisorTick } from './tick.js';
 import type { ExecutorSupervisorDeps } from './types.js';
 
+export { createSupervisorRecoveryStore } from './recovery-state.js';
+export type {
+  SupervisorRecoveryLoad,
+  SupervisorRecoveryState,
+  SupervisorRecoveryStore,
+} from './recovery-state.js';
+
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick。
  * ensureRunning 含 spawn + ready 收敛等待（BOOT_DEADLINE 量级），5min 充裕。

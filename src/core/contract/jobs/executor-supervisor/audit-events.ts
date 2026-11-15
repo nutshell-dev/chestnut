@@ -25,6 +25,20 @@ export const EXECUTOR_SUPERVISOR_AUDIT_EVENTS = {
   CONTRACT_SCAN_FAILED: 'executor_supervisor_contract_scan_failed',
   /** liveness probe 抛错（跳过该 claw；≠ dead）。 */
   LIVENESS_PROBE_FAILED: 'executor_supervisor_liveness_probe_failed',
+  /** 恢复动作失败已写入持久 intent（attempt/next_attempt_at/circuit 可重建）。 */
+  RECOVERY_SCHEDULED: 'executor_supervisor_recovery_scheduled',
+  /** 持久 backoff 窗口未到期；不 probe、不重复恢复动作。 */
+  RECOVERY_DEFERRED: 'executor_supervisor_recovery_deferred',
+  /** recovery state 读取失败或 schema 损坏；安全跳过。 */
+  RECOVERY_STATE_UNREADABLE: 'executor_supervisor_recovery_state_unreadable',
+  /** rename 前写失败；action_succeeded 区分失败调度与成功屏障。 */
+  RECOVERY_STATE_WRITE_FAILED: 'executor_supervisor_recovery_state_write_failed',
+  /** rename 已提交但目录耐久性降级；仍按已写入处理。 */
+  RECOVERY_STATE_WRITE_DEGRADED: 'executor_supervisor_recovery_state_write_degraded',
+  /** 动作成功或观察到外部恢复后，持久 intent 已清理。 */
+  RECOVERY_CLEARED: 'executor_supervisor_recovery_cleared',
+  /** 动作已成功但清理失败；action_succeeded 屏障留给下一 tick 复核。 */
+  RECOVERY_CLEAR_FAILED: 'executor_supervisor_recovery_clear_failed',
 } as const;
 
 /** 由 EXECUTOR_SUPERVISOR_AUDIT_EVENTS 派生的窄事件 union。 */

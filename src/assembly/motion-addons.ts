@@ -24,7 +24,11 @@ import { createDreamTriggerJob } from '../core/memory/index.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { createClawContractBridge } from '../core/memory/index.js';
-import { createContractObserverJob, createExecutorSupervisorJob } from '../core/contract/index.js';
+import {
+  createContractObserverJob,
+  createExecutorSupervisorJob,
+  createSupervisorRecoveryStore,
+} from '../core/contract/index.js';
 import { createContractSystem, type ContractSystem } from '../core/contract/index.js';
 import { createOutboxSummaryJob } from '../core/claw-topology/index.js';
 import { createGateway } from '../core/gateway/index.js';
@@ -326,6 +330,7 @@ export async function createMotionAddons(
               clawTopology: core.topology,
               motionClawId: MOTION_CLAW_ID,
               fsFactory,
+              recoveryStateFactory: createSupervisorRecoveryStore,
               audit: auditWriter,
               liveness: (rawId) => core.processManager.liveness(resolveClawDaemonDir(makeClawId(rawId), createInternalSystemMotionAccess('read'))),
               ensureDaemon: (rawId) => core.processManager.ensureRunning(

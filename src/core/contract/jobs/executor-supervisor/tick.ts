@@ -1,24 +1,24 @@
 /**
  * @module L4.ContractSystem.ExecutorSupervisor
- * Phase 1974 Step B: executor-supervisor tick —— 有已发布 active contract 的
- * claw，其 executor daemon 由 ContractSystem 在 motion cron tick 中确保运行。
+ * Phase 1974 Step B / Phase 2155 Step B4: executor-supervisor tick。
  *
- * 策略（Phase 1974 总览验收）：
- * - 只对有已发布 active contract 的 local claw 动作；无契约不写 audit（防每 tick 噪音）。
- * - dead / absent → ensureDaemon（统一 ensureRunning 收敛，不自行 isAlive+spawn）。
- * - alive + heartbeat stale → restartDaemon；heartbeat missing/corrupt → unknown
- *   （audit、不重启、不误杀）。
- * - malformed / probe_unavailable → skipped，不 spawn（double-spawn 风险条款）。
- * - 不读 clean-stop marker（active contract 优先，用户已拍板）。
- * - motion 自身不监督（watchdog 只保留 motion daemon 监督）。
+ * - 只对有已发布 active contract 的 local claw 动作；motion 自身归 watchdog。
+ * - dead / absent → ensureDaemon；alive + heartbeat stale → restartDaemon。
+ * - malformed / probe_unavailable / heartbeat unknown 不推进持久 recovery。
+ * - 恢复动作失败写 per-claw backoff/circuit；窗口内不 probe、不重复动作。
+ * - 动作成功先落 action_succeeded 屏障再 clear；clear 失败下一 tick 只复核清理。
  * - 单 claw 失败隔离（allSettled + per-claw try/catch）；tick 不整体抛。
- * - 第一版不做 backoff/circuit：30s tick 自然重试。
  */
 import { formatErr } from '../../../../foundation/node-utils/index.js';
 import { isFileNotFound } from '../../../../foundation/fs/index.js';
 import type { ClawId } from '../../../../foundation/claw-identity/index.js';
 import { listActiveContracts } from '../../lightweight-query.js';
 import { EXECUTOR_SUPERVISOR_AUDIT_EVENTS as EV } from './audit-events.js';
+import {
+  reduceSupervisorFailure,
+  type SupervisorRecoveryState,
+  type SupervisorRecoveryStore,
+} from './recovery-state.js';
 import type { ExecutorSupervisorDeps } from './types.js';
 
 export async function runExecutorSupervisorTick(deps: ExecutorSupervisorDeps): Promise<void> {
@@ -34,9 +34,7 @@ export async function runExecutorSupervisorTick(deps: ExecutorSupervisorDeps): P
     return;
   }
 
-  // motion daemon 监督归 watchdog；本 job 只监督 worker claw executor。
   const candidates = clawIds.filter(id => id !== deps.motionClawId);
-  // 单 claw 失败不影响其他 claw；tick 不整体失败。
   await Promise.allSettled(candidates.map(clawId => superviseOne(clawId, deps, now)));
 }
 
@@ -61,16 +59,53 @@ async function superviseOne(
       return;
     }
 
-    // 只对有已发布 active contract 的 claw 动作（.creating 未发布不算 active）；
-    // 无契约不写 audit（避免每 tick 噪音）。
-    let activeCount: number;
+    let clawFs: ReturnType<ExecutorSupervisorDeps['fsFactory']>;
     try {
-      activeCount = listActiveContracts(deps.fsFactory(clawDir), '.').length;
+      clawFs = deps.fsFactory(clawDir);
+      if (listActiveContracts(clawFs, '.').length === 0) return;
     } catch (err) {
       deps.audit.write(EV.CONTRACT_SCAN_FAILED, `claw=${rawClawId}`, `error=${formatErr(err)}`);
       return;
     }
-    if (activeCount === 0) return;
+
+    let recovery: SupervisorRecoveryStore;
+    let loaded: Awaited<ReturnType<SupervisorRecoveryStore['load']>>;
+    try {
+      recovery = deps.recoveryStateFactory(clawFs, rawClawId);
+      loaded = await recovery.load();
+    } catch (err) {
+      deps.audit.write(
+        EV.RECOVERY_STATE_UNREADABLE,
+        `claw=${rawClawId}`,
+        `error=${formatErr(err)}`,
+      );
+      return;
+    }
+    if (loaded.kind === 'unreadable') {
+      deps.audit.write(
+        EV.RECOVERY_STATE_UNREADABLE,
+        `claw=${rawClawId}`,
+        `error=${loaded.reason}`,
+      );
+      return;
+    }
+    const previous = loaded.kind === 'scheduled' ? loaded.state : undefined;
+
+    // 成功事实已提交但上次 clear 失败：不得重放旧 intent。
+    if (previous?.status === 'action_succeeded') {
+      await clearRecovery(rawClawId, previous, recovery, deps, 'pending_clear', true);
+      return;
+    }
+    if (previous && now() < previous.next_attempt_at) {
+      deps.audit.write(
+        EV.RECOVERY_DEFERRED,
+        `claw=${rawClawId}`,
+        `attempt=${previous.attempt}`,
+        `next_attempt_at=${previous.next_attempt_at}`,
+        `circuit=${previous.circuit}`,
+      );
+      return;
+    }
 
     let live: ReturnType<ExecutorSupervisorDeps['liveness']>;
     try {
@@ -111,16 +146,13 @@ async function superviseOne(
         try {
           hb = deps.readHeartbeat(rawClawId);
         } catch (err) {
-          // 心跳读取系统故障 → unknown 语义（不重启、不误杀）。
           auditUnknown('read_failed', undefined, err);
           return;
         }
         if (hb.kind !== 'ok') {
-          // 升级窗口（missing/legacy）/ 读取损坏（corrupt）→ 显式 unknown。
           auditUnknown(hb.kind, hb, hb.kind === 'corrupt' ? hb.reason : undefined);
           return;
         }
-        // 身份核对必须先于 freshness：旧 generation、PID reuse、start time 不明均不得重启。
         if (
           live.generationId === undefined
           || live.startTime === undefined
@@ -143,18 +175,24 @@ async function superviseOne(
             `stale_timeout_ms=${deps.heartbeatStaleTimeoutMs}`,
             ...evidenceCols(hb),
           );
-          await restartOne(rawClawId, deps);
+          await restartOne(rawClawId, deps, previous, recovery, now);
+          return;
+        }
+
+        // open circuit 不是永久放弃：已观察到健康进程，收敛旧 intent。
+        if (previous) {
+          await clearRecovery(rawClawId, previous, recovery, deps, 'observed_healthy', false);
         }
         return;
       }
       case 'dead':
       case 'absent': {
-        await ensureOne(rawClawId, live.kind, deps);
+        // open + 到期 + liveness 可用 = capped 半开探测；unknown 不会走到这里。
+        await ensureOne(rawClawId, live.kind, deps, previous, recovery, now);
         return;
       }
       case 'malformed':
       case 'probe_unavailable': {
-        // 证据损坏 / probe 系统故障 ≠ dead：不 spawn（double-spawn 风险条款）。
         deps.audit.write(EV.SKIPPED, `claw=${rawClawId}`, `reason=${live.kind}`);
         return;
       }
@@ -164,7 +202,6 @@ async function superviseOne(
       }
     }
   } catch (err) {
-    // per-claw 兜底：任何意外 throw 不扩散到其他 claw / 不让 tick 整体失败。
     deps.audit.write(EV.SKIPPED, `claw=${rawClawId}`, `reason=internal_error`, `error=${formatErr(err)}`);
   }
 }
@@ -173,6 +210,9 @@ async function ensureOne(
   rawClawId: string,
   trigger: 'dead' | 'absent',
   deps: ExecutorSupervisorDeps,
+  previous: SupervisorRecoveryState | undefined,
+  recovery: SupervisorRecoveryStore,
+  now: () => number,
 ): Promise<void> {
   try {
     const outcome = await deps.ensureDaemon(rawClawId);
@@ -183,15 +223,27 @@ async function ensureOne(
       `outcome=${outcome.kind}`,
       `pid=${outcome.pid}`,
     );
+    if (previous) {
+      const succeeded: SupervisorRecoveryState = { ...previous, status: 'action_succeeded' };
+      if (await saveRecovery(rawClawId, succeeded, recovery, deps, true)) {
+        await clearRecovery(rawClawId, succeeded, recovery, deps, 'action_succeeded', true);
+      }
+    }
   } catch (err) {
     deps.audit.write(EV.START_FAILED, `claw=${rawClawId}`, `trigger=${trigger}`, `error=${formatErr(err)}`);
+    await recordFailure(rawClawId, 'ensure', err, previous, recovery, deps, now);
   }
 }
 
-async function restartOne(rawClawId: string, deps: ExecutorSupervisorDeps): Promise<void> {
+async function restartOne(
+  rawClawId: string,
+  deps: ExecutorSupervisorDeps,
+  previous: SupervisorRecoveryState | undefined,
+  recovery: SupervisorRecoveryStore,
+  now: () => number,
+): Promise<void> {
   try {
     const { stop, ensured } = await deps.restartDaemon(rawClawId);
-    // stop outcome 显式记录（failed 不吞、由装配期保证仍尝试 ensure）。
     deps.audit.write(
       EV.RESTARTED,
       `claw=${rawClawId}`,
@@ -199,7 +251,100 @@ async function restartOne(rawClawId: string, deps: ExecutorSupervisorDeps): Prom
       `outcome=${ensured.kind}`,
       `pid=${ensured.pid}`,
     );
+    if (previous) {
+      const succeeded: SupervisorRecoveryState = { ...previous, status: 'action_succeeded' };
+      if (await saveRecovery(rawClawId, succeeded, recovery, deps, true)) {
+        await clearRecovery(rawClawId, succeeded, recovery, deps, 'action_succeeded', true);
+      }
+    }
   } catch (err) {
     deps.audit.write(EV.RESTART_FAILED, `claw=${rawClawId}`, `error=${formatErr(err)}`);
+    await recordFailure(rawClawId, 'restart', err, previous, recovery, deps, now);
+  }
+}
+
+async function recordFailure(
+  rawClawId: string,
+  intent: SupervisorRecoveryState['intent'],
+  error: unknown,
+  previous: SupervisorRecoveryState | undefined,
+  recovery: SupervisorRecoveryStore,
+  deps: ExecutorSupervisorDeps,
+  now: () => number,
+): Promise<void> {
+  const next = reduceSupervisorFailure(previous, {
+    clawId: rawClawId,
+    intent,
+    now: now(),
+    error: formatErr(error),
+  });
+  if (!(await saveRecovery(rawClawId, next, recovery, deps, false))) return;
+  deps.audit.write(
+    EV.RECOVERY_SCHEDULED,
+    `claw=${rawClawId}`,
+    `attempt=${next.attempt}`,
+    `next_attempt_at=${next.next_attempt_at}`,
+    `circuit=${next.circuit}`,
+  );
+}
+
+/** false 仅表示 rename 前失败；committed_* 明确按已写入继续 transition。 */
+async function saveRecovery(
+  rawClawId: string,
+  state: SupervisorRecoveryState,
+  recovery: SupervisorRecoveryStore,
+  deps: ExecutorSupervisorDeps,
+  actionSucceeded: boolean,
+): Promise<boolean> {
+  try {
+    const result = await recovery.save(state);
+    if (result.kind !== 'durable') {
+      deps.audit.write(
+        EV.RECOVERY_STATE_WRITE_DEGRADED,
+        `claw=${rawClawId}`,
+        `durability=${result.kind}`,
+        `action_succeeded=${actionSucceeded}`,
+        `error=${formatErr(result.error)}`,
+      );
+    }
+    return true;
+  } catch (err) {
+    deps.audit.write(
+      EV.RECOVERY_STATE_WRITE_FAILED,
+      `claw=${rawClawId}`,
+      `action_succeeded=${actionSucceeded}`,
+      `error=${formatErr(err)}`,
+    );
+    return false;
+  }
+}
+
+async function clearRecovery(
+  rawClawId: string,
+  state: SupervisorRecoveryState,
+  recovery: SupervisorRecoveryStore,
+  deps: ExecutorSupervisorDeps,
+  reason: 'action_succeeded' | 'pending_clear' | 'observed_healthy',
+  actionSucceeded: boolean,
+): Promise<void> {
+  try {
+    await recovery.clear();
+    deps.audit.write(
+      EV.RECOVERY_CLEARED,
+      `claw=${rawClawId}`,
+      `reason=${reason}`,
+      `intent=${state.intent}`,
+      `attempt=${state.attempt}`,
+    );
+  } catch (err) {
+    // ENSURED/RESTARTED 已记录动作成功；此处独立保留清理失败事实。
+    deps.audit.write(
+      EV.RECOVERY_CLEAR_FAILED,
+      `claw=${rawClawId}`,
+      `action_succeeded=${actionSucceeded}`,
+      `intent=${state.intent}`,
+      `attempt=${state.attempt}`,
+      `error=${formatErr(err)}`,
+    );
   }
 }

@@ -21,7 +21,14 @@ import * as path from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
-import { createExecutorSupervisorJob } from '../../../src/core/contract/jobs/executor-supervisor/index.js';
+import {
+  createExecutorSupervisorJob,
+  createSupervisorRecoveryStore,
+} from '../../../src/core/contract/jobs/executor-supervisor/index.js';
+import {
+  SUPERVISOR_RECOVERY_POLICY,
+  SUPERVISOR_RECOVERY_STATE_FILE,
+} from '../../../src/core/contract/jobs/executor-supervisor/recovery-state.js';
 import { runExecutorSupervisorTick } from '../../../src/core/contract/jobs/executor-supervisor/tick.js';
 import type {
   ExecutorHeartbeatRead,
@@ -67,6 +74,8 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
   interface HarnessOptions {
     liveness?: (rawClawId: string) => LivenessResult;
     heartbeat?: (rawClawId: string) => ExecutorHeartbeatRead;
+    ensureDaemon?: (rawClawId: string) => Promise<EnsureRunningOutcome>;
+    now?: () => number;
   }
 
   function makeHarness(opts: HarnessOptions = {}) {
@@ -83,12 +92,13 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
       clawTopology: topology,
       motionClawId: MOTION_CLAW_ID,
       fsFactory: (baseDir) => new NodeFileSystem({ baseDir }),
+      recoveryStateFactory: createSupervisorRecoveryStore,
       audit: { write: (event: string, ...cols: (string | number)[]) => audits.push({ event, cols: cols.map(String) }) },
       liveness: opts.liveness ?? (() => absentLiveness()),
-      ensureDaemon: async (rawClawId): Promise<EnsureRunningOutcome> => {
+      ensureDaemon: opts.ensureDaemon ?? (async (rawClawId): Promise<EnsureRunningOutcome> => {
         ensureCalls.push(rawClawId);
         return { kind: 'spawned', pid: 5150 };
-      },
+      }),
       restartDaemon: async (rawClawId) => {
         restartCalls.push(rawClawId);
         return {
@@ -98,6 +108,7 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
       },
       readHeartbeat: opts.heartbeat ?? (() => ({ kind: 'missing' })),
       heartbeatStaleTimeoutMs: 180_000,
+      now: opts.now,
     };
     return { deps, audits, ensureCalls, restartCalls };
   }
@@ -178,6 +189,36 @@ describe('Phase 1974 Step D: executor-supervisor 集成（真实 temp workspace 
         'live_generation=generation-b',
         'heartbeat_generation=generation-a',
       ]),
+    );
+  });
+
+  it('集成 2e：进程重建后仅从 per-claw 磁盘恢复 backoff，到期成功清理', async () => {
+    publishActiveContract('clawA');
+    const now = 1_800_000_000_000;
+    const first = makeHarness({
+      now: () => now,
+      ensureDaemon: async () => { throw new Error('integration spawn failed'); },
+    });
+    await runExecutorSupervisorTick(first.deps);
+
+    const statePath = path.join(clawDir('clawA'), SUPERVISOR_RECOVERY_STATE_FILE);
+    const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(saved).toMatchObject({
+      schema_version: 1,
+      claw_id: 'clawA',
+      attempt: 1,
+      next_attempt_at: now + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs,
+      circuit: 'closed',
+    });
+
+    // 新 topology/job/deps，模拟 motion 进程重启；没有内存 attempt 可继承。
+    const restarted = makeHarness({ now: () => saved.next_attempt_at });
+    await runExecutorSupervisorTick(restarted.deps);
+
+    expect(restarted.ensureCalls).toEqual(['clawA']);
+    expect(fs.existsSync(statePath)).toBe(false);
+    expect(restarted.audits.find(a => a.event === 'executor_supervisor_recovery_cleared')?.cols).toEqual(
+      expect.arrayContaining(['claw=clawA', 'attempt=1', 'reason=action_succeeded']),
     );
   });
 

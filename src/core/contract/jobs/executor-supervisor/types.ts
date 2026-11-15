@@ -11,6 +11,7 @@ import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { ClawTopology } from '../../../claw-topology/index.js';
 import type { ClawId } from '../../../../foundation/claw-identity/index.js';
+import type { SupervisorRecoveryStore } from './recovery-state.js';
 import type {
   LivenessResult,
   EnsureRunningOutcome,
@@ -37,6 +38,8 @@ export interface ExecutorSupervisorDeps {
   motionClawId: ClawId;
   /** 装配期 fs 工厂（per-claw baseDir）。 */
   fsFactory: (baseDir: string) => FileSystem;
+  /** 版本化 recovery state owner 工厂；路径仍相对同一个 per-claw fs。 */
+  recoveryStateFactory: (fs: FileSystem, rawClawId: string) => SupervisorRecoveryStore;
   audit: Pick<AuditLog, 'write'>;
   /** 进程事实探测（dead/absent/alive/malformed/probe_unavailable）。 */
   liveness: (rawClawId: string) => LivenessResult;

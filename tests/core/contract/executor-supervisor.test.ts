@@ -17,6 +17,12 @@ import {
   EXECUTOR_SUPERVISOR_CRON_TIMEOUT_MS,
 } from '../../../src/core/contract/jobs/executor-supervisor/index.js';
 import { EXECUTOR_SUPERVISOR_AUDIT_EVENTS as EV } from '../../../src/core/contract/jobs/executor-supervisor/audit-events.js';
+import {
+  createSupervisorRecoveryStore,
+  reduceSupervisorFailure,
+  SUPERVISOR_RECOVERY_POLICY,
+  SUPERVISOR_RECOVERY_STATE_FILE,
+} from '../../../src/core/contract/jobs/executor-supervisor/recovery-state.js';
 import type {
   ExecutorSupervisorDeps,
   ExecutorHeartbeatRead,
@@ -104,6 +110,8 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
     resolve?: (clawId: ClawId) => Location;
     enumerate?: () => ClawId[];
     fsFactory?: (baseDir: string) => NodeFileSystem;
+    recoveryStateFactory?: ExecutorSupervisorDeps['recoveryStateFactory'];
+    now?: () => number;
   }
 
   function makeHarness(opts: HarnessOptions = {}) {
@@ -119,6 +127,7 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
       clawTopology: topology,
       motionClawId: makeClawId('motion'),
       fsFactory: opts.fsFactory ?? ((baseDir) => new NodeFileSystem({ baseDir })),
+      recoveryStateFactory: opts.recoveryStateFactory ?? createSupervisorRecoveryStore,
       audit: { write: (event: string, ...cols: (string | number)[]) => audits.push({ event, cols: cols.map(String) }) },
       liveness: opts.liveness ?? (() => absentLiveness()),
       ensureDaemon: opts.ensureDaemon ?? (async (rawClawId) => {
@@ -134,9 +143,13 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
       }),
       readHeartbeat: opts.heartbeat ?? (() => currentHeartbeat(NOW)),
       heartbeatStaleTimeoutMs: STALE_TIMEOUT_MS,
-      now: () => NOW,
+      now: opts.now ?? (() => NOW),
     };
     return { deps, audits, ensureCalls, restartCalls };
+  }
+
+  function recoveryStatePath(rawClawId: string): string {
+    return path.join(clawDirOf(rawClawId), SUPERVISOR_RECOVERY_STATE_FILE);
   }
 
   function findAudit(audits: AuditRecord[], event: string): AuditRecord | undefined {
@@ -320,6 +333,7 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
     expect(findAudit(audits, EV.SKIPPED)?.cols).toEqual(
       expect.arrayContaining(['claw=clawA', `reason=${kind}`]),
     );
+    expect(fs.existsSync(recoveryStatePath('clawA'))).toBe(false);
   });
 
   // #9 ensure 抛错 → audit start_failed；tick 不整体失败
@@ -343,6 +357,244 @@ describe('Phase 1974 Step B: executor-supervisor job', () => {
     });
     await expect(runExecutorSupervisorTick(deps)).resolves.toBeUndefined();
     expect(findAudit(audits, EV.RESTART_FAILED)?.cols).toContain('claw=clawA');
+    expect(JSON.parse(fs.readFileSync(recoveryStatePath('clawA'), 'utf8'))).toMatchObject({
+      intent: 'restart',
+      attempt: 1,
+      last_error: 'restart boom',
+    });
+  });
+
+  it('首次 ensure 失败写版本化 recovery intent、attempt 与 backoff', async () => {
+    publishActiveContract('clawA');
+    const { deps, audits } = makeHarness({
+      ensureDaemon: async () => { throw new Error('spawn boom'); },
+    });
+
+    await runExecutorSupervisorTick(deps);
+
+    const state = JSON.parse(fs.readFileSync(recoveryStatePath('clawA'), 'utf8'));
+    expect(state).toEqual({
+      schema_version: 1,
+      claw_id: 'clawA',
+      intent: 'ensure',
+      attempt: 1,
+      first_failed_at: NOW,
+      last_failed_at: NOW,
+      next_attempt_at: NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs,
+      circuit: 'closed',
+      last_error: 'spawn boom',
+      status: 'retrying',
+    });
+    expect(findAudit(audits, EV.RECOVERY_SCHEDULED)?.cols).toEqual(
+      expect.arrayContaining([
+        'attempt=1',
+        `next_attempt_at=${NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs}`,
+        'circuit=closed',
+      ]),
+    );
+  });
+
+  it('backoff 窗口内跳过；新进程在到期后恢复 attempt 并在成功后清 state', async () => {
+    publishActiveContract('clawA');
+    let now = NOW;
+    const firstEnsure = vi.fn(async () => { throw new Error('spawn boom'); });
+    const first = makeHarness({ now: () => now, ensureDaemon: firstEnsure });
+    await runExecutorSupervisorTick(first.deps);
+    expect(firstEnsure).toHaveBeenCalledTimes(1);
+
+    now = NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs - 1;
+    const waiting = makeHarness({ now: () => now });
+    await runExecutorSupervisorTick(waiting.deps);
+    expect(waiting.ensureCalls).toEqual([]);
+    expect(findAudit(waiting.audits, EV.RECOVERY_DEFERRED)?.cols).toEqual(
+      expect.arrayContaining(['attempt=1', `next_attempt_at=${NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs}`]),
+    );
+    expect(JSON.parse(fs.readFileSync(recoveryStatePath('clawA'), 'utf8')).attempt).toBe(1);
+
+    // 新 harness 不共享内存计数，仅从磁盘恢复。
+    now = NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs;
+    const resumed = makeHarness({ now: () => now });
+    await runExecutorSupervisorTick(resumed.deps);
+    expect(resumed.ensureCalls).toEqual(['clawA']);
+    expect(fs.existsSync(recoveryStatePath('clawA'))).toBe(false);
+    expect(findAudit(resumed.audits, EV.RECOVERY_CLEARED)?.cols).toEqual(
+      expect.arrayContaining(['reason=action_succeeded', 'attempt=1', 'intent=ensure']),
+    );
+  });
+
+  it.each(['probe_unavailable', 'malformed'] as const)('已有 intent 遇 %s 不推进 attempt/next_attempt_at', async (kind) => {
+    publishActiveContract('clawA');
+    const failed = makeHarness({ ensureDaemon: async () => { throw new Error('spawn boom'); } });
+    await runExecutorSupervisorTick(failed.deps);
+    const before = fs.readFileSync(recoveryStatePath('clawA'), 'utf8');
+    const probe = makeHarness({
+      now: () => NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs,
+      liveness: () => kind === 'malformed' ? malformedLiveness() : probeUnavailableLiveness(),
+    });
+
+    await runExecutorSupervisorTick(probe.deps);
+
+    expect(probe.ensureCalls).toEqual([]);
+    expect(fs.readFileSync(recoveryStatePath('clawA'), 'utf8')).toBe(before);
+  });
+
+  it.each(['missing', 'corrupt'] as const)('已有 intent 遇 heartbeat %s 保持 unknown 且不推进', async (kind) => {
+    publishActiveContract('clawA');
+    const failed = makeHarness({ ensureDaemon: async () => { throw new Error('spawn boom'); } });
+    await runExecutorSupervisorTick(failed.deps);
+    const before = fs.readFileSync(recoveryStatePath('clawA'), 'utf8');
+    const unknown = makeHarness({
+      now: () => NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs,
+      liveness: () => currentLiveness(),
+      heartbeat: () => ({ kind }),
+    });
+
+    await runExecutorSupervisorTick(unknown.deps);
+
+    expect(unknown.ensureCalls).toEqual([]);
+    expect(unknown.restartCalls).toEqual([]);
+    expect(findAudit(unknown.audits, EV.HEARTBEAT_UNKNOWN)?.cols).toContain(`reason=${kind}`);
+    expect(fs.readFileSync(recoveryStatePath('clawA'), 'utf8')).toBe(before);
+  });
+
+  it('recovery state 损坏/不可读时审计并安全跳过，不 spawn', async () => {
+    publishActiveContract('clawA');
+    fs.mkdirSync(path.dirname(recoveryStatePath('clawA')), { recursive: true });
+    fs.writeFileSync(recoveryStatePath('clawA'), '{bad json');
+    const { deps, audits, ensureCalls } = makeHarness();
+
+    await runExecutorSupervisorTick(deps);
+
+    expect(ensureCalls).toEqual([]);
+    expect(findAudit(audits, EV.RECOVERY_STATE_UNREADABLE)?.cols[0]).toBe('claw=clawA');
+  });
+
+  it('recovery state I/O 读取失败同样 unreadable，不按 missing 处理', async () => {
+    publishActiveContract('clawA');
+    const { deps, audits, ensureCalls } = makeHarness({
+      recoveryStateFactory: () => ({
+        load: async () => ({ kind: 'unreadable', reason: 'read denied' }),
+        save: async () => { throw new Error('must not save'); },
+        clear: async () => { throw new Error('must not clear'); },
+      }),
+    });
+
+    await runExecutorSupervisorTick(deps);
+
+    expect(ensureCalls).toEqual([]);
+    expect(findAudit(audits, EV.RECOVERY_STATE_UNREADABLE)?.cols).toContain('error=read denied');
+  });
+
+  it('recovery state 写失败保留原始错误并审计，tick 不整体失败', async () => {
+    publishActiveContract('clawA');
+    const { deps, audits } = makeHarness({
+      ensureDaemon: async () => { throw new Error('spawn boom'); },
+      recoveryStateFactory: (clawFs, rawClawId) => ({
+        ...createSupervisorRecoveryStore(clawFs, rawClawId),
+        save: async () => { throw new Error('disk full'); },
+      }),
+    });
+
+    await expect(runExecutorSupervisorTick(deps)).resolves.toBeUndefined();
+
+    expect(findAudit(audits, EV.RECOVERY_STATE_WRITE_FAILED)?.cols).toEqual(
+      expect.arrayContaining(['action_succeeded=false', 'error=disk full']),
+    );
+    expect(findAudit(audits, EV.RECOVERY_SCHEDULED)).toBeUndefined();
+  });
+
+  it('committed_durability_unknown 按已写入处理并保留降级证据', async () => {
+    publishActiveContract('clawA');
+    const fsyncError = Object.assign(new Error('dir fsync failed'), { code: 'EIO' });
+    const { deps, audits } = makeHarness({
+      ensureDaemon: async () => { throw new Error('spawn boom'); },
+      recoveryStateFactory: (clawFs, rawClawId) => {
+        const store = createSupervisorRecoveryStore(clawFs, rawClawId);
+        return {
+          ...store,
+          save: async (state) => {
+            await store.save(state);
+            return { kind: 'committed_durability_unknown' as const, error: fsyncError };
+          },
+        };
+      },
+    });
+
+    await runExecutorSupervisorTick(deps);
+
+    expect(fs.existsSync(recoveryStatePath('clawA'))).toBe(true);
+    expect(findAudit(audits, EV.RECOVERY_STATE_WRITE_DEGRADED)?.cols).toEqual(
+      expect.arrayContaining(['durability=committed_durability_unknown', 'error=[EIO] dir fsync failed']),
+    );
+    expect(findAudit(audits, EV.RECOVERY_SCHEDULED)).toBeDefined();
+  });
+
+  it('动作成功但 clear 失败保留双事实；下一 tick 只清理、不重复 spawn', async () => {
+    publishActiveContract('clawA');
+    const failed = makeHarness({ ensureDaemon: async () => { throw new Error('spawn boom'); } });
+    await runExecutorSupervisorTick(failed.deps);
+
+    const clearing = makeHarness({
+      now: () => NOW + SUPERVISOR_RECOVERY_POLICY.baseBackoffMs,
+      recoveryStateFactory: (clawFs, rawClawId) => ({
+        ...createSupervisorRecoveryStore(clawFs, rawClawId),
+        clear: async () => { throw new Error('clear denied'); },
+      }),
+    });
+    await runExecutorSupervisorTick(clearing.deps);
+    expect(clearing.ensureCalls).toEqual(['clawA']);
+    expect(findAudit(clearing.audits, EV.ENSURED)).toBeDefined();
+    expect(findAudit(clearing.audits, EV.RECOVERY_CLEAR_FAILED)?.cols).toEqual(
+      expect.arrayContaining(['action_succeeded=true', 'error=clear denied']),
+    );
+    expect(JSON.parse(fs.readFileSync(recoveryStatePath('clawA'), 'utf8')).status).toBe('action_succeeded');
+
+    const review = makeHarness({
+      liveness: () => { throw new Error('must not probe'); },
+    });
+    await runExecutorSupervisorTick(review.deps);
+    expect(review.ensureCalls).toEqual([]);
+    expect(review.restartCalls).toEqual([]);
+    expect(fs.existsSync(recoveryStatePath('clawA'))).toBe(false);
+    expect(findAudit(review.audits, EV.RECOVERY_CLEARED)?.cols).toContain('reason=pending_clear');
+  });
+
+  it('failure reducer 有 backoff 上限、maxAttempts 与 circuit-open，计数不无限增长', () => {
+    let state: ReturnType<typeof reduceSupervisorFailure> | undefined;
+    for (let index = 0; index < 7; index += 1) {
+      state = reduceSupervisorFailure(state, {
+        clawId: 'clawA',
+        intent: 'ensure',
+        now: NOW + index * SUPERVISOR_RECOVERY_POLICY.maxBackoffMs,
+        error: `failure ${index}`,
+      });
+    }
+    expect(state).toMatchObject({
+      attempt: SUPERVISOR_RECOVERY_POLICY.maxAttempts,
+      circuit: 'open',
+      first_failed_at: NOW,
+      next_attempt_at: NOW + 6 * SUPERVISOR_RECOVERY_POLICY.maxBackoffMs
+        + SUPERVISOR_RECOVERY_POLICY.maxBackoffMs,
+      last_error: 'failure 6',
+    });
+  });
+
+  it('多 claw recovery 文件与失败状态相互隔离', async () => {
+    publishActiveContract('clawA');
+    publishActiveContract('clawB');
+    const { deps, audits } = makeHarness({
+      clawIds: ['clawA', 'clawB'],
+      ensureDaemon: async (rawClawId) => {
+        if (rawClawId === 'clawA') throw new Error('A failed');
+        return { kind: 'spawned', pid: 4242 };
+      },
+    });
+
+    await runExecutorSupervisorTick(deps);
+
+    expect(JSON.parse(fs.readFileSync(recoveryStatePath('clawA'), 'utf8')).claw_id).toBe('clawA');
+    expect(fs.existsSync(recoveryStatePath('clawB'))).toBe(false);
+    expect(findAudit(audits, EV.ENSURED)?.cols).toContain('claw=clawB');
   });
 
   // #10 多 claws 部分有契约 → 只处理有契约的；单 claw 失败互不影响
