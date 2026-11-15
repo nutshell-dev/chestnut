@@ -11,6 +11,7 @@ import { statusCommand } from '../../../src/cli/commands/status.js';
 import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ForumStatusView } from '../../../src/core/status-service/index.js';
+import type { ProcessStartTimeFact } from '../../../src/foundation/process-exec/index.js';
 
 function makeAudit(): AuditLog & { events: [string, ...(string | number)[]][] } {
   const events: [string, ...(string | number)[]][] = [];
@@ -91,7 +92,7 @@ vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) 
   const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
   return {
     ...actual,
-    getProcessStartTime: vi.fn(() => undefined),
+    observeProcessStartTime: vi.fn(),
   };
 });
 
@@ -105,6 +106,7 @@ vi.mock('../../../src/core/status-service/index.js', async (importOriginal) => {
 });
 
 import { computeForumStatusView } from '../../../src/core/status-service/index.js';
+import { observeProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 
 const loadGlobal = vi.fn();
 
@@ -141,6 +143,24 @@ describe('statusCommand (Phase 977)', () => {
   const deps = () => ({
     fsFactory: () => makeFakeFs(),
     rootConfig: { loadGlobal },
+  });
+
+  it('injects the narrow ProcessExec fact capability without flattening unavailable evidence', async () => {
+    const unavailable: ProcessStartTimeFact = {
+      kind: 'unavailable',
+      pid: 123,
+      reason: 'permission_denied',
+      evidence: { version: 1, atMs: 1, facts: [] },
+    };
+    vi.mocked(observeProcessStartTime).mockReturnValue(unavailable);
+    vi.mocked(computeForumStatusView).mockResolvedValue(baseForumView());
+
+    await statusCommand(deps());
+
+    const forumDeps = vi.mocked(computeForumStatusView).mock.calls[0][0];
+    expect(forumDeps.getProcessStartTimeFact).toBe(observeProcessStartTime);
+    expect(forumDeps.getProcessStartTimeFact(123)).toBe(unavailable);
+    expect(observeProcessStartTime).toHaveBeenCalledExactlyOnceWith(123);
   });
 
   it('does not write FORUM_STATUS audit event (owner-owned since phase 1761)', async () => {

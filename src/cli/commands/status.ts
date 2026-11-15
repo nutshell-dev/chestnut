@@ -21,7 +21,7 @@ import {
   getWatchdogEntryPath,
 } from '../../watchdog/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { observeProcessTarget } from '../../foundation/process-exec/index.js';
+import { observeProcessStartTime } from '../../foundation/process-exec/index.js';
 import {
   computeForumStatusView,
   formatForumStatusView,
@@ -67,10 +67,7 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
     motionDir,
     pm,
     now: () => Date.now(),
-    getStartTime: (pid: number) => {
-      const observation = observeProcessTarget({ pid });
-      return observation.kind === 'alive' ? observation.startTime : undefined;
-    },
+    getProcessStartTimeFact: observeProcessStartTime,
     watchdog,
     daemonEntryPath,
     audit,
