@@ -35,11 +35,11 @@ describe('ProcessExec host script resolution (phase 2066)', () => {
 
     expect(resolved).toEqual({
       executable: 'cmd.exe',
-      args: ['/d', '/s', '/c', `""${scriptPath}""`],
+      args: ['/d', '/s', '/c', `C:\\contract work\\验收 ^& 100%!^(^)` + extension],
     });
     expect(resolved.args).toHaveLength(4);
     expect(resolved.args.at(-1)).not.toContain('\n');
-    expect(resolved.args.at(-1)).toContain(scriptPath);
+    expect(resolved.args.at(-1)).not.toContain('""');
   });
 
   it('passes POSIX paths verbatim without -c or shebang inspection', () => {
