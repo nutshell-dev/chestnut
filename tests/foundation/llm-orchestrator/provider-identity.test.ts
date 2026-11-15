@@ -68,6 +68,13 @@ describe('Phase 2027 provider identity', () => {
     expect(providerCacheKey(base, 'audit-b')).not.toBe(providerCacheKey(base, 'audit-a'));
   });
 
+  it('secret rotation 只改变 operational fault/cache 身份，不冒充 auth account 标签', () => {
+    const first = config({ apiKey: 'secret-before' });
+    const rotated = config({ apiKey: 'secret-after' });
+    expect(providerIdentity(rotated)).not.toBe(providerIdentity(first));
+    expect(providerCacheKey(rotated, 'audit-a')).not.toBe(providerCacheKey(first, 'audit-a'));
+  });
+
   it('身份与 cache key 不泄露明文 API key', () => {
     const value = config();
     expect(providerIdentity(value)).not.toContain(value.apiKey!);

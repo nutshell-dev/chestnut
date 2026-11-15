@@ -36,7 +36,7 @@ vi.mock('../../src/cli/first-run-setup.js', () => ({
     fs.writeFileSync(path.join(chestnutDir, 'config.yaml'), 'version: "1"\n');
     return {
       kind: 'verified',
-      verified: { snapshot: { config: {}, identity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'init' },
+      verified: { snapshot: { config: {}, identity: 'test-gate-identity', operationalIdentity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'init' },
     };
   }),
   runNonInteractiveFirstRun: vi.fn(async () => {
@@ -52,7 +52,7 @@ vi.mock('../../src/cli/start-llm-gate.js', () => ({
   START_GATE_EXIT_CODE: 3,
   ensureStartLLMVerified: vi.fn(async () => {
     h.order.push('llm-gate');
-    return { snapshot: { config: {}, identity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'start' };
+    return { snapshot: { config: {}, identity: 'test-gate-identity', operationalIdentity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'start' };
   }),
 }));
 

@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  createLLMConfiguration,
   createLLMConfigurationDocumentStore,
   getLLMConfigurationPath,
+  snapshotLLMConfig,
   LLMConfigurationMigrationError,
   llmConfigurationSourceDigest,
   readLLMMigrationRecord,
@@ -70,6 +72,31 @@ describe('LLM configuration document reads', () => {
     expect(raw.primary.temperature).toBeUndefined();
     expect(raw.retry_attempts).toBeUndefined();
     expect(fs.readFileSync(getLLMConfigurationPath(), 'utf8')).toBe(before);
+  });
+
+  it('loadGlobal/loadSnapshot 同源保留 raw ref、revision 与 scope，重建后身份一致', () => {
+    makeStore().createFromSource(referencedSource(), 'test-seed');
+    const firstAdmin = createLLMConfiguration(deps);
+    const first = snapshotLLMConfig(firstAdmin.loadGlobal());
+    expect(first.scope).toMatchObject({
+      workspaceRoot: path.join(projectDir, '.chestnut'),
+      workspaceRevision: 1,
+      primarySource: 'workspace',
+      documentSource: 'document',
+    });
+    expect(first.credentials).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'primary', ref: 'LLM_DOCUMENT_TEST_KEY', source: 'env' }),
+      expect.objectContaining({ role: 'primary.extra_headers.X-Test-Secret', ref: 'LLM_DOCUMENT_TEST_HEADER', source: 'env' }),
+    ]));
+    const explicit = firstAdmin.loadSnapshot();
+    expect(explicit.raw.primary.api_key).toBe('${LLM_DOCUMENT_TEST_KEY}');
+    expect(explicit.revision.revision).toBe(1);
+
+    vi.stubEnv('LLM_DOCUMENT_TEST_KEY', 'rotated-primary-secret');
+    const restarted = snapshotLLMConfig(createLLMConfiguration(deps).loadGlobal());
+    expect(restarted.identity).toBe(first.identity);
+    expect(restarted.operationalIdentity).not.toBe(first.operationalIdentity);
+    expect(restarted.config.primary.apiKey).toBe('rotated-primary-secret');
   });
 
   it('resolved read 展开引用并应用 defaults，raw 文档仍保留引用', () => {

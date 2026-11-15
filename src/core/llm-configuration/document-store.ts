@@ -55,6 +55,12 @@ export interface LLMConfigurationDocumentStore {
   read(): LLMConfigDocument;
   /** 展开引用并应用 owner schema defaults，供运行/probe 使用。 */
   readResolved(): ResolvedLLMConfigDocument;
+  /** raw 与 resolved 来自同一次磁盘读取，供 scope/auth snapshot 使用。 */
+  readSnapshot(): {
+    raw: LLMConfigDocument;
+    resolved: ResolvedLLMConfigDocument;
+    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+  };
   migrateLegacyApiKeys(audit?: ApiKeyMigrationAudit): Promise<readonly ApiKeyMigrationOutcome[]>;
   readRevision(): LLMConfigurationRevision;
   /** 锁内重读 raw 文档；调用方返回完整新文档，revision 由 store 单调推进。 */
@@ -72,7 +78,13 @@ export interface LLMConfigurationDocumentStore {
 export interface LLMConfigurationAdmin {
   loadGlobal(): { llm: SharedLLM };
   /** 配置与 revision 同次磁盘读取，禁止把旧配置登记成新 revision。 */
-  loadSnapshot(): { llm: SharedLLM; revision: LLMConfigurationRevision };
+  loadSnapshot(): {
+    llm: SharedLLM;
+    raw: SharedLLMInput;
+    revision: LLMConfigurationRevision;
+    workspaceRoot: string;
+    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+  };
   mutateGlobalLocked(
     mutator: (config: { llm: SharedLLM }) => void,
   ): Promise<LLMConfigurationWriteResult>;
@@ -146,11 +158,6 @@ function parseRawDocument(value: unknown, configPath: string): LLMConfigDocument
   return { ...config, ...metadata } as LLMConfigDocument;
 }
 
-function makeEnvVarResolver(deps: { fsFactory(baseDir: string): FileSystem }) {
-  const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
-  return (name: string): string | undefined => credentials.resolve(name)?.value;
-}
-
 export function getLLMConfigurationPath(): string {
   return path.join(getChestnutRoot(), 'llm', 'config.yaml');
 }
@@ -188,17 +195,33 @@ export function createLLMConfigurationDocumentStore(deps: {
     }
   };
 
-  const readResolved = (): ResolvedLLMConfigDocument => {
+  const readSnapshot = (): {
+    raw: LLMConfigDocument;
+    resolved: ResolvedLLMConfigDocument;
+    credentialSources: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
+  } => {
+    let raw: LLMConfigDocument | undefined;
+    const credentialSources: Record<string, 'env' | 'file' | 'project-env' | 'user-env'> = {};
+    const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
     try {
-      return loadYamlConfig<ResolvedLLMConfigDocument>(
+      const resolved = loadYamlConfig<ResolvedLLMConfigDocument>(
         {
           fsFactory: deps.fsFactory,
-          resolveEnvVar: makeEnvVarResolver(deps),
-          validateRaw: assertNoLegacyPlaintextApiKey,
+          resolveEnvVar: (name) => {
+            const hit = credentials.resolve(name);
+            if (hit !== undefined) credentialSources[name] = hit.source;
+            return hit?.value;
+          },
+          validateRaw: (value) => {
+            assertNoLegacyPlaintextApiKey(value);
+            raw = parseRawDocument(value, configPath);
+          },
         },
         configPath,
         resolvedDocumentSchema,
       );
+      if (raw === undefined) throw new Error(`LLM configuration raw snapshot was not captured: ${configPath}`);
+      return { raw, resolved, credentialSources };
     } catch (error) {
       if (isConfigStoreError(error) && error.code === 'not_found') {
         throw new LLMConfigurationNotFoundError(configPath);
@@ -206,6 +229,8 @@ export function createLLMConfigurationDocumentStore(deps: {
       throw error;
     }
   };
+
+  const readResolved = (): ResolvedLLMConfigDocument => readSnapshot().resolved;
 
   const writeMigrationRecord = (record: MigrationRecord): AtomicWriteResult =>
     writeYamlConfig(deps, getMigrationRecordPath(record.migration_id), record);
@@ -332,6 +357,7 @@ export function createLLMConfigurationDocumentStore(deps: {
   return {
     read,
     readResolved,
+    readSnapshot,
     migrateLegacyApiKeys: (audit) => migrateLegacyApiKeysAtPath(deps, configPath, audit),
     readRevision: () => {
       const document = read();
@@ -350,12 +376,29 @@ export function createLLMConfiguration(deps: {
   const store = () => createLLMConfigurationDocumentStore(deps);
   return {
     get store() { return store(); },
-    loadGlobal: () => ({ llm: store().readResolved() }),
+    loadGlobal: () => {
+      const document = store().readSnapshot();
+      const view = { llm: document.resolved };
+      // 兼容既有调用方的对象形状；metadata 不可枚举但 snapshot 可同源消费。
+      Object.defineProperties(view, {
+        raw: { value: documentConfig(document.raw), enumerable: false },
+        revision: {
+          value: { id: String(document.resolved.revision), revision: document.resolved.revision },
+          enumerable: false,
+        },
+        workspaceRoot: { value: getChestnutRoot(), enumerable: false },
+        credentialSources: { value: document.credentialSources, enumerable: false },
+      });
+      return view;
+    },
     loadSnapshot: () => {
-      const document = store().readResolved();
+      const document = store().readSnapshot();
       return {
-        llm: document,
-        revision: { id: String(document.revision), revision: document.revision },
+        llm: document.resolved,
+        raw: documentConfig(document.raw),
+        revision: { id: String(document.resolved.revision), revision: document.resolved.revision },
+        workspaceRoot: getChestnutRoot(),
+        credentialSources: document.credentialSources,
       };
     },
     mutateGlobalLocked: (mutator) => store().mutate((fresh) => {

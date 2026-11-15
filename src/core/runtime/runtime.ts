@@ -290,6 +290,8 @@ export class Runtime {
    * 绝不发布未 apply 的本次快照身份。
    */
   private appliedConfigIdentity?: string;
+  /** stable auth 与 operational 的联合应用基线；用于决定是否需要 reload。 */
+  private appliedConfigReloadIdentity?: string;
   /** Phase 1945 Step C：上次发布失败待补偿标记（下一条 reload 命中 skip 时重试）。 */
   private appliedIdentityPublishPending = false;
   /**
@@ -459,8 +461,10 @@ export class Runtime {
     if (!this.options.configApplicationStore || !this.options.configReloader) return;
     const previous = this.options.configApplicationStore.read(this.options.clawId);
     this.appliedIdentityPublishPending = previous?.publishPending ?? false;
-    const initial = this._deriveAppliedConfigIdentity(this.options.llmConfig).identity;
+    const initial = this.options.initialConfigIdentity
+      ?? this._deriveAppliedConfigIdentity(this.options.llmConfig).identity;
     this.appliedConfigIdentity = initial;
+    this.appliedConfigReloadIdentity = this.options.initialConfigReloadIdentity ?? initial;
     this.appliedConfigRevision = initial?.slice(0, 16) ?? computeConfigRevision(this.options.llmConfig);
     await this._applyConfigReload(0);
   }
@@ -1112,11 +1116,15 @@ export class Runtime {
 
     let newConfig: LLMOrchestratorConfig;
     let savedRevision: string | undefined;
+    let loadedIdentity: string | undefined;
+    let loadedReloadIdentity: string | undefined;
     try {
       const loaded = this.options.configReloader();
       if ('config' in loaded && 'revision' in loaded) {
         newConfig = loaded.config;
         savedRevision = loaded.revision;
+        loadedIdentity = loaded.identity;
+        loadedReloadIdentity = loaded.reloadIdentity;
       } else {
         newConfig = loaded;
       }
@@ -1126,12 +1134,13 @@ export class Runtime {
     }
 
     const derived = this._deriveAppliedConfigIdentity(newConfig);
-    const identity = derived.identity;
-    const revision = identity !== undefined
-      ? identity.slice(0, 16)
+    const identity = loadedIdentity ?? derived.identity;
+    const reloadIdentity = loadedReloadIdentity ?? identity;
+    const revision = reloadIdentity !== undefined
+      ? reloadIdentity.slice(0, 16)
       : computeConfigRevision(newConfig);
-    const alreadyApplied = identity !== undefined
-      ? identity === this.appliedConfigIdentity
+    const alreadyApplied = reloadIdentity !== undefined
+      ? reloadIdentity === this.appliedConfigReloadIdentity
       : revision === this.appliedConfigRevision;
     const applicationStore = this.options.configApplicationStore;
 
@@ -1187,6 +1196,7 @@ export class Runtime {
     // apply 已成功；先记录应用事实，再发布对外 ready identity。
     this.appliedConfigRevision = revision;
     this.appliedConfigIdentity = identity;
+    this.appliedConfigReloadIdentity = reloadIdentity;
     if (applicationStore && savedRevision !== undefined && identity !== undefined) {
       await this._recordConfigApplication({
         revision: savedRevision,

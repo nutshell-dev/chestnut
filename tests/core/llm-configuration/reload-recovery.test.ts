@@ -46,6 +46,10 @@ function build(opts: {
   store: RuntimeConfigApplicationStore;
   reload?: ReturnType<typeof vi.fn>;
   publish?: (identity: string) => Promise<{ previousFact: 'missing' }>;
+  savedIdentity?: string;
+  savedReloadIdentity?: string;
+  initialIdentity?: string;
+  initialReloadIdentity?: string;
 }) {
   const reload = opts.reload ?? vi.fn();
   const llm = { reloadConfig: reload };
@@ -54,8 +58,15 @@ function build(opts: {
     clawDir: '/unused',
     llmConfig: opts.initial,
     idleTimeoutMs: 0,
-    configReloader: () => ({ config: opts.saved, revision: opts.revision }),
+    configReloader: () => ({
+      config: opts.saved,
+      revision: opts.revision,
+      identity: opts.savedIdentity,
+      reloadIdentity: opts.savedReloadIdentity,
+    }),
     configIdentityOf: (value) => `identity-${value.primary.model}`,
+    initialConfigIdentity: opts.initialIdentity,
+    initialConfigReloadIdentity: opts.initialReloadIdentity,
     configApplicationStore: opts.store,
     ...(opts.publish ? { appliedLLMIdentityPublisher: opts.publish } : {}),
     dependencies: { auditWriter: { write: vi.fn() } },
@@ -113,6 +124,28 @@ describe('LLM configuration reload recovery', () => {
     await runtime.runtime.recover();
     expect(runtime.reload).not.toHaveBeenCalled();
     expect(persistent.current()).toMatchObject({ revision: '5', outcome: 'applied' });
+  });
+
+  it('credentialRef 变化即使 secret/operational 相同也 reload，ready 只发布 operational identity', async () => {
+    const persistent = memoryStore();
+    const publish = vi.fn().mockResolvedValue({ previousFact: 'missing' as const });
+    const runtime = build({
+      initial: config('same'), saved: config('same'), revision: '8', store: persistent.store,
+      initialIdentity: 'identity-same', initialReloadIdentity: 'stable-a:identity-same',
+      savedIdentity: 'identity-same', savedReloadIdentity: 'stable-b:identity-same', publish,
+    });
+    await runtime.runtime.recover();
+    expect(runtime.reload).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledWith('identity-same');
+    expect(persistent.current()).toMatchObject({ identity: 'identity-same', outcome: 'applied' });
+
+    const restarted = build({
+      initial: config('same'), saved: config('same'), revision: '8', store: persistent.store,
+      initialIdentity: 'identity-same', initialReloadIdentity: 'stable-b:identity-same',
+      savedIdentity: 'identity-same', savedReloadIdentity: 'stable-b:identity-same',
+    });
+    await restarted.runtime.recover();
+    expect(restarted.reload).not.toHaveBeenCalled();
   });
 
   it('publisher 失败保留 pending，下一进程补偿后清除', async () => {

@@ -42,19 +42,25 @@ describe('llmConfigIdentity / snapshotLLMConfig (Phase 1926 Step C)', () => {
     expect(a.identity).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('api_key 变化身份必变，且 identity 不含明文 secret', () => {
+  it('同 legacy ref 的 secret rotation 保持 auth identity，operational identity 必变', () => {
     const secret = 'sk-ant-real-secret-value-12345';
     const withKey = snapshotLLMConfig(makeGlobal('claude-x', secret));
     const otherKey = snapshotLLMConfig(makeGlobal('claude-x', 'sk-ant-other-value'));
 
-    expect(withKey.identity).not.toBe(otherKey.identity);
-    expect(withKey.identity).not.toContain(secret);
+    expect(withKey.identity).toBe(otherKey.identity);
+    expect(withKey.operationalIdentity).not.toBe(otherKey.operationalIdentity);
+    expect(JSON.stringify({ identity: withKey.identity, auth: withKey.auth })).not.toContain(secret);
   });
 
-  it('identity 由 resolved config 派生（model=auto 解析为 preset 默认模型）', () => {
+  it('credentialRef 变化会改变稳定身份', () => {
+    expect(snapshotLLMConfig(makeGlobal('claude-x', '${KEY_A}')).identity)
+      .not.toBe(snapshotLLMConfig(makeGlobal('claude-x', '${KEY_B}')).identity);
+  });
+
+  it('stable/operational 同源消费 resolved config（model=auto 解析为默认模型）', () => {
     const autoSnap = snapshotLLMConfig(makeGlobal('auto'));
     const resolved = resolveLLMConfig(makeGlobal('auto'));
-    expect(autoSnap.identity).toBe(llmConfigIdentity(resolved));
+    expect(autoSnap.operationalIdentity).toBe(llmConfigIdentity(resolved));
     expect(autoSnap.config.primary.model).not.toBe('auto');
   });
 });
@@ -66,12 +72,18 @@ describe('verifyExpectedLLMIdentity (daemon 装配前复核)', () => {
 
   it('身份相等 → 放行', () => {
     const global = makeGlobal('claude-x');
-    const expected = snapshotLLMConfig(global).identity;
+    const expected = snapshotLLMConfig(global).operationalIdentity;
     expect(() => verifyExpectedLLMIdentity(global, expected)).not.toThrow();
   });
 
+  it('同 ref secret rotation 也会使 probe/start operational 复核失败', () => {
+    const expected = snapshotLLMConfig(makeGlobal('claude-x', 'sk-before')).operationalIdentity;
+    expect(() => verifyExpectedLLMIdentity(makeGlobal('claude-x', 'sk-after'), expected))
+      .toThrowError(LLMConfigIdentityMismatchError);
+  });
+
   it('身份不等 → typed invalidation（含非 secret 摘要、不含明文 key）', () => {
-    const expected = snapshotLLMConfig(makeGlobal('model-A')).identity;
+    const expected = snapshotLLMConfig(makeGlobal('model-A')).operationalIdentity;
     const err = (() => {
       try {
         verifyExpectedLLMIdentity(makeGlobal('model-B'), expected);
@@ -84,7 +96,7 @@ describe('verifyExpectedLLMIdentity (daemon 装配前复核)', () => {
     expect(err).toBeInstanceOf(LLMConfigIdentityMismatchError);
     const mismatch = err as LLMConfigIdentityMismatchError;
     expect(mismatch.expected).toBe(expected);
-    expect(mismatch.actual).toBe(snapshotLLMConfig(makeGlobal('model-B')).identity);
+    expect(mismatch.actual).toBe(snapshotLLMConfig(makeGlobal('model-B')).operationalIdentity);
     expect(mismatch.message).toContain(expected.slice(0, 12));
     expect(mismatch.message).not.toContain('ANTHROPIC_API_KEY');
   });

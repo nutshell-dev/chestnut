@@ -3,7 +3,8 @@
  * @layer L2b LLM 语义基础设施
  *
  * provider 故障身份与 adapter cache 指纹的唯一计算点。凭据只参与短哈希，
- * 不进入返回值的明文；行为参数只影响 cache，不改变故障身份。
+ * 不进入返回值的明文；该哈希仅作 operational 变更检测，不是账号/auth identity。
+ * 稳定 auth identity 归 L4 llm-configuration；行为参数只影响 cache。
  */
 
 import type { ProviderConfig } from '../llm-provider/index.js';

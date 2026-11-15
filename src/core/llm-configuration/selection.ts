@@ -18,10 +18,20 @@ export type SharedLLM = z.output<typeof llmOrchestratorConfigSchema>;
 
 export interface LLMGlobalConfigView {
   llm: SharedLLM;
+  /** 同次读取的 raw 声明；保留 `${REF}`，仅供 scope/auth 投影，不进入运行配置。 */
+  raw?: SharedLLMInput;
+  /** document-store 的读取事实；draft/旧调用方缺省时由 snapshot 显式标记。 */
+  revision?: { readonly id: string; readonly revision: number };
+  workspaceRoot?: string;
+  /** expandEnvVars 同次 credentials.resolve 观察到的非 secret 来源。 */
+  credentialSources?: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
 }
 
 export interface LLMClawConfigView {
   llm?: { primary?: LLMProviderConfig };
+  /** 同次读取的 claw raw primary；保留 credential reference。 */
+  raw?: { primary?: SharedLLMInput['primary'] };
+  credentialSources?: Readonly<Record<string, 'env' | 'file' | 'project-env' | 'user-env'>>;
 }
 
 export interface LLMConfigInput {

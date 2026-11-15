@@ -12,8 +12,7 @@ import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { RootConfigAdmin, RootConfigReader } from '../assembly/index.js';
 import {
-  resolveLLMConfig,
-  llmConfigIdentity,
+  snapshotLLMConfig,
   LLMConfigIdentityMismatchError,
 } from '../core/llm-configuration/index.js';
 import type { ClawGlobalConfig } from '../assembly/index.js';
@@ -95,7 +94,7 @@ export function verifyExpectedLLMIdentity(
   expectedIdentity: string | undefined,
 ): void {
   if (!expectedIdentity) return;
-  const actual = llmConfigIdentity(resolveLLMConfig(globalConfig));
+  const actual = snapshotLLMConfig(globalConfig).operationalIdentity;
   if (actual !== expectedIdentity) {
     throw new LLMConfigIdentityMismatchError(expectedIdentity, actual);
   }
@@ -281,7 +280,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const motionBusinessFact = isMotion && processGenerationId !== undefined
       ? encodeMotionLLMReadyFact({
           generationId: processGenerationId,
-          llmIdentity: llmConfigIdentity(resolveLLMConfig(globalConfig)),
+          llmIdentity: snapshotLLMConfig(globalConfig).operationalIdentity,
           committedAt: new Date().toISOString(),
         })
       : undefined;

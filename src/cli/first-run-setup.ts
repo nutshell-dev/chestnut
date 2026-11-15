@@ -210,7 +210,10 @@ function snapshotForProbe(deps: FirstRunDeps, input: FirstRunConfigInput): LLMCo
     ...input,
     ...(apiKey !== undefined && { apiKey }),
   };
-  return snapshotLLMConfigInput(buildInitialConfig(probeInput));
+  return snapshotLLMConfigInput(buildInitialConfig(input), {
+    resolvedInput: buildInitialConfig(probeInput),
+    credentials: createLocalCredentials(deps),
+  });
 }
 
 async function probeDraft(
@@ -286,7 +289,7 @@ async function commitFirstRun(
   state: FirstRunCommitState,
 ): Promise<'committed' | 'concurrent'> {
   const current = snapshotForProbe(deps, input);
-  if (current.identity !== verified.snapshot.identity) {
+  if (current.operationalIdentity !== verified.snapshot.operationalIdentity) {
     throw new CliError(
       'Configuration changed during verification; refusing to commit unverified config (fail-closed)',
       { code: START_GATE_EXIT_CODE },

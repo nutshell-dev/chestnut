@@ -27,6 +27,10 @@ export interface CredentialInfo {
   configured: boolean;
   source?: CredentialSource;
   writable: boolean;
+  /** 可选的稳定非 secret 身份元数据；旧 owner 缺省时由 snapshot 使用传入 ref。 */
+  credentialRef?: string;
+  accountId?: string;
+  identityVersion?: number;
 }
 
 /**

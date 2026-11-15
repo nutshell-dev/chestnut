@@ -209,7 +209,7 @@ beforeEach(() => {
   downstream.ensureRunning.mockClear();
   downstream.ensureRunning.mockImplementation(async () => ({ kind: 'spawned', pid: 4242 }));
   downstream.readBusinessFact.mockReset();
-  mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).identity);
+  mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).operationalIdentity);
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1926-gate-'));
   savedRoot = process.env.CHESTNUT_ROOT;
   process.env.CHESTNUT_ROOT = tmpDir;
@@ -708,7 +708,7 @@ describe('start command gate wiring', () => {
     mockProbeOk();
     seedOnboardingComplete();
     // daemon 事实身份 = 另一配置（model-y）的身份
-    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).operationalIdentity);
     const { startCommand } = await import('../../src/cli/commands/start.js');
 
     const err = await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
@@ -760,7 +760,7 @@ describe('start command gate wiring', () => {
     mockProbeOk();
     seedOnboardingComplete();
     downstream.ensureRunning.mockImplementation(async () => ({ kind: 'joined', pid: 4242, generationId: MOTION_FACT_GENERATION }));
-    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).operationalIdentity);
     const { startCommand } = await import('../../src/cli/commands/start.js');
 
     const err = await startCommand(startDeps(), { audit: mockAudit, ensureSupervision: vi.fn(async () => {}) }, {
@@ -778,7 +778,7 @@ describe('start command gate wiring', () => {
     mockProbeOk();
     seedOnboardingComplete();
     // daemon 热重载成功 → active 事实已被更新为「已应用」身份（model-y）
-    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).identity);
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('model-y')).operationalIdentity);
     const deps = startDeps();
     deps.llmConfiguration.loadGlobal = vi.fn(() => makeGlobal('model-y'));
     const { startCommand } = await import('../../src/cli/commands/start.js');
@@ -795,7 +795,7 @@ describe('start command gate wiring', () => {
     mockProbeOk();
     seedOnboardingComplete();
     // 事实仍是出生身份（claude-x）；本次 start 验证的是新配置（model-y）
-    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).identity);
+    mockBusinessFactOk(snapshotLLMConfig(makeGlobal('claude-x')).operationalIdentity);
     const deps = startDeps();
     deps.llmConfiguration.loadGlobal = vi.fn(() => makeGlobal('model-y'));
     const { startCommand } = await import('../../src/cli/commands/start.js');

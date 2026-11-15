@@ -40,6 +40,8 @@ import {
   recordLLMMigrationSourceCleanupFailure,
   LLMConfigurationMigrationError,
   type SharedLLMInput,
+  type LLMGlobalConfigView,
+  type LLMClawConfigView,
 } from '../../core/llm-configuration/index.js';
 import {
   loadWorkspaceAuditConfig,
@@ -124,6 +126,18 @@ function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Er
   }
 }
 
+/** 保留 root config 的公开形状，同时让 LLM snapshot 消费同次读取的 raw/revision。 */
+function withLLMView(
+  stored: Omit<ClawGlobalConfig, 'llm'> & { llm?: ClawGlobalConfig['llm'] },
+  view: LLMGlobalConfigView,
+): ClawGlobalConfig {
+  const result = { ...stored, llm: view.llm };
+  for (const key of ['raw', 'revision', 'workspaceRoot', 'credentialSources'] as const) {
+    if (view[key] !== undefined) Object.defineProperty(result, key, { value: view[key], enumerable: false });
+  }
+  return result as ClawGlobalConfig;
+}
+
 function rootMigrationId(source: SharedLLMInput): string {
   return `root-${llmConfigurationSourceDigest(source).slice(0, 24)}`;
 }
@@ -189,22 +203,21 @@ export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSys
       configPath,
       createStoredGlobalConfigSchema(),
     );
-    const store = createLLMConfigurationDocumentStore(deps);
     if (configExists(deps, getLLMConfigurationPath())) {
       const legacy = readRawRootLLM(deps);
       if (legacy !== undefined) migrateRootLLM(deps, legacy);
-      return { ...stored, llm: store.readResolved() } as ClawGlobalConfig;
+      return withLLMView(stored, createLLMConfiguration(deps).loadGlobal());
     }
     const legacy = readRawRootLLM(deps);
     if (legacy === undefined) {
       // 另一并发读取可能已在两次磁盘观察之间完成迁移并清源。
       if (configExists(deps, getLLMConfigurationPath())) {
-        return { ...stored, llm: store.readResolved() } as ClawGlobalConfig;
+        return withLLMView(stored, createLLMConfiguration(deps).loadGlobal());
       }
       throw new Error('Invalid global config: missing llm section');
     }
     migrateRootLLM(deps, legacy);
-    return { ...stored, llm: store.readResolved() } as ClawGlobalConfig;
+    return withLLMView(stored, createLLMConfiguration(deps).loadGlobal());
   } catch (err) {
     if (isConfigStoreError(err)) {
       throw mapConfigStoreError(err, 'global');
@@ -349,15 +362,29 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
     return undefined;
   }
   try {
-    return loadYamlConfig<ClawConfig>(
+    let rawLLM: LLMClawConfigView['raw'];
+    const credentialSources: Record<string, 'env' | 'file' | 'project-env' | 'user-env'> = {};
+    const credentials = createLocalCredentials({ fsFactory: deps.fsFactory });
+    const resolved = loadYamlConfig<ClawConfig>(
       {
         fsFactory: deps.fsFactory,
-        resolveEnvVar: makeEnvVarResolver(deps),
-        validateRaw: assertNoLegacyPlaintextApiKey,
+        resolveEnvVar: (name) => {
+          const hit = credentials.resolve(name);
+          if (hit !== undefined) credentialSources[name] = hit.source;
+          return hit?.value;
+        },
+        validateRaw: (value) => {
+          assertNoLegacyPlaintextApiKey(value);
+          const llm = (value as { llm?: { primary?: SharedLLMInput['primary'] } }).llm;
+          rawLLM = llm?.primary !== undefined ? { primary: llm.primary } : undefined;
+        },
       },
       configPath,
       getClawConfigSchema(),
     );
+    if (rawLLM !== undefined) Object.defineProperty(resolved, 'raw', { value: rawLLM, enumerable: false });
+    Object.defineProperty(resolved, 'credentialSources', { value: credentialSources, enumerable: false });
+    return resolved;
   } catch (err) {
     if (isConfigStoreError(err)) {
       throw mapConfigStoreError(err, 'claw');

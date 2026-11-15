@@ -30,6 +30,7 @@ import {
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createLegacyAuthenticationStore,
+  createLocalCredentials,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
@@ -210,8 +211,10 @@ export async function applyStartLLMOptions(
 }
 
 /** 读取当前有效配置为不可变快照（resolve 与 identity 同源派生）。 */
-function readLLMSnapshot(deps: Pick<GateDeps, 'llmConfiguration'>): LLMConfigSnapshot {
-  return snapshotLLMConfig(deps.llmConfiguration.loadGlobal());
+function readLLMSnapshot(deps: Pick<GateDeps, 'llmConfiguration' | 'fsFactory'>): LLMConfigSnapshot {
+  return snapshotLLMConfig(deps.llmConfiguration.loadGlobal(), undefined, {
+    credentials: createLocalCredentials({ fsFactory: deps.fsFactory }),
+  });
 }
 
 /** probe 成功后配置持续漂移的有界重验预算；耗尽 fail-closed（不猜身份）。 */
@@ -240,7 +243,7 @@ async function probeUntilStable(
       return { failure: { ok: false, errorType: probe.errorType, message: probe.message, provider: probe.provider } };
     }
     const now = readLLMSnapshot(deps);
-    if (now.identity === current.identity) {
+    if (now.operationalIdentity === current.operationalIdentity) {
       audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, ...(via ? [`via=${via}`] : []));
       return { verified: { snapshot: current, probe: { model: probe.model }, via: 'start' } };
     }
@@ -272,7 +275,7 @@ export async function ensureStartLLMVerified(
   const { audit, interactive, preVerified } = opts;
   if (preVerified) {
     const now = readLLMSnapshot(deps);
-    if (now.identity === preVerified.snapshot.identity) {
+    if (now.operationalIdentity === preVerified.snapshot.operationalIdentity) {
       return preVerified;
     }
     audit?.write(CLI_AUDIT_EVENTS.START_PROBE_FAILED, `reason=stale_preverified_identity`);
@@ -345,7 +348,7 @@ async function verifyWithWizard(
           if (reconfigured) {
             // reconfigure 已对返回快照 probe 成功；复核当前身份后才算验证事实
             const now = readLLMSnapshot(deps);
-            if (now.identity === reconfigured.identity) {
+            if (now.operationalIdentity === reconfigured.operationalIdentity) {
               audit?.write(CLI_AUDIT_EVENTS.START_PROBE_SUCCEEDED, 'via=reconfigure');
               result = { verified: { snapshot: reconfigured, probe: { model: reconfigured.config.primary.model }, via: 'start' } };
             } else {

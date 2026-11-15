@@ -139,6 +139,9 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
 }));
 vi.mock('../../src/core/llm-configuration/index.js', async () => ({
   resolveLLMConfig: vi.fn(),
+  snapshotLLMConfig: vi.fn(() => ({
+    identity: 'test-llm-identity', operationalIdentity: 'test-llm-identity',
+  })),
   llmConfigIdentity: vi.fn(() => 'test-llm-identity'),
 }));
 

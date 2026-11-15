@@ -234,10 +234,16 @@ export function createLocalCredentials(deps: LocalCredentialsDeps): CredentialsO
       const hit = lookup(ref);
       if (!hit) {
         // 完全未配置（env 必无 shadow，否则已命中 env 层）→ 可写
-        return { configured: false, writable: true };
+        return { configured: false, writable: true, credentialRef: ref, identityVersion: 1 };
       }
       // writable 仅当命中唯一可写层；env shadow / 只读回退层均不可写
-      return { configured: true, source: hit.source, writable: hit.source === 'file' };
+      return {
+        configured: true,
+        source: hit.source,
+        writable: hit.source === 'file',
+        credentialRef: ref,
+        identityVersion: 1,
+      };
     },
 
     async set(ref: string, value: string): Promise<void> {

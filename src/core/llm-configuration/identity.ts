@@ -1,24 +1,75 @@
 /**
  * @module L4.LLMConfiguration.Identity
  *
- * LLM 配置快照与稳定身份摘要；secret 仅以 sha256 摘要参与身份。
+ * LLM 配置快照、稳定 auth identity 与 operational identity。secret 值不进入
+ * scope、auth 或稳定身份；旧哈希仅保留给 adapter/reload 的 operational 判定。
  */
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/index.js';
-import type { ProviderConfig } from '../../foundation/llm-provider/index.js';
+import {
+  piAiCredentialRef,
+  type ProviderConfig,
+} from '../../foundation/llm-provider/index.js';
 import { sha256Hex } from '../../foundation/node-utils/index.js';
+import type { CredentialSource, CredentialsOwner } from './legacy-credentials/index.js';
+import { classifyApiKeyConfigValue } from './key-input.js';
 import {
   resolveLLMConfig,
   type LLMClawConfigView,
   type LLMConfigInput,
   type LLMGlobalConfigView,
+  type SharedLLMInput,
 } from './selection.js';
 
-/** 不可变配置快照：probe 与消费方只认 identity 相等的事实。 */
+export interface LLMConfigScope {
+  workspaceRoot?: string;
+  workspaceRevision: number | 'uncommitted';
+  primarySource: 'workspace' | 'claw_override';
+  clawId?: string;
+  documentSource: 'document' | 'draft' | 'legacy';
+}
+
+export interface CredentialProvenance {
+  role: string;
+  ref: string;
+  source: CredentialSource | 'unresolved';
+  identityRef: string;
+  configured: boolean;
+  writable: boolean;
+  legacy: boolean;
+  accountId?: string;
+  identityVersion?: number;
+}
+
+export interface LLMAuthIdentity {
+  role: string;
+  provider: string;
+  credentialRef: string;
+  authProfile: string;
+  accountId?: string;
+  identityVersion: number;
+  status: 'stable' | 'legacy' | 'unresolved';
+  fingerprint: string;
+}
+
 export interface LLMConfigSnapshot {
   config: LLMOrchestratorConfig;
-  /** sha256 hex；不含明文 secret，可入 audit/env（日志建议截短展示）。 */
+  scope: LLMConfigScope;
+  credentials: readonly CredentialProvenance[];
+  auth: readonly LLMAuthIdentity[];
+  /** 稳定、非 secret 的 scope/config/auth 摘要，可入 audit/env。 */
   identity: string;
+  /** 含 secret 变更检测的 operational 摘要；仅供 probe/reload/adapter 失效判定。 */
+  operationalIdentity: string;
+}
+
+export interface LLMConfigSnapshotOptions {
+  credentials?: CredentialsOwner;
+  clawId?: string;
+  workspaceRoot?: string;
+  revision?: { readonly id: string; readonly revision: number };
+  documentSource?: 'document' | 'draft' | 'legacy';
+  credentialSources?: Readonly<Record<string, CredentialSource>>;
 }
 
 /** 递归排序键的稳定序列化（函数成员丢弃——装配注入物不参与身份）。 */
@@ -33,35 +84,236 @@ function stableIdentityStringify(value: unknown): string {
   return `{${entries.join(',')}}`;
 }
 
-/** ProviderConfig → 身份投影（apiKey 摘要化；auditLog 注入物除外）。 */
-function providerIdentityProjection(p: ProviderConfig): Record<string, unknown> {
+/** Operational 投影保留旧算法：secret 仅以 sha256 摘要参与变更检测。 */
+function providerOperationalProjection(p: ProviderConfig): Record<string, unknown> {
   const { apiKey, auditLog: _auditLog, ...rest } = p;
   return { ...rest, apiKey: apiKey ? sha256Hex(apiKey) : undefined };
 }
 
-/** resolved LLM 配置的稳定身份摘要。 */
+/** resolved 配置的 operational 摘要；不是稳定账号身份。 */
 export function llmConfigIdentity(config: LLMOrchestratorConfig): string {
   return sha256Hex(stableIdentityStringify({
-    primary: providerIdentityProjection(config.primary),
-    fallbacks: (config.fallbacks ?? []).map(providerIdentityProjection),
+    primary: providerOperationalProjection(config.primary),
+    fallbacks: (config.fallbacks ?? []).map(providerOperationalProjection),
     maxAttempts: config.maxAttempts,
     retryDelayMs: config.retryDelayMs,
     circuitBreaker: config.circuitBreaker,
   }));
 }
 
-/** 读取即快照：resolve 与 identity 同源派生，调用方不得再自行拼身份。 */
+type RawProvider = SharedLLMInput['primary'];
+
+function providerStableProjection(p: ProviderConfig): Record<string, unknown> {
+  const {
+    apiKey: _apiKey,
+    auditLog: _auditLog,
+    extraHeaders,
+    ...rest
+  } = p;
+  return {
+    ...rest,
+    extraHeaders: extraHeaders === undefined ? undefined : Object.keys(extraHeaders).sort(),
+  };
+}
+
+function describeRef(
+  credentials: CredentialsOwner | undefined,
+  ref: string,
+  fallbackConfigured: boolean,
+  observedSource?: CredentialSource,
+): Pick<CredentialProvenance, 'source' | 'identityRef' | 'configured' | 'writable'> & { accountId?: string; identityVersion?: number } {
+  const info = credentials?.describe(ref);
+  return {
+    source: observedSource ?? info?.source ?? 'unresolved',
+    identityRef: info?.credentialRef ?? ref,
+    configured: observedSource !== undefined ? true : info?.configured ?? fallbackConfigured,
+    writable: observedSource !== undefined ? observedSource === 'file' : info?.writable ?? false,
+    ...(info?.accountId !== undefined ? { accountId: info.accountId } : {}),
+    ...(info?.identityVersion !== undefined ? { identityVersion: info.identityVersion } : {}),
+  };
+}
+
+function credentialForProvider(
+  role: string,
+  raw: RawProvider,
+  resolved: ProviderConfig,
+  credentials: CredentialsOwner | undefined,
+  credentialSources: Readonly<Record<string, CredentialSource>>,
+): { provenance: CredentialProvenance; auth: LLMAuthIdentity } {
+  const authProfile = resolved.authProfile ?? 'api_key';
+  const classified = classifyApiKeyConfigValue(raw.api_key);
+  let ref: string;
+  let legacy = false;
+  let status: LLMAuthIdentity['status'] = 'stable';
+  let described: ReturnType<typeof describeRef>;
+
+  if (classified.kind === 'reference') {
+    ref = classified.ref;
+    described = describeRef(credentials, ref, resolved.apiKey !== undefined, credentialSources[ref]);
+  } else if (classified.kind === 'legacy-plaintext') {
+    ref = `legacy:${role}`;
+    legacy = true;
+    status = 'legacy';
+    described = { source: 'unresolved', identityRef: ref, configured: true, writable: false };
+  } else if (authProfile === 'oauth') {
+    ref = piAiCredentialRef(raw.provider_id ?? raw.preset ?? resolved.name);
+    described = describeRef(credentials, ref, false);
+  } else if (authProfile === 'ambient') {
+    ref = `ambient:${resolved.name}`;
+    described = { source: 'unresolved', identityRef: ref, configured: true, writable: false };
+  } else {
+    ref = `unresolved:${role}`;
+    status = 'unresolved';
+    described = { source: 'unresolved', identityRef: ref, configured: false, writable: false };
+  }
+
+  const accountId = described.accountId;
+  const identityVersion = described.identityVersion ?? 1;
+  const fingerprint = sha256Hex(stableIdentityStringify({
+    provider: resolved.name,
+    authProfile,
+    credentialRef: described.identityRef,
+    accountId,
+    identityVersion,
+    status,
+  }));
+  return {
+    provenance: {
+      role,
+      ref,
+      source: described.source,
+      identityRef: described.identityRef,
+      configured: described.configured,
+      writable: described.writable,
+      legacy,
+      ...(accountId !== undefined ? { accountId } : {}),
+      identityVersion,
+    },
+    auth: {
+      role,
+      provider: resolved.name,
+      credentialRef: described.identityRef,
+      authProfile,
+      ...(accountId !== undefined ? { accountId } : {}),
+      identityVersion,
+      status,
+      fingerprint,
+    },
+  };
+}
+
+function headerCredentialProvenance(
+  role: string,
+  raw: RawProvider,
+  resolved: ProviderConfig,
+  credentials: CredentialsOwner | undefined,
+  credentialSources: Readonly<Record<string, CredentialSource>>,
+): CredentialProvenance[] {
+  const result: CredentialProvenance[] = [];
+  for (const [header, value] of Object.entries(raw.extra_headers ?? {})) {
+    const classified = classifyApiKeyConfigValue(value);
+    if (classified.kind !== 'reference') continue;
+    const described = describeRef(
+      credentials,
+      classified.ref,
+      resolved.extraHeaders?.[header] !== undefined,
+      credentialSources[classified.ref],
+    );
+    result.push({
+      role: `${role}.extra_headers.${header}`,
+      ref: classified.ref,
+      source: described.source,
+      identityRef: described.identityRef,
+      configured: described.configured,
+      writable: described.writable,
+      legacy: false,
+      ...(described.accountId !== undefined ? { accountId: described.accountId } : {}),
+      identityVersion: described.identityVersion ?? 1,
+    });
+  }
+  return result;
+}
+
+/** 读取即快照：resolve、scope、credential/auth 与两种身份同源派生。 */
 export function snapshotLLMConfig(
   globalConfig: LLMGlobalConfigView,
   clawConfig?: LLMClawConfigView,
+  options: LLMConfigSnapshotOptions = {},
 ): LLMConfigSnapshot {
   const config = resolveLLMConfig(globalConfig, clawConfig);
-  return { config, identity: llmConfigIdentity(config) };
+  const rawGlobal = globalConfig.raw ?? globalConfig.llm;
+  const hasOverride = clawConfig?.llm?.primary !== undefined;
+  const rawProviders: Array<{ role: string; raw: RawProvider; resolved: ProviderConfig }> = [
+    {
+      role: 'primary',
+      raw: hasOverride ? clawConfig!.raw?.primary ?? clawConfig!.llm!.primary! : rawGlobal.primary,
+      resolved: config.primary,
+    },
+    ...(config.fallbacks ?? []).map((resolved, index) => {
+      const raw = rawGlobal.fallbacks?.[index];
+      if (raw === undefined) throw new Error(`Incomplete raw LLM credential evidence: fallbacks[${index}]`);
+      return { role: `fallbacks[${index}]`, raw, resolved };
+    }),
+  ];
+  const credentialSources = options.credentialSources ?? {
+    ...globalConfig.credentialSources,
+    ...clawConfig?.credentialSources,
+  };
+  const projected = rawProviders.map(({ role, raw, resolved }) =>
+    credentialForProvider(role, raw, resolved, options.credentials, credentialSources));
+  const headerCredentials = rawProviders.flatMap(({ role, raw, resolved }) =>
+    headerCredentialProvenance(role, raw, resolved, options.credentials, credentialSources));
+  const credentials = [...projected.map(entry => entry.provenance), ...headerCredentials];
+  const auth = projected.map(entry => entry.auth);
+  const revision = options.revision ?? globalConfig.revision;
+  const workspaceRoot = options.workspaceRoot ?? globalConfig.workspaceRoot;
+  const scope: LLMConfigScope = {
+    ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+    workspaceRevision: revision?.revision ?? 'uncommitted',
+    primarySource: hasOverride ? 'claw_override' : 'workspace',
+    ...(options.clawId !== undefined ? { clawId: options.clawId } : {}),
+    documentSource: options.documentSource ?? (globalConfig.raw !== undefined ? 'document' : 'legacy'),
+  };
+  const identity = sha256Hex(stableIdentityStringify({
+    scope: {
+      primarySource: scope.primarySource,
+      clawId: scope.clawId,
+    },
+    primary: providerStableProjection(config.primary),
+    fallbacks: (config.fallbacks ?? []).map(providerStableProjection),
+    maxAttempts: config.maxAttempts,
+    retryDelayMs: config.retryDelayMs,
+    circuitBreaker: config.circuitBreaker,
+    auth: auth.map(({ fingerprint: _fingerprint, ...entry }) => entry),
+    credentialRefs: credentials.map(entry => ({
+      role: entry.role,
+      identityRef: entry.identityRef,
+      accountId: entry.accountId,
+      identityVersion: entry.identityVersion,
+      legacy: entry.legacy,
+    })),
+  }));
+  return {
+    config,
+    scope,
+    credentials,
+    auth,
+    identity,
+    operationalIdentity: llmConfigIdentity(config),
+  };
 }
 
 /** 未落盘 draft 先经 owner schema 默认填充，再按磁盘同形配置派生身份。 */
-export function snapshotLLMConfigInput(input: LLMConfigInput): LLMConfigSnapshot {
-  return snapshotLLMConfig({ llm: llmOrchestratorConfigSchema.parse(input.llm) });
+export function snapshotLLMConfigInput(
+  input: LLMConfigInput,
+  options: LLMConfigSnapshotOptions & { resolvedInput?: LLMConfigInput } = {},
+): LLMConfigSnapshot {
+  const { resolvedInput = input, ...snapshotOptions } = options;
+  return snapshotLLMConfig(
+    { llm: llmOrchestratorConfigSchema.parse(resolvedInput.llm), raw: input.llm },
+    undefined,
+    { ...snapshotOptions, documentSource: 'draft' },
+  );
 }
 
 /** typed invalidation：验证身份与消费时身份不一致（fail-closed 证据）。 */

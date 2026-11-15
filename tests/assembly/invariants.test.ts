@@ -510,7 +510,9 @@ vi.mock('../../src/core/llm-configuration/index.js', () => {
   // Phase 1927 Step E：orchestrator 装配注入 CredentialStore——mock 提供同名缝
   return {
     resolveLLMConfig: llmConfigFn,
+    snapshotLLMConfig: vi.fn((...args: any[]) => ({ config: llmConfigFn(...args) })),
     createLegacyAuthenticationStore: vi.fn(function () { return undefined; }),
+    createLocalCredentials: vi.fn(function () { return {}; }),
     createLLMConfiguration: vi.fn(() => ({
       loadGlobal: vi.fn(),
       loadSnapshot: vi.fn(),

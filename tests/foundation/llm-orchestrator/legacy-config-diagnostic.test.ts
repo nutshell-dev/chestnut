@@ -143,7 +143,7 @@ describe('legacy circuitBreaker diagnostics', () => {
     const fromDiskShape = snapshotLLMConfig(createGlobalConfigSchema().parse(input));
 
     expect(fromInput.identity).toBe(fromDiskShape.identity);
-    expect(fromInput.identity).toBe(llmConfigIdentity(fromInput.config));
+    expect(fromInput.operationalIdentity).toBe(llmConfigIdentity(fromInput.config));
     expect(fromInput.identity).not.toBe(snapshotLLMConfigInput({
       llm: {
         ...input.llm,

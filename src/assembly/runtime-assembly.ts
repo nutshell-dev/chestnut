@@ -24,7 +24,8 @@ import { loadClawConfig } from './config/config-load.js';
 import {
   createLLMApplicationStore,
   createLLMConfiguration,
-  resolveLLMConfig,
+  createLocalCredentials,
+  snapshotLLMConfig,
   llmConfigIdentity,
 } from '../core/llm-configuration/index.js';
 import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index.js';
@@ -69,7 +70,7 @@ export async function createRuntimeAssembly(
   const { clawDir, identity, clawId } = config;
   const isMotion = identity === 'motion';
   const {
-    systemFs, auditWriter, llm: llmOwner, llmConfig,
+    systemFs, auditWriter, llm: llmOwner, llmConfig, llmIdentities,
     maxSteps, toolProfile, idleTimeoutMs, toolTimeoutMs,
     skillRegistry, contractManager, fsFactory, streamWriter,
   } = core;
@@ -186,9 +187,19 @@ export async function createRuntimeAssembly(
   const configReloader = () => {
     const fresh = llmConfiguration.loadSnapshot();
     const revision = fresh.revision.id;
-    if (isMotion) return { config: resolveLLMConfig(fresh), revision };
-    const freshClawCfg = loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
-    return { config: resolveLLMConfig(fresh, freshClawCfg!), revision };
+    const freshClawCfg = isMotion
+      ? undefined
+      : loadClawConfig({ fsFactory }, getClawConfigPath(clawId));
+    const snapshot = snapshotLLMConfig(fresh, freshClawCfg, {
+      clawId,
+      credentials: createLocalCredentials({ fsFactory }),
+    });
+    return {
+      config: snapshot.config,
+      revision,
+      identity: snapshot.operationalIdentity,
+      reloadIdentity: `${snapshot.identity}:${snapshot.operationalIdentity}`,
+    };
   };
 
   // Phase 1945 Step C：热重载成功后发布「已应用」LLM 身份。daemonDir 推导与
@@ -247,6 +258,8 @@ export async function createRuntimeAssembly(
       idleTimeoutMs,
       configReloader,
       configIdentityOf: (c) => llmConfigIdentity(c),
+      initialConfigIdentity: llmIdentities?.operational,
+      initialConfigReloadIdentity: llmIdentities?.reload,
       configApplicationStore,
       ...(appliedLLMIdentityPublisher !== undefined ? { appliedLLMIdentityPublisher } : {}),
       dependencies,

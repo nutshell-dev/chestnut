@@ -201,6 +201,10 @@ export interface RuntimeConfigReloadSnapshot {
   config: LLMOrchestratorConfig;
   /** L4 持久保存修订；与配置 identity 短指纹分离。 */
   revision: string;
+  /** 实际 apply/probe/ready 使用的 operational identity。 */
+  identity?: string;
+  /** stable auth + operational 的联合失效身份；任一变化都触发 reload。 */
+  reloadIdentity?: string;
 }
 
 export interface RuntimeConfigApplicationFact {
@@ -239,6 +243,10 @@ export interface RuntimeOptions {
    * 分离注入，不改变既有 reloader 签名与测试 double。缺省 = 不发布身份。
    */
   configIdentityOf?: (config: LLMOrchestratorConfig) => string;
+
+  /** 初始装配 snapshot 的 operational/stable 联合基线，避免重启后误重载或漏重载。 */
+  initialConfigIdentity?: string;
+  initialConfigReloadIdentity?: string;
 
   /**
    * Phase 1945 Step C：热重载成功后发布「本进程已应用」LLM 身份的 capability

@@ -50,7 +50,7 @@ vi.mock('../../src/cli/first-run-setup.js', () => ({
   // Phase 1976：本测试治 spawn race，首次 setup 以已验证事实 no-op。
   runFirstRunSetup: vi.fn(async () => ({
     kind: 'verified',
-    verified: { snapshot: { config: {}, identity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'init' },
+    verified: { snapshot: { config: {}, identity: 'test-gate-identity', operationalIdentity: 'test-gate-identity' }, probe: { model: 'test-model' }, via: 'init' },
   })),
   runNonInteractiveFirstRun: vi.fn(async () => {
     throw new Error('unexpected non-interactive first-run setup');
@@ -68,7 +68,7 @@ vi.mock('../../src/cli/start-llm-gate.js', () => ({
   missingStartLLMParams: vi.fn(() => []),
   resolveNonInteractiveApiKey: vi.fn(async () => '${ANTHROPIC_API_KEY}'),
   ensureStartLLMVerified: vi.fn(async () => ({
-    snapshot: { config: {}, identity: 'test-gate-identity' },
+    snapshot: { config: {}, identity: 'test-gate-identity', operationalIdentity: 'test-gate-identity' },
     probe: { model: 'test-model' },
     via: 'start',
   })),

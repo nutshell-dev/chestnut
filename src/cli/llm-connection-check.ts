@@ -11,6 +11,7 @@ import { formatErr } from "../foundation/node-utils/index.js";
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createLegacyAuthenticationStore,
+  createLocalCredentials,
   ApiKeyConfigError,
   snapshotLLMConfig,
   type LLMConfigSnapshot,
@@ -203,7 +204,10 @@ export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
 > {
   // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
   const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
-  return probeLLMConnection(snapshotLLMConfig(deps.llmConfiguration.loadGlobal()), { credentials });
+  const snapshot = snapshotLLMConfig(deps.llmConfiguration.loadGlobal(), undefined, {
+    credentials: createLocalCredentials({ fsFactory: deps.fsFactory }),
+  });
+  return probeLLMConnection(snapshot, { credentials });
 }
 
 /**
@@ -392,7 +396,9 @@ export async function promptReconfigure(
     }
 
     console.log('Testing connection...');
-    const snapshot = snapshotLLMConfig(deps.llmConfiguration.loadGlobal());
+    const snapshot = snapshotLLMConfig(deps.llmConfiguration.loadGlobal(), undefined, {
+      credentials: createLocalCredentials({ fsFactory: deps.fsFactory }),
+    });
     // Phase 1927 Step E：probe 链显式持装配注入的 CredentialStore
     const credentials = createLegacyAuthenticationStore({ fsFactory: deps.fsFactory });
     const result = await probeLLMConnection(snapshot, { credentials });

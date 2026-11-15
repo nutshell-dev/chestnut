@@ -35,7 +35,13 @@ export {
   llmConfigIdentity,
   LLMConfigIdentityMismatchError,
 } from './identity.js';
-export type { LLMConfigSnapshot } from './identity.js';
+export type {
+  LLMConfigSnapshot,
+  LLMConfigScope,
+  LLMConfigSnapshotOptions,
+  CredentialProvenance,
+  LLMAuthIdentity,
+} from './identity.js';
 export {
   isCredentialReference,
   deriveCredentialRef,

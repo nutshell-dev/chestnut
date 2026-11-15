@@ -104,18 +104,26 @@ describe('resolve 分层优先级', () => {
 });
 
 describe('describe', () => {
-  it('只返回 configured/source/writable，不返回值', () => {
+  it('返回稳定非 secret identity 与 configured/source/writable，不返回值', () => {
     writeCredentialsFile('version: 1\nrefs:\n  K: secret-value\n');
     const info = makeOwner({}).describe('K');
-    expect(info).toEqual({ configured: true, source: 'file', writable: true });
+    expect(info).toEqual({
+      configured: true, source: 'file', writable: true, credentialRef: 'K', identityVersion: 1,
+    });
     expect(JSON.stringify(info)).not.toContain('secret-value');
   });
 
   it('env 命中 writable=false；未配置 writable=true', () => {
-    expect(makeOwner({ K: 'v' }).describe('K')).toEqual({ configured: true, source: 'env', writable: false });
-    expect(makeOwner({}).describe('NOPE')).toEqual({ configured: false, writable: true });
+    expect(makeOwner({ K: 'v' }).describe('K')).toEqual({
+      configured: true, source: 'env', writable: false, credentialRef: 'K', identityVersion: 1,
+    });
+    expect(makeOwner({}).describe('NOPE')).toEqual({
+      configured: false, writable: true, credentialRef: 'NOPE', identityVersion: 1,
+    });
     fs.writeFileSync(path.join(projectDir, '.env'), 'P=v\n');
-    expect(makeOwner({}).describe('P')).toEqual({ configured: true, source: 'project-env', writable: false });
+    expect(makeOwner({}).describe('P')).toEqual({
+      configured: true, source: 'project-env', writable: false, credentialRef: 'P', identityVersion: 1,
+    });
   });
 });
 

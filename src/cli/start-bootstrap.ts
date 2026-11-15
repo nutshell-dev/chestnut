@@ -254,7 +254,7 @@ export async function ensureStartBootstrap(
     clawId: MOTION_CLAW_ID,
     agentDir: motionDir,
     chestnutRoot: getChestnutRoot(),
-    expectedLLMIdentity: verified.snapshot.identity,
+    expectedLLMIdentity: verified.snapshot.operationalIdentity,
   });
   if (!deps.fsFactory(motionDir).existsSync(CLAW_SPEC_FILE)) await motionInitCommand(deps, true);
 
@@ -279,7 +279,7 @@ export async function ensureStartBootstrap(
           }),
         ]);
       }
-      ensureMotionLLMIdentity(pm, motionDaemonDir, verified.snapshot.identity);
+      ensureMotionLLMIdentity(pm, motionDaemonDir, verified.snapshot.operationalIdentity);
     } finally {
       if (timer) clearTimeout(timer);
     }

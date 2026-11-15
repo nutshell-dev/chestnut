@@ -12,7 +12,12 @@ import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { createLLMOrchestrator, type LLMOrchestratorOwner } from '../foundation/llm-orchestrator/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
-import { resolveLLMConfig, createLegacyAuthenticationStore } from '../core/llm-configuration/index.js';
+import {
+  resolveLLMConfig,
+  snapshotLLMConfig,
+  createLegacyAuthenticationStore,
+  createLocalCredentials,
+} from '../core/llm-configuration/index.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
@@ -53,6 +58,7 @@ export interface CoreInfraOutput {
   auditWriter: AuditLog;
   processManager: ProcessManager;
   llmConfig: ReturnType<typeof resolveLLMConfig>;
+  llmIdentities?: { stable: string; operational: string; reload: string };
   /** Phase 1933 Step E：输出类型升级为 owner（赋值本就是 owner 实例；下游消费均为 LLMOrchestrator 子集用法）。 */
   llm: LLMOrchestratorOwner;
   maxSteps: number | undefined;
@@ -203,10 +209,24 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // --- 3. LLM Config / Orchestrator (daemon.ts L111-137 的 L3-L5 部分) ---
     let llmConfig: ReturnType<typeof resolveLLMConfig>;
+    let llmIdentities: CoreInfraOutput['llmIdentities'];
     try {
-      llmConfig = isMotion
-        ? resolveLLMConfig(globalConfig)
-        : resolveLLMConfig(globalConfig, clawConfig!);
+      const snapshot = snapshotLLMConfig(
+        globalConfig,
+        isMotion ? undefined : clawConfig!,
+        {
+          clawId,
+          credentials: createLocalCredentials({ fsFactory }),
+        },
+      );
+      llmConfig = snapshot.config;
+      if (typeof snapshot.identity === 'string' && typeof snapshot.operationalIdentity === 'string') {
+        llmIdentities = {
+          stable: snapshot.identity,
+          operational: snapshot.operationalIdentity,
+          reload: `${snapshot.identity}:${snapshot.operationalIdentity}`,
+        };
+      }
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm_config`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: resolveLLMConfig failed: ${formatErr(e)}`, { cause: e });
@@ -400,6 +420,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       auditWriter,
       processManager,
       llmConfig,
+      llmIdentities,
       llm,
       maxSteps,
       maxConcurrent,
