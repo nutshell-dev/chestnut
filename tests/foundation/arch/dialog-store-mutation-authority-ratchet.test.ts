@@ -74,6 +74,8 @@ describe('Phase 1218 Step B: DialogStore mutation authority ratchet', () => {
       'editStore.save',
       // Phase 2151: contract cancellation delivery persistence is not DialogStore.
       'cancellationDeliveryStore.save',
+      // Phase 2155: supervisor recovery state persistence is not DialogStore.
+      'recovery.save',
     ];
     const mutationLines = lines.filter(line => {
       const text = line.split(':').slice(2).join(':');
