@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { emitInputMeasurement, inputProjectionHash, type InputMeasurementObservation, createLLMProvider } from '../../../src/foundation/llm-provider/index.js';
 import { normalizeUsageInputTokens } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 
+/** Five seconds leaves ample room for the mocked SDK request to finish. */
+const INPUT_OBSERVER_TIMEOUT_MS = 5_000;
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -47,7 +50,7 @@ describe('input measurement observer', () => {
     const observations: InputMeasurementObservation[] = [];
     const adapter = createLLMProvider({
       name: 'observer-test', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
-      apiFormat: 'openai', temperature: 0, timeoutMs: 5_000,
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
     });
     await adapter.call({ messages: [{ role: 'user', content: 'hello' }], onInputMeasurement: fact => observations.push(fact) });
     expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
@@ -77,7 +80,7 @@ describe('input measurement observer', () => {
     const observations: InputMeasurementObservation[] = [];
     const adapter = createLLMProvider({
       name: 'observer-retry', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
-      apiFormat: 'openai', temperature: 0, timeoutMs: 5_000,
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
     });
 
     await adapter.call({
@@ -99,7 +102,7 @@ describe('input measurement observer', () => {
     const observations: InputMeasurementObservation[] = [];
     const adapter = createLLMProvider({
       name: 'observer-error', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
-      apiFormat: 'openai', temperature: 0, timeoutMs: 5_000,
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
     });
 
     await expect(adapter.call({
@@ -126,7 +129,7 @@ describe('input measurement observer', () => {
     const observations: InputMeasurementObservation[] = [];
     const adapter = createLLMProvider({
       name: 'observer-meter-error', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
-      apiFormat: 'openai', temperature: 0, timeoutMs: 5_000,
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
     });
     vi.spyOn(adapter, 'prepareInputMeter').mockRejectedValue(new Error('meter setup unavailable'));
 
@@ -160,7 +163,7 @@ describe('input measurement observer', () => {
     const observations: InputMeasurementObservation[] = [];
     const adapter = createLLMProvider({
       name: 'observer-cache', apiKey: 'k', baseUrl: 'https://observer.invalid', model: 'claude-test',
-      apiFormat: 'anthropic', temperature: 0, timeoutMs: 5_000,
+      apiFormat: 'anthropic', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
     });
 
     await adapter.call({

@@ -11,10 +11,13 @@ import { isDeepseekV41MeterProfile } from '../../../src/foundation/llm-provider/
 import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';
 import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runtime.js';
 
+/** Offline meter fixture only needs a short, positive provider timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+
 const config: ProviderConfig = {
   name: 'deepseek', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',
   baseUrl: 'https://api.deepseek.com/anthropic', catalogProvider: 'deepseek',
-  catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: 1000,
+  catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
 };
 afterEach(() => vi.unstubAllGlobals());
 

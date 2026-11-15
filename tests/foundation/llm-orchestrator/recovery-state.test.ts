@@ -19,6 +19,10 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/recovery-state.js';
 import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/types.js';
 import {
+  LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from '../../../src/foundation/llm-orchestrator/index.js';
+import {
   createEmptyLLMInstanceState,
   LLM_INSTANCE_STATE_FILE,
   loadLLMInstanceState,
@@ -28,7 +32,11 @@ import {
 const SCOPE = 'foreground';
 
 function budget(): LLMRecoveryBudget {
-  return { retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 };
+  return {
+    retryCount: 0,
+    retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+    quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  };
 }
 
 async function makeDir(): Promise<{ dir: string; fs: NodeFileSystem }> {

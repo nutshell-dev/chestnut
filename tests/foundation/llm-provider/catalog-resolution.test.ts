@@ -4,6 +4,9 @@ import { toProviderConfig } from '../../../src/foundation/llm-provider/config-ad
 import { CATALOG_REVISION, resolveCatalogIdentity } from '../../../src/foundation/llm-provider/index.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
+/** Offline custom-provider fixture only needs a short, positive timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+
 function parseProvider(input: Record<string, unknown>): ProviderConfig {
   return toProviderConfig(llmProviderConfigSchema.parse(input));
 }
@@ -44,7 +47,7 @@ describe('catalog identity facade', () => {
   it('keeps explicit custom and unresolved duplicate fallback observable', () => {
     const config: ProviderConfig = {
       name: 'custom', model: 'gpt-5', apiFormat: 'openai', baseUrl: 'https://example.test/v1',
-      temperature: 0, timeoutMs: 1000,
+      temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
     };
     const resolution = resolveCatalogIdentity(config);
     expect(resolution).toMatchObject({

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 import { PiAiAdapter } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 import type { ProviderConfig, AuditSink } from '../../../src/foundation/llm-provider/types.js';
+import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 function baseConfig(overrides: Partial<ProviderConfig>): ProviderConfig {
   return {
@@ -17,7 +18,7 @@ function baseConfig(overrides: Partial<ProviderConfig>): ProviderConfig {
     apiKey: 'test-key',
     model: 'test-model',
     temperature: 0.5,
-    timeoutMs: 30000,
+    timeoutMs: TEST_LLM_TIMEOUT_MS,
     apiFormat: 'anthropic',
     ...overrides,
   };

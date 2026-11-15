@@ -19,6 +19,12 @@ import {
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { providerStatesOf } from './llm-orchestrator/test-internals.js';
 
+/** Nonzero retry bases keep the scenarios deterministic without production-length waits. */
+const TEST_RETRY_DELAY_MS = 100;
+const FAST_RETRY_DELAY_MS = 10;
+/** 50ms doubles to 100ms then 200ms in the exponential-backoff scenario. */
+const BACKOFF_BASE_DELAY_MS = 50;
+
 /**
  * Phase 1925 Step C: LLMOrchestratorImpl 测试的 fetch 级 anthropic-messages SSE
  * 响应（factory 已切 PiAiAdapter，SDK mock 不再被触达）。事件块空行分隔。
@@ -79,7 +85,7 @@ function createAnthropicSseResponse(text: string): Response {
       lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         maxAttempts: 3,
-        retryDelayMs: 100,
+        retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -102,7 +108,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
-        retryDelayMs: 100,
+        retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -122,7 +128,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
-        retryDelayMs: 100,
+        retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -143,7 +149,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 3,
-        retryDelayMs: 10, // Fast for test
+        retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -167,7 +173,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -203,7 +209,7 @@ function createAnthropicSseResponse(text: string): Response {
         // 2nd retry: 50ms * 2^1 = 100ms
         // 3rd retry would be 200ms, etc.
         // All well under 30s cap - test verifies code path exists
-        retryDelayMs: 50,
+        retryDelayMs: BACKOFF_BASE_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -221,7 +227,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
-        retryDelayMs: 100,
+        retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -239,7 +245,7 @@ function createAnthropicSseResponse(text: string): Response {
       lifecycle: { mode: 'ephemeral' },
         primary: primaryConfig,
         maxAttempts: 1,
-        retryDelayMs: 100,
+        retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       });
 
@@ -287,7 +293,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
         createProviderAdapter: (config) =>
           config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
@@ -346,7 +352,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
         createProviderAdapter: (config) =>
           config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
@@ -390,7 +396,7 @@ function createAnthropicSseResponse(text: string): Response {
         primary: primaryConfig,
         fallbacks: [],
         maxAttempts: 1,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: { emit: () => {} },
         createProviderAdapter: () => emptyAdapter,
       });
@@ -427,7 +433,7 @@ describe('createLLMOrchestrator factory', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: mockConfig,
       maxAttempts: 1,
-      retryDelayMs: 10,
+      retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       createProviderAdapter: () => mockAdapter,
     });
@@ -455,7 +461,7 @@ describe('createLLMOrchestrator factory', () => {
         apiFormat: 'anthropic',
       },
       maxAttempts: 1,
-      retryDelayMs: 10,
+      retryDelayMs: FAST_RETRY_DELAY_MS,
       events: { emit: () => {} },
       createProviderAdapter: () => configAdapter,
     });

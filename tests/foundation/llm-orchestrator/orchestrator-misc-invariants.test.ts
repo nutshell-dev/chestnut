@@ -36,6 +36,14 @@ import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../..
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
+
+/** Local timing knobs preserve each race/retry scenario without production waits. */
+const FORCED_PROVIDER_WAIT_MS = 60_000;
+const TEST_RETRY_DELAY_MS = 1;
+const FAST_RETRY_DELAY_MS = 10;
+/** Invocation jitter is 75–100% of this configured base. */
+const INVOCATION_BACKOFF_BASE_MS = 30_000;
 
 function providerState(service: LLMOrchestratorImpl, index: number) {
   const providerId = service.getProviderIdentities()[index];
@@ -51,7 +59,7 @@ function forceProviderWaiting(service: LLMOrchestratorImpl, index: number, cause
     ...previous,
     providerId,
     status: 'waiting',
-    retryAt: now + 60_000,
+    retryAt: now + FORCED_PROVIDER_WAIT_MS,
     lastError: { class: cause, at: now, message: `forced ${cause} failure` },
     consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1,
   });
@@ -75,12 +83,12 @@ describe('breaker-open-transition-audit', () => {
    * Derivation: 1000ms = 1s 给 test 简短 cool-down / 比 production default (~30s) 短 30× 加速 test /
    * 配「already open then additional onFailure」验证 cool-down 内不 re-fire.
    */
-  const DEFAULT_RESET_TIMEOUT_MS = 1000;
+  const TEST_BREAKER_RESET_TIMEOUT_MS = 1000;
 
   describe('phase 1013 E.1: breaker_opened transition fire', () => {
     it('N failures reaches threshold → onTransition fired with breaker_opened and failures count', () => {
       const onTransition = vi.fn();
-      const cb = new CircuitBreaker(DEFAULT_FAILURE_THRESHOLD, DEFAULT_RESET_TIMEOUT_MS, onTransition);
+      const cb = new CircuitBreaker(DEFAULT_FAILURE_THRESHOLD, TEST_BREAKER_RESET_TIMEOUT_MS, onTransition);
 
       cb.onFailure();
       cb.onFailure();
@@ -115,7 +123,7 @@ describe('breaker-open-transition-audit', () => {
       // Per-it lower threshold: terse repro path（2 failures 即 open）
       const LOW_FAILURE_THRESHOLD = 2;
       const onTransition = vi.fn();
-      const cb = new CircuitBreaker(LOW_FAILURE_THRESHOLD, DEFAULT_RESET_TIMEOUT_MS, onTransition);
+      const cb = new CircuitBreaker(LOW_FAILURE_THRESHOLD, TEST_BREAKER_RESET_TIMEOUT_MS, onTransition);
 
       cb.onFailure();
       cb.onFailure();
@@ -171,18 +179,25 @@ describe('timeout-distinction', () => {
 
 
   describe('LLMOrchestratorImpl timeout distinction (Phase 538)', () => {
+    /** Idle and probe share 50ms; the mock outlives them by 100× to force the path. */
+    const STREAM_IDLE_TIMEOUT_MS = 50;
+    const STREAM_IDLE_PROBE_TIMEOUT_MS = 50;
+    const MOCK_OUTLIVE_IDLE_MS = 5_000;
+
     beforeEach(() => {
       vi.clearAllMocks();
     });
 
     it('call() hardTimeoutMs 命中 → 抛 AbortError（不是无限等待）', async () => {
       const primary = createMockProvider('primary');
-      // call 被 mock 为延迟 500ms 返回，但响应 signal abort
+      /** The 500ms response loses to the 50ms hard timeout. */
+      const LATE_CALL_RESPONSE_MS = 500;
+      const HARD_TIMEOUT_MS = 50;
       primary.call = vi.fn(async (opts: { signal?: AbortSignal }) => {
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             resolve({ content: [{ type: 'text', text: 'late' }], stop_reason: 'end_turn' });
-          }, 500);
+          }, LATE_CALL_RESPONSE_MS);
           opts.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             reject(new Error('AbortError'));
@@ -200,7 +215,7 @@ describe('timeout-distinction', () => {
       });
 
       await expect(
-        service.call({ messages: [], hardTimeoutMs: 50 }),
+        service.call({ messages: [], hardTimeoutMs: HARD_TIMEOUT_MS }),
       ).rejects.toThrow();
 
       // hard timeout 触发 → call 应该被 abort，不会等到 500ms 完成
@@ -215,9 +230,7 @@ describe('timeout-distinction', () => {
         yield { type: 'text_delta', delta: 'first' };
         // 之后长期不 yield chunk → idle timeout 触发
         // 但 generator 需要响应 signal abort，否则不会停止
-        // Sleep duration derive: streamIdleTimeoutMs (50ms, line 127) × 100 safety = 5000ms;
-        // mock must outlive idle timeout 才能让 idle 路径触发 abort.
-        const MOCK_OUTLIVE_IDLE_MS = 50 * 100;
+        // The mock must outlive the idle timeout so the idle path triggers abort.
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, MOCK_OUTLIVE_IDLE_MS);
           opts.signal?.addEventListener('abort', () => {
@@ -244,7 +257,7 @@ describe('timeout-distinction', () => {
 
       const chunks: LLMStreamChunk[] = [];
       try {
-        for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
+        for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: STREAM_IDLE_TIMEOUT_MS, streamIdleProbeTimeoutMs: STREAM_IDLE_PROBE_TIMEOUT_MS })) {
           chunks.push(chunk);
         }
       } catch {
@@ -281,8 +294,10 @@ describe('timeout-distinction', () => {
         createProviderAdapter: () => primary as any,
       });
 
+      /** Zero-gap chunks must finish before this 100ms idle deadline. */
+      const STREAM_IDLE_TIMEOUT_WITH_CHUNKS_MS = 100;
       const chunks: LLMStreamChunk[] = [];
-      for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 100 })) {
+      for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: STREAM_IDLE_TIMEOUT_WITH_CHUNKS_MS })) {
         chunks.push(chunk);
       }
 
@@ -332,7 +347,7 @@ describe('all-providers-context-exceeded-emit', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
@@ -508,8 +523,10 @@ describe('merge-signals-cleanup', () => {
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
 
+      /** Five seconds is only a guard; every mocked call resolves immediately. */
+      const CALL_HARD_TIMEOUT_MS = 5_000;
       for (let i = 0; i < 100; i++) {
-        await service.call({ messages: [], hardTimeoutMs: 5000, signal });
+        await service.call({ messages: [], hardTimeoutMs: CALL_HARD_TIMEOUT_MS, signal });
       }
 
       // 每次 call 都会 mergeSignals → add listener → cleanup 移除
@@ -519,11 +536,14 @@ describe('merge-signals-cleanup', () => {
 
     it('abort 后 listener 不累积', async () => {
       const primary = createMockProvider('primary');
+      /** The late 10s response must be cancelled by the immediate external abort. */
+      const ABORTED_CALL_LATE_RESPONSE_MS = 10_000;
+      const CALL_HARD_TIMEOUT_MS = 5_000;
       primary.call = vi.fn(async (opts: { signal?: AbortSignal }) => {
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             resolve({ content: [{ type: 'text', text: 'late' }], stop_reason: 'end_turn' });
-          }, 10_000);
+          }, ABORTED_CALL_LATE_RESPONSE_MS);
           opts.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             reject(new Error('AbortError'));
@@ -543,7 +563,7 @@ describe('merge-signals-cleanup', () => {
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
 
       // 发起 call 但立即 abort
-      const callPromise = service.call({ messages: [], hardTimeoutMs: 5000, signal });
+      const callPromise = service.call({ messages: [], hardTimeoutMs: CALL_HARD_TIMEOUT_MS, signal });
       signal.abort({ type: 'user' });
 
       await expect(callPromise).rejects.toThrow();
@@ -646,7 +666,7 @@ describe('race-loser-cleanup', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
@@ -687,12 +707,15 @@ describe('race-loser-cleanup', () => {
     });
 
     it('reverse 1: B wins → primaryIter.return() called + race_loser_cleaned emitted', async () => {
+      /** Fallback wins at 50ms while the primary stream remains pending until 500ms. */
+      const PRIMARY_STREAM_DELAY_MS = 500;
+      const FALLBACK_CALL_DELAY_MS = 50;
       const primaryRaw = createMockProvider('primary', {
         streamChunks: [
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 500,
+        streamDelayMs: PRIMARY_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
 
@@ -701,7 +724,7 @@ describe('race-loser-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 50,
+        callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
       const { sink, emitted } = createEventSink();
       const service = createOrchestrator(primary, [fb1]);
@@ -721,12 +744,15 @@ describe('race-loser-cleanup', () => {
     });
 
     it('reverse 2: A wins → primaryIter.return() called in finally (explicit cleanup)', async () => {
+      /** Primary wins at 10ms; fallback remains pending until 500ms for loser cleanup. */
+      const PRIMARY_STREAM_DELAY_MS = 10;
+      const FALLBACK_CALL_DELAY_MS = 500;
       const primaryRaw = createMockProvider('primary', {
         streamChunks: [
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 10,
+        streamDelayMs: PRIMARY_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
 
@@ -735,7 +761,7 @@ describe('race-loser-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
@@ -750,12 +776,15 @@ describe('race-loser-cleanup', () => {
     });
 
     it('reverse 3: B wins + primaryIter.return throws → silent + race_loser_cleaned still emitted', async () => {
+      /** Fallback wins at 50ms while the primary stream remains pending until 500ms. */
+      const PRIMARY_STREAM_DELAY_MS = 500;
+      const FALLBACK_CALL_DELAY_MS = 50;
       const primaryRaw = createMockProvider('primary', {
         streamChunks: [
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 500,
+        streamDelayMs: PRIMARY_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
       returnSpy.mockImplementation(async () => {
@@ -767,7 +796,7 @@ describe('race-loser-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 50,
+        callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
       const { sink, emitted } = createEventSink();
       const service = createOrchestrator(primary, [fb1]);
@@ -855,7 +884,7 @@ describe('hedge-cache-token-emit', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
     return service;
@@ -878,9 +907,12 @@ describe('hedge-cache-token-emit', () => {
     });
 
     it('reverse 1: hedge_fallback_committed event includes cache cols when provider returns cache_*', async () => {
+      /** Fallback responds at 50ms before the primary's 100ms delayed failure. */
+      const PRIMARY_STREAM_DELAY_MS = 100;
+      const FALLBACK_CALL_DELAY_MS = 50;
       const primary = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
-        streamDelayMs: 100,
+        streamDelayMs: PRIMARY_STREAM_DELAY_MS,
       });
       const fallback = createMockProvider('fb1', {
         callResponse: {
@@ -893,7 +925,7 @@ describe('hedge-cache-token-emit', () => {
             cache_read_input_tokens: 80,
           },
         },
-        callDelayMs: 50,
+        callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -917,6 +949,8 @@ describe('hedge-cache-token-emit', () => {
     });
 
     it('reverse 2: A-error wait B path includes cache cols in hedge_fallback_committed', async () => {
+      /** A fails immediately; B's 50ms response exercises the wait-B path. */
+      const FALLBACK_CALL_DELAY_MS = 50;
       const primary = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
       });
@@ -931,7 +965,7 @@ describe('hedge-cache-token-emit', () => {
             cache_read_input_tokens: 150,
           },
         },
-        callDelayMs: 50,
+        callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -949,9 +983,12 @@ describe('hedge-cache-token-emit', () => {
     });
 
     it('reverse 3: non-Anthropic provider 0 cache_* → emit absent cache cols (undefined)', async () => {
+      /** Fallback responds at 50ms before the primary's 100ms delayed failure. */
+      const PRIMARY_STREAM_DELAY_MS = 100;
+      const FALLBACK_CALL_DELAY_MS = 50;
       const primary = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
-        streamDelayMs: 100,
+        streamDelayMs: PRIMARY_STREAM_DELAY_MS,
       });
       const fallback = createMockProvider('fb1', {
         callResponse: {
@@ -959,7 +996,7 @@ describe('hedge-cache-token-emit', () => {
           stop_reason: 'end_turn',
           usage: { input_tokens: 10, output_tokens: 5 },
         },
-        callDelayMs: 50,
+        callDelayMs: FALLBACK_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -1025,7 +1062,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
         createProviderAdapter: () => primary as any,
       });
@@ -1065,7 +1102,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
         createProviderAdapter: () => primary as any,
       });
@@ -1092,7 +1129,7 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 2,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
         createProviderAdapter: () => primary as any,
       });
@@ -1152,7 +1189,7 @@ describe('call-retry-symmetry', () => {
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
         createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
@@ -1182,7 +1219,7 @@ describe('call-retry-symmetry', () => {
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
         createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
@@ -1219,7 +1256,7 @@ describe('call-retry-symmetry', () => {
         primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
         maxAttempts: 3,
-        retryDelayMs: 10,
+        retryDelayMs: FAST_RETRY_DELAY_MS,
         events: sink,
         createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
@@ -1487,7 +1524,7 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       primary: { name: provider.name, apiKey: 'test', model: provider.model, apiFormat: 'anthropic' as const },
       ...(fallback ? { fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }] } : {}),
       maxAttempts,
-      retryDelayMs: 1,
+      retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
       createProviderAdapter: config => (config.name === fallback?.name ? fallback : provider) as any,
     });
@@ -1602,9 +1639,9 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
     internalsOf(orchestrator).providerRuntime.config().retryDelayMs = 0;
     await orchestrator.call({});
     expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(0);
-    internalsOf(orchestrator).providerRuntime.config().retryDelayMs = 30_000;
-    expect(internalsOf(orchestrator).invocationExecutor.computeAttemptDelayMs(0)).toBeGreaterThanOrEqual(22_500);
-    expect(internalsOf(orchestrator).invocationExecutor.computeAttemptDelayMs(0)).toBeLessThanOrEqual(30_000);
+    internalsOf(orchestrator).providerRuntime.config().retryDelayMs = INVOCATION_BACKOFF_BASE_MS;
+    expect(internalsOf(orchestrator).invocationExecutor.computeAttemptDelayMs(0)).toBeGreaterThanOrEqual(INVOCATION_BACKOFF_BASE_MS * 0.75);
+    expect(internalsOf(orchestrator).invocationExecutor.computeAttemptDelayMs(0)).toBeLessThanOrEqual(INVOCATION_BACKOFF_BASE_MS);
     await orchestrator.close();
   });
 });

@@ -18,6 +18,7 @@ import { createPiAiCredentialStore, type PiAiCredentialBackend } from '../../../
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
 import { LLMError, LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
+import { DEFAULT_LLM_TIMEOUT_MS } from '../../../src/foundation/llm-provider/index.js';
 
 /** 内存 fake backend（read + modify 接缝；modify 串行链，fn undefined = 删除）。 */
 function fakeBackend(initial: Record<string, string> = {}): PiAiCredentialBackend & { data: Map<string, string> } {
@@ -62,7 +63,7 @@ function catalogConfig(overrides: Partial<ProviderConfig>): ProviderConfig {
     name: 'test',
     model: 'gpt-4o',
     temperature: 0.7,
-    timeoutMs: 60_000,
+    timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
     ...overrides,
   };
 }

@@ -10,6 +10,10 @@ import type { LLMResponse, ProviderAdapter, ProviderConfig } from '../../../src/
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { providerStatesOf } from './test-internals.js';
+import {
+  LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
@@ -119,7 +123,11 @@ describe('Phase2055 Step D: Retry-After defers provider instead of sleeping in-c
     expect(state.recovery.failures).toHaveLength(2);
     expect(state.providers.map((provider: { consecutiveFailures: number }) => provider.consecutiveFailures)).toEqual([1, 1]);
     expect(state.recovery.providers).toEqual([]);
-    expect(state.recovery.budget).toMatchObject({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
+    expect(state.recovery.budget).toMatchObject({
+      retryCount: 0,
+      retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+      quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+    });
     const internal = { providerStates: providerStatesOf(f.owner) };
     expect(internal.providerStates.map(provider => provider.consecutiveFailures)).toEqual([1, 1]);
     await f.owner.close();

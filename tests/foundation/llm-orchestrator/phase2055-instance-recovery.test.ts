@@ -10,6 +10,10 @@ import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/
 import type { LLMEvent, LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { providerStatesOf, replaceProviderStates } from './test-internals.js';
+import {
+  LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const dirs: string[] = [];
@@ -141,7 +145,11 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const legacy = {
       schema_version: 1, scopeId: 'other', revision: 1,
       schedule: { kind: 'ready', revision: 1 },
-      budget: { retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 },
+      budget: {
+        retryCount: 0,
+        retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+        quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+      },
       providers: [], acceptedInterventions: [], acceptedConfigRevisions: [],
       activeAdmission: null, failures: [], importedSources: [],
       updatedAt: new Date().toISOString(),

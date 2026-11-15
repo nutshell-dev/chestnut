@@ -23,6 +23,14 @@ import {
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMAllProvidersFailedError, LLMOrchestratorClosedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig, LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
+import {
+  LLM_RECOVERY_COOLDOWN_MS,
+  LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+  LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
+  LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+  LLM_RECOVERY_RETRY_MAX_DELAY_MS,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AtomicWriteResult } from '../../../src/foundation/fs/types.js';
@@ -32,10 +40,20 @@ const T0 = Date.parse('2026-09-10T00:00:00.000Z');
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 const OK_RESPONSE: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 
+/** Local fixture timing stays short; jumps move fake time beyond every recovery curve. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+const TEST_RETRY_DELAY_MS = 1;
+const RECOVERY_TIME_JUMP_MS = 1_000_000;
+const QUOTA_CURVE_BOUNDARY_MS = 121_000;
+const TRANSIENT_CURVE_BOUNDARY_MS = 31_000;
+const FAILURE_EVIDENCE_TIME_STEP_MS = 1_000;
+/** Rate-limit expectations share the production base and its 1/2/4/10/20× curve. */
+const RATE_LIMIT_BACKOFF_BASE_MS = LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS[0]!;
+
 function providerConfig(name: string): ProviderConfig {
   return {
     name, apiKey: `key-${name}`, model: `model-${name}`, temperature: 0,
-    timeoutMs: 1_000, apiFormat: 'anthropic',
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic',
   };
 }
 
@@ -96,7 +114,7 @@ async function makeFixture(opts: FixtureOpts = {}) {
     primary: providerConfig('primary'),
     fallbacks: fallbackAdapters.map(fallback => providerConfig(fallback.name)),
     maxAttempts: opts.maxAttempts ?? 1,
-    retryDelayMs: 1,
+    retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
     createProviderAdapter: provider => adapters.get(provider.name ?? '') ?? primary,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
@@ -251,23 +269,32 @@ describe('recovery failure policy on unified V3 provider states', () => {
   it('quota uses a per-provider 120s curve capped at 480s without a global budget', async () => {
     const f = await makeFixture();
     const schedule = await failOnce(f, 'quota');
-    expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + 120_000).toISOString() });
+    expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(T0 + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS).toISOString() });
     const saved = f.readState();
-    expect(saved.recovery.budget).toEqual({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
+    expect(saved.recovery.budget).toEqual({
+      retryCount: 0,
+      retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+      quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+    });
     expect(saved.providers[0]).toMatchObject({
-      status: 'waiting', retryAt: T0 + 120_000, consecutiveFailures: 1,
+      status: 'waiting', retryAt: T0 + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS, consecutiveFailures: 1,
       lastError: { class: 'quota', at: T0, message: 'quota failure' },
     });
     expect(saved.recovery.providers).toEqual([]);
 
-    const delays = [120_000];
+    const delays = [LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS];
     for (let round = 0; round < 3; round++) {
-      f.advance(1_000_000);
+      f.advance(RECOVERY_TIME_JUMP_MS);
       const next = await failOnce(f, 'quota');
       if (next.kind !== 'at') throw new Error('expected at');
       delays.push(Date.parse(next.resumeAt) - Date.now());
     }
-    expect(delays).toEqual([120_000, 240_000, 480_000, 480_000]);
+    expect(delays).toEqual([
+      LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+      LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS * 2,
+      LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
+      LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
+    ]);
     expect(f.emitted.filter(event => event.type === 'recovery_scheduled')).toHaveLength(4);
   });
 
@@ -292,7 +319,7 @@ describe('recovery failure policy on unified V3 provider states', () => {
     const f = await makeFixture();
     await failOnce(f, 'quota');
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
-    f.advance(121_000);
+    f.advance(QUOTA_CURVE_BOUNDARY_MS);
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('admitted');
   });
 
@@ -303,9 +330,15 @@ describe('recovery failure policy on unified V3 provider states', () => {
       const schedule = await failOnce(f, 'transient');
       if (schedule.kind !== 'at') throw new Error('expected at');
       delays.push(Date.parse(schedule.resumeAt) - Date.now());
-      f.advance(1_000_000);
+      f.advance(RECOVERY_TIME_JUMP_MS);
     }
-    expect(delays).toEqual([30_000, 60_000, 120_000, 240_000, 300_000]);
+    expect(delays).toEqual([
+      LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+      LLM_RECOVERY_RETRY_INITIAL_DELAY_MS * 2,
+      LLM_RECOVERY_RETRY_INITIAL_DELAY_MS * 4,
+      LLM_RECOVERY_RETRY_INITIAL_DELAY_MS * 8,
+      LLM_RECOVERY_RETRY_MAX_DELAY_MS,
+    ]);
     expect(f.emitted.filter(event => event.type === 'recovery_scheduled')).toHaveLength(5);
   });
 
@@ -313,9 +346,9 @@ describe('recovery failure policy on unified V3 provider states', () => {
     const f = await makeFixture();
     for (let round = 0; round < 2; round++) {
       const schedule = await failOnce(f, 'permanent');
-      expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(Date.now() + 300_000).toISOString() });
+      expect(schedule).toMatchObject({ kind: 'at', resumeAt: new Date(Date.now() + LLM_RECOVERY_COOLDOWN_MS).toISOString() });
       expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
-      f.advance(300_000);
+      f.advance(LLM_RECOVERY_COOLDOWN_MS);
     }
   });
 
@@ -326,14 +359,22 @@ describe('recovery failure policy on unified V3 provider states', () => {
       const schedule = await failOnce(f, 'rate_limit');
       if (schedule.kind !== 'at') throw new Error('expected at');
       delays.push(Date.parse(schedule.resumeAt) - Date.now());
-      if (round < 9) f.advance(1_000_000);
+      if (round < 9) f.advance(RECOVERY_TIME_JUMP_MS);
     }
     expect(delays).toEqual([
-      30_000, 60_000, 120_000, 300_000, 600_000,
-      600_000, 600_000, 600_000, 600_000, 600_000,
+      RATE_LIMIT_BACKOFF_BASE_MS,
+      RATE_LIMIT_BACKOFF_BASE_MS * 2,
+      RATE_LIMIT_BACKOFF_BASE_MS * 4,
+      RATE_LIMIT_BACKOFF_BASE_MS * 10,
+      RATE_LIMIT_BACKOFF_BASE_MS * 20,
+      RATE_LIMIT_BACKOFF_BASE_MS * 20,
+      RATE_LIMIT_BACKOFF_BASE_MS * 20,
+      RATE_LIMIT_BACKOFF_BASE_MS * 20,
+      RATE_LIMIT_BACKOFF_BASE_MS * 20,
+      RATE_LIMIT_BACKOFF_BASE_MS * 20,
     ]);
 
-    const retryAt = Date.now() + 600_000;
+    const retryAt = Date.now() + RATE_LIMIT_BACKOFF_BASE_MS * 20;
     expect(f.readState().providers[0]).toMatchObject({
       status: 'waiting', retryAt, consecutiveFailures: 10,
       lastError: { class: 'rate_limit' },
@@ -341,7 +382,7 @@ describe('recovery failure policy on unified V3 provider states', () => {
     expect(f.readState().providers[0]).not.toHaveProperty('rateLimitBlocked');
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts() })).kind).toBe('waiting');
 
-    f.advance(600_000);
+    f.advance(RATE_LIMIT_BACKOFF_BASE_MS * 20);
     const timed = await f.controller.begin({ requestKey: 'fp-timed', facts: facts() });
     expect(timed.kind).toBe('admitted');
     if (timed.kind !== 'admitted') throw new Error('expected admitted');
@@ -386,13 +427,17 @@ describe('recovery failure policy on unified V3 provider states', () => {
     f.controller.noteSuccess(admission.invocationId, primaryId!);
 
     const saved = f.readState();
-    expect(saved.recovery.budget).toEqual({ retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 });
+    expect(saved.recovery.budget).toEqual({
+      retryCount: 0,
+      retryDelayMs: LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+      quotaDelayMs: LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
+    });
     expect(saved.providers).toEqual([
       expect.objectContaining({ providerId: primaryId, status: 'available', consecutiveFailures: 0 }),
       expect.objectContaining({ providerId: fallbackId, status: 'waiting', consecutiveFailures: 1 }),
     ]);
     expect(saved.providers[0]?.retryAt).toBeUndefined();
-    expect(saved.providers[1]?.retryAt).toBe(T0 + 30_000);
+    expect(saved.providers[1]?.retryAt).toBe(T0 + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     expect(saved.recovery.providers).toEqual([]);
     expect((await f.controller.inspect()).kind).toBe('ready');
     expect(f.emitted.filter(event => event.type === 'recovery_ready').at(-1)).toMatchObject({
@@ -476,7 +521,7 @@ describe('recovery fact combination and dedupe', () => {
     const saved = f.readState();
     expect(saved.recovery.failures).toHaveLength(1);
     expect(saved.providers[0]).toMatchObject({
-      status: 'waiting', retryAt: T0 + 120_000, consecutiveFailures: 1,
+      status: 'waiting', retryAt: T0 + LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS, consecutiveFailures: 1,
     });
     expect(saved.recovery.invocations[0]).toMatchObject({ probeOnly: true, allowBreakerProbe: true });
   });
@@ -500,10 +545,10 @@ describe('recovery fact combination and dedupe', () => {
     const startup = await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-1' }) });
     expect(startup.kind).toBe('waiting');
     expect(f.readState().recovery.lastStartupProbeId).toBe('boot-1');
-    expect(f.readState().providers[0]).toMatchObject({ status: 'waiting', retryAt: T0 + 300_000 });
+    expect(f.readState().providers[0]).toMatchObject({ status: 'waiting', retryAt: T0 + LLM_RECOVERY_COOLDOWN_MS });
 
     expect((await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) })).kind).toBe('waiting');
-    f.advance(300_000);
+    f.advance(LLM_RECOVERY_COOLDOWN_MS);
     const timed = await f.controller.begin({ requestKey: 'fp', facts: facts({ startupId: 'boot-2' }) });
     expect(timed.kind).toBe('admitted');
     if (timed.kind !== 'admitted') return;
@@ -534,7 +579,7 @@ describe('recovery fact combination and dedupe', () => {
   it('bounds failure evidence and records exactly what was dropped', async () => {
     const f = await makeFixture();
     for (let i = 0; i < 12; i++) {
-      if (i > 0) f.advance(1_000);
+      if (i > 0) f.advance(FAILURE_EVIDENCE_TIME_STEP_MS);
       f.controller.noteFailure([{
         providerId: 'provider-primary', errorClass: 'transient', message: `failure-${i}`,
       }]);
@@ -544,7 +589,7 @@ describe('recovery fact combination and dedupe', () => {
       Array.from({ length: 10 }, (_, i) => `failure-${i + 2}`),
     );
     expect(saved.failureEvidenceLoss).toEqual({
-      droppedCount: 2, firstDroppedAt: new Date(T0).toISOString(), lastDroppedAt: new Date(T0 + 1_000).toISOString(),
+      droppedCount: 2, firstDroppedAt: new Date(T0).toISOString(), lastDroppedAt: new Date(T0 + FAILURE_EVIDENCE_TIME_STEP_MS).toISOString(),
       reason: 'bounded_retention', policyVersion: 1, recoverability: 'not_preserved_in_recovery_state',
     });
   });
@@ -842,7 +887,7 @@ describe('unified instance durable commit barrier', () => {
     const saved = f.readState();
     expect(saved.recovery.failures).toHaveLength(1);
     expect(saved.providers[0]).toMatchObject({
-      status: 'waiting', retryAt: T0 + 30_000, consecutiveFailures: 1,
+      status: 'waiting', retryAt: T0 + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS, consecutiveFailures: 1,
       lastError: { class: 'transient', message: 'boom' },
     });
     expect(f.emitted.filter(event => event.type === 'recovery_scheduled')[0]).toMatchObject({
@@ -854,7 +899,7 @@ describe('unified instance durable commit barrier', () => {
     const write = { failing: false };
     const f = await makeFixture({ wrapFs: fs => wrapWriteFailure(fs, write) });
     await failOnce(f, 'transient');
-    f.advance(31_000);
+    f.advance(TRANSIENT_CURVE_BOUNDARY_MS);
     const admission = await f.controller.begin({ requestKey: 'fp', facts: facts() });
     if (admission.kind !== 'admitted') throw new Error('expected admitted');
     const before = f.readState();

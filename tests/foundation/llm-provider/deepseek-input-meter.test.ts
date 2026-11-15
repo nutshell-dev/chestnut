@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/index.js';
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
 
+/** Offline meter fixture only needs a short, positive provider timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+
 const config: ProviderConfig = {
   name: 'deepseek', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',
   baseUrl: 'https://api.deepseek.com/anthropic', catalogProvider: 'deepseek',
-  catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: 1000,
+  catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
 };
 
 describe('DeepSeek V4.1 input meter', () => {

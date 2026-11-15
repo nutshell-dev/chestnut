@@ -6,28 +6,33 @@ import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orche
 import type { LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
 import type { ProviderAdapter, ProviderStreamChunk } from '../../src/foundation/llm-provider/index.js';
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMNetworkError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 import { pauseAutonomousProbe, providerStatesOf, replaceProviderStates } from './llm-orchestrator/test-internals.js';
 
-/**
- * AbortController 触发延迟 (50ms): 等 retry/stream 进入 backoff sleep 后再 abort.
- * Derivation: << retryDelayMs=10_000ms 必落在 backoff 中段 / > eventloop tick 不抢先.
- */
+/** Long enough to enter backoff; the abort still lands far before its deadline. */
+const ABORT_BACKOFF_BASE_MS = 10_000;
 const ABORT_TRIGGER_DELAY_MS = 50;
 
-/**
- * AbortController 短触发延迟 (20ms): 等 stream 进入 race 期才 abort、不抢前.
- * Derivation: > microtask flush / < streamIdleTimeoutMs=200ms / 落在 race 窗口.
- */
+/** The 20ms abort precedes the 200ms idle deadline but follows microtask flush. */
+const ABORT_RACE_IDLE_TIMEOUT_MS = 200;
 const ABORT_TRIGGER_QUICK_DELAY_MS = 20;
+
+/** Short idle/probe budgets exercise failover without real production waits. */
+const STREAM_IDLE_TIMEOUT_MS = 50;
+const STREAM_IDLE_PROBE_TIMEOUT_MS = 50;
+/** Two seconds covers the fake-timer recovery cases without changing their deadlines. */
+const RECOVERY_TEST_TIMEOUT_MS = 2_000;
+const RETRY_BOUNDARY_EPSILON_MS = 1;
 
 /**
  * Retry backoff base ± jitter range bounds (M4 jitter test).
- * Derivation: retryDelayMs=100 × 2^0 × [0.75, 1.25] = [75, 125]ms / 测 jitter 落区间内.
+ * Derivation: base × 2^0 × [0.75, 1.25] gives the asserted jitter interval.
  */
-const BACKOFF_JITTER_LOWER_MS = 75;
-const BACKOFF_JITTER_UPPER_MS = 125;
+const JITTER_RETRY_BASE_MS = 100;
+const BACKOFF_JITTER_LOWER_MS = JITTER_RETRY_BASE_MS * 0.75;
+const BACKOFF_JITTER_UPPER_MS = JITTER_RETRY_BASE_MS * 1.25;
 
 // Mock provider factory
 
@@ -575,9 +580,9 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       lastError: { class: 'transient' },
       consecutiveFailures: 1,
     });
-    expect(primaryState.retryAt).toBe(primaryState.lastError.at + 30_000);
+    expect(primaryState.retryAt).toBe(primaryState.lastError.at + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
 
-    await vi.advanceTimersByTimeAsync(29_999);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_RETRY_INITIAL_DELAY_MS - RETRY_BOUNDARY_EPSILON_MS);
     await service.call({ messages: [] });
     expect(primaryCallCount).toBe(1);
     expect(primaryState.status).toBe('waiting');
@@ -612,7 +617,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
     pauseAutonomousProbe(service);
 
     primaryShouldFail = false;
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     await service.call({ messages: [] });
 
     expect(primaryAttempts).toBe(2);
@@ -623,7 +628,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryAt: undefined,
       consecutiveFailures: 0,
     });
-  }, 2000);
+  }, RECOVERY_TEST_TIMEOUT_MS);
 
   it('should gate real attempts by retryAt and keep waiting after another failure', async () => {
     let primaryAttempts = 0;
@@ -650,7 +655,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     pauseAutonomousProbe(service);
 
-    await vi.advanceTimersByTimeAsync(29_999);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_RETRY_INITIAL_DELAY_MS - RETRY_BOUNDARY_EPSILON_MS);
     await expect(service.call({ messages: [] })).rejects.toThrow();
     expect(primaryAttempts).toBe(1);
     expect(providerStatesOf(service)[0]).toMatchObject({
@@ -658,7 +663,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       consecutiveFailures: 1,
     });
 
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(RETRY_BOUNDARY_EPSILON_MS);
     await expect(service.call({ messages: [] })).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
     expect(primaryAttempts).toBe(2);
     expect(providerStatesOf(service)[0]).toMatchObject({
@@ -666,7 +671,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       lastError: { class: 'transient' },
       consecutiveFailures: 2,
     });
-  }, 2000);
+  }, RECOVERY_TEST_TIMEOUT_MS);
 
   it('should mark primary available after a real probe succeeds at retryAt', async () => {
     let primaryAttempts = 0;
@@ -696,7 +701,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
     pauseAutonomousProbe(service);
 
     primaryShouldFail = false;
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     await expect(service.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
 
     expect(primaryAttempts).toBe(2);
@@ -706,7 +711,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       retryAt: undefined,
       consecutiveFailures: 0,
     });
-  }, 2000);
+  }, RECOVERY_TEST_TIMEOUT_MS);
 
   it('should throw LLMAllProvidersFailedError when all providers fail', async () => {
     const badPrimary: ProviderAdapter = {
@@ -802,7 +807,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 3,
-      retryDelayMs: 10_000,
+      retryDelayMs: ABORT_BACKOFF_BASE_MS,
       events: noopSink,
     
   createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
@@ -829,7 +834,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 3,
-      retryDelayMs: 10_000,
+      retryDelayMs: ABORT_BACKOFF_BASE_MS,
       events: noopSink,
     
   createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
@@ -875,7 +880,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 2,
-      retryDelayMs: 100,
+      retryDelayMs: JITTER_RETRY_BASE_MS,
       events: sink,
     
   createProviderAdapter: (config) => [adapter].find(provider => provider.name === config.name)!,});
@@ -999,8 +1004,8 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     const chunks: LLMStreamChunk[] = [];
     for await (const chunk of svc.stream({
       messages: [],
-      streamIdleTimeoutMs: 50,
-      streamIdleProbeTimeoutMs: 50,
+      streamIdleTimeoutMs: STREAM_IDLE_TIMEOUT_MS,
+      streamIdleProbeTimeoutMs: STREAM_IDLE_PROBE_TIMEOUT_MS,
     })) {
       chunks.push(chunk);
     }
@@ -1009,7 +1014,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     expect(emitted.filter(e => e.type === 'idle_failover_triggered').length).toBe(1);
     const ev = emitted.find(e => e.type === 'idle_failover_triggered') as any;
     expect(ev.provider).toBe('p1');
-    expect(ev.ms).toBe(50);
+    expect(ev.ms).toBe(STREAM_IDLE_TIMEOUT_MS);
   });
 
   it('all providers idle timeout → LLMAllProvidersFailedError', async () => {
@@ -1030,8 +1035,8 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     await expect(async () => {
       for await (const _ of svc.stream({
         messages: [],
-        streamIdleTimeoutMs: 50,
-        streamIdleProbeTimeoutMs: 50,
+        streamIdleTimeoutMs: STREAM_IDLE_TIMEOUT_MS,
+        streamIdleProbeTimeoutMs: STREAM_IDLE_PROBE_TIMEOUT_MS,
       })) {}
     }).rejects.toThrow(LLMAllProvidersFailedError);
 
@@ -1063,7 +1068,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     setTimeout(() => userCtrl.abort(), ABORT_TRIGGER_QUICK_DELAY_MS);
 
     await expect(async () => {
-      for await (const _ of svc.stream({ messages: [], signal: userCtrl.signal, streamIdleTimeoutMs: 200 })) {}
+      for await (const _ of svc.stream({ messages: [], signal: userCtrl.signal, streamIdleTimeoutMs: ABORT_RACE_IDLE_TIMEOUT_MS })) {}
     }).rejects.toThrow();
 
     expect(p2Called).toBe(false);
