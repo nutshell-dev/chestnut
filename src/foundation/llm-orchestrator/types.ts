@@ -15,6 +15,7 @@ import type {
   PiAiCredentialStore,
   LLMCallOptions as L1LLMCallOptions,
   InputMeasurementObservation,
+  InputArtifactOwner,
 } from '../llm-provider/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
 import type { ModelInputMeter } from '../llm-provider/index.js';
@@ -66,6 +67,8 @@ export interface LLMOrchestratorConfig {
    * backend 生命周期内不漂移）。OAuth-capable catalog provider 缺席 → 装配期 loud。
    */
   credentialStore?: PiAiCredentialStore;
+  /** Assembly-owned artifact capture; absence produces unavailable manifests, never prompt persistence. */
+  inputArtifactOwner?: InputArtifactOwner;
   /** factory 与直接构造均要求显式选择；reload 不替换实例生命周期。 */
   lifecycle?: LLMInstanceLifecycle;
 }

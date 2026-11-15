@@ -17,6 +17,12 @@ export {
   type InputMeasurementObserver,
   type InputMeasurementUsage,
 } from './input-measurement-observer.js';
+export type {
+  InputArtifactCapture,
+  InputArtifactManifest,
+  InputArtifactOwner,
+  InputArtifactPolicy,
+} from './input-artifact.js';
 export { createDeepseekV41Meter } from './deepseek-v41-meter.js';
 export { resolveThinkingDefaults } from './thinking-defaults.js';
 export type { ResolvedThinkingDefaults } from './thinking-defaults.js';

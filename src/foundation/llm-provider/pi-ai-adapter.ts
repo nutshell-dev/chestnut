@@ -70,13 +70,20 @@ import { formatErr, newUuid } from '../node-utils/index.js';
 import {
   emitInputMeasurement,
   inputProjectionHash,
+  type InputArtifactRef,
   type InputMeasurementUsage,
 } from './input-measurement-observer.js';
+import {
+  captureInputArtifact,
+  unavailableInputArtifact,
+  type InputArtifactOwner,
+} from './input-artifact.js';
 import type { InputMeasurement } from './input-meter-types.js';
 
 /** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
 export interface PiAiAdapterOptions {
   credentialStore?: PiAiCredentialStore;
+  inputArtifactOwner?: InputArtifactOwner;
 }
 
 export class PiAiAdapter implements ProviderAdapter {
@@ -276,22 +283,34 @@ export class PiAiAdapter implements ProviderAdapter {
     let measurement: InputMeasurement | undefined;
     let descriptorRevision: string | undefined;
     let inputHash: string | undefined;
+    let artifactRef: InputArtifactRef = unavailableInputArtifact(requestId, 'artifact_projection_unavailable');
+    let inputSource: 'unlinked' | 'artifact' = 'unlinked';
     try {
       const meter = await this.prepareInputMeter({ maxTokens: maxTokensOverride ?? options.maxTokens, temperature: options.temperature });
       descriptorRevision = meter.descriptor.revision;
-      if (meter.project) {
-        try {
-          inputHash = inputProjectionHash(meter.project(options));
-        } catch {
-          // silent: measure() below returns the typed unavailable projection fact.
-          inputHash = undefined;
-        }
-      } else {
-        inputHash = inputProjectionHash(context);
+      let projectedInput: unknown = context;
+      let projectionAvailable = true;
+      try {
+        projectedInput = meter.project?.(options) ?? context;
+        inputHash = inputProjectionHash(projectedInput);
+      } catch {
+        // silent: measure() below returns the typed unavailable projection fact.
+        inputHash = undefined;
+        projectionAvailable = false;
       }
       measurement = meter.measure(options);
       measuredInputTokens = measurement.kind === 'counted' || measurement.kind === 'estimated'
         ? measurement.tokens : undefined;
+      if (projectionAvailable) {
+        artifactRef = await captureInputArtifact(this.options?.inputArtifactOwner, {
+          requestId,
+          provider: this.name,
+          model: model.id,
+          input: projectedInput,
+          ...(options.inputArtifactPolicy !== undefined ? { policy: options.inputArtifactPolicy } : {}),
+        });
+        inputSource = artifactRef.status === 'available' ? 'artifact' : 'unlinked';
+      }
       emitInputMeasurement(options.onInputMeasurement, {
         kind: 'prepared',
         requestId,
@@ -300,7 +319,8 @@ export class PiAiAdapter implements ProviderAdapter {
         descriptor: meter.descriptor,
         measurement,
         ...(inputHash !== undefined ? { inputHash } : {}),
-        inputSource: 'unlinked',
+        inputSource,
+        artifactRef,
       });
     } catch (error) {
       // silent: retained as unavailable measurement on the eventual SDK terminal.
@@ -351,7 +371,8 @@ export class PiAiAdapter implements ProviderAdapter {
             model: model.id,
             ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
             ...(inputHash !== undefined ? { inputHash } : {}),
-            inputSource: 'unlinked',
+            inputSource,
+            artifactRef,
             ...(measurement !== undefined ? { measurement } : {}),
             ...(usage !== undefined ? { usage } : {}),
             ...(normalizedUsageInputTokens !== undefined ? {
@@ -382,7 +403,8 @@ export class PiAiAdapter implements ProviderAdapter {
           reason: formatErr(err),
           ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
           ...(inputHash !== undefined ? { inputHash } : {}),
-          inputSource: 'unlinked',
+          inputSource,
+          artifactRef,
           ...(measurement !== undefined ? { measurement } : {}),
           ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
         });
@@ -398,7 +420,8 @@ export class PiAiAdapter implements ProviderAdapter {
           reason: 'stream_ended_without_done',
           ...(descriptorRevision !== undefined ? { descriptorRevision } : {}),
           ...(inputHash !== undefined ? { inputHash } : {}),
-          inputSource: 'unlinked',
+          inputSource,
+          artifactRef,
           ...(measurement !== undefined ? { measurement } : {}),
           ...(measuredInputTokens !== undefined ? { measuredInputTokens } : {}),
         });

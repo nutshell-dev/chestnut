@@ -10,6 +10,7 @@ import type { ToolUseId } from './tool-use-id.js';
 import type { ThinkingLevel } from './thinking-levels.js';
 import type { ModelInputMeter } from './input-meter-types.js';
 import type { InputMeasurementObserver } from './input-measurement-observer.js';
+import type { InputArtifactPolicy } from './input-artifact.js';
 import type { CatalogResolution } from './catalog-resolution-types.js';
 
 // phase 692 Step A: 删 AuditLog import + re-export
@@ -269,6 +270,9 @@ export interface LLMCallOptions {
 
   /** Signal for cancellation (user abort + step_yield only; idle timeout is service-internal) */
   signal?: AbortSignal;
+
+  /** Explicit artifact capture policy; no prompt bytes are persisted without an injected owner. */
+  inputArtifactPolicy?: InputArtifactPolicy;
 
   /** Non-throwing side channel for request-local input/usage reconciliation. */
   onInputMeasurement?: InputMeasurementObserver;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emitInputMeasurement, inputProjectionHash, type InputMeasurementObservation, createLLMProvider } from '../../../src/foundation/llm-provider/index.js';
+import { emitInputMeasurement, inputProjectionHash, type InputArtifactOwner, type InputMeasurementObservation, createLLMProvider } from '../../../src/foundation/llm-provider/index.js';
 import { normalizeUsageInputTokens } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 
 /** Five seconds leaves ample room for the mocked SDK request to finish. */
@@ -9,6 +9,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+function mockSuccessfulProvider(): void {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response([
+    `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] })}`,
+    `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } })}`,
+    'data: [DONE]',
+    '',
+  ].join('\n\n'), { status: 200, headers: { 'content-type': 'text/event-stream' } })));
+}
 
 describe('input measurement observer', () => {
   it('keeps observation failures off the provider path and exposes them', () => {
@@ -63,7 +72,67 @@ describe('input measurement observer', () => {
       inputSource: 'unlinked',
       descriptorRevision: observations[0]!.kind === 'prepared' ? observations[0].descriptor.revision : undefined,
       inputHash: observations[0]!.kind === 'prepared' ? observations[0].inputHash : undefined,
+      artifactRef: { status: 'unavailable', reason: 'artifact_owner_unconfigured' },
     });
+    expect(observations[1]!.artifactRef).toEqual(observations[0]!.artifactRef);
+  });
+
+  it.each([
+    { status: 'available', inputSource: 'artifact' },
+    { status: 'redacted', inputSource: 'unlinked' },
+  ] as const)('shares a $status artifact manifest between prepared and terminal', async ({ status, inputSource }) => {
+    mockSuccessfulProvider();
+    const observations: InputMeasurementObservation[] = [];
+    const capture = vi.fn().mockReturnValue({
+      status,
+      contentHash: 'a'.repeat(64),
+      byteLength: 42,
+      ...(status === 'redacted' ? { redactionPolicy: 'test-redactor-v1' } : {}),
+    });
+    const inputArtifactOwner: InputArtifactOwner = { capture };
+    const adapter = createLLMProvider({
+      name: `observer-artifact-${status}`, apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
+    }, { inputArtifactOwner });
+
+    await adapter.call({
+      messages: [{ role: 'user', content: 'hello' }],
+      inputArtifactPolicy: { redactionPolicy: 'test-redactor-v1' },
+      onInputMeasurement: fact => observations.push(fact),
+    });
+
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: observations[0]!.requestId,
+      input: expect.anything(),
+      policy: { redactionPolicy: 'test-redactor-v1' },
+    }));
+    expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
+    expect(observations[0]).toMatchObject({ inputSource, artifactRef: { status, contentHash: 'a'.repeat(64), byteLength: 42 } });
+    expect(observations[1]!.artifactRef).toEqual(observations[0]!.artifactRef);
+    expect(JSON.stringify(observations)).not.toContain('hello');
+  });
+
+  it('degrades a failed artifact capture without changing the provider result', async () => {
+    mockSuccessfulProvider();
+    const observations: InputMeasurementObservation[] = [];
+    const inputArtifactOwner: InputArtifactOwner = { capture: () => { throw new Error('secret capture failure'); } };
+    const adapter = createLLMProvider({
+      name: 'observer-artifact-failure', apiKey: 'k', baseUrl: 'https://observer.invalid/v1', model: 'gpt-test',
+      apiFormat: 'openai', temperature: 0, timeoutMs: INPUT_OBSERVER_TIMEOUT_MS,
+    }, { inputArtifactOwner });
+
+    await expect(adapter.call({
+      messages: [{ role: 'user', content: 'hello' }],
+      onInputMeasurement: fact => observations.push(fact),
+    })).resolves.toMatchObject({ content: [{ type: 'text', text: 'ok' }] });
+
+    expect(observations.map(fact => fact.kind)).toEqual(['prepared', 'completed']);
+    expect(observations[0]).toMatchObject({
+      inputSource: 'unlinked',
+      artifactRef: { status: 'unavailable', reason: 'artifact_capture_failed' },
+    });
+    expect(observations[1]!.artifactRef).toEqual(observations[0]!.artifactRef);
+    expect(JSON.stringify(observations)).not.toContain('secret capture failure');
   });
 
   it('emits at most one completed terminal when the SDK repeats done', async () => {
@@ -117,6 +186,7 @@ describe('input measurement observer', () => {
     expect(observations[0]!.requestId).toBe(observations[1]!.requestId);
     expect(observations[2]!.requestId).toBe(observations[3]!.requestId);
     expect(observations[0]!.requestId).not.toBe(observations[2]!.requestId);
+    expect(observations[0]!.artifactRef?.artifactId).not.toBe(observations[2]!.artifactRef?.artifactId);
   });
 
   it('emits exactly one failed terminal for a provider error', async () => {

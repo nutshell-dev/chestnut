@@ -2,6 +2,7 @@
 import {
   createLLMProvider,
   type AuditSink,
+  type InputArtifactOwner,
   type LLMProvider,
   type PiAiCredentialStore,
   type ProviderAdapter,
@@ -35,6 +36,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
   private readonly events: LLMEventSink;
   private readonly createProviderAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
   private readonly credentialStore: PiAiCredentialStore | undefined;
+  private readonly inputArtifactOwner: InputArtifactOwner | undefined;
   private readonly sdkClientCache = new Map<string, LLMProvider>();
   private readonly auditLogIdMap = new WeakMap<AuditSink, string>();
   private nextAuditLogId = 0;
@@ -51,6 +53,7 @@ export class LLMProviderRuntime implements ProviderRuntime {
     this.events = config.events;
     this.createProviderAdapter = config.createProviderAdapter;
     this.credentialStore = config.credentialStore;
+    this.inputArtifactOwner = config.inputArtifactOwner;
     this.activeConfig = config;
     this.activePrimary = this.getSdkClient(config.primary);
     this.activeFallbacks = (config.fallbacks ?? []).map(provider => this.getSdkClient(provider));
@@ -103,7 +106,10 @@ export class LLMProviderRuntime implements ProviderRuntime {
     if (!this.sdkClientCache.has(key)) {
       const provider = this.createProviderAdapter
         ? (this.createProviderAdapter(config) as LLMProvider)
-        : createLLMProvider(config, { credentialStore: this.credentialStore });
+        : createLLMProvider(config, {
+          credentialStore: this.credentialStore,
+          inputArtifactOwner: this.inputArtifactOwner,
+        });
       this.sdkClientCache.set(key, provider);
       this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
     } else {
