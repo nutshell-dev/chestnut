@@ -8,6 +8,8 @@ import {
   type WatcherErrorContext,
 } from '../../src/foundation/file-watcher/index.js';
 
+const WAIT_FOR_FILE_DEFAULT_POLL_MS = 100; // 未传 pollIntervalMs 时使用固定 100ms 轮询兜底。
+
 interface PathWatcherWaitOptions {
   watcherFactory?: WatcherFactory;
 }
@@ -91,7 +93,7 @@ export async function waitForCompleteFile(
     pollIntervalMs?: number;
   },
 ): Promise<string> {
-  const pollMs = opts?.pollIntervalMs ?? 100;
+  const pollMs = opts?.pollIntervalMs ?? WAIT_FOR_FILE_DEFAULT_POLL_MS;
 
   // initial check
   try {
@@ -322,7 +324,7 @@ export async function waitForAnyFile(
     pollIntervalMs?: number;
   },
 ): Promise<string> {
-  const pollMs = opts?.pollIntervalMs ?? 100;
+  const pollMs = opts?.pollIntervalMs ?? WAIT_FOR_FILE_DEFAULT_POLL_MS;
 
   // initial check
   try {

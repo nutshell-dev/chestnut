@@ -161,13 +161,15 @@ describe('handler-real-abort', () => {
 
     // 反向 1: timeout 后 signal.aborted === true + audit HANDLER_ABORTED context=timeout
     it('timeout 路径真 abort signal + audit HANDLER_ABORTED context=timeout', async () => {
+      const ABORT_TIMEOUT_MS = 50; // 真 abort 场景的 handler 超时预算。
+      const ABORT_TIMEOUT_OVERRUN_MS = 50; // 超时后再推进 50ms，确保 abort 已触发。
       const sink = makeMockSink();
       let capturedSignal: AbortSignal | undefined;
       const job: CronJob = {
         name: 'slow-job',
         enabled: true,
         schedule: { type: 'hourly' },
-        timeoutMs: 50,
+        timeoutMs: ABORT_TIMEOUT_MS,
         handler: async (signal?: AbortSignal) => {
           capturedSignal = signal;
           await new Promise<void>(r => { overTimeoutRelease = r; });  // barrier: outlive timeoutMs
@@ -175,7 +177,7 @@ describe('handler-real-abort', () => {
       };
       const runner = new CronRunner([job], sink);
       runner.tick();
-      await vi.advanceTimersByTimeAsync(100);  // 等 timeout fire
+      await vi.advanceTimersByTimeAsync(ABORT_TIMEOUT_MS + ABORT_TIMEOUT_OVERRUN_MS);  // 等 timeout fire
       expect(capturedSignal?.aborted).toBe(true);
       overTimeoutRelease!();
       expect(
@@ -188,18 +190,20 @@ describe('handler-real-abort', () => {
 
     // 反向 2: Phase 1073 stuck watchdog 只 audit HANDLER_STUCK，不改变互斥状态、不清理 controller
     it('stuck watchdog 路径 audit HANDLER_STUCK + 标记 degraded + 不释放 controller', async () => {
+      const STUCK_ABORT_TIMEOUT_MS = 10; // stuck watchdog 场景的 handler 超时预算。
+      const STUCK_ABORT_TIMEOUT_OVERRUN_MS = 90; // 超时后再推进 90ms，确保 abort 已触发。
       const sink = makeMockSink();
       const job: CronJob = {
         name: 'stuck-job',
         enabled: true,
         schedule: { type: 'hourly' },
-        timeoutMs: 10,
+        timeoutMs: STUCK_ABORT_TIMEOUT_MS,
         handler: async () => new Promise(() => {}),  // 永不 settle
       };
       const runner = new CronRunner([job], sink);
       runner.tick();
       // 等 timeout fire
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(STUCK_ABORT_TIMEOUT_MS + STUCK_ABORT_TIMEOUT_OVERRUN_MS);
       // 模拟 10+ ticks stuck 后 watchdog
       for (let i = 0; i < 12; i++) runner.tick();
       const stuckEvents = sink.events.filter(
@@ -216,20 +220,23 @@ describe('handler-real-abort', () => {
 
     // 反向 3: late settle 后 controller map 清干净
     it('late settle 路径 controller cleanup (no leak)', async () => {
+      const LATE_SETTLE_ABORT_TIMEOUT_MS = 10; // late-settle 场景的 handler 超时预算。
+      const LATE_SETTLE_ABORT_TIMEOUT_OVERRUN_MS = 90; // 超时后再推进 90ms，确保 abort 已触发。
+      const LATE_SETTLE_CLEANUP_ADVANCE_MS = 50; // late settle 后推进 50ms，等待 controller 清理。
       const sink = makeMockSink();
       let resolveHandler: () => void = () => {};
       const job: CronJob = {
         name: 'late-job',
         enabled: true,
         schedule: { type: 'hourly' },
-        timeoutMs: 10,
+        timeoutMs: LATE_SETTLE_ABORT_TIMEOUT_MS,
         handler: () => new Promise<void>(r => { resolveHandler = r; }),
       };
       const runner = new CronRunner([job], sink);
       runner.tick();
-      await vi.advanceTimersByTimeAsync(100);  // timeout fire
+      await vi.advanceTimersByTimeAsync(LATE_SETTLE_ABORT_TIMEOUT_MS + LATE_SETTLE_ABORT_TIMEOUT_OVERRUN_MS);  // timeout fire
       resolveHandler();  // late settle
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(LATE_SETTLE_CLEANUP_ADVANCE_MS);
       // controller map, cancelling, cancellingTicks all cleaned
       expect((runner as any)._activeAbortControllers.has('late-job')).toBe(false);
       expect((runner as any).cancelling.has('late-job')).toBe(false);
@@ -243,6 +250,7 @@ describe('handler-real-abort', () => {
 
     // 反向 4: normal complete 后 controller map 清干净
     it('normal complete 路径 controller cleanup (no leak)', async () => {
+      const NORMAL_COMPLETION_ADVANCE_MS = 50; // 推进 50ms，等待正常完成后的 controller 清理。
       const sink = makeMockSink();
       let handlerRan = false;
       const job: CronJob = {
@@ -257,7 +265,7 @@ describe('handler-real-abort', () => {
       const runner = new CronRunner([job], sink);
       runner.tick();
       fastHandlerRelease!();
-      await vi.advanceTimersByTimeAsync(50);  // 等 handler 完成
+      await vi.advanceTimersByTimeAsync(NORMAL_COMPLETION_ADVANCE_MS);  // 等 handler 完成
       expect(handlerRan).toBe(true);
       expect((runner as any)._activeAbortControllers.has('fast-job')).toBe(false);
       expect((runner as any).running.has('fast-job')).toBe(false);

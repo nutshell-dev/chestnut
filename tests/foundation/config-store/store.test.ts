@@ -304,7 +304,7 @@ describe('config-store: writeYamlConfigExclusive (Phase 1910 Step D)', () => {
 });
 
 describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
-  const FAST = { acquireTimeoutMs: 500, staleMs: 5_000, pollMs: 10 } as const;
+  const MUTATION_LOCK_TEST_OPTIONS = { acquireTimeoutMs: 500, staleMs: 5_000, pollMs: 10 } as const; // mutation 测试使用短获取超时与 5s stale 窗口。
 
   it('锁内 read→patch→write 串行化：并发两 mutation 不同字段都落盘', async () => {
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
@@ -312,10 +312,10 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
     await Promise.all([
       withYamlConfigLock({ fsFactory }, configPath, () => {
         patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.fieldA = 1; });
-      }, FAST),
+      }, MUTATION_LOCK_TEST_OPTIONS),
       withYamlConfigLock({ fsFactory }, configPath, () => {
         patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.fieldB = 2; });
-      }, FAST),
+      }, MUTATION_LOCK_TEST_OPTIONS),
     ]);
 
     const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
@@ -332,7 +332,7 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
     await expect(
       withYamlConfigLock({ fsFactory }, configPath, () => {
         patchYamlConfig({ fsFactory }, configPath, () => { throw boom; });
-      }, FAST),
+      }, MUTATION_LOCK_TEST_OPTIONS),
     ).rejects.toBe(boom);
 
     expect(fs.existsSync(`${configPath}.lock`)).toBe(false);
@@ -341,6 +341,7 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
   });
 
   it('新鲜 lock 被他人持有 → typed lock_timeout，不覆盖 config', async () => {
+    const FRESH_HOLDER_LOCK_TEST_OPTIONS = { acquireTimeoutMs: 200, staleMs: 60_000, pollMs: 10 } as const; // 新鲜 holder 在 60s stale 窗口内不得被夺锁。
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
     fs.writeFileSync(
       `${configPath}.lock`,
@@ -351,7 +352,7 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
     try {
       await withYamlConfigLock({ fsFactory }, configPath, () => {
         patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.x = 1; });
-      }, { acquireTimeoutMs: 200, staleMs: 60_000, pollMs: 10 });
+      }, FRESH_HOLDER_LOCK_TEST_OPTIONS);
     } catch (err) {
       caught = err;
     }
@@ -362,15 +363,16 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
   });
 
   it('过期 lock（holder 崩溃残留）被回收，mutation 正常提交', async () => {
+    const EXPIRED_LOCK_AGE_MS = 60_000; // 60s lock 年龄超过 mutation 测试的 5s stale 窗口。
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
     fs.writeFileSync(
       `${configPath}.lock`,
-      JSON.stringify({ pid: 99999, createdAt: new Date(Date.now() - 60_000).toISOString() }),
+      JSON.stringify({ pid: 99999, createdAt: new Date(Date.now() - EXPIRED_LOCK_AGE_MS).toISOString() }),
     );
 
     await withYamlConfigLock({ fsFactory }, configPath, () => {
       patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recovered = true; });
-    }, FAST);
+    }, MUTATION_LOCK_TEST_OPTIONS);
 
     const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
     expect(raw.recovered).toBe(true);
@@ -378,13 +380,14 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
   });
 
   it('半写 lock（O_EXCL 发布窗口）视为持有中，不提前打破', async () => {
+    const MALFORMED_LOCK_TEST_OPTIONS = { acquireTimeoutMs: 200, staleMs: 60_000, pollMs: 10 } as const; // 半写 lock 在 60s stale 窗口内按持有中处理。
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
     fs.writeFileSync(`${configPath}.lock`, ''); // 半写空内容
 
     let caught: unknown;
     try {
       await withYamlConfigLock({ fsFactory }, configPath, () => { /* no-op */ },
-        { acquireTimeoutMs: 200, staleMs: 60_000, pollMs: 10 });
+        MALFORMED_LOCK_TEST_OPTIONS);
     } catch (err) {
       caught = err;
     }
@@ -394,8 +397,9 @@ describe('config-store: withYamlConfigLock (Phase 1910 Step D)', () => {
 });
 
 describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => {
-  const FAST = { acquireTimeoutMs: 400, staleMs: 100, pollMs: 10 } as const;
-  const OLD = new Date(Date.now() - 120_000).toISOString();
+  const LIVENESS_LOCK_TEST_OPTIONS = { acquireTimeoutMs: 400, staleMs: 100, pollMs: 10 } as const; // liveness 测试用 100ms stale 窗口触发活性探测。
+  const LIVENESS_LOCK_AGE_MS = 120_000; // 120s lock 年龄确保超过 100ms stale 窗口。
+  const OLD = new Date(Date.now() - LIVENESS_LOCK_AGE_MS).toISOString();
 
   it('活 holder 超过 stale 窗口仍不被夺锁（时间只触发探测）', async () => {
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
@@ -411,7 +415,7 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
     try {
       await withYamlConfigLock({ fsFactory }, configPath, () => {
         patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.x = 1; });
-      }, FAST);
+      }, LIVENESS_LOCK_TEST_OPTIONS);
     } catch (err) {
       caught = err;
     }
@@ -434,7 +438,7 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
 
     await withYamlConfigLock({ fsFactory }, configPath, () => {
       patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recovered = true; });
-    }, FAST);
+    }, LIVENESS_LOCK_TEST_OPTIONS);
 
     const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
     expect(raw.recovered).toBe(true);
@@ -461,7 +465,7 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
       await withYamlConfigLock({ fsFactory }, configPath, () => {
         calls += 1;
         patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.recycled = true; });
-      }, FAST);
+      }, LIVENESS_LOCK_TEST_OPTIONS);
     } catch (err) {
       caught = err;
     }
@@ -486,6 +490,7 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
   });
 
   it('lock 读错误（EISDIR）不删除、不进入 mutation，typed lock_timeout', async () => {
+    const UNREADABLE_LOCK_TEST_OPTIONS = { acquireTimeoutMs: 200, staleMs: 50, pollMs: 10 } as const; // 不可读 lock 使用独立短 stale 窗口触发保守超时。
     writeYamlConfig({ fsFactory }, configPath, { name: 'base' });
     fs.mkdirSync(`${configPath}.lock`); // 读 lock 必失败（EISDIR）
 
@@ -493,7 +498,7 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
     try {
       await withYamlConfigLock({ fsFactory }, configPath, () => {
         patchYamlConfig({ fsFactory }, configPath, (cfg) => { cfg.x = 1; });
-      }, { acquireTimeoutMs: 200, staleMs: 50, pollMs: 10 });
+      }, UNREADABLE_LOCK_TEST_OPTIONS);
     } catch (err) {
       caught = err;
     }
@@ -519,7 +524,7 @@ describe('config-store: withYamlConfigLock liveness (Phase 1911 Step C)', () => 
         // 模拟 mutation 期间锁被替换（协议外干预）
         fs.rmSync(`${configPath}.lock`, { force: true });
         fs.writeFileSync(`${configPath}.lock`, replacement);
-      }, FAST);
+      }, LIVENESS_LOCK_TEST_OPTIONS);
     } catch (err) {
       caught = err;
     }

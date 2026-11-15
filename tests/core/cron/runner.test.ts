@@ -8,6 +8,7 @@ import {
   type CronJob,
   type CronEventSink,
 } from '../../../src/foundation/cron/runner.js';
+import { CRON_TICK_INTERVAL_MS } from '../../../src/foundation/cron/index.js';
 
 // mock helper
 function makeMockSink(): CronEventSink {
@@ -76,12 +77,13 @@ describe('CronRunner', () => {
   });
 
   it('createCronRunner 工厂内自动 start（phase 1445 Step D 裁定②：调用方不再显式 start）', () => {
+    const FACTORY_TICK_INTERVAL_MS = 10; // 工厂显式传入 10ms tick，spy 观察同一配置值。
     const setIntervalSpy = vi.spyOn(global, 'setInterval');
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
-    const runner = createCronRunner([job], sink, 10);
+    const runner = createCronRunner([job], sink, FACTORY_TICK_INTERVAL_MS);
     // tickMs 经工厂参数透传到 start
     expect(setIntervalSpy).toHaveBeenCalledTimes(1);
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 10);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), FACTORY_TICK_INTERVAL_MS);
     expect(sink.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.RUNNER_STARTED, 'jobs=1');
     runner.stop();
   });
@@ -90,7 +92,7 @@ describe('CronRunner', () => {
     const setIntervalSpy = vi.spyOn(global, 'setInterval');
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
     const runner = createCronRunner([job], sink);
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), CRON_TICK_INTERVAL_MS);
     runner.stop();
   });
 
@@ -128,7 +130,7 @@ describe('CronRunner', () => {
     const runner = new CronRunner([job], sink);
     runner.start();
     runner.stop();
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(5 * CRON_TICK_INTERVAL_MS);
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -218,8 +220,9 @@ describe('CronRunner', () => {
   });
 
   it('computeRunKey: interval block', async () => {
+    const INTERVAL_BLOCK_MS = 30 * 60 * 1000; // 30 分钟 interval block 的毫秒预算。
     const handler = vi.fn().mockResolvedValue(undefined);
-    const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'interval', ms: 30 * 60 * 1000 }, handler };
+    const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'interval', ms: INTERVAL_BLOCK_MS }, handler };
     const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
@@ -232,20 +235,22 @@ describe('CronRunner', () => {
   });
 
   it('handler timeout 后 background settle → emit JOB_LATE_SETTLED 含 job + run_key + late_settle_ms', async () => {
+    const LATE_SETTLE_TIMEOUT_MS = 100; // late-settle 场景的 handler 超时预算。
+    const LATE_SETTLE_ADVANCE_MS = LATE_SETTLE_TIMEOUT_MS + 1; // 越过超时 1ms 以触发 watchdog。
     let resolveHandler: () => void;
     const handler = vi.fn(() => new Promise<void>((r) => { resolveHandler = r; }));
-    const job: CronJob = { name: 'slow', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: 100 };
+    const job: CronJob = { name: 'slow', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: LATE_SETTLE_TIMEOUT_MS };
     const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
 
     // advance  past timeout → HANDLER_TIMEOUT
-    vi.advanceTimersByTime(101);
+    vi.advanceTimersByTime(LATE_SETTLE_ADVANCE_MS);
     expect(sink.write).toHaveBeenCalledWith(
       CRON_AUDIT_EVENTS.HANDLER_TIMEOUT,
       'job=slow',
       expect.stringContaining('run_key='),
-      'timeout_ms=100',
+      `timeout_ms=${LATE_SETTLE_TIMEOUT_MS}`,
     );
 
     // background settle → JOB_LATE_SETTLED
@@ -262,13 +267,15 @@ describe('CronRunner', () => {
   });
 
   it('handler timeout 后 background error → emit JOB_ERROR context=late_after_timeout', async () => {
+    const LATE_ERROR_TIMEOUT_MS = 100; // late-error 场景的 handler 超时预算。
+    const LATE_ERROR_ADVANCE_MS = LATE_ERROR_TIMEOUT_MS + 1; // 越过超时 1ms 以触发 watchdog。
     let rejectHandler: (e: Error) => void;
     const handler = vi.fn(() => new Promise<void>((_, r) => { rejectHandler = r; }));
-    const job: CronJob = { name: 'failing-late', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: 100 };
+    const job: CronJob = { name: 'failing-late', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: LATE_ERROR_TIMEOUT_MS };
     const runner = new CronRunner([job], sink);
     runner.tick();
 
-    vi.advanceTimersByTime(101);
+    vi.advanceTimersByTime(LATE_ERROR_ADVANCE_MS);
     rejectHandler!(new Error('late boom'));
     await vi.runAllTicks();
 

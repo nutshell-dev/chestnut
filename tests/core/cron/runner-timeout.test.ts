@@ -27,26 +27,28 @@ describe('CronRunner timeout escalation', () => {
   });
 
   it('handler 永挂 → timeout escalate + running 清 + cancelling 置 / 下 tick 被防御跳过', async () => {
+    const HANG_HANDLER_TIMEOUT_MS = 100; // 永挂 handler 的显式超时预算。
+    const HANG_TIMEOUT_OVERRUN_MS = 50; // 超时后再推进 50ms，确保 escalation 完成。
     const handler = vi.fn(() => new Promise<void>(() => {}));
     const job: CronJob = {
       name: 'hang',
       enabled: true,
       schedule: { type: 'hourly' },
       handler,
-      timeoutMs: 100,
+      timeoutMs: HANG_HANDLER_TIMEOUT_MS,
     };
     const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
     expect((runner as unknown as { running: Set<string> }).running.has('hang')).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(HANG_HANDLER_TIMEOUT_MS + HANG_TIMEOUT_OVERRUN_MS);
 
     expect(sink.write).toHaveBeenCalledWith(
       'cron_handler_timeout',
       'job=hang',
       expect.stringContaining('run_key='),
-      'timeout_ms=100',
+      `timeout_ms=${HANG_HANDLER_TIMEOUT_MS}`,
     );
     expect((runner as unknown as { running: Set<string> }).running.has('hang')).toBe(false);
     expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('hang')).toBe(true);
@@ -58,6 +60,8 @@ describe('CronRunner timeout escalation', () => {
   });
 
   it('handler 正常 settle 不误杀', async () => {
+    const SETTLING_HANDLER_TIMEOUT_MS = 200; // 正常 settle 场景的宽松超时预算。
+    const SETTLING_ADVANCE_MS = 100; // 在 200ms 超时前推进 100ms，验证不误杀。
     const handler = vi.fn(async () => {
       await new Promise<void>(r => { handlerRelease = r; });
     });
@@ -66,12 +70,12 @@ describe('CronRunner timeout escalation', () => {
       enabled: true,
       schedule: { type: 'hourly' },
       handler,
-      timeoutMs: 200,
+      timeoutMs: SETTLING_HANDLER_TIMEOUT_MS,
     };
     const runner = new CronRunner([job], sink);
     runner.tick();
     handlerRelease!();
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(SETTLING_ADVANCE_MS);
 
     expect(sink.write).not.toHaveBeenCalledWith(
       expect.anything(),
@@ -83,6 +87,8 @@ describe('CronRunner timeout escalation', () => {
   });
 
   it('handler 正常 throw 走 JOB_ERROR 路径', async () => {
+    const THROWING_HANDLER_TIMEOUT_MS = 200; // 正常 throw 场景的显式超时预算。
+    const THROWING_ADVANCE_MS = 50; // 在超时前推进 50ms，让 JOB_ERROR 路径完成。
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const handler = vi.fn(async () => {
       throw new Error('test');
@@ -92,11 +98,11 @@ describe('CronRunner timeout escalation', () => {
       enabled: true,
       schedule: { type: 'hourly' },
       handler,
-      timeoutMs: 200,
+      timeoutMs: THROWING_HANDLER_TIMEOUT_MS,
     };
     const runner = new CronRunner([job], sink);
     runner.tick();
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(THROWING_ADVANCE_MS);
 
     expect(sink.write).toHaveBeenCalledWith(
       CRON_AUDIT_EVENTS.JOB_ERROR,
@@ -113,6 +119,8 @@ describe('CronRunner timeout escalation', () => {
   });
 
   it('undefined timeoutMs 走原路径 regression', async () => {
+    const UNDEFINED_REGRESSION_ADVANCE_MS = 10; // 推进 10ms，足以暴露 setTimeout(undefined) 的误触发。
+    const LEGACY_POST_SETTLE_ADVANCE_MS = 100; // 再推进 100ms，等待 legacy handler 完成清理。
     const handler = vi.fn(async () => {
       await new Promise<void>(r => { handlerRelease = r; });
     });
@@ -128,32 +136,34 @@ describe('CronRunner timeout escalation', () => {
     handlerRelease!();
 
     // 若误走 race 路径，setTimeout(undefined) → 0ms 立即触发 timeout audit
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(UNDEFINED_REGRESSION_ADVANCE_MS);
     const timeoutCalls = sink.write.mock.calls.filter(
       (c: unknown[]) => c[0] === 'cron_handler_timeout'
     );
     expect(timeoutCalls).toHaveLength(0);
 
     // 等 handler 完成
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(LEGACY_POST_SETTLE_ADVANCE_MS);
     expect(handler).toHaveBeenCalledTimes(1);
     expect((runner as unknown as { running: Set<string> }).running.has('legacy')).toBe(false);
   });
 
   it('timeout 后下 tick 不并发再起（cancelling 防御）', async () => {
+    const CANCELLING_HANDLER_TIMEOUT_MS = 100; // cancelling 防御场景的 handler 超时预算。
+    const CANCELLING_TIMEOUT_OVERRUN_MS = 50; // 超时后再推进 50ms，确保进入 cancelling。
     const handler = vi.fn(() => new Promise<void>(() => {}));   // 永挂
     const job: CronJob = {
       name: 'hang',
       enabled: true,
       schedule: { type: 'hourly' },
       handler,
-      timeoutMs: 100,
+      timeoutMs: CANCELLING_HANDLER_TIMEOUT_MS,
     };
     const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(CANCELLING_HANDLER_TIMEOUT_MS + CANCELLING_TIMEOUT_OVERRUN_MS);
     // timeout 已发 / running 清 / cancelling 置
     expect((runner as unknown as { running: Set<string> }).running.has('hang')).toBe(false);
     expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('hang')).toBe(true);
@@ -165,6 +175,8 @@ describe('CronRunner timeout escalation', () => {
   });
 
   it('timeout 后 handler late reject 必 audit context=late_after_timeout', async () => {
+    const LATE_REJECT_HANDLER_TIMEOUT_MS = 100; // late-reject 场景的 handler 超时预算。
+    const LATE_REJECT_TIMEOUT_OVERRUN_MS = 50; // 超时后再推进 50ms，确保进入 late 状态。
     let rejectFn: (e: Error) => void = () => {};
     const handler = vi.fn(() => new Promise<void>((_, reject) => { rejectFn = reject; }));
     const job: CronJob = {
@@ -172,13 +184,13 @@ describe('CronRunner timeout escalation', () => {
       enabled: true,
       schedule: { type: 'hourly' },
       handler,
-      timeoutMs: 100,
+      timeoutMs: LATE_REJECT_HANDLER_TIMEOUT_MS,
     };
     const runner = new CronRunner([job], sink);
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     runner.tick();
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(LATE_REJECT_HANDLER_TIMEOUT_MS + LATE_REJECT_TIMEOUT_OVERRUN_MS);
     // 此时 timeout 已发 / handler 仍未 settle
     expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('late-rej')).toBe(true);
 

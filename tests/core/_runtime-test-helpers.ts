@@ -6,6 +6,8 @@ import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
+const TEST_LLM_RETRY_DELAY_MS = 100; // mock LLM 重试使用固定 100ms 测试间隔。
+
 /**
  * Convert LLMResponse to stream chunks for mock
  */
@@ -62,7 +64,7 @@ export function createMockLLMConfig(): LLMOrchestratorConfig {
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,
-    retryDelayMs: 100,
+    retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
   };
 }
 

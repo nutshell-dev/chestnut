@@ -12,8 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
 import { CronRunner } from '../../../src/foundation/cron/runner.js';
 import type { CronJob, CronEventSink } from '../../../src/foundation/cron/runner.js';
-import { CRON_TICK_INTERVAL_MS } from '../../../src/foundation/cron/constants.js';
-import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+import { CRON_TICK_INTERVAL_MS } from '../../../src/foundation/cron/index.js';
 
 describe('runner-stop-drain', () => {
   // mock helper
@@ -30,11 +29,14 @@ describe('runner-stop-drain', () => {
     });
 
     it('drains inflight handlers before resolving stop', async () => {
+      const HANDLER_DELAY_MS = 200; // handler 在 200ms 后完成。
+      const STOP_DRAIN_CAP_MS = 1000; // 1s drain cap 大于 handler 的 200ms 延迟。
+      const DRAIN_ADVANCE_MS = 250; // 越过 handler 延迟，让 stop 正常完成。
       let handlerResolved = false;
       const slowHandler = () => new Promise<void>(resolve => setTimeout(() => {
         handlerResolved = true;
         resolve();
-      }, 200));
+      }, HANDLER_DELAY_MS));
 
       const sink = makeMockSink();
       const runner = new CronRunner([{
@@ -47,14 +49,16 @@ describe('runner-stop-drain', () => {
       runner.tick();  // 触发 schedule slowHandler
 
       // stop 应等 handler settle
-      const stopPromise = runner.stop(1000);   // cap 1s > handler 200ms
-      await vi.advanceTimersByTimeAsync(250);
+      const stopPromise = runner.stop(STOP_DRAIN_CAP_MS);   // cap 1s > handler 200ms
+      await vi.advanceTimersByTimeAsync(DRAIN_ADVANCE_MS);
       await stopPromise;
 
       expect(handlerResolved).toBe(true);
     });
 
     it('drains with cap timeout when handler exceeds cap', async () => {
+      const STOP_DRAIN_CAP_MS = 100; // 永挂 handler 的 drain cap。
+      const DRAIN_ADVANCE_MS = 150; // 越过 100ms cap，触发 drain timeout。
       const hangingHandler = () => new Promise<void>(() => { /* never resolve */ });
 
       const sink = makeMockSink();
@@ -67,8 +71,8 @@ describe('runner-stop-drain', () => {
       runner.start();
       runner.tick();
 
-      const stopPromise = runner.stop(100);   // cap 100ms
-      await vi.advanceTimersByTimeAsync(150);
+      const stopPromise = runner.stop(STOP_DRAIN_CAP_MS);   // cap 100ms
+      await vi.advanceTimersByTimeAsync(DRAIN_ADVANCE_MS);
       await stopPromise;
 
       // 期 sink RUNNER_DRAIN_TIMEOUT 写
@@ -95,6 +99,7 @@ describe('runner-stop-drain-timer-cleanup', () => {
     });
 
     it('drain-success path clears setTimeout handle (no leak)', async () => {
+      const STOP_DRAIN_CAP_MS = 30_000; // 快速 settle 场景保留 30s drain cap。
       const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'quick',
@@ -109,7 +114,7 @@ describe('runner-stop-drain-timer-cleanup', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      const stopPromise = runner.stop(30_000);
+      const stopPromise = runner.stop(STOP_DRAIN_CAP_MS);
       await vi.advanceTimersByTimeAsync(0); // drainPromise settles
       await stopPromise;
 
@@ -118,6 +123,7 @@ describe('runner-stop-drain-timer-cleanup', () => {
     });
 
     it('drain-timeout path still emits audit + clears timer', async () => {
+      const DRAIN_TIMEOUT_MS = 100; // stop cap 与推进同值，精确触发 timeout 清理路径。
       const hangingHandler = () => new Promise<void>(() => { /* never resolve */ });
 
       const sink = makeMockSink();
@@ -131,8 +137,8 @@ describe('runner-stop-drain-timer-cleanup', () => {
       runner.start();
       runner.tick();
 
-      const stopPromise = runner.stop(100);
-      await vi.advanceTimersByTimeAsync(100);
+      const stopPromise = runner.stop(DRAIN_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS);
       await stopPromise;
 
       // Verify RUNNER_DRAIN_TIMEOUT audit was emitted
@@ -145,6 +151,7 @@ describe('runner-stop-drain-timer-cleanup', () => {
     });
 
     it('no inflight handlers — drain block skipped, no timer created', async () => {
+      const STOP_DRAIN_CAP_MS = 30_000; // 无 inflight 时 cap 不参与等待，保留原调用预算。
       const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'idle',
@@ -154,7 +161,7 @@ describe('runner-stop-drain-timer-cleanup', () => {
       }], sink);
 
       // Never tick = no inflight handlers
-      await runner.stop(30_000);
+      await runner.stop(STOP_DRAIN_CAP_MS);
 
       // Verify: no timers were ever created in drain block
       expect(vi.getTimerCount()).toBe(0);
@@ -177,6 +184,7 @@ describe('runner-drain-late-settle', () => {
       vi.useRealTimers();
     });
     it('emits RUNNER_DRAIN_LATE_SETTLE settled when stuck handler eventually resolves', async () => {
+      const DRAIN_TIMEOUT_MS = 100; // stop cap 与推进同值，先触发 drain timeout。
       let resolveHandler!: () => void;
       const handlerPromise = new Promise<void>(resolve => { resolveHandler = resolve; });
 
@@ -192,9 +200,9 @@ describe('runner-drain-late-settle', () => {
       runner.tick();
 
       // Stop with 100ms drain cap
-      const stopPromise = runner.stop(100);
+      const stopPromise = runner.stop(DRAIN_TIMEOUT_MS);
       // Drain timeout fires
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS);
       await stopPromise;
 
       // Verify RUNNER_DRAIN_TIMEOUT was emitted
@@ -215,6 +223,7 @@ describe('runner-drain-late-settle', () => {
     });
 
     it('emits RUNNER_DRAIN_LATE_SETTLE err when stuck handler eventually rejects', async () => {
+      const DRAIN_TIMEOUT_MS = 100; // stop cap 与推进同值，先触发 drain timeout。
       let rejectHandler!: (err: Error) => void;
       const handlerPromise = new Promise<void>((_, reject) => { rejectHandler = reject; });
 
@@ -229,8 +238,8 @@ describe('runner-drain-late-settle', () => {
       runner.start();
       runner.tick();
 
-      const stopPromise = runner.stop(100);
-      await vi.advanceTimersByTimeAsync(100);
+      const stopPromise = runner.stop(DRAIN_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS);
       await stopPromise;
 
       rejectHandler(new Error('late fail'));
@@ -261,6 +270,10 @@ describe('runner-abort-signal', () => {
     });
 
     it('stop() abort signal → handler signal.aborted = true', async () => {
+      const TICK_INTERVAL_MS = 10; // 显式短 tick 用于启动 handler。
+      const HANDLER_START_ADVANCE_MS = 50; // 推进多个 tick，确保 handler 已启动。
+      const STOP_DRAIN_CAP_MS = 100; // stop 的 drain cap。
+      const DRAIN_ADVANCE_MS = 150; // 越过 100ms cap，验证 abort 后的超时路径。
       const observed: { aborted: boolean | null } = { aborted: null };
       let handlerPromiseResolve: (() => void) | undefined;
       const handlerPromise = new Promise<void>(resolve => {
@@ -286,23 +299,27 @@ describe('runner-abort-signal', () => {
 
       const sink = makeMockSink();
       const runner = new CronRunner([job], sink);
-      runner.start(10);
+      runner.start(TICK_INTERVAL_MS);
 
       // advance timers to fire tick → handler start
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(HANDLER_START_ADVANCE_MS);
 
       await handlerInvoked;
       expect(observed.aborted).toBe(false);
 
       // stop → abort signal 应触发
-      const stopPromise = runner.stop(100);  // cap 100ms
-      await vi.advanceTimersByTimeAsync(150); // advance past cap
+      const stopPromise = runner.stop(STOP_DRAIN_CAP_MS);  // cap 100ms
+      await vi.advanceTimersByTimeAsync(DRAIN_ADVANCE_MS); // advance past cap
       handlerPromiseResolve!(); // unblock handler
       await stopPromise;
       expect(observed.aborted).toBe(true);
     });
 
     it('stop() drain 实际 < cap timeout（signal aborted → handler early settle）', async () => {
+      const BLOCKING_HANDLER_DELAY_MS = 30_000; // 不配合 abort 时会阻塞 30s。
+      const TICK_INTERVAL_MS = 10; // 显式短 tick 用于启动 handler。
+      const HANDLER_START_ADVANCE_MS = 50; // 推进多个 tick，确保 handler 已启动。
+      const STOP_DRAIN_CAP_MS = 30_000; // early abort 应远早于此 30s cap 完成。
       // mock handler that respects signal early abort
       let started = false;
       // phase 373: handler 内 set started 后立 resolve、替原 vi.waitFor polling
@@ -317,20 +334,20 @@ describe('runner-abort-signal', () => {
           startedResolve();
           await new Promise<void>((resolve, reject) => {
             signal?.addEventListener('abort', () => reject(new Error('aborted')));
-            setTimeout(resolve, 30_000);  // would block 30s
+            setTimeout(resolve, BLOCKING_HANDLER_DELAY_MS);  // would block 30s
           });
         },
       };
       const sink = makeMockSink();
       const runner = new CronRunner([job], sink);
-      runner.start(10);
+      runner.start(TICK_INTERVAL_MS);
 
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(HANDLER_START_ADVANCE_MS);
       await startedP;
 
       // 用 fake elapsed（advance 累计）替 wall-clock Date.now() 计算
       const startFakeMs = vi.getMockedSystemTime()?.getTime() ?? 0;
-      await runner.stop(30_000);  // cap 30s
+      await runner.stop(STOP_DRAIN_CAP_MS);  // cap 30s
       const endFakeMs = vi.getMockedSystemTime()?.getTime() ?? 0;
       const fakeElapsed = endFakeMs - startFakeMs;
 
@@ -338,6 +355,9 @@ describe('runner-abort-signal', () => {
     });
 
     it('backward compat: handler 不接 signal 0 break', async () => {
+      const TICK_INTERVAL_MS = 10; // 显式短 tick 用于启动 legacy handler。
+      const HANDLER_START_ADVANCE_MS = 50; // 推进多个 tick，确保 handler 已启动。
+      const STOP_DRAIN_CAP_MS = 100; // legacy handler 已完成后的 stop drain cap。
       let ran = false;
       // phase 373: handler 内 set ran 后立 resolve、替原 vi.waitFor polling
       let ranResolve!: () => void;
@@ -353,11 +373,11 @@ describe('runner-abort-signal', () => {
       };
       const sink = makeMockSink();
       const runner = new CronRunner([job], sink);
-      runner.start(10);
+      runner.start(TICK_INTERVAL_MS);
 
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(HANDLER_START_ADVANCE_MS);
       await ranP;
-      await runner.stop(100);
+      await runner.stop(STOP_DRAIN_CAP_MS);
       expect(ran).toBe(true);
     });
   });
@@ -382,6 +402,8 @@ describe('runner-handler-stuck', () => {
     });
 
     it('handler 永挂 + timeout + N ticks 后 audit HANDLER_STUCK 并标记 degraded，cancelling 继续阻塞同名 job', async () => {
+      const STUCK_HANDLER_TIMEOUT_MS = 100; // stuck watchdog 场景的 handler 超时预算。
+      const STUCK_TIMEOUT_ADVANCE_MS = 150; // 越过 100ms timeout，进入 cancelling。
       const sink = new MockAudit();
       const stuckHandler = vi.fn(() => new Promise<void>(() => {})); // 永挂
       const job: CronJob = {
@@ -389,12 +411,12 @@ describe('runner-handler-stuck', () => {
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: stuckHandler,
-        timeoutMs: 100,
+        timeoutMs: STUCK_HANDLER_TIMEOUT_MS,
       };
       const runner = new CronRunner([job], sink);
 
       runner.tick(); // 触发 handler 执行
-      await vi.advanceTimersByTimeAsync(150); // timeoutMs 100 触发
+      await vi.advanceTimersByTimeAsync(STUCK_TIMEOUT_ADVANCE_MS); // timeoutMs 100 触发
 
       // 此时 cancelling 含 stuck-job / cancellingTicks=0
       expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('stuck-job')).toBe(true);
@@ -421,6 +443,8 @@ describe('runner-handler-stuck', () => {
     });
 
     it('handler 正常 settle 不触发 stuck watchdog', async () => {
+      const SETTLING_HANDLER_TIMEOUT_MS = 1000; // 本测试使用 1s handler 超时预算。
+      const SETTLING_ADVANCE_MS = 50; // 远早于 1s timeout，handler 已正常 settle。
       const sink = new MockAudit();
       const okHandler = vi.fn(async () => {});
       const job: CronJob = {
@@ -428,12 +452,12 @@ describe('runner-handler-stuck', () => {
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: okHandler,
-        timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
+        timeoutMs: SETTLING_HANDLER_TIMEOUT_MS,
       };
       const runner = new CronRunner([job], sink);
 
       runner.tick();
-      await vi.advanceTimersByTimeAsync(50); // 远未到 timeoutMs，handler 已 settle
+      await vi.advanceTimersByTimeAsync(SETTLING_ADVANCE_MS); // 远未到 timeoutMs，handler 已 settle
 
       // 多次 tick / handler 已 settle / cancelling 0 / 永不入 stuck watchdog
       for (let i = 0; i < 15; i++) runner.tick();
@@ -441,6 +465,8 @@ describe('runner-handler-stuck', () => {
     });
 
     it('handler late-settle 在 stuck audit 之前 不触发 stuck', async () => {
+      const LATE_SETTLE_HANDLER_TIMEOUT_MS = 100; // stuck 前 late-settle 的超时预算。
+      const LATE_SETTLE_TIMEOUT_ADVANCE_MS = 150; // 越过 100ms timeout，进入 cancelling。
       let resolveFn: () => void = () => {};
       const sink = new MockAudit();
       const lateHandler = vi.fn(() => new Promise<void>((r) => { resolveFn = r; }));
@@ -449,12 +475,12 @@ describe('runner-handler-stuck', () => {
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: lateHandler,
-        timeoutMs: 100,
+        timeoutMs: LATE_SETTLE_HANDLER_TIMEOUT_MS,
       };
       const runner = new CronRunner([job], sink);
 
       runner.tick();
-      await vi.advanceTimersByTimeAsync(150); // timeout 触发
+      await vi.advanceTimersByTimeAsync(LATE_SETTLE_TIMEOUT_ADVANCE_MS); // timeout 触发
       expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('late-job')).toBe(true);
 
       // 8 次 tick（ticks 累计到 8，未满 10）
@@ -477,6 +503,8 @@ describe('runner-handler-stuck', () => {
     });
 
     it('handler late-settle 在 stuck audit 之后 清除 stuckJobs 并允许再次调度', async () => {
+      const RECOVERY_HANDLER_TIMEOUT_MS = 100; // stuck 后恢复场景的 handler 超时预算。
+      const RECOVERY_TIMEOUT_ADVANCE_MS = 150; // 越过 100ms timeout，进入 cancelling。
       let resolveFn: () => void = () => {};
       const sink = new MockAudit();
       const lateHandler = vi.fn(() => new Promise<void>((r) => { resolveFn = r; }));
@@ -485,12 +513,12 @@ describe('runner-handler-stuck', () => {
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: lateHandler,
-        timeoutMs: 100,
+        timeoutMs: RECOVERY_HANDLER_TIMEOUT_MS,
       };
       const runner = new CronRunner([job], sink);
 
       runner.tick();
-      await vi.advanceTimersByTimeAsync(150); // timeout 触发
+      await vi.advanceTimersByTimeAsync(RECOVERY_TIMEOUT_ADVANCE_MS); // timeout 触发
 
       // 12 次 tick 触发 HANDLER_STUCK + stuckJobs
       for (let i = 0; i < 12; i++) {

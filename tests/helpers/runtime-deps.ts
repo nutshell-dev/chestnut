@@ -30,6 +30,8 @@ import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 
 const TEST_CLAW_ID = 'test-claw';
+const TEST_LLM_RETRY_DELAY_MS = 100; // mock LLM 重试使用固定 100ms 测试间隔。
+const TEST_TOOL_TIMEOUT_MS = 60_000; // 测试工具执行使用固定 60s 超时预算。
 
 interface MakeRuntimeDepsInput {
   clawId?: string;
@@ -57,7 +59,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     ...(input.llmConfig ?? {
     primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' },
     maxAttempts: 1,
-    retryDelayMs: 100,
+    retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
     events: { emit: () => {} },
     }),
   });
@@ -81,7 +83,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     auditWriter, llm, contractManager, registry: toolRegistry,
     shortIdIndex: new InMemoryShortIdIndex(),
   });
-  const toolExecutor = new ToolExecutorImpl(toolRegistry, 60000);
+  const toolExecutor = new ToolExecutorImpl(toolRegistry, TEST_TOOL_TIMEOUT_MS);
   const permissionChecker = createClawPermissionChecker({ clawDir, strict: true, audit: auditWriter, fs: clawFs });
 
   // phase 1243: formatter registry + 业主 rendering declarations（test 装配 = motion 全开）
