@@ -51,7 +51,7 @@ function terminal(
 
 function event(
   observation: InputMeasurementObservation,
-  ids: { invocationId?: string; attemptId?: string } = {},
+  ids: { invocationId?: string; attemptId?: string } = { invocationId: 'inv-1', attemptId: 'att-1' },
 ): Record<string, unknown> {
   return {
     type: 'input_measurement',
