@@ -196,6 +196,7 @@ export function execWithHandle(
     cwd: options.cwd,
     env,
     detached: true,
+    windowsVerbatimArguments: options.windowsVerbatimArguments,
   });
 
   // Never fabricated: absent only when spawn itself failed (no pid assigned).

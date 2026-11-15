@@ -77,6 +77,7 @@ export async function runScriptVerification(
       cwd: ctx.clawDir,
       timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
       signal: ctx.signal, // Phase 963: propagate cancellation to script execution
+      windowsVerbatimArguments: hostScript.windowsVerbatimArguments,
     });
     return { passed: true, feedback: scriptVerificationPassedFeedback() };
   } catch (err) {

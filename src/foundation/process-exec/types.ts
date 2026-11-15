@@ -19,6 +19,8 @@ export interface ProcessTarget {
 interface ExecBaseOptions {
   /** Working directory (required) */
   cwd: string;
+  /** Preserve Windows command-line arguments exactly when invoking a shell host. */
+  windowsVerbatimArguments?: boolean;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
   /** Caller-authorized values; ProcessExec adds host allowlist/PATH facts. Undefined explicitly removes a host value. */

@@ -35,11 +35,12 @@ describe('ProcessExec host script resolution (phase 2066)', () => {
 
     expect(resolved).toEqual({
       executable: 'cmd.exe',
-      args: ['/d', '/s', '/c', `C:\\contract work\\验收 ^& 100%!^(^)` + extension],
+      args: ['/d', '/s', '/c', `""${scriptPath}""`],
+      windowsVerbatimArguments: true,
     });
     expect(resolved.args).toHaveLength(4);
     expect(resolved.args.at(-1)).not.toContain('\n');
-    expect(resolved.args.at(-1)).not.toContain('""');
+    expect(resolved.args.at(-1)).toContain('""');
   });
 
   it('passes POSIX paths verbatim without -c or shebang inspection', () => {
@@ -152,7 +153,9 @@ describe(`real ${process.platform} host script execution`, () => {
       const scriptPath = writeRealScript(scriptDir, extension, 0, 'HOST_SCRIPT_SUCCESS');
       const resolved = resolveHostScript(scriptPath);
 
-      const result = await processExec.exec(resolved.executable, resolved.args, {});
+      const result = await processExec.exec(resolved.executable, resolved.args, {
+        windowsVerbatimArguments: resolved.windowsVerbatimArguments,
+      });
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('HOST_SCRIPT_SUCCESS');
@@ -169,7 +172,9 @@ describe(`real ${process.platform} host script execution`, () => {
       const scriptPath = writeRealScript(scriptDir, extension, 7, 'HOST_SCRIPT_NONZERO');
       const resolved = resolveHostScript(scriptPath);
 
-      const error = await processExec.exec(resolved.executable, resolved.args, {}).then(
+      const error = await processExec.exec(resolved.executable, resolved.args, {
+        windowsVerbatimArguments: resolved.windowsVerbatimArguments,
+      }).then(
         () => { throw new Error('expected non-zero script exit'); },
         (caught: unknown) => caught,
       );
