@@ -27,6 +27,13 @@ export type {
 } from './types.js';
 
 export { createLLMOrchestrator } from './orchestrator.js';
+export { InputMeasurementLedger } from './input-measurement-ledger.js';
+export type {
+  InputMeasurementReplayDiagnostic,
+  InputMeasurementReplayState,
+  InputMeasurementRequestState,
+  InputMeasurementRequestStatus,
+} from './input-measurement-ledger.js';
 
 // 恢复只归真实 owner；调用方不持有 session/begin/finish 控制面。
 export type {

@@ -234,6 +234,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       try {
         this.events.emit({
           type: 'input_measurement',
+          schemaVersion: 1,
           ...(correlation?.invocationId !== undefined ? { invocationId: correlation.invocationId } : {}),
           ...(attemptId !== undefined ? { attemptId } : {}),
           provider: adapter.name,
