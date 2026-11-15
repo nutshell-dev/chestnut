@@ -84,8 +84,9 @@ export class UnsupportedHostScriptError extends Error {
 }
 
 /** Process-list operation and stable failure taxonomy for diagnostics/recovery. */
-export type ProcessListOperation = 'pgrep' | 'ps';
+export type ProcessListOperation = 'backend' | 'pgrep' | 'ps';
 export type ProcessListFailureClassification =
+  | 'unsupported'
   | 'spawn_error'
   | 'nonzero_exit'
   | 'signal'
@@ -95,6 +96,7 @@ export type ProcessListFailureClassification =
 
 /** Serializable OS evidence; the original exception remains available as `cause`. */
 export interface ProcessListErrorEvidence {
+  readonly backendId: string;
   readonly operation: ProcessListOperation;
   readonly classification: ProcessListFailureClassification;
   readonly status: number | null;
@@ -111,6 +113,7 @@ export interface ProcessListErrorEvidence {
  */
 export class ProcessListUnavailable extends Error {
   readonly code = 'PROCESS_LIST_UNAVAILABLE' as const;
+  readonly backendId: string;
   readonly operation: ProcessListOperation;
   readonly classification: ProcessListFailureClassification;
   readonly status: number | null;
@@ -125,6 +128,7 @@ export class ProcessListUnavailable extends Error {
     evidence: Partial<ProcessListErrorEvidence> = {},
   ) {
     const normalized: ProcessListErrorEvidence = {
+      backendId: evidence.backendId ?? 'posix-ps',
       operation: evidence.operation ?? 'pgrep',
       classification: evidence.classification ?? 'spawn_error',
       status: evidence.status ?? null,
@@ -135,6 +139,7 @@ export class ProcessListUnavailable extends Error {
     // Preserve the legacy message shape; structured diagnostics live in evidence.
     super(`${normalized.operation} unavailable for pattern: ${pattern}`);
     this.name = 'ProcessListUnavailable';
+    this.backendId = normalized.backendId;
     this.operation = normalized.operation;
     this.classification = normalized.classification;
     this.status = normalized.status;

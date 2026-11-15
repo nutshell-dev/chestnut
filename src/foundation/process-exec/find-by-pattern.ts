@@ -1,7 +1,7 @@
 /**
  * @module L1.ProcessExec
  *
- * Find processes by command pattern (POSIX pgrep + ps).
+ * Find processes by command pattern through the host process-list backend.
  */
 
 import { spawn, spawnSync } from 'child_process';
@@ -17,7 +17,7 @@ import {
 import type { ProcessInfo } from './types.js';
 
 export interface FindByPatternOptions {
-  /** Bound applied independently to the pgrep and ps child processes. */
+  /** Bound applied independently to each process-list child process. */
   timeoutMs?: number;
   signal?: AbortSignal;
   /** Combined stdout + stderr byte limit for each child process. */
@@ -27,6 +27,7 @@ export interface FindByPatternOptions {
 }
 
 interface FailureDetails {
+  backendId?: string;
   status?: number | null;
   signal?: NodeJS.Signals | null;
   stderr?: string;
@@ -41,6 +42,7 @@ function unavailable(
   details: FailureDetails = {},
 ): ProcessListUnavailable {
   return new ProcessListUnavailable(pattern, cause, {
+    backendId: details.backendId ?? 'posix-ps',
     operation,
     classification,
     status: details.status,
@@ -114,7 +116,7 @@ export function findByLiteralPatternSyncForCli(pattern: string): ProcessInfo[] {
   return findByPatternSyncForCli(escapeLiteral(pattern));
 }
 
-export function findByPatternSyncForCli(pattern: string): ProcessInfo[] {
+function findPosixByPatternSync(pattern: string): ProcessInfo[] {
   let pids: number[];
   try {
     const result = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf-8' });
@@ -331,7 +333,7 @@ export async function findByLiteralPatternAsync(
 }
 
 /** Bounded, interruptible process query; ps failures never degrade to blank commands. */
-export async function findByPatternAsync(
+async function findPosixByPatternAsync(
   pattern: string,
   options: FindByPatternOptions = {},
 ): Promise<ProcessInfo[]> {
@@ -350,4 +352,65 @@ export async function findByPatternAsync(
   );
   if (ps.status !== 0) throw nonzeroExit(pattern, 'ps', ps.status, ps.stderr);
   return parseProcessList(ps.stdout);
+}
+
+interface ProcessListBackend {
+  readonly id: string;
+  find(pattern: string, options: FindByPatternOptions): Promise<ProcessInfo[]>;
+  findSync(pattern: string): ProcessInfo[];
+}
+
+class PosixPsProcessListBackend implements ProcessListBackend {
+  readonly id = 'posix-ps';
+
+  find(pattern: string, options: FindByPatternOptions): Promise<ProcessInfo[]> {
+    return findPosixByPatternAsync(pattern, options);
+  }
+
+  findSync(pattern: string): ProcessInfo[] {
+    return findPosixByPatternSync(pattern);
+  }
+}
+
+class UnsupportedProcessListBackend implements ProcessListBackend {
+  readonly id = 'unsupported';
+
+  constructor(private readonly platform: NodeJS.Platform) {}
+
+  find(pattern: string): Promise<ProcessInfo[]> {
+    return Promise.reject(this.failure(pattern));
+  }
+
+  findSync(pattern: string): ProcessInfo[] {
+    throw this.failure(pattern);
+  }
+
+  private failure(pattern: string): ProcessListUnavailable {
+    return unavailable(
+      pattern,
+      'backend',
+      'unsupported',
+      new Error(`Unsupported process-list backend on ${this.platform}`),
+      { backendId: this.id },
+    );
+  }
+}
+
+function createProcessListBackend(platform = process.platform): ProcessListBackend {
+  if (platform === 'darwin' || platform === 'linux' || platform === 'freebsd') {
+    return new PosixPsProcessListBackend();
+  }
+  return new UnsupportedProcessListBackend(platform);
+}
+
+export function findByPatternSyncForCli(pattern: string): ProcessInfo[] {
+  return createProcessListBackend().findSync(pattern);
+}
+
+/** Bounded, interruptible process query; listing failures never degrade to no-match. */
+export async function findByPatternAsync(
+  pattern: string,
+  options: FindByPatternOptions = {},
+): Promise<ProcessInfo[]> {
+  return createProcessListBackend().find(pattern, options);
 }

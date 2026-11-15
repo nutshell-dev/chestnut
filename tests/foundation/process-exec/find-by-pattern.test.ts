@@ -105,11 +105,12 @@ describe('bounded process listing', () => {
 
       expect(pgrep.kill).toHaveBeenCalledWith('SIGKILL');
       expect(err).toMatchObject({
+        backendId: 'posix-ps',
         operation: 'pgrep',
         classification: 'timeout',
         status: null,
         causeCode: 'ETIMEDOUT',
-        evidence: { code: 'ETIMEDOUT', classification: 'timeout' },
+        evidence: { backendId: 'posix-ps', code: 'ETIMEDOUT', classification: 'timeout' },
       });
       pgrep.emit('close', null, 'SIGKILL');
       expect(pgrep.listenerCount('close')).toBe(0);
@@ -127,6 +128,7 @@ describe('bounded process listing', () => {
 
     const err = await unavailableFrom(findAsync('daemon', spawnMock, { signal: controller.signal }));
     expect(spawnMock).not.toHaveBeenCalled();
+    expect(err.backendId).toBe('posix-ps');
     expect(err.classification).toBe('abort');
     expect(err.cause).toBe(reason);
     expect(err.causeCode).toBe('ABORT_ERR');
@@ -160,6 +162,7 @@ describe('bounded process listing', () => {
     const err = await pending;
 
     expect(err).toMatchObject({
+      backendId: 'posix-ps',
       operation: 'pgrep',
       classification: 'nonzero_exit',
       status: 3,
@@ -181,6 +184,7 @@ describe('bounded process listing', () => {
 
     const err = await unavailableFrom(findAsync('daemon', spawnMock));
     expect(err).toMatchObject({
+      backendId: 'posix-ps',
       operation: 'ps',
       classification: 'nonzero_exit',
       status: 2,
@@ -197,6 +201,7 @@ describe('bounded process listing', () => {
     const err = await pending;
 
     expect(err.cause).toBe(cause);
+    expect(err.backendId).toBe('posix-ps');
     expect(err.causeCode).toBe('ENOENT');
     expect(err.evidence.code).toBe('ENOENT');
     expect(err.classification).toBe('spawn_error');
@@ -210,6 +215,7 @@ describe('bounded process listing', () => {
     const err = await pending;
 
     expect(pgrep.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(err.backendId).toBe('posix-ps');
     expect(err.classification).toBe('max_buffer');
     expect(err.causeCode).toBe('ENOBUFS');
     pgrep.emit('close', null, 'SIGKILL');

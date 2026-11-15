@@ -102,6 +102,7 @@ describe('process-manager bounded async find query', () => {
     expect(evidenceColumn).toBeDefined();
     const evidence = JSON.parse(evidenceColumn!.slice('evidence='.length)) as Record<string, unknown>;
     expect(evidence).toMatchObject({
+      backendId: 'posix-ps',
       operation: 'pgrep',
       classification: 'spawn_error',
       status: null,

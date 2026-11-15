@@ -138,6 +138,7 @@ describe('findByPatternSyncForCli', () => {
 
     expect(failure).toMatchObject({
       name: 'ProcessListUnavailable',
+      backendId: 'posix-ps',
       operation: 'ps',
       classification: 'spawn_error',
       causeCode: 'EIO',
