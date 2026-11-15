@@ -20,8 +20,8 @@ export interface ClawTrack {
   lastError: string | null;
   hasContract: boolean;
   isAlive: boolean;
-  /** daemon 探针状态：running / starting / error / stopped */
-  daemonStatus: 'running' | 'starting' | 'error' | 'stopped';
+  /** daemon 探针状态：running / starting / error / stopped / unknown */
+  daemonStatus: 'running' | 'starting' | 'error' | 'stopped' | 'unknown';
 
   // 新增（rich，详细行用）
   currentTool: string | null;
@@ -77,8 +77,17 @@ export function buildClawLine(id: string, t: ClawTrack, cols: number): string {
   if (t.daemonStatus === 'error') {
     return `\x1b[38;5;214m${formatClawBarError(id, { kind: 'daemon_unreadable' })}\x1b[0m`;
   }
+  // Process liveness is an infrastructure observation, not stream content.
+  // Keep rendering facts already observed from the claw stream while liveness
+  // is temporarily unavailable; no process action is authorized by this state.
+  const hasStreamFact = t.active || Boolean(
+    t.lastOutput || t.lastError || t.retryNotice || t.blockedNotice || t.lastInterrupted,
+  );
+  if (t.daemonStatus === 'unknown' && !hasStreamFact) {
+    return `\x1b[38;5;214m[${id}] ? daemon status unknown\x1b[0m`;
+  }
   // Fix 2：daemon 崩溃检测（放在最前，无论 active 状态）
-  if (!t.isAlive) {
+  if (!t.isAlive && t.daemonStatus !== 'unknown') {
     return `\x1b[38;5;240m${formatClawBarError(id, { kind: 'daemon_stopped' })}\x1b[0m`;
   }
 

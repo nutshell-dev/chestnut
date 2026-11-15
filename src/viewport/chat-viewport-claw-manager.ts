@@ -315,8 +315,9 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
             track.isAlive = false;
             track.daemonStatus = 'stopped';
           } else {
-            // malformed/probe_unavailable = unknown：保留 track.isAlive 与既有流状态。
-            track.daemonStatus = 'error';
+            // Liveness uncertainty must not hide stream facts or prevent a
+            // read-only watcher. It still authorizes no process operation.
+            track.daemonStatus = liveness.kind === 'probe_unavailable' ? 'unknown' : 'error';
           }
         }
       } catch (e) {
@@ -325,12 +326,12 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
           process.stderr.write(`[viewport] status check failed: ${(e as Error).message}\n`);
         }
         // 读取异常同样是 unknown，不得把现有 track reset 成 stopped。
-        track.daemonStatus = 'error';
+        track.daemonStatus = 'unknown';
       }
       const loc2 = clawTopology.resolve(makeClawId(clawId));
       if (loc2.kind !== 'local') continue;
       track.hasContract = getActiveContractTimestamp(fs, loc2.clawDir) !== null;
-      if (track.isAlive && track.daemonStatus === 'running' && !clawWatchers.has(clawId)) {
+      if ((track.daemonStatus === 'running' || track.daemonStatus === 'unknown') && !clawWatchers.has(clawId)) {
         const streamFile = path.join(loc2.clawDir, STREAM_FILE);
         attachClawWatcher(clawId, streamFile);
       }

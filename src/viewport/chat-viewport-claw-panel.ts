@@ -111,7 +111,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           t.hasContract = true;
           t.referenceMs = contractMs;
           deps.clawTrackMap.set(clawId, t);
-          let alive = false;
+          let watchStream = false;
           try {
             const daemonDir = resolveClawDaemonDir(clawId);
             const spawning = deps.pm.inspectSpawning(daemonDir);
@@ -121,23 +121,27 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
               t.daemonStatus = 'error';
             } else {
               const liveness = deps.pm.liveness(daemonDir);
-              alive = liveness.kind === 'alive';
-              if (alive) {
+              if (liveness.kind === 'alive') {
                 t.isAlive = true;
                 t.daemonStatus = 'running';
+                watchStream = true;
               } else if (liveness.kind === 'dead' || liveness.kind === 'absent') {
                 t.isAlive = false;
                 t.daemonStatus = 'stopped';
               } else {
-                // malformed/probe_unavailable = unknown：保留既有存活事实，不显示 stopped。
-                t.daemonStatus = 'error';
+                // Liveness uncertainty does not authorize process actions, but
+                // an existing stream remains safe to observe and render.
+                t.daemonStatus = liveness.kind === 'probe_unavailable' ? 'unknown' : 'error';
+                watchStream = liveness.kind === 'probe_unavailable';
               }
             }
           } catch {
-            // silent: 状态读取失败是 unknown，保留既有存活事实。
-            t.daemonStatus = 'error';
+            // silent: status read failure is unknown; stream observation remains
+            // read-only and may still provide user-visible execution facts.
+            t.daemonStatus = 'unknown';
+            watchStream = true;
           }
-          if (alive && t.daemonStatus === 'running') {
+          if (watchStream) {
             deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
           } else {
             deps.clawManager.refreshClawStatus(clawId);

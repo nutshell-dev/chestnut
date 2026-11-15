@@ -20,6 +20,27 @@ describe('Phase 1978 buildClawLine context trim notices', () => {
     return t;
   }
 
+  it('liveness unknown does not hide observed tool execution facts', () => {
+    const t = runningTrack();
+    t.daemonStatus = 'unknown';
+    t.active = true;
+    t.currentTool = 'exec';
+    t.isAlive = false;
+
+    expect(buildClawLine('c', t, 120)).toContain('[c] ⚙ exec');
+
+    t.toolSuccess = true;
+    t.textBuffer = 'open succeeded';
+    t.bufferType = 'text';
+    expect(buildClawLine('c', t, 120)).toContain('[c] ✓ exec · "open succeeded"');
+  });
+
+  it('liveness unknown with no stream facts remains explicitly visible', () => {
+    const t = runningTrack();
+    t.daemonStatus = 'unknown';
+    expect(buildClawLine('c', t, 120)).toContain('[c] ? daemon status unknown');
+  });
+
   it('blockedNotice > retryNotice > lastError 优先级与颜色', () => {
     const t = runningTrack();
     t.lastError = 'boom';

@@ -385,6 +385,38 @@ describe('rescanClawsDir: topology 消费（phase 1997 Step C）', () => {
     expect(clawTrackMap.get('foo')!.daemonStatus).toBe('running');
   });
 
+  it('liveness probe 不可用时仍 attach watcher，保留 stream 工具事实可见', async () => {
+    addClawWithContract('foo');
+    const clawTrackMap = new Map<string, ClawTrack>();
+    const attachCalls: Array<[string, string]> = [];
+    const rescan = createRescanClawsDir({
+      fsFactory: (baseDir: string) => new NodeFileSystem({ baseDir }),
+      clawTopology: makeRealTopology(),
+      clawTrackMap,
+      clawManager: {
+        attachClawWatcher: (clawId: string, streamPath: string) => { attachCalls.push([clawId, streamPath]); },
+        refreshClawStatus: () => {},
+      } as any,
+      audit: { write: () => {} } as any,
+      agentDir: '/unused',
+      updateClawPanel: () => {},
+      pm: {
+        inspectSpawning: () => ({ status: 'absent' }),
+        liveness: () => ({
+          kind: 'probe_unavailable',
+          pid: 1,
+          error: new Error('probe unavailable'),
+          evidence: { version: 1, atMs: 0, facts: [] },
+        }),
+      },
+    });
+
+    await rescan();
+
+    expect(attachCalls).toEqual([['foo', join(root, 'claws', 'foo', STREAM_FILE)]]);
+    expect(clawTrackMap.get('foo')!.daemonStatus).toBe('unknown');
+  });
+
   it('新 claw 目录 → 下一次 rescan 发现；已 track 的 claw 不重复 attach', async () => {
     addClawWithContract('foo');
     const h = makeRescanDeps(makeRealTopology());
