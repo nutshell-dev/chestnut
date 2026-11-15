@@ -218,7 +218,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
     { kind: 'committed_durability_unknown' as const },
   ])('patchPrimary $kind → degraded notice 后继续 probe，不重写', async ({ kind }) => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    const configDeps = deps();
+    const configDeps = await deps();
     const error = Object.assign(new Error(`directory fsync failed: ${kind}`), { code: 'EIO' });
     const patch = vi.spyOn(configDeps.llmConfiguration, 'patchPrimary').mockResolvedValue({ kind, error });
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -239,7 +239,7 @@ describe('promptReconfigure — reconfigure key 路径（Phase 1984 Step C）', 
 
   it('patchPrimary throw → 保持原失败且不重试', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'env-key');
-    const configDeps = deps();
+    const configDeps = await deps();
     const failure = new Error('rename failed');
     const patch = vi.spyOn(configDeps.llmConfiguration, 'patchPrimary').mockRejectedValue(failure);
     rlAnswers.queue = ['2', 'claude-new'];
