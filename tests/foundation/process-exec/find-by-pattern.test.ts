@@ -93,12 +93,14 @@ describe('bounded process listing', () => {
   });
 
   it('timeout kills the child and preserves typed evidence', async () => {
+    // Advance exactly to the configured listing deadline.
+    const LISTING_TIMEOUT_MS = 25;
     vi.useFakeTimers();
     try {
       const pgrep = makeChild();
       const spawnMock = vi.fn().mockReturnValue(asSpawn(pgrep));
-      const pending = unavailableFrom(findAsync('daemon', spawnMock, { timeoutMs: 25 }));
-      await vi.advanceTimersByTimeAsync(25);
+      const pending = unavailableFrom(findAsync('daemon', spawnMock, { timeoutMs: LISTING_TIMEOUT_MS }));
+      await vi.advanceTimersByTimeAsync(LISTING_TIMEOUT_MS);
       const err = await pending;
 
       expect(pgrep.kill).toHaveBeenCalledWith('SIGKILL');

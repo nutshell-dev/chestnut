@@ -6,10 +6,18 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { execWithHandle, ProcessExecError, probeExecutionGroup, terminateExecutionGroup, type ExecHandle } from '../../../src/foundation/process-exec/index.js';
+import {
+  execWithHandle,
+  ProcessExecError,
+  probeExecutionGroup,
+  terminateExecutionGroup,
+  PROCESS_EXEC_GROUP_CONFIRM_POLL_MS,
+  PROCESS_EXEC_GROUP_KILL_CONFIRM_MS,
+  PROCESS_EXEC_TIMEOUT_MAX_MS,
+  type ExecHandle,
+} from '../../../src/foundation/process-exec/index.js';
 import { getProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
 import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
-import { PROCESS_EXEC_TIMEOUT_MAX_MS } from '../../../src/foundation/process-exec/constants.js';
 import * as os from 'os';
 
 /**
@@ -511,6 +519,9 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
    */
   const REAL_CONFIRM_BUDGET_MS = 15_000;
 
+  // Two production confirm windows flush any remaining fake-time confirmation.
+  const CONFIRM_FLUSH_MS = 2 * PROCESS_EXEC_GROUP_KILL_CONFIRM_MS;
+
   // Node platform fact: a single setTimeout delay is capped at the signed
   // 32-bit ms max; larger delays overflow and fire after ~1ms.
   const NODE_TIMER_DELAY_CAP_MS = 2_147_483_647;
@@ -529,7 +540,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
    * and group-gone confirmation polls.
    */
   async function advanceWithRealYield(ms: number): Promise<void> {
-    const STEP_MS = 25; // matches L1's group-confirm poll granularity
+    const STEP_MS = PROCESS_EXEC_GROUP_CONFIRM_POLL_MS; // match L1's group-confirm poll granularity
     for (let elapsed = 0; elapsed < ms; elapsed += STEP_MS) {
       await vi.advanceTimersByTimeAsync(STEP_MS);
       await new Promise((resolve) => setImmediate(resolve));
@@ -547,7 +558,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
    * 交由 gone 断言 fail-loud（不吃 still_alive、不假绿）。
    */
   async function advanceConfirmRealTime(isSettled: () => boolean): Promise<void> {
-    const STEP_MS = 25; // matches L1's group-confirm poll granularity
+    const STEP_MS = PROCESS_EXEC_GROUP_CONFIRM_POLL_MS; // match L1's group-confirm poll granularity
     const budgetStart = performance.now();
     while (!isSettled() && performance.now() - budgetStart < REAL_CONFIRM_BUDGET_MS) {
       const stepStart = performance.now();
@@ -559,7 +570,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     if (!isSettled()) {
       // 安全阀触发（实然不可达：80 步即覆盖 L1 全确认窗、耗时 ~2s < 5s 预算）：
       // flush 剩余 fake 窗让 L1 如实 settle，避免 await 挂起
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(CONFIRM_FLUSH_MS);
     }
   }
 
@@ -622,7 +633,9 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
 
   it('relative timeout above the 600s ceiling still clamps (existing contract, fake timers)', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
-    const REQUESTED_TIMEOUT_MS = PROCESS_EXEC_TIMEOUT_MAX_MS + 300_000; // any value above the ceiling proves the clamp
+    // Any positive margin above the ceiling proves the clamp.
+    const ABOVE_CEILING_MARGIN_MS = 300_000;
+    const REQUESTED_TIMEOUT_MS = PROCESS_EXEC_TIMEOUT_MAX_MS + ABOVE_CEILING_MARGIN_MS;
     const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
       cwd: workDir,
       timeout: REQUESTED_TIMEOUT_MS,
@@ -635,7 +648,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
       // One batch up to the clamped ceiling: fires the L1 timer and sends the
       // real SIGTERM; the grace timer (due later) is not flushed in this batch.
       await vi.advanceTimersByTimeAsync(PROCESS_EXEC_TIMEOUT_MAX_MS);
-      await advanceWithRealYield(2_000); // grace + group-gone confirmation polls
+      await advanceWithRealYield(CONFIRM_FLUSH_MS); // grace + group-gone confirmation polls
       const err = await settledPromise;
       expect(err).toBeInstanceOf(ProcessExecError);
       const error = err as ProcessExecError;
@@ -688,6 +701,8 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
   it('deadline beyond the Node single-timer cap is armed in segments — no 1ms overflow misfire', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     const TAIL_BEYOND_CAP_MS = 5_000; // deadline = cap + tail: forces ≥2 timer segments
+    // Probe strictly before the cap to rule out an overflow misfire.
+    const PRE_CAP_PROBE_MS = 1_000;
     const deadlineAtMs = Date.now() + NODE_TIMER_DELAY_CAP_MS + TAIL_BEYOND_CAP_MS;
     const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
       cwd: workDir,
@@ -698,13 +713,13 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     void handle.promise.then(() => { settled = true; }, () => { settled = true; });
     try {
       // An overflowed timer would have fired at ~1ms.
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(PRE_CAP_PROBE_MS);
       expect(settled).toBe(false);
       expect(isAlivePid(handle.identity!.leaderPid)).toBe(true);
 
       // First segment expires at the cap: the deadline is still ahead, so the
       // implementation must re-arm for the remainder instead of firing.
-      await vi.advanceTimersByTimeAsync(NODE_TIMER_DELAY_CAP_MS - 1_000);
+      await vi.advanceTimersByTimeAsync(NODE_TIMER_DELAY_CAP_MS - PRE_CAP_PROBE_MS);
       expect(settled).toBe(false);
       expect(isAlivePid(handle.identity!.leaderPid)).toBe(true);
 

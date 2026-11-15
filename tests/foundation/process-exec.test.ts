@@ -20,6 +20,7 @@ import {
   findByPatternSyncForCli,
   ProcessExecError,
   ProcessListUnavailable,
+  PROCESS_EXEC_TIMEOUT_MIN_MS,
   type ExecHandle,
 } from '../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../src/foundation/process-exec/execution-group.js';
@@ -47,6 +48,19 @@ const ABORT_AFTER_START_MS = 200;
  * Derivation: 100ms < PROCESS_EXEC_TIMEOUT_MIN_MS=1000ms → exec finishes before clamp deadline.
  */
 const SUBPROC_SHORT_SLEEP_MS = 100;
+
+// Short timeout for exercising timeout behavior without a production-length wait.
+const FAST_EXEC_TIMEOUT_MS = 100;
+// Test-only lower clamp; deliberately not the production minimum.
+const TEST_MIN_TIMEOUT_MS = 100;
+// Short test-only TERM→KILL grace; deliberately not the production default.
+const TEST_SIGKILL_GRACE_MS = 100;
+// Thirty seconds outlives every cleanup and case budget in this file.
+const SUBPROC_LONG_SLEEP_SECONDS = 30;
+// Bounded cleanup must finish well before the descendant's natural 30s exit.
+const CLEANUP_ELAPSED_BUDGET_MS = 15_000;
+// Case budget covers cleanup with margin while remaining below natural sleep exit.
+const CASE_TIMEOUT_MS = 20_000;
 
 describe('ProcessExec exec', () => {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -144,9 +158,9 @@ describe('ProcessExec exec', () => {
     try {
       await exec('node', ['-e', `setTimeout(() => {}, ${SUBPROC_HANG_MS})`], {
         cwd: workDir,
-        timeout: 100,
-        __testMinTimeoutMs: 100,
-        __testSigkillGraceMs: 100,
+        timeout: PROCESS_EXEC_TIMEOUT_MIN_MS / 10,
+        __testMinTimeoutMs: TEST_MIN_TIMEOUT_MS,
+        __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
       });
       expect.fail('should have thrown');
     } catch (err) {
@@ -194,7 +208,7 @@ describe('ProcessExec exec', () => {
     // A 100ms sleep should succeed under the clamped timeout
     const result = await exec('node', ['-e', `setTimeout(() => {}, ${SUBPROC_SHORT_SLEEP_MS})`], {
       cwd: workDir,
-      timeout: 10, // below MIN, will be clamped to 1000
+      timeout: PROCESS_EXEC_TIMEOUT_MIN_MS / 100, // below MIN, will be clamped to 1000
     });
     expect(result.exitCode).toBe(0);
   });
@@ -217,9 +231,9 @@ describe('ProcessExec exec', () => {
     try {
       await exec('node', ['-e', script], {
         cwd: workDir,
-        timeout: 100,
-        __testMinTimeoutMs: 100,
-        __testSigkillGraceMs: 100,
+        timeout: FAST_EXEC_TIMEOUT_MS,
+        __testMinTimeoutMs: TEST_MIN_TIMEOUT_MS,
+        __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
       });
       expect.fail('should have thrown');
     } catch (err) {
@@ -231,6 +245,8 @@ describe('ProcessExec exec', () => {
   // ── maxBuffer single-chunk truncation ───────────────────────────────────
 
   it.concurrent('truncates output that exceeds maxBuffer', async () => {
+    // Guard budget only; maxBuffer truncation should settle first.
+    const MAX_BUFFER_GUARD_TIMEOUT_MS = 1_000;
     const maxBuffer = 100;
     // Output a large first chunk (> stream highWaterMark) so it backpressures,
     // then one more byte in a second chunk. maxBuffer is the allowed maximum;
@@ -241,7 +257,7 @@ describe('ProcessExec exec', () => {
       await exec('node', ['-e', script], {
         cwd: workDir,
         maxBuffer,
-        timeout: 1000,
+        timeout: MAX_BUFFER_GUARD_TIMEOUT_MS,
       });
       expect.fail('should have thrown');
     } catch (err) {
@@ -262,7 +278,7 @@ describe('ProcessExec exec', () => {
         '-e',
         `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, ${SUBPROC_HANG_MS});`,
       ],
-      { cwd: workDir, __testSigkillGraceMs: 100 },
+      { cwd: workDir, __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS },
     );
     const result = handle.promise.catch((err: unknown) => err);
     await waitForProcessOutput(handle, /READY/);
@@ -329,9 +345,9 @@ describe('phase 1269 Step B: exec group descendant cleanup', () => {
     // extra pipes but keeping the shell (and its pipes) alive via `wait`.
     const started = Date.now();
     let sleepPid: number | undefined;
-    const handle = execWithHandle('sh', ['-c', 'sleep 30 & echo SLEEP_PID:$!; wait'], {
+    const handle = execWithHandle('sh', ['-c', `sleep ${SUBPROC_LONG_SLEEP_SECONDS} & echo SLEEP_PID:$!; wait`], {
       cwd: workDir,
-      __testSigkillGraceMs: 100,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
     });
     const result = handle.promise.catch((err: unknown) => err);
     sleepPid = Number(await waitForProcessOutput(handle, /SLEEP_PID:(\d+)/));
@@ -344,9 +360,9 @@ describe('phase 1269 Step B: exec group descendant cleanup', () => {
     const elapsed = Date.now() - started;
     // Promise must settle shortly after timeout+grace+confirm, NOT after the
     // descendant's natural 30s lifetime.
-    expect(elapsed).toBeLessThan(15_000);
+    expect(elapsed).toBeLessThan(CLEANUP_ELAPSED_BUDGET_MS);
     expect(isAlive(sleepPid!)).toBe(false);
-  }, 20_000);
+  }, CASE_TIMEOUT_MS);
 
   it.concurrent('escalates to SIGKILL for the whole group when leader traps TERM (反向 2)', async () => {
     // Leader node traps SIGTERM and keeps running; its sleep child dies on
@@ -360,7 +376,7 @@ describe('phase 1269 Step B: exec group descendant cleanup', () => {
     `;
     const handle = execWithHandle('node', ['-e', script], {
       cwd: workDir,
-      __testSigkillGraceMs: 100,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
     });
     const result = handle.promise.catch((err: unknown) => err);
     const leaderPid = handle.identity!.leaderPid;
@@ -378,7 +394,7 @@ describe('phase 1269 Step B: exec group descendant cleanup', () => {
     expect(isAlive(leaderPid)).toBe(false);
     expect(isAlive(childPid)).toBe(false);
     expect(isProcessGroupAlive(leaderPid)).toBe(false);
-  }, 20_000);
+  }, CASE_TIMEOUT_MS);
 });
 
 describe('kill', () => {
@@ -386,7 +402,9 @@ describe('kill', () => {
     expect(() => kill(DEAD_PID, 'TERM')).not.toThrow();
   });
   it.concurrent('sends SIGTERM to live process', async () => {
-    const child = spawn('sleep', ['10']);
+    // Keep the child alive until the test sends SIGTERM.
+    const KILL_TEST_SLEEP_SECONDS = 10;
+    const child = spawn('sleep', [String(KILL_TEST_SLEEP_SECONDS)]);
     expect(child.pid).toBeDefined();
     // phase 385: subscribe to 'exit' event BEFORE kill (race-safe) — event-driven
     // 替 vi.waitFor polling，与 phase 370-376 cluster 同模式
@@ -438,7 +456,7 @@ describe('phase 1269 Step C: exec abort convergence', () => {
     let sleepPid: number | undefined;
     const handle = execWithHandle(
       'sh',
-      ['-c', 'echo LEADER:$$; sleep 30 & echo SLEEP_PID:$!; wait'],
+      ['-c', `echo LEADER:$$; sleep ${SUBPROC_LONG_SLEEP_SECONDS} & echo SLEEP_PID:$!; wait`],
       { cwd: workDir, signal: controller.signal },
     );
     const result = handle.promise.catch((err: unknown) => err);
@@ -454,10 +472,10 @@ describe('phase 1269 Step C: exec abort convergence', () => {
     leaderPid = (error as ProcessExecError).termination!.identity!.leaderPid;
     const elapsed = Date.now() - started;
     // Settles after abort + bounded cleanup, never after the natural 30s.
-    expect(elapsed).toBeLessThan(15_000);
+    expect(elapsed).toBeLessThan(CLEANUP_ELAPSED_BUDGET_MS);
     expect(isAlive(leaderPid!)).toBe(false);
     expect(isAlive(sleepPid!)).toBe(false);
-  }, 20_000);
+  }, CASE_TIMEOUT_MS);
 
   it.concurrent('abort on SIGTERM-ignoring process must not settle before KILL/liveness conclusion (反向 1)', async () => {
     const controller = new AbortController();
@@ -485,7 +503,7 @@ describe('phase 1269 Step C: exec abort convergence', () => {
 
     // The termination facts prove the TERM→KILL escalation; wall-clock duration
     // also includes OS scheduling and is not part of this contract.
-  }, 20_000);
+  }, CASE_TIMEOUT_MS);
 
   it.concurrent('abort and timeout racing do not produce a second TERM sequence nor rewrite the first trigger (反向 2)', async () => {
     const controller = new AbortController();
@@ -499,8 +517,8 @@ describe('phase 1269 Step C: exec abort convergence', () => {
         // Race point: the exec timeout fires at the same moment as the abort
         // schedule below (single semantic source — no numeric drift).
         timeout: ABORT_AFTER_START_MS,
-        __testMinTimeoutMs: 100,
-        __testSigkillGraceMs: 100,
+        __testMinTimeoutMs: TEST_MIN_TIMEOUT_MS,
+        __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
       });
       // Fire abort at the same moment the timeout fires.
       setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
@@ -518,7 +536,7 @@ describe('phase 1269 Step C: exec abort convergence', () => {
     );
     expect(groupTerms).toHaveLength(1);
     killSpy.mockRestore();
-  }, 20_000);
+  }, CASE_TIMEOUT_MS);
 });
 
 /**

@@ -36,6 +36,8 @@ function asSpawn(child: ChildDouble): ReturnType<typeof spawn> {
 
 describe('process-manager bounded async find query', () => {
   it('uses the bounded query and filters the current process', async () => {
+    // Bounded-query budget; this fixture closes both children immediately.
+    const FIND_QUERY_TIMEOUT_MS = 100;
     const spawnProcess = vi.fn().mockImplementation((command: string) => {
       const child = makeChild();
       queueMicrotask(() => {
@@ -49,7 +51,7 @@ describe('process-manager bounded async find query', () => {
     const controller = new AbortController();
 
     await expect(findProcessesDetailedAsync(ctx, 'orphan', {
-      timeoutMs: 100,
+      timeoutMs: FIND_QUERY_TIMEOUT_MS,
       maxBuffer: 4096,
       signal: controller.signal,
       spawnProcess: spawnProcess as unknown as typeof spawn,

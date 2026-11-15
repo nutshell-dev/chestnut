@@ -22,11 +22,18 @@ import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events
 
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { TEST_LLM_TIMEOUT_MS, SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
-import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
+import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { createTestTaskSystem, createMockWatcherFactory } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { waitForAnyFile, waitForCompleteFile } from '../helpers/wait-for-file.js';
+
+// Immediate shutdown forces the timeout path without a real wait.
+const IMMEDIATE_SHUTDOWN_TIMEOUT_MS = 1;
+// Give failure fixtures a brief drain window before replacing the system.
+const FAILURE_FIXTURE_SHUTDOWN_TIMEOUT_MS = 200;
+// Bounded inbox delivery wait shared by timeout and fallback scenarios.
+const INBOX_DELIVERY_BUDGET_MS = 15_000;
 
 /**
  * Convert LLMResponse to stream chunks for mock
@@ -131,7 +138,7 @@ async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<TaskLi
   // 原 fake-timer 方案在并发全量跑时会冻结飞行中的真实 timer（如 watcher close、
   // abort 传播链中的在途 setTimeout），导致 case 偶发 15s testTimeout。
   // 真实 timer 下 1ms shutdown timeout + 1000ms drain grace ≈ 1s，在 15s 预算内。
-  return system.shutdown(1);
+  return system.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
 }
 
 describe('Task System + SubAgent', () => {
@@ -139,7 +146,7 @@ describe('Task System + SubAgent', () => {
   describe('AsyncTaskSystem', () => {
     test('should schedule subagent and return taskId', async ({ ctx }) => {
       // Recreate with hanging LLM so task stays in running state for verification
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
       await ctx.taskSystem.startDispatch();
@@ -166,7 +173,9 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should pass subagent task through watcher → ingest → dispatch chain (phase163)', async ({ ctx }) => {
-      await ctx.taskSystem.shutdown(1);
+      // Generous watcher-to-dispatch propagation budget.
+      const WATCHER_DISPATCH_BUDGET_MS = 10_000;
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
       await ctx.taskSystem.startDispatch();
@@ -189,7 +198,7 @@ describe('Task System + SubAgent', () => {
       // 2. watcher → ingest → dispatch moves it to running/ (async, generous budget)
       await waitFor(async () => {
         return await ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`);
-      }, 10000); // was 3000
+      }, WATCHER_DISPATCH_BUDGET_MS); // was 3000
 
       // 3. pending/ file has been moved away
       expect(await ctx.mockFs.exists(`tasks/queues/pending/${fullTaskId}.json`)).toBe(false);
@@ -201,7 +210,7 @@ describe('Task System + SubAgent', () => {
 
     test('should move task to done when completed', async ({ ctx }) => {
       // Recreate with mock LLM that returns quickly
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'Task result' }],
@@ -241,7 +250,7 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should deliver subagent result to inbox/pending/*.md (bypass transport)', async ({ ctx }) => {
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'Subagent output' }],
@@ -296,7 +305,7 @@ describe('Task System + SubAgent', () => {
         yield { type: 'done' };
       }
       
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       // phase 381: capture emitter、用 TASK_STARTED audit event 替原 listRunning polling
       const { audit: testAudit, emitter: testEmitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, testAudit, {
@@ -342,7 +351,7 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should write task_completed event to audit on subagent success', async ({ ctx }) => {
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'task done' }],
@@ -375,7 +384,9 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should write task_completed err to audit when subagent times out', async ({ ctx }) => {
-      await ctx.taskSystem.shutdown(1);
+      // Short task timeout makes the executor-driven timeout fire promptly.
+      const SUBAGENT_TIMEOUT_TRIGGER_MS = 300;
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createAbortableHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
@@ -385,13 +396,13 @@ describe('Task System + SubAgent', () => {
         kind: 'subagent',
         mode: 'standard',
         intent: 'This will time out',
-        timeoutMs: 300,   // 300ms，触发 SubAgent timeout
+        timeoutMs: SUBAGENT_TIMEOUT_TRIGGER_MS,   // 300ms，触发 SubAgent timeout
         maxSteps: 5,
         parentClawId: 'test-claw',
       });
 
       // 等待超时触发 + 任务完成 + inbox 写入
-      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
+      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), INBOX_DELIVERY_BUDGET_MS);
 
       // inbox 中有 is_error: true 的消息（验证 executeTask catch 被执行）
       const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
@@ -433,7 +444,7 @@ describe('Task System + SubAgent', () => {
         return originalWriteAtomic(filePath, content);
       };
 
-      await ctx.taskSystem.shutdown(200);
+      await ctx.taskSystem.shutdown(FAILURE_FIXTURE_SHUTDOWN_TIMEOUT_MS);
       const { factory: patchedWatcher } = createMockWatcherFactory(patchedFs);
       const failSystem = createTestTaskSystem(ctx.tempDir, patchedFs, makeAudit().audit, createMockLLM([{
         content: [{ type: 'text', text: 'done' }],
@@ -452,7 +463,7 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
+      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), INBOX_DELIVERY_BUDGET_MS);
 
       // fallback 消息应该存在于 inbox
       const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
@@ -477,7 +488,7 @@ describe('Task System + SubAgent', () => {
       };
 
       const { audit } = makeAudit();
-      await ctx.taskSystem.shutdown(200);
+      await ctx.taskSystem.shutdown(FAILURE_FIXTURE_SHUTDOWN_TIMEOUT_MS);
       const { factory: patchedWatcher } = createMockWatcherFactory(patchedFs);
       const failSystem = createTestTaskSystem(ctx.tempDir, patchedFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'done' }],
@@ -498,12 +509,12 @@ describe('Task System + SubAgent', () => {
 
       const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
       // phase 368: staged event-driven 替原 compound polling predicate
-      const _inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+      const _inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), INBOX_DELIVERY_BUDGET_MS);
       // taskId + is_error 同时出现的 regex（content.includes 两词 → 任一顺序）
       await waitForCompleteFile(
         path.join(inboxDir, _inboxName),
         new RegExp(`(?=.*is_error)(?=.*${taskId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 's'),
-        15000,
+        INBOX_DELIVERY_BUDGET_MS,
       );
 
       // _startTask catch 应该发了 fallback 通知
@@ -517,7 +528,7 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should write TASK_SHUTDOWN_TIMEOUT audit event when shutdown times out', async ({ ctx }) => {
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
@@ -549,7 +560,7 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should not throw when shutdown times out with null auditWriter', async ({ ctx }) => {
-      await ctx.taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, { write: () => {} } as any, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
       await ctx.taskSystem.startDispatch();
@@ -583,7 +594,7 @@ describe('Task System + SubAgent', () => {
       });
 
       test('should call postProcessor on success path', async ({ ctx }) => {
-        await ctx.taskSystem.shutdown(1);
+        await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
         const { audit, events, emitter } = makeAudit();
         const mockProcessor = vi.fn().mockResolvedValue({ schema_version: 1, content: 'transformed-result', isError: false });
         ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
@@ -624,7 +635,7 @@ describe('Task System + SubAgent', () => {
       });
 
       test('should call postProcessor on error path with isError=true', async ({ ctx }) => {
-        await ctx.taskSystem.shutdown(1);
+        await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
         const { audit, events } = makeAudit();
         const mockProcessor = vi.fn().mockResolvedValue({ schema_version: 1, content: 'error-transformed', isError: true });
 
@@ -664,7 +675,7 @@ describe('Task System + SubAgent', () => {
       });
 
       test('should audit when postProcessor name not found in registry', async ({ ctx }) => {
-        await ctx.taskSystem.shutdown(1);
+        await ctx.taskSystem.shutdown(IMMEDIATE_SHUTDOWN_TIMEOUT_MS);
         const { audit, events, emitter } = makeAudit();
         ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
           content: [{ type: 'text', text: 'raw result' }],

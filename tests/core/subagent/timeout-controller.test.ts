@@ -5,6 +5,15 @@ import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.j
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 describe('subagent timeout controller audit semantics', () => {
+  // Inert turn budget: cleanup and pre-abort must finish before it fires.
+  const INERT_TURN_TIMEOUT_MS = 1_000;
+  // Advance exactly to the configured turn deadline.
+  const TURN_TIMEOUT_MS = 100;
+  // Keep the turn timer inert so only the idle timer can fire.
+  const IDLE_TEST_TURN_TIMEOUT_MS = 60_000;
+  // Advance exactly to the configured idle deadline.
+  const IDLE_TIMEOUT_MS = 50;
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -12,7 +21,7 @@ describe('subagent timeout controller audit semantics', () => {
   it('normal cleanup does not emit timeout rejection', async () => {
     const write = vi.fn();
     const handle = createTimeoutController({
-      timeoutMs: 1_000,
+      timeoutMs: INERT_TURN_TIMEOUT_MS,
       sink: createSubAgentLifecycleSink({ auditWriter: { write } as any, agentId: 'agent-1' }),
     });
 
@@ -30,12 +39,12 @@ describe('subagent timeout controller audit semantics', () => {
     vi.useFakeTimers();
     const write = vi.fn();
     const handle = createTimeoutController({
-      timeoutMs: 100,
+      timeoutMs: TURN_TIMEOUT_MS,
       sink: createSubAgentLifecycleSink({ auditWriter: { write } as any, agentId: 'agent-2' }),
     });
 
     const settled = handle.timeoutPromise.catch(() => undefined);
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(TURN_TIMEOUT_MS);
     await settled;
 
     expect(write).toHaveBeenCalledTimes(1);
@@ -52,15 +61,15 @@ describe('subagent timeout controller audit semantics', () => {
     const write = vi.fn();
     const sink = createSubAgentLifecycleSink({ auditWriter: { write } as any, agentId: 'agent-idle' });
     const handle = createTimeoutController({
-      timeoutMs: 60_000,
-      idleTimeoutMs: 50,
+      timeoutMs: IDLE_TEST_TURN_TIMEOUT_MS,
+      idleTimeoutMs: IDLE_TIMEOUT_MS,
       onIdleTimeout: () => { throw new Error('idle callback boom'); },
       sink,
     });
     handle.resetIdle?.();
     const settled = handle.timeoutPromise.catch((e) => e);
 
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_MS);
 
     // ① 留证：一行 idle-timeout callback failure（audit 列含 agentId + error）
     const idleRows = write.mock.calls.filter(
@@ -84,15 +93,15 @@ describe('subagent timeout controller audit semantics', () => {
     const onIdleTimeout = vi.fn();
     const sink = createSubAgentLifecycleSink({ auditWriter: { write } as any, agentId: 'agent-idle-ok' });
     const handle = createTimeoutController({
-      timeoutMs: 60_000,
-      idleTimeoutMs: 50,
+      timeoutMs: IDLE_TEST_TURN_TIMEOUT_MS,
+      idleTimeoutMs: IDLE_TIMEOUT_MS,
       onIdleTimeout,
       sink,
     });
     handle.resetIdle?.();
     const settled = handle.timeoutPromise.catch(() => undefined);
 
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_MS);
     await settled;
 
     expect(onIdleTimeout).toHaveBeenCalledTimes(1);
@@ -107,7 +116,7 @@ describe('subagent timeout controller audit semantics', () => {
     const external = new AbortController();
     external.abort({ type: 'external', original: 'already stopped' });
     const handle = createTimeoutController({
-      timeoutMs: 1_000,
+      timeoutMs: INERT_TURN_TIMEOUT_MS,
       externalSignal: external.signal,
       sink: createSubAgentLifecycleSink({ auditWriter: { write: vi.fn() } as any, agentId: 'agent-pre-abort' }),
     });

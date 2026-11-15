@@ -103,6 +103,10 @@ export type {
 } from './errors.js';
 export {
   PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
+  PROCESS_EXEC_TIMEOUT_MIN_MS,
+  PROCESS_EXEC_TIMEOUT_MAX_MS,
+  PROCESS_EXEC_GROUP_CONFIRM_POLL_MS,
+  PROCESS_EXEC_GROUP_KILL_CONFIRM_MS,
   // Needed by command-tool to render the overflow message with the same
   // limit that L1 enforces (phase 1271 F6).
   PROCESS_EXEC_DEFAULT_MAX_BUFFER,
