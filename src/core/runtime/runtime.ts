@@ -39,7 +39,10 @@ import {
   EXECUTION_RECOVERY_MESSAGE_TYPE,
   EXECUTION_RECOVERY_DELIVERY_META_KEY,
 } from './inbox-message-types.js';
-import { getContractWorkMessageId } from '../contract/index.js';
+import {
+  getContractWorkMessageId,
+  readContractCancellationMessageReference,
+} from '../contract/index.js';
 import type { ContractTerminalFact } from '../contract/index.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
 import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
@@ -818,6 +821,7 @@ export class Runtime {
           ownedHandles.delete(handle);
           continue;
         }
+        await this._observeCancellationStop(entry.message);
         prepared.push({ message: entry.message, handle });
       }
       return { entries: prepared };
@@ -827,6 +831,42 @@ export class Runtime {
       await this.nackHandles([...ownedHandles], formatErr(error), 'inbox_prepare_failure');
       throw error;
     }
+  }
+
+  /**
+   * Phase 2151 B4: a keyed cancellation records the consumption/stop boundary.
+   * Delivery or formatting is never stop confirmation. Only an actually present
+   * turn controller receiving an explicit abort supplies confirmation evidence.
+   * Legacy unkeyed messages cannot be joined to the current durable intent.
+   */
+  private async _observeCancellationStop(message: InboxMessage): Promise<void> {
+    const reference = readContractCancellationMessageReference(message);
+    if (reference?.kind !== 'keyed') return;
+    const manager = this.options.dependencies.cancellationStop;
+    if (!manager) return;
+    const keyed = await manager.noteCancellationStop(
+      reference.contractId,
+      reference.deliveryId,
+      'observed_without_abort',
+    );
+    if (!keyed || !this.currentAbortController) return;
+    this.abort();
+    await manager.confirmCancellationStop(
+      reference.contractId,
+      reference.deliveryId,
+      'abort',
+    );
+  }
+
+  /** Persist the honest pre-injection boundary; a confirmed stop never regresses. */
+  private async _noteCancellationInjection(message: InboxMessage): Promise<void> {
+    const reference = readContractCancellationMessageReference(message);
+    if (reference?.kind !== 'keyed') return;
+    await this.options.dependencies.cancellationStop?.noteCancellationStop(
+      reference.contractId,
+      reference.deliveryId,
+      'injected_without_abort_confirmation',
+    );
   }
 
   /**
@@ -850,8 +890,9 @@ export class Runtime {
    * @returns true = 可交付；false = 已处置（ack 到 done/，不再进入本次交付批次）
    */
   private async _judgeContractApplicability(
-    entry: InboxEntry,
+    entry: Pick<InboxEntry, 'message'>,
     handle: InboxHandle,
+    onQueryError: 'deliver' | 'requeue' = 'deliver',
   ): Promise<boolean> {
     const message = entry.message;
     const contractId = selectJudgedContractId(message);
@@ -869,6 +910,10 @@ export class Runtime {
         `contract=${contractId}`,
         `error=${formatErr(error)}`,
       );
+      if (onQueryError === 'requeue') {
+        await this.nackHandles([handle], formatErr(error), 'terminal_query_unknown');
+        return false;
+      }
       return true;
     }
     if (fact.kind !== 'terminal') return true;
@@ -994,6 +1039,12 @@ export class Runtime {
         `from=${message.from}`,
         `to=${message.to || this.options.clawId}`,
         `pri=${message.priority}`,
+        ...(() => {
+          const reference = readContractCancellationMessageReference(message);
+          return reference?.kind === 'legacy_unkeyed' || reference?.kind === 'identity_conflict'
+            ? [`cancellation_identity=${reference.kind}`]
+            : [];
+        })(),
         traceCol,
       );
     }
@@ -1005,6 +1056,29 @@ export class Runtime {
       selected,
       deferred,
       oversizedAlone,
+    };
+  }
+
+  /**
+   * Phase 2151 B4: final read-after-format applicability gate. A terminal rename
+   * racing the prepare query is settled before injection. Query errors requeue at
+   * this final fail-closed boundary; unknown never crosses the LLM injection point.
+   */
+  async recheckFormattedInbox(batch: FormattedInboxBatch): Promise<FormattedInboxBatch> {
+    const keep: number[] = [];
+    for (const [index, entry] of batch.selected.entries()) {
+      if (!(await this._judgeContractApplicability(entry, entry.handle, 'requeue'))) continue;
+      await this._noteCancellationInjection(entry.message);
+      keep.push(index);
+    }
+    if (keep.length === batch.selected.length) return batch;
+    return {
+      ...batch,
+      injected: keep.map(index => batch.injected[index]),
+      sources: keep.map(index => batch.sources[index]),
+      infos: keep.map(index => batch.infos[index]),
+      selected: keep.map(index => batch.selected[index]),
+      count: keep.length,
     };
   }
 

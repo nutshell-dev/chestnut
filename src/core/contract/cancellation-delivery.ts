@@ -9,7 +9,10 @@ import { emitContractNotifyFailed } from './audit-emit.js';
 import type { CancellationPostCommitFailure, CancellationTransitionOutcome } from './lifecycle.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
 
-export type ContractCancelledEvent = Extract<ContractNotification, { type: 'contract_cancelled' }>;
+export type ContractCancelledEvent = Extract<ContractNotification, { type: 'contract_cancelled' }> & {
+  /** Stable durable-delivery identity; never regenerated during recovery. */
+  readonly deliveryId: string;
+};
 
 export type CancellationDeliveryResult =
   | { readonly kind: 'delivered' }

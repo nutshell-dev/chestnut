@@ -68,6 +68,7 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
       type: 'contract_cancelled',
       contractId,
       reason: 'user requested abort',
+      deliveryId: `contract:${contractId}:cancelled:v2`,
     });
   });
 
@@ -316,7 +317,7 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     await expect(fs.access(path.join(clawDir, 'contract', 'active', contractId))).resolves.toBeUndefined();
   });
 
-  it('does not deliver or observe again for already_committed or retryable_failure', async () => {
+  it('does not rewrite a confirmed delivery or observe again for already_committed', async () => {
     const deliverCancellation = vi.fn(async () => {});
     const onNotify = vi.fn();
     const manager = makeManager({ deliverCancellation, onNotify });
@@ -329,7 +330,7 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
 
     expect(repeated.commit.kind).toBe('already_committed');
     expect(repeated.cancellationFailures).toEqual([]);
-    expect(repeated.cancellationDelivery).toEqual({ kind: 'not_attempted' });
+    expect(repeated.cancellationDelivery).toEqual({ kind: 'delivered' });
     expect(missing.commit.kind).toBe('retryable_failure');
     expect(missing.cancellationFailures).toEqual([]);
     expect(missing.cancellationDelivery).toEqual({ kind: 'not_attempted' });
@@ -338,7 +339,7 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
     expect(onNotify).toHaveBeenCalledTimes(1);
   });
 
-  it('allows only the committed race winner to deliver and observe', async () => {
+  it('allows only the committed race winner to observe while both reconcile stable delivery', async () => {
     const deliverA = vi.fn(async () => {});
     const deliverB = vi.fn(async () => {});
     const observeA = vi.fn();
@@ -356,12 +357,10 @@ describe('Phase 2091: ContractSystem cancellation delivery', () => {
 
     expect(outcomes.filter(outcome => outcome.commit.kind === 'committed')).toHaveLength(1);
     expect(outcomes.filter(outcome => outcome.commit.kind === 'already_committed')).toHaveLength(1);
-    expect(deliverA.mock.calls.length + deliverB.mock.calls.length).toBe(1);
+    expect(deliverA.mock.calls.length + deliverB.mock.calls.length).toBe(2);
     expect(observeA.mock.calls.length + observeB.mock.calls.length).toBe(1);
     for (const outcome of outcomes) {
-      expect(outcome.cancellationDelivery.kind).toBe(
-        outcome.commit.kind === 'committed' ? 'delivered' : 'not_attempted',
-      );
+      expect(outcome.cancellationDelivery.kind).toBe('delivered');
     }
   });
 });

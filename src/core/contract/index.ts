@@ -132,5 +132,21 @@ export { getContractWorkMessageId } from './work-message-reference.js';
 export { readContractTerminalFact } from './terminal-fact.js';
 export type { ContractTerminalFact } from './terminal-fact.js';
 
+// Phase 2151 B4: cancellation delivery identity shared by the producer and consumer.
+export {
+  CONTRACT_CANCELLATION_DELIVERY_META_KEY,
+  cancellationDeliveryId,
+  newCancellationDeliveryRecord,
+  parseCancellationDeliveryRecord,
+} from './cancellation-delivery-store.js';
+export type {
+  CancellationDeliveryRecord,
+  CancellationDeliveryState,
+  CancellationStopState,
+} from './cancellation-delivery-store.js';
+export { readContractCancellationMessageReference } from './cancellation-message-reference.js';
+export type { ContractCancellationMessageReference } from './cancellation-message-reference.js';
+export type { ContractCancelledEvent } from './cancellation-delivery.js';
+
 // phase 1872 Step E: 存在性只读查询（0-instance-dep，同 hasContract 语义）
 export { queryContractExistence } from './existence-query.js';

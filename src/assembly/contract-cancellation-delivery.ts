@@ -7,11 +7,10 @@ import type { ClawNotifier } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { contractCancelledNotificationBody } from '../templates/messages/index.js';
 import {
+  CONTRACT_CANCELLATION_DELIVERY_META_KEY,
   encodeContractCancelledGuidance,
-  type ContractNotification,
 } from '../core/contract/index.js';
-
-type ContractCancelledEvent = Extract<ContractNotification, { type: 'contract_cancelled' }>;
+import type { ContractCancelledEvent } from '../core/contract/index.js';
 
 export function createContractCancellationDelivery(deps: {
   clawId: string;
@@ -22,12 +21,18 @@ export function createContractCancellationDelivery(deps: {
       type: 'contract_cancelled',
       source: 'system',
       priority: 'high',
-      messageId: `contract:${event.contractId}:cancelled`,
+      messageId: event.deliveryId,
+      // Stable-id reconciliation includes consumed messages; a done cancellation is
+      // still delivery evidence and must not be written again after restart.
+      includeDoneWithinMs: Infinity,
       body: contractCancelledNotificationBody(deps.clawId, event),
-      extraFields: encodeContractCancelledGuidance([{
-        clawId: makeClawId(deps.clawId),
-        contractId: event.contractId,
-      }]),
+      extraFields: {
+        ...encodeContractCancelledGuidance([{
+          clawId: makeClawId(deps.clawId),
+          contractId: event.contractId,
+        }]),
+        [CONTRACT_CANCELLATION_DELIVERY_META_KEY]: event.deliveryId,
+      },
     });
   };
 }

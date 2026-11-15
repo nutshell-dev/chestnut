@@ -15,7 +15,7 @@ import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from '../../../src/core/
 import { CONTEXT_TRIM_RETRY_MAX, CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS, EXECUTION_RECOVERY_DELIVERY_META_KEY } from '../../../src/core/event-loop/constants.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
-import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
+import type { Runtime, TurnResult, FormattedInboxBatch } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/index.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-provider/index.js';
@@ -538,6 +538,42 @@ describe('EventLoop.run', () => {
     expect(chainEntry).toBeDefined();
     expect(String(chainEntry!.join('\t'))).toContain('injected=2');
     expect(String(chainEntry!.join('\t'))).toContain('chain_total=3');
+  });
+
+  it('Phase 2151 B4: 最终复核移除全批时不调用 processTurn', async () => {
+    const audit = createMockAudit();
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
+    const recheckFormattedInbox = vi.fn().mockImplementation(async (formatted: FormattedInboxBatch) => ({
+      ...formatted,
+      injected: [], sources: [], infos: [], selected: [], count: 0,
+    }));
+    const runtime = {
+      ...mockSequentialInboxBoundary([{
+        injected: [{ role: 'user', content: 'stale recovery' } as Message],
+        sources: [{ text: 'stale recovery', type: 'execution_recovery' }],
+        infos: [] as InboxMessage[],
+        addressedHandles: [] as InboxHandle[],
+      }]),
+      recheckFormattedInbox,
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      getLLMFailureDisposition: vi.fn().mockReturnValue('unknown'),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
+    } as unknown as Runtime;
+
+    await makeEventLoop(runtime, audit).run();
+
+    expect(recheckFormattedInbox).toHaveBeenCalledTimes(1);
+    expect(processTurn).not.toHaveBeenCalled();
   });
 
   it('claw: per-claw clean-stop marker → skips retry-state load and consumes marker', async () => {

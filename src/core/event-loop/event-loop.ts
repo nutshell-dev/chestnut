@@ -742,6 +742,7 @@ export class EventLoop {
   }): Promise<'continue' | 'break' | 'failed'> {
     type PostDrainStage =
       | 'inbox_format'
+      | 'inbox_recheck'
       | 'system_prompt'
       | 'session_messages'
       | 'proactive_trim'
@@ -762,7 +763,7 @@ export class EventLoop {
         await this.runtime.nackHandles(allHandles, 'interrupted_before_injection', 'before_injection');
         return 'break';
       }
-      const formatted = await this.runtime.formatPreparedInbox(args.prepared);
+      let formatted = await this.runtime.formatPreparedInbox(args.prepared);
       // Phase 1967 Step B: 预算未选消息 defer 回 pending（不 ack/nack、不计
       // delivery_attempts）；defer 失败 → 已选+失败句柄回队并中止本轮，不继续注入。
       const deferredHandles = formatted.deferred.map(e => e.handle);
@@ -778,7 +779,7 @@ export class EventLoop {
           return 'break';
         }
       }
-      const addressedHandles = formatted.selected.map(e => e.handle);
+      let addressedHandles = formatted.selected.map(e => e.handle);
       dispositionHandles = addressedHandles;
       // Phase 1847: format 成功后、processTurn 前中断 —— 同上回队
       if (this.stopped) {
@@ -803,9 +804,29 @@ export class EventLoop {
         );
       }
       stage = 'proactive_trim';
-      const messages = await this.runtime.proactiveTrimIfNeeded(
+      const trimmedMessages = await this.runtime.proactiveTrimIfNeeded(
         [...sessionMessages, ...injected], systemPrompt, tools,
       );
+      // Phase 2151 B4: the last asynchronous gate before processTurn re-reads the
+      // owner terminal fact. Remove any newly stale inbox input from the already
+      // trimmed final array as well as from callback/disposition projections.
+      let messages = trimmedMessages;
+      if (this.runtime.recheckFormattedInbox) {
+        stage = 'inbox_recheck';
+        const rechecked = await this.runtime.recheckFormattedInbox(formatted);
+        const keptIds = new Set(rechecked.selected.map(e => e.message.id));
+        const removedIds = new Set(
+          formatted.selected.map(e => e.message.id).filter(id => !keptIds.has(id)),
+        );
+        formatted = rechecked;
+        addressedHandles = formatted.selected.map(e => e.handle);
+        dispositionHandles = addressedHandles;
+        if (formatted.selected.length === 0) return 'continue';
+        if (removedIds.size > 0) {
+          messages = trimmedMessages.filter(message =>
+            !message.inboxId || !removedIds.has(message.inboxId));
+        }
+      }
       stage = 'turn_start_callback';
       args.wrappedCallbacks?.onTurnStart?.(formatted.sources);
       // Phase 2135 Step B：turn_start 发布成功后标记 active；sink 故障不阻断业务。

@@ -225,6 +225,56 @@ describe('phase 1869 Step G: 消费适用性判定', () => {
     expect(prepared.entries.map(e => e.message.id)).toEqual(['r-1']);
   });
 
+  it('最终注入前复核：两次读取之间转为终态则不交付并结算原消息', async () => {
+    factQuery
+      .mockResolvedValueOnce({ kind: 'unconfirmed' })
+      .mockResolvedValueOnce({ kind: 'terminal', state: 'cancelled' });
+    await writeRecovery('r-race', 'c-race', 'execution_recovery-race');
+    const runtime = makeRuntime();
+    const prepared = await runtime.testPrepareInbox();
+    expect(prepared.entries).toHaveLength(1);
+    const selected = prepared.entries[0];
+    const formatted = await runtime.recheckFormattedInbox({
+      injected: [{ role: 'user', content: 'reminder', inboxId: selected.message.id }],
+      sources: [{ text: 'reminder', type: selected.message.type, id: selected.message.id }],
+      count: 1,
+      infos: [selected.message],
+      selected: [selected],
+      deferred: [],
+      oversizedAlone: false,
+    });
+
+    expect(formatted.selected).toHaveLength(0);
+    expect(formatted.injected).toHaveLength(0);
+    expect(factQuery).toHaveBeenCalledTimes(2);
+    expect(doneFiles()).toHaveLength(1);
+  });
+
+  it('最终注入前复核查询 unknown：回 pending，不 ack、不注入', async () => {
+    factQuery
+      .mockResolvedValueOnce({ kind: 'unconfirmed' })
+      .mockRejectedValueOnce(new Error('TERMINAL_QUERY_UNKNOWN'));
+    await writeRecovery('r-unknown', 'c-unknown', 'execution_recovery-unknown');
+    const runtime = makeRuntime();
+    const prepared = await runtime.testPrepareInbox();
+    const selected = prepared.entries[0];
+    const formatted = await runtime.recheckFormattedInbox({
+      injected: [{ role: 'user', content: 'reminder', inboxId: selected.message.id }],
+      sources: [{ text: 'reminder', type: selected.message.type, id: selected.message.id }],
+      count: 1,
+      infos: [selected.message],
+      selected: [selected],
+      deferred: [],
+      oversizedAlone: false,
+    });
+
+    expect(formatted.selected).toHaveLength(0);
+    expect(formatted.injected).toHaveLength(0);
+    expect(doneFiles()).toHaveLength(0);
+    expect(fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'))).toHaveLength(1);
+    expect(rows(RUNTIME_AUDIT_EVENTS.INBOX_TERMINAL_QUERY_FAILED)).toHaveLength(1);
+  });
+
   it('判定与 ack 间中断：消息留 inflight → reconcile 回 pending → 重启重判（幂等）', async () => {
     factQuery.mockResolvedValue({ kind: 'terminal', state: 'completed' });
     await writeRecovery('r-1', 'c-1', 'execution_recovery-d1');

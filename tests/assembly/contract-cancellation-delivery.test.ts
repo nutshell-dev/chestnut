@@ -40,6 +40,7 @@ describe('Phase 2091: Assembly cancellation delivery', () => {
       type: 'contract_cancelled',
       contractId: makeContractId('contract-1'),
       reason: 'user requested abort',
+      deliveryId: 'contract:contract-1:cancelled:v2',
     });
 
     const pendingDir = path.join(targetDir, 'inbox', 'pending');
@@ -49,7 +50,9 @@ describe('Phase 2091: Assembly cancellation delivery', () => {
     expect(content).toContain('type: contract_cancelled');
     expect(content).toContain('from: "system"');
     expect(content).toContain('priority: high');
-    expect(content).toContain('id: contract:contract-1:cancelled');
+    expect(content).toContain('id: contract:contract-1:cancelled:v2');
+    expect(content).toContain('contract_cancellation_delivery_id:');
+    expect(content).toContain('contract:contract-1:cancelled:v2');
     expect(content).toContain('契约已取消｜contract-1');
     expect(content).toContain(`执行者：${clawId}`);
     expect(content).toContain('取消原因：user requested abort');
@@ -74,6 +77,7 @@ describe('Phase 2091: Assembly cancellation delivery', () => {
       type: 'contract_cancelled',
       contractId: makeContractId('contract-1'),
       reason: 'stop',
+      deliveryId: 'contract:contract-1:cancelled:v2',
     })).rejects.toThrow('Target claw root does not exist');
   });
 
@@ -89,9 +93,11 @@ describe('Phase 2091: Assembly cancellation delivery', () => {
       type: 'contract_cancelled',
       contractId: makeContractId('contract-1'),
       reason: 'stop',
+      deliveryId: 'contract:contract-1:cancelled:v2',
     })).rejects.toBe(failure);
     expect(notifyAsync).toHaveBeenCalledWith('worker-1', expect.objectContaining({
-      messageId: 'contract:contract-1:cancelled',
+      messageId: 'contract:contract-1:cancelled:v2',
+      includeDoneWithinMs: Infinity,
     }));
   });
 });

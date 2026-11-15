@@ -331,7 +331,10 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       completedAt: '2026-09-11T00:00:00.000Z',
       subtasks: [{ id: 'st-1', completedAt: '2026-09-11T00:01:00.000Z', forceAccepted: false }],
     } as never);
-    const cancelledEvent = { type: 'contract_cancelled', contractId: 'c-9', reason: 'user manual' } as never;
+    const cancelledEvent = {
+      type: 'contract_cancelled', contractId: 'c-9', reason: 'user manual',
+      deliveryId: 'contract:c-9:cancelled:v2',
+    } as never;
     sink(cancelledEvent);
     const notifier = createClawNotifier({
       fs: systemFs,

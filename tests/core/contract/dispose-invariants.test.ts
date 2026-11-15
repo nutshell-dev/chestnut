@@ -277,6 +277,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       type: 'contract_cancelled',
       contractId,
       reason: 'user cancelled',
+      deliveryId: `contract:${contractId}:cancelled:v2`,
     }]);
   });
 
@@ -437,11 +438,12 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
 
       await verifierRegistered;
 
+      const verifierRejected = expect(verifierPromise).rejects.toThrow('AbortError');
       await manager.cancel(contractId, 'test reason');
 
       // Phase 1934 Step E（F-09）：执行异常（含 abort 传播）原样上抛，
       // 不再转换为 passed:false 消耗业务拒绝预算；abort 保留原控制语义。
-      await expect(verifierPromise).rejects.toThrow('AbortError');
+      await verifierRejected;
     });
   });
 
@@ -555,11 +557,13 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
 
       await twoVerifiersRegistered;
 
+      const p1Rejected = expect(p1).rejects.toThrow('AbortError');
+      const p2Rejected = expect(p2).rejects.toThrow('AbortError');
       await manager.cancel(contractId, 'test');
 
       // Phase 1934 Step E（F-09）：执行异常（含 abort 传播）原样上抛。
-      await expect(p1).rejects.toThrow('AbortError');
-      await expect(p2).rejects.toThrow('AbortError');
+      await p1Rejected;
+      await p2Rejected;
     });
   });
 

@@ -133,11 +133,13 @@ export async function cancelContract(
   contractId: ContractId,
   reason: string,
   requestId?: string,
+  requestedAt?: string,
 ): Promise<CancellationTransitionOutcome> {
   const intent = buildCancelledIntent(
     contractId,
     requestId ?? makeRequestId('cancel'),
     reason,
+    requestedAt,
   );
   const commit = await commitTerminalLifecycle(ctx, contractId, intent);
   const cancellationFailures: CancellationPostCommitFailure[] = [];

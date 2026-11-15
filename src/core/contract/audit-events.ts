@@ -36,6 +36,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase345: caller 风格统一并轨（B.p344-1 / contract lifecycle events）
   PASSED: 'verification_passed',
   CANCELLED: 'contract_cancelled',
+  // Phase 2151 B4: write-ahead full next record for durable delivery/stop recovery.
+  CANCELLATION_DELIVERY_TRANSITION: 'contract_cancellation_delivery_transition',
   // phase 422 Step C (review medium audit-emit-implies-no-write): cancelContract
   // 半态留痕 — saveProgress 已写 'cancelled' 但 fs.move 失败、source 含 cancelled
   // progress、target dir 缺/半成。
@@ -198,6 +200,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_unexpected_async_throw: 'audit',
   verification_passed: 'audit',
   contract_cancelled: 'audit',
+  contract_cancellation_delivery_transition: 'audit',
   contract_cancel_partial_failed: 'audit',
   contract_corrupted: 'audit',
   contract_corrupt_partial_failed: 'audit',

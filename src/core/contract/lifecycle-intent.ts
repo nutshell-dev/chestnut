@@ -316,13 +316,14 @@ export function buildCancelledIntent(
   contractId: ContractId,
   requestId: string,
   reason: string,
+  requestedAt?: string,
 ): LifecycleIntent {
   return {
     schema_version: LIFECYCLE_INTENT_SCHEMA_VERSION,
     request_id: requestId,
     contract_id: contractId,
     requested_state: 'cancelled',
-    requested_at: new Date().toISOString(),
+    requested_at: requestedAt ?? new Date().toISOString(),
     reason,
   };
 }

@@ -75,6 +75,8 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
    * 与 deferred（预算未选，由 EventLoop 经 deferHandles 回 pending 轮转）。
    */
   formatPreparedInbox(batch: PreparedInboxBatch): Promise<FormattedInboxBatch>;
+  /** Phase 2151 B4: final terminal-fact recheck before injection; optional for narrow test doubles. */
+  recheckFormattedInbox?(batch: FormattedInboxBatch): Promise<FormattedInboxBatch>;
   /**
    * Phase 1967 Step B: 预算延后——deferred 句柄回 pending（不 ack/nack、
    * 不计 delivery_attempts）；返回失败句柄集合（成功为空数组）。

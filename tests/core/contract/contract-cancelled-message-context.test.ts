@@ -200,6 +200,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
         type: 'contract_cancelled',
         contractId: makeContractId('c-self'),
         reason: '用户不需要了',
+        deliveryId: 'contract:c-self:cancelled:v2',
       });
       // stream payload 保持 legacy shape（本 phase 不动 stream 协议）
       expect(streamWrite).toHaveBeenCalledWith({
@@ -231,6 +232,7 @@ describe('phase 1833: 契约取消通知 → inbox → Runtime/指导 → provid
         type: 'contract_cancelled',
         contractId: makeContractId('c-w'),
         reason: '',
+        deliveryId: 'contract:c-w:cancelled:v2',
       });
 
       const { audit } = makeAudit();

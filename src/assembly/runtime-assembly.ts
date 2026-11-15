@@ -31,7 +31,11 @@ import { getClawConfigPath, makeClawId } from '../foundation/claw-identity/index
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool, SHADOW_DEFAULT_TIMEOUT_MS } from '../core/shadow-system/index.js';
-import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../core/claw-topology/index.js';
+import {
+  createInternalSystemMotionAccess,
+  MOTION_CLAW_ID,
+  resolveClawDaemonDir,
+} from '../core/claw-topology/index.js';
 import type { AssembleConfig } from './types.js';
 import { createExecWithHandle, EXEC_TOOL_NAME, EXEC_ASYNC_MIGRATION } from '../foundation/command-tool/index.js';
 import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
@@ -158,6 +162,9 @@ export async function createRuntimeAssembly(
     llm: llmOwner,
     llmOrchestrator: llmOwner,
     contractManager,
+    // Phase 2151 B4: cancellation consumption/stop evidence is a separate narrow
+    // Runtime capability; the three-operation lifecycle interface stays unchanged.
+    cancellationStop: contractManager,
     taskSystem,
     permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
     // phase 521: regime switch coordination / Assembly own factory / closure capture 5 const
@@ -189,7 +196,11 @@ export async function createRuntimeAssembly(
   // 身份从 reloader 返回的同一 resolved object 派生（无 TOCTOU、无第二套投影）。
   const appliedLLMIdentityPublisher = config.createAppliedLLMIdentityPublisher?.(
     core.processManager,
-    resolveClawDaemonDir(makeClawId(clawId)),
+    resolveClawDaemonDir(
+      makeClawId(clawId),
+      createInternalSystemMotionAccess('configure'),
+      'configure',
+    ),
   );
 
   const llmApplicationStore = createLLMApplicationStore({ fsFactory });

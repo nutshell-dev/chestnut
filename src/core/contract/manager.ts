@@ -59,10 +59,18 @@ import type {
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
+import { readContractTerminalFact, type ContractTerminalFact } from './terminal-fact.js';
+import {
+  createCancellationDeliveryStore,
+  newCancellationDeliveryRecord,
+  type CancellationDeliveryRecord,
+  type CancellationDeliveryStore,
+} from './cancellation-delivery-store.js';
 import {
   attemptCancellationDelivery,
   notifyCancellationObserver,
   type CancellationDelivery,
+  type CancellationDeliveryResult,
   type ContractCancelledEvent,
   type ContractCancelOutcome,
 } from './cancellation-delivery.js';
@@ -188,6 +196,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   private llm?: LLMOrchestrator;
   private notifyClaw: NotifyClawFn;
   private readonly deliverCancellation: CancellationDelivery;
+  private readonly cancellationDeliveryStore: CancellationDeliveryStore;
   private toolRegistry: ToolRegistry;
   private toolTimeoutMs?: number;
   private fsFactory: (baseDir: string) => FileSystem;
@@ -301,6 +310,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     this.llm = deps.llm;
     this.notifyClaw = deps.notifyClaw;
     this.deliverCancellation = deps.deliverCancellation;
+    this.cancellationDeliveryStore = createCancellationDeliveryStore({ fs: this.fs, audit: this.audit });
     this.toolRegistry = deps.toolRegistry;
     this.toolTimeoutMs = deps.toolTimeoutMs;
     this.fsFactory = deps.fsFactory;
@@ -1137,6 +1147,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         `error=${formatErr(err)}`,
       );
     }
+
+    await this._recoverCancellationDeliveries();
   }
 
   // Verification
@@ -1154,26 +1166,191 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   // Lifecycle
   // phase 1862 Step C (CT-D2): 终态 transition 返回单一 typed outcome（commit + postCommit 事实）。
   async cancel(contractId: ContractId, reason: string): Promise<ContractCancelOutcome> {
-    const outcome = await cancelContract(this._lifecycleCtx(), contractId, reason);
+    // Persist the delivery/stop obligation BEFORE the lifecycle rename. Reusing an
+    // existing record also reuses its intent, reason and stable delivery id on an
+    // already_committed retry instead of minting a second notification identity.
+    let record = await this.cancellationDeliveryStore.load(contractId);
+    if (!record) {
+      record = newCancellationDeliveryRecord(
+        contractId,
+        `cancel-${Date.now()}-${newShortUuid()}`,
+        reason,
+      );
+      await this.cancellationDeliveryStore.save(record);
+    }
+
+    const outcome = await cancelContract(
+      this._lifecycleCtx(),
+      contractId,
+      record.reason,
+      record.intentId,
+      record.requestedAt,
+    );
     // phase 398 Step D (review N9): 终态清 auditorState、防 unbounded growth +
     // contract-id 复用残留。cancel 失败 throw、entry 留待重试。
     this.auditorState.delete(contractId);
-    if (outcome.commit.kind !== 'committed') {
+    if (outcome.commit.kind !== 'committed' && outcome.commit.kind !== 'already_committed') {
       return { ...outcome, cancellationDelivery: { kind: 'not_attempted' } };
     }
 
-    const event: ContractCancelledEvent = { type: 'contract_cancelled', contractId, reason };
-    const cancellationDelivery = await attemptCancellationDelivery(
-      event,
-      this.deliverCancellation,
-      this.audit,
-    );
-    const observerFailures = notifyCancellationObserver(event, this.onNotify, this.audit);
+    record = await this._markCancellationStopUnknown(record, 'no_execution_stop_confirmation');
+    const event: ContractCancelledEvent = {
+      type: 'contract_cancelled',
+      contractId,
+      reason: record.reason,
+      deliveryId: record.deliveryId,
+    };
+    const cancellationDelivery = await this._deliverCancellationRecord(record, event);
+    // already_committed owns no new business side effects; only the independent,
+    // durable delivery obligation is reconciled. Observation remains winner-only.
+    const observerFailures = outcome.commit.kind === 'committed'
+      ? notifyCancellationObserver(event, this.onNotify, this.audit)
+      : [];
     return {
       ...outcome,
       cancellationFailures: [...outcome.cancellationFailures, ...observerFailures],
       cancellationDelivery,
     };
+  }
+
+  /** Reconcile pending, message-written and unknown deliveries after restart. */
+  private async _recoverCancellationDeliveries(): Promise<void> {
+    let records: readonly CancellationDeliveryRecord[];
+    try {
+      records = await this.cancellationDeliveryStore.list();
+    } catch (error) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_SKIPPED,
+        'context=cancellation_delivery_list',
+        `error=${formatErr(error)}`,
+      );
+      return;
+    }
+
+    for (let record of records) {
+      if (record.delivery.kind === 'confirmed') continue;
+      let terminal: ContractTerminalFact;
+      try {
+        terminal = await readContractTerminalFact(this.fs, record.contractId as ContractId);
+      } catch (error) {
+        record = {
+          ...record,
+          delivery: {
+            kind: 'unknown',
+            updatedAt: new Date().toISOString(),
+            stage: 'terminal_query',
+            error: formatErr(error),
+          },
+        };
+        await this.cancellationDeliveryStore.save(record);
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
+          'notify_type=contract_cancelled',
+          'context=cancellation_terminal_query',
+          `contract=${record.contractId}`,
+          `delivery_id=${record.deliveryId}`,
+          `error=${formatErr(error)}`,
+        );
+        continue;
+      }
+      // An intent without the owner terminal rename is not deliverable. Keep the
+      // record untouched so a later boot can reconcile it after the rename.
+      if (terminal.kind !== 'terminal') continue;
+      if (terminal.state !== 'cancelled') {
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+          'context=cancellation_delivery',
+          `contract=${record.contractId}`,
+          `delivery_id=${record.deliveryId}`,
+          `state=${terminal.state}`,
+          'reason=terminal_state_conflict',
+        );
+        continue;
+      }
+
+      record = await this._markCancellationStopUnknown(record, 'restart_without_execution_stop_confirmation');
+      await this._deliverCancellationRecord(record, {
+        type: 'contract_cancelled',
+        contractId: record.contractId as ContractId,
+        reason: record.reason,
+        deliveryId: record.deliveryId,
+      });
+    }
+  }
+
+  private async _deliverCancellationRecord(
+    record: CancellationDeliveryRecord,
+    event: ContractCancelledEvent,
+  ): Promise<CancellationDeliveryResult> {
+    if (record.delivery.kind === 'confirmed') return { kind: 'delivered' };
+    const result = await attemptCancellationDelivery(event, this.deliverCancellation, this.audit);
+    if (result.kind === 'failed') {
+      await this.cancellationDeliveryStore.save({
+        ...record,
+        delivery: {
+          kind: 'unknown',
+          updatedAt: new Date().toISOString(),
+          stage: 'delivery',
+          error: formatErr(result.cause),
+        },
+      });
+      return result;
+    }
+
+    // Separate durable transitions close the write/confirmation crash window.
+    // Recovery in either state starts with Messaging's stable-id reconciliation.
+    const written: CancellationDeliveryRecord = {
+      ...record,
+      delivery: { kind: 'message_written', updatedAt: new Date().toISOString() },
+    };
+    await this.cancellationDeliveryStore.save(written);
+    await this.cancellationDeliveryStore.save({
+      ...written,
+      delivery: { kind: 'confirmed', updatedAt: new Date().toISOString() },
+    });
+    return result;
+  }
+
+  private async _markCancellationStopUnknown(
+    record: CancellationDeliveryRecord,
+    reason: string,
+  ): Promise<CancellationDeliveryRecord> {
+    if (record.stop.kind === 'stop_confirmed') return record;
+    if (record.stop.kind === 'stop_unknown' && record.stop.reason === reason) return record;
+    const next: CancellationDeliveryRecord = {
+      ...record,
+      stop: { kind: 'stop_unknown', updatedAt: new Date().toISOString(), reason },
+    };
+    await this.cancellationDeliveryStore.save(next);
+    return next;
+  }
+
+  /** Runtime consumer boundary: delivery/injection never implies execution stopped. */
+  async noteCancellationStop(
+    contractId: ContractId,
+    deliveryId: string,
+    reason: 'observed_without_abort' | 'injected_without_abort_confirmation',
+  ): Promise<boolean> {
+    const record = await this.cancellationDeliveryStore.load(contractId);
+    if (!record || record.deliveryId !== deliveryId) return false;
+    await this._markCancellationStopUnknown(record, reason);
+    return true;
+  }
+
+  /** Only an explicit Runtime abort (or an equivalent worker-stopped fact) may confirm. */
+  async confirmCancellationStop(
+    contractId: ContractId,
+    deliveryId: string,
+    evidence: 'abort' | 'worker_stopped',
+  ): Promise<boolean> {
+    const record = await this.cancellationDeliveryStore.load(contractId);
+    if (!record || record.deliveryId !== deliveryId) return false;
+    if (record.stop.kind === 'stop_confirmed') return true;
+    await this.cancellationDeliveryStore.save({
+      ...record,
+      stop: { kind: 'stop_confirmed', updatedAt: new Date().toISOString(), evidence },
+    });
+    return true;
   }
 
   async markCorrupted(

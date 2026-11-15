@@ -15,7 +15,7 @@ import type { ToolRegistry, ToolRegistryRuntimeCapability } from '../../foundati
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
-import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { ContractRuntimeLifecycle, ContractCloseOutcome, ContractId } from '../contract/index.js';
 import type { ContractTerminalFact } from '../contract/index.js';
 import type { TrimRuntimePolicy } from '../context_manager/index.js';
 import type { AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome } from '../async-task-system/index.js';
@@ -106,6 +106,20 @@ export interface RuntimeStopOutcome {
   readonly contractClose: ContractCloseOutcome;
 }
 
+/** Phase 2151 B4: consumer-owned cancellation stop evidence boundary. */
+export interface RuntimeCancellationStop {
+  noteCancellationStop(
+    contractId: ContractId,
+    deliveryId: string,
+    reason: 'observed_without_abort' | 'injected_without_abort_confirmation',
+  ): Promise<boolean>;
+  confirmCancellationStop(
+    contractId: ContractId,
+    deliveryId: string,
+    evidence: 'abort' | 'worker_stopped',
+  ): Promise<boolean>;
+}
+
 /** 1:1 保 runtime.ts:47-72 body */
 export interface RuntimeDependencies {
   // === L1 ===
@@ -131,6 +145,8 @@ export interface RuntimeDependencies {
   /** Phase 773: base registry with plain sync exec for subagent spawn paths. */
   readonly baseToolRegistry?: ToolRegistry;
   readonly contractManager: ContractRuntimeLifecycle;
+  /** Optional only for narrow tests; daemon assembly binds the ContractSystem owner. */
+  readonly cancellationStop?: RuntimeCancellationStop;
   readonly taskSystem: AsyncTaskRuntimeLifecycle;
   readonly skillRegistry: SkillContextSource;
 
