@@ -24,7 +24,7 @@ import {
 const STATUS_SUBDIR = 'status';
 
 function budget(): LLMRecoveryBudget {
-  return { retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 };
+  return { retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 }; // time-fixture: configuration/payload round-trip input, not an independent wait budget
 }
 
 describe('LLM instance recovery state atomic persistence (phase 2055)', () => {

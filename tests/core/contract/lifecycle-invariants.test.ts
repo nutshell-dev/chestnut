@@ -25,8 +25,10 @@ import { ToolError } from '../../../src/foundation/tools/errors.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
 import * as path from 'path';
 import { readLifecycleIntentsForContract } from '../../../src/core/contract/lifecycle-intent.js';
+import { WAIT_FOR_DEFAULT_BUDGET_MS, WAIT_FOR_DEFAULT_POLL_MS } from '../../helpers/test-timeouts.js';
 
-
+/** Shorter bounded observation for the synchronous lifecycle guard's audit. */
+const LIFECYCLE_GUARD_AUDIT_BUDGET_MS = 2000;
 
 // ───── source: lifecycle.test.ts ─────
 /**
@@ -349,7 +351,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       const activeStillExists = await fs.stat(path.join(clawDir, 'contract', 'active', contractId)).then(() => true).catch(() => false);
       const archiveStillExists = await fs.stat(archiveDir).then(() => true).catch(() => false);
       return !activeStillExists && archiveStillExists;
-    }, { timeout: 5000 });
+    }, { timeout: WAIT_FOR_DEFAULT_BUDGET_MS });
   });
 
   it('cancelled guard returns null + audit VERIFICATION_RESET_FAILED (P0.18)', async () => {
@@ -390,7 +392,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
 
     await vi.waitUntil(
       () => auditCalls.slice(beforeAudit).some(isPipelineGuard),
-      { timeout: 2000, interval: 20 },
+      { timeout: LIFECYCLE_GUARD_AUDIT_BUDGET_MS, interval: WAIT_FOR_DEFAULT_POLL_MS },
     );
     const guardAudits = auditCalls.slice(beforeAudit).filter(isPipelineGuard);
     expect(guardAudits.length).toBeGreaterThanOrEqual(1);

@@ -590,7 +590,7 @@ describe('StepExecutor', () => {
   it('mid-stream reset isolates subsequent stream from prior state', async () => {
     const llm = makeStreamLLM([
       { type: 'thinking_delta', delta: 'old think' },
-      { type: 'reset', provider: 'anthropic', timeoutMs: 15000 },
+      { type: 'reset', provider: 'anthropic', timeoutMs: 15000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       { type: 'thinking_delta', delta: 'new think' },
       { type: 'done', stopReason: 'end_turn' },
     ]);

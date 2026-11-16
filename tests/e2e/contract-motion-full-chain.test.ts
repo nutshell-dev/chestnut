@@ -21,6 +21,9 @@ import { createAuditEmitterHelper, type AuditEmitterHelper } from '../helpers/au
 import { waitForPathExists } from '../helpers/wait-for-file.js';
 import { completeSubtask } from '../helpers/contract-subtask.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const CONTRACT_MOTION_CHAIN_RUNNER_TIMEOUT_MS = 15_000;
+
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 const { mockRunContractVerifier } = vi.hoisted(() => ({
@@ -200,5 +203,5 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     expect(failedEvents.length).toBe(0);
 
     abortHandler?.();
-  }, 15000);
+  }, CONTRACT_MOTION_CHAIN_RUNNER_TIMEOUT_MS);
 });

@@ -100,7 +100,7 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
     const auditPromise = auditor.maybeAudit(makeAuditRequest());
 
     // phase 789: waitFor poll until llm.call begins and the abort signal is received
-    await waitFor(() => receivedSignal !== undefined, 5000);
+    await waitFor(() => receivedSignal !== undefined);
     expect(receivedSignal).toBeDefined();
     expect(receivedSignal!.aborted).toBe(false);
 

@@ -9,6 +9,9 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { decodeProcessRef, inspectProcessRef, type ProcessRef } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const CLAIM_OBSERVATION_RUNNER_TIMEOUT_MS = 60_000;
+
 type Kind = 'inbox' | 'outbox';
 type ReadyFile = {
   pid: number;
@@ -319,9 +322,9 @@ async function exerciseRealHolder(kind: Kind): Promise<void> {
 describe.skipIf(!supported)('Messaging legacy claim real process observations', () => {
   it('retains a live inbox holder, reclaims both legacy formats after close, and preserves content/evidence', async () => {
     await exerciseRealHolder('inbox');
-  }, 60_000);
+  }, CLAIM_OBSERVATION_RUNNER_TIMEOUT_MS);
 
   it('retains a live outbox holder, reclaims both legacy formats after close, and preserves content/evidence', async () => {
     await exerciseRealHolder('outbox');
-  }, 60_000);
+  }, CLAIM_OBSERVATION_RUNNER_TIMEOUT_MS);
 });

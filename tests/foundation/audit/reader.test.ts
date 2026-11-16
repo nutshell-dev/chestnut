@@ -589,7 +589,7 @@ describe('listPendingFallbackDumps', () => {
       const dumps = listPendingFallbackDumps();
       expect(dumps.some(d => d.pid === process.pid && d.ts === ts)).toBe(true);
       return true;
-    }, 5000);
+    });
   });
 
   it('ignores non-matching files', () => {

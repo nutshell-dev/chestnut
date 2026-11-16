@@ -103,7 +103,7 @@ describe('phase 993: verifier-job D.1 signal + D.2 catch audit emit', () => {
   it('ToolTimeoutError → VERIFIER_FAILED audit emit (kind=timeout)', async () => {
     const { audit, events } = makeAudit();
 
-    mockRunSubagentSignalAudit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 }));
+    mockRunSubagentSignalAudit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 })); // time-fixture: configuration/payload round-trip input, not an independent wait budget
 
     const result = await runContractVerifier(makeConfig({ audit }));
 
@@ -667,7 +667,7 @@ describe('runContractVerifier (phase 990)', () => {
   });
 
   it('returns timeout feedback on ToolTimeoutError', async () => {
-    mockRunSubagentUnit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 }));
+    mockRunSubagentUnit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 })); // time-fixture: configuration/payload round-trip input, not an independent wait budget
     const result = await runContractVerifier(makeUnitConfig());
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('超时');

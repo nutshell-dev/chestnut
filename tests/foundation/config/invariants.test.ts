@@ -9,6 +9,8 @@ import { viewportConfigSchema, VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } fr
 import { llmOrchestratorConfigSchema } from '../../../src/foundation/llm-orchestrator/config-schema.js';
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 
+const NEXT_TICK_DELAY_MS = 0; // 仅错开同步调用栈，构造并发写入顺序。
+
 /**
  * Path getters tests
  */
@@ -59,7 +61,7 @@ describe('assembly/config-load: no race tmp naming', () => {
           setTimeout(() => {
             nodeFs.writeAtomicSync('concurrent.json', `content-${i}`);
             resolve();
-          }, 0);
+          }, NEXT_TICK_DELAY_MS);
         })
       );
     }

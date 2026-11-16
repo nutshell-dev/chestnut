@@ -26,7 +26,7 @@ function projectionConfig(): ProviderConfig {
     model: 'test-model',
     baseUrl: 'https://api.test.invalid/v1',
     apiKey: 'synthetic-key',
-    temperature: 0, timeoutMs: 60_000,
+    temperature: 0, timeoutMs: 60_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
   };
 }
 

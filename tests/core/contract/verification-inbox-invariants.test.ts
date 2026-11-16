@@ -27,6 +27,9 @@ import { runVerificationInBackground } from '../../../src/core/contract/verifica
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
 
+/** Allows the background reset to settle after the injected audit failure. */
+const BACKGROUND_RESET_OBSERVE_BUDGET_MS = 10_000;
+
 /**
  * @module tests/core/contract/verification-force-accept-inbox
  * Phase 1405 Fix 1: writeForceAcceptInbox helper 写 claw inbox 反馈
@@ -880,7 +883,7 @@ describe('Phase 961 verification invariants', () => {
     await vi.waitFor(async () => {
       const p = await manager.getProgress(contractId);
       expect(p?.subtasks.t1.status).toBe('todo');
-    }, { timeout: 10000 });
+    }, { timeout: BACKGROUND_RESET_OBSERVE_BUDGET_MS });
 
     const progress = await manager.getProgress(contractId);
     // Phase 1934 Step E（F-09）：执行异常退回不消耗业务拒绝预算——audit 故障

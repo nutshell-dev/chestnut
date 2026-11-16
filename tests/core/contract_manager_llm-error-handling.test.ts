@@ -17,6 +17,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { completeSubtask } from '../helpers/contract-subtask.js';
+import { WAIT_FOR_DEFAULT_BUDGET_MS } from '../helpers/test-timeouts.js';
 
 /**
  * Setup contract files for testing (copy from contract_manager_llm.test.ts)
@@ -109,7 +110,7 @@ describe('ContractSystem — background verification error handling', () => {
 
     await completeSubtask(manager, { contractId, subtaskId, evidence: 'done' });
 
-    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_unexpected_async_throw'), { timeout: 5000 });
+    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_unexpected_async_throw'), { timeout: WAIT_FOR_DEFAULT_BUDGET_MS });
 
     expect(auditEvents.some(e => e.type === 'contract_unexpected_async_throw')).toBe(true);
     const throwAudit = auditEvents.find(e => e.type === 'contract_unexpected_async_throw');
@@ -176,7 +177,7 @@ describe('ContractSystem — background verification error handling', () => {
 
     await completeSubtask(manager, { contractId, subtaskId, evidence: 'done' });
 
-    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_verification_background_failed'), { timeout: 5000 });
+    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_verification_background_failed'), { timeout: WAIT_FOR_DEFAULT_BUDGET_MS });
 
     expect(auditEvents.some(e => e.type === 'contract_unexpected_async_throw')).toBe(false);
     expect(auditEvents.some(e => e.type === 'contract_verification_background_failed')).toBe(true);

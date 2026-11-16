@@ -16,6 +16,8 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { waitFor } from '../helpers/wait-for.js';
 
+const RACE_TIMEOUT_MS = 50;
+const NON_TIMEOUT_EXECUTION_BUDGET_MS = 5_000;
 
 describe('executor race-loser audit (phase 816 B2)', () => {
   let tempDir: string;
@@ -66,9 +68,9 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       toolName: 'slow-throw',
       args: {},
       ctx,
-      timeoutMs: 50,
+      timeoutMs: RACE_TIMEOUT_MS,
     });
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(RACE_TIMEOUT_MS);
     const result = await pendingResult;
     vi.useRealTimers();
 
@@ -79,7 +81,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     await waitFor(async () => {
       const content = await fs.readFile(auditPath, 'utf-8').catch(() => '');
       return content.includes('tool_exec_race_loser');
-    }, 5000);
+    });
 
     const auditContent = await fs.readFile(auditPath, 'utf-8');
     const rows = auditContent.trim().split('\n');
@@ -116,7 +118,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       toolName: 'fast-ok',
       args: {},
       ctx,
-      timeoutMs: 5000,
+      timeoutMs: NON_TIMEOUT_EXECUTION_BUDGET_MS,
     });
 
     expect(result.success).toBe(true);

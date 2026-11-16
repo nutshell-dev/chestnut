@@ -43,7 +43,7 @@ function makeSubAgentTask(
     id: makeFullTaskId(taskId),
     mode: 'shadow',
     intent: 'test intent',
-    timeoutMs: 1000,
+    timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     parentClawId: 'parent-claw',
     createdAt: '2024-01-01T00:00:00.000Z',
     ...(decision ? { summonDecision: decision } : {}),

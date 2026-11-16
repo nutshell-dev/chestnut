@@ -296,13 +296,14 @@ describe('Tools', () => {
         fs: mockFs,
       });
 
+      const TOOL_TIMEOUT_MS = 50;
       const pendingResult = executor.execute({
         toolName: 'slow',
         args: {},
         ctx,
-        timeoutMs: 50,
+        timeoutMs: TOOL_TIMEOUT_MS,
       });
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MS);
       const result = await pendingResult;
       vi.useRealTimers();
       expect(result.success).toBe(false);

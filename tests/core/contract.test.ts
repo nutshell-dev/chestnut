@@ -16,6 +16,7 @@ import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { completeSubtask } from '../helpers/contract-subtask.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const VERIFICATION_DRAIN_BUDGET_MS = 3_000; // afterEach 的有界审计 drain，非业务 timeout。
 
 async function createContract(
   tempDir: string,
@@ -96,7 +97,7 @@ describe('Contract System', () => {
         const timer = setTimeout(() => {
           auditEmitter.off('write', handler);
           reject(new Error(`timeout waiting for ${needed} verification_done events`));
-        }, 3000);
+        }, VERIFICATION_DRAIN_BUDGET_MS);
         const handler = (ev: string) => {
           if (ev === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE) {
             received++;

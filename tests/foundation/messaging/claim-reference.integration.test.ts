@@ -12,6 +12,9 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { decodeProcessRef, inspectProcessRef, type ProcessRefCapture } from '../../../src/foundation/process-exec/index.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const CLAIM_REFERENCE_SETUP_RUNNER_TIMEOUT_MS = 60_000;
+
 const CHANNELS = ['inbox', 'outbox'] as const;
 type Channel = typeof CHANNELS[number];
 type ReadyFile = {
@@ -294,7 +297,7 @@ beforeAll(async () => {
     '--target=node20',
     `--outfile=${fixtureBundle}`,
   ], { stdio: 'pipe' });
-}, 60_000);
+}, CLAIM_REFERENCE_SETUP_RUNNER_TIMEOUT_MS);
 
 beforeEach(async () => {
   tempDir = await createTrackedTempDir('messaging-claim-reference-process-');

@@ -119,7 +119,7 @@ describe('StreamReader', () => {
     reader.start();
 
     // phase 789: waitFor watcher ready instead of fixed probe sleep
-    await waitFor(() => probeComplete, 5000);
+    await waitFor(() => probeComplete);
 
     writer.write({ ts: 1, type: 'first' });
     writer.write({ ts: 2, type: 'second' });

@@ -12,6 +12,9 @@ import {
 import { withSkillStateLock } from '../../../src/foundation/skill-system/state-lock.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const STATE_LOCK_SETUP_RUNNER_TIMEOUT_MS = 60_000;
+
 const FIXTURE_SRC = path.resolve(
   process.cwd(), 'tests/foundation/skill-system/fixtures/state-lock-holder.ts',
 );
@@ -70,7 +73,7 @@ beforeAll(async () => {
     '--target=node20',
     `--outfile=${fixtureBundle}`,
   ], { stdio: 'pipe' });
-}, 60_000);
+}, STATE_LOCK_SETUP_RUNNER_TIMEOUT_MS);
 
 beforeEach(async () => {
   tempDir = await createTrackedTempDir('skill-state-lock-process-');

@@ -26,6 +26,9 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { readLifecycleIntentsForContract } from '../../../src/core/contract/lifecycle-intent.js';
 
+/** Bounded observation of the next close call; not a contract verifier business timeout. */
+const DISPOSE_OBSERVE_BUDGET_MS = 1000;
+
 const { mockRunContractVerifierDispose } = vi.hoisted(() => ({
   mockRunContractVerifierDispose: vi.fn(),
 }));
@@ -191,11 +194,11 @@ describe('ContractSystem.close() async await verifier termination', () => {
     })();
 
     // cs1 is called first by the loop; release it so cs1-end is recorded and the loop proceeds to cs2.
-    await waitFor(() => closeOrder.includes('cs1-start'), 1000);
+    await waitFor(() => closeOrder.includes('cs1-start'), DISPOSE_OBSERVE_BUDGET_MS);
     cs1Release!();
 
     // cs2 is now called; release it so cs2-end is recorded.
-    await waitFor(() => closeOrder.includes('cs2-start'), 1000);
+    await waitFor(() => closeOrder.includes('cs2-start'), DISPOSE_OBSERVE_BUDGET_MS);
     cs2Release!();
 
     await closePromise;

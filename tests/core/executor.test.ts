@@ -22,6 +22,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
  * Derivation: > microtask flush / << timeoutMs / 让 abortable 工具进入 await 后再 abort.
  */
 const ABORT_TRIGGER_DELAY_MS = 50;
+const ABORT_OWNED_EXECUTION_BUDGET_MS = 10_000; // 外部 abort 必须先于执行预算胜出。
 
 describe('ToolExecutor', () => {
   let tempDir: string;
@@ -406,7 +407,7 @@ describe('ToolExecutor', () => {
         toolName: 'abortable',
         args: {},
         ctx: signalCtx,
-        timeoutMs: 10_000, // long enough that abort wins
+        timeoutMs: ABORT_OWNED_EXECUTION_BUDGET_MS,
       });
 
       // Abort after a short delay

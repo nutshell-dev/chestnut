@@ -118,7 +118,7 @@ function makePendingTask(): Record<string, unknown> {
     kind: 'subagent',
     mode: 'standard',
     intent: 'test intent',
-    timeoutMs: 60000,
+    timeoutMs: 60000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     parentClawId: 'parent-claw',
     parentClawDir: '/tmp/claw',
     createdAt: new Date().toISOString(),

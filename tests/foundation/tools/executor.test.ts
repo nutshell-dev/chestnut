@@ -126,6 +126,8 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     expect(toolExec[0]).toContain('cleanup=pending');
   });
 
+  const NO_CLEANUP_EXECUTION_BUDGET_MS = 5_000;
+
   it('fast normal tool: no cleanup wait, no cleanup field, success audit unchanged (反向 5)', async () => {
     const tool: Tool = {
       name: 'fast',
@@ -140,7 +142,7 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     const executor = new ToolExecutorImpl(registry, 60_000);
 
     const result = await executor.execute({
-      toolName: 'fast', args: {}, ctx: makeCtx(audit), timeoutMs: 5_000,
+      toolName: 'fast', args: {}, ctx: makeCtx(audit), timeoutMs: NO_CLEANUP_EXECUTION_BUDGET_MS,
     });
 
     expect(result.success).toBe(true);
@@ -168,7 +170,7 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     const executor = new ToolExecutorImpl(registry, 60_000);
 
     const result = await executor.execute({
-      toolName: 'failing', args: {}, ctx: makeCtx(audit), timeoutMs: 5_000,
+      toolName: 'failing', args: {}, ctx: makeCtx(audit), timeoutMs: NO_CLEANUP_EXECUTION_BUDGET_MS,
     });
 
     expect(result.success).toBe(false);

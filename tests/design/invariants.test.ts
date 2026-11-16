@@ -32,6 +32,10 @@ import {
   matchesTestPattern,
   scanProcessOutputGlobalState,
 } from '../../scripts/stream-output-global-state-audit.mjs';
+import {
+  detectMagicTestTimeBudgets,
+  scanTestTimeBudgets,
+} from '../../scripts/test-time-budget-audit.mjs';
 
 describe('shadow-signal-omit-anchor', () => {
   /**
@@ -981,5 +985,52 @@ describe('process-output-global-state-isolation-invariant', () => {
       duplicateProjectEntries: [],
     });
     expect(candidates.has('tests/core/contract/cancellation-delivery.test.ts')).toBe(true);
+  });
+});
+
+describe('test-time-budget-invariant', () => {
+  const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+  /** Phase 2174: budget-shaped AST forms must have a production/test owner or an explicit fixture marker. */
+  it('detects fields, deadline arithmetic, helper defaults, runner budgets, timers and waitFor literals', () => {
+    const source = [
+      'const config = { timeoutMs: 5_000, retryDelayMs: 100 };',
+      'const options = { deadlineAtMs: Date.now() + 1_000 };',
+      'function waitUntilReady(timeoutMs = 5_000) { return timeoutMs; }',
+      "it('slow', async () => {}, 30_000);",
+      'setTimeout(done, 100);',
+      'await waitFor(isReady, 5_000);',
+    ].join('\n');
+
+    expect(detectMagicTestTimeBudgets(source).map(hit => hit.shape)).toEqual([
+      'time-field:timeoutMs',
+      'time-field:retryDelayMs',
+      'deadline:deadlineAtMs',
+      'helper-default:timeoutMs',
+      'runner-timeout',
+      'timer:setTimeout',
+      'waitFor-budget',
+    ]);
+  });
+
+  it('accepts named budgets, explicit fixtures and audited immediate/disabled sentinels', () => {
+    const source = [
+      'const TIMEOUT_MS = 5_000;',
+      'const config = { timeoutMs: TIMEOUT_MS, retryDelayMs: 0, idleTimeoutMs: 1 };',
+      'const OPTIONS = { staleMs: 5_000, pollMs: 10 };',
+      'const payload = { timeoutMs: 1234 }; // time-fixture: round-trip payload',
+      'const deadline = { deadlineAtMs: Date.now() + TIMEOUT_MS };',
+      'await waitFor(isReady, TIMEOUT_MS);',
+      "it('bounded', async () => {}, TIMEOUT_MS);",
+    ].join('\n');
+
+    expect(detectMagicTestTimeBudgets(source)).toEqual([]);
+  });
+
+  it('has no unowned numeric time budgets in the test tree', () => {
+    const violations = scanTestTimeBudgets(REPO_ROOT);
+    expect(violations, violations.map(hit =>
+      `${hit.file}:${hit.line} ${hit.shape} ${hit.text}`,
+    ).join('\n')).toEqual([]);
   });
 });

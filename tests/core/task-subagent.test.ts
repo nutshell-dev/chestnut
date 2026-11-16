@@ -264,6 +264,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         };
       });
 
+      const SHORT_TURN_TIMEOUT_MS = 100;
       const agent = new SubAgent({
         agentId: 'test-agent-3',
         resultDir: 'tasks/queues/results/test-agent-3',
@@ -286,7 +287,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         registry: ctx.registry,
         fs: ctx.mockFs,
         maxSteps: 10,
-        timeoutMs: 100, // Very short timeout
+        timeoutMs: SHORT_TURN_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
         sink: new NoopLifecycleSink(),
       });
@@ -307,6 +308,8 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         stream: vi.fn(),
       } as unknown as LLMOrchestrator;
 
+      const SHORT_IDLE_TIMEOUT_MS = 100;
+      const IDLE_TIMEOUT_EXCEEDED_ADVANCE_MS = SHORT_IDLE_TIMEOUT_MS + 50;
       const agent = new SubAgent({
         agentId: 'test-idle',
         resultDir: 'tasks/queues/results/test-idle',
@@ -330,7 +333,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         fs: ctx.mockFs,
         maxSteps: 20,
         timeoutMs: SUBAGENT_LONG_TIMEOUT_MS, // main timeout is long
-        idleTimeoutMs: 100, // idle timeout is short
+        idleTimeoutMs: SHORT_IDLE_TIMEOUT_MS,
         onIdleTimeout,
         taskStreamWriter: new NoopStreamWriter(),
         sink: new NoopLifecycleSink(),
@@ -338,7 +341,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
 
       const runPromise = agent.run().catch(() => { /* silent: expected-failure */ }); // 预期抛 ToolTimeoutError
 
-      await vi.advanceTimersByTimeAsync(150); // 超过 idleTimeoutMs
+      await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_EXCEEDED_ADVANCE_MS);
       await runPromise;
 
       expect(onIdleTimeout).toHaveBeenCalled();

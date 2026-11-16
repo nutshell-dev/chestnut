@@ -595,7 +595,7 @@ describe('summon-decision-metadata', () => {
         id: '550e8400-e29b-41d4-a716-446655440000',
         shortId: '550e8400',
         intent: 'plain subagent',
-        timeoutMs: 1000,
+        timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         parentClawId: 'p1',
         createdAt: new Date().toISOString(),
       });
@@ -610,7 +610,7 @@ describe('summon-decision-metadata', () => {
         id: '550e8401-e29b-41d4-a716-446655440000',
         shortId: '550e8401',
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         parentClawId: 'p1',
         createdAt: new Date().toISOString(),
         shadowMessages: [{ role: 'user', content: 'hi' }],
@@ -632,7 +632,7 @@ describe('summon-decision-metadata', () => {
         id: '550e8402-e29b-41d4-a716-446655440002',
         shortId: '550e8402',
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         parentClawId: 'p1',
         createdAt: new Date().toISOString(),
         shadowMessages: [{ role: 'user', content: 'hi' }],
@@ -651,7 +651,7 @@ describe('summon-decision-metadata', () => {
         id: '550e8403-e29b-41d4-a716-446655440003',
         shortId: '550e8403',
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         parentClawId: 'p1',
         createdAt: new Date().toISOString(),
         shadowMessages: [{ role: 'user', content: 'hi' }],
@@ -672,7 +672,7 @@ describe('summon-decision-metadata', () => {
         id: '550e8404-e29b-41d4-a716-446655440004',
         shortId: '550e8404',
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         parentClawId: 'p1',
         createdAt: new Date().toISOString(),
         shadowMessages: [{ role: 'user', content: 'hi' }],

@@ -132,7 +132,7 @@ ${extraLlmYaml}
     const llmConfig = resolveLLMConfig(globalConfig);
     expect(llmConfig.circuitBreaker).toEqual({
       failureThreshold: 5,
-      resetTimeoutMs: 120_000,
+      resetTimeoutMs: 120_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
   });
 
