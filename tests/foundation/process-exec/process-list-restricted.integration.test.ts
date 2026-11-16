@@ -6,6 +6,13 @@ import { ProcessListUnavailable } from '../../../src/foundation/process-exec/err
 import { createProcessListBackends } from '../../../src/foundation/process-exec/find-by-pattern.js';
 import { selectProcessListBackend } from '../../../src/foundation/process-exec/process-list-backend.js';
 
+// Three bounded listing commands (two probes + one query) plus cleanup margin.
+const HOST_AUDIT_RUNNER_TIMEOUT_MS = 20_000;
+// Bound each real pgrep/ps invocation so a restricted host cannot hang the audit.
+const HOST_COMMAND_TIMEOUT_MS = 5_000;
+// Outlives the runner budget; the finally cleanup, not this timer, owns termination.
+const CHILD_KEEPALIVE_MS = 30_000;
+
 function evidenceOf(error: ProcessListUnavailable): Record<string, unknown> {
   return {
     code: error.code,
@@ -21,7 +28,9 @@ describe('real restricted-host process-list capability audit', () => {
     const backends = createProcessListBackends();
     let selected;
     try {
-      selected = await selectProcessListBackend(backends, 'phase2177-probe');
+      selected = await selectProcessListBackend(backends, 'phase2177-probe', {
+        timeoutMs: HOST_COMMAND_TIMEOUT_MS,
+      });
     } catch (cause) {
       expect(cause).toBeInstanceOf(ProcessListUnavailable);
       if (!(cause instanceof ProcessListUnavailable)) throw cause;
@@ -43,12 +52,16 @@ describe('real restricted-host process-list capability audit', () => {
     }));
 
     const token = `chestnut_phase2177_${process.pid}_${Date.now()}`;
-    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)', token], {
-      stdio: 'ignore',
-    });
+    const child = spawn(
+      process.execPath,
+      ['-e', `setTimeout(() => {}, ${CHILD_KEEPALIVE_MS})`, token],
+      { stdio: 'ignore' },
+    );
     try {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const matches = await selected.backend.findByPattern(token, { timeoutMs: 5_000 });
+      await once(child, 'spawn');
+      const matches = await selected.backend.findByPattern(token, {
+        timeoutMs: HOST_COMMAND_TIMEOUT_MS,
+      });
       expect(matches).toContainEqual(expect.objectContaining({ pid: child.pid }));
     } finally {
       if (child.exitCode === null && child.signalCode === null) {
@@ -57,5 +70,5 @@ describe('real restricted-host process-list capability audit', () => {
         await exited;
       }
     }
-  }, 15_000);
+  }, HOST_AUDIT_RUNNER_TIMEOUT_MS);
 });
