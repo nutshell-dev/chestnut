@@ -22,8 +22,9 @@ const FIXTURE_SRC = path.resolve(
   process.cwd(), 'tests/cli/fixtures/claw-import-process-reference-child.ts',
 );
 const supported = process.platform === 'darwin' || process.platform === 'linux';
-const WAIT_LIMIT_MS = 30_000;
-const WAIT_POLL_MS = 10;
+const READY_BARRIER_WAIT_BUDGET_MS = 30_000;
+const READY_BARRIER_POLL_INTERVAL_MS = 10;
+const FIXTURE_BUNDLE_RUNNER_TIMEOUT_MS = 60_000;
 
 type CapturedProcessRef = Extract<ProcessRefCapture, { kind: 'captured' }>;
 type V1Claim = {
@@ -106,7 +107,7 @@ beforeAll(async () => {
     '--target=node20',
     `--outfile=${fixtureBundle}`,
   ], { stdio: 'pipe' });
-}, 60_000);
+}, FIXTURE_BUNDLE_RUNNER_TIMEOUT_MS);
 
 beforeEach(async () => {
   tempDir = await createTrackedTempDir('claw-import-reference-process-');
@@ -180,7 +181,7 @@ function childDetail(handle: ChildHandle): string {
 
 async function waitForReady(handle: ChildHandle): Promise<{ pid: number; pauseAt: string }> {
   const readyPath = path.join(handle.barrierDir, 'ready.json');
-  const deadline = Date.now() + WAIT_LIMIT_MS;
+  const deadline = Date.now() + READY_BARRIER_WAIT_BUDGET_MS;
   for (;;) {
     if (fs.existsSync(readyPath)) {
       return JSON.parse(fs.readFileSync(readyPath, 'utf8')) as { pid: number; pauseAt: string };
@@ -189,7 +190,7 @@ async function waitForReady(handle: ChildHandle): Promise<{ pid: number; pauseAt
       throw new Error(`import child exited before ready\n${childDetail(handle)}`);
     }
     if (Date.now() >= deadline) throw new Error(`ready barrier timeout\n${childDetail(handle)}`);
-    await new Promise<void>(resolve => setTimeout(resolve, WAIT_POLL_MS));
+    await new Promise<void>(resolve => setTimeout(resolve, READY_BARRIER_POLL_INTERVAL_MS));
   }
 }
 

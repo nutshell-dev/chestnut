@@ -110,13 +110,14 @@ describe('stop real process race (Phase 1204 Step G)', () => {
     // activate before the process actually dies.
     const barrierPath = path.join(daemonDir, 'status', 'process', 'child-go');
     let barrierWritten = false;
+    const CHILD_ACTIVATION_WAIT_BUDGET_MS = 5_000;
     const l1IsAlive = (checkedPid: number, startTime?: string): boolean => {
       if (!barrierWritten) {
         barrierWritten = true;
         nodeFs.ensureDirSync(path.dirname(barrierPath));
         nodeFs.writeAtomicSync(barrierPath, 'go');
         // Deterministically wait for the child to finish activating.
-        const deadline = Date.now() + 5000;
+        const deadline = Date.now() + CHILD_ACTIVATION_WAIT_BUDGET_MS;
         while (!nodeFs.existsSync(getActiveDir(daemonDir)) && Date.now() < deadline) {
           // spin
         }

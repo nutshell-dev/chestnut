@@ -18,6 +18,9 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const CLI_DISPATCH_RUNNER_TIMEOUT_MS = 120_000;
+
 const CLI_ENTRY = path.resolve(process.cwd(), 'dist/cli.js');
 
 describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
@@ -147,5 +150,5 @@ describe('dispatch-skill 命令族 CLI（phase 1929 Step B）', () => {
       ? fsSync.readdirSync(editsDir).filter((f) => f.endsWith('.json'))
       : [];
     expect(edits).toEqual([]);
-  }, 120_000);
+  }, CLI_DISPATCH_RUNNER_TIMEOUT_MS);
 });

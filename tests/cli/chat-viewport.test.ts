@@ -656,7 +656,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
 
     handle({
       type: 'legacy_config_ignored', field: 'circuitBreaker', reason: 'provider_retry_at_policy',
-      value: { failureThreshold: 7, resetTimeoutMs: 120_000 },
+      value: { failureThreshold: 7, resetTimeoutMs: 120_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
 
     expect(lines).toHaveLength(1);

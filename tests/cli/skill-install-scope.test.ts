@@ -33,6 +33,9 @@ import { makeAudit } from '../helpers/audit.js';
 import { userCliEnv } from '../helpers/user-cli-env.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const INSTALL_SCOPE_RUNNER_TIMEOUT_MS = 120_000;
+
 const gitAvailable = (() => {
   try { execSync('which git', { stdio: 'ignore' }); return true; } catch { return false; }
 })();
@@ -437,5 +440,5 @@ describe.skipIf(!gitAvailable)('skill install 来源/目标对齐（phase 1929 S
     expect(ok.stdout).toContain('Motion self skills');
     expect(fsSync.existsSync(path.join(motionSkillDir(), 'SKILL.md'))).toBe(true);
     expect(fsSync.existsSync(path.join(tmpDir, '.chestnut', 'claws', 'motion'))).toBe(false);
-  }, 120_000);
+  }, INSTALL_SCOPE_RUNNER_TIMEOUT_MS);
 });

@@ -72,7 +72,7 @@ describe('start / launcher start shared bootstrap parity', () => {
   it('launcher start accepts a CLI-style language sample and defaults to auto', () => {
     expect(LAUNCHER_CAPABILITIES.languageMode).toBe('prompt_or_auto');
     expect(parseLauncherStartRequest('{"command":"start","timeoutMs":1000}')).toEqual({
-      command: 'start', timeoutMs: 1000,
+      command: 'start', timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
     expect(parseLauncherStartRequest('{"command":"start","languageSample":"你好"}')).toEqual({
       command: 'start', languageSample: '你好',

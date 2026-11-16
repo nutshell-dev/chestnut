@@ -41,6 +41,8 @@ import { captureOwnedProcessRef } from '../../src/foundation/process-exec/index.
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
 import { createUserMotionAccess } from '../../src/core/claw-topology/index.js';
 
+const COMMIT_LOST_AUDIT_WAIT_BUDGET_MS = 10_000;
+
 const h = vi.hoisted(() => ({
   counts: { contractCreate: 0, notify: 0, chat: 0, motionInit: 0 },
   ensureOutcome: undefined as Promise<unknown> | undefined,
@@ -259,7 +261,7 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
 
     // CLI PM system audit 同步落盘；commit_lost 出现 = CLI 已 conflict 并进入 join 轮询
     const auditFile = path.join(tmpDir, '.chestnut', 'audit.tsv');
-    await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 10000);
+    await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, COMMIT_LOST_AUDIT_WAIT_BUDGET_MS);
 
     // winner child：写 LLM 身份业务事实（Phase 1927 Step C：先于 ready，随目录迁 active）
     // + ready 事实并 activate（spawning → active）
@@ -344,7 +346,7 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
     const startPromise = startCommand(startDeps(), { ensureSupervision });
 
     const auditFile = path.join(tmpDir, '.chestnut', 'audit.tsv');
-    await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 10000);
+    await waitForFileContent(auditFile, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, COMMIT_LOST_AUDIT_WAIT_BUDGET_MS);
 
     // winner 只写 ready（无业务事实）并 activate
     expect((await writeReadyFact(

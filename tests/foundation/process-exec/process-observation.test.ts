@@ -5,6 +5,8 @@ import { observeProcess } from '../../../src/foundation/process-exec/process-obs
 vi.mock('node:child_process', () => ({ spawnSync: vi.fn() }));
 
 const PID = 12345;
+/** Characterization of the process-observation owner's private ps probe budget. */
+const EXPECTED_PS_PROBE_TIMEOUT_MS = 1000;
 const START = 'Tue Nov 10 13:27:59 2026';
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
 const errno = (code: string) => Object.assign(new Error(`probe ${code}`), { code });
@@ -64,7 +66,7 @@ describe('observeProcess facts', () => {
     expect(process.kill).toHaveBeenCalledTimes(2);
     expect(spawnSync).toHaveBeenCalledExactlyOnceWith('ps', ['-p', String(PID), '-o', 'lstart='], {
       env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 1000, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL',
+      timeout: EXPECTED_PS_PROBE_TIMEOUT_MS, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL',
     });
     expect(vi.mocked(process.kill).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(spawnSync).mock.invocationCallOrder[0]);
     expect(vi.mocked(spawnSync).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(process.kill).mock.invocationCallOrder[1]);

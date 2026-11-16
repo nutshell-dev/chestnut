@@ -23,6 +23,9 @@ import {
   NON_ZERO_EXIT_COMMAND,
 } from './platform-commands.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const COMMAND_EXEC_RUNNER_TIMEOUT_MS = 15_000;
+
 const execTool = createExecTool();
 
 function parseReadHint(content: string): string | undefined {
@@ -537,7 +540,7 @@ describe('phase 2120 exec overflow durability results', () => {
     } finally {
       await cleanupTempDir(tempDir);
     }
-  }, 15_000);
+  }, COMMAND_EXEC_RUNNER_TIMEOUT_MS);
 });
 
 describe('phase 2154 B2 non-output result guards', () => {

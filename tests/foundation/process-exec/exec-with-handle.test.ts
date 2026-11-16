@@ -13,6 +13,7 @@ import {
   terminateExecutionGroup,
   PROCESS_EXEC_GROUP_CONFIRM_POLL_MS,
   PROCESS_EXEC_GROUP_KILL_CONFIRM_MS,
+  PROCESS_EXEC_TIMEOUT_MIN_MS,
   PROCESS_EXEC_TIMEOUT_MAX_MS,
   type ExecHandle,
 } from '../../../src/foundation/process-exec/index.js';
@@ -26,6 +27,9 @@ import * as os from 'os';
  * never from natural exit. Derivation: 60s ≫ it-level timeout 20s.
  */
 const SUBPROCESS_HANG_MS = 60_000;
+
+/** Vitest runner ceiling only; independent of exec, deadline, and hang-fixture budgets. */
+const EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS = 20_000;
 
 describe('execWithHandle', () => {
   it('publishes the execution identity synchronously before returning the handle', async () => {
@@ -111,12 +115,14 @@ describe('execWithHandle', () => {
   });
 
   it('should reject ProcessExecError on timeout', async () => {
+    const EXEC_TIMEOUT_MS = 10;
+    const SIGKILL_GRACE_MS = 50;
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
-      timeout: 10,
+      timeout: EXEC_TIMEOUT_MS,
       __testMinTimeoutMs: 1,
-      __testSigkillGraceMs: 50,
+      __testSigkillGraceMs: SIGKILL_GRACE_MS,
     });
     await expect(handle.promise).rejects.toBeInstanceOf(ProcessExecError);
     await expect(handle.promise).rejects.toMatchObject({
@@ -147,12 +153,14 @@ describe('execWithHandle', () => {
   });
 
   it('should work with __testMinTimeoutMs for fast tests', async () => {
+    const EXEC_TIMEOUT_MS = 5;
+    const SIGKILL_GRACE_MS = 50;
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
-      timeout: 5,
+      timeout: EXEC_TIMEOUT_MS,
       __testMinTimeoutMs: 1,
-      __testSigkillGraceMs: 50,
+      __testSigkillGraceMs: SIGKILL_GRACE_MS,
     });
     await expect(handle.promise).rejects.toBeInstanceOf(ProcessExecError);
   });
@@ -196,7 +204,7 @@ describe('execWithHandle execution identity and terminate (phase 1269)', () => {
     expect(err).toBeInstanceOf(ProcessExecError);
     expect(isAlivePid(sleepPid)).toBe(false);
     expect(isProcessGroupAlive(identity.processGroupId)).toBe(false);
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('terminate() is idempotent: concurrent calls share one run and one trigger', async () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], { cwd: workDir });
@@ -244,7 +252,7 @@ describe('execWithHandle execution identity and terminate (phase 1269)', () => {
     expect(groupTerms).toHaveLength(1);
     expect(groupKills).toHaveLength(1);
     killSpy.mockRestore();
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 });
 
 function isAlivePid(pid: number): boolean {
@@ -313,7 +321,7 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
     const outcome = await handle.terminate();
     expect(outcome.trigger).toBe('abort'); // first trigger wins, not caller_requested
     expect(outcome.status).toBe('gone');
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('spawn failure raced by terminate() settles via onRejected, never an unhandled rejection', async () => {
     // phase 1271 F4: when spawn fails (no pid → identity undefined) and
@@ -330,7 +338,7 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
     await expect(handle.promise).rejects.toMatchObject({
       message: expect.stringContaining('Cannot terminate: process never started'),
     });
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('pre-aborted signal throws synchronously with not_started facts and never spawns', () => {
     const controller = new AbortController();
@@ -351,10 +359,11 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
   });
 
   it('SIGKILL close signal is surfaced on the error, not parsed from the message', async () => {
+    const SIGKILL_GRACE_MS = 100;
     const handle = execWithHandle(
       'node',
       ['-e', `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, ${SUBPROCESS_HANG_MS})`],
-      { cwd: workDir, __testSigkillGraceMs: 100 },
+      { cwd: workDir, __testSigkillGraceMs: SIGKILL_GRACE_MS },
     );
     await waitForMatch(handle, /READY/);
     const outcome = await handle.terminate();
@@ -364,7 +373,7 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
     expect(error.signal).toBe('SIGKILL');
     expect(error.termination!.status).toBe('gone');
     expect(error.termination!.killSent).toBe(true);
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 });
 
 /**
@@ -489,7 +498,7 @@ describe('persisted identity recovery probe (phase 1269 Step F, real OS)', () =>
     const outcome = await terminateExecutionGroup(identity, 'caller_requested');
     expect(outcome.status).toBe('gone');
     expect(isProcessGroupAlive(identity.processGroupId)).toBe(false);
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 });
 
 
@@ -588,7 +597,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     expect(error.termination!.trigger).toBe('timeout');
     expectGoneTermination(error);
     expect(isAlivePid(handle.identity!.leaderPid)).toBe(false);
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('an already-passed deadline enters the shared termination path immediately', async () => {
     const ALREADY_ELAPSED_MS = 1_000; // any positive past offset proves the ≤0 branch
@@ -602,7 +611,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     const error = err as ProcessExecError;
     expect(error.termination!.trigger).toBe('timeout');
     expectGoneTermination(error);
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('invalid deadlineAtMs values throw synchronously before any spawn', () => {
     const invalid = [Number.NaN, Number.POSITIVE_INFINITY, 1.5, 0, -5];
@@ -623,7 +632,11 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
   it('timeout and deadlineAtMs together are rejected at the entry (mutual exclusion)', () => {
     try {
       // @ts-expect-error phase 1272: relative timeout and absolute deadline are mutually exclusive at the type level
-      execWithHandle('sh', ['-c', 'echo SHOULD_NOT_RUN'], { cwd: workDir, timeout: 1000, deadlineAtMs: Date.now() + 1000 });
+      execWithHandle('sh', ['-c', 'echo SHOULD_NOT_RUN'], {
+        cwd: workDir,
+        timeout: PROCESS_EXEC_TIMEOUT_MIN_MS,
+        deadlineAtMs: Date.now() + PROCESS_EXEC_TIMEOUT_MIN_MS,
+      });
       expect.fail('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ProcessExecError);
@@ -660,7 +673,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
         void handle.terminate().catch(() => { /* silent best-effort cleanup */ });
       }
     }
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('absolute deadline beyond the 600s relative ceiling is NOT clamped (fake timers)', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
@@ -696,7 +709,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
         void handle.terminate().catch(() => { /* silent best-effort cleanup */ });
       }
     }
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 
   it('deadline beyond the Node single-timer cap is armed in segments — no 1ms overflow misfire', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
@@ -737,5 +750,5 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
         void handle.terminate().catch(() => { /* silent best-effort cleanup */ });
       }
     }
-  }, 20_000);
+  }, EXEC_WITH_HANDLE_RUNNER_TIMEOUT_MS);
 });

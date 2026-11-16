@@ -29,7 +29,7 @@ function providerConfig(): ProviderConfig {
     apiKey: 'k',
     model: 'm',
     temperature: 0.7,
-    timeoutMs: 30_000,
+    timeoutMs: 30_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     apiFormat: 'openai',
     baseUrl: 'https://api.test.invalid/v1',
   };

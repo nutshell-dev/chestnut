@@ -34,6 +34,9 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { buildCreationIntent, serializeCreationIntent, CREATION_CLAIM_FILE } from '../../src/core/contract/creation.js';
 import { ensureOnboardingContract } from '../../src/cli/commands/start.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const ONBOARDING_CONCURRENCY_RUNNER_TIMEOUT_MS = 15_000;
+
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
@@ -150,7 +153,7 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
     expect(
       auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED),
     ).toBe(true);
-  }, 15_000);
+  }, ONBOARDING_CONCURRENCY_RUNNER_TIMEOUT_MS);
 
   it('损坏 claim：fail-closed indeterminate，证据保留不覆盖', async () => {
     const contractRoot = path.join(motionDir, 'contract', 'active', ONBOARDING_CONTRACT_ID);
@@ -166,7 +169,7 @@ describe('Phase 1910 Step C: onboarding singleton creation authority', () => {
     expect(
       auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED),
     ).toBe(true);
-  }, 15_000);
+  }, ONBOARDING_CONCURRENCY_RUNNER_TIMEOUT_MS);
 
   it('recoverCreation 单 id 语义：absent / published / failed', async () => {
     const system = makeSystem();

@@ -13,11 +13,13 @@ import { _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-contex
 import { prepareWatchdogProcessOutput } from '../../src/watchdog/watchdog-log.js';
 
 const fsFactory = (baseDir: string): NodeFileSystem => new NodeFileSystem({ baseDir });
+const RAW_OUTPUT_WAIT_BUDGET_MS = 10_000;
+const RAW_OUTPUT_POLL_INTERVAL_MS = 20;
 const originalRoot = process.env.CHESTNUT_ROOT;
 let tmpDir: string;
 
 async function waitForRawOutput(outputPath: string): Promise<string> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + RAW_OUTPUT_WAIT_BUDGET_MS;
   while (Date.now() < deadline) {
     if (fs.existsSync(outputPath)) {
       const content = fs.readFileSync(outputPath, 'utf8');
@@ -29,7 +31,7 @@ async function waitForRawOutput(outputPath: string): Promise<string> {
         return content;
       }
     }
-    await delay(20);
+    await delay(RAW_OUTPUT_POLL_INTERVAL_MS);
   }
   throw new Error(`timed out waiting for raw watchdog output at ${outputPath}`);
 }

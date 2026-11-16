@@ -10,11 +10,9 @@ import { EXPECTED_LLM_IDENTITY_ENV } from '../../src/daemon/index.js';
 import { once } from 'events';
 import { EventEmitter } from 'events';
 
-/**
- * Libuv I/O callback settle (50ms): flushMicrotasks 内给真实 I/O callback 机会执行.
- * Derivation: > microtask flush / 给 ProcessManager.writeAtomic 等 libuv 异步 callback land.
- */
-const LIBUV_IO_SETTLE_MS = 50;
+/** Independent bounded waits for mocked process registration and audit observation. */
+const PROCESS_HANDLER_WAIT_BUDGET_MS = 10_000;
+const AUDIT_CALL_WAIT_BUDGET_MS = 15_000;
 
 // ============================================================================
 // Hoisted mock state（供 vi.mock factory 引用，必须 hoisted）
@@ -240,13 +238,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function flushMicrotasks(n = 10) {
-  for (let i = 0; i < n; i++) await Promise.resolve();
-  // 让真实 I/O（如 ProcessManager.writeAtomic）的 libuv callback 有机会执行
-  await new Promise(resolve => setTimeout(resolve, LIBUV_IO_SETTLE_MS));
-}
-
-async function waitForProcessOn(event: string, timeoutMs = 10_000): Promise<Function> {
+async function waitForProcessOn(event: string, timeoutMs = PROCESS_HANDLER_WAIT_BUDGET_MS): Promise<Function> {
   const existing = mockState.processHandlers[event]?.[0];
   if (existing) return existing;
   return new Promise<Function>((resolve, reject) => {
@@ -265,7 +257,7 @@ async function waitForProcessOn(event: string, timeoutMs = 10_000): Promise<Func
   });
 }
 
-async function waitForAuditCall(eventName: string, timeoutMs = 15_000): Promise<readonly unknown[]> {
+async function waitForAuditCall(eventName: string, timeoutMs = AUDIT_CALL_WAIT_BUDGET_MS): Promise<readonly unknown[]> {
   const existing = mockState.mockAuditWrite.mock.calls.find((c: unknown[]) => c[0] === eventName);
   if (existing) return existing;
   return new Promise<readonly unknown[]>((resolve, reject) => {

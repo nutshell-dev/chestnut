@@ -21,6 +21,9 @@ import { makeAudit } from '../helpers/audit.js';
 import { userCliEnv } from '../helpers/user-cli-env.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const INSTANCE_ROOT_RUNNER_TIMEOUT_MS = 120_000;
+
 const gitAvailable = (() => {
   try { execSync('which git', { stdio: 'ignore' }); return true; } catch { return false; }
 })();
@@ -115,7 +118,7 @@ describe.skipIf(!gitAvailable)('skill install 事务入实例（Phase 1930 Step 
       ? fsSync.readdirSync(claimParent()).filter((n) => n.startsWith('.'))
       : [];
     expect(leftovers).toEqual([]);
-  }, 120_000);
+  }, INSTANCE_ROOT_RUNNER_TIMEOUT_MS);
 
   it('父目录已有用户文件：安装后原字节保留、无事务工件混入', async () => {
     // 已有外部用户文件（既有 workspace/skills 内容不自动迁移/删除）
@@ -131,7 +134,7 @@ describe.skipIf(!gitAvailable)('skill install 事务入实例（Phase 1930 Step 
     expect(fsSync.readFileSync(userFile, 'utf-8')).toBe(userBytes);
     expect(fsSync.readdirSync(parentSkillsDir())).toEqual(['user-owned.txt']);
     expect(fsSync.existsSync(motionSkillDir())).toBe(true);
-  }, 120_000);
+  }, INSTANCE_ROOT_RUNNER_TIMEOUT_MS);
 
   it('中断事务：claim/快照在新 namespace，真实 CLI 恢复完成并收敛', async () => {
     const src = makeSkillSource('a', 'local origin', 'v1');
@@ -185,5 +188,5 @@ describe.skipIf(!gitAvailable)('skill install 事务入实例（Phase 1930 Step 
       fsSync.readdirSync(claimParent()).filter((n) => n.startsWith('.')),
     ).toEqual([]);
     expect(fsSync.existsSync(parentSkillsDir())).toBe(false);
-  }, 120_000);
+  }, INSTANCE_ROOT_RUNNER_TIMEOUT_MS);
 });

@@ -18,6 +18,9 @@ import { spawn } from 'child_process';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const PARSEINT_SMOKE_RUNNER_TIMEOUT_MS = 120_000;
+
 const CLI_ENTRY = path.resolve(process.cwd(), 'dist/cli.js');
 
 // phase 1311 α-1: precondition fail-fast (mirror feedback_flaky_test_zero_tolerance / sister B.r1257 closed by phase 1257)
@@ -140,5 +143,5 @@ describe('CLI smoke - parseInt NaN guard Layer B canary', () => {
     );
     expect(exitCode).toBe(0);
     expect(stderr).not.toContain('--limit must be a non-negative integer');
-  }, 120000);
+  }, PARSEINT_SMOKE_RUNNER_TIMEOUT_MS);
 });

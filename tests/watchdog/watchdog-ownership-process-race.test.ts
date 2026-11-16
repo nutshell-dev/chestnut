@@ -23,9 +23,11 @@ const CHILD_FIXTURE = path.join(
   'ownership-race-child.mjs',
 );
 const WAVE_SIZE = 4;
-const READY_TIMEOUT_MS = 15000;
-/** barrier ready 轮询间隔（ms）：10ms << READY_TIMEOUT_MS，仅防挂死、不参与 winner 排序 */
+const READY_BARRIER_WAIT_BUDGET_MS = 15_000;
+/** barrier ready 轮询间隔（ms）：10ms << READY_BARRIER_WAIT_BUDGET_MS，仅防挂死、不参与 winner 排序 */
 const READY_POLL_INTERVAL_MS = 10;
+const COMMIT_RACE_RUNNER_TIMEOUT_MS = 30_000;
+const RECOVERY_RACE_RUNNER_TIMEOUT_MS = 60_000;
 
 let tmpDir: string;
 let chestnutDir: string;
@@ -36,7 +38,7 @@ function activeOwner(): { pid: number; owner_token: string } | null {
 }
 
 async function waitForReady(barrierDir: string, n: number): Promise<void> {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
+  const deadline = Date.now() + READY_BARRIER_WAIT_BUDGET_MS;
   for (;;) {
     const ready = fs.existsSync(barrierDir)
       ? fs.readdirSync(barrierDir).filter((f) => f.startsWith('ready-')).length
@@ -154,7 +156,7 @@ describe('真实多进程 ownership race', () => {
       .readdirSync(candidatesDir)
       .filter((d) => fs.existsSync(path.join(candidatesDir, d, 'outcome.json')));
     expect(outcomes.length).toBe(WAVE_SIZE - 1);
-  }, 30000);
+  }, COMMIT_RACE_RUNNER_TIMEOUT_MS);
 
   it('winner 退出后 recovery：恰好一个 reclaimer retire 旧 generation、恰好一个 gen2 winner', async () => {
     const wave1 = await runWave('commit', WAVE_SIZE);
@@ -183,5 +185,5 @@ describe('真实多进程 ownership race', () => {
     const gen2 = activeOwner();
     expect(gen2).not.toBeNull();
     expect(gen2!.owner_token).not.toBe(gen1Token);
-  }, 60000);
+  }, RECOVERY_RACE_RUNNER_TIMEOUT_MS);
 });

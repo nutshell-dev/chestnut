@@ -28,6 +28,9 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
+/** Vitest protection budget only; the tested I/O has its own owner. */
+const ONBOARDING_NOTIFICATION_RUNNER_TIMEOUT_MS = 30_000;
+
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 /** rootConfig 在本路径（onboarding notify）未被使用——显式 stub，任何访问都视为测试缺陷。 */
@@ -118,7 +121,7 @@ describe('phase 2094 Step B: onboarding work messages carry contract references'
     expect(created.content).toContain(result.contractId);
     // owner 纯入口对真实解码消息给出同一 ID（B 两半端到端对齐）
     expect(getContractWorkMessageId(created)).toBe(result.contractId);
-  }, 30_000);
+  }, ONBOARDING_NOTIFICATION_RUNNER_TIMEOUT_MS);
 
   it('已有未完成契约：resume 消息同样携带 contract_id，body/priority 保持', async () => {
     const deps: StartBootstrapDeps = { fsFactory, rootConfig: unusedRootConfig() };
@@ -162,5 +165,5 @@ describe('phase 2094 Step B: onboarding work messages carry contract references'
     expect(resume.metadata?.contract_id).toBe(status.contractId);
     expect(resume.content).toContain(status.contractId);
     expect(getContractWorkMessageId(resume)).toBe(status.contractId);
-  }, 30_000);
+  }, ONBOARDING_NOTIFICATION_RUNNER_TIMEOUT_MS);
 });

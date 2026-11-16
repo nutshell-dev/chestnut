@@ -7,13 +7,16 @@
 
 import { describe, it, expect } from 'vitest';
 import { createExecWithHandle } from '../../../src/foundation/command-tool/exec.js';
-import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
+import { PROCESS_EXEC_TIMEOUT_MIN_MS, ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import {
   EMPTY_OUTPUT_COMMAND,
   PRINT_WORKING_DIRECTORY_COMMAND,
   printEnvCommand,
 } from './platform-commands.js';
+
+const COMMAND_EXEC_RUNNER_TIMEOUT_MS = 15_000;
+const QUICK_COMMAND_TIMEOUT_MS = 5_000;
 
 describe('createExecWithHandle', () => {
   it('should return ExecHandle for valid command', async () => {
@@ -95,7 +98,7 @@ describe('createExecWithHandle execution identity passthrough (phase 1269)', () 
     expect(err).toBeInstanceOf(ProcessExecError);
     expect((err as ProcessExecError).termination!.status).toBe('gone');
     expect((err as ProcessExecError).termination!.identity).toEqual(handle.identity);
-  }, 15_000);
+  }, COMMAND_EXEC_RUNNER_TIMEOUT_MS);
 });
 
 
@@ -121,21 +124,25 @@ describe('createExecWithHandle deadline passthrough (phase 1272 Step C)', () => 
     expect(error.message).toContain('absolute deadline');
     expect(error.termination!.trigger).toBe('timeout');
     expect(error.termination!.status).toBe('gone');
-  }, 15_000);
+  }, COMMAND_EXEC_RUNNER_TIMEOUT_MS);
 
   it('rejects timeoutMs + deadlineAtMs together instead of silently picking one', async () => {
     const execWithHandle = createExecWithHandle();
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
     await expect(
       // @ts-expect-error phase 1272: the two timeout strategies are mutually exclusive at the type level
-      execWithHandle({ command: EMPTY_OUTPUT_COMMAND, timeoutMs: 1000, deadlineAtMs: Date.now() + 1000 }, ctx),
+      execWithHandle({
+        command: EMPTY_OUTPUT_COMMAND,
+        timeoutMs: PROCESS_EXEC_TIMEOUT_MIN_MS,
+        deadlineAtMs: Date.now() + PROCESS_EXEC_TIMEOUT_MIN_MS,
+      }, ctx),
     ).rejects.toThrow('mutually exclusive');
   });
 
   it('relative timeoutMs path is unchanged', async () => {
     const execWithHandle = createExecWithHandle();
     const ctx = makeExecContext({ workspaceDir: process.cwd() });
-    const handle = await execWithHandle({ command: 'echo ok', timeoutMs: 5000 }, ctx);
+    const handle = await execWithHandle({ command: 'echo ok', timeoutMs: QUICK_COMMAND_TIMEOUT_MS }, ctx);
     const result = await handle.promise;
     expect(result.exitCode).toBe(0);
     expect(result.output.trim()).toBe('ok');

@@ -1,3 +1,5 @@
+const RUN_ROOT_TEARDOWN_PROCESS_TIMEOUT_MS = 120_000;
+
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -30,7 +32,7 @@ function runVitestInSandbox(
       CHESTNUT_HOST_TMPDIR: undefined,
       CHESTNUT_KEEP_TEST_TMP: keep ? '1' : undefined,
     },
-    timeout: 120000,
+    timeout: RUN_ROOT_TEARDOWN_PROCESS_TIMEOUT_MS,
     encoding: 'utf-8',
   });
 }

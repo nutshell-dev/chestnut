@@ -29,8 +29,14 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 const INIT_LOCK = '.version-store-init.lock';
 
-/** bounded wait 上限：只用于防挂死，不参与时序构造 */
-const BOUNDED_WAIT_MS = 30_000;
+/** Worker observation and Vitest runner budgets are independent despite equal values. */
+const WORKER_MESSAGE_WAIT_BUDGET_MS = 30_000;
+const VERSION_OPEN_RUNNER_TIMEOUT_MS = 30_000;
+const CROSS_PROCESS_RUNNER_TIMEOUT_MS = 60_000;
+const FIXTURE_BUNDLE_RUNNER_TIMEOUT_MS = 60_000;
+/** Last-resort cleanup wait; child close remains the primary completion signal. */
+const CHILD_CLOSE_SETTLE_BUDGET_MS = 5_000;
+const INIT_LOCK_WAIT_POLL_INTERVAL_MS = 20;
 
 const gitAvailable = (() => {
   try { execFileSync('which', ['git'], { stdio: 'ignore' }); return true; } catch { return false; }
@@ -198,7 +204,7 @@ beforeAll(async () => {
     [FIXTURE_SRC, '--bundle', '--platform=node', '--format=esm', '--target=node20', `--outfile=${fixtureBundle}`],
     { stdio: 'pipe' },
   );
-}, 60_000);
+}, FIXTURE_BUNDLE_RUNNER_TIMEOUT_MS);
 
 afterAll(async () => {
   await cleanupTempDir(fixtureBundleDir);
@@ -223,7 +229,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     }
     await Promise.all([...liveChildren].map((child) => new Promise<void>((resolve) => {
       child.on('close', () => resolve());
-      setTimeout(resolve, 5_000);
+      setTimeout(resolve, CHILD_CLOSE_SETTLE_BUDGET_MS);
     })));
     liveChildren.clear();
     await cleanupTempDir(tmpDir);
@@ -261,7 +267,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
       messages,
       done,
       send: (message) => { proc.send?.(message); },
-      waitFor: (type, timeoutMs = BOUNDED_WAIT_MS) => {
+      waitFor: (type, timeoutMs = WORKER_MESSAGE_WAIT_BUDGET_MS) => {
         const hit = messages.find((m) => m.type === type);
         if (hit !== undefined) return Promise.resolve(hit);
         return new Promise<WorkerMessage>((resolve, reject) => {
@@ -344,7 +350,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     expect(bOpened).toBeDefined();
     expectConsistentRepo(dir);
     expect(bControl.lockAcquisitions()).toBe(1);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('屏障：已存在 .git 但配置待修时，B 同样不得绕过锁（readiness 探针不能放行）', async () => {
     const dir = repositoryDir();
@@ -392,7 +398,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     releaseA.resolve();
     await Promise.all([aPromise, bPromise]);
     expectConsistentRepo(dir);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('已有完整库重复 open 仍取锁，published 身份与 HEAD 不变', async () => {
     const dir = repositoryDir();
@@ -417,7 +423,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     expect(control.eexistCount()).toBe(0);
     expect(git(dir, 'rev-parse', 'refs/version/published')).toBe(published);
     expectConsistentRepo(dir);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   /* ---------------- 失败矩阵 ---------------- */
 
@@ -445,7 +451,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
       audit: makeAudit().audit,
     });
     expectConsistentRepo(dir);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('等待超时：有界失败、不删持有者锁、审计只记一次（可控时钟，不用真实 10s sleep）', async () => {
     const dir = repositoryDir();
@@ -472,7 +478,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
       );
       // 逐 20ms 推进可控时钟直到 settle（上限 700 步 > 10s/20ms），不依赖真实时间
       for (let i = 0; i < 700 && state === 'pending'; i += 1) {
-        await vi.advanceTimersByTimeAsync(20);
+        await vi.advanceTimersByTimeAsync(INIT_LOCK_WAIT_POLL_INTERVAL_MS);
       }
       const result = await openPromise;
       expect(result).toBe('failed');
@@ -493,7 +499,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     } finally {
       vi.useRealTimers();
     }
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('反向：损坏 .git 保留现场，本次失败仍释放自己取得的锁', async () => {
     const dir = repositoryDir();
@@ -514,7 +520,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     // 本次已取得的锁必须释放（否则好库也会被自己的失败锁死）
     expect(fsSync.existsSync(initLockPath(dir))).toBe(false);
     expect(audit.events.some(([type, , kind]) => type === 'snapshot_version_init_failed' && kind === 'kind=repo_invalid')).toBe(true);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('失败保全：释放单独失败时拒绝成功，cause 为释放错误且锁现场保留', async () => {
     const dir = repositoryDir();
@@ -543,7 +549,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     // 审计原因保留原释放错误全文（formatErr(cause)），不是只有一句结论
     expect(initFailed[0]!.join(' ')).toMatch(/release failed/);
     expect(initFailed[0]!.join(' ')).toMatch(/delete failed/);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('信息不丢失：初始化与释放双失败时 cause 为 AggregateError 且保留两者', async () => {
     const dir = repositoryDir();
@@ -567,7 +573,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     expect(errors[0]).toBeInstanceOf(VersionStoreError);
     expect((errors[0] as VersionStoreError).kind).toBe('git_error');
     expect(errors[1]).toBe(releaseError);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('取锁非 EEXIST 错误：立即失败并保留原错误为 cause，不进入 git 初始化', async () => {
     const dir = repositoryDir();
@@ -586,7 +592,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     expect((err as VersionStoreError).cause).toBe(acquireError);
     expect(control.lockAttempts()).toBe(1);
     expect(fsSync.existsSync(path.join(dir, '.git'))).toBe(false);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   it('不同库不互相等待：repo1 持锁暂停时 repo2 正常完成', async () => {
     const dir1 = repositoryDirN(1);
@@ -623,7 +629,7 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
     releaseA.resolve();
     await aPromise;
     expectConsistentRepo(dir1);
-  }, BOUNDED_WAIT_MS);
+  }, VERSION_OPEN_RUNNER_TIMEOUT_MS);
 
   /* ---------------- 真实跨进程 smoke ---------------- */
 
@@ -667,5 +673,5 @@ describe.skipIf(!gitAvailable)('version-store 完整初始化互斥（phase 2084
       if (follower !== undefined) exits.push(follower.done);
       await Promise.all(exits);
     }
-  }, 60_000);
+  }, CROSS_PROCESS_RUNNER_TIMEOUT_MS);
 });

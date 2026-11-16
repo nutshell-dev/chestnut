@@ -48,6 +48,13 @@ import {
 import type { DaemonDir } from '../../../src/foundation/process-manager/index.js';
 import { installLegacyProcessRefInspector } from '../../helpers/process-ref-inspector.js';
 
+// Business deadlines, observation waits, polling, and Vitest runner ceilings are independent.
+const JOIN_SUCCESS_BOOT_DEADLINE_MS = 5_000;
+const ENSURE_AUDIT_WAIT_BUDGET_MS = 5_000;
+const JOIN_TIMEOUT_RUNNER_TIMEOUT_MS = 30_000;
+const WINNER_PID_WAIT_BUDGET_MS = 5_000;
+const WINNER_PID_POLL_INTERVAL_MS = 5;
+
 // Phase 1995 Step B：BOOT_DEADLINE_MS 由固定值改 hoisted mutable + getter——
 // join-success 用例（先等 audit 再写 ready）在满负载下 500ms 先到期误报
 // join_timeout；getter 让 src 在调用时读当前值，用例级可按需放宽；
@@ -234,11 +241,11 @@ describe('ensureRunning', () => {
 
     const ctx = defaultCtx(nodeFs, audit);
     // Phase 1995 Step B：本用例先等 audit 再写 ready，满负载下 500ms 过紧 → 放宽到 5000ms
-    timing.bootDeadlineMs = 5000;
+    timing.bootDeadlineMs = JOIN_SUCCESS_BOOT_DEADLINE_MS;
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-spawning'));
 
     // spawn precheck 已对 foreign spawning 写 commit_lost 审计 → join 已开始轮询
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     // winner child 写 ready 事实并 activate
     // Phase 1299：与 production writeReadyFact 同协议原子写（temp+rename），
     // 消除 join 轮询读到写入中间态误判 malformed 的 flaky 窗口
@@ -289,11 +296,11 @@ describe('ensureRunning', () => {
 
     const ctx = defaultCtx(fsProxy as NodeFileSystem, audit);
     // Phase 1995 Step B：本用例先等 audit 再写 ready，满负载下 500ms 过紧 → 放宽到 5000ms
-    timing.bootDeadlineMs = 5000;
+    timing.bootDeadlineMs = JOIN_SUCCESS_BOOT_DEADLINE_MS;
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-commit-lost'));
 
     // commit collision 已重读 winner 并写 commit_lost 审计 → join 已开始轮询
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     expect(injected).toBe(true);
     // Phase 1299：同 production writeReadyFact 原子写协议，防 join 轮询 partial-read
     await nodeFs.writeAtomicExisting(
@@ -500,7 +507,7 @@ describe('ensureRunning', () => {
     const ctx = defaultCtx(nodeFs, audit);
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-retired-failed')).catch((e) => e);
 
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     await fs.mkdir(path.dirname(getRetiredDirFor(daemonDir, generationId)), { recursive: true });
     await fs.rename(getSpawningDir(daemonDir), getRetiredDirFor(daemonDir, generationId));
 
@@ -519,7 +526,7 @@ describe('ensureRunning', () => {
     const ctx = defaultCtx(nodeFs, audit);
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-winner-retired')).catch((e) => e);
 
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     await fs.mkdir(path.dirname(getRetiredDirFor(daemonDir, generationId)), { recursive: true });
     await fs.rename(getSpawningDir(daemonDir), getRetiredDirFor(daemonDir, generationId));
 
@@ -539,7 +546,7 @@ describe('ensureRunning', () => {
     const ctx = defaultCtx(nodeFs, audit);
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-winner-replaced')).catch((e) => e);
 
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     writeActiveGenerationSync(daemonDir, { generationId: otherGenerationId, pid: process.pid });
     await fs.rm(getSpawningDir(daemonDir), { recursive: true, force: true });
 
@@ -558,7 +565,7 @@ describe('ensureRunning', () => {
     const ctx = defaultCtx(nodeFs, audit);
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-winner-vanished')).catch((e) => e);
 
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     await fs.rm(getSpawningDir(daemonDir), { recursive: true, force: true });
 
     const err = await promise;
@@ -576,7 +583,7 @@ describe('ensureRunning', () => {
     const ctx = defaultCtx(nodeFs, audit);
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-malformed')).catch((e) => e);
 
-    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+    await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
     await fs.writeFile(path.join(getSpawningDir(daemonDir), 'generation.json'), '{not json', 'utf-8');
 
     const err = await promise;
@@ -601,7 +608,7 @@ describe('ensureRunning', () => {
 
       // Durable orphan cleanup is async; wait until spawn has lost to the existing
       // winner and join owns the shared deadline before advancing fake time.
-      await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
+      await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, ENSURE_AUDIT_WAIT_BUDGET_MS);
       await vi.advanceTimersByTimeAsync(ADVANCE_PAST_DEADLINE_MS);
 
       const err = await promise;
@@ -615,7 +622,7 @@ describe('ensureRunning', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 30_000);
+  }, JOIN_TIMEOUT_RUNNER_TIMEOUT_MS);
 
   it('two concurrent ensureRunning: exactly one spawned, one joined with the winner generation', async () => {
     const { audit: auditA } = makeAudit();
@@ -630,8 +637,9 @@ describe('ensureRunning', () => {
     const promiseB = ensureRunning(ctxB, daemonDir, options);
 
     // 等 winner 提交 spawning 并写入 child PID（spawn  readiness loop 前）
-    const deadline = Date.now() + 5000;
-    const POLL_MS = 5; // 磁盘事实轮询间隔：远小于 spawn readiness loop、保证 join 已进入等待
+    const deadline = Date.now() + WINNER_PID_WAIT_BUDGET_MS;
+    // 磁盘事实轮询间隔：远小于 spawn readiness loop、保证 join 已进入等待。
+    const POLL_MS = WINNER_PID_POLL_INTERVAL_MS;
     for (;;) {
       const pidPath = path.join(getSpawningDir(daemonDir), 'pid.json');
       if (fsSync.existsSync(pidPath)) break;

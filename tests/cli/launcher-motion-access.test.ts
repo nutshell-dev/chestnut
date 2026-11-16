@@ -1,3 +1,5 @@
+const CLI_ACCESS_PROCESS_TIMEOUT_MS = 10_000;
+
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
@@ -12,7 +14,7 @@ describe('Launcher CLI caller access', () => {
       const result = spawnSync(process.execPath, [path.resolve('dist/cli.js'), 'launcher', verb, '--json'], {
         cwd: root,
         env: { ...process.env, CHESTNUT_ROOT: root, CHESTNUT_CALLER_AGENT_ID: 'alice' },
-        input: '{}\n', encoding: 'utf8', timeout: 10000,
+        input: '{}\n', encoding: 'utf8', timeout: CLI_ACCESS_PROCESS_TIMEOUT_MS,
       });
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);

@@ -367,6 +367,7 @@ describe('spawn', () => {
     });
 
     it('反向 2：PROCESS_SPAWN_FAILED emit 含 duration_ms 反映 fail timing', async () => {
+      const DURATION_CLOCK_TOLERANCE_MS = 50;
       const { audit, events } = makeAudit();
       const clawId = 'test-claw';
 
@@ -393,7 +394,7 @@ describe('spawn', () => {
       expect(durationCol).toBeDefined();
       const durationMs = parseInt(String(durationCol).split('=')[1], 10);
       expect(durationMs).toBeGreaterThanOrEqual(0);
-      expect(durationMs).toBeLessThanOrEqual(elapsed + 50);
+      expect(durationMs).toBeLessThanOrEqual(elapsed + DURATION_CLOCK_TOLERANCE_MS);
     });
 
     it('反向 3：duration_ms 单调性（mock isReady delay 200ms）', async () => {

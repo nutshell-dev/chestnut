@@ -3,8 +3,11 @@ import { tmpdir } from 'os';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'child_process';
-import { exec, ProcessExecError } from '../../../src/foundation/process-exec/index.js';
-import { PROCESS_EXEC_TIMEOUT_MAX_MS } from '../../../src/foundation/process-exec/constants.js';
+import {
+  exec,
+  ProcessExecError,
+  PROCESS_EXEC_TIMEOUT_MAX_MS,
+} from '../../../src/foundation/process-exec/index.js';
 
 // Track mock state so each test can configure execFileSync behaviour.
 let mockThrow: Error | null = null;
@@ -37,6 +40,8 @@ describe('exec maxBuffer SIGTERM 后 pushChunk early return (phase 948 site A)',
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const workDir = tmpdir();
   const MAX_BUFFER = 1024 * 1024; // 1MB, mirror internal PROCESS_EXEC_MAX_BUFFER
+  const MAX_BUFFER_EXEC_TIMEOUT_MS = 10_000;
+  const MAX_BUFFER_RUNNER_TIMEOUT_MS = 10_000;
 
   it('SIGTERM 触发后 grace period 内 buffers 不再 push', async () => {
     // Node script that ignores SIGTERM and writes rapidly to stdout
@@ -55,7 +60,7 @@ describe('exec maxBuffer SIGTERM 后 pushChunk early return (phase 948 site A)',
 
     try {
       // phase 999 r121 P fork C.G.1: timeout 30000 → 10000 (typical runtime ~2-3s + 3-4x margin)
-      await exec('node', ['-e', script], { cwd: workDir, timeout: 10000 });
+      await exec('node', ['-e', script], { cwd: workDir, timeout: MAX_BUFFER_EXEC_TIMEOUT_MS });
       expect.fail('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ProcessExecError);
@@ -65,7 +70,7 @@ describe('exec maxBuffer SIGTERM 后 pushChunk early return (phase 948 site A)',
       // Without it, the 1000ms grace period could add many MBs.
       expect(error.output.length).toBeLessThanOrEqual(MAX_BUFFER + 65536 * 5);
     }
-  }, 10000);
+  }, MAX_BUFFER_RUNNER_TIMEOUT_MS);
 });
 
 describe('getProcessStartTime catch filter', () => {

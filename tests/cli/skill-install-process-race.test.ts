@@ -23,6 +23,13 @@ import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const FIXTURE_SRC = path.resolve(process.cwd(), 'tests/cli/fixtures/skill-install-race-child.ts');
 
+const FIXTURE_BUNDLE_RUNNER_TIMEOUT_MS = 60_000;
+const RACE_CASE_RUNNER_TIMEOUT_MS = 180_000;
+const RACE_EVENT_WAIT_BUDGET_MS = 120_000;
+const RACE_EVENT_POLL_INTERVAL_MS = 10;
+/** Last-resort cleanup wait; the child close event remains the primary completion signal. */
+const CHILD_CLOSE_SETTLE_BUDGET_MS = 5_000;
+
 /** 定位 pnpm 隔离布局下的 esbuild bin（tsup 的传递依赖，不新增直接依赖）。 */
 function resolveEsbuildBin(): string {
   const pnpmDir = path.resolve(process.cwd(), 'node_modules/.pnpm');
@@ -48,7 +55,7 @@ beforeAll(async () => {
     [FIXTURE_SRC, '--bundle', '--platform=node', '--format=esm', '--target=node20', `--outfile=${fixtureBundle}`],
     { stdio: 'pipe' },
   );
-}, 60_000);
+}, FIXTURE_BUNDLE_RUNNER_TIMEOUT_MS);
 
 /* ---------- 类型与 scenario ---------- */
 
@@ -104,7 +111,7 @@ afterEach(async () => {
   }
   await Promise.all(
     [...liveChildren].map(
-      (c) => new Promise<void>((r) => { c.on('close', () => r()); setTimeout(r, 5_000); }),
+      (c) => new Promise<void>((r) => { c.on('close', () => r()); setTimeout(r, CHILD_CLOSE_SETTLE_BUDGET_MS); }),
     ),
   );
   liveChildren.clear();
@@ -159,9 +166,9 @@ function readEvents(barrierDir: string): RaceEvent[] {
 }
 
 /** 有界轮询等待事件到达（仅防挂死，不参与时序构造）。 */
-async function waitEvent(barrierDir: string, actor: string, stage: string, timeoutMs = 120_000): Promise<RaceEvent> {
+async function waitEvent(barrierDir: string, actor: string, stage: string, timeoutMs = RACE_EVENT_WAIT_BUDGET_MS): Promise<RaceEvent> {
   // 轮询步长：仅防挂死的等待节奏，值无业务语义、不参与时序构造。
-  const POLL_INTERVAL_MS = 10;
+  const POLL_INTERVAL_MS = RACE_EVENT_POLL_INTERVAL_MS;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const hit = readEvents(barrierDir).find((e) => e.actor === actor && e.stage === stage);
@@ -335,7 +342,7 @@ describe('Step B：同名本地安装跨进程竞争（真实 handler 子进程 
       ? fs.readdirSync(claimParent).filter((n) => n.startsWith('.'))
       : [];
     expect(residue).toEqual([]);
-  }, 180_000);
+  }, RACE_CASE_RUNNER_TIMEOUT_MS);
 });
 
 /* ---------- Step C 共用 intercept ---------- */
@@ -451,7 +458,7 @@ describe('Step C：本地安装与池安装争同一 Motion 目标（真实子�
     // loser（pool）claim 与来源快照按协议留证；目标父目录无 staging/trash 残留
     expect(fs.existsSync(poolClaimPath())).toBe(true);
     expectNoTargetResidue({ allowSnapshot: true });
-  }, 180_000);
+  }, RACE_CASE_RUNNER_TIMEOUT_MS);
 
   /**
    * C2：池先取得 absent 目标（反方向）。
@@ -517,7 +524,7 @@ describe('Step C：本地安装与池安装争同一 Motion 目标（真实子�
     // loser（local）来源快照按协议留证在本地 claim 同级，Motion skills 内只允许
     // 无 staging/trash/marker 残留（local 快照不在此目录）
     expectNoTargetResidue();
-  }, 180_000);
+  }, RACE_CASE_RUNNER_TIMEOUT_MS);
 
   /**
    * C3：existing 目标让位窗口竞争。
@@ -575,5 +582,5 @@ describe('Step C：本地安装与池安装争同一 Motion 目标（真实子�
     expect(fs.existsSync(poolClaimPath())).toBe(false);
     expect(fs.existsSync(parentSkillsDir())).toBe(false);
     expectNoTargetResidue();
-  }, 180_000);
+  }, RACE_CASE_RUNNER_TIMEOUT_MS);
 });
