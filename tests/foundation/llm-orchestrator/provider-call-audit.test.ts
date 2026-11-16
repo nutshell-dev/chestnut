@@ -35,7 +35,10 @@ import type { llmProviderConfigContract } from '../../../src/foundation/llm-prov
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
 import { replaceProviderStates } from './test-internals.js';
-import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
+import {
+  DEFAULT_RESET_TIMEOUT_MS,
+  InvocationSelectionLedger,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -231,6 +234,10 @@ function selectionRows(rows: AuditRecord[], invocationId: string) {
     .map(r => colMap(r));
 }
 
+function replaySelectionFromDisk(rows: AuditRecord[]) {
+  return InvocationSelectionLedger.replay(rows.map(row => ({ type: row.type, ...colMap(row) })));
+}
+
 /** 最近一次 invocation 的关联键（started 事件顺序即调用顺序）。 */
 function lastInvocationId(rows: AuditRecord[]): string {
   const started = rows.filter(r => r.type === 'llm_call_invocation_started');
@@ -381,6 +388,15 @@ describe('provider 调用路径审计（磁盘重建）', () => {
     expect(observations).toHaveLength(4);
     expect(observations.every(fact => fact.invocationId === inv)).toBe(true);
     expect(new Set(observations.map(fact => fact.attemptId)).size).toBe(2);
+
+    const replay = replaySelectionFromDisk(rows);
+    const invocation = replay.invocations.get(inv);
+    expect(invocation?.status).toBe('selected');
+    expect(invocation?.attempts.get(invocation.selectedAttemptId!)).toMatchObject({
+      provider: 'observed', status: 'selected', requestIds: ['req-retry-1', 'req-retry-2'],
+    });
+    expect(replay.diagnostics).toEqual([]);
+    expect(replaySelectionFromDisk(rows)).toEqual(replay);
   });
 
   it('keeps fallback request artifact ids distinct within one invocation', async () => {
@@ -415,6 +431,18 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       'input-artifact-req-primary', 'input-artifact-req-primary',
       'input-artifact-req-fallback', 'input-artifact-req-fallback',
     ]);
+
+    const inv = lastInvocationId(rows);
+    const replay = replaySelectionFromDisk(rows);
+    const invocation = replay.invocations.get(inv);
+    expect(invocation?.status).toBe('selected');
+    expect(invocation?.attempts.get(invocation.selectedAttemptId!)).toMatchObject({
+      provider: 'fallback', status: 'selected', requestIds: ['req-fallback'],
+    });
+    expect([...invocation!.attempts.values()].find(item => item.provider === 'primary')).toMatchObject({
+      status: 'failed', requestIds: ['req-primary'],
+    });
+    expect(replay.diagnostics).toEqual([]);
   });
 
   it('isolates observer failure while preserving the result, audit facts and CRITICAL signal', async () => {
@@ -580,6 +608,12 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       expect(failures[i].attemptIndex).toBe(i);
       expect(attempts[i].provider_id).toBe(failures[i].providerId);
     }
+
+    const replay = replaySelectionFromDisk(rows);
+    const invocation = replay.invocations.get(inv);
+    expect(invocation?.status).toBe('exhausted');
+    expect(invocation?.selectedAttemptId).toBeUndefined();
+    expect([...invocation!.attempts.values()].map(item => item.status)).toEqual(['failed', 'failed', 'failed']);
   });
 
   it('同 endpoint 不同 label：technical identity、label、config revision 关系可重建', async () => {

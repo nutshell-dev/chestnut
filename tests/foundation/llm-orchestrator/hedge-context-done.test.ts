@@ -9,6 +9,8 @@ type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
+import { InvocationSelectionLedger } from '../../../src/foundation/llm-orchestrator/index.js';
+type LLMCallOptions = llmProviderCall.LLMCallOptions;
 
 /** Delays the primary stream so the fallback failure is observed before its terminal context-done. */
 const PRIMARY_AFTER_FALLBACK_ERROR_DELAY_MS = 10;
@@ -18,10 +20,17 @@ interface MockProviderOptions {
   streamDelayMs?: number;
   callError?: Error;
   callPending?: boolean;
+  measurementRequestId?: string;
 }
 
 function createMockProvider(name: string, options: MockProviderOptions = {}) {
-  const callSpy = vi.fn(async () => {
+  const callSpy = vi.fn(async (callOpts?: LLMCallOptions) => {
+    if (options.measurementRequestId) {
+      callOpts?.onInputMeasurement?.({
+        kind: 'completed', requestId: options.measurementRequestId,
+        provider: name, model: 'mock-model', inputSource: 'unlinked', reconciliation: 'no_usage',
+      });
+    }
     if (options.callPending) return new Promise<never>(() => {});
     if (options.callError) throw options.callError;
     return {
@@ -34,7 +43,13 @@ function createMockProvider(name: string, options: MockProviderOptions = {}) {
     model: 'mock-model',
     call: callSpy,
     stream: options.streamChunks
-      ? async function* () {
+      ? async function* (streamOpts?: LLMCallOptions) {
+          if (options.measurementRequestId) {
+            streamOpts?.onInputMeasurement?.({
+              kind: 'completed', requestId: options.measurementRequestId,
+              provider: name, model: 'mock-model', inputSource: 'unlinked', reconciliation: 'no_usage',
+            });
+          }
           if (options.streamDelayMs) {
             await new Promise(resolve => setTimeout(resolve, options.streamDelayMs));
           }
@@ -171,10 +186,12 @@ describe('hedge primary context-done', () => {
         { type: 'text_delta', delta: 'partial' },
         { type: 'done', stopReason: 'context_length_exceeded' },
       ],
+      measurementRequestId: 'context-primary-request',
     });
     const returnSpy = spyOnPrimaryReturn(primaryRaw.provider);
     const fallback = createMockProvider('fallback', {
       callError: new LLMNetworkError('fallback', new Error('offline')),
+      measurementRequestId: 'context-fallback-request',
     });
     const { service, events } = createOrchestrator(primaryRaw.provider, [fallback.provider]);
     const primaryStateBefore = structuredClone(providerStatesOf(service)[0]);
@@ -186,6 +203,19 @@ describe('hedge primary context-done', () => {
     expect(providerStatesOf(service)[0]).toEqual(primaryStateBefore);
     expect(lastSuccessProviderOf(service)).toBeNull();
     expect(returnSpy).toHaveBeenCalled();
+
+    const started = events.find(event => event.type === 'call_invocation_started');
+    if (started?.type !== 'call_invocation_started') throw new Error('expected invocation start');
+    const replay = InvocationSelectionLedger.replay(events);
+    const invocation = replay.invocations.get(started.invocationId);
+    expect(invocation?.status).toBe('exhausted');
+    expect([...invocation!.attempts.values()].find(item => item.provider === 'primary')).toMatchObject({
+      status: 'failed', requestIds: ['context-primary-request'],
+    });
+    expect([...invocation!.attempts.values()].find(item => item.provider === 'fallback')).toMatchObject({
+      status: 'failed', requestIds: ['context-fallback-request'],
+    });
+    expect(replay.diagnostics).toEqual([]);
   });
 
   it('normal A done still yields done and records primary recovery', async () => {

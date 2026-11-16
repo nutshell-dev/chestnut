@@ -34,6 +34,15 @@ export type {
   InputMeasurementRequestState,
   InputMeasurementRequestStatus,
 } from './input-measurement-ledger.js';
+export { InvocationSelectionLedger } from './invocation-selection-ledger.js';
+export type {
+  CallAttemptResult,
+  InvocationAttemptReplayState,
+  InvocationReplayState,
+  InvocationSelectionReplayState,
+  ReplayDiagnostic,
+  SelectionState,
+} from './invocation-selection-ledger.js';
 
 // 恢复只归真实 owner；调用方不持有 session/begin/finish 控制面。
 export type {

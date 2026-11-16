@@ -250,6 +250,8 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
       break;
     case 'race_loser_cleaned':
       w(LLM_AUDIT_EVENTS.RACE_LOSER_CLEANED,
+        `invocation=${event.invocationId ?? 'none'}`, `attempt=${event.attemptId ?? 'none'}`,
+        `provider_attempt=${event.providerAttemptId ?? 'none'}`, `schema_version=${event.schemaVersion ?? 'none'}`,
         `provider=${event.provider}`, `reason=${event.reason}`);
       break;
     case 'sdk_client_cache_hit':
@@ -340,13 +342,15 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     case 'call_invocation_started':
       w(LLM_AUDIT_EVENTS.CALL_INVOCATION_STARTED,
         `instance=${event.orchestratorInstance}`, `invocation=${event.invocationId}`, `attempt=${event.attemptId}`,
+        `schema_version=${event.schemaVersion ?? 'none'}`,
         `kind=${event.kind}`, `config_rev=${event.configRevision}`,
         `candidates=${event.candidates.map(c => `${c.name}:${c.providerId}`).join(',')}`);
       break;
     case 'call_attempt_result':
       w(LLM_AUDIT_EVENTS.CALL_ATTEMPT_RESULT,
         `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,
-        `attempt_index=${event.attemptIndex}`,
+        `provider_attempt=${event.providerAttemptId ?? 'none'}`, `schema_version=${event.schemaVersion ?? 'none'}`,
+        `attempt_index=${event.attemptIndex}`, `request_ids=${JSON.stringify(event.requestIds ?? [])}`,
         `provider=${event.provider}`, `provider_id=${event.providerId}`, `outcome=${event.outcome}`,
         `error_class=${event.errorClass ?? 'none'}`, `reason=${event.reason ?? 'none'}`,
         `error=${event.error ?? 'none'}`);
@@ -359,6 +363,7 @@ function writeLLMAuditEvent(auditWrite: AuditOutcomeWrite, event: LLMEvent): Aud
     case 'call_selection':
       w(LLM_AUDIT_EVENTS.CALL_SELECTION,
         `invocation=${event.invocationId}`, `attempt=${event.attemptId ?? 'none'}`,
+        `provider_attempt=${event.providerAttemptId ?? 'none'}`, `schema_version=${event.schemaVersion ?? 'none'}`,
         `outcome=${event.outcome}`,
         `provider=${event.provider ?? 'none'}`, `provider_id=${event.providerId ?? 'none'}`,
         `attempt_index=${event.attemptIndex ?? 'none'}`);

@@ -22,7 +22,10 @@ import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-pr
 type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
-import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import {
+  InvocationSelectionLedger,
+  type LLMStreamChunk,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
 /** Real-timer mock tracks: slow enough to keep the hedge open, fast enough to win after startup. */
@@ -232,6 +235,17 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
       'input-artifact-hedge-primary-request', 'input-artifact-hedge-fallback-request',
     ]));
     expect(events.filter(e => e.type === 'input_measurement')).toHaveLength(2);
+
+    const replay = InvocationSelectionLedger.replay(events);
+    const invocation = replay.invocations.get(started.invocationId);
+    const winner = invocation?.attempts.get(invocation.selectedAttemptId!);
+    expect(winner).toMatchObject({
+      provider: 'fb1', status: 'selected', requestIds: ['hedge-fallback-request'],
+    });
+    expect([...invocation!.attempts.values()].find(item => item.provider === 'primary')).toMatchObject({
+      status: 'failed', requestIds: ['hedge-primary-request'],
+    });
+    expect(replay.diagnostics).toEqual([]);
   });
 
   it('hedge double fail: primary error + all fallbacks fail → throw LLMAllProvidersFailedError', async () => {

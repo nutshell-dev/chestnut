@@ -109,7 +109,7 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_FALLBACK_COMMITTED; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_SUCCEEDED_AFTER_RACE_LOST; primaryProvider: string; winnerProvider: string }
   | { type: typeof STREAM_EVENT_NAMES.ALL_PROVIDERS_CONTEXT_EXCEEDED; totalAttempted: number; skippedCount: number }
-  | { type: typeof STREAM_EVENT_NAMES.RACE_LOSER_CLEANED; provider: string; reason: string }
+  | { type: typeof STREAM_EVENT_NAMES.RACE_LOSER_CLEANED; provider: string; reason: string; schemaVersion?: 1; invocationId?: string; attemptId?: string; providerAttemptId?: string }
   | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_HIT; preset: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_MISS; preset: string; model: string }
   | { type: typeof STREAM_EVENT_NAMES.PROVIDER_CLOSE_FAILED; error: string }
@@ -119,9 +119,9 @@ export type LLMEvent =
   // 实际执行序列号（含跳过），非配置数组下标；providerId 为不可逆身份指纹（不含凭据）。
   // outcome 'discarded'：候选已执行但未成为最终选择（hedge race loser 已产出内容）——
   // 不伪造成功也不伪造失败。
-  | { type: typeof STREAM_EVENT_NAMES.CALL_INVOCATION_STARTED; orchestratorInstance: string; invocationId: string; attemptId: string; kind: 'call' | 'stream'; configRevision: number; candidates: { name: string; providerId: string }[] }
-  | { type: typeof STREAM_EVENT_NAMES.CALL_ATTEMPT_RESULT; invocationId: string; attemptId?: string; attemptIndex: number; provider: string; providerId: string; outcome: 'success' | 'failure' | 'skipped' | 'discarded'; errorClass?: LLMErrorClass; error?: string; reason?: string }
-  | { type: typeof STREAM_EVENT_NAMES.CALL_SELECTION; invocationId: string; attemptId?: string; outcome: 'selected' | 'exhausted'; provider?: string; providerId?: string; attemptIndex?: number }
+  | { type: typeof STREAM_EVENT_NAMES.CALL_INVOCATION_STARTED; orchestratorInstance: string; invocationId: string; attemptId: string; kind: 'call' | 'stream'; configRevision: number; candidates: { name: string; providerId: string }[]; schemaVersion?: 1 }
+  | { type: typeof STREAM_EVENT_NAMES.CALL_ATTEMPT_RESULT; invocationId: string; attemptId?: string; providerAttemptId?: string; attemptIndex: number; provider: string; providerId: string; outcome: 'success' | 'failure' | 'skipped' | 'discarded'; requestIds?: string[]; schemaVersion?: 1; errorClass?: LLMErrorClass; error?: string; reason?: string }
+  | { type: typeof STREAM_EVENT_NAMES.CALL_SELECTION; invocationId: string; attemptId?: string; providerAttemptId?: string; outcome: 'selected' | 'exhausted'; provider?: string; providerId?: string; attemptIndex?: number; schemaVersion?: 1 }
   | { type: typeof STREAM_EVENT_NAMES.INPUT_MEASUREMENT; schemaVersion?: 1; invocationId?: string; attemptId?: string; provider: string; model: string; observation: InputMeasurementObservation }
   // 由装配层 sink 在审计持久化降级/失败时产生（LLMOrchestrator 不产生本事件）。
   | { type: typeof STREAM_EVENT_NAMES.CALL_AUDIT_WRITE_FAILED; eventType: string; invocationId?: string; reason: string }

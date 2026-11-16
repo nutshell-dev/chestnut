@@ -82,7 +82,7 @@ export interface InvocationExecutor {
     estimatedInputTokens: number,
     generation: number,
     updateSelection?: boolean,
-    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
   ): Promise<LLMResponse>;
   minimalProbe(
     provider: LLMProvider,
@@ -138,6 +138,8 @@ interface CallPathAudit {
   generation: number;
   /** 已在候选失败发生处提交的失败条目；最终聚合只补交尚未记录的候选失败。 */
   recordedFailures: Set<LLMProviderFailure>;
+  /** 每个候选实际产生的 requestId；重试保留多个，prepared/terminal 去重。 */
+  requestIdsByProvider: Map<string, string[]>;
 }
 
 
@@ -206,9 +208,16 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private inputMeasurementObserver(
     adapter: LLMProvider,
     options: LLMCallOptions,
-    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
   ) {
     return (observation: llmProviderModelMeasurement.InputMeasurementObservation): void => {
+      if (correlation?.requestIdsByProvider !== undefined) {
+        const providerIndex = [this.primary, ...this.fallbacks].findIndex(candidate => candidate === adapter);
+        const providerId = this.identityAt(providerIndex, adapter.name);
+        const requestIds = correlation.requestIdsByProvider.get(providerId) ?? [];
+        if (!requestIds.includes(observation.requestId)) requestIds.push(observation.requestId);
+        correlation.requestIdsByProvider.set(providerId, requestIds);
+      }
       // A recovery attempt may contain retries, fallbacks, or hedged requests. Bind
       // each request-local observation pair to its own provider-attempt identity.
       const attemptId = correlation?.attemptId === undefined
@@ -429,7 +438,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     estimatedInputTokens: number,
     generation: number,
     updateSelection = true,
-    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
+    correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId' | 'requestIdsByProvider'>,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
     const candidateInputTokens = await this.inputTokensFor(adapter, options, estimatedInputTokens);
@@ -540,9 +549,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
       nextAttemptIndex: 0,
       generation: this.configGeneration,
       recordedFailures: new Set<LLMProviderFailure>(),
+      requestIdsByProvider: new Map(),
     };
     this.events.emit({
       type: 'call_invocation_started',
+      schemaVersion: 1,
       orchestratorInstance: this.instanceId,
       invocationId: inv.invocationId,
       attemptId: inv.attemptId,
@@ -565,11 +576,15 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     detail: { errorClass?: LLMErrorClass; error?: string; reason?: string },
   ): number {
     const attemptIndex = inv.nextAttemptIndex++;
+    const providerAttemptId = `${inv.attemptId}:attempt:${attemptIndex}`;
     this.events.emit({
       type: 'call_attempt_result',
+      schemaVersion: 1,
       invocationId: inv.invocationId,
       ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
+      providerAttemptId,
       attemptIndex,
+      requestIds: [...(inv.requestIdsByProvider.get(providerId) ?? [])],
       provider,
       providerId,
       outcome,
@@ -645,8 +660,10 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     const attemptIndex = this.recordAttemptResult(inv, provider, providerId, 'success', {});
     this.events.emit({
       type: 'call_selection',
+      schemaVersion: 1,
       invocationId: inv.invocationId,
       ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
+      providerAttemptId: `${inv.attemptId}:attempt:${attemptIndex}`,
       outcome: 'selected',
       provider,
       providerId,
@@ -658,6 +675,7 @@ export class LLMInvocationExecutor implements InvocationExecutor {
   private recordExhausted(inv: CallPathAudit): void {
     this.events.emit({
       type: 'call_selection',
+      schemaVersion: 1,
       invocationId: inv.invocationId,
       ...(inv.attemptId !== undefined ? { attemptId: inv.attemptId } : {}),
       outcome: 'exhausted',
@@ -1558,7 +1576,11 @@ export class LLMInvocationExecutor implements InvocationExecutor {
         this.noteCandidateSuccess(inv, winner.provider.name, this.identityAt(winner.providerIndex + 1, winner.provider.name));
         // NEW: drain primary generator (mirror L821 double-fail template)
         await closePrimary();
-        this.events.emit({ type: 'race_loser_cleaned', provider: this.primary.name, reason: 'hedge_trackB_won' });
+        this.events.emit({
+          type: 'race_loser_cleaned', schemaVersion: 1,
+          invocationId: inv.invocationId, attemptId: inv.attemptId,
+          provider: this.primary.name, reason: 'hedge_trackB_won',
+        });
         cleanupSignals();
         yield* wrapResponseAsStream(winner.response);
         return;
