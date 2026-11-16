@@ -59,6 +59,11 @@ import {
   inspectWatchdogOwnerRecord, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import {
+  readWatchdogCandidateAdmission,
+  recordWatchdogCandidateSpawned,
+  WATCHDOG_CANDIDATE_ATTEMPT_ENV,
+} from './candidate-recovery.js';
+import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
   writeCandidateOutcome, inspectActive, recordGenerationTerminal, WATCHDOG_ACTIVE_DIR,
   currentLegacyParentRoot, legacyParentMatchesInstance,
@@ -190,8 +195,20 @@ export function acquireWatchdogOwnership(
   deps?: WatchdogProcessDeps,
 ): AcquireWatchdogOwnership {
   const fs = getChestnutFs(fsFactory);
-  const attempt = newWatchdogAttempt(process.pid, deps);
+  const admittedAttemptId = process.env[WATCHDOG_CANDIDATE_ATTEMPT_ENV];
+  const admission = admittedAttemptId
+    ? readWatchdogCandidateAdmission(fs, admittedAttemptId)
+    : null;
+  const generated = newWatchdogAttempt(process.pid, deps);
+  const attempt: WatchdogOwnerRecord = admission
+    ? {
+        ...generated,
+        attempt_id: admission.attemptId,
+        recovery_window_id: admission.windowId,
+      }
+    : generated;
   prepareCandidate(fs, attempt);
+  recordWatchdogCandidateSpawned(fs, attempt);
 
   // Phase 1203 Step D: 无 active owner 时先处置 legacy watchdog.pid ——
   // live 保守阻止接管；dead/corrupt 保留证据迁移后放行；文件不得直接删除。
@@ -295,6 +312,7 @@ export function acquireWatchdogOwnership(
       writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
         outcome: 'lost',
         winner_owner_token: commit.owner.owner_token,
+        winner_attempt_id: commit.owner.attempt_id,
         winner_pid: commit.owner.pid,
         reason: 'active_occupied',
       });

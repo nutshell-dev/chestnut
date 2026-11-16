@@ -13,6 +13,7 @@
  *   loser <pid> <winnerPid>         commit collision（已写 candidate outcome.json）
  *   retired <pid> <oldToken>        stale retire rename 成功
  *   retire_lost <pid> <oldToken>    retire 竞争失败（含 active 已被移走）
+ *   rejected <pid>                  bounded-commit 未获得固定预算 slot
  *   timeout <pid>                   barrier 超时（exit 2）
  */
 import * as fs from 'node:fs';
@@ -46,6 +47,70 @@ function ownerRecord(token) {
     workspace_root: chestnutDir,
     created_at: new Date().toISOString(),
   }, null, 2);
+}
+
+function boundedCommit() {
+  const windowId = 'recovery-initial';
+  const budget = 4;
+  const attempts = path.join(chestnutDir, 'watchdog', 'recovery', 'windows', windowId, 'attempts');
+  fs.mkdirSync(attempts, { recursive: true });
+  let admittedSlot = null;
+  for (let slot = 0; slot < budget; slot++) {
+    const slotDir = path.join(attempts, String(slot));
+    try {
+      fs.mkdirSync(slotDir);
+      fs.writeFileSync(path.join(slotDir, 'admission.json'), JSON.stringify({
+        schemaVersion: 1,
+        attemptId: `attempt-${process.pid}`,
+        windowId,
+        slot,
+        admittedAtMs: Date.now(),
+        callerPid: process.pid,
+      }));
+      admittedSlot = slot;
+      break;
+    } catch (error) {
+      if (!fs.existsSync(slotDir)) throw error;
+    }
+  }
+  if (admittedSlot === null) {
+    const rejection = path.join(chestnutDir, 'watchdog', 'recovery', 'rejections', windowId);
+    fs.mkdirSync(rejection, { recursive: true });
+    fs.writeFileSync(path.join(rejection, `${process.pid}.json`), JSON.stringify({
+      kind: 'rejected', reason: 'budget_exhausted', windowId,
+    }));
+    console.log(`rejected ${process.pid}`);
+    return;
+  }
+
+  const token = `token-${process.pid}`;
+  const attemptId = `attempt-${process.pid}`;
+  const candidate = path.join(chestnutDir, 'watchdog', 'candidates', attemptId);
+  fs.mkdirSync(candidate, { recursive: true });
+  fs.writeFileSync(path.join(candidate, 'owner.json'), ownerRecord(token));
+  const active = path.join(chestnutDir, 'watchdog', 'active');
+  try {
+    fs.renameSync(candidate, active);
+    fs.writeFileSync(
+      path.join(chestnutDir, 'watchdog', 'recovery', 'windows', windowId, 'winner.json'),
+      JSON.stringify({ attemptId, pid: process.pid }),
+      { flag: 'wx' },
+    );
+    console.log(`winner ${process.pid} ${token}`);
+  } catch (error) {
+    const owner = JSON.parse(fs.readFileSync(path.join(active, 'owner.json'), 'utf-8'));
+    fs.writeFileSync(
+      path.join(candidate, 'outcome.json'),
+      JSON.stringify({
+        outcome: 'lost',
+        window_id: windowId,
+        winner_attempt_id: owner.attempt_id,
+        winner: owner.pid,
+      }),
+      { flag: 'wx' },
+    );
+    console.log(`loser ${process.pid} ${owner.pid}`);
+  }
 }
 
 function commit() {
@@ -107,4 +172,5 @@ function recover() {
 
 await waitForGo();
 if (mode === 'commit') commit();
+else if (mode === 'bounded-commit') boundedCommit();
 else recover();

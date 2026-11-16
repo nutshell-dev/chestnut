@@ -100,6 +100,29 @@ describe('decideMotionRestart', () => {
 });
 
 describe('reduceMotionRestartOutcome', () => {
+  it('closed + candidate budget exhausted -> remains closed', () => {
+    const next = reduceMotionRestartOutcome(
+      CLOSED,
+      { kind: 'candidate_budget_exhausted', windowId: 'window-1', attemptId: 'attempt-1' },
+      1_000,
+      5_000,
+      300_000,
+    );
+    expect(next).toBe(CLOSED);
+  });
+
+  it('retrying + candidate budget exhausted -> unchanged without fabricated crash loop', () => {
+    const state = retrying(3, 5_000, true);
+    const next = reduceMotionRestartOutcome(
+      state,
+      { kind: 'candidate_budget_exhausted', windowId: 'window-1', attemptId: 'attempt-2' },
+      10_000,
+      5_000,
+      300_000,
+    );
+    expect(next).toBe(state);
+  });
+
   it('closed + spawned -> retrying attempts=1 awaitingStability=true', () => {
     const next = reduceMotionRestartOutcome(
       CLOSED,

@@ -20,6 +20,13 @@ import {
   WATCHDOG_LOG_HINT,
 } from './watchdog-log.js';
 import type { FileSystem } from '../foundation/fs/index.js';
+import {
+  admitWatchdogCandidate,
+  WATCHDOG_CANDIDATE_ATTEMPT_ENV,
+} from './candidate-recovery.js';
+import { getChestnutFs } from './watchdog-context.js';
+import { writeCandidateOutcome } from './watchdog-ownership.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 
 /**
  * spawn 后 poll alive 的间隔（ms）。
@@ -33,6 +40,31 @@ const WATCHDOG_POLL_INTERVAL_MS = 100;
  */
 const WATCHDOG_START_MAX_ATTEMPTS = 30;
 
+function recordSpawnFailureBestEffort(
+  fsFactory: (baseDir: string) => FileSystem,
+  attemptId: string,
+  error: unknown,
+): void {
+  try {
+    writeCandidateOutcome(getChestnutFs(fsFactory), attemptId, {
+      outcome: 'failed',
+      reason: `caller_spawn_failed:${formatErr(error)}`,
+    });
+  } catch { // silent: preserve the original spawn failure and existing child outcome
+  }
+}
+
+export class WatchdogCandidateAdmissionRejectedError extends Error {
+  constructor(
+    readonly reason: 'budget_exhausted' | 'window_closed',
+    readonly attemptId: string,
+    readonly windowId: string,
+  ) {
+    super(`Watchdog candidate admission rejected (${reason}): window=${windowId} attempt=${attemptId}`);
+    this.name = 'WatchdogCandidateAdmissionRejectedError';
+  }
+}
+
 /**
  * Spawn watchdog daemon candidate 并 poll 等待 active owner 出现。
  *
@@ -44,48 +76,71 @@ const WATCHDOG_START_MAX_ATTEMPTS = 30;
  */
 export async function spawnWatchdogCandidate(
   fsFactory: (baseDir: string) => FileSystem,
+  admittedAttemptId?: string,
 ): Promise<number> {
   const watchdogEntryPath = getWatchdogEntryPath();
+  let attemptId = admittedAttemptId;
+  if (!attemptId) {
+    // Compatibility surface (including watchdog CLI start) must not bypass the
+    // same durable budget used by ensureWatchdog.
+    const admission = admitWatchdogCandidate(getChestnutFs(fsFactory), null);
+    if (admission.kind === 'rejected') {
+      throw new WatchdogCandidateAdmissionRejectedError(
+        admission.reason,
+        admission.attemptId,
+        admission.windowId,
+      );
+    }
+    attemptId = admission.admission.attemptId;
+  }
   // Phase 1930 Step B：child CHESTNUT_ROOT env 与 cwd 保持既有父目录协议，
   // 由实例根私有推导（与 daemon spawn-options 同一约定）。
   const legacyParent = path.dirname(getChestnutRoot());
   // phase 1763: 提交点前失败经 typed outcome 抛出（含原始 errno/时间/命令身份），
   // 不再静默落到 poll 超时；提交点后异步失败经 stderr sink 保持可观察。
-  const outputPath = prepareWatchdogProcessOutput(fsFactory);
-  const outcome = await spawnDetached('node', [watchdogEntryPath], {
-    env: { CHESTNUT_ROOT: legacyParent },
-    cwd: legacyParent,
-    logFile: outputPath,
-    onSpawnFailure: (failure) => {
-      const message = `[watchdog] post-commit spawn failure: command=${failure.command}` +
-        ` pid=${failure.pid ?? 'unknown'} errno=${failure.errno ?? failure.code ?? 'unknown'}` +
-        ` at=${failure.atMs}: ${failure.message}`;
-      console.error(message);
-      writeWatchdogRawFallback(fsFactory, `${message}\n`);
-    },
-  });
-  if (outcome.kind === 'failed') {
-    const f = outcome.failure;
-    throw new Error(
-      `Watchdog spawn pre-commit failure (command="${f.command}"` +
-        ` errno=${f.errno ?? f.code ?? 'unknown'} at=${f.atMs}): ${f.message}`,
-    );
-  }
-
-  for (let attempts = 0; ; attempts++) {
-    const inspection = inspectWatchdogOwner(fsFactory);
-    if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
-      throw new WatchdogOwnerInspectionError(inspection);
+  try {
+    const outputPath = prepareWatchdogProcessOutput(fsFactory);
+    const outcome = await spawnDetached('node', [watchdogEntryPath], {
+      env: {
+        CHESTNUT_ROOT: legacyParent,
+        [WATCHDOG_CANDIDATE_ATTEMPT_ENV]: attemptId,
+      },
+      cwd: legacyParent,
+      logFile: outputPath,
+      onSpawnFailure: (failure) => {
+        const message = `[watchdog] post-commit spawn failure: command=${failure.command}` +
+          ` pid=${failure.pid ?? 'unknown'} errno=${failure.errno ?? failure.code ?? 'unknown'}` +
+          ` at=${failure.atMs}: ${failure.message}`;
+        console.error(message);
+        writeWatchdogRawFallback(fsFactory, `${message}\n`);
+      },
+    });
+    if (outcome.kind === 'failed') {
+      const f = outcome.failure;
+      throw new Error(
+        `Watchdog spawn pre-commit failure (command="${f.command}"` +
+          ` errno=${f.errno ?? f.code ?? 'unknown'} at=${f.atMs}): ${f.message}`,
+      );
     }
-    if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
-    if (inspection.kind === 'alive') return inspection.pid;
-    if (attempts >= WATCHDOG_START_MAX_ATTEMPTS) break;
-    await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
-  }
 
-  throw new Error(
-    `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
-    // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）。
-    `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
-  );
+    for (let attempts = 0; ; attempts++) {
+      const inspection = inspectWatchdogOwner(fsFactory);
+      if (inspection.kind === 'unknown' || inspection.kind === 'malformed') {
+        throw new WatchdogOwnerInspectionError(inspection);
+      }
+      if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
+      if (inspection.kind === 'alive') return inspection.pid;
+      if (attempts >= WATCHDOG_START_MAX_ATTEMPTS) break;
+      await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(
+      `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
+      // Phase 1878 Step K: 指向 Watchdog owner 日志面（watchdog-log 单源提示）。
+      `Check watchdog log at ${WATCHDOG_LOG_HINT}.`,
+    );
+  } catch (error) {
+    recordSpawnFailureBestEffort(fsFactory, attemptId, error);
+    throw error;
+  }
 }

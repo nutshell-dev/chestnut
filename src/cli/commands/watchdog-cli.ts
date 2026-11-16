@@ -13,6 +13,7 @@ import {
   WATCHDOG_AUDIT_EVENTS,
   WATCHDOG_LOG_HINT,
   spawnWatchdogCandidate,
+  WatchdogCandidateAdmissionRejectedError,
 } from '../../watchdog/index.js';
 import { CliError } from '../errors.js';
 import { requireMotionAccess } from '../../core/claw-topology/index.js';
@@ -47,6 +48,13 @@ export async function startCommand(
     const pid = await spawnWatchdogCandidate(fsFactory);
     console.log(`Watchdog started (PID: ${pid})`);
   } catch (err) {
+    if (err instanceof WatchdogCandidateAdmissionRejectedError) {
+      throw new CliError(
+        `Watchdog candidate admission rejected (${err.reason}). ` +
+        `Recovery window: ${err.windowId}; attempt: ${err.attemptId}.`,
+        1,
+      );
+    }
     throw new CliError(
       // Phase 1878 Step K: 同 spawn.ts——指向 Watchdog owner 日志面（watchdog-log 单源提示）
       `Watchdog failed to start within 3s. Check watchdog log at ${WATCHDOG_LOG_HINT}.`,

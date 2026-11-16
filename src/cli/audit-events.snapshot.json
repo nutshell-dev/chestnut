@@ -980,6 +980,12 @@
       "stream_writer_open_preserved_raced"
     ],
     "watchdog_audit-events": [
+      "watchdog_candidate_admitted",
+      "watchdog_candidate_rejected",
+      "watchdog_candidate_spawned",
+      "watchdog_candidate_window_closed",
+      "watchdog_candidate_window_committed",
+      "watchdog_candidate_window_evidence_failed",
       "watchdog_claw_dir_list_failed",
       "watchdog_claw_scan",
       "watchdog_claws_dir_list_failed",

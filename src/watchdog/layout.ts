@@ -30,6 +30,7 @@ export const WATCHDOG_PATHS = {
   process_output: 'watchdog/process-output.log',
   subscriptions: 'watchdog/subscriptions',
   candidates: 'watchdog/candidates',
+  recovery: 'watchdog/recovery',
   active: 'watchdog/active',
   retired: 'watchdog/retired',
   quarantine: 'watchdog/quarantine',

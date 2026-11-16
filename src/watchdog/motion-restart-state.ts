@@ -64,7 +64,8 @@ export function decideMotionRestart(
 export type MotionSpawnOutcome =
   | { kind: 'spawned'; pid: number }
   | { kind: 'failed'; error: unknown }
-  | { kind: 'spawn_conflict'; reason: ProcessSpawnConflictReason };
+  | { kind: 'spawn_conflict'; reason: ProcessSpawnConflictReason }
+  | { kind: 'candidate_budget_exhausted'; windowId: string; attemptId: string };
 
 export function reduceMotionRestartOutcome(
   prior: MotionRestartState,
@@ -73,6 +74,10 @@ export function reduceMotionRestartOutcome(
   baseIntervalMs: number,
   maxBackoffMs: number,
 ): MotionRestartState {
+  if (outcome.kind === 'candidate_budget_exhausted') {
+    return prior;
+  }
+
   // Phase 1235: 只有合法 spawn ownership conflict（另一实例是磁盘 winner）可清零
   // backoff；malformed generation state 经 failed 分支累计 attempt。
   if (outcome.kind === 'spawn_conflict') {

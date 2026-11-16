@@ -62,7 +62,17 @@ describe('spawnWatchdogCandidate process output', () => {
     const options = h.spawnDetached.mock.calls[0][2];
     const expected = path.join(tmpDir, '.chestnut', WATCHDOG_PATHS.process_output);
     expect(options.logFile).toBe(expected);
+    expect(options.env.CHESTNUT_WATCHDOG_ATTEMPT_ID).toBe('recovery-initial-candidate-0');
     expect(fs.statSync(path.dirname(expected)).isDirectory()).toBe(true);
+  });
+
+  it('兼容 spawn 入口也消费同一持久预算，第五次不绕过拒绝', async () => {
+    for (let index = 0; index < 4; index++) {
+      await spawnWatchdogCandidate(fsFactory);
+    }
+
+    await expect(spawnWatchdogCandidate(fsFactory)).rejects.toThrow(/budget_exhausted/);
+    expect(h.spawnDetached).toHaveBeenCalledTimes(4);
   });
 
   it('raw sink pre-commit 打开失败仍以原 spawn failure fail-loud', async () => {

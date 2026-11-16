@@ -26,6 +26,11 @@ import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import type { WatchdogProcessDeps } from './types.js';
 import { WATCHDOG_PATHS } from './layout.js';
 import { getAuditWriter } from './watchdog-context.js';
+import {
+  closeWatchdogCandidateWindow,
+  readWatchdogCandidateAdmission,
+  recordWatchdogCandidateWinner,
+} from './candidate-recovery.js';
 
 const WATCHDOG_OWNERSHIP_SCHEMA_VERSION = 2;
 const WATCHDOG_LEGACY_OWNERSHIP_SCHEMA_VERSION = 1;
@@ -74,6 +79,8 @@ interface WatchdogOwnerRecordBase {
   owner_token: string;
   /** Display/generation metadata only; ProcessRef is the persisted OS identity. */
   pid: number;
+  /** Present only for candidates admitted through a persistent recovery window. */
+  recovery_window_id?: string;
   workspace_root: string;
   created_at: string;
 }
@@ -95,7 +102,9 @@ interface WatchdogOutcomeRecord {
   schema_version: number;
   attempt_id: string;
   outcome: 'lost' | 'failed';
+  window_id?: string;
   winner_owner_token?: string;
+  winner_attempt_id?: string;
   winner_pid?: number;
   reason: string;
   created_at: string;
@@ -111,7 +120,7 @@ function isOwnerRecord(parsed: unknown): parsed is WatchdogOwnerRecord {
     typeof p.workspace_root === 'string' &&
     typeof p.created_at === 'string'
   );
-  if (!common) return false;
+  if (!common || ('recovery_window_id' in p && typeof p.recovery_window_id !== 'string')) return false;
   if (p.schema_version === WATCHDOG_OWNERSHIP_SCHEMA_VERSION) {
     return typeof p.process_ref === 'string' && p.process_ref.length > 0;
   }
@@ -360,6 +369,9 @@ export function commitOwnership(fs: FileSystem, record: WatchdogOwnerRecord): Co
   } catch (moveErr) {
     return resolveCommitCollision(fs, record, formatErr(moveErr));
   }
+  // The active rename above is authoritative. The marker makes the recovery
+  // epoch durable; if this write crashes, summaries reconstruct from active.
+  recordWatchdogCandidateWinner(fs, record);
   const ownership: WatchdogOwnership = {
     attemptId: record.attempt_id,
     ownerToken: record.owner_token,
@@ -415,10 +427,15 @@ export function writeCandidateOutcome(
   attemptId: string,
   outcome: Omit<WatchdogOutcomeRecord, 'schema_version' | 'attempt_id' | 'created_at'>,
 ): void {
+  const admissionPath = `${candidateDir(attemptId)}/admission.json`;
+  const admission = fs.existsSync(admissionPath)
+    ? readWatchdogCandidateAdmission(fs, attemptId)
+    : null;
   const record: WatchdogOutcomeRecord = {
     schema_version: WATCHDOG_OWNERSHIP_SCHEMA_VERSION,
     attempt_id: attemptId,
     created_at: new Date().toISOString(),
+    ...(admission ? { window_id: admission.windowId } : {}),
     ...outcome,
   };
   fs.writeExclusiveSync(
@@ -479,5 +496,6 @@ export function retireOwnership(
     `pid=${owner.pid}`,
     `reason=${reason}`,
   );
+  closeWatchdogCandidateWindow(fs, owner, reason);
   return { kind: 'retired', owner };
 }

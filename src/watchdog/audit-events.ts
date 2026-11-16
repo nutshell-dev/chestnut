@@ -52,6 +52,13 @@ export const WATCHDOG_AUDIT_EVENTS = {
   OWNERSHIP_RETIRED: 'watchdog_ownership_retired',
   TAKEOVER: 'watchdog_takeover',
   OWNERSHIP_MALFORMED_ACTIVE: 'watchdog_ownership_malformed_active',
+  // Phase 2178: persistent recovery-window admission and convergence evidence.
+  CANDIDATE_ADMITTED: 'watchdog_candidate_admitted',
+  CANDIDATE_REJECTED: 'watchdog_candidate_rejected',
+  CANDIDATE_SPAWNED: 'watchdog_candidate_spawned',
+  CANDIDATE_WINDOW_COMMITTED: 'watchdog_candidate_window_committed',
+  CANDIDATE_WINDOW_CLOSED: 'watchdog_candidate_window_closed',
+  CANDIDATE_WINDOW_EVIDENCE_FAILED: 'watchdog_candidate_window_evidence_failed',
   // phase 1203 Step D: dead/corrupt legacy watchdog.pid 保留证据迁移后放行
   OWNERSHIP_LEGACY_MIGRATED: 'watchdog_ownership_legacy_migrated',
   // phase 1247 Step B: generation terminal outcomes
@@ -105,6 +112,12 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> =
   watchdog_ownership_retired: 'audit',
   watchdog_takeover: 'audit',
   watchdog_ownership_malformed_active: 'audit',
+  watchdog_candidate_admitted: 'audit',
+  watchdog_candidate_rejected: 'audit',
+  watchdog_candidate_spawned: 'audit',
+  watchdog_candidate_window_committed: 'audit',
+  watchdog_candidate_window_closed: 'audit',
+  watchdog_candidate_window_evidence_failed: 'audit',
   watchdog_ownership_legacy_migrated: 'audit',
   watchdog_unclean_termination_detected: 'audit',
   watchdog_terminal_write_failed: 'audit',

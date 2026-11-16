@@ -60,7 +60,7 @@ interface ChildResult {
  *  每个 child 的 stdout/stderr 被完整收集；非零退出时 reject 包含输出供审计。
  *  recover 模式可传入父级已确认的旧 generation owner record，防止迟到 reclaimer 误动 fresh active。 */
 async function runWave(
-  mode: 'commit' | 'recover',
+  mode: 'commit' | 'bounded-commit' | 'recover',
   n: number,
   expectedOwner?: { attempt_id: string; owner_token: string; pid: number } | null,
 ): Promise<string[]> {
@@ -156,6 +156,33 @@ describe('真实多进程 ownership race', () => {
       .readdirSync(candidatesDir)
       .filter((d) => fs.existsSync(path.join(candidatesDir, d, 'outcome.json')));
     expect(outcomes.length).toBe(WAVE_SIZE - 1);
+  }, COMMIT_RACE_RUNNER_TIMEOUT_MS);
+
+  it('真实 20-child 同窗口竞争：预算为 4、唯一 winner、迟到 loser 与拒绝证据守恒', async () => {
+    const size = 20;
+    const budget = 4;
+    const lines = await runWave('bounded-commit', size);
+
+    expect(lines.filter((line) => line.startsWith('winner '))).toHaveLength(1);
+    expect(lines.filter((line) => line.startsWith('loser '))).toHaveLength(budget - 1);
+    expect(lines.filter((line) => line.startsWith('rejected '))).toHaveLength(size - budget);
+    expect(activeOwner()).not.toBeNull();
+
+    const attempts = fs.readdirSync(path.join(
+      chestnutDir, 'watchdog', 'recovery', 'windows', 'recovery-initial', 'attempts'));
+    expect(attempts).toHaveLength(budget);
+    const candidatesDir = path.join(chestnutDir, 'watchdog', 'candidates');
+    const outcomes = fs.readdirSync(candidatesDir)
+      .filter((entry) => fs.existsSync(path.join(candidatesDir, entry, 'outcome.json')));
+    expect(outcomes).toHaveLength(budget - 1);
+    for (const entry of outcomes) {
+      const outcome = JSON.parse(fs.readFileSync(path.join(candidatesDir, entry, 'outcome.json'), 'utf8'));
+      expect(outcome).toMatchObject({ outcome: 'lost', window_id: 'recovery-initial' });
+      expect(typeof outcome.winner_attempt_id).toBe('string');
+    }
+    const rejections = fs.readdirSync(path.join(
+      chestnutDir, 'watchdog', 'recovery', 'rejections', 'recovery-initial'));
+    expect(rejections).toHaveLength(size - budget);
   }, COMMIT_RACE_RUNNER_TIMEOUT_MS);
 
   it('winner 退出后 recovery：恰好一个 reclaimer retire 旧 generation、恰好一个 gen2 winner', async () => {

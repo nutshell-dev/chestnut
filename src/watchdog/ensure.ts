@@ -15,6 +15,20 @@ import {
 } from './watchdog-pid.js';
 import { spawnWatchdogCandidate } from './spawn.js';
 import { createWatchdogActionAudit } from './audit-wiring.js';
+import { admitWatchdogCandidate } from './candidate-recovery.js';
+import { getChestnutFs } from './watchdog-context.js';
+import { writeCandidateOutcome } from './watchdog-ownership.js';
+import { formatErr } from '../foundation/node-utils/index.js';
+
+export type EnsureWatchdogResult =
+  | { kind: 'already_running'; pid: number }
+  | { kind: 'candidate_spawned'; pid: number; attemptId: string; windowId: string }
+  | {
+      kind: 'rejected';
+      reason: 'budget_exhausted' | 'window_closed';
+      attemptId: string;
+      windowId: string;
+    };
 
 /**
  * 唯一入口、所有 caller 必经此。
@@ -25,7 +39,7 @@ import { createWatchdogActionAudit } from './audit-wiring.js';
  */
 export async function ensureWatchdog(
   fsFactory: (baseDir: string) => FileSystem,
-): Promise<void> {
+): Promise<EnsureWatchdogResult> {
   // Phase 1878 Step I: writer 生命周期归 action/进程——CLI action 已安装则复用
   // （非 owner handle、dispose no-op）；未安装则本调用 scoped own + 终态 dispose
   // （旧 ensureAuditWired lazy 悬挂语义退役）。
@@ -36,8 +50,43 @@ export async function ensureWatchdog(
       throw new WatchdogOwnerInspectionError(inspection);
     }
     if (inspection.kind !== 'none') assertWatchdogOwnerWorkspace(inspection);
-    if (inspection.kind === 'alive') return;
-    await spawnWatchdogCandidate(fsFactory);
+    if (inspection.kind === 'alive') return { kind: 'already_running', pid: inspection.pid };
+
+    const staleOwner = inspection.kind !== 'none' && inspection.source === 'active' && inspection.owner
+      ? inspection.owner
+      : null;
+    const admission = admitWatchdogCandidate(getChestnutFs(fsFactory), staleOwner);
+    if (admission.kind === 'rejected') {
+      // A concurrent winner may have committed between the first inspection and
+      // admission. Prefer that durable owner over surfacing a stale rejection.
+      const current = inspectWatchdogOwner(fsFactory);
+      if (current.kind === 'alive') return { kind: 'already_running', pid: current.pid };
+      return {
+        kind: 'rejected',
+        reason: admission.reason,
+        attemptId: admission.attemptId,
+        windowId: admission.windowId,
+      };
+    }
+
+    try {
+      const pid = await spawnWatchdogCandidate(fsFactory, admission.admission.attemptId);
+      return {
+        kind: 'candidate_spawned',
+        pid,
+        attemptId: admission.admission.attemptId,
+        windowId: admission.admission.windowId,
+      };
+    } catch (error) {
+      try {
+        writeCandidateOutcome(getChestnutFs(fsFactory), admission.admission.attemptId, {
+          outcome: 'failed',
+          reason: `caller_spawn_failed:${formatErr(error)}`,
+        });
+      } catch { // silent: preserve the original spawn failure
+      }
+      throw error;
+    }
   } finally {
     actionAudit.dispose();
   }

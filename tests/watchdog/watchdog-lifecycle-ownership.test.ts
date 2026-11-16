@@ -78,11 +78,17 @@ import {
   prepareCandidate,
   commitOwnership,
   inspectTerminal,
+  writeCandidateOutcome,
   WATCHDOG_ACTIVE_DIR,
   WATCHDOG_CANDIDATES_DIR,
   WATCHDOG_RETIRED_DIR,
   type WatchdogOwnerRecord,
 } from '../../src/watchdog/watchdog-ownership.js';
+import {
+  admitWatchdogCandidate,
+  inspectWatchdogRecoveryWindow,
+  WATCHDOG_CANDIDATE_ATTEMPT_ENV,
+} from '../../src/watchdog/candidate-recovery.js';
 import {
   WatchdogPidForeignWorkspaceError,
   _setPidArgvVerifierForTest,
@@ -405,6 +411,72 @@ describe('stale recovery 补记 unclean terminal', () => {
     expect(audit).toContain('watchdog_unclean_termination_detected');
     expect(audit).toContain('watchdog_ownership_retired');
     expect(audit).toContain('reason=stale_recovery');
+  });
+
+  it('现场序列重放：ownership_lost → unclean → stale_recovery → new winner，不伪造 crash loop', () => {
+    const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
+    const oldFirst = admitWatchdogCandidate(chestnutFs, null, { budget: 3, nowMs: 1_000 });
+    const oldSecond = admitWatchdogCandidate(chestnutFs, null, { budget: 3, nowMs: 2_000 });
+    expect(oldFirst.kind).toBe('admitted');
+    expect(oldSecond.kind).toBe('admitted');
+    if (oldFirst.kind !== 'admitted' || oldSecond.kind !== 'admitted') return;
+    const stale = {
+      ...newWatchdogAttempt(DEAD_PID),
+      attempt_id: oldFirst.admission.attemptId,
+      recovery_window_id: oldFirst.admission.windowId,
+    };
+    const loser = {
+      ...newWatchdogAttempt(process.pid),
+      attempt_id: oldSecond.admission.attemptId,
+      recovery_window_id: oldSecond.admission.windowId,
+    };
+    prepareCandidate(chestnutFs, stale);
+    prepareCandidate(chestnutFs, loser);
+    expect(commitOwnership(chestnutFs, stale).kind).toBe('committed');
+    const lost = commitOwnership(chestnutFs, loser);
+    expect(lost.kind).toBe('foreign_owned');
+    if (lost.kind !== 'foreign_owned') return;
+    writeCandidateOutcome(chestnutFs, loser.attempt_id, {
+      outcome: 'lost',
+      winner_owner_token: stale.owner_token,
+      winner_attempt_id: stale.attempt_id,
+      winner_pid: stale.pid,
+      reason: 'active_collision',
+    });
+
+    const next = admitWatchdogCandidate(chestnutFs, stale, { budget: 3, nowMs: 3_000 });
+    expect(next.kind).toBe('admitted');
+    if (next.kind !== 'admitted') return;
+    process.env[WATCHDOG_CANDIDATE_ATTEMPT_ENV] = next.admission.attemptId;
+    let result: ReturnType<typeof acquireWatchdogOwnership>;
+    try {
+      result = acquireWatchdogOwnership(fsFactory);
+    } finally {
+      delete process.env[WATCHDOG_CANDIDATE_ATTEMPT_ENV];
+    }
+    expect(result.kind).toBe('committed');
+
+    const audit = auditLines();
+    const lostAt = audit.indexOf(WATCHDOG_AUDIT_EVENTS.OWNERSHIP_LOST);
+    const uncleanAt = audit.indexOf(WATCHDOG_AUDIT_EVENTS.WATCHDOG_UNCLEAN_TERMINATION_DETECTED);
+    const retiredAt = audit.indexOf('watchdog_ownership_retired');
+    expect(lostAt).toBeGreaterThanOrEqual(0);
+    expect(uncleanAt).toBeGreaterThan(lostAt);
+    expect(retiredAt).toBeGreaterThan(uncleanAt);
+    expect(audit).toContain('reason=stale_recovery');
+    expect(audit).not.toContain(WATCHDOG_AUDIT_EVENTS.WATCHDOG_GAVE_UP);
+    expect(inspectWatchdogRecoveryWindow(chestnutFs, oldFirst.admission.windowId).state).toBe('closed');
+    expect(inspectWatchdogRecoveryWindow(chestnutFs, next.admission.windowId)).toMatchObject({
+      state: 'winner_committed',
+      winnerAttemptId: next.admission.attemptId,
+      candidateCount: 1,
+    });
+    const outcome = JSON.parse(fs.readFileSync(candidateOutcomeFiles()[0], 'utf8'));
+    expect(outcome).toMatchObject({
+      outcome: 'lost',
+      window_id: oldFirst.admission.windowId,
+      winner_attempt_id: stale.attempt_id,
+    });
   });
 
   it('已有 crashed terminal 时，recovery 不覆盖为 unclean，仍 retire 并接管', () => {

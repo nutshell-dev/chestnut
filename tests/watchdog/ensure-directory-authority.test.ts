@@ -24,7 +24,13 @@ import {
   prepareCandidate,
   commitOwnership,
   WATCHDOG_ACTIVE_DIR,
+  writeCandidateOutcome,
 } from '../../src/watchdog/watchdog-ownership.js';
+import {
+  inspectWatchdogRecoveryWindow,
+  readWatchdogCandidateAdmission,
+  WATCHDOG_CANDIDATE_BUDGET,
+} from '../../src/watchdog/candidate-recovery.js';
 import { spawnWatchdogCandidate } from '../../src/watchdog/spawn.js';
 
 let spawnCount = 0;
@@ -82,12 +88,27 @@ describe('ensureWatchdog 目录 authority', () => {
   /** mock spawnWatchdogCandidate 模拟子进程 commit：winner 占 active、并发 loser 不改 active */
   function mockSpawnSimulatesChildCommit(): void {
     spawnCount = 0;
-    vi.mocked(spawnWatchdogCandidate).mockImplementation(async () => {
+    vi.mocked(spawnWatchdogCandidate).mockImplementation(async (_factory, admittedAttemptId) => {
       spawnCount++;
       const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
-      const record = newWatchdogAttempt(process.pid);
+      const admission = admittedAttemptId
+        ? readWatchdogCandidateAdmission(chestnutFs, admittedAttemptId)
+        : null;
+      const generated = newWatchdogAttempt(process.pid);
+      const record = admission
+        ? { ...generated, attempt_id: admission.attemptId, recovery_window_id: admission.windowId }
+        : generated;
       prepareCandidate(chestnutFs, record);
-      commitOwnership(chestnutFs, record);
+      const committed = commitOwnership(chestnutFs, record);
+      if (committed.kind === 'foreign_owned') {
+        writeCandidateOutcome(chestnutFs, record.attempt_id, {
+          outcome: 'lost',
+          winner_owner_token: committed.owner.owner_token,
+          winner_attempt_id: committed.owner.attempt_id,
+          winner_pid: committed.owner.pid,
+          reason: 'active_collision',
+        });
+      }
       return process.pid;
     });
   }
@@ -162,6 +183,40 @@ describe('ensureWatchdog 目录 authority', () => {
     expect(fs.existsSync(activePath)).toBe(true);
     tokens.add(JSON.parse(fs.readFileSync(activePath, 'utf-8')).owner_token);
     expect(tokens.size).toBe(1);
+  });
+
+  it('同一 recovery window 至多提交 budget 个 candidate，loser 与拒绝证据守恒', async () => {
+    mockSpawnSimulatesChildCommit();
+    const commit = vi.mocked(spawnWatchdogCandidate).getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.mocked(spawnWatchdogCandidate).mockImplementation(async (...args) => {
+      await gate;
+      return commit(...args);
+    });
+
+    const pending = Promise.all(Array.from({ length: 20 }, () => ensureWatchdog(fsFactory)));
+    release();
+    const results = await pending;
+
+    const spawned = results.filter((result) => result.kind === 'candidate_spawned');
+    const rejected = results.filter((result) => result.kind === 'rejected');
+    expect(spawned).toHaveLength(WATCHDOG_CANDIDATE_BUDGET);
+    expect(rejected).toHaveLength(20 - WATCHDOG_CANDIDATE_BUDGET);
+    expect(rejected.every((result) => result.kind === 'rejected' && result.reason === 'budget_exhausted')).toBe(true);
+    expect(spawnCount).toBe(WATCHDOG_CANDIDATE_BUDGET);
+    expect(activeOwnerToken()).not.toBeNull();
+
+    const windowId = spawned[0].kind === 'candidate_spawned' ? spawned[0].windowId : '';
+    const window = inspectWatchdogRecoveryWindow(new NodeFileSystem({ baseDir: chestnutDir }), windowId);
+    expect(window).toMatchObject({
+      candidateCount: WATCHDOG_CANDIDATE_BUDGET,
+      budget: WATCHDOG_CANDIDATE_BUDGET,
+      state: 'winner_committed',
+    });
+    const outcomes = fs.readdirSync(path.join(chestnutDir, 'watchdog', 'candidates'))
+      .filter((entry) => fs.existsSync(path.join(chestnutDir, 'watchdog', 'candidates', entry, 'outcome.json')));
+    expect(outcomes).toHaveLength(WATCHDOG_CANDIDATE_BUDGET - 1);
   });
 
   it('legacy 锁文件不再参与选举：不阻塞、不清理、零 ensure_lock audit', async () => {
