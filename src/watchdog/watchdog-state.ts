@@ -11,19 +11,21 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditWriteOutcome } from '../foundation/audit/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import {
-  getChestnutFs, getAuditWriter, motionRestartStateAPI,
+  getChestnutFs, getAuditWriter, motionRestartStateAPI, clawsSupervisionStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';
+import { normalizeClawsSupervisionState, type ClawsSupervisionState } from './claws-observation.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
 
-const CURRENT_WATCHDOG_SCHEMA_VERSION = 3;
+const CURRENT_WATCHDOG_SCHEMA_VERSION = 4;
 
 interface WatchdogState {
   schema_version: number;
   motionRestart?: MotionRestartState;
+  clawsSupervision?: ClawsSupervisionState;
   // Phase 1974 Step C: executorRestart 键随 executor recovery 退役——
   // 旧 state.json 残留键 JSON.parse 后不读取即可（不 bump schema、不另立迁移）。
 }
@@ -98,7 +100,9 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
     }
 
     const motionRestart = normalizeMotionRestartState(state.motionRestart);
+    const clawsSupervision = normalizeClawsSupervisionState(state.clawsSupervision);
     motionRestartStateAPI.replace(motionRestart);
+    clawsSupervisionStateAPI.replace(clawsSupervision);
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
@@ -107,6 +111,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
 
     // corrupt path: reset to empty durable state
     motionRestartStateAPI.reset();
+    clawsSupervisionStateAPI.reset();
 
     const fs = getChestnutFs(fsFactory);
     const backupPath = `${statePath}.corrupt-${Date.now()}`;
@@ -137,6 +142,7 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
   const state: WatchdogState = {
     schema_version: CURRENT_WATCHDOG_SCHEMA_VERSION,
     motionRestart: motionRestartStateAPI.snapshot(),
+    clawsSupervision: clawsSupervisionStateAPI.snapshot(),
   };
   const fs = getChestnutFs(fsFactory);
   // Phase 1455 Step A: 生产写只走目标路径（writeAtomicSync 自建父目录）；

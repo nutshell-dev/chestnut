@@ -374,6 +374,40 @@ describe('runWatchdogLoop ownership 门', () => {
     expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(false);
   });
 
+  it('claws 目录能力缺失只降级监督，不改变 owner/candidate 或触发 Motion restart', async () => {
+    fs.mkdirSync(path.join(chestnutDir, 'claws'), { recursive: true });
+    const originalListSync = NodeFileSystem.prototype.listSync;
+    vi.spyOn(NodeFileSystem.prototype, 'listSync').mockImplementation(function (
+      this: NodeFileSystem,
+      p: string,
+      opts?: unknown,
+    ) {
+      if (p === 'claws') throw Object.assign(new Error('capability missing'), { code: 'ENOSYS' });
+      return originalListSync.call(this, p, opts as any);
+    });
+    const { setTimeout: setTimeoutP } = await import('timers/promises');
+    vi.mocked(setTimeoutP).mockImplementationOnce(async () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+      try { capturedHandlers['SIGTERM']?.(); } catch { /* exit mock throws */ }
+      exitSpy.mockRestore();
+    });
+
+    const outcomesBefore = candidateOutcomeFiles();
+    try {
+      await runWatchdogLoop(fsFactory);
+    } catch { /* process.exit mock may throw */ }
+
+    expect(activeOwner()).toBeNull();
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_ownership_retired');
+    expect(audit).toContain('watchdog_claws_supervision_degraded');
+    expect(audit).not.toContain('watchdog_restart_triggered');
+    expect(candidateOutcomeFiles()).toEqual(outcomesBefore);
+    const state = JSON.parse(fs.readFileSync(path.join(chestnutDir, WATCHDOG_PATHS.state), 'utf8'));
+    expect(state.motionRestart).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+    expect(state.clawsSupervision).toMatchObject({ status: 'degraded', consecutiveFailures: 1 });
+  });
+
   it('graceful shutdown 在 retire 前写 stopped terminal，retired 目录保留 terminal', async () => {
     const { setTimeout: setTimeoutP } = await import('timers/promises');
     vi.mocked(setTimeoutP).mockImplementationOnce(async () => {

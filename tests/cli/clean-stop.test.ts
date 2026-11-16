@@ -5,7 +5,7 @@
  *
  * 验证点：
  * 1. watchdog-state.json 不再持久化 clawPreviouslyAlive
- * 1b. Phase 1974 Step C：watchdog durable state 只保留 motionRestart（executor recovery 退役）
+ * 1b. watchdog durable state 保留 motion/claws supervision，executor recovery 不回归
  * 2. stop.ts 写入 clean-stop 标记
  * 3. daemon-loop.ts 仅对 motion daemon（options.isMotion 为 true 时）检查 clean-stop
  */
@@ -39,34 +39,37 @@ describe('Phase 86: clean stop 生命周期修复', () => {
   const eventLoopSource = fs.readFileSync(eventLoopPath, 'utf-8');
 
   // ==========================================================================
-  // Step 1: Phase 1974 Step C 后 Watchdog 持久化状态（只保留 motion restart）
+  // Step 1: Watchdog 持久化状态（motion restart + claws supervision）
   // ==========================================================================
   describe('Step 1: durable state after Phase 1974 Step C', () => {
-    it('WatchdogState 接口只保留 motionRestart 字段（executorRestart 退役）', () => {
+    it('WatchdogState 接口保留 motion/claws supervision 且不含 executorRestart', () => {
       const interfaceMatch = watchdogSource.match(
         /interface WatchdogState \{[\s\S]{0,800}?\}/
       );
       expect(interfaceMatch).toBeTruthy();
       expect(interfaceMatch![0]).toContain('motionRestart');
+      expect(interfaceMatch![0]).toContain('clawsSupervision');
       expect(interfaceMatch![0]).not.toMatch(/executorRestart\??\s*:/);
     });
 
-    it('saveWatchdogState 只持久化 motion restart durable state', () => {
+    it('saveWatchdogState 持久化 motion restart 与 claws supervision durable state', () => {
       const saveMatch = watchdogSource.match(
         /function saveWatchdogState\(fsFactory[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
       expect(saveMatch![0]).toContain('motionRestartStateAPI.snapshot()');
+      expect(saveMatch![0]).toContain('clawsSupervisionStateAPI.snapshot()');
       expect(saveMatch![0]).not.toContain('executorRestartStateAPI');
     });
 
-    it('loadWatchdogState 只恢复 motion restart durable state', () => {
+    it('loadWatchdogState 恢复 motion restart 与 claws supervision durable state', () => {
       const startIdx = watchdogSource.indexOf('function loadWatchdogState(fsFactory');
       expect(startIdx).toBeGreaterThan(-1);
       const endIdx = watchdogSource.indexOf('export function saveWatchdogState(fsFactory', startIdx);
       expect(endIdx).toBeGreaterThan(startIdx);
       const loadBlock = watchdogSource.slice(startIdx, endIdx);
       expect(loadBlock).toContain('motionRestartStateAPI.replace(');
+      expect(loadBlock).toContain('clawsSupervisionStateAPI.replace(');
       expect(loadBlock).not.toContain('executorRestartStateAPI');
     });
 

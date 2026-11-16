@@ -14,6 +14,11 @@ import { readWorkspaceWatchdogConfig } from './workspace-config.js';
 import type { WatchdogConfig } from './config-schema.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
+import {
+  cloneClawsSupervisionState,
+  coveredClawsSupervisionState,
+  type ClawsSupervisionState,
+} from './claws-observation.js';
 
 export type MotionRestartState =
   | {
@@ -38,6 +43,20 @@ const CLOSED_MOTION_RESTART_STATE: MotionRestartState = {
 };
 
 let _motionRestartState: MotionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+
+let _clawsSupervisionState: ClawsSupervisionState = coveredClawsSupervisionState();
+
+export const clawsSupervisionStateAPI = {
+  snapshot(): ClawsSupervisionState {
+    return cloneClawsSupervisionState(_clawsSupervisionState);
+  },
+  replace(state: ClawsSupervisionState): void {
+    _clawsSupervisionState = cloneClawsSupervisionState(state);
+  },
+  reset(): void {
+    _clawsSupervisionState = coveredClawsSupervisionState();
+  },
+} as const;
 
 export const motionRestartStateAPI = {
   snapshot(): MotionRestartState {
@@ -119,4 +138,5 @@ export function _resetWatchdogContextForTest(): void {
   _auditWriter = null;
   // durable state
   _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+  _clawsSupervisionState = coveredClawsSupervisionState();
 }

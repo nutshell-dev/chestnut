@@ -251,7 +251,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
 
     expect(fs.existsSync(stateFile)).toBe(true);
     const savedState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-    expect(savedState.schema_version).toBe(3);
+    expect(savedState.schema_version).toBe(4);
     expect(savedState).not.toHaveProperty('lastInactivityNotified');
     expect(savedState).not.toHaveProperty('inactivityNotifyCount');
     expect(savedState).not.toHaveProperty('clawPreviouslyAlive');

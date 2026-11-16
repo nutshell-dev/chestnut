@@ -989,6 +989,8 @@
       "watchdog_claw_dir_list_failed",
       "watchdog_claw_scan",
       "watchdog_claws_dir_list_failed",
+      "watchdog_claws_supervision_degraded",
+      "watchdog_claws_supervision_recovered",
       "watchdog_cleanup_failed",
       "watchdog_check",
       "watchdog_heartbeat_hourly",

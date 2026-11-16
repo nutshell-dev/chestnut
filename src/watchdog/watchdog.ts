@@ -27,14 +27,12 @@ import {
   createInternalSystemMotionAccess,
 } from '../core/claw-topology/index.js';
 import {
-  enumerateClaws,
   getChestnutRoot,
   getNamedSubrootDir,
 } from '../foundation/claw-identity/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { WatchdogProcessDeps } from './types.js';
-import { isFileNotFound } from '../foundation/fs/index.js';
 import { subscribeHostExit } from '../foundation/process-exec/index.js';
 import {
   type AuditLog, type AuditWriteOutcome, createWorkspaceAudit, createHourlyHeartbeatAccumulator,
@@ -51,7 +49,7 @@ import { createDaemonSpawnOptions } from '../daemon/index.js';
 
 import {
   getChestnutDir, getChestnutFs, getWatchdogConfig, setAuditWriter, getAuditWriter,
-  motionRestartStateAPI,
+  motionRestartStateAPI, clawsSupervisionStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
 import {
@@ -75,6 +73,11 @@ import {
 import {
   loadWatchdogState, saveWatchdogState,
 } from './watchdog-state.js';
+import {
+  observeClawsDirectory,
+  reduceClawsDirectoryObservation,
+  type SupervisionCoverage,
+} from './claws-observation.js';
 import {
   decideMotionRestart,
   reduceMotionRestartOutcome,
@@ -590,18 +593,26 @@ export async function runWatchdogLoop(
 
   const hourlyHeartbeat = createHourlyHeartbeatAccumulator({
     onHourly: (tickCount, elapsedMs) => {
+      const coverageCols = supervisionCoverage.kind === 'known'
+        ? ['coverage=known', `present=${presentClawIds.join(',')}`]
+        : [
+            'coverage=unknown',
+            'reason=directory_unavailable',
+            `retry_at=${supervisionCoverage.retryAtMs}`,
+          ];
       auditWriter.write(
         WATCHDOG_AUDIT_EVENTS.HEARTBEAT_HOURLY,
         `ticks=${tickCount}`,
         `elapsed_ms=${elapsedMs}`,
         `alive=${aliveIds.join(',')}`,
-        `present=${presentClawIds.join(',')}`,
+        ...coverageCols,
       );
     },
   });
 
   let aliveIds: string[] = [];
   let presentClawIds: string[] = [];
+  let supervisionCoverage: SupervisionCoverage = { kind: 'known', clawIds: [] };
 
   while (!stopped) {
     const now = Date.now();
@@ -611,37 +622,100 @@ export async function runWatchdogLoop(
       createInternalSystemMotionAccess('read'),
     ));
 
-    // watchdog_check: 枚举所有存活进程
+    // watchdog_check: 空目录是 known empty；目录不可读时必须保留 unknown coverage。
     aliveIds = [];
     presentClawIds = [];
     if (status.kind === 'alive') aliveIds.push(MOTION_CLAW_ID);
     const fs = getChestnutFs(fsFactory);
-    try {
-      for (const rawClawId of enumerateClaws(fs, 'claws')) {
-        presentClawIds.push(rawClawId);
+    const priorClawsSupervision = clawsSupervisionStateAPI.snapshot();
+    if (
+      priorClawsSupervision.status === 'degraded'
+      && now < priorClawsSupervision.nextRetryAtMs
+    ) {
+      supervisionCoverage = {
+        kind: 'unknown',
+        reason: 'directory_unavailable',
+        retryAtMs: priorClawsSupervision.nextRetryAtMs,
+      };
+    } else {
+      const observation = observeClawsDirectory(fs, now);
+      const reduced = reduceClawsDirectoryObservation(priorClawsSupervision, observation);
+      clawsSupervisionStateAPI.replace(reduced.state);
+
+      // Degraded/recovered evidence must reach the atomic state store before its event.
+      if (reduced.transition !== 'none') {
+        try {
+          saveWatchdogState(fsFactory);
+        } catch (error) {
+          writeWatchdogRawFallback(
+            fsFactory,
+            `[watchdog-claws-supervision] state_persist_failed transition=${reduced.transition} ` +
+            `state=${JSON.stringify(reduced.state)} error=${formatErr(error)}\n`,
+          );
+        }
+      }
+
+      if (observation.kind === 'unavailable') {
+        supervisionCoverage = {
+          kind: 'unknown',
+          reason: 'directory_unavailable',
+          retryAtMs: reduced.state.nextRetryAtMs,
+        };
+        const evidence = observation.evidence;
+        auditWriter.write(
+          WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+          'ctx=watchdog_tick',
+          'dir=claws',
+          `reason=${observation.reason}`,
+          `code=${evidence.code ?? 'unknown'}`,
+          `error=${evidence.error ?? formatErr(observation.error)}`,
+        );
+        auditWriter.write(
+          WATCHDOG_AUDIT_EVENTS.CLAWS_SUPERVISION_DEGRADED,
+          `reason=${observation.reason}`,
+          `code=${evidence.code ?? 'unknown'}`,
+          `consecutive_failures=${reduced.state.consecutiveFailures}`,
+          `observed_at=${evidence.observedAtMs}`,
+          `next_retry_at=${reduced.state.nextRetryAtMs}`,
+          `error=${evidence.error ?? formatErr(observation.error)}`,
+        );
+      } else {
+        const clawIds = observation.kind === 'available' ? observation.clawIds : [];
+        supervisionCoverage = { kind: 'known', clawIds };
+        if (reduced.transition === 'recovered') {
+          auditWriter.write(
+            WATCHDOG_AUDIT_EVENTS.CLAWS_SUPERVISION_RECOVERED,
+            `previous_failures=${priorClawsSupervision.consecutiveFailures}`,
+            `recovered_at=${observation.evidence.observedAtMs}`,
+            `present=${clawIds.join(',')}`,
+          );
+        }
+      }
+    }
+
+    if (supervisionCoverage.kind === 'known') {
+      presentClawIds = [...supervisionCoverage.clawIds];
+      for (const rawClawId of presentClawIds) {
         if (pm.liveness(resolveClawDaemonDir(makeClawId(rawClawId))).kind === 'alive') {
           aliveIds.push(rawClawId);
         }
       }
-    } catch (err) {
-      if (!isFileNotFound(err)) {
-        // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
-        auditWriter.write(
-          WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-          `ctx=watchdog_tick`,
-          `dir=claws`,
-          `error=${formatErr(err)}`,
-        );
-      }
-      // ENOENT = no claws present / 其他错 audit / treat as empty（下 tick 重试）
+      // phase 690: alive/present 独立列，避免单 col 多 key=value 的解析失真。
+      auditWriter.write(
+        WATCHDOG_AUDIT_EVENTS.WATCHDOG_CHECK,
+        `alive=${aliveIds.join(',')}`,
+        `present=${presentClawIds.join(',')}`,
+        'coverage=known',
+      );
+    } else {
+      auditWriter.write(
+        WATCHDOG_AUDIT_EVENTS.WATCHDOG_CHECK,
+        `alive=${aliveIds.join(',')}`,
+        'coverage=unknown',
+        'reason=directory_unavailable',
+        `retry_at=${supervisionCoverage.retryAtMs}`,
+      );
     }
-    // phase 690: 拆 alive + present 为两独立 col、修 audit.tsv tab-分隔下单 col 含两 key=value
-    // 解析失真（按 = 拆时第 2 key=value 被吞入首 col 的 value）
-    auditWriter.write(
-      WATCHDOG_AUDIT_EVENTS.WATCHDOG_CHECK,
-      `alive=${aliveIds.join(',')}`,
-      `present=${presentClawIds.join(',')}`,
-    );
     hourlyHeartbeat.tick(now);
 
     const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
@@ -710,7 +784,12 @@ export async function runWatchdogLoop(
       }
     }
 
-    // Persist restart transitions before cron/sleep may fail.
+    // Directory retry never delays Motion recovery; it can only shorten this sleep.
+    if (supervisionCoverage.kind === 'unknown') {
+      nextSleepMs = Math.min(nextSleepMs, Math.max(0, supervisionCoverage.retryAtMs - Date.now()));
+    }
+
+    // Persist restart and supervision transitions before cron/sleep may fail.
     saveWatchdogState(fsFactory);
 
     // Phase 1974 Step C: executor daemon 可用性监督已迁 ContractSystem
