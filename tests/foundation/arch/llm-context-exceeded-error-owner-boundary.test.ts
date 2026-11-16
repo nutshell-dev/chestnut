@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { LLMContextExceededError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMContextExceededError } = llmProviderCall;
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 const legacyCallerSources = [

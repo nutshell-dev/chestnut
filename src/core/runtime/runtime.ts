@@ -12,7 +12,11 @@ import type { LLMOrchestrator, LLMRuntimeCapability, LLMFailureDisposition, LLMO
 import { LLMRecoveryWaitRequiredError } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
-import type { ToolDefinition, InputMeasurement, ModelInputMeter } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
+import type { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
+type InputMeasurement = llmProviderModelMeasurement.InputMeasurement;
+type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import type { InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';

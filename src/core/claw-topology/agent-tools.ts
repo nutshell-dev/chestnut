@@ -13,7 +13,8 @@ import { ClawIdResolveError, type ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
-import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../foundation/llm-provider/index.js';
+const { makeExternalAbortError } = llmProviderAbort;
 
 /**
  * phase 1864 Step G（CT-D10）：跨目标访问 access capability——装配期授予、明确授权主体。

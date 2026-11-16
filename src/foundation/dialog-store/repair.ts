@@ -5,7 +5,9 @@
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。
  */
 
-import type { ToolUseBlock, ToolResultBlock } from '../llm-provider/index.js';
+import type { llmProviderProtocol } from '../llm-provider/index.js';
+type ToolUseBlock = llmProviderProtocol.ToolUseBlock;
+type ToolResultBlock = llmProviderProtocol.ToolResultBlock;
 import type { Message } from './canonical-message.js';
 
 /**

@@ -915,7 +915,7 @@ describe('trimV2 message token ledger (phase 2132)', () => {
 
   it('estimates only initial and affected messages, never a full candidate array', () => {
     const audit = { write: vi.fn() } satisfies AuditWriter;
-    const estimator = vi.spyOn(llmProvider, 'estimateMessagesTokens');
+    const estimator = vi.spyOn(llmProvider.llmProviderModelMeasurement, 'estimateMessagesTokens');
     let measuredArrayLengths: number[];
     let result: ReturnType<typeof trimV2>;
     try {

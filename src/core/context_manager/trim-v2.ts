@@ -3,7 +3,16 @@
  * phase 1190 三层分类裁剪策略：Tier 1 不裁 / Tier 2 尽量不裁 / Tier 3 可裁。
  */
 
-import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, InputMeasurement, InputMeasurementCapability, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ContentBlock = llmProviderProtocol.ContentBlock;
+type TextBlock = llmProviderProtocol.TextBlock;
+type ThinkingBlock = llmProviderProtocol.ThinkingBlock;
+type ToolUseBlock = llmProviderProtocol.ToolUseBlock;
+type ToolResultBlock = llmProviderProtocol.ToolResultBlock;
+import { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
+type InputMeasurement = llmProviderModelMeasurement.InputMeasurement;
+type InputMeasurementCapability = llmProviderModelMeasurement.InputMeasurementCapability;
+type InputMeterDescriptor = llmProviderModelMeasurement.InputMeterDescriptor;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   classifyMessage,
@@ -12,7 +21,7 @@ import {
   assertDialogShapeInvariants,
   type ContextTrimSummaryStats,
 } from '../../foundation/dialog-store/index.js';
-import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
+
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import { ContextInputMeasurementError } from './errors.js';
 import {
@@ -84,7 +93,7 @@ function completeTokens(messages: readonly Message[], opts: TrimV2Options): numb
     }
     return measurement.tokens;
   }
-  return opts.fixedTokens + estimateMessagesTokens(messages);
+  return opts.fixedTokens + llmProviderModelMeasurement.estimateMessagesTokens(messages);
 }
 
 interface MessageTokenEntry {
@@ -115,7 +124,7 @@ class MessageTokenLedger {
     fixedTokens: number,
     measureMessage?: (message: Message) => number,
   ) {
-    this.measureMessage = measureMessage ?? (message => estimateMessagesTokens([message]));
+    this.measureMessage = measureMessage ?? (message => llmProviderModelMeasurement.estimateMessagesTokens([message]));
     this.entries = messages.map(message => ({
       message,
       tokens: this.measureMessage(message),

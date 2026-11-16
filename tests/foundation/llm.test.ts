@@ -9,7 +9,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
+import type { llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';

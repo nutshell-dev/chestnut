@@ -6,7 +6,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LLMModelNotFoundError, type ProviderConfig } from '../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+const { LLMModelNotFoundError } = llmProviderCall;
+import type { llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), close: vi.fn() }));
 

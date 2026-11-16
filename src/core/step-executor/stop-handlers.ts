@@ -3,8 +3,11 @@
  * Stop reason handlers — tool_use + max_tokens
  */
 
-import type { LLMResponse } from '../../foundation/llm-provider/index.js';
-import type { ToolResultBlock } from '../../foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../foundation/llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolResultBlock = llmProviderProtocol.ToolResultBlock;
+
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
 import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults, safeCallback } from './utils.js';

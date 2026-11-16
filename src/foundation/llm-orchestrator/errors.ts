@@ -10,20 +10,12 @@
  */
 
 import type { LLMRecoverySchedule } from './recovery-state.js';
-import {
-  LLMError,
-  LLMAuthError,
-  LLMModelNotFoundError,
-  LLMRateLimitError,
-  LLMQuotaError,
-  LLMNetworkError,
-  LLMTimeoutError,
-  LLMContextExceededError,
-  LLMOutputBudgetExceededError,
-  LLMInvalidRequestError,
-  type InputBudgetEvidence,
-  isAbortError,
-} from '../llm-provider/index.js';
+import { llmProviderCall } from '../llm-provider/index.js';
+const { LLMError, LLMAuthError, LLMModelNotFoundError, LLMRateLimitError, LLMQuotaError, LLMNetworkError, LLMTimeoutError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMInvalidRequestError } = llmProviderCall;
+import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
+type InputBudgetEvidence = llmProviderModelMeasurement.InputBudgetEvidence;
+import { llmProviderAbort } from '../llm-provider/index.js';
+const { isAbortError } = llmProviderAbort;
 
 type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED' | 'LLM_CIRCUIT_BREAKER_OPEN';
 

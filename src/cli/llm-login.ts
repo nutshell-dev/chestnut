@@ -13,7 +13,9 @@
 
 import * as readline from 'readline';
 import type * as PiAi from '@earendil-works/pi-ai';
-import { loadPiAiRuntime, type PiAiCredentialStore } from '../foundation/llm-provider/index.js';
+import { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
+const { loadPiAiRuntime } = llmProviderCredentialRuntime;
+type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
 import { CliError } from './errors.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 

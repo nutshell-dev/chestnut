@@ -1,95 +1,37 @@
 /**
  * @module L1.LLMProvider
- * LLM Provider module (L1) — single provider call primitives
+ * Single-provider owner with narrow capability façades.
  *
- * Exports: LLMProvider interface, provider adapters, factory
+ * Cross-module callers import only their assigned façade. The named exports at
+ * the bottom are the root package compatibility surface, not an omnibus API.
  */
+export * as llmProviderCall from './capabilities/call.js';
+export * as llmProviderProtocol from './capabilities/protocol.js';
+export * as llmProviderModelMeasurement from './capabilities/model-measurement.js';
+export * as llmProviderConfigContract from './capabilities/config-contract.js';
+export * as llmProviderCatalog from './capabilities/catalog.js';
+export * as llmProviderCredentialRuntime from './capabilities/credential-runtime.js';
+export * as llmProviderAbort from './capabilities/abort.js';
 
-export { THINKING_LEVELS } from './thinking-levels.js';
-export type { ThinkingLevel } from './thinking-levels.js';
-export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, MeterQualification, ModelInputMeter } from './input-meter.js';
-export {
-  emitInputMeasurement,
-  inputProjectionHash,
-  type InputArtifactRef,
-  type InputArtifactStatus,
-  type InputMeasurementObservation,
-  type InputMeasurementObserver,
-  type InputMeasurementUsage,
-} from './input-measurement-observer.js';
+// ROOT_COMPAT_EXPORTS: consumed by src/index.ts; removal requires a public API migration.
 export type {
-  InputArtifactCapture,
-  InputArtifactManifest,
-  InputArtifactOwner,
-  InputArtifactPolicy,
-} from './input-artifact.js';
-export { createDeepseekV41Meter } from './deepseek-v41-meter.js';
-export { resolveThinkingDefaults } from './thinking-defaults.js';
-export type { ResolvedThinkingDefaults } from './thinking-defaults.js';
-export { DEFAULT_LLM_TIMEOUT_MS } from './defaults.js';
-export { llmProviderConfigSchema } from './llm-provider-config-schema.js';
-export type { LLMProviderConfig } from './llm-provider-config-schema.js';
-export { toProviderConfig } from './config-adapter.js';
-
-export type {
-  ProviderConfig,
-  LLMCallOptions,
-  ProviderStreamChunk,
-  ProviderAdapter,
-  AuditSink } from './types.js';
-
+  TextBlock,
+  ToolUseBlock,
+  ToolResultBlock,
+  ThinkingBlock,
+  ContentBlock,
+  ToolDefinition,
+  JSONSchema7,
+} from './capabilities/protocol.js';
+export type { LLMResponse } from './capabilities/call.js';
 export {
-  withCombinedAbortSignal,
-  makeExternalAbortError,
-  ExternalAbortError } from './abort-helper.js';
-export { PRESETS, resolvePreset, presetAuthProfile, presetRequiresBaseUrl } from './presets.js';
-export type { AuthProfile, PresetThinkingDefaults } from './presets.js';
-// Phase 1927 Step D：显式 catalog provider 配置策略单源（CLI 经 barrel 触达）
-export {
-  UnknownCatalogProviderError,
-  CatalogModelNotFoundError,
-  catalogProviderEntry,
-  isCatalogProvider,
-  deriveCatalogAuthProfile,
-  validateCatalogAuthProfile,
-  catalogModelKnown,
-  catalogProvidersWithoutPreset,
-  resolveCatalogIdentity,
-  CATALOG_REVISION,
-} from './catalog-strategy.js';
-export type {
-  CatalogResolution,
-  CatalogWireIdentity,
-  ContextWindowResolution,
-} from './catalog-strategy.js';
-export {
-  createPiAiCredentialStore,
-  piAiCredentialRef,
-} from './pi-ai-credentials.js';
-export type { PiAiCredentialBackend, PiAiCredentialStore } from './pi-ai-credentials.js';
-// Phase 1926 Step D：CLI login 缝经 barrel 触达运行时（no-deep-into-module 纪律）
-export { loadPiAiRuntime } from './pi-ai-support.js';
-export type { PiAiRuntime } from './pi-ai-support.js';
-
-export type { ProviderWireMessage, LLMResponse, ContentBlock, ToolUseBlock, ToolResultBlock, ToolDefinition, ThinkingBlock, JSONSchema7, TextBlock } from './types.js';
-export { LLMInvalidRequestError } from './request-unicode.js';
-
-export {
-  estimateTextTokens,
-  estimateMessagesTokens,
-  estimateToolsTokens } from './token-estimator.js';
-
-// phase 691 Step A: ToolUseId 物理位置从 tool-protocol（L2b）迁回 L1 LLMProvider canonical owner
-// SoT: Anthropic LLM protocol (tool_use block id) — 与 L1 protocol primitive 同语义层
-export type { ToolUseId } from './tool-use-id.js';
-export { makeToolUseId } from './tool-use-id.js';
-
-export { LLMError, LLMRateLimitError, LLMQuotaError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMStreamAbortedError } from './errors.js';
-export type { InputBudgetEvidence } from './errors.js';
-
-export { isAbortError } from './is-abort-error.js';
-
-export { resolveContextWindow } from './model-context-windows.js';
-
-export type { LLMProvider } from './types.js';
-export { createLLMProvider } from './provider-factory.js';
+  LLMError,
+  LLMAuthError,
+  LLMEmptyResponseError,
+  LLMModelNotFoundError,
+  LLMNetworkError,
+  LLMRateLimitError,
+  LLMQuotaError,
+  LLMTimeoutError,
+} from './capabilities/call.js';
+export type { ProviderConfig } from './capabilities/config-contract.js';

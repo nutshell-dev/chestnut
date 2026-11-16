@@ -1,5 +1,8 @@
 /** Assembly and public recovery wrapper for the LLM orchestrator. */
-import { type LLMResponse, isAbortError } from '../llm-provider/index.js';
+import type { llmProviderCall } from '../llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
+import { llmProviderAbort } from '../llm-provider/index.js';
+const { isAbortError } = llmProviderAbort;
 import { classifyLLMError } from './errors.js';
 import type {
   LLMOrchestratorConfig,

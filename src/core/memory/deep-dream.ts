@@ -5,11 +5,17 @@ import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMCallCapability } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
-import type { ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../foundation/llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ContentBlock = llmProviderProtocol.ContentBlock;
+type TextBlock = llmProviderProtocol.TextBlock;
+import { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
+const { estimateTextTokens } = llmProviderModelMeasurement;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { createInboxReader } from '../../foundation/messaging/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
-import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
+
 
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';

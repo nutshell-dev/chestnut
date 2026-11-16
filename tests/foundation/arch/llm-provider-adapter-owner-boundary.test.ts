@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const orchestratorTypes = readFileSync(new URL('../../../src/foundation/llm-orchestrator/types.ts', import.meta.url), 'utf8');
 const providerBarrel = readFileSync(new URL('../../../src/foundation/llm-provider/index.ts', import.meta.url), 'utf8');
+const providerCallFacade = readFileSync(new URL('../../../src/foundation/llm-provider/capabilities/call.ts', import.meta.url), 'utf8');
 const callers = [
   '../../../src/foundation/llm-orchestrator/provider-runtime.ts',
   '../../../tests/foundation/llm-service.test.ts',
@@ -19,15 +20,16 @@ const callers = [
 
 describe('ProviderAdapter owner boundary', () => {
   it('is exported only by LLMProvider and all external callers use owner', () => {
-    expect(providerBarrel).toMatch(/export\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}\s*from\s*['"]\.\/types\.js['"]/s);
+    expect(providerBarrel).toMatch(/export \* as llmProviderCall from '\.\/capabilities\/call\.js';/);
+    expect(providerCallFacade).toMatch(/export\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}\s*from\s*['"]\.\.\/types\.js['"]/s);
     expect(orchestratorTypes).not.toMatch(/export\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}/s);
     for (const caller of callers) {
-      expect(caller).toMatch(/import\s+(?:type\s*)?\{[^}]*\bProviderAdapter\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/(?:index|types)\.js['"]/s);
+      expect(caller).toMatch(/import\s+(?:type\s*)?\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];[\s\S]*?type ProviderAdapter = llmProviderCall\.ProviderAdapter;/s);
     }
   });
 
   it('keeps the internal owner import and adapter factory DI', () => {
-    expect(orchestratorTypes).toMatch(/import\s+type\s*\{[^}]*\bProviderAdapter\b[^}]*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"]/s);
+    expect(orchestratorTypes).toMatch(/import\s+type\s*\{\s*llmProviderCall\s*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"];[\s\S]*?type ProviderAdapter = llmProviderCall\.ProviderAdapter;/s);
     expect(orchestratorTypes).toMatch(/createProviderAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);
   });
 });

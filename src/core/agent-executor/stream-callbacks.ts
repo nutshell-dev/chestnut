@@ -13,7 +13,8 @@
  * 与 event-loop/types.ts）。
  */
 
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 
 export interface StreamCallbacks {
   onBeforeLLMCall?: () => void;

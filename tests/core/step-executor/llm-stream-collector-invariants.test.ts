@@ -15,10 +15,9 @@ import type {
   LLMOrchestrator,
   LLMStreamChunk,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import {
-  LLMTimeoutError,
-  type LLMResponse,
-} from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMTimeoutError } = llmProviderCall;
+type LLMResponse = llmProviderCall.LLMResponse;
 
 afterEach(() => vi.restoreAllMocks());
 

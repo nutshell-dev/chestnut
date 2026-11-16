@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { LLMTimeoutError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMTimeoutError } = llmProviderCall;
 import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/index.js';
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
@@ -19,7 +20,9 @@ describe('LLMTimeoutError owner boundary', () => {
     expect('LLMTimeoutError' in orchestratorBarrel).toBe(false);
     expect('LLMTimeoutError' in orchestratorErrors).toBe(false);
     for (const source of sources) {
-      expect(source).toMatch(/import\s*\{[^}]*LLMTimeoutError[^}]*\}\s*from\s*['"][^'"]*llm-provider\/(?:index|errors)\.js['"]/s);
+      expect(source).toMatch(
+      /(?:import\s*\{[^}]*\bLLMTimeoutError\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/errors\.js['"]|import\s*\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];\s*const\s*\{[^}]*\bLLMTimeoutError\b[^}]*\}\s*=\s*llmProviderCall)/s,
+    );
     }
   });
 

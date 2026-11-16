@@ -1,13 +1,14 @@
 /** Provider adapter construction, SDK cache and resource lifetime owner. */
-import {
-  createLLMProvider,
-  type AuditSink,
-  type InputArtifactOwner,
-  type LLMProvider,
-  type PiAiCredentialStore,
-  type ProviderAdapter,
-  type ProviderConfig,
-} from '../llm-provider/index.js';
+import { llmProviderCall } from '../llm-provider/index.js';
+const { createLLMProvider } = llmProviderCall;
+type AuditSink = llmProviderCall.AuditSink;
+type LLMProvider = llmProviderCall.LLMProvider;
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
+type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
+import type { llmProviderConfigContract } from '../llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type PiAiCredentialStore = NonNullable<llmProviderCall.ProviderFactoryOptions['credentialStore']>;
 import type { LLMEventSink, LLMOrchestratorConfig } from './types.js';
 import { legacyProviderIdentity, providerCacheKey, providerIdentity } from './provider-identity.js';
 

@@ -17,7 +17,10 @@ vi.mock('@huggingface/tokenizers', () => ({
   },
 }));
 
-import { createLLMProvider, type ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { createLLMProvider } = llmProviderCall;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
 const config: ProviderConfig = {
   name: 'deepseek', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',

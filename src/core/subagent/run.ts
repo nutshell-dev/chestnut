@@ -16,7 +16,8 @@ import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '..
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
-import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';

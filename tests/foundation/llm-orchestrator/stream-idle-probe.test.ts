@@ -6,7 +6,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
-import { createLLMProvider, type ProviderAdapter, type ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { createLLMProvider } = llmProviderCall;
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 

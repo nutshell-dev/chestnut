@@ -5,7 +5,8 @@ import type { LLMEventSink, LLMEvent } from '../foundation/llm-orchestrator/inde
 import type { AuditLog, AuditWriteOutcome } from '../foundation/audit/index.js';
 import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
 import type { StreamLog, StreamEvent } from '../foundation/stream/index.js';
-import type { InputMeasurementObservation } from '../foundation/llm-provider/index.js';
+import type { llmProviderModelMeasurement } from '../foundation/llm-provider/index.js';
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 
 /**
  * phase 1765：AuditWriter/DispatchingAuditWriter 的 write 结构化返回 durability

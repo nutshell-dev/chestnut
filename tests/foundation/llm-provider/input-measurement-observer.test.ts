@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emitInputMeasurement, inputProjectionHash, type InputArtifactOwner, type InputMeasurementObservation, createLLMProvider } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { createLLMProvider } = llmProviderCall;
+import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+const { emitInputMeasurement, inputProjectionHash } = llmProviderModelMeasurement;
+type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 import { normalizeUsageInputTokens } from '../../../src/foundation/llm-provider/pi-ai-adapter.js';
 
 /** Five seconds leaves ample room for the mocked SDK request to finish. */

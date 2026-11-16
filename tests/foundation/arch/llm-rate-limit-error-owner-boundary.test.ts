@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { LLMRateLimitError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMRateLimitError } = llmProviderCall;
 import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/index.js';
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
@@ -18,7 +19,9 @@ describe('LLMRateLimitError owner boundary', () => {
     expect('LLMRateLimitError' in orchestratorBarrel).toBe(false);
     expect('LLMRateLimitError' in orchestratorErrors).toBe(false);
     for (const source of sources) {
-      expect(source).toMatch(/import\s*\{[^}]*LLMRateLimitError[^}]*\}\s*from\s*['"][^'"]*llm-provider\/(?:index|errors)\.js['"]/s);
+      expect(source).toMatch(
+      /(?:import\s*\{[^}]*\bLLMRateLimitError\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/errors\.js['"]|import\s*\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];\s*const\s*\{[^}]*\bLLMRateLimitError\b[^}]*\}\s*=\s*llmProviderCall)/s,
+    );
     }
   });
 

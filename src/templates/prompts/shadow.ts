@@ -9,7 +9,8 @@
  */
 
 
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 
 export const SHADOW_INSTRUCTION_PREFIX = `[SHADOW INSTRUCTION — YOU ARE NO LONGER THE MAIN AGENT]`;
 

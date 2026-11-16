@@ -5,7 +5,11 @@ import { LLMProviderRuntime } from '../../../src/foundation/llm-orchestrator/pro
 import { LLMProviderAdmission } from '../../../src/foundation/llm-orchestrator/provider-admission.js';
 import { LLMRecoveryControllerImpl } from '../../../src/foundation/llm-orchestrator/recovery-ledger.js';
 import type { LLMCallOptions, LLMEvent, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { LLMProvider, LLMResponse, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type LLMProvider = llmProviderCall.LLMProvider;
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const controllers: LLMProbeController[] = [];

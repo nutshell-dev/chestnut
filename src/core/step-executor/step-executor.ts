@@ -18,7 +18,8 @@
  * This file keeps executeStep entry point + runLLMCall LLM call layer
  */
 
-import type { LLMResponse } from '../../foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../foundation/llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
 import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';

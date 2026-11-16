@@ -17,12 +17,8 @@
 import { describe, it, expect } from 'vitest';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
-import {
-  UnknownCatalogProviderError,
-  CatalogModelNotFoundError,
-  deriveCatalogAuthProfile,
-  catalogProvidersWithoutPreset,
-} from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
+const { UnknownCatalogProviderError, CatalogModelNotFoundError, deriveCatalogAuthProfile, catalogProvidersWithoutPreset } = llmProviderCatalog;
 import { loadPiAiRuntime, resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-support.js';
 
 function parseProvider(input: Record<string, unknown>) {

@@ -11,7 +11,8 @@
  * sanitizeForLLMCall 是做同一投影的测试/工具 helper（phase 1961 Step C）。
  */
 
-import type { ProviderWireMessage } from '../llm-provider/index.js';
+import type { llmProviderProtocol } from '../llm-provider/index.js';
+type ProviderWireMessage = llmProviderProtocol.ProviderWireMessage;
 
 /**
  * 业务 canonical dialog message = provider wire + chestnut 内部元数据。

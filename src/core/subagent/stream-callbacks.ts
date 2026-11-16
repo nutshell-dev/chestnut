@@ -12,7 +12,8 @@
  */
 
 import type { StreamEvent, StreamLog } from '../../foundation/stream/index.js';
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { clipSummary } from '../../foundation/audit/index.js';
 import { SUBAGENT_EVENTS } from './stream-events.js';

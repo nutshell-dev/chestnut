@@ -8,10 +8,9 @@ import {
   llmOrchestratorConfigSchema,
   type LLMOrchestratorConfig,
 } from '../../foundation/llm-orchestrator/index.js';
-import {
-  toProviderConfig,
-  type LLMProviderConfig,
-} from '../../foundation/llm-provider/index.js';
+import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+const { toProviderConfig } = llmProviderConfigContract;
+type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
 
 export type SharedLLMInput = z.input<typeof llmOrchestratorConfigSchema>;
 export type SharedLLM = z.output<typeof llmOrchestratorConfigSchema>;

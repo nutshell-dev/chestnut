@@ -9,7 +9,9 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import { applyRestrictedOverrides } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
-import { makeToolUseId, type ToolUseId } from '../../foundation/llm-provider/index.js';
+import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
+type ToolUseId = llmProviderProtocol.ToolUseId;
 import type { Message } from '../../foundation/dialog-store/index.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
@@ -69,7 +71,7 @@ interface RunShadowOptions {
   /** L4 turn state snapshot — injected by shadow tool factory (not from ctx) */
   turnSnapshot?: {
     systemPrompt?: string;
-    tools?: import('../../foundation/llm-provider/index.js').ToolDefinition[];
+    tools?: llmProviderProtocol.ToolDefinition[];
     messages?: Message[];
   };
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */

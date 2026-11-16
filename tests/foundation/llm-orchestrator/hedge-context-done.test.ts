@@ -3,7 +3,11 @@ import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/or
 import { classifyStreamDone } from '../../../src/foundation/llm-orchestrator/utils.js';
 import type { LLMEvent, LLMEventSink, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';
 import { LLMError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
-import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
 interface MockProviderOptions {

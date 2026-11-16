@@ -5,7 +5,11 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type TextBlock = llmProviderProtocol.TextBlock;
+type ToolUseBlock = llmProviderProtocol.ToolUseBlock;
+type ToolResultBlock = llmProviderProtocol.ToolResultBlock;
+type ThinkingBlock = llmProviderProtocol.ThinkingBlock;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { CliError } from '../errors.js';
 // phase 1879 Step C: dialog 当前/归档两态读取归 DialogStore owner 查询（布局/格式理解归

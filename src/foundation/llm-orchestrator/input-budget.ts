@@ -1,7 +1,12 @@
 import type { LLMCallOptions } from './types.js';
-import type { LLMProvider, InputMeasurement, ModelInputMeter } from '../llm-provider/index.js';
+import type { llmProviderCall } from '../llm-provider/index.js';
+type LLMProvider = llmProviderCall.LLMProvider;
+import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
+type InputMeasurement = llmProviderModelMeasurement.InputMeasurement;
+type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
+type InputBudgetEvidence = llmProviderModelMeasurement.InputBudgetEvidence;
 import { LLMAllProvidersFailedError } from './errors.js';
-import type { InputBudgetEvidence } from '../llm-provider/index.js';
+
 
 export interface InputBudgetObservation {
   readonly meter?: ModelInputMeter;

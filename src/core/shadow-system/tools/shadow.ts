@@ -12,7 +12,8 @@
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import type { ToolDefinition } from '../../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../../foundation/dialog-store/index.js';
 import { runShadow } from '../system.js';
 import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';

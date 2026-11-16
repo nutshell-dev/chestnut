@@ -7,7 +7,11 @@ import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrato
 import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import { providerIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
-import type { LLMResponse, ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { lastSuccessProviderOf, currentStreamingProviderOf } from './test-internals.js';

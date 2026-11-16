@@ -6,13 +6,18 @@
  * 函数无 this 依赖、纯逻辑、易测试。
  */
 
-import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock, ProviderStreamChunk } from '../llm-provider/index.js';
-import {
-  estimateMessagesTokens,
-  estimateTextTokens,
-  estimateToolsTokens,
-  makeExternalAbortError,
-} from '../llm-provider/index.js';
+import type { llmProviderCall } from '../llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
+import type { llmProviderProtocol } from '../llm-provider/index.js';
+type TextBlock = llmProviderProtocol.TextBlock;
+type ThinkingBlock = llmProviderProtocol.ThinkingBlock;
+type ToolUseBlock = llmProviderProtocol.ToolUseBlock;
+import { llmProviderModelMeasurement } from '../llm-provider/index.js';
+const { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } = llmProviderModelMeasurement;
+import { llmProviderAbort } from '../llm-provider/index.js';
+const { makeExternalAbortError } = llmProviderAbort;
+
 import type { LLMCallOptions } from './types.js';
 import {
   LLM_TIMEOUT_MAX_MS,

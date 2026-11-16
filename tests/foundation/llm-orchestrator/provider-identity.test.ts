@@ -4,7 +4,8 @@ import {
   providerCacheKey,
   providerIdentity,
 } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
-import type { ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
 function config(patch: Partial<ProviderConfig> = {}): ProviderConfig {
   return {

@@ -4,6 +4,7 @@
  * Implements ToolRegistry interface
  */
 
+import type { llmProviderProtocol } from '../llm-provider/index.js';
 import type { Tool, ToolRegistryRuntimeCapability } from './types.js';
 import type { ToolRegistry } from './executor.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
@@ -66,7 +67,7 @@ export class ToolRegistryImpl implements ToolRegistry, ToolRegistryRuntimeCapabi
   formatForLLM(tools: Tool[]): Array<{
     name: string;
     description: string;
-    input_schema: import('../llm-provider/index.js').JSONSchema7;
+    input_schema: llmProviderProtocol.JSONSchema7;
   }> {
     return tools.map(tool => ({
       name: tool.name,

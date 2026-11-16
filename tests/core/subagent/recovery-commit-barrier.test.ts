@@ -39,7 +39,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createDialogStore, type DialogStore, type Message } from '../../../src/foundation/dialog-store/index.js';
 import type { ToolExecutor } from '../../../src/foundation/tools/index.js';
 import type { LLMOrchestrator, LLMStreamChunk, LLMCallOptions } from '../../../src/foundation/llm-orchestrator/index.js';
-import { makeToolUseId } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderProtocol } from '../../../src/foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
 import type { ToolResult } from '../../../src/foundation/tool-protocol/index.js';
 import { SubAgent } from '../../../src/core/subagent/agent.js';
 import {

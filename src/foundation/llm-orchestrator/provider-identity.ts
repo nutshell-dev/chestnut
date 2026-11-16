@@ -7,7 +7,8 @@
  * 稳定 auth identity 归 L4 llm-configuration；行为参数只影响 cache。
  */
 
-import type { ProviderConfig } from '../llm-provider/index.js';
+import type { llmProviderConfigContract } from '../llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { sha256ShortHex } from '../node-utils/index.js';
 
 function legacyIdentityParts(config: ProviderConfig): string[] {

@@ -18,7 +18,8 @@ import type { ClawId } from '../../../../foundation/claw-identity/index.js';
 import { computeHash } from './hash.js';
 import { PREVIEW_MAX_CHARS } from './types.js';
 import type { OutboxSummaryState } from './types.js';
-import { makeExternalAbortError } from '../../../../foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../../../foundation/llm-provider/index.js';
+const { makeExternalAbortError } = llmProviderAbort;
 
 interface ScanDeps {
   /** phase 259: caller (装配期) 注入的 claw topology */

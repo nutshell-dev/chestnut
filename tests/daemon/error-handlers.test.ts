@@ -4,13 +4,8 @@ import {
   isContextExceededError,
   LLMAllProvidersFailedError,
 } from '../../src/foundation/llm-orchestrator/index.js';
-import {
-  LLMContextExceededError,
-  LLMError,
-  LLMNetworkError,
-  LLMOutputBudgetExceededError,
-  LLMRateLimitError,
-} from '../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+const { LLMContextExceededError, LLMError, LLMNetworkError, LLMOutputBudgetExceededError, LLMRateLimitError } = llmProviderCall;
 
 describe('isContextExceededError（Phase 1960 typed 消费谓词）', () => {
   it('returns true for LLMContextExceededError (instanceof)', () => {

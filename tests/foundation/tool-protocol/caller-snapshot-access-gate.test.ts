@@ -28,7 +28,8 @@ import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import type { Tool, ExecContext } from '../../../src/foundation/tools/types.js';
 import type { CallerSnapshot } from '../../../src/foundation/tool-protocol/index.js';
 import type { ToolResult } from '../../../src/foundation/tool-protocol/index.js';
-import type { JSONSchema7 } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../../src/foundation/llm-provider/index.js';
+type JSONSchema7 = llmProviderProtocol.JSONSchema7;
 
 function makeTool(opts: {
   name: string;

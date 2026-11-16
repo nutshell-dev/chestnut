@@ -30,7 +30,10 @@ import type {
   LLMOrchestratorOwner,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { LLMAuthError, LLMQuotaError } from '../../../src/foundation/llm-provider/errors.js';
 
 const CLAW_ID = 'worker';

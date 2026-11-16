@@ -10,7 +10,9 @@ import type {
   LLMEventSink,
   LLMOrchestratorConfig,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { LLMProvider, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type LLMProvider = llmProviderCall.LLMProvider;
+type LLMResponse = llmProviderCall.LLMResponse;
 
 const RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'fallback-ok' }],

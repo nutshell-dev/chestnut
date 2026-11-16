@@ -13,7 +13,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];

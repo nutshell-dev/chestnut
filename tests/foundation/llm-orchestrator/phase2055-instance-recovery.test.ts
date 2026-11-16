@@ -6,7 +6,11 @@ import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/
 import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { providerIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
-import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { LLMEvent, LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { providerStatesOf, replaceProviderStates } from './test-internals.js';

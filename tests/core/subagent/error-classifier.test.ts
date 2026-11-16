@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { classifyAndAuditError } from '../../../src/core/subagent/error-classifier.js';
 import { REACT_LOOP_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
-import { ExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../../src/foundation/llm-provider/index.js';
+const { ExternalAbortError } = llmProviderAbort;
 import { SUBAGENT_EVENTS } from '../../../src/core/subagent/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 

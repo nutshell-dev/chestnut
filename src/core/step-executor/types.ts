@@ -3,12 +3,14 @@
  * Step type definitions — extracted from step-executor.ts
  */
 
-import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
+type ToolUseId = llmProviderProtocol.ToolUseId;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+
 import type { StepExecutorEventSink } from './audit-sink.js';
 import type { RecoveryDelivery } from './recovery-delivery.js';
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { LLMStreamAbortedError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMStreamAbortedError } = llmProviderCall;
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 const orchestratorSource = readFileSync(
@@ -18,7 +19,7 @@ describe('LLMStreamAbortedError owner boundary', () => {
 
   it('is consumed directly from the owner barrel without losing construction sites', () => {
     expect(orchestratorSource).toMatch(
-      /import\s*\{[^}]*LLMStreamAbortedError[^}]*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"]/s,
+      /(?:import\s*\{[^}]*\bLLMStreamAbortedError\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/errors\.js['"]|import\s*\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];\s*const\s*\{[^}]*\bLLMStreamAbortedError\b[^}]*\}\s*=\s*llmProviderCall)/s,
     );
     expect(orchestratorSource).not.toMatch(
       /import\s*\{[^}]*LLMStreamAbortedError[^}]*\}\s*from\s*['"]\.\/errors\.js['"]/s,

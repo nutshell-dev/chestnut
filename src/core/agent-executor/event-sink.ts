@@ -9,7 +9,8 @@
  * 不再进入循环实现。模式对齐 L2 已落地的 owner-local sink（DialogStore/PM）。
  */
 
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 
 export interface AgentExecutorEventSink {
   /** 工具参数 JSON 完整解析后（post-stream, pre-execute）触发；argsSize 为序列化长度。 */

@@ -37,7 +37,8 @@ import type {
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { LLMResponse } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import { makeAudit } from '../../helpers/audit.js';

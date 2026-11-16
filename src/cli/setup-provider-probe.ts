@@ -9,11 +9,11 @@
 
 import { CliError } from './errors.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
-import {
-  toProviderConfig,
-  type LLMProviderConfig,
-  type PiAiCredentialStore,
-} from '../foundation/llm-provider/index.js';
+import { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
+const { toProviderConfig } = llmProviderConfigContract;
+type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
+import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
+type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
 import {
   checkLLMConnectionFor,
   LLM_ERROR_HINTS,

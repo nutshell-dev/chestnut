@@ -4,16 +4,21 @@
  * phase 1407: renamed from `stream.ts` to disambiguate from L2 `foundation/stream/` event-log module.
  */
 
-import type { ContentBlock } from '../../foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../foundation/llm-provider/index.js';
+const { LLMTimeoutError } = llmProviderCall;
+type LLMResponse = llmProviderCall.LLMResponse;
+import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
+type ContentBlock = llmProviderProtocol.ContentBlock;
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
-import type { LLMResponse } from '../../foundation/llm-provider/index.js';
+
 import type { StepExecutorEventSink } from './audit-sink.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, parseToolInput } from './utils.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
-import { makeToolUseId, LLMTimeoutError } from '../../foundation/llm-provider/index.js';
+
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import { formatToolInputParseError } from './tool-input-parse-error.js';
 

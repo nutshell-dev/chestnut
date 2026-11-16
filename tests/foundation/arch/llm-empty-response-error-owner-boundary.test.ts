@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { LLMEmptyResponseError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMEmptyResponseError } = llmProviderCall;
 import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/index.js';
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
@@ -23,7 +24,7 @@ describe('LLMEmptyResponseError owner boundary', () => {
 
   it('is consumed and aggregated directly from owner without losing construction sites', () => {
     expect(orchestratorSource).toMatch(
-      /import\s*\{[^}]*LLMEmptyResponseError[^}]*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"]/s,
+      /(?:import\s*\{[^}]*\bLLMEmptyResponseError\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/errors\.js['"]|import\s*\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];\s*const\s*\{[^}]*\bLLMEmptyResponseError\b[^}]*\}\s*=\s*llmProviderCall)/s,
     );
     expect(orchestratorSource).not.toMatch(
       /import\s*\{[^}]*LLMEmptyResponseError[^}]*\}\s*from\s*['"]\.\/errors\.js['"]/s,

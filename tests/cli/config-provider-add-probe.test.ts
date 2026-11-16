@@ -80,7 +80,7 @@ vi.mock('../../src/watchdog/ensure.js', () => ({
 
 const { createConfigCommand } = await import('../../src/cli/commands/config.js');
 const { loadGlobalConfig } = await import('../../src/assembly/config/config-load.js');
-const { PRESETS } = await import('../../src/foundation/llm-provider/index.js');
+const { llmProviderCatalog: { PRESETS } } = await import('../../src/foundation/llm-provider/index.js');
 
 let tempDir: string;
 

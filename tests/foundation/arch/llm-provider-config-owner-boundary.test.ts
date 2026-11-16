@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const providerBarrel = read('../../../src/foundation/llm-provider/index.ts');
+const providerConfigFacade = read('../../../src/foundation/llm-provider/capabilities/config-contract.ts');
 const orchestratorTypes = read('../../../src/foundation/llm-orchestrator/types.ts');
 const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.ts');
 const sdkBarrel = read('../../../src/index.ts');
@@ -18,18 +19,19 @@ const callers = [
 
 describe('ProviderConfig owner boundary', () => {
   it('removes Orchestrator forwarding while SDK directly aggregates owner', () => {
-    expect(providerBarrel).toMatch(/export\s+type\s*\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"]\.\/types\.js['"]/s);
+    expect(providerBarrel).toMatch(/export \* as llmProviderConfigContract from '\.\/capabilities\/config-contract\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s+type\s*\{\s*ProviderConfig\s*\}\s*from\s*'\.\.\/types\.js';/s);
     expect(orchestratorTypes).not.toMatch(/export\s+type\s+ProviderConfig\s*=/);
     expect(orchestratorBarrel).not.toMatch(/export\s+type\s*\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"]\.\/types\.js['"]/s);
     expect(sdkBarrel).toMatch(/export\s+type\s*\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"]\.\/foundation\/llm-provider\/index\.js['"]/s);
     expect(sdkBarrel).not.toMatch(/export\s+type\s*\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"]\.\/foundation\/llm-orchestrator\/index\.js['"]/s);
     for (const caller of callers) {
-      expect(caller).toMatch(/import\s+(?:type\s*)?\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/(?:index|types)\.js['"]/s);
+      expect(caller).toMatch(/import\s+(?:type\s*)?\{\s*llmProviderConfigContract\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];[\s\S]*?type ProviderConfig = llmProviderConfigContract\.ProviderConfig;/s);
     }
   });
 
   it('keeps Orchestrator internal owner use and config signatures', () => {
-    expect(orchestratorTypes).toMatch(/import\s+type\s*\{[^}]*\bProviderConfig\b[^}]*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"]/s);
+    expect(orchestratorTypes).toMatch(/import\s+type\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*['"]\.\.\/llm-provider\/index\.js['"];\s*type ProviderConfig = llmProviderConfigContract\.ProviderConfig;/s);
     expect(orchestratorTypes).toMatch(/primary:\s*ProviderConfig/);
     expect(orchestratorTypes).toMatch(/fallbacks\?:\s*ProviderConfig\[\]/);
     expect(orchestratorTypes).toMatch(/createProviderAdapter\?:\s*\(config:\s*ProviderConfig\)\s*=>\s*ProviderAdapter/);

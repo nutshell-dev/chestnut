@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
-import { CATALOG_REVISION, resolveCatalogIdentity } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
+const { CATALOG_REVISION, resolveCatalogIdentity } = llmProviderCatalog;
 import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
 
 /** Offline custom-provider fixture only needs a short, positive timeout. */

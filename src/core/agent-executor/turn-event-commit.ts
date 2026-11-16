@@ -14,7 +14,8 @@
  * this function owns the stream-emit side to ensure no event is dropped.
  */
 
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 
 /**
  * phase 1856 (AE-D7): 导出补全公共签名 —— commitTurnEvent 为公开函数并自 barrel 出，

@@ -4,7 +4,8 @@
  * Session data structure for current.json persistence.
  */
 
-import type { ToolDefinition } from '../llm-provider/index.js';
+import type { llmProviderProtocol } from '../llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from './canonical-message.js';
 import type { TraceId } from '../audit/index.js';
 

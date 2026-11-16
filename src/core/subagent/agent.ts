@@ -10,15 +10,14 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import {
-  ExternalAbortError,
-  isAbortError,
-  makeExternalAbortError,
-  makeToolUseId,
-  type ToolDefinition,
-  type ToolUseBlock,
-  type ToolResultBlock,
-  type ToolUseId } from '../../foundation/llm-provider/index.js';
+import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
+type ToolUseBlock = llmProviderProtocol.ToolUseBlock;
+type ToolResultBlock = llmProviderProtocol.ToolResultBlock;
+type ToolUseId = llmProviderProtocol.ToolUseId;
+import { llmProviderAbort } from '../../foundation/llm-provider/index.js';
+const { ExternalAbortError, isAbortError, makeExternalAbortError } = llmProviderAbort;
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 
 import type { Message } from '../../foundation/dialog-store/index.js';

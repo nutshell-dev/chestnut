@@ -6,7 +6,8 @@
  * 模型时走 OpenRouter + 高级模型输入。
  */
 
-import { PRESETS, resolveThinkingDefaults } from '../foundation/llm-provider/index.js';
+import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
+const { PRESETS, resolveThinkingDefaults } = llmProviderCatalog;
 
 /**
  * Phase 1979: 条件确认预览的 effective thinking 描述（preset 默认 + model）。

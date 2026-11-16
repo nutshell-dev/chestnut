@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { LLMError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMError } = llmProviderCall;
 import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/index.js';
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
@@ -15,7 +16,9 @@ describe('LLMError base owner boundary', () => {
     expect('LLMError' in orchestratorBarrel).toBe(false);
     expect('LLMError' in orchestratorErrors).toBe(false);
     for (const source of sources) {
-      expect(source).toMatch(/import\s*(?:type\s*)?\{[^}]*LLMError[^}]*\}\s*from\s*['"][^'"]*llm-provider\/(?:index|errors)\.js['"]/s);
+      expect(source).toMatch(
+      /(?:import\s*\{[^}]*\bLLMError\b[^}]*\}\s*from\s*['"][^'"]*llm-provider\/errors\.js['"]|import\s*\{\s*llmProviderCall\s*\}\s*from\s*['"][^'"]*llm-provider\/index\.js['"];\s*const\s*\{[^}]*\bLLMError\b[^}]*\}\s*=\s*llmProviderCall)/s,
+    );
     }
   });
 

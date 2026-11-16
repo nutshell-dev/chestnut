@@ -19,13 +19,13 @@ import {
   LLM_TIMEOUT_TOKENS_PER_SECOND,
 } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import { isContextExceededError, type LLMEvent, type LLMEventSink } from '../../../src/foundation/llm-orchestrator/index.js';
-import {
-  LLMContextExceededError,
-  type ProviderAdapter,
-  type ProviderConfig,
-  type LLMCallOptions,
-  type LLMResponse,
-} from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMContextExceededError } = llmProviderCall;
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type LLMCallOptions = llmProviderCall.LLMCallOptions;
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { replaceProviderStates } from './test-internals.js';
 
 const OK_RESPONSE: LLMResponse = {

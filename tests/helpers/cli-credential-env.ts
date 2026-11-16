@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
-import { PRESETS } from '../../src/foundation/llm-provider/index.js';
+import { llmProviderCatalog } from '../../src/foundation/llm-provider/index.js';
+const { PRESETS } = llmProviderCatalog;
 
 export function clearCliCredentialEnv(extraRefs: readonly string[] = []): void {
   const refs = new Set<string>(extraRefs);

@@ -20,13 +20,8 @@
  */
 
 import * as readline from 'readline';
-import {
-  PRESETS,
-  presetAuthProfile,
-  presetRequiresBaseUrl,
-  isCatalogProvider,
-  deriveCatalogAuthProfile,
-} from '../foundation/llm-provider/index.js';
+import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
+const { PRESETS, presetAuthProfile, presetRequiresBaseUrl, isCatalogProvider, deriveCatalogAuthProfile } = llmProviderCatalog;
 import type { LLMConfigurationAdmin } from '../core/llm-configuration/index.js';
 import {
   createLegacyAuthenticationStore,

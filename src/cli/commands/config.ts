@@ -17,15 +17,13 @@ import {
   resolveCredentialReference,
   classifyApiKeyConfigValue,
 } from '../../core/llm-configuration/index.js';
-import {
-  PRESETS,
-  presetAuthProfile,
-  presetRequiresBaseUrl,
-  toProviderConfig,
-  type LLMProviderConfig,
-} from '../../foundation/llm-provider/index.js';
+import { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+const { toProviderConfig } = llmProviderConfigContract;
+type LLMProviderConfig = llmProviderConfigContract.LLMProviderConfig;
+import { llmProviderCatalog } from '../../foundation/llm-provider/index.js';
+const { PRESETS, presetAuthProfile, presetRequiresBaseUrl, catalogProvidersWithoutPreset, deriveCatalogAuthProfile } = llmProviderCatalog;
 // Phase 1927 Step D：catalog-only provider 选择与派生 profile（显式 catalog 配置入口）
-import { catalogProvidersWithoutPreset, deriveCatalogAuthProfile } from '../../foundation/llm-provider/index.js';
+
 import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 // phase 1874 Step B: 终端文本原语经 viewport 模块 barrel（CLIProtocol 有 zod-only bare 白名单、不容 string-width）

@@ -17,7 +17,8 @@ import type { StreamEvent } from '../../foundation/stream/index.js';
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { isStepAbortError } from '../step-executor/index.js';
-import { ExternalAbortError } from '../../foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../foundation/llm-provider/index.js';
+const { ExternalAbortError } = llmProviderAbort;
 import { SUBAGENT_EVENTS } from './stream-events.js';
 import type { SubAgentLifecycleSink } from './lifecycle-sink.js';
 

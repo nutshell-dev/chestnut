@@ -16,7 +16,8 @@
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { StepAbortError } from '../step-executor/index.js';
-import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../foundation/llm-provider/index.js';
+const { makeExternalAbortError } = llmProviderAbort;
 import type { SubAgentLifecycleSink } from './lifecycle-sink.js';
 
 /**

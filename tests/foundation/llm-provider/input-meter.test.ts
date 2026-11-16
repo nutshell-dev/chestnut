@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  CATALOG_REVISION,
-  createLLMProvider,
-  estimateMessagesTokens,
-  estimateTextTokens,
-  estimateToolsTokens,
-  type ProviderConfig,
-} from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { createLLMProvider } = llmProviderCall;
+import { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+const { estimateMessagesTokens, estimateTextTokens, estimateToolsTokens } = llmProviderModelMeasurement;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import { llmProviderCatalog } from '../../../src/foundation/llm-provider/index.js';
+const { CATALOG_REVISION } = llmProviderCatalog;
 import { isDeepseekV41MeterProfile } from '../../../src/foundation/llm-provider/input-meter.js';
 import { resolvePiAiModel } from '../../../src/foundation/llm-provider/pi-ai-model.js';
 import { loadPiAiRuntime } from '../../../src/foundation/llm-provider/pi-ai-runtime.js';

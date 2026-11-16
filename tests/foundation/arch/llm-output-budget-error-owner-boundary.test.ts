@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LLMOutputBudgetExceededError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMOutputBudgetExceededError } = llmProviderCall;
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
 describe('LLMOutputBudgetExceededError owner boundary', () => {

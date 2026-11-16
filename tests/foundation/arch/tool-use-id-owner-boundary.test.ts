@@ -55,10 +55,10 @@ describe('ToolUseId owner boundary ratchet (phase 1492)', () => {
    */
   it('LLMProvider barrel exports makeToolUseId factory and ToolUseId type', async () => {
     const llmProvider = await import('../../../src/foundation/llm-provider/index.js');
-    expect(typeof llmProvider.makeToolUseId).toBe('function');
+    expect(typeof llmProvider.llmProviderProtocol.makeToolUseId).toBe('function');
 
     const barrelText = fs.readFileSync(
-      path.join(srcRoot, 'foundation', 'llm-provider', 'index.ts'),
+      path.join(srcRoot, 'foundation', 'llm-provider', 'capabilities', 'protocol.ts'),
       'utf8',
     );
     expect(barrelText).toMatch(/export\s+type\s+\{\s*ToolUseId\s*\}/);

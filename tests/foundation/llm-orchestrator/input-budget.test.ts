@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { LLMProvider, ModelInputMeter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
-import { LLMContextExceededError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMContextExceededError } = llmProviderCall;
+type LLMProvider = llmProviderCall.LLMProvider;
+import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+
 
 const response = { content: [{ type: 'text' as const, text: 'ok' }], stop_reason: 'end_turn' as const };
 const descriptor = (model: string) => ({

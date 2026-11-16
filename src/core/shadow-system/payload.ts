@@ -8,7 +8,8 @@
  */
 
 import { newShortUuid } from '../../foundation/node-utils/index.js';
-import { makeToolUseId } from '../../foundation/llm-provider/index.js';
+import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 
 import { synthesizeFormB } from './_helpers.js';

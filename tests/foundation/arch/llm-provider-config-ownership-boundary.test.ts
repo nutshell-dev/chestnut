@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const providerBarrel = read('../../../src/foundation/llm-provider/index.ts');
+const providerConfigFacade = read('../../../src/foundation/llm-provider/capabilities/config-contract.ts');
 const orchestratorBarrel = read('../../../src/foundation/llm-orchestrator/index.ts');
 const orchestratorConfigSchema = read('../../../src/foundation/llm-orchestrator/config-schema.ts');
 const formatMap = read('../../../src/cli/provider-format-map.ts');
@@ -14,12 +15,13 @@ const cliConsumers = [
 
 describe('LLM provider config ownership boundary', () => {
   it('moves schema, config type, and adapter to the L1 public barrel only', () => {
-    expect(providerBarrel).toMatch(/export\s*\{\s*llmProviderConfigSchema\s*\}\s*from\s*'\.\/llm-provider-config-schema\.js';/);
-    expect(providerBarrel).toMatch(/export\s*type\s*\{\s*LLMProviderConfig\s*\}\s*from\s*'\.\/llm-provider-config-schema\.js';/);
-    expect(providerBarrel).toMatch(/export\s*\{\s*toProviderConfig\s*\}\s*from\s*'\.\/config-adapter\.js';/);
+    expect(providerBarrel).toMatch(/export \* as llmProviderConfigContract from '\.\/capabilities\/config-contract\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*\{\s*llmProviderConfigSchema\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*type\s*\{\s*LLMProviderConfig\s*\}\s*from\s*'\.\.\/llm-provider-config-schema\.js';/);
+    expect(providerConfigFacade).toMatch(/export\s*\{\s*toProviderConfig\s*\}\s*from\s*'\.\.\/config-adapter\.js';/);
     expect(orchestratorBarrel).not.toMatch(/\b(?:llmProviderConfigSchema|LLMProviderConfig|toProviderConfig|FORMAT_MAP)\b/);
     expect(orchestratorBarrel).toMatch(/export\s*\{\s*llmOrchestratorConfigSchema\s*\}\s*from\s*'\.\/config-schema\.js';/);
-    expect(orchestratorConfigSchema).toMatch(/import\s*\{\s*llmProviderConfigSchema\s*\}\s*from\s*'\.\.\/llm-provider\/index\.js';/);
+    expect(orchestratorConfigSchema).toMatch(/import\s*\{\s*llmProviderConfigContract\s*\}\s*from\s*'\.\.\/llm-provider\/index\.js';\s*const\s*\{\s*llmProviderConfigSchema\s*\}\s*=\s*llmProviderConfigContract;/s);
   });
 
   it('retires the old Orchestrator files without compatibility facades', () => {

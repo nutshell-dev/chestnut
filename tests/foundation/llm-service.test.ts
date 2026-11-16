@@ -4,7 +4,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderStreamChunk } from '../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../src/foundation/llm-orchestrator/defaults.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';

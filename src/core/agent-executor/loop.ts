@@ -13,7 +13,9 @@
  * → 抽 generic `ReactFacade` (per phase 1180 升档锚 (a))
  */
 
-import type { ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
+type ToolUseId = llmProviderProtocol.ToolUseId;
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { LLMOrchestrator, LLMRecoveryFacts } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';

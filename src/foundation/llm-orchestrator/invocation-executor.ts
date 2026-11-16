@@ -4,19 +4,14 @@
  * Provider recovery persistence remains behind the narrow ledger capability; this
  * module owns retry/failover/stream/hedge/idle-probe mechanics and invocation-local facts.
  */
-import {
-  LLMError,
-  LLMEmptyResponseError,
-  LLMRateLimitError,
-  LLMStreamAbortedError,
-  LLMTimeoutError,
-  isAbortError,
-  makeExternalAbortError,
-  withCombinedAbortSignal,
-  type LLMProvider,
-  type LLMResponse,
-  type ProviderStreamChunk,
-} from '../llm-provider/index.js';
+import { llmProviderCall } from '../llm-provider/index.js';
+const { LLMError, LLMEmptyResponseError, LLMRateLimitError, LLMStreamAbortedError, LLMTimeoutError } = llmProviderCall;
+type LLMProvider = llmProviderCall.LLMProvider;
+type LLMResponse = llmProviderCall.LLMResponse;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
+import { llmProviderAbort } from '../llm-provider/index.js';
+const { isAbortError, makeExternalAbortError, withCombinedAbortSignal } = llmProviderAbort;
+import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
   LLMCircuitBreakerOpenError,
@@ -213,13 +208,13 @@ export class LLMInvocationExecutor implements InvocationExecutor {
     options: LLMCallOptions,
     correlation?: Pick<CallPathAudit, 'invocationId' | 'attemptId'>,
   ) {
-    return (observation: import('../llm-provider/index.js').InputMeasurementObservation): void => {
+    return (observation: llmProviderModelMeasurement.InputMeasurementObservation): void => {
       // A recovery attempt may contain retries, fallbacks, or hedged requests. Bind
       // each request-local observation pair to its own provider-attempt identity.
       const attemptId = correlation?.attemptId === undefined
         ? undefined
         : `${correlation.attemptId}:request:${observation.requestId}`;
-      const correlated: import('../llm-provider/index.js').InputMeasurementObservation = {
+      const correlated: llmProviderModelMeasurement.InputMeasurementObservation = {
         ...observation,
         ...(correlation?.invocationId !== undefined ? { invocationId: correlation.invocationId } : {}),
         ...(attemptId !== undefined ? { attemptId } : {}),

@@ -8,7 +8,10 @@
  * - executeWriteCalls: 写工具串行
  */
 
-import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
+import { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
+type ToolUseBlock = llmProviderProtocol.ToolUseBlock;
+type ToolResultBlock = llmProviderProtocol.ToolResultBlock;
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ExecContext } from '../../foundation/tools/index.js';
 import { ToolError } from '../../foundation/tools/index.js';
@@ -20,7 +23,7 @@ import type { StepExecutorEventSink } from './audit-sink.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError, type AbortExecutionEvidence } from './abort-helpers.js';
 
-import { makeToolUseId } from '../../foundation/llm-provider/index.js';
+
 
 
 

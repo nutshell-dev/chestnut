@@ -16,9 +16,14 @@ import {
   snapshotLLMConfig,
   type LLMConfigSnapshot,
 } from '../core/llm-configuration/index.js';
-import { PRESETS } from '../foundation/llm-provider/index.js';
+import type { llmProviderConfigContract } from '../foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import { llmProviderCatalog } from '../foundation/llm-provider/index.js';
+const { PRESETS, catalogProvidersWithoutPreset } = llmProviderCatalog;
+import type { llmProviderCredentialRuntime } from '../foundation/llm-provider/index.js';
+type PiAiCredentialStore = llmProviderCredentialRuntime.PiAiCredentialStore;
 // Phase 1927 Step D：reconfigure 的 provider 选择含 catalog-only provider
-import { catalogProvidersWithoutPreset } from '../foundation/llm-provider/index.js';
+
 import {
   LLM_PROBE_MAX_TOKENS,
   classifyLLMError,
@@ -27,7 +32,7 @@ import {
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { FORMAT_MAP } from './provider-format-map.js';
 import { passwordQuestion } from './utils/password-prompt.js';
-import type { ProviderConfig, PiAiCredentialStore } from '../foundation/llm-provider/index.js';
+
 import type { AtomicWriteResult, FileSystem } from '../foundation/fs/index.js';
 // Phase 1925 Step B：reconfigure 的明文 key 经 Credentials owner 落凭据文件、配置写 `${REF}`。
 import { storeKeyAsCredential } from './credentials-prompt.js';

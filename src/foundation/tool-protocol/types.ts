@@ -1,4 +1,6 @@
-import type { JSONSchema7 } from '../llm-provider/index.js';
+import type { llmProviderProtocol } from '../llm-provider/index.js';
+type JSONSchema7 = llmProviderProtocol.JSONSchema7;
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 
 export type ToolProfile = string;
 
@@ -42,7 +44,7 @@ export interface ToolResult {
   };
 }
 
-import type { ToolDefinition } from '../llm-provider/index.js';
+
 import type { Message } from '../dialog-store/index.js';
 
 export interface CallerSnapshot {

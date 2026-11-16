@@ -381,6 +381,7 @@ const ARCH_COMPILE_FILES = [
   'tests/foundation/arch/eslint-config.invariant.test.ts',
   'tests/foundation/arch/messaging-message-direction-surface.test.ts',
   'tests/foundation/arch/messaging-message-kind-surface.test.ts',
+  'tests/foundation/arch/llm-provider-capability-surface.test.ts',
 ];
 
 /**

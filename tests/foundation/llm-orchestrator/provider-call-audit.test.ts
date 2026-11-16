@@ -27,7 +27,12 @@ import type {
   LLMEventSink,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { InputMeasurementObservation, ProviderAdapter, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
 import { replaceProviderStates } from './test-internals.js';
 

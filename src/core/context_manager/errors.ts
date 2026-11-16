@@ -13,7 +13,8 @@
  * 证据可得性如实：不可得字段由抛出点省略，不为填而填。
  */
 import type { TrimPolicy } from './trim-policy.js';
-import type { InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import type { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
+type InputMeterDescriptor = llmProviderModelMeasurement.InputMeterDescriptor;
 
 export class ContextInputMeasurementError extends Error {
   readonly name = 'ContextInputMeasurementError';

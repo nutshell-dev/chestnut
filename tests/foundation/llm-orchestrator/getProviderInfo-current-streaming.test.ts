@@ -14,7 +14,8 @@ import type {
   LLMEventSink,
   LLMEvent,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
 import { providerStatesOf, lastSuccessProviderOf } from './test-internals.js';
 
 function createMockSink() {

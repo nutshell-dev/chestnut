@@ -10,7 +10,8 @@
 
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { JSONSchema7 } from '../llm-provider/index.js';
+import type { llmProviderProtocol } from '../llm-provider/index.js';
+type JSONSchema7 = llmProviderProtocol.JSONSchema7;
 
 export function defineFileToolSchema<T extends z.ZodTypeAny>(
   zodSchema: T,

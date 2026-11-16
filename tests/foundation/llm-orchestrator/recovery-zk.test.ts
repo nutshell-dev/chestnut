@@ -14,7 +14,11 @@ import {
 } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import { LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { LLMEventSink, LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { ProviderAdapter, ProviderConfig, LLMResponse } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { LLMNetworkError, LLMQuotaError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import { internalsOf } from './test-internals.js';
 

@@ -7,7 +7,10 @@
  * 本接口是「持久化事实交付」通道，实现方负责持久化语义，本模块只定义契约与调用点。
  */
 
-import type { LLMResponse, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../foundation/llm-provider/index.js';
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 

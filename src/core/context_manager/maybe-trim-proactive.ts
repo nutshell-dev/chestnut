@@ -3,13 +3,15 @@
  * 顺手裁触发：turn 入口判断「占用率 ≥ 0.75 AND 缓存已失效」、满足则调 trimAndPersist。
  */
 
-import type { ToolDefinition, InputMeasurement, InputMeasurementCapability, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
+import { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
+const { estimateTextTokens, estimateMessagesTokens, estimateToolsTokens } = llmProviderModelMeasurement;
+type InputMeasurement = llmProviderModelMeasurement.InputMeasurement;
+type InputMeasurementCapability = llmProviderModelMeasurement.InputMeasurementCapability;
+type InputMeterDescriptor = llmProviderModelMeasurement.InputMeterDescriptor;
 import type { Message } from '../../foundation/dialog-store/index.js';
-import {
-  estimateTextTokens,
-  estimateMessagesTokens,
-  estimateToolsTokens,
-} from '../../foundation/llm-provider/index.js';
+
 import { trimAndPersist, type DialogStoreMutationCapability } from './trim-and-persist.js';
 import type { ContextTrimOutcome } from './trim-v2.js';
 import type { TrimRuntimePolicy } from './constants.js';

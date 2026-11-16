@@ -6,6 +6,7 @@
  */
 
 import { formatErr } from "../node-utils/index.js";
+import type { llmProviderProtocol } from '../llm-provider/index.js';
 import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
@@ -274,7 +275,7 @@ export class ToolExecutorImpl implements IToolExecutor {
   /**
    * Get tool schema by name
    */
-  getToolSchema(name: string): import('../llm-provider/index.js').JSONSchema7 | undefined {
+  getToolSchema(name: string): llmProviderProtocol.JSONSchema7 | undefined {
     const tool = this.registry.get(name);
     return tool?.schema;
   }

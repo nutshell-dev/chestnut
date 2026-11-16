@@ -1,8 +1,7 @@
-import {
-  makeExternalAbortError,
-  withCombinedAbortSignal,
-  type LLMProvider,
-} from '../llm-provider/index.js';
+import type { llmProviderCall } from '../llm-provider/index.js';
+type LLMProvider = llmProviderCall.LLMProvider;
+import { llmProviderAbort } from '../llm-provider/index.js';
+const { makeExternalAbortError, withCombinedAbortSignal } = llmProviderAbort;
 import { formatErr } from '../node-utils/index.js';
 import { DEFAULT_LLM_TIMEOUT_MS, LLM_PROVIDER_SELECTION_TTL_MS } from './defaults.js';
 import {

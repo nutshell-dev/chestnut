@@ -10,7 +10,8 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import type { FullTaskId, ShortTaskId } from './types.js';
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 
 
 

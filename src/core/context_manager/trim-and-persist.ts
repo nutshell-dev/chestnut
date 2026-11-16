@@ -3,14 +3,17 @@
  * 事件性裁剪 + 持久化同源（phase 421 ratify、phase 440 实施、phase 1153 区分 proactive/reactive）。
  */
 
-import type { ToolDefinition, InputMeasurement, InputMeasurementCapability, InputMeterDescriptor } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
+import { llmProviderModelMeasurement } from '../../foundation/llm-provider/index.js';
+const { estimateTextTokens, estimateToolsTokens } = llmProviderModelMeasurement;
+type InputMeasurement = llmProviderModelMeasurement.InputMeasurement;
+type InputMeasurementCapability = llmProviderModelMeasurement.InputMeasurementCapability;
+type InputMeterDescriptor = llmProviderModelMeasurement.InputMeterDescriptor;
 import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
 import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
-import {
-  estimateTextTokens,
-  estimateToolsTokens,
-} from '../../foundation/llm-provider/index.js';
+
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
 import { CONTEXT_TRIM_ARCHIVED, CONTEXT_TRIM_FAILED } from './audit-events.js';
 import { ContextTrimPersistError } from './errors.js';

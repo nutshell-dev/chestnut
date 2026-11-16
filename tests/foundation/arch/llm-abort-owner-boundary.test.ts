@@ -8,10 +8,8 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  ExternalAbortError,
-  makeExternalAbortError,
-} from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../../src/foundation/llm-provider/index.js';
+const { ExternalAbortError, makeExternalAbortError } = llmProviderAbort;
 import * as providerBarrel from '../../../src/foundation/llm-provider/index.js';
 
 const HELPER_SRC = readFileSync(
@@ -42,7 +40,7 @@ describe('llm abort owner boundary (phase 1802)', () => {
 
   it('barrel 不再导出 AbortReason 类型', () => {
     // 运行期侧面：ExternalAbortError 在、枚举类型不在（type-only 无运行期痕迹，源码锁兜底）
-    expect(typeof providerBarrel.ExternalAbortError).toBe('function');
+    expect(typeof providerBarrel.llmProviderAbort.ExternalAbortError).toBe('function');
     expect('AbortReason' in providerBarrel).toBe(false);
   });
 

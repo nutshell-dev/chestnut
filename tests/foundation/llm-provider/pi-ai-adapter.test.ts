@@ -11,21 +11,14 @@
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
-import type { ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMAuthError, LLMModelNotFoundError, LLMRateLimitError, LLMQuotaError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMTimeoutError, LLMNetworkError, LLMError, LLMEmptyResponseError } = llmProviderCall;
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
+import { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+const { DEFAULT_LLM_TIMEOUT_MS } = llmProviderConfigContract;
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import {
-  DEFAULT_LLM_TIMEOUT_MS,
-  LLMAuthError,
-  LLMModelNotFoundError,
-  LLMRateLimitError,
-  LLMQuotaError,
-  LLMContextExceededError,
-  LLMOutputBudgetExceededError,
-  LLMTimeoutError,
-  LLMNetworkError,
-  LLMError,
-  LLMEmptyResponseError,
-} from '../../../src/foundation/llm-provider/index.js';
+
 import { LLMQuotaError as RootLLMQuotaError } from '../../../src/index.js';
 import { ExternalAbortError } from '../../../src/foundation/llm-provider/abort-helper.js';
 import { createPiAiCredentialStore } from '../../../src/foundation/llm-provider/pi-ai-credentials.js';

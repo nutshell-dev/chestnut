@@ -12,7 +12,8 @@
 
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { EventLoopStreamCallbacks, EventLoopTraceSource } from './types.js';
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../foundation/llm-provider/index.js';
+type ToolUseId = llmProviderProtocol.ToolUseId;
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { SUBAGENT_EVENTS } from '../subagent/index.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';

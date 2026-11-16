@@ -8,7 +8,8 @@ import type { Message } from '../../../foundation/dialog-store/index.js';
 import { DialogStore } from '../../../foundation/dialog-store/index.js';
 
 import { formatErr } from '../../../foundation/node-utils/index.js';
-import { isAbortError } from '../../../foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../../../foundation/llm-provider/index.js';
+const { isAbortError } = llmProviderAbort;
 const ASK_MOTION_TOOL_NAME = 'ask_motion' as const;
 
 const ASK_MOTION_TOOL_DESCRIPTION = `向 Motion 分身提问，获取 Motion 对用户意图、背景、偏好的判断。

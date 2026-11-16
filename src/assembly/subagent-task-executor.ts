@@ -15,7 +15,8 @@ import type { LLMOrchestrator, LLMOrchestratorOwner } from '../foundation/llm-or
 import {
   LLMAllProvidersFailedError,
 } from '../foundation/llm-orchestrator/index.js';
-import { isAbortError } from '../foundation/llm-provider/index.js';
+import { llmProviderAbort } from '../foundation/llm-provider/index.js';
+const { isAbortError } = llmProviderAbort;
 import type { ToolRegistry } from '../foundation/tools/index.js';
 import type { PermissionChecker } from '../foundation/tool-protocol/index.js';
 import {

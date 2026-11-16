@@ -1,16 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import {
-  LLMError,
-  LLMAuthError,
-  LLMContextExceededError,
-  LLMInvalidRequestError,
-  LLMModelNotFoundError,
-  LLMNetworkError,
-  LLMQuotaError,
-  LLMRateLimitError,
-  LLMTimeoutError,
-  makeExternalAbortError,
-} from '../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+const { LLMError, LLMAuthError, LLMContextExceededError, LLMInvalidRequestError, LLMModelNotFoundError, LLMNetworkError, LLMQuotaError, LLMRateLimitError, LLMTimeoutError } = llmProviderCall;
+import { llmProviderAbort } from '../../src/foundation/llm-provider/index.js';
+const { makeExternalAbortError } = llmProviderAbort;
 import {
   classifyLLMError,
   getUserActionHint,

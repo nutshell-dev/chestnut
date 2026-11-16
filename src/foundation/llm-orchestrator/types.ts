@@ -8,17 +8,20 @@
  * 是多 provider 编排控制信号，不属于单 provider 调用协议。
  */
 
-import type {
-  ProviderStreamChunk,
-  ProviderConfig,
-  ProviderAdapter,
-  PiAiCredentialStore,
-  LLMCallOptions as L1LLMCallOptions,
-  InputMeasurementObservation,
-  InputArtifactOwner,
-} from '../llm-provider/index.js';
-import type { LLMResponse } from '../llm-provider/index.js';
-import type { ModelInputMeter } from '../llm-provider/index.js';
+import type { llmProviderCall } from '../llm-provider/index.js';
+type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+type L1LLMCallOptions = llmProviderCall.LLMCallOptions;
+type LLMResponse = llmProviderCall.LLMResponse;
+import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
+type InputArtifactOwner = llmProviderModelMeasurement.InputArtifactOwner;
+type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
+import type { llmProviderConfigContract } from '../llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+type PiAiCredentialStore = NonNullable<llmProviderCall.ProviderFactoryOptions['credentialStore']>;
+
+
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
 import type { FileSystem } from '../fs/index.js';

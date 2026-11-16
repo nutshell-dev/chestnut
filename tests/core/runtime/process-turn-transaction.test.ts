@@ -21,7 +21,8 @@ import {
   ConsecutiveParseErrorsExceededError,
 } from '../../../src/core/agent-executor/index.js';
 import { ToolResultDeliveryError } from '../../../src/core/step-executor/index.js';
-import { makeToolUseId } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderProtocol } from '../../../src/foundation/llm-provider/index.js';
+const { makeToolUseId } = llmProviderProtocol;
 import { LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { RuntimeTurnCallbacks } from '../../../src/core/runtime/turn-callbacks.js';

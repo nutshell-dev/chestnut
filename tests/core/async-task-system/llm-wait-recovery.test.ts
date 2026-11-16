@@ -27,7 +27,10 @@ import {
   type LLMOrchestratorOwner,
   type SharedRecoveryDecision,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import { LLMContextExceededError, makeExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
+import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+const { LLMContextExceededError } = llmProviderCall;
+import { llmProviderAbort } from '../../../src/foundation/llm-provider/index.js';
+const { makeExternalAbortError } = llmProviderAbort;
 import { makeTaskSystemDeps, makeTestRegistry } from '../../helpers/task-system.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 

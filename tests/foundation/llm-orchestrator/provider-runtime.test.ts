@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LLMProviderRuntime } from '../../../src/foundation/llm-orchestrator/provider-runtime.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { LLMProvider, ProviderConfig } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
+type LLMProvider = llmProviderCall.LLMProvider;
+import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
 function config(
   primary: ProviderConfig,

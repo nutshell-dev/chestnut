@@ -1,4 +1,5 @@
-import type { InputMeasurementObservation } from '../llm-provider/index.js';
+import type { llmProviderModelMeasurement } from '../llm-provider/index.js';
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 
 export type InputMeasurementRequestStatus = 'open' | 'completed' | 'failed' | 'orphan_terminal' | 'corrupt';
 

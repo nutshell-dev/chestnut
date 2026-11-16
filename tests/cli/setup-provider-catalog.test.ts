@@ -8,7 +8,8 @@ import {
   findSetupProvider,
   resolveSetupProviderTarget,
 } from '../../src/cli/setup-provider-catalog.js';
-import { PRESETS } from '../../src/foundation/llm-provider/index.js';
+import { llmProviderCatalog } from '../../src/foundation/llm-provider/index.js';
+const { PRESETS } = llmProviderCatalog;
 import { setupProviderMenuLines } from '../../src/templates/messages/index.js';
 
 describe('SETUP_PROVIDER_CATALOG', () => {

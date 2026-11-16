@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { InputArtifactRef, InputMeasurementObservation } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderModelMeasurement } from '../../../src/foundation/llm-provider/index.js';
+type InputArtifactRef = llmProviderModelMeasurement.InputArtifactRef;
+type InputMeasurementObservation = llmProviderModelMeasurement.InputMeasurementObservation;
 import { InputMeasurementLedger } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const HASH_A = 'a'.repeat(64);

@@ -1,4 +1,6 @@
 // src/foundation/llm-orchestrator/defaults.ts
+import { llmProviderConfigContract } from '../llm-provider/index.js';
+
 /**
  * LLMOrchestrator 模块行为默认值 const
  * phase 748 物理迁自 src/constants.ts、M#3 资源唯一归属合规
@@ -17,7 +19,7 @@ export const DEFAULT_LLM_IDLE_TIMEOUT_MS = 60000;
 export const INIT_LLM_IDLE_TIMEOUT_MS = 120000;
 
 /** Default LLM API call timeout (ms); owned by the L1 provider config schema. */
-export { DEFAULT_LLM_TIMEOUT_MS } from '../llm-provider/index.js';
+export const DEFAULT_LLM_TIMEOUT_MS = llmProviderConfigContract.DEFAULT_LLM_TIMEOUT_MS;
 
 /**
  * Phase 1979: probe 的最小响应预算（token）。

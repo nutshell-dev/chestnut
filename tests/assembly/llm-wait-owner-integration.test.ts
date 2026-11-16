@@ -32,10 +32,10 @@ import type {
   LLMResponse,
 } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAuthError, LLMNetworkError } from '../../src/foundation/llm-provider/errors.js';
-import type {
-  ProviderAdapter,
-  ProviderConfig,
-} from '../../src/foundation/llm-provider/index.js';
+import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js';
+type ProviderAdapter = llmProviderCall.ProviderAdapter;
+import type { llmProviderConfigContract } from '../../src/foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';

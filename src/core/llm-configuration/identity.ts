@@ -6,10 +6,10 @@
  */
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/index.js';
-import {
-  piAiCredentialRef,
-  type ProviderConfig,
-} from '../../foundation/llm-provider/index.js';
+import type { llmProviderConfigContract } from '../../foundation/llm-provider/index.js';
+type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+import { llmProviderCredentialRuntime } from '../../foundation/llm-provider/index.js';
+const { piAiCredentialRef } = llmProviderCredentialRuntime;
 import { sha256Hex } from '../../foundation/node-utils/index.js';
 import type { CredentialSource, CredentialsOwner } from './legacy-credentials/index.js';
 import { classifyApiKeyConfigValue } from './key-input.js';

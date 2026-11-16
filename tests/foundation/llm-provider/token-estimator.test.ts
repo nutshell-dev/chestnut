@@ -4,7 +4,8 @@ import {
   estimateMessagesTokens,
   estimateToolsTokens,
 } from '../../../src/foundation/llm-provider/token-estimator.js';
-import type { ToolDefinition } from '../../../src/foundation/llm-provider/index.js';
+import type { llmProviderProtocol } from '../../../src/foundation/llm-provider/index.js';
+type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 const perMessageOverheadTokens = estimateMessagesTokens([
