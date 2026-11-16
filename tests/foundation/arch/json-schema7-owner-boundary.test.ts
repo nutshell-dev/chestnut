@@ -93,7 +93,7 @@ describe('JSONSchema7 owner boundary ratchet (phase 1493)', () => {
       path.join(srcRoot, 'foundation', 'tool-protocol', 'types.ts'),
       'utf8',
     );
-    expect(typesText).toMatch(/import\s+type\s+\{\s*JSONSchema7\s*\}\s+from\s+['"]\.\.\/llm-provider\/index\.js['"]/);
+    expect(typesText).toMatch(/import\s+type\s+\{\s*llmProviderProtocol\s*\}\s+from\s+['"]\.\.\/llm-provider\/index\.js['"];\s*type JSONSchema7 = llmProviderProtocol\.JSONSchema7;/);
     expect(typesText).toMatch(/schema:\s*JSONSchema7/);
   });
 
@@ -102,7 +102,7 @@ describe('JSONSchema7 owner boundary ratchet (phase 1493)', () => {
       path.join(srcRoot, 'foundation', 'tools', 'types.ts'),
       'utf8',
     );
-    expect(typesText).toMatch(/import\s+type\s+\{\s*JSONSchema7\s*\}\s+from\s+['"]\.\.\/llm-provider\/index\.js['"]/);
+    expect(typesText).toMatch(/import\s+type\s+\{\s*llmProviderProtocol\s*\}\s+from\s+['"]\.\.\/llm-provider\/index\.js['"];\s*type JSONSchema7 = llmProviderProtocol\.JSONSchema7;/);
     expect(typesText).toMatch(/input_schema:\s*JSONSchema7/);
     expect(typesText).toMatch(/getToolSchema\?\(name:\s*string\):\s*JSONSchema7\s*\|\s*undefined/);
   });

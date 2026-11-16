@@ -1,5 +1,4 @@
 /** Phase 1800/2076: wire/canonical 分层及生产 buildPiAiContext 投影 ratchet。 */
-
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
