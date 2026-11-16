@@ -49,7 +49,7 @@ function providerConfig(): ProviderConfig {
     apiKey: 'key-primary',
     model: 'model-primary',
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     apiFormat: 'anthropic',
   };
 }
@@ -384,7 +384,7 @@ async function makeRuntimeHarness(opts?: {
   // 配置提供者（fake）：返回不同身份的 primary → 新配置修订；应用时假装换上可用 key。
   const reloadSignal = new TestEventSignal<void>();
   const fixedConfig = {
-    primary: { name: 'primary-fixed', apiKey: 'key-fixed', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const },
+    primary: { name: 'primary-fixed', apiKey: 'key-fixed', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     maxAttempts: 1,
     retryDelayMs: 1,
     events: sink,
@@ -407,7 +407,7 @@ async function makeRuntimeHarness(opts?: {
     clawId: 'claw-1',
     clawDir: dir,
     idleTimeoutMs: 0,
-    llmConfig: { primary: { name: 'primary', apiKey: 'key-primary', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, maxAttempts: 1, retryDelayMs: 1 },
+    llmConfig: { primary: { name: 'primary', apiKey: 'key-primary', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, maxAttempts: 1, retryDelayMs: 1 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     configReloader: () => reloadConfigOf() as never,
     ...(opts?.configIdentityOf !== undefined
       ? { configIdentityOf: opts.configIdentityOf as never }
@@ -835,7 +835,7 @@ describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop 
       },
       reloadPrimaryOf: () => ({
         name: 'primary', apiKey: 'key-primary', model: 'model-primary',
-        temperature: currentTemperature, timeoutMs: 1_000, apiFormat: 'anthropic',
+        temperature: currentTemperature, timeoutMs: 1_000, apiFormat: 'anthropic', // time-fixture: configuration/payload round-trip input, not an independent wait budget
       }),
     });
     h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));

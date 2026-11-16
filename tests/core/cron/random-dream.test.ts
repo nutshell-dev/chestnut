@@ -29,6 +29,10 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 const mockWritePendingSubAgentTask = vi.fn();
 
+const MISSING_CLAWS_RUNNER_TIMEOUT_MS = 30_000; // Vitest runner 上限；与 dream handler 的轮询/超时无关。
+const POLL_CYCLE_ADVANCE_MS = 30_001; // fake clock 越过一个既有 30s poll 周期。
+const DREAM_TIMEOUT_ADVANCE_MS = 3_600_001; // fake clock 越过既有 1h subagent deadline。
+
 function makeMockTaskSystem(): AsyncTaskSystem {
   return {
     schedule: mockWritePendingSubAgentTask,
@@ -136,7 +140,7 @@ describe('runRandomDream', () => {
   it('claws 目录不存在时直接返回', async () => {
     await expect(runRandomDream(makeOpts(chestnutRoot, motionDir))).resolves.toBeUndefined();
     expect(mockWritePendingSubAgentTask).not.toHaveBeenCalled();
-  }, 30000); // was default 15000ms
+  }, MISSING_CLAWS_RUNNER_TIMEOUT_MS);
 
   it('claws 目录存在但无 archive 契约时直接返回', async () => {
     await fs.mkdir(path.join(chestnutRoot, 'claws', 'claw-1', 'contract', 'archive'), { recursive: true });
@@ -254,7 +258,7 @@ Prompt: ...
         const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
 
         // 推进一个轮询周期（30 秒）
-        await vi.advanceTimersByTimeAsync(30_001);
+        await vi.advanceTimersByTimeAsync(POLL_CYCLE_ADVANCE_MS);
 
         // 此时 outbox 应仍为空（未完成）
         const outboxContentsBefore = readOutboxPending(motionDir);
@@ -268,7 +272,7 @@ Prompt: ...
         );
 
         // 推进下一个轮询周期
-        await vi.advanceTimersByTimeAsync(30_001);
+        await vi.advanceTimersByTimeAsync(POLL_CYCLE_ADVANCE_MS);
         await runPromise;
 
         // 现在 self-inbox 应有消息
@@ -558,7 +562,7 @@ Prompt: ...
       // discover 现为真实 async I/O（structured archive query）：fake timer 只控制 timer，
       // 直接等 schedule 后 state 真实落盘（atomic write 返回），再一次推进 fake clock 验证 1h deadline
       await statePersisted;
-      await vi.advanceTimersByTimeAsync(3_600_001);
+      await vi.advanceTimersByTimeAsync(DREAM_TIMEOUT_ADVANCE_MS);
       await runPromise;
 
       // 不应写 outbox；pending entry 已持久化
@@ -661,7 +665,7 @@ insight B
         expect(state.pendingLateSettle[0].taskId).toBe(taskId);
         expect(state.pendingLateSettle[0].contractIds).toEqual(['contract-001', 'contract-002', 'contract-003']);
 
-        await vi.advanceTimersByTimeAsync(3_600_001);
+        await vi.advanceTimersByTimeAsync(DREAM_TIMEOUT_ADVANCE_MS);
         await runPromise;
       } finally {
         vi.useRealTimers();

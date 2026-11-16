@@ -17,8 +17,9 @@ const FIXTURE_SRC = path.resolve(
   process.cwd(), 'tests/foundation/config-store/fixtures/lock-holder.ts',
 );
 const supported = process.platform === 'darwin' || process.platform === 'linux';
-const WAIT_LIMIT_MS = 30_000;
-const WAIT_POLL_MS = 10;
+const WAIT_LIMIT_MS = 30_000; // 子进程 ready barrier 与退出后夺锁共用的真实等待上限。
+const WAIT_POLL_MS = 10; // ready barrier 的本地轮询间隔。
+const FIXTURE_BUILD_RUNNER_TIMEOUT_MS = 60_000; // 仅限制 Vitest beforeAll 的 fixture 编译，不是锁业务预算。
 // Self capture and holder inspection each have their own bounded OS query.
 const CONTENTION_TIMEOUT_MS = 5_000;
 const CONTENTION_POLL_MS = 10;
@@ -62,7 +63,7 @@ beforeAll(async () => {
     '--target=node20',
     `--outfile=${fixtureBundle}`,
   ], { stdio: 'pipe' });
-}, 60_000);
+}, FIXTURE_BUILD_RUNNER_TIMEOUT_MS);
 
 beforeEach(async () => {
   tempDir = await createTrackedTempDir('config-lock-process-');

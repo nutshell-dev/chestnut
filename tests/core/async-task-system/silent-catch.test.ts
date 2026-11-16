@@ -265,7 +265,7 @@ describe('phase 541: silent catch fixes', () => {
       // phase 789: waitFor poll until PENDING_INGEST_FAILED (context=watcher_async) lands
       await waitFor(() => auditEvents.some(
         (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),
-      ), 5000);
+      ));
 
       const watcherAsyncEvents = auditEvents.filter(
         (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),

@@ -353,7 +353,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       const p2 = (system as any)._ingestPendingFile(filePath);
 
       // phase 789: waitFor poll until both reads are suspended on the deferred loader
-      await waitFor(() => defers.length === 2, 5000);
+      await waitFor(() => defers.length === 2);
       expect(defers.length).toBe(2);
 
       // 同时 resolve 两个 read

@@ -13,7 +13,7 @@ describe('SubAgentTaskSchema opaque executorPayload (phase 1863 AT-D7)', () => {
     id: '550e8400-e29b-41d4-a716-446655440000',
     shortId: '550e8400',
     intent: 'test intent',
-    timeoutMs: 60_000,
+    timeoutMs: 60_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     maxSteps: 100,
     parentClawId: 'parent-claw',
     createdAt: '2026-05-23T00:00:00Z',

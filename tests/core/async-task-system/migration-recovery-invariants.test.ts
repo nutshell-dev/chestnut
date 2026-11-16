@@ -1358,7 +1358,7 @@ describe('phase 2146 B5: migrated exec disk restart recovery', () => {
         processGroupId: 4_000_000,
         leaderStartTime: 'no-live-handle-is-used-by-this-test',
       },
-      migratedDeadlineMs: Date.now() + 60_000,
+      migratedDeadlineMs: Date.now() + 60_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     };
     await firstFs.ensureDir(TASKS_QUEUES_RUNNING_DIR);
     await firstFs.ensureDir(`${TASKS_QUEUES_RESULTS_DIR}/${taskId}`);

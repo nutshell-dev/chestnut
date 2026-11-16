@@ -55,6 +55,7 @@ import { NoopStreamWriter } from '../../../src/core/subagent/noop-writers.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 // ── Fake LLM / Fake ToolExecutor（同 recovery-resume.test.ts 惯例） ──────────
 
@@ -163,7 +164,7 @@ function makeAgent(
     registry: registry as never,
     fs,
     maxSteps: 10,
-    timeoutMs: 60_000,
+    timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
     taskStreamWriter: new NoopStreamWriter(),
     sink,
     traceId: 'trace-barrier' as never,

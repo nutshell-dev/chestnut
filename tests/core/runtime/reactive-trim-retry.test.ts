@@ -11,7 +11,8 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
-import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
+import { makeRuntimeDeps, TEST_LLM_RETRY_DELAY_MS } from '../../helpers/runtime-deps.js';
+import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { LLMContextExceededError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
@@ -36,7 +37,6 @@ const {
   TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10, // 首次 trim 重试用小步长。
   TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50, // 5 × 初值，覆盖退避封顶。
 }));
-const TEST_LLM_RETRY_DELAY_MS = 100; // 100ms 保留一次可观察的 LLM 重试间隔。
 
 // Step H: EventLoop 的 trim 重试退避（30s 起）与 dispatchError fallback 退避
 // 是生产值；测试用小值锁状态机（对齐 tests/core/event-loop/event-loop.test.ts）。
@@ -59,7 +59,7 @@ function createMockLLMConfig() {
       model: 'claude-3-opus-20240229',
       maxTokens: 1024,
       temperature: 0.7,
-      timeoutMs: 30_000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,

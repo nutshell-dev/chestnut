@@ -35,6 +35,9 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { EventLoop } from '../../../src/core/event-loop/index.js';
 
+/** Vitest runner ceiling for the real multi-round inbox chain; not an inbox business timeout. */
+const INBOX_RECOVERY_RUNNER_TIMEOUT_MS = 60_000;
+
 // 失败/中断调度退避小值化（对齐 processbatch-orchestrator 测试惯例）
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
@@ -157,7 +160,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     return { audit, deps, runtime, loop };
   }
 
-  it('85 条洪峰 success：单轮 ≤20 条/≤64KiB，逐轮轮转清空，无重复交付', { timeout: 60_000 }, async () => {
+  it('85 条洪峰 success：单轮 ≤20 条/≤64KiB，逐轮轮转清空，无重复交付', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const { runtime, loop } = await makeHarness({
       seedCount: 85,
       // 5 条 critical（最新 timestamp）验证 priority 先于 age
@@ -189,7 +192,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(await listMd(pendingDir())).toHaveLength(0);
   });
 
-  it('defer 语义：deferred 回 pending 且 delivery_attempts 不变、原文逐字节不变；processTurn resolve 前零 ack', { timeout: 60_000 }, async () => {
+  it('defer 语义：deferred 回 pending 且 delivery_attempts 不变、原文逐字节不变；processTurn resolve 前零 ack', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const { deps, runtime, loop } = await makeHarness({ seedCount: 25 });
     const preRunRaw = await pendingRawByName();
     expect(preRunRaw.size).toBe(25);
@@ -229,7 +232,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(await listMd(doneDir())).toHaveLength(25);
   });
 
-  it('连续 LLM failure：每轮注入有界不增长；selected 按失败 nack 计数；deferred 不计数；恢复后继续轮转', { timeout: 60_000 }, async () => {
+  it('连续 LLM failure：每轮注入有界不增长；selected 按失败 nack 计数；deferred 不计数；恢复后继续轮转', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const { runtime, loop } = await makeHarness({ seedCount: 25 });
     let fail = true;
     runtime.onRunReact = () => {
@@ -261,7 +264,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(await listMd(pendingDir())).toHaveLength(0);
   });
 
-  it('abort（format 后、processTurn 前 stop）：selected 全 nack、deferred 保持 pending、零 ack', { timeout: 60_000 }, async () => {
+  it('abort（format 后、processTurn 前 stop）：selected 全 nack、deferred 保持 pending、零 ack', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const { deps, runtime, loop } = await makeHarness({ seedCount: 25 });
     const ackSpy = vi.spyOn(deps.inboxReader, 'ack');
     const nackSpy = vi.spyOn(deps.inboxReader, 'nack');
@@ -288,7 +291,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(await listMd(doneDir())).toHaveLength(0);
   });
 
-  it('崩溃/重启（claim 后 ack 前）：reconcile 回 pending，原消息逐条最终交付一次', { timeout: 60_000 }, async () => {
+  it('崩溃/重启（claim 后 ack 前）：reconcile 回 pending，原消息逐条最终交付一次', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const { deps, runtime } = await makeHarness({ seedCount: 3 });
     void runtime;
     // 模拟崩溃窗：claim 到 inflight 后进程消失（无 ack/nack/defer）
@@ -344,7 +347,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(await listMd(pendingDir())).toHaveLength(0);
   });
 
-  it('oversized 单条：显式单独放行 + 审计，正文逐字节不变；后续消息下一轮继续', { timeout: 60_000 }, async () => {
+  it('oversized 单条：显式单独放行 + 审计，正文逐字节不变；后续消息下一轮继续', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const audit = createMockAudit();
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: CLAW_ID, auditOverride: audit });
     // 超 64KiB 格式化预算的单条：绕过默认写 cap（模拟 cap 调大/历史遗留的大消息）
@@ -388,7 +391,7 @@ describe('inbox budget recovery matrix (Phase 1967 Step C)', () => {
     expect(await listMd(pendingDir())).toHaveLength(0);
   });
 
-  it('defer 失败：回队 selected+失败句柄并中止本轮，不误 ack', { timeout: 60_000 }, async () => {
+  it('defer 失败：回队 selected+失败句柄并中止本轮，不误 ack', { timeout: INBOX_RECOVERY_RUNNER_TIMEOUT_MS }, async () => {
     const { deps, runtime, loop } = await makeHarness({ seedCount: 25 });
     const ackSpy = vi.spyOn(deps.inboxReader, 'ack');
     const nackSpy = vi.spyOn(deps.inboxReader, 'nack');

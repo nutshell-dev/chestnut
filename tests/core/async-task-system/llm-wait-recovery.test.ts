@@ -251,7 +251,7 @@ describe('Step E-2: 恢复 gate 未就绪/缺席 → 保持 waiting', () => {
         apiKey: 'key-primary',
         model: 'model-primary',
         temperature: 0,
-        timeoutMs: 1_000,
+        timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         apiFormat: 'anthropic',
       },
       fallbacks: [],

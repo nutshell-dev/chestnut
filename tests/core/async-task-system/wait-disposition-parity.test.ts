@@ -376,6 +376,8 @@ describe('同事实矩阵：startup recovery / ready wakeup 两入口一致', ()
 
 // ─── 3. deadline 定时器入口（进程内到期处置） ───────────────────────────────
 describe('deadline 定时器入口：startup 重建等待订阅，到期由 ATS 安排检查', () => {
+  const WAIT_DEADLINE_MS = 60_000; // 本组持久等待 fixture 的到期窗口；fake clock 推进复用同一值。
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -403,7 +405,7 @@ describe('deadline 定时器入口：startup 重建等待订阅，到期由 ATS 
   it('gate 始终未就绪：initialize 保持 waiting + 安排到期检查；到期 → failed（不等重启）', async () => {
     const t0 = Date.now();
     const task = makeValidTask();
-    const fact = makeFact({ recordedAt: t0, nextProbeAt: t0, expiresAt: t0 + 60_000 });
+    const fact = makeFact({ recordedAt: t0, nextProbeAt: t0, expiresAt: t0 + WAIT_DEADLINE_MS });
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
     const { audit, events } = makeAudit();
     const sendFallbackResult = vi.fn().mockResolvedValue({ kind: 'delivered' });
@@ -415,7 +417,7 @@ describe('deadline 定时器入口：startup 重建等待订阅，到期由 ATS 
     expect(fileMap.has(waitPath(task.id))).toBe(true);
 
     // ATS 按本任务 expiresAt 安排的定时检查触发到期处置
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(WAIT_DEADLINE_MS);
     await flush();
     await flush();
     await flush();
@@ -432,7 +434,7 @@ describe('deadline 定时器入口：startup 重建等待订阅，到期由 ATS 
   it('到期时 gate 已 ready：deadline 优先 → failed，不 resume 不回 pending', async () => {
     const t0 = Date.now();
     const task = makeValidTask();
-    const fact = makeFact({ recordedAt: t0, nextProbeAt: t0, expiresAt: t0 + 60_000 });
+    const fact = makeFact({ recordedAt: t0, nextProbeAt: t0, expiresAt: t0 + WAIT_DEADLINE_MS });
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
     const { audit, events } = makeAudit();
     const sendFallbackResult = vi.fn().mockResolvedValue({ kind: 'delivered' });
@@ -445,7 +447,7 @@ describe('deadline 定时器入口：startup 重建等待订阅，到期由 ATS 
     // 到期前 ready：进程内 ready 信号唤醒回 pending 是 Step C 路径；本用例直接
     // 推进到 deadline（模拟 ready 信号未及时到达）——deadline 优先于 ready。
     ready = true;
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(WAIT_DEADLINE_MS);
     await flush();
     await flush();
     await flush();

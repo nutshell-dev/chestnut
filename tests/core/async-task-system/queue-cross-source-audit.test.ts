@@ -159,7 +159,7 @@ describe('async-task queue cross-source audit (phase 284)', () => {
       );
 
       // phase 789: waitFor poll until at least one audit event lands (replacing fixed microtask sleep)
-      await waitFor(() => events.length > 0, 5000);
+      await waitFor(() => events.length > 0);
 
       const mismatch = events.filter(e => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_QUEUE_CROSS_SOURCE_MISMATCH);
       expect(mismatch).toHaveLength(0);

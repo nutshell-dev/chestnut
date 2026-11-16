@@ -1161,7 +1161,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     mocks.observeExecutionTarget.mockReturnValue(unknownObservation('leader_gone_group_alive'));
 
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
-    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
+    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
     const taskFile = 'tasks/queues/running/task-1.json';
     const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
@@ -1283,7 +1283,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     const mocks = await importProcessExecMocks();
     mocks.observeExecutionTarget.mockReturnValue(aliveObservation());
 
-    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
+    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
 
@@ -1384,7 +1384,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
   it('identity with PGID !== leader PID stays recoverable and is never observed or signalled', async () => {
     const mocks = await importProcessExecMocks();
 
-    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
+    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 }); // time-fixture: configuration/payload round-trip input, not an independent wait budget
     (task.migratedExecution as { processGroupId: number }).processGroupId = LEADER_PID + 1;
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);

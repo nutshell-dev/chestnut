@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { createShadowTool } from '../../../src/core/shadow-system/index.js';
+import { createShadowTool, SHADOW_DEFAULT_TIMEOUT_MS } from '../../../src/core/shadow-system/index.js';
 import { runShadow } from '../../../src/core/shadow-system/system.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
@@ -27,7 +27,6 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 
 import { SHADOW_AUDIT_EVENTS } from '../../../src/core/shadow-system/audit-events.js';
-import { SHADOW_DEFAULT_TIMEOUT_MS } from '../../../src/core/shadow-system/constants.js';
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
 import { ToolTimeoutError } from '../../../src/foundation/tools/errors.js';  // phase 262: hoist
 
@@ -389,7 +388,7 @@ describe('shadow tool (phase 767)', () => {
           defaultTimeoutMs: 42_000,
         });
 
-        await injected.execute({ task: 't', async: false, timeoutMs: 7_000 }, baseCtx);
+        await injected.execute({ task: 't', async: false, timeoutMs: 7_000 }, baseCtx); // time-fixture: configuration/payload round-trip input, not an independent wait budget
         expect(mockRunSubagent.mock.calls[0][0].timeoutMs).toBe(7_000);
 
         // shadowTool（beforeEach 构造，未注入 defaultTimeoutMs）→ 执行层 fallback

@@ -120,7 +120,7 @@ function makeSubAgentTask(overrides?: Partial<SubAgentTask>): SubAgentTask {
     shortId: makeShortTaskId('550e8401'),
     mode: 'standard',
     intent: 'test intent',
-    timeoutMs: 300_000,
+    timeoutMs: 300_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     maxSteps: 100,
     parentClawId: 'caller-claw',
     createdAt: new Date().toISOString(),

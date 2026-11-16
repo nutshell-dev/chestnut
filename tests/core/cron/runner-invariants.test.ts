@@ -212,7 +212,7 @@ describe('runner-drain-late-settle', () => {
 
       // Now resolve the handler (post-drain)
       resolveHandler();
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(0); // 仅冲刷当前 late-settle 微任务，不驱动无关 timer。
 
       // Verify RUNNER_DRAIN_LATE_SETTLE settled audit emitted
       const lateSettleCalls = calls.filter(
@@ -243,7 +243,7 @@ describe('runner-drain-late-settle', () => {
       await stopPromise;
 
       rejectHandler(new Error('late fail'));
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(0); // 仅冲刷当前 late-settle 微任务，不驱动无关 timer。
 
       const lateSettleCalls = (sink.write as any).mock.calls.filter(
         (c: any) => c[0] === CRON_AUDIT_EVENTS.RUNNER_DRAIN_LATE_SETTLE

@@ -235,11 +235,11 @@ describe('CronRunner', () => {
   });
 
   it('handler timeout 后 background settle → emit JOB_LATE_SETTLED 含 job + run_key + late_settle_ms', async () => {
-    const LATE_SETTLE_TIMEOUT_MS = 100; // late-settle 场景的 handler 超时预算。
-    const LATE_SETTLE_ADVANCE_MS = LATE_SETTLE_TIMEOUT_MS + 1; // 越过超时 1ms 以触发 watchdog。
+    const LATE_SETTLE_HANDLER_TIMEOUT_MS = 100; // late-settle 场景的 handler 超时预算。
+    const LATE_SETTLE_ADVANCE_MS = LATE_SETTLE_HANDLER_TIMEOUT_MS + 1; // 越过超时 1ms 以触发 watchdog。
     let resolveHandler: () => void;
     const handler = vi.fn(() => new Promise<void>((r) => { resolveHandler = r; }));
-    const job: CronJob = { name: 'slow', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: LATE_SETTLE_TIMEOUT_MS };
+    const job: CronJob = { name: 'slow', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: LATE_SETTLE_HANDLER_TIMEOUT_MS };
     const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
@@ -250,7 +250,7 @@ describe('CronRunner', () => {
       CRON_AUDIT_EVENTS.HANDLER_TIMEOUT,
       'job=slow',
       expect.stringContaining('run_key='),
-      `timeout_ms=${LATE_SETTLE_TIMEOUT_MS}`,
+      `timeout_ms=${LATE_SETTLE_HANDLER_TIMEOUT_MS}`,
     );
 
     // background settle → JOB_LATE_SETTLED
@@ -267,11 +267,11 @@ describe('CronRunner', () => {
   });
 
   it('handler timeout 后 background error → emit JOB_ERROR context=late_after_timeout', async () => {
-    const LATE_ERROR_TIMEOUT_MS = 100; // late-error 场景的 handler 超时预算。
-    const LATE_ERROR_ADVANCE_MS = LATE_ERROR_TIMEOUT_MS + 1; // 越过超时 1ms 以触发 watchdog。
+    const LATE_ERROR_HANDLER_TIMEOUT_MS = 100; // late-error 场景的 handler 超时预算。
+    const LATE_ERROR_ADVANCE_MS = LATE_ERROR_HANDLER_TIMEOUT_MS + 1; // 越过超时 1ms 以触发 watchdog。
     let rejectHandler: (e: Error) => void;
     const handler = vi.fn(() => new Promise<void>((_, r) => { rejectHandler = r; }));
-    const job: CronJob = { name: 'failing-late', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: LATE_ERROR_TIMEOUT_MS };
+    const job: CronJob = { name: 'failing-late', enabled: true, schedule: { type: 'hourly' }, handler, timeoutMs: LATE_ERROR_HANDLER_TIMEOUT_MS };
     const runner = new CronRunner([job], sink);
     runner.tick();
 

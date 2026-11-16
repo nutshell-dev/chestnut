@@ -99,7 +99,7 @@ describe('phase 1029 / phase 1489 reframe: runSubagent → ToolExecutor.defaultT
   });
 
   it('caller explicit toolTimeoutMs cascade (反向 3 / phase 1029 original test 3)', async () => {
-    await runSubagent(makeRunSubagentOpts({ toolTimeoutMs: 123_000 }));
+    await runSubagent(makeRunSubagentOpts({ toolTimeoutMs: 123_000 })); // time-fixture: configuration/payload round-trip input, not an independent wait budget
 
     expect(ToolExecutor).toHaveBeenCalledTimes(1);
     const ctorCall = (ToolExecutor as unknown as ReturnType<typeof vi.fn>).mock.calls[0];

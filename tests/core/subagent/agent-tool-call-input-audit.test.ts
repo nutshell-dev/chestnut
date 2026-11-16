@@ -18,6 +18,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import { makeTraceId } from '../../../src/foundation/audit/index.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
@@ -86,7 +87,7 @@ function makeSubAgent() {
     registry: mockRegistry,
     fs: mockFs,
     maxSteps: 5,
-    timeoutMs: 1000,
+    timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     taskStreamWriter: sw,
     sink: createSubAgentLifecycleSink({
       auditWriter: mockAuditWriter as any,

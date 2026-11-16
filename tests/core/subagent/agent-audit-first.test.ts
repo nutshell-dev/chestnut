@@ -15,6 +15,9 @@ import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js
 import { SUBAGENT_EVENTS } from '../../../src/core/subagent/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+
+const GHOST_CALLBACK_TURN_TIMEOUT_MS = 50; // 真实 turn 超时预算，驱动 ghost-callback 路径。
 
 /**
  * Promise barrier release for mock runReact ghost-callback delay.
@@ -97,7 +100,7 @@ function makeSubAgent(overrides: { timeoutMs?: number } = {}) {
     registry: mockRegistry,
     fs: mockFs,
     maxSteps: 5,
-    timeoutMs: overrides.timeoutMs ?? 1000,
+    timeoutMs: overrides.timeoutMs ?? SUBAGENT_SHORT_TIMEOUT_MS,
     taskStreamWriter: sw,
     sink: createSubAgentLifecycleSink({ auditWriter: mockAuditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact,
@@ -217,7 +220,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
   });
 
   it('反向 3 (边界路径反向)：swClosed 状态下 audit 仍 emit', async () => {
-    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: GHOST_CALLBACK_TURN_TIMEOUT_MS });
     const swWriteSpy = vi.spyOn(sw, 'write');
 
     // phase 373: wrap mockAuditWriter.write 在 'tool_result' 时 resolve、替原 vi.waitFor polling

@@ -33,6 +33,7 @@ import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -124,7 +125,7 @@ function makeHarness(overrides: {
     registry,
     fs: mockFs,
     maxSteps: 5,
-    timeoutMs: 1000,
+    timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     taskStreamWriter: new CollectingStreamWriter(),
     sink: createSubAgentLifecycleSink({ auditWriter: auditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact: runReact as any,

@@ -8,6 +8,7 @@
  */
 
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
+import { WAIT_FOR_DEFAULT_BUDGET_MS } from './test-timeouts.js';
 
 export type AuditRow = [string, ...(string | number)[]];
 
@@ -18,10 +19,10 @@ export interface AuditEmitterHelper {
   events: AuditRow[];
   /** Filter events by type */
   filter(type: string): AuditRow[];
-  /** Wait for predicate to be satisfied; reject after timeoutMs */
-  waitFor(predicate: (events: readonly AuditRow[]) => boolean, timeoutMs: number): Promise<void>;
-  /** Wait for >=count events of given type */
-  waitForType(type: string, count: number, timeoutMs: number): Promise<AuditRow[]>;
+  /** Wait for predicate; timeoutMs overrides WAIT_FOR_DEFAULT_BUDGET_MS. */
+  waitFor(predicate: (events: readonly AuditRow[]) => boolean, timeoutMs?: number): Promise<void>;
+  /** Wait for >=count events of given type; timeoutMs overrides the same helper default. */
+  waitForType(type: string, count: number, timeoutMs?: number): Promise<AuditRow[]>;
 }
 
 /**
@@ -51,7 +52,7 @@ export function createAuditEmitterHelper(realAudit: AuditWriter): AuditEmitterHe
 
   const waitFor = (
     predicate: (events: readonly AuditRow[]) => boolean,
-    timeoutMs: number,
+    timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS,
   ): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
       if (predicate(events)) return resolve();
@@ -79,7 +80,11 @@ export function createAuditEmitterHelper(realAudit: AuditWriter): AuditEmitterHe
     });
   };
 
-  const waitForType = (type: string, count: number, timeoutMs: number): Promise<AuditRow[]> => {
+  const waitForType = (
+    type: string,
+    count: number,
+    timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS,
+  ): Promise<AuditRow[]> => {
     return waitFor((evs) => evs.filter(([t]) => t === type).length >= count, timeoutMs)
       .then(() => filter(type));
   };

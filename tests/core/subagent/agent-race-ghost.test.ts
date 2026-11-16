@@ -15,6 +15,9 @@ import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.j
 import { getSubagentStillRunning } from '../../../src/core/subagent/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+
+const RACE_TURN_TIMEOUT_MS = 50; // 真实 turn 超时预算，驱动 abort / ghost / settle 竞争路径。
 
 /**
  * Promise barrier release for mock runReact ghost-callback delay.
@@ -94,7 +97,7 @@ function makeSubAgent(overrides: { timeoutMs?: number; idleTimeoutMs?: number } 
     registry: mockRegistry,
     fs: mockFs,
     maxSteps: 5,
-    timeoutMs: overrides.timeoutMs ?? 1000,
+    timeoutMs: overrides.timeoutMs ?? SUBAGENT_SHORT_TIMEOUT_MS,
     idleTimeoutMs: overrides.idleTimeoutMs,
     taskStreamWriter: sw,
     sink: createSubAgentLifecycleSink({ auditWriter: mockAuditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
@@ -110,7 +113,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
   });
 
   it('timeout 后 runReact callback 不污染 sw（safeSwWrite 丢弃 / ghost audit 写一次）', async () => {
-    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: RACE_TURN_TIMEOUT_MS });
 
     // phase 373: wrap mockAuditWriter.write 在 GHOST_CALLBACK_AFTER_TURN_END 时 resolve、替原 vi.waitFor polling
     let ghostAuditResolve!: () => void;
@@ -195,7 +198,7 @@ describe('phase 1858 Step E (SA-D4): terminal outcome 前可靠 join / typed 仍
   });
 
   it('① 合作执行：race 失败后 settle 窗口内收敛 → subagentStillRunning=false、无留证行', async () => {
-    const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
+    const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: RACE_TURN_TIMEOUT_MS });
 
     // 合作 mock：signal abort（turn_timeout）后立即收敛
     runReact.mockImplementation(async (opts: { ctx: { signal: AbortSignal } }) => {
@@ -221,7 +224,7 @@ describe('phase 1858 Step E (SA-D4): terminal outcome 前可靠 join / typed 仍
   });
 
   it('② 非合作执行：超窗仍未收敛 → typed stillRunning=true + audit 留证（settle_ms 与常量一致）', async () => {
-    const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
+    const { agent, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: RACE_TURN_TIMEOUT_MS });
 
     let release!: () => void;
     runReact.mockImplementation(async () => {

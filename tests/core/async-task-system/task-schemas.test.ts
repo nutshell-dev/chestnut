@@ -18,7 +18,7 @@ describe('phase 1479 Step B: mainContextSnapshot legacy strip compat', () => {
       id: '550e8400-e29b-41d4-a716-446655440000',
       shortId: '550e8400',
       intent: 'legacy task with marker snapshot',
-      timeoutMs: 1000,
+      timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       parentClawId: 'p1',
       createdAt: new Date().toISOString(),
       mainContextSnapshot: { clawId: 'c1', toolUseId: 'tu-1' },
@@ -39,7 +39,7 @@ describe('phase 1863 Step D (AT-D6): motionClawDir legacy strip compat', () => {
       id: '550e8400-e29b-41d4-a716-446655440000',
       shortId: '550e8400',
       intent: 'legacy task with motionClawDir',
-      timeoutMs: 1000,
+      timeoutMs: 1000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       parentClawId: 'p1',
       createdAt: new Date().toISOString(),
       motionClawDir: '/tmp/motion-claw',

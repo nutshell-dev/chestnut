@@ -53,7 +53,7 @@ function createMockLLMConfig(): LLMOrchestratorConfig {
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,
-    retryDelayMs: 100,
+    retryDelayMs: 100, // time-fixture: configuration/payload round-trip input, not an independent wait budget
   };
 }
 

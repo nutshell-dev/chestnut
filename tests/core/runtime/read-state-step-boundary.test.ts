@@ -15,7 +15,8 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
-import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
+import { makeRuntimeDeps, TEST_LLM_RETRY_DELAY_MS } from '../../helpers/runtime-deps.js';
+import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import * as persistModule from '../../../src/foundation/file-tool/file-state-persist.js';
 import { READ_STATE_FILE } from '../../../src/foundation/file-tool/file-state-persist.js';
@@ -37,7 +38,6 @@ const {
   TEST_CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10, // 首次 trim 重试用小步长。
   TEST_CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50, // 5 × 初值，覆盖退避封顶。
 }));
-const TEST_LLM_RETRY_DELAY_MS = 100; // 100ms 保留一次可观察的 LLM 重试间隔。
 const TEST_READ_STATE_WAIT_TIMEOUT_MS = 1000; // 1s 轮询上限，只等待 step 回调注册。
 
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
@@ -59,7 +59,7 @@ function createMockLLMConfig() {
       model: 'claude-3-opus-20240229',
       maxTokens: 1024,
       temperature: 0.7,
-      timeoutMs: 30_000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,

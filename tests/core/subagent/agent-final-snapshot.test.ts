@@ -22,6 +22,7 @@ type ToolDefinition = llmProviderProtocol.ToolDefinition;
 import type { DialogSaveSnapshot } from '../../../src/foundation/dialog-store/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const DERIVED_TOOLS = [
   { name: 'derived_a' },
@@ -105,7 +106,7 @@ function makeHarness(overrides: {
     registry,
     fs: mockFs,
     maxSteps: 5,
-    timeoutMs: 1000,
+    timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     toolsForLLM: overrides.toolsForLLM,
     taskStreamWriter: new CollectingStreamWriter(),
     sink: createSubAgentLifecycleSink({ auditWriter: auditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),

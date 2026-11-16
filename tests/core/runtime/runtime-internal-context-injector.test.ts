@@ -15,12 +15,10 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 
-import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
+import { makeRuntimeDeps, TEST_LLM_RETRY_DELAY_MS } from '../../helpers/runtime-deps.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { LLMOrchestratorConfig } from '../../../../src/foundation/llm-orchestrator/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
-
-const TEST_LLM_RETRY_DELAY_MS = 100; // 100ms 保留一次可观察的 LLM 重试间隔。
 
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {

@@ -1,12 +1,10 @@
 import { vi } from 'vitest';
 import { Runtime } from '../../src/core/runtime/index.js';
-import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
+import { makeRuntimeDeps, TEST_LLM_RETRY_DELAY_MS } from '../helpers/runtime-deps.js';
 import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
-
-const TEST_LLM_RETRY_DELAY_MS = 100; // mock LLM 重试使用固定 100ms 测试间隔。
 
 /**
  * Convert LLMResponse to stream chunks for mock

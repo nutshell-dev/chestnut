@@ -30,7 +30,8 @@ import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 
 const TEST_CLAW_ID = 'test-claw';
-const TEST_LLM_RETRY_DELAY_MS = 100; // mock LLM 重试使用固定 100ms 测试间隔。
+/** Shared default for runtime mock LLM configs; callers may still supply llmConfig. */
+export const TEST_LLM_RETRY_DELAY_MS = 100;
 const TEST_TOOL_TIMEOUT_MS = 60_000; // 测试工具执行使用固定 60s 超时预算。
 
 interface MakeRuntimeDepsInput {
@@ -57,10 +58,10 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const llm = new LLMOrchestratorImpl({
     lifecycle: { mode: 'ephemeral' },
     ...(input.llmConfig ?? {
-    primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' },
-    maxAttempts: 1,
-    retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
-    events: { emit: () => {} },
+      primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' },
+      maxAttempts: 1,
+      retryDelayMs: TEST_LLM_RETRY_DELAY_MS,
+      events: { emit: () => {} },
     }),
   });
   const toolRegistry = new ToolRegistryImpl();

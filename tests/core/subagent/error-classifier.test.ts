@@ -17,7 +17,7 @@ describe('classifyAndAuditError', () => {
       error: new ExternalAbortError({ type: 'external' }),
       safeSwWrite,
       sink,
-      timeoutMs: 1_000,
+      timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
 
     expect(safeSwWrite).toHaveBeenCalledWith(expect.objectContaining({
@@ -42,7 +42,7 @@ describe('classifyAndAuditError', () => {
       error: nameOnlyError,
       safeSwWrite,
       sink,
-      timeoutMs: 1_000,
+      timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
 
     expect(safeSwWrite).toHaveBeenCalledWith(expect.objectContaining({

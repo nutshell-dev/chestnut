@@ -586,7 +586,7 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     // timeoutMs 变化不改变旧 revision，但改变 identity——必须触发 apply。
     const driftedCfg: LLMOrchestratorConfig = {
       ...stubCfg,
-      primary: { ...stubCfg.primary, timeoutMs: 12345 } as any,
+      primary: { ...stubCfg.primary, timeoutMs: 12345 } as any, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     };
     const reloader = vi.fn()
       .mockReturnValueOnce(stubCfg)
@@ -673,7 +673,7 @@ describe('Phase 1945 Step C: 热重载后发布 applied LLM identity', () => {
     const llm = { reloadConfig: reloadFn };
     const driftedCfg: LLMOrchestratorConfig = {
       ...stubCfg,
-      primary: { ...stubCfg.primary, timeoutMs: 12345 } as any,
+      primary: { ...stubCfg.primary, timeoutMs: 12345 } as any, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     };
     const reloader = vi.fn()
       .mockReturnValueOnce(stubCfg)

@@ -59,7 +59,7 @@ describe('executor payload adapter (phase 1863 AT-D7)', () => {
       id: makeFullTaskId('550e8400-e29b-41d4-a716-446655440001'),
       shortId: makeShortTaskId('550e8401'),
       intent: 'do the thing',
-      timeoutMs: 300_000,
+      timeoutMs: 300_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       maxSteps: 10,
       parentClawId: 'caller-claw',
       createdAt: new Date().toISOString(),

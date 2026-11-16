@@ -72,7 +72,7 @@ function providerConfig(): ProviderConfig {
     apiKey: 'key-primary',
     model: 'model-primary',
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: 1_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     apiFormat: 'anthropic',
   };
 }

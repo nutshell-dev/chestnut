@@ -173,9 +173,10 @@ describe('Step F-1: resumeWaitingTasks（gate ready）→ 唤醒恰一次、幂�
     await system.shutdown(1).catch(() => { /* silent: teardown */ });
   });
   it('ready 信号不越过 nextProbeAt：下界前保持，到点后正常唤醒', async () => {
+    const NEXT_PROBE_DELAY_MS = 1_000; // nextProbeAt fixture 与 fake clock 推进共用同一窗口。
     vi.useFakeTimers();
     const task = makeValidTask(FULL_ID_A);
-    const fact = makeFact({ nextProbeAt: Date.now() + 1_000 });
+    const fact = makeFact({ nextProbeAt: Date.now() + NEXT_PROBE_DELAY_MS });
     const { fs, fileMap } = makeMapFs(runningTaskSeed(task, waitFileSeed(task, fact)));
     const { audit } = makeMockAudit();
     const system = makeSystem(fs, audit, { canResume: () => true });
@@ -185,7 +186,7 @@ describe('Step F-1: resumeWaitingTasks（gate ready）→ 唤醒恰一次、幂�
       expect(fs.move).not.toHaveBeenCalled();
       expect(fileMap.has(`tasks/queues/running/${task.id}.json`)).toBe(true);
 
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(NEXT_PROBE_DELAY_MS);
       expect(await system.resumeWaitingTasks()).toBe(1);
       expect(fileMap.has(`tasks/queues/pending/${task.id}.json`)).toBe(true);
       expect(fileMap.has(`tasks/queues/results/${task.id}/${LLM_WAIT_FILE}`)).toBe(false);
