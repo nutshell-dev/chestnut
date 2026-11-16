@@ -7,6 +7,10 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { LLMAuthError, LLMTimeoutError } from '../../../src/foundation/llm-provider/errors.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/index.js';
 
+// loadStable compares stat before/after each read; a fixed mtime keeps these
+// error-classification tests focused on the LLM result instead of timing races.
+const MOCK_FILE_TIME = new Date('2024-01-01T00:00:00Z');
+
 async function readDialogFixture(filePath: string): Promise<string> {
   if (filePath.endsWith('turn-transaction.json')) {
     throw new FileNotFoundError(filePath);
@@ -27,13 +31,13 @@ function makeMockFs() {
     delete: async () => {},
     exists: async () => false,
     isDirectory: async () => false,
-    stat: async () => ({ size: 0, mtime: new Date(), ctime: new Date(), isFile: true, isDirectory: false }),
+    stat: async () => ({ size: 0, mtime: MOCK_FILE_TIME, ctime: MOCK_FILE_TIME, isFile: true, isDirectory: false }),
     writeAtomicSync: () => {},
     writeExclusiveSync: () => {},
     readSync: () => '',
     readBytesSync: () => Buffer.from(''),
     appendSync: () => {},
-    statSync: () => ({ size: 0, mtime: new Date(), ctime: new Date(), isFile: true, isDirectory: false }),
+    statSync: () => ({ size: 0, mtime: MOCK_FILE_TIME, ctime: MOCK_FILE_TIME, isFile: true, isDirectory: false }),
     moveSync: () => {},
     existsSync: () => false,
     ensureDirSync: () => {},
@@ -63,13 +67,13 @@ describe('AskMotionTool', () => {
       delete: async () => {},
       exists: async () => false,
       isDirectory: async () => false,
-      stat: async () => ({ size: 0, mtime: new Date(), ctime: new Date(), isFile: true, isDirectory: false }),
+      stat: async () => ({ size: 0, mtime: MOCK_FILE_TIME, ctime: MOCK_FILE_TIME, isFile: true, isDirectory: false }),
       writeAtomicSync: () => {},
       writeExclusiveSync: () => {},
       readSync: () => '',
       readBytesSync: () => Buffer.from(''),
       appendSync: () => {},
-      statSync: () => ({ size: 0, mtime: new Date(), ctime: new Date(), isFile: true, isDirectory: false }),
+      statSync: () => ({ size: 0, mtime: MOCK_FILE_TIME, ctime: MOCK_FILE_TIME, isFile: true, isDirectory: false }),
       moveSync: () => {},
       existsSync: () => false,
       ensureDirSync: () => {},
@@ -105,13 +109,13 @@ describe('AskMotionTool', () => {
       delete: async () => {},
       exists: async () => false,
       isDirectory: async () => false,
-      stat: async () => ({ size: 0, mtime: new Date(), ctime: new Date(), isFile: true, isDirectory: false }),
+      stat: async () => ({ size: 0, mtime: MOCK_FILE_TIME, ctime: MOCK_FILE_TIME, isFile: true, isDirectory: false }),
       writeAtomicSync: () => {},
       writeExclusiveSync: () => {},
       readSync: () => '',
       readBytesSync: () => Buffer.from(''),
       appendSync: () => {},
-      statSync: () => ({ size: 0, mtime: new Date(), ctime: new Date(), isFile: true, isDirectory: false }),
+      statSync: () => ({ size: 0, mtime: MOCK_FILE_TIME, ctime: MOCK_FILE_TIME, isFile: true, isDirectory: false }),
       moveSync: () => {},
       existsSync: () => false,
       ensureDirSync: () => {},
