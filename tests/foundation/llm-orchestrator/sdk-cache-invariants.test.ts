@@ -18,6 +18,9 @@ import type { llmProviderConfigContract } from '../../../src/foundation/llm-prov
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { internalsOf } from './test-internals.js';
 
+/** Cache-identity fixture only; no request waits on this positive provider timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+
 /**
  * Phase 1374 sub-3: SDK client cache (instance-lifetime)
  * Reverse test ≥3项: 2 call sequential same config + cache hit verify + audit emit
@@ -57,7 +60,7 @@ describe('sdk-client-cache', () => {
           { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         ],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
       });
 
@@ -84,7 +87,7 @@ describe('sdk-client-cache', () => {
           { name: 'p2', apiKey: 'key-def', model: 'm2', apiFormat: 'openai' },
         ],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
       });
 
@@ -105,7 +108,7 @@ describe('sdk-client-cache', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink1,
       });
 
@@ -113,7 +116,7 @@ describe('sdk-client-cache', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic' },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink2,
       });
 
@@ -152,7 +155,7 @@ describe('sdk-client-cache-key', () => {
           { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'openai', baseUrl: 'https://my-proxy.example/v1' },
         ],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
       });
       // 改前会 cache_hit（key 不含 baseUrl）；改后 2 miss
@@ -172,7 +175,7 @@ describe('sdk-client-cache-key', () => {
           { name: 'p2', apiKey: 'bbbbbbbb-coll-1234', model: 'm1', apiFormat: 'openai' },
         ],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
       });
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
@@ -187,7 +190,7 @@ describe('sdk-client-cache-key', () => {
         primary: cfg,
         fallbacks: [cfg, cfg, cfg],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
       });
       const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
@@ -205,7 +208,7 @@ describe('sdk-client-cache-key', () => {
           { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
         ],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
         events: sink,
       });
       // 改前 name 不参与 key；改后不同 name → 2 miss
@@ -239,7 +242,7 @@ describe('Phase 2027 extended provider identity cache', () => {
     model: 'model-a',
     apiFormat: 'anthropic' as const,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
   };
 
   it.each([
@@ -254,7 +257,7 @@ describe('Phase 2027 extended provider identity cache', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: base,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
       events: sink,
       createProviderAdapter: (config) => {
         created.push(config);
@@ -267,7 +270,7 @@ describe('Phase 2027 extended provider identity cache', () => {
     orchestrator.reloadConfig({
       primary: { ...base, ...patch },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 cache/config 身份。
       events: sink,
       createProviderAdapter: (config) => {
         created.push(config);

@@ -14,6 +14,7 @@ import {
 } from '../../../src/foundation/llm-orchestrator/recovery.js';
 import { LLMRecoveryWaitRequiredError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { LLMEventSink, LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;
@@ -26,9 +27,11 @@ const T0 = Date.parse('2026-09-10T00:00:00.000Z');
 const OK_RESPONSE: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const OPTIONS = { messages: [{ role: 'user' as const, content: 'test' }] };
 const QUOTA_ERROR = () => new LLMQuotaError('p', 'weekly usage limit quota reached');
+/** Positive provider fixture; recovery timing uses fake clocks, not this timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
 function providerConfig(name: string): ProviderConfig {
-  return { name, apiKey: `key-${name}`, model: `model-${name}`, temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' };
+  return { name, apiKey: `key-${name}`, model: `model-${name}`, temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic' };
 }
 
 const cleanupDirs: string[] = [];
@@ -82,10 +85,10 @@ async function makeFixture(opts: FixtureOpts = {}) {
       primary: providerConfig('primary'),
       ...(opts.fallbackResponse ? { fallbacks: [providerConfig('fallback')] } : {}),
       maxAttempts: opts.maxAttempts ?? 3,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用调用内重试等待；恢复窗口由 fake clock 推进。
       events,
       createProviderAdapter: config => config.name === 'fallback' ? fallbackAdapter : failAdapter,
-      ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 } } : {}),
+      ...(opts.breaker ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS } } : {}),
     });
     owners.push(owner);
     return owner;

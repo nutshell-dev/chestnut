@@ -611,7 +611,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       type: 'legacy_config_ignored',
       field: 'circuitBreaker',
       reason: 'provider_retry_at_policy',
-      value: { failureThreshold: 7, resetTimeoutMs: 120_000 },
+      value: { failureThreshold: 7, resetTimeoutMs: 120_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     });
 
     expect(audit.writes).toEqual([[
@@ -624,7 +624,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(stream.events).toEqual([expect.objectContaining({
       type: 'legacy_config_ignored', field: 'circuitBreaker',
       reason: 'provider_retry_at_policy',
-      value: { failureThreshold: 7, resetTimeoutMs: 120_000 },
+      value: { failureThreshold: 7, resetTimeoutMs: 120_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     })]);
   });
 

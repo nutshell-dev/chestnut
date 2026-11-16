@@ -14,6 +14,10 @@ import type { llmProviderCall } from '../../../src/foundation/llm-provider/index
 type LLMProvider = llmProviderCall.LLMProvider;
 type LLMResponse = llmProviderCall.LLMResponse;
 
+/** Distinct positive fixture values keep primary/fallback config identity observable. */
+const PRIMARY_TIMEOUT_FIXTURE_MS = 1_000;
+const FALLBACK_TIMEOUT_FIXTURE_MS = 2_000;
+
 const RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'fallback-ok' }],
   stop_reason: 'end_turn',
@@ -27,10 +31,10 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], ids?: stri
   const events: LLMEvent[] = [];
   const sink: LLMEventSink = { emit: event => { events.push(event); } };
   const config: LLMOrchestratorConfig = {
-    primary: { name: primary.name, model: primary.model, apiFormat: 'anthropic', timeoutMs: 1_000 },
-    fallbacks: fallbacks.map(adapter => ({ name: adapter.name, model: adapter.model, apiFormat: 'anthropic', timeoutMs: 2_000 })),
+    primary: { name: primary.name, model: primary.model, apiFormat: 'anthropic', timeoutMs: PRIMARY_TIMEOUT_FIXTURE_MS },
+    fallbacks: fallbacks.map(adapter => ({ name: adapter.name, model: adapter.model, apiFormat: 'anthropic', timeoutMs: FALLBACK_TIMEOUT_FIXTURE_MS })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；failover 顺序由 mock adapter 同步决定。
     events: sink,
   };
   const noteProviderSuccess = vi.fn();

@@ -90,7 +90,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map((fb) => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待，保持竞态窗口确定。
     events: noopSink,
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });

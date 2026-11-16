@@ -25,6 +25,11 @@ type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
+/** Real-timer mock tracks: slow enough to keep the hedge open, fast enough to win after startup. */
+const HEDGE_SLOW_CALL_DELAY_MS = 500;
+const HEDGE_PRIMARY_STREAM_DELAY_MS = 100;
+const HEDGE_FAST_CALL_DELAY_MS = 50;
+
 function createMockProvider(
   name: string,
   opts: {
@@ -107,7 +112,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待，保持可控竞态即时推进。
     events: noopSink,
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });
@@ -155,7 +160,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
         content: [{ type: 'text', text: 'fb response' }],
         stop_reason: 'end_turn',
       },
-      callDelayMs: 500,
+      callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
     });
     const service = createOrchestrator(primary, [fallback]);
     forceProviderWaiting(service, 0, 'transient');
@@ -183,7 +188,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
   it('hedge_fallback_committed: primary slow/fail, fallback wins, wrap as stream', async () => {
     const primary = createMockProvider('primary', {
       streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
-      streamDelayMs: 100,
+      streamDelayMs: HEDGE_PRIMARY_STREAM_DELAY_MS,
       measurementRequestId: 'hedge-primary-request',
     });
     const fallback = createMockProvider('fb1', {
@@ -192,7 +197,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
         stop_reason: 'end_turn',
         usage: { input_tokens: 10, output_tokens: 5 },
       },
-      callDelayMs: 50,
+      callDelayMs: HEDGE_FAST_CALL_DELAY_MS,
       measurementRequestId: 'hedge-fallback-request',
     });
     const service = createOrchestrator(primary, [fallback]);

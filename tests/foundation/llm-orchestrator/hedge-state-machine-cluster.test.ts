@@ -21,6 +21,15 @@ type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
+/** Named real-timer tracks make each state-machine race ordering explicit. */
+const HEDGE_FAST_CALL_DELAY_MS = 50;
+const HEDGE_SLOW_CALL_DELAY_MS = 500;
+const HEDGE_ERROR_STREAM_DELAY_MS = 20;
+const HEDGE_ABORT_STREAM_DELAY_MS = 30;
+const HEDGE_FAST_FAIL_CALL_DELAY_MS = 5;
+const HEDGE_ABORT_RACE_DELAY_MS = 100;
+const HEDGE_POST_FAILURE_STREAM_DELAY_MS = 50;
+
 function createMockProvider(
   name: string,
   opts: {
@@ -89,7 +98,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待，保持状态机竞态确定。
     events: noopSink,
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });
@@ -130,7 +139,7 @@ describe('hedge state machine cluster (phase 991)', () => {
     it('A-error typed context aborts B and preserves the original error', async () => {
       const providerError = new LLMContextExceededError('primary', 413, 'too large');
       const primary = createMockProvider('primary', { streamError: providerError });
-      const fallback = createMockProvider('fb1', { callDelayMs: 50 });
+      const fallback = createMockProvider('fb1', { callDelayMs: HEDGE_FAST_CALL_DELAY_MS });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
       const emitted = attachEventSpy(service);
@@ -152,7 +161,7 @@ describe('hedge state machine cluster (phase 991)', () => {
     it('B-error then A typed context throws context instead of an aggregate', async () => {
       const providerError = new LLMContextExceededError('primary', 413, 'too large');
       const primary = createMockProvider('primary', {
-        streamDelayMs: 20,
+        streamDelayMs: HEDGE_ERROR_STREAM_DELAY_MS,
         streamError: providerError,
       });
       const fallback = createMockProvider('fb1', {
@@ -183,14 +192,14 @@ describe('hedge state machine cluster (phase 991)', () => {
           { type: 'text_delta', delta: 'c4' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 20,
+        streamDelayMs: HEDGE_ERROR_STREAM_DELAY_MS,
       });
       const fallback = createMockProvider('fb1', {
         callResponse: {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -227,11 +236,11 @@ describe('hedge state machine cluster (phase 991)', () => {
           { type: 'text_delta', delta: 'c2' },
           { type: 'text_delta', delta: 'c3' },
         ],
-        streamDelayMs: 30,
+        streamDelayMs: HEDGE_ABORT_STREAM_DELAY_MS,
       });
       const fallback = createMockProvider('fb1', {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
-        callDelayMs: 5,
+        callDelayMs: HEDGE_FAST_FAIL_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -257,11 +266,11 @@ describe('hedge state machine cluster (phase 991)', () => {
     it('does not fallback when user aborts during hedge race', async () => {
       const abortCtrl = new AbortController();
       const primary = createMockProvider('primary', {
-        streamDelayMs: 100,
+        streamDelayMs: HEDGE_ABORT_RACE_DELAY_MS,
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
       });
       const fallback = createMockProvider('fb1', {
-        callDelayMs: 100,
+        callDelayMs: HEDGE_ABORT_RACE_DELAY_MS,
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
       });
       const service = createOrchestrator(primary, [fallback]);
@@ -306,7 +315,7 @@ describe('hedge state machine cluster (phase 991)', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -365,7 +374,7 @@ describe('hedge state machine cluster (phase 991)', () => {
     it('B-error + A-error 双失败 → primary provider state records the error class', async () => {
       const primary = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
-        streamDelayMs: 50,
+        streamDelayMs: HEDGE_POST_FAILURE_STREAM_DELAY_MS,
       });
       const fb1 = createMockProvider('fb1', {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
@@ -437,7 +446,7 @@ describe('hedge state machine cluster (phase 991)', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');

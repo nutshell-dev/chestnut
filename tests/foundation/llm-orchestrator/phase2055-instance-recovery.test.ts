@@ -17,9 +17,11 @@ import { providerStatesOf, replaceProviderStates } from './test-internals.js';
 import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/defaults.js';
+} from '../../../src/foundation/llm-orchestrator/index.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
+/** Immediate retry scheduling keeps recovery tests deterministic without changing persisted fixtures. */
+const TEST_RETRY_DELAY_MS = 1;
 const dirs: string[] = [];
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await cleanupTempDir(dir);
@@ -45,7 +47,7 @@ async function fixture(primary: ProviderAdapter, fallbacks: ProviderAdapter[] = 
     primary: config(primary.name),
     fallbacks: fallbacks.map(item => config(item.name)),
     maxAttempts: 1,
-    retryDelayMs: 1,
+    retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
     createProviderAdapter: provider => adapters.get(provider.name ?? '')!,
   });
@@ -60,6 +62,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     await f.owner.close();
     fsNative.rmSync(f.statePath);
     const legacyPath = path.join(f.dir, 'status', 'llm-retry-state.json');
+    // 45_000ms 是旧磁盘 payload 的 round-trip fixture，不替换为当前生产默认值。
     const raw = JSON.stringify({
       schema_version: 2,
       llmRetryCount: 3,
@@ -72,7 +75,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const events: LLMEvent[] = [];
     const makeOwner = () => createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 1,
+      primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: event => { events.push(event); } },
       createProviderAdapter: () => adapter('primary', async () => OK),
     });
@@ -81,7 +84,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     expect(saved).toMatchObject({
       schema_version: 3,
       recovery: {
-        budget: { retryCount: 3, retryDelayMs: 45_000 },
+        budget: { retryCount: 3, retryDelayMs: 45_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         importedSources: ['status/llm-retry-state.json#schema_version=2'],
       },
     });
@@ -102,10 +105,11 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     const scopePath = path.join(f.dir, 'status', 'llm-recovery-state.json');
     const retryPath = path.join(f.dir, 'status', 'llm-retry-state.json');
     const resumeAt = '2026-11-04T12:00:00.000Z';
+    // 60_000/240_000ms 是旧 scope payload 的透传 fixture，断言必须保留原值。
     const scopeRaw = JSON.stringify({
       schema_version: 1, scopeId: 'foreground', revision: 4,
       schedule: { kind: 'at', revision: 4, resumeAt },
-      budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 },
+      budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       providers: [{
         providerId: providerIdentity(config('primary')), errorClass: 'transient',
         at: '2026-11-04T11:00:00.000Z', consecutiveFailures: 2, detail: 'offline',
@@ -121,12 +125,12 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     fsNative.writeFileSync(retryPath, retryRaw);
     const owner = createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 1,
+      primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} }, createProviderAdapter: () => adapter('primary', async () => OK),
     });
     const migrated = f.readState();
     expect(migrated.recovery).toMatchObject({
-      budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 },
+      budget: { retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       providers: [{ blocking: true, retryAt: resumeAt }],
     });
     expect(migrated.providers).toEqual([
@@ -162,7 +166,7 @@ describe('Phase2055 Step C: single instance recovery authority', () => {
     fsNative.writeFileSync(legacyPath, raw);
     expect(() => createLLMOrchestrator({
       lifecycle: { mode: 'durable', fs: f.fs },
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 1,
+      primary: config('primary'), maxAttempts: 1, retryDelayMs: TEST_RETRY_DELAY_MS,
       events: { emit: () => {} }, createProviderAdapter: () => adapter('primary', async () => OK),
     })).toThrow(/scope_mismatch/);
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(raw);

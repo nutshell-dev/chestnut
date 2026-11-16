@@ -15,6 +15,10 @@ import type { LLMEvent, LLMInstanceLifecycle } from '../../../src/foundation/llm
 import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { internalsOf, lastSuccessProviderOf } from './test-internals.js';
+import {
+  DEFAULT_RESET_TIMEOUT_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
@@ -51,8 +55,8 @@ async function fixture() {
     primary: config(adapters[0].name),
     fallbacks: adapters.slice(1).map(item => config(item.name)),
     maxAttempts: 1,
-    retryDelayMs: 0,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+    retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     events,
     lifecycle,
     createProviderAdapter: provider => adapters.find(item => item.name === provider.name)!,
@@ -85,7 +89,7 @@ describe('LLM instance health persistence', () => {
       retryAt: expect.any(Number),
       lastError: { class: 'transient', at: expect.any(Number), message: expect.any(String) },
     });
-    expect(disk.providers[0].retryAt).toBe(disk.providers[0].lastError.at + 30_000);
+    expect(disk.providers[0].retryAt).toBe(disk.providers[0].lastError.at + LLM_RECOVERY_RETRY_INITIAL_DELAY_MS);
     expect(disk.providers[0]).not.toHaveProperty('breaker');
     expect(disk.providers[0]).not.toHaveProperty('sharedFailure');
     expect(disk).not.toHaveProperty('lastSuccess');
@@ -139,8 +143,8 @@ describe('LLM instance health persistence', () => {
     const emitted: LLMEvent[] = [];
     const primary = adapter('primary');
     const owner = new LLMOrchestratorImpl({
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
       createProviderAdapter: () => primary,
@@ -157,8 +161,8 @@ describe('LLM instance health persistence', () => {
 
     const failure = adapter('failure', async () => { throw new LLMNetworkError('failure', new Error('original')); });
     const failingOwner = new LLMOrchestratorImpl({
-      primary: config('failure'), maxAttempts: 1, retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      primary: config('failure'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
       createProviderAdapter: () => failure,
@@ -178,7 +182,7 @@ describe('LLM instance health persistence', () => {
     const emitted: LLMEvent[] = [];
     const primary = adapter('primary');
     const owner = new LLMOrchestratorImpl({
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0,
+      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: event => emitted.push(event) },
       lifecycle: { mode: 'durable', fs },
       createProviderAdapter: () => primary,
@@ -205,7 +209,7 @@ describe('LLM instance health persistence', () => {
     failing = true;
 
     expect(() => owner.reloadConfig({
-      primary: config('next'), maxAttempts: 1, retryDelayMs: 0,
+      primary: config('next'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
       events: { emit: () => {} },
       createProviderAdapter: () => next,
     })).toThrow('reloadConfig');
@@ -252,8 +256,8 @@ describe('LLM instance health persistence', () => {
     }]);
 
     owner.reloadConfig({
-      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0,
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      primary: config('primary'), maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；持久化恢复窗口由 fake clock 控制。
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       events: { emit: () => {} },
       createProviderAdapter: () => primary,
     });

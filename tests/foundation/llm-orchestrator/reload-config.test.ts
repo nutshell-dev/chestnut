@@ -13,6 +13,11 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
+/** Explicit reload fixtures; custom values verify round-trip rather than production defaults. */
+const RELOAD_RESET_TIMEOUT_MS = 1_000;
+const CHANGED_RESET_TIMEOUT_MS = 2_000;
+const RELOAD_PROVIDER_TIMEOUT_MS = 1_000;
+
 function createSink() {
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = { emit(e: LLMEvent) { emitted.push(e); } };
@@ -26,7 +31,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -36,7 +41,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     orch.reloadConfig({
       primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -51,7 +56,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -60,7 +65,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     ref.llm.reloadConfig({
       primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -77,7 +82,7 @@ describe('phase 320 Step A: reloadConfig', () => {
         { name: 'fb1', apiKey: 'kfb', model: 'mfb', apiFormat: 'openai' },
       ],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -86,7 +91,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     orch.reloadConfig({
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -99,9 +104,9 @@ describe('phase 320 Step A: reloadConfig', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
-      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
+      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: RELOAD_RESET_TIMEOUT_MS },
     });
 
     expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(1);
@@ -114,9 +119,9 @@ describe('phase 320 Step A: reloadConfig', () => {
         { name: 'fb2', apiKey: 'kfb2', model: 'mfb2', apiFormat: 'openai' },
       ],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
-      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
+      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: RELOAD_RESET_TIMEOUT_MS },
     });
 
     expect(internalsOf(orch).providerRuntime.providerIds()).toHaveLength(3);
@@ -129,7 +134,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
 
@@ -137,7 +142,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     orch.reloadConfig({
       primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
     const eventsAfter = (orch as any).events;
@@ -179,7 +184,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: cfgA,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
     const pA = internalsOf(orch).providerRuntime.primary();
@@ -188,7 +193,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     orch.reloadConfig({
       primary: cfgB,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
     const pB = internalsOf(orch).providerRuntime.primary();
@@ -200,7 +205,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     orch.reloadConfig({
       primary: cfgA,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
       events: sink,
     });
     const pA2 = internalsOf(orch).providerRuntime.primary();
@@ -213,16 +218,16 @@ describe('phase 320 Step A: reloadConfig', () => {
 
 
 describe('Phase 2027 selective runtime reload', () => {
-  const policy = { failureThreshold: 3, resetTimeoutMs: 1_000 };
-  const primary = { name: 'primary', apiKey: 'kp', model: 'mp', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
-  const fallbackA = { name: 'fallback-a', apiKey: 'ka', model: 'ma', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
-  const fallbackB = { name: 'fallback-b', apiKey: 'kb', model: 'mb', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: 1_000 };
+  const policy = { failureThreshold: 3, resetTimeoutMs: RELOAD_RESET_TIMEOUT_MS };
+  const primary = { name: 'primary', apiKey: 'kp', model: 'mp', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: RELOAD_PROVIDER_TIMEOUT_MS };
+  const fallbackA = { name: 'fallback-a', apiKey: 'ka', model: 'ma', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: RELOAD_PROVIDER_TIMEOUT_MS };
+  const fallbackB = { name: 'fallback-b', apiKey: 'kb', model: 'mb', apiFormat: 'anthropic' as const, temperature: 0, timeoutMs: RELOAD_PROVIDER_TIMEOUT_MS };
   const baseConfig = (sink: LLMEventSink) => ({
     lifecycle: { mode: 'ephemeral' as const },
     primary,
     fallbacks: [fallbackA, fallbackB],
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；reload 测试不真实退避。
     events: sink,
     circuitBreaker: policy,
   });
@@ -296,11 +301,11 @@ describe('Phase 2027 selective runtime reload', () => {
 
     orch.reloadConfig({
       ...baseConfig(sink),
-      circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 2_000 },
+      circuitBreaker: { failureThreshold: 5, resetTimeoutMs: CHANGED_RESET_TIMEOUT_MS },
     });
 
     expect(internalsOf(orch).providerRuntime.config().circuitBreaker.failureThreshold).toBe(5);
-    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.resetTimeoutMs).toBe(2_000);
+    expect(internalsOf(orch).providerRuntime.config().circuitBreaker.resetTimeoutMs).toBe(CHANGED_RESET_TIMEOUT_MS);
     expect(providerStatesOf(orch)[0]).toEqual(record);
     expect((orch as any).breakers).toBeUndefined();
   });

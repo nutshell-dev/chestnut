@@ -12,7 +12,14 @@ function config(
   createProviderAdapter: (config: ProviderConfig) => LLMProvider,
   fallbacks: ProviderConfig[] = [],
 ): LLMOrchestratorConfig {
-  return { primary, fallbacks, maxAttempts: 1, retryDelayMs: 0, events, createProviderAdapter };
+  return {
+    primary,
+    fallbacks,
+    maxAttempts: 1,
+    retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 runtime 生命周期。
+    events,
+    createProviderAdapter,
+  };
 }
 
 function adapter(config: ProviderConfig, close?: () => void | Promise<void>): LLMProvider {

@@ -26,7 +26,7 @@ describe('LLMOrchestratorImpl.close', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
     });
 
@@ -45,7 +45,7 @@ describe('LLMOrchestratorImpl.close', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
     });
 
@@ -63,7 +63,7 @@ describe('LLMOrchestratorImpl.close', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
     });
 
@@ -80,7 +80,7 @@ describe('LLMOrchestratorImpl.close', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
     });
 
@@ -101,7 +101,7 @@ describe('LLMOrchestratorImpl.close', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
       createProviderAdapter: () => adapter,
     });
@@ -109,7 +109,7 @@ describe('LLMOrchestratorImpl.close', () => {
     const nextConfig = {
       primary: { name: 'p2', apiKey: 'k2', model: 'm2', apiFormat: 'openai' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
     };
 
@@ -134,7 +134,7 @@ describe('LLMOrchestratorImpl.close', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 close/cache 语义。
       events: sink,
     });
 

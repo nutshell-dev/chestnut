@@ -22,10 +22,13 @@ const { createLLMProvider } = llmProviderCall;
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
+/** Offline asset fixture only needs a short, positive provider timeout. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+
 const config: ProviderConfig = {
   name: 'deepseek', model: 'deepseek-flash[1m]', apiFormat: 'anthropic',
   baseUrl: 'https://api.deepseek.com/anthropic', catalogProvider: 'deepseek',
-  catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: 1_000,
+  catalogModel: 'deepseek-flash', apiKey: 'offline-only', temperature: 0, timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
 };
 
 beforeEach(() => {

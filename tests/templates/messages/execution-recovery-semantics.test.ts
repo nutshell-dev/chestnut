@@ -67,7 +67,9 @@ const LEGACY_BODY =
 
 const CONTRACT_ID = '1700000000000-abcd';
 const CLAW_ID = 'claw-1';
+/** Short recovery-observation window; mock provider timeout remains an inert 1ms fixture. */
 const TIMEOUT_MS = 1000;
+const MOCK_PROVIDER_TIMEOUT_MS = 1;
 const FIXED_NOW = 1_700_500_000_000;
 
 /** 类型化测试子类：只公开真实 protected 适配器，不复制控制逻辑。 */
@@ -117,9 +119,9 @@ function buildRuntime(
     clawsDir: '/tmp/claws',
     idleTimeoutMs: 0,
     llmConfig: {
-      primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' as const },
+      primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: MOCK_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本测试不发起 LLM 调用。
     },
     dependencies: {
       systemFs: {} as never,

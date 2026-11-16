@@ -30,7 +30,7 @@ import {
   LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_MAX_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/defaults.js';
+} from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;
@@ -622,6 +622,7 @@ describe('legacy read-only migration into instance state V3', () => {
     await f.owner.close();
     fsNative.rmSync(f.statePath);
     const legacyPath = path.join(f.dir, 'status', 'llm-retry-state.json');
+    // 45_000/120_000ms 是旧状态 round-trip fixture，保留原 payload 与断言值。
     const legacyRaw = JSON.stringify({
       schema_version: 2, llmRetryCount: 3, llmRetryDelayMs: 45_000,
       llmRetryPending: false, waiting: null,
@@ -633,7 +634,7 @@ describe('legacy read-only migration into instance state V3', () => {
     expect(f.readState()).toMatchObject({
       schema_version: 3,
       recovery: {
-        budget: { retryCount: 3, retryDelayMs: 45_000, quotaDelayMs: 120_000 },
+        budget: { retryCount: 3, retryDelayMs: 45_000, quotaDelayMs: 120_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
         importedSources: ['status/llm-retry-state.json#schema_version=2'],
       },
     });
@@ -646,8 +647,9 @@ describe('legacy read-only migration into instance state V3', () => {
     await f.owner.close();
     fsNative.rmSync(f.statePath);
     const resumeAt = new Date(T0 + 90_000).toISOString();
+    // 60_000/240_000ms 是显式旧 scope fixture，仅验证透传，不代表当前默认值。
     const legacy = createInitialRecoveryState('foreground', {
-      retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000,
+      retryCount: 2, retryDelayMs: 60_000, quotaDelayMs: 240_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     }, T0);
     legacy.schedule = { kind: 'at', revision: 1, resumeAt };
     legacy.providers = [{
@@ -678,8 +680,9 @@ describe('legacy read-only migration into instance state V3', () => {
     const f = await makeFixture();
     await f.owner.close();
     fsNative.rmSync(f.statePath);
+    // 30_000/120_000ms 是旧状态透传 fixture；保留数值以避免改变迁移输入。
     const legacy = createInitialRecoveryState('foreground', {
-      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000,
+      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     }, T0);
     legacy.activeAdmission = {
       attemptId: 'att-legacy-turn', started: false, requestKey: 'turn-fingerprint', triggerKind: 'intervention',
@@ -697,8 +700,9 @@ describe('legacy read-only migration into instance state V3', () => {
     fsNative.rmSync(f.statePath);
     const currentConfig = { ...providerConfig('primary'), authProfile: 'oauth' as const };
     const legacyId = legacyProviderIdentity(currentConfig);
+    // 30_000/120_000ms 是旧状态透传 fixture；保留数值以避免改变迁移输入。
     const legacy = createInitialRecoveryState('foreground', {
-      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000,
+      retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     }, T0);
     legacy.providers = [
       {

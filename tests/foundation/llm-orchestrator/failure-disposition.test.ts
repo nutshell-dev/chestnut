@@ -26,6 +26,10 @@ import {
   LLMQuotaError,
 } from '../../../src/foundation/llm-provider/errors.js';
 
+/** Inert provider config plus a 1ms retry fixture; no production-length wait. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+const TEST_RETRY_DELAY_MS = 1;
+
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
   stop_reason: 'end_turn',
@@ -37,7 +41,7 @@ function providerConfig(name: string): ProviderConfig {
     apiKey: `key-${name}`,
     model: `model-${name}`,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
   };
 }
@@ -57,7 +61,7 @@ function makeOrchestrator() {
       lifecycle: { mode: 'ephemeral' },
     primary: providerConfig('primary'),
     maxAttempts: 1,
-    retryDelayMs: 1,
+    retryDelayMs: TEST_RETRY_DELAY_MS,
     events,
     createProviderAdapter: (config) => makeAdapter(config.name),
   });

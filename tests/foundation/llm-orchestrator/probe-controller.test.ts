@@ -12,6 +12,7 @@ import type { llmProviderConfigContract } from '../../../src/foundation/llm-prov
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
+const PROBE_TIMEOUT_MS = 1_000;
 const controllers: LLMProbeController[] = [];
 
 function providerConfig(name: string, extra: Partial<ProviderConfig> = {}): ProviderConfig {
@@ -24,7 +25,7 @@ function fixture(primary: LLMProvider, fallbacks: LLMProvider[] = [], configExtr
     primary: providerConfig(primary.name, configExtra),
     fallbacks: fallbacks.map(provider => providerConfig(provider.name)),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；probe 调度由 fake timers 控制。
     events: { emit: event => { events.push(event); } },
     createProviderAdapter: provider => [primary, ...fallbacks].find(adapter => adapter.name === provider.name)!,
   };
@@ -66,14 +67,14 @@ describe('ProbeController request and success semantics', () => {
       call: vi.fn(async options => { observed = options; return OK; }),
     };
     const fallback: LLMProvider = { name: 'fallback', model: 'model-fallback', call: vi.fn(async () => OK) };
-    const f = fixture(primary, [fallback], { maxTokens: 32, timeoutMs: 1_000 });
+    const f = fixture(primary, [fallback], { maxTokens: 32, timeoutMs: PROBE_TIMEOUT_MS });
 
     await expect(f.controller.probe()).resolves.toMatchObject({ ok: true, provider: 'primary' });
 
     expect(primary.call).toHaveBeenCalledTimes(1);
     expect(fallback.call).not.toHaveBeenCalled();
     expect(observed).toMatchObject({
-      messages: [{ role: 'user', content: 'ping' }], maxTokens: 32, timeoutMs: 1_000,
+      messages: [{ role: 'user', content: 'ping' }], maxTokens: 32, timeoutMs: PROBE_TIMEOUT_MS,
     });
     expect(observed?.hardTimeoutMs).toBeUndefined();
     expect(f.ledger.snapshot().providers[0]).toMatchObject({ providerId: f.runtime.providerIds()[0], status: 'available' });

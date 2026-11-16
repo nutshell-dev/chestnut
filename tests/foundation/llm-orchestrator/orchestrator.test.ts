@@ -27,9 +27,16 @@ type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import { resolveLLMConfig } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 import { providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
+
+/** Keeps the fallback call pending while the primary stream wins the hedge. */
+const HEDGE_FALLBACK_CALL_DELAY_MS = 500;
+
+/** Short custom breaker window; distinct from the production default fixture above. */
+const TEST_RESET_TIMEOUT_MS = 1_000;
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];
@@ -100,9 +107,9 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
     events: noopSink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     createProviderAdapter: (cfg) => findAdapter(cfg),
   });
   return service;
@@ -169,7 +176,7 @@ describe('Phase 1268 Step E: provider recovery default enabled', () => {
       lifecycle: { mode: 'ephemeral' },
       ...llmConfig,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
@@ -270,7 +277,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
         content: [{ type: 'text', text: 'fb response' }],
         stop_reason: 'end_turn',
       },
-      callDelayMs: 500,
+      callDelayMs: HEDGE_FALLBACK_CALL_DELAY_MS,
     });
     const service = createOrchestrator(primary, [fallback]);
     forceProviderWaiting(service, 0, 'transient');
@@ -401,7 +408,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       maxAttempts: 2,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
       createProviderAdapter: () => primary as any,
     });
@@ -456,9 +463,9 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       primary: MOCK_PRIMARY_CONFIG,
       fallbacks: [MOCK_FALLBACK_CONFIG],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
-      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1_000 },
+      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: TEST_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
 
@@ -491,9 +498,9 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: { emit: () => {} },
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1_000 },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: TEST_RESET_TIMEOUT_MS },
       createProviderAdapter: () => primary as any,
     });
     const chunks: LLMStreamChunk[] = [];
@@ -525,7 +532,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: MOCK_PRIMARY_CONFIG,
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: { emit: () => {} },
       createProviderAdapter: () => primary as any,
     });
@@ -559,7 +566,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       primary: MOCK_PRIMARY_CONFIG,
       fallbacks: [MOCK_FALLBACK_CONFIG],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各场景用 mock/fake timer 控制推进。
       events: sink,
       createProviderAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });

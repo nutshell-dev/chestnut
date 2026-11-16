@@ -9,13 +9,17 @@ import {
 } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 
+/** Explicit configuration round-trip fixtures; these are not production defaults. */
+const RETRY_DELAY_FIXTURE_MS = 1_234;
+const CIRCUIT_RESET_FIXTURE_MS = 120_000;
+
 const input = {
   llm: {
     primary: { preset: 'anthropic', api_key: '${PRIMARY_KEY}', model: 'claude-fixed' },
     fallbacks: [{ preset: 'openai', api_key: '${FALLBACK_KEY}', model: 'gpt-fixed' }],
     retry_attempts: 4,
-    retry_delay_ms: 1234,
-    circuit_breaker: { failure_threshold: 5, reset_timeout_ms: 120000 },
+    retry_delay_ms: RETRY_DELAY_FIXTURE_MS,
+    circuit_breaker: { failure_threshold: 5, reset_timeout_ms: CIRCUIT_RESET_FIXTURE_MS },
   },
 } as const;
 
@@ -65,8 +69,8 @@ describe('LLMConfiguration selection / identity', () => {
     expect(snapshot.config.primary.model).toBe('gpt-override');
     expect(snapshot.config.fallbacks?.map(provider => provider.model)).toEqual(['gpt-fixed']);
     expect(snapshot.config.maxAttempts).toBe(4);
-    expect(snapshot.config.retryDelayMs).toBe(1234);
-    expect(snapshot.config.circuitBreaker).toEqual({ failureThreshold: 5, resetTimeoutMs: 120000 });
+    expect(snapshot.config.retryDelayMs).toBe(RETRY_DELAY_FIXTURE_MS);
+    expect(snapshot.config.circuitBreaker).toEqual({ failureThreshold: 5, resetTimeoutMs: CIRCUIT_RESET_FIXTURE_MS });
     expect(snapshot.scope).toMatchObject({ primarySource: 'claw_override', clawId: 'claw-a' });
     expect(snapshot.auth[0]).toMatchObject({ credentialRef: 'OVERRIDE_KEY', authProfile: 'api_key' });
     expect(snapshot.operationalIdentity).toBe(llmConfigIdentity(resolveLLMConfig(global, override)));

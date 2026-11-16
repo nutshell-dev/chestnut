@@ -60,6 +60,9 @@ class TestRuntime extends Runtime {
  * motion = 装正式 registerAllMotionGuidance（startup_check = NO_GUIDANCE）；
  * worker = 不装 guidance（guidanceCompose undefined → Runtime 跳过追加）。
  */
+/** Mock-only Runtime config: positive provider fixture; no real LLM call or retry wait. */
+const MOCK_PROVIDER_TIMEOUT_MS = 1;
+
 function buildRuntime(
   audit: ReturnType<typeof makeAudit>['audit'],
   opts: { withMotionGuidance: boolean },
@@ -74,9 +77,9 @@ function buildRuntime(
     clawsDir: '/tmp/claws',
     idleTimeoutMs: 0,
     llmConfig: {
-      primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' as const },
+      primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: MOCK_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本测试不发起 LLM 调用。
     },
     dependencies: {
       systemFs: {} as never,

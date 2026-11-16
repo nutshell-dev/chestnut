@@ -49,6 +49,8 @@ const fixture = JSON.parse(fsNative.readFileSync(FIXTURE_PATH, 'utf8')) as {
   cases: Record<string, Case[]>;
 };
 const asserted = new Set<string>();
+/** Persisted-task round-trip fixture; the overflow test never waits on this budget. */
+const TASK_TIMEOUT_FIXTURE_MS = 60_000;
 
 /**
  * phase 1829: M03 从逐字节迁移等价移交新的语义验收（通知正文携带身份与已提交处置、
@@ -208,7 +210,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     });
     const CONTRACT_ID = '1700000000000-abcd';
     const FIXED_NOW = 1_700_500_000_000;
-    const TIMEOUT_MS = 1000;
+    const TIMEOUT_MS = 1000; // 缩短 recovery 观察窗；只用固定时钟，不做真实等待。
     const lastActivityAt = FIXED_NOW - 10 * TIMEOUT_MS;
     const store = createExecutionRecoveryStore({ agentFs, audit });
     store.save({
@@ -663,7 +665,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     const writePending = (id: string) => {
       fsNative.writeFileSync(path.join(baseDir, 'tasks', 'queues', 'pending', `${id}.json`), JSON.stringify({
         id, kind: 'subagent', mode: 'standard', shortId: id.slice(0, 8), parentClawId: 'parent-claw',
-        parentClawDir: baseDir, createdAt: new Date().toISOString(), timeoutMs: 60000, intent: 'test',
+        parentClawDir: baseDir, createdAt: new Date().toISOString(), timeoutMs: TASK_TIMEOUT_FIXTURE_MS, intent: 'test',
       }));
     };
     writePending('overflow-task');

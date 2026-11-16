@@ -8,7 +8,10 @@ import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
-import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../src/foundation/llm-orchestrator/defaults.js';
+import {
+  DEFAULT_LLM_TIMEOUT_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMNetworkError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 import { pauseAutonomousProbe, providerStatesOf, replaceProviderStates } from './llm-orchestrator/test-internals.js';
@@ -84,7 +87,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: () => primary,});
@@ -118,7 +121,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -151,7 +154,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
@@ -196,7 +199,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 2,   // 即使有重试机会也不应重试 mid-stream
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -228,7 +231,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
@@ -248,7 +251,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test-model', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [createMockProvider('primary')].find(provider => provider.name === config.name)!,});
@@ -271,7 +274,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => config.name === 'fb' ? goodFallback : badPrimary,});
@@ -297,7 +300,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: () => primary,});
@@ -320,7 +323,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
   it('should yield reset chunk and failover to fallback on mid-stream LLMTimeoutError', async () => {
     const primary = createMockProvider('primary', async function* () {
       yield { type: 'text_delta', delta: 'partial text' } as ProviderStreamChunk;
-      throw new LLMTimeoutError('primary', 60000);
+      throw new LLMTimeoutError('primary', DEFAULT_LLM_TIMEOUT_MS);
     });
 
     const fallback = createMockProvider('fallback', async function* () {
@@ -333,7 +336,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -347,19 +350,19 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     expect(chunks.some(c => c.type === 'reset')).toBe(true);
     const resetChunk = chunks.find(c => c.type === 'reset')!;
     expect(resetChunk.provider).toBe('primary');
-    expect(resetChunk.timeoutMs).toBe(60000);
+    expect(resetChunk.timeoutMs).toBe(DEFAULT_LLM_TIMEOUT_MS);
     expect(chunks.some(c => 'delta' in c && c.delta === 'fallback response')).toBe(true);
   });
 
   it('should throw LLMAllProvidersFailedError when all providers time out mid-stream', async () => {
     const primary = createMockProvider('primary', async function* () {
       yield { type: 'text_delta', delta: 'partial' } as ProviderStreamChunk;
-      throw new LLMTimeoutError('primary', 60000);
+      throw new LLMTimeoutError('primary', DEFAULT_LLM_TIMEOUT_MS);
     });
 
     const fallback = createMockProvider('fallback', async function* () {
       yield { type: 'text_delta', delta: 'fallback partial' } as ProviderStreamChunk;
-      throw new LLMTimeoutError('fallback', 60000);
+      throw new LLMTimeoutError('fallback', DEFAULT_LLM_TIMEOUT_MS);
     });
 
     const service = new LLMOrchestratorImpl({
@@ -367,7 +370,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -409,7 +412,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -439,7 +442,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         fallbacks: [],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: noopSink,
       
   createProviderAdapter: (config) => [badPrimary].find(provider => provider.name === config.name)!,});
@@ -453,7 +456,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'foo', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: noopSink,
       
   createProviderAdapter: (config) => [createMockProvider('primary')].find(provider => provider.name === config.name)!,});
@@ -472,7 +475,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: noopSink,
       
   createProviderAdapter: (config) => [badPrimary, goodFallback].find(provider => provider.name === config.name)!,});
@@ -498,7 +501,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: sink,
       
   createProviderAdapter: (config) => [badPrimary, goodFallback].find(provider => provider.name === config.name)!,});
@@ -523,7 +526,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
         primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }, { name: 'fb2', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
         events: sink,
       
   createProviderAdapter: (config) => [badPrimary, badFallback1, badFallback2].find(provider => provider.name === config.name)!,});
@@ -566,7 +569,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => config.name === 'fb' ? createMockProvider('fallback') : failingPrimary,});
@@ -609,7 +612,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: () => probePrimary,});
@@ -649,7 +652,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: () => failingPrimary,});
@@ -694,7 +697,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: () => probePrimary,});
@@ -732,7 +735,7 @@ describe('LLMOrchestratorImpl - provider recovery', () => {
       primary: { name: 'p1', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'p2', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [badPrimary, badFallback].find(provider => provider.name === config.name)!,});
@@ -753,7 +756,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -783,7 +786,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -860,7 +863,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [failingAdapter].find(provider => provider.name === config.name)!,});
@@ -906,7 +909,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [primary, fallback].find(provider => provider.name === config.name)!,});
@@ -925,7 +928,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
@@ -946,7 +949,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [primary].find(provider => provider.name === config.name)!,});
@@ -998,7 +1001,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       primary: { name: 'p1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [p1, p2].find(provider => provider.name === config.name)!,});
@@ -1029,7 +1032,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       primary: { name: 'p1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [p1, p2].find(provider => provider.name === config.name)!,});
@@ -1061,7 +1064,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
       primary: { name: 'p1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [p1, p2].find(provider => provider.name === config.name)!,});
@@ -1093,7 +1096,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       primary: { name: 'mock1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [mockProvider1, mockProvider2].find(provider => provider.name === config.name)!,});
@@ -1119,7 +1122,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       primary: { name: 'mock1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: noopSink,
     
   createProviderAdapter: (config) => [mockProvider1, mockProvider2].find(provider => provider.name === config.name)!,});
@@ -1143,7 +1146,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       primary: { name: 'mock1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持测试即时推进。
       events: sink,
     
   createProviderAdapter: (config) => [mockProvider1, mockProvider2].find(provider => provider.name === config.name)!,});

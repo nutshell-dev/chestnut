@@ -33,7 +33,7 @@ function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[
     primary: { name: primary.name, apiKey: 'k', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'k', model: fb.model, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；本 fixture 只测 streaming 身份。
     events: sink,
     createProviderAdapter: config => [primary, ...fallbacks].find(adapter =>
       adapter.name === config.name && adapter.model === config.model)!,

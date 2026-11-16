@@ -28,10 +28,14 @@ import type {
   LLMEventSink,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
+
+/** Positive provider fixture; probe timing is controlled separately by fake clocks. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -50,7 +54,7 @@ function providerConfig(name: string): ProviderConfig {
     apiKey: `key-${name}`,
     model: `model-${name}`,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
   };
 }
@@ -90,9 +94,9 @@ function createOwner(adapter: ProviderAdapter) {
       lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(adapter.name),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；probe 恢复窗口由 fake clock 推进。
     events: sink,
-    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+    circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     createProviderAdapter: () => adapter,
   });
   return { owner, emitted };

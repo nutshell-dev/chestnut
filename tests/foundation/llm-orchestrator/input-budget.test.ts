@@ -9,6 +9,8 @@ type ModelInputMeter = llmProviderModelMeasurement.ModelInputMeter;
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
+/** Short base timeout; dynamic input budgeting must increase it without a real wait. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
 const response = { content: [{ type: 'text' as const, text: 'ok' }], stop_reason: 'end_turn' as const };
 const descriptor = (model: string) => ({
@@ -29,7 +31,7 @@ function meter(model: string, tokens: number): ModelInputMeter {
 }
 
 function config(name: string): ProviderConfig {
-  return { name, model: name, apiKey: 'k', apiFormat: 'anthropic', timeoutMs: 1_000, temperature: 0 };
+  return { name, model: name, apiKey: 'k', apiFormat: 'anthropic', timeoutMs: TEST_PROVIDER_TIMEOUT_MS, temperature: 0 };
 }
 
 describe('provider-bound input budget', () => {
@@ -49,13 +51,13 @@ describe('provider-bound input budget', () => {
       primary: config('primary'),
       fallbacks: [config('fallback')],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；输入预算用例只调用一次候选。
       events: { emit: (() => {}) as LLMEventSink['emit'] },
       createProviderAdapter: provider => make(provider.name, provider.name === 'primary' ? 10 : 50_000),
     });
 
     await owner.call({ messages: [{ role: 'user', content: 'hello' }] });
-    expect(received[0]).toBeGreaterThan(1_000);
+    expect(received[0]).toBeGreaterThan(TEST_PROVIDER_TIMEOUT_MS);
     await owner.close();
   });
 
@@ -70,7 +72,7 @@ describe('provider-bound input budget', () => {
       primary: { ...config('moonshot'), model: 'kimi-k2.6' },
       fallbacks: [],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；输入预算用例只调用一次候选。
       events: { emit: (() => {}) as LLMEventSink['emit'] },
       createProviderAdapter: () => ({
         name: 'moonshot',

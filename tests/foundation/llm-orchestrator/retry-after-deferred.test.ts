@@ -17,7 +17,7 @@ import { providerStatesOf } from './test-internals.js';
 import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/defaults.js';
+} from '../../../src/foundation/llm-orchestrator/index.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
@@ -50,7 +50,7 @@ async function fixture(adapters: ProviderAdapter[], maxAttempts = 3) {
     primary: config(nextAdapters[0].name),
     fallbacks: nextAdapters.slice(1).map(item => config(item.name)),
     maxAttempts,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 立即重试哨兵；Retry-After 本身由 provider 状态延迟。
     events: { emit: event => { events.push(event); } },
     createProviderAdapter: provider => nextAdapters.find(item => item.name === provider.name)!,
   });

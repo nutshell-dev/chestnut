@@ -10,6 +10,9 @@ import type { llmProviderConfigContract } from '../../../src/foundation/llm-prov
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import { internalsOf, providerStatesOf, replaceProviderStates, lastSuccessProviderOf } from './test-internals.js';
 
+/** Delays the primary stream so the fallback failure is observed before its terminal context-done. */
+const PRIMARY_AFTER_FALLBACK_ERROR_DELAY_MS = 10;
+
 interface MockProviderOptions {
   streamChunks?: ProviderStreamChunk[];
   streamDelayMs?: number;
@@ -59,7 +62,7 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
       apiFormat: 'anthropic',
     })),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待，保持流式竞态确定。
     events: eventSink,
     createProviderAdapter: findAdapter,
   });
@@ -163,7 +166,7 @@ describe('hedge primary context-done', () => {
 
   it('B-error then A wins: uses the same terminal failure and cleans up A', async () => {
     const primaryRaw = createMockProvider('primary', {
-      streamDelayMs: 10,
+      streamDelayMs: PRIMARY_AFTER_FALLBACK_ERROR_DELAY_MS,
       streamChunks: [
         { type: 'text_delta', delta: 'partial' },
         { type: 'done', stopReason: 'context_length_exceeded' },

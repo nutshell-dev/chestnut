@@ -84,7 +84,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: () => primary,
     });
@@ -134,7 +134,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
     });
@@ -186,7 +186,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: () => primary,
     });
@@ -241,7 +241,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: () => primary,
     });
@@ -288,7 +288,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
     });
@@ -350,7 +350,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: () => primary,
     });
@@ -461,7 +461,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       createProviderAdapter: () => realPrimaryAdapter(3000),
     });
@@ -499,7 +499,7 @@ describe('Phase 1941 真实 adapter 边界：stream timeout owner 分层', () =>
       primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保留既有 idle/probe 时序窗口。
       events: sink,
       // provider timeoutMs 远大于 idleMs：若触发 idle 路径，必为 orchestrator idle watchdog 所为
       createProviderAdapter: config => config.name === 'fallback' ? fallback : realPrimaryAdapter(5_000),

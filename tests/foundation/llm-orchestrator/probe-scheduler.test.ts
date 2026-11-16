@@ -17,7 +17,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
+import {
+  LLM_PROVIDER_SELECTION_TTL_MS,
+  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
+} from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMEvent,
   LLMEventSink,
@@ -40,7 +43,9 @@ const OK_RESPONSE: LLMResponse = {
 /** breaker resetTimeoutMs：测试内统一 5s（退避下界的时间基准）。 */
 const RESET_MS = 5_000;
 /** transient/rate-limit 无 header 的 recovery owner 初始下界。 */
-const RECOVERY_MS = 30_000;
+const RECOVERY_MS = LLM_RECOVERY_RETRY_INITIAL_DELAY_MS;
+/** Positive provider fixture; probe timing itself is driven by fake timers. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];
@@ -54,7 +59,7 @@ function providerConfig(name: string): ProviderConfig {
     apiKey: `key-${name}`,
     model: `model-${name}`,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
   };
 }
@@ -99,7 +104,7 @@ function createOwner(adapterOrAdapters: ProviderAdapter | ProviderAdapter[]) {
     primary: providerConfig(primary.name),
     fallbacks: adapters.slice(1).map(adapter => providerConfig(adapter.name)),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用调用内重试等待；probe 调度由 fake timers 控制。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
     createProviderAdapter: config => adapters.find(adapter => adapter.name === config.name) ?? primary,

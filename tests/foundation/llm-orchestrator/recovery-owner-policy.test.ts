@@ -31,6 +31,7 @@ import type {
   LLMResponse,
   RecoveryFailureInput,
 } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import {
   LLMAuthError,
   LLMContextExceededError,
@@ -50,9 +51,12 @@ const OK_RESPONSE: LLMResponse = {
 
 /** breaker 配置仍保留用于覆盖旧配置/旧故障竞态；统一恢复下界由 provider 状态决定。 */
 const RESET_MS = 5_000;
-/** transient/unknown 每 provider 的前两次退避。 */
-const TRANSIENT_RETRY_MS = 30_000;
-const TRANSIENT_SECOND_RETRY_MS = 60_000;
+/** transient/unknown 每 provider 的前两次退避，直接消费生产恢复基值。 */
+const TRANSIENT_RETRY_MS = LLM_RECOVERY_RETRY_INITIAL_DELAY_MS;
+const TRANSIENT_SECOND_RETRY_MS = TRANSIENT_RETRY_MS * 2;
+/** Positive inert provider fixture and shortened fake-timer probe window. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
+const PROBE_TIMEOUT_MS = 50;
 /** rate_limit 用例的 typed Retry-After（秒）。 */
 const RETRY_AFTER_SEC = 60;
 
@@ -70,7 +74,7 @@ function providerConfig(name: string, extra?: Partial<ProviderConfig>): Provider
     apiKey: `key-${name}`,
     model: `model-${name}`,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
     ...extra,
   };
@@ -140,7 +144,7 @@ function createOwner(
     primary: providerConfig(primary.name, configExtra),
     fallbacks: fallbacks.map(f => providerConfig(f.name)),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
     events: sink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
     createProviderAdapter: (c: ProviderConfig) => adapters.get(c.name ?? '')!,
@@ -443,7 +447,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       primary: providerConfig('primary'),
       fallbacks: [providerConfig('fallback')],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       createProviderAdapter: (c: ProviderConfig) => adapters.get(c.name ?? '')!,
     });
@@ -520,12 +524,12 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
 
   it('probe 带有界 timeout：挂起候选在配置 timeoutMs 内了结，不永久悬挂', async () => {
     const p = createControllableAdapter('primary', 'hang');
-    const { owner } = createOwner(p.adapter, [], { timeoutMs: 50 });
+    const { owner } = createOwner(p.adapter, [], { timeoutMs: PROBE_TIMEOUT_MS });
 
     const probePromise = owner.probe();
     await flush();
     expect(p.calls()).toBe(1);
-    await vi.advanceTimersByTimeAsync(50);  // 有界 timeout 触发 abort
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);  // 有界 timeout 触发 abort
     const result = await probePromise;
     expect(result.ok).toBe(false);
     expect(result.provider).toBe('primary');
@@ -544,7 +548,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
       fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
       createProviderAdapter: (c: ProviderConfig) => byModel.get(c.model ?? '')!,
@@ -568,7 +572,7 @@ describe('Phase 1934 Step C：共享恢复判据归 LLM owner', () => {
       primary: providerConfig('same-provider', { model: 'model-a', apiKey: 'key-a' }),
       fallbacks: [providerConfig('same-provider', { model: 'model-b', apiKey: 'key-b' })],
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用调用内重试等待；共享恢复由 fake timers 推进。
       events: sink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: RESET_MS },
       createProviderAdapter: (c: ProviderConfig) => byModel.get(c.model ?? '')!,

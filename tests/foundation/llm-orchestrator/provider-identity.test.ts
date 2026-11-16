@@ -7,6 +7,10 @@ import {
 import type { llmProviderConfigContract } from '../../../src/foundation/llm-provider/index.js';
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 
+/** Behavior-fingerprint fixtures; distinct values are intentional, not defaults. */
+const PROVIDER_TIMEOUT_FIXTURE_MS = 1_000;
+const CHANGED_PROVIDER_TIMEOUT_FIXTURE_MS = 2_000;
+
 function config(patch: Partial<ProviderConfig> = {}): ProviderConfig {
   return {
     name: 'primary',
@@ -15,7 +19,7 @@ function config(patch: Partial<ProviderConfig> = {}): ProviderConfig {
     baseUrl: 'https://example.test/v1',
     apiKey: 'secret-key',
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: PROVIDER_TIMEOUT_FIXTURE_MS,
     ...patch,
   };
 }
@@ -63,7 +67,7 @@ describe('Phase 2027 provider identity', () => {
 
   it('行为参数只改变 cache 指纹，不改变故障身份', () => {
     const base = config();
-    const changed = config({ temperature: 1, timeoutMs: 2_000, maxTokens: 128 });
+    const changed = config({ temperature: 1, timeoutMs: CHANGED_PROVIDER_TIMEOUT_FIXTURE_MS, maxTokens: 128 });
     expect(providerIdentity(changed)).toBe(providerIdentity(base));
     expect(providerCacheKey(changed, 'audit-a')).not.toBe(providerCacheKey(base, 'audit-a'));
     expect(providerCacheKey(base, 'audit-b')).not.toBe(providerCacheKey(base, 'audit-a'));

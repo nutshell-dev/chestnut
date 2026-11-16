@@ -21,7 +21,7 @@ function config(model: string): LLMOrchestratorConfig {
     primary: { name: 'mock', model, apiKey: 'secret', apiFormat: 'anthropic' },
     fallbacks: [],
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // maxAttempts=1；零延迟同时确保恢复测试不真实等待。
     events: { emit: () => {} },
   } as LLMOrchestratorConfig;
 }

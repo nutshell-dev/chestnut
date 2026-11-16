@@ -35,6 +35,7 @@ import type { llmProviderConfigContract } from '../../../src/foundation/llm-prov
 type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { StreamEvent, StreamLog } from '../../../src/foundation/stream/index.js';
 import { replaceProviderStates } from './test-internals.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const OK_RESPONSE: LLMResponse = {
   content: [{ type: 'text', text: 'ok' }],
@@ -237,6 +238,9 @@ function lastInvocationId(rows: AuditRecord[]): string {
   return colMap(started[started.length - 1]).invocation;
 }
 
+/** Minimal nonzero retry fixture; audit scenarios must not incur production waits. */
+const TEST_RETRY_DELAY_MS = 1;
+
 interface HarnessOpts {
   providers: Record<string, ProviderAdapter>;
   primaryName: string;
@@ -279,7 +283,7 @@ function makeHarness(dir: string, opts: HarnessOpts): Harness {
     primary: providerConfig(opts.primaryName),
     fallbacks: (opts.fallbackNames ?? []).map(providerConfig),
     maxAttempts: opts.maxAttempts ?? 1,
-    retryDelayMs: 1,
+    retryDelayMs: TEST_RETRY_DELAY_MS,
     events: sink,
     ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
     createProviderAdapter: findAdapter,
@@ -517,7 +521,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       },
       primaryName: 'kimi-year',
       fallbackNames: ['fb1', 'fb2'],
-      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     });
     // fb1 waiting（index 1 = 第一个 fallback）
     replaceProviderStates(h.service, [{
@@ -723,7 +727,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       lifecycle: { mode: 'durable', fs: nfs },
       primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 1,
+      retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
       createProviderAdapter: () => adapter,
     });
@@ -768,7 +772,7 @@ describe('provider 调用路径审计（磁盘重建）', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { name: 'kimi-year', apiKey: 'test-key', model: 'model-x', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 1,
+      retryDelayMs: TEST_RETRY_DELAY_MS,
       events: sink,
       createProviderAdapter: () => adapter,
     });

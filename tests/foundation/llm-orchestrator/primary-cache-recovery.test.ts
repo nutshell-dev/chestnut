@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator, LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
-import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
+import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import { providerIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
@@ -47,7 +47,7 @@ function ephemeral(adapters: ProviderAdapter[], resetTimeoutMs?: number, events?
     primary: config(adapters[0].name),
     fallbacks: adapters.slice(1).map(item => config(item.name)),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: event => { events?.push(event); } },
     ...(resetTimeoutMs !== undefined ? { circuitBreaker: { failureThreshold: 1, resetTimeoutMs } } : {}),
     createProviderAdapter: provider => adapters.find(item => item.name === provider.name)!,
@@ -63,7 +63,7 @@ async function durable(adapters: ProviderAdapter[]) {
     primary: config(nextAdapters[0].name),
     fallbacks: nextAdapters.slice(1).map(item => config(item.name)),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；恢复时序由 fake clock 与状态下界控制。
     events: { emit: () => {} },
     createProviderAdapter: provider => nextAdapters.find(item => item.name === provider.name)!,
   });

@@ -80,6 +80,10 @@ class TestRuntime extends Runtime {
  * motion = 装正式 registerAllMotionGuidance（task_queue_overflow = NO_GUIDANCE）；
  * worker = 不装 motion guidance（guidanceCompose undefined → Runtime 跳过追加）。
  */
+/** Mock-only Runtime and persisted-task fixtures; neither budget drives a real wait here. */
+const MOCK_PROVIDER_TIMEOUT_MS = 1;
+const TASK_TIMEOUT_FIXTURE_MS = 60_000;
+
 function buildRuntime(
   audit: ReturnType<typeof makeAudit>['audit'],
   opts: { withMotionGuidance: boolean },
@@ -94,9 +98,9 @@ function buildRuntime(
     clawsDir: '/tmp/claws',
     idleTimeoutMs: 0,
     llmConfig: {
-      primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' as const },
+      primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: MOCK_PROVIDER_TIMEOUT_MS, apiFormat: 'anthropic' as const },
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；本测试不发起 LLM 调用。
     },
     dependencies: {
       systemFs: {} as never,
@@ -162,7 +166,7 @@ describe('phase 1836: task_queue_overflow 超限通知新语义真实生产链',
   function writePending(id: string): void {
     fsSync.writeFileSync(path.join(baseDir, 'tasks', 'queues', 'pending', `${id}.json`), JSON.stringify({
       id, kind: 'subagent', mode: 'standard', shortId: id.slice(0, 8), parentClawId: 'parent-claw',
-      parentClawDir: baseDir, createdAt: new Date().toISOString(), timeoutMs: 60000, intent: 'test',
+      parentClawDir: baseDir, createdAt: new Date().toISOString(), timeoutMs: TASK_TIMEOUT_FIXTURE_MS, intent: 'test',
     }));
   }
 

@@ -15,9 +15,10 @@ import {
   estimatePromptTokens,
 } from '../../../src/foundation/llm-orchestrator/utils.js';
 import {
+  DEFAULT_LLM_TIMEOUT_MS,
   LLM_TIMEOUT_MAX_MS,
   LLM_TIMEOUT_TOKENS_PER_SECOND,
-} from '../../../src/foundation/llm-orchestrator/defaults.js';
+} from '../../../src/foundation/llm-orchestrator/index.js';
 import { isContextExceededError, type LLMEvent, type LLMEventSink } from '../../../src/foundation/llm-orchestrator/index.js';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 const { LLMContextExceededError } = llmProviderCall;
@@ -36,6 +37,8 @@ const OK_RESPONSE: LLMResponse = {
 /** openrouter 上真实 catalog 值为 4095 的小窗口模型（精确命中优先于启发式）。 */
 const SMALL_WINDOW_MODEL = 'openai/gpt-3.5-turbo-0613';
 const SMALL_WINDOW = 4_095;
+/** Short provider base; dynamic-timeout assertions derive from this fixture. */
+const TEST_PROVIDER_TIMEOUT_MS = 1_000;
 
 function providerConfig(): ProviderConfig {
   return {
@@ -43,7 +46,7 @@ function providerConfig(): ProviderConfig {
     apiKey: 'key',
     model: SMALL_WINDOW_MODEL,
     temperature: 0,
-    timeoutMs: 1_000,
+    timeoutMs: TEST_PROVIDER_TIMEOUT_MS,
     apiFormat: 'anthropic',
   };
 }
@@ -73,7 +76,7 @@ function createOwner(opts: { callError?: Error; streamError?: Error } = {}) {
       lifecycle: { mode: 'ephemeral' },
     primary: providerConfig(),
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
     events: sink,
     createProviderAdapter: () => adapter,
   });
@@ -87,11 +90,11 @@ function overFormerHardLimitMessages() {
 
 describe('Phase 1969: no preflight admission', () => {
   it('动态 timeout 仍随输入增长且封顶 10min（estimatePromptTokens 保留）', () => {
-    expect(computeDynamicCallTimeoutMs(60_000, 0)).toBe(60_000);
-    expect(computeDynamicCallTimeoutMs(60_000, 50_000)).toBe(
-      60_000 + (50_000 / LLM_TIMEOUT_TOKENS_PER_SECOND) * 1_000,
+    expect(computeDynamicCallTimeoutMs(DEFAULT_LLM_TIMEOUT_MS, 0)).toBe(DEFAULT_LLM_TIMEOUT_MS);
+    expect(computeDynamicCallTimeoutMs(DEFAULT_LLM_TIMEOUT_MS, 50_000)).toBe(
+      DEFAULT_LLM_TIMEOUT_MS + (50_000 / LLM_TIMEOUT_TOKENS_PER_SECOND) * 1_000,
     );
-    expect(computeDynamicCallTimeoutMs(60_000, 10_000_000)).toBe(LLM_TIMEOUT_MAX_MS);
+    expect(computeDynamicCallTimeoutMs(DEFAULT_LLM_TIMEOUT_MS, 10_000_000)).toBe(LLM_TIMEOUT_MAX_MS);
   });
 
   it('>=80% 输入仍到达 provider（call），无 context_budget_warning', async () => {
@@ -156,7 +159,7 @@ describe('Phase 1969: no preflight admission', () => {
       lifecycle: { mode: 'ephemeral' },
       primary: { ...providerConfig(), name: 'primary' },
       fallbacks: [{ ...providerConfig(), name: 'fallback' }],
-      maxAttempts: 1, retryDelayMs: 0,
+      maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
       events: { emit: event => { emitted.push(event); } },
       createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
     });
@@ -191,7 +194,7 @@ describe('Phase 1969: no preflight admission', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { ...providerConfig(), name: 'primary' },
         fallbacks: [{ ...providerConfig(), name: 'fallback' }],
-        maxAttempts: 1, retryDelayMs: 0,
+        maxAttempts: 1, retryDelayMs: 0, // 禁用重试等待；context 用例必须立即 throw-through。
         events: { emit: () => {} },
         createProviderAdapter: config => config.name === 'fallback' ? fallback : primary,
       });

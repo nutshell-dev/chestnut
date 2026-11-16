@@ -17,6 +17,7 @@ import {
   snapshotLLMConfigInput,
 } from '../../../src/core/llm-configuration/index.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const PRIMARY = { name: 'primary', apiKey: 'key', model: 'model', apiFormat: 'anthropic' as const };
 const FALLBACK = { name: 'fallback', apiKey: 'key', model: 'model', apiFormat: 'anthropic' as const };
@@ -45,7 +46,7 @@ function makeConfig(
     primary: PRIMARY,
     fallbacks: [FALLBACK],
     maxAttempts: 1,
-    retryDelayMs: 0,
+    retryDelayMs: 0, // 禁用重试等待；诊断用例只观察配置与选择事实。
     events: sink,
     createProviderAdapter: adapter,
     ...(circuitBreaker ? { circuitBreaker } : {}),
@@ -73,22 +74,23 @@ describe('legacy circuitBreaker diagnostics', () => {
     makeOwner({ ...resolved, events: sink, lifecycle: { mode: 'ephemeral' }, createProviderAdapter: adapter });
     expect(emitted.filter(event => event.type === 'legacy_config_ignored')).toEqual([{
       type: 'legacy_config_ignored', field: 'circuitBreaker', reason: 'provider_retry_at_policy',
-      value: { failureThreshold: 3, resetTimeoutMs: 60_000 },
+      value: { failureThreshold: 3, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
     }]);
   });
 
   it('does not change retryAt or selection when only legacy values differ', async () => {
+    // 1_000/3_600_000ms 是故意不同的 legacy 配置 fixture，不参与生产默认解析。
     vi.useFakeTimers();
     vi.setSystemTime(Date.parse('2026-11-10T00:00:00.000Z'));
     const firstEvents: LLMEvent[] = [];
     const secondEvents: LLMEvent[] = [];
     const first = makeOwner(makeConfig(
       { emit: event => { firstEvents.push(event); } },
-      { failureThreshold: 1, resetTimeoutMs: 1_000 },
+      { failureThreshold: 1, resetTimeoutMs: 1_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     ));
     const second = makeOwner(makeConfig(
       { emit: event => { secondEvents.push(event); } },
-      { failureThreshold: 20, resetTimeoutMs: 3_600_000 },
+      { failureThreshold: 20, resetTimeoutMs: 3_600_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
     ));
 
     await expect(first.call({ messages: [] })).rejects.toThrow();
@@ -115,7 +117,7 @@ describe('legacy circuitBreaker diagnostics', () => {
       return adapter(provider);
     };
     const owner = makeOwner(config);
-    const diagnostic = { failureThreshold: 5, resetTimeoutMs: 120_000 };
+    const diagnostic = { failureThreshold: 5, resetTimeoutMs: 120_000 }; // 自定义 reload 透传 fixture，非默认值。 // time-fixture: configuration/payload round-trip input, not an independent wait budget
 
     expect(() => owner.reloadConfig({
       ...config,

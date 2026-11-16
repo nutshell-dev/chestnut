@@ -213,7 +213,7 @@ describe('timeout-distinction', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
         createProviderAdapter: () => primary as any,
       });
@@ -254,7 +254,7 @@ describe('timeout-distinction', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: sink,
         createProviderAdapter: () => primary as any,
       });
@@ -293,7 +293,7 @@ describe('timeout-distinction', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
         createProviderAdapter: () => primary as any,
       });
@@ -349,7 +349,7 @@ describe('all-providers-context-exceeded-emit', () => {
       primary: { name: primary.name, apiKey: 'test', model: primary.model, maxTokens: 1024, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, maxTokens: 1024, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => findAdapter(cfg),
@@ -520,7 +520,7 @@ describe('merge-signals-cleanup', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
         createProviderAdapter: () => primary as any,
       });
@@ -559,7 +559,7 @@ describe('merge-signals-cleanup', () => {
       lifecycle: { mode: 'ephemeral' },
         primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
-        retryDelayMs: 0,
+        retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
         events: noopSink,
         createProviderAdapter: () => primary as any,
       });
@@ -668,7 +668,7 @@ describe('race-loser-cleanup', () => {
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => findAdapter(cfg),
@@ -886,7 +886,7 @@ describe('hedge-cache-token-emit', () => {
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: DEFAULT_RESET_TIMEOUT_MS },
       createProviderAdapter: (cfg) => findAdapter(cfg),
@@ -1337,7 +1337,7 @@ describe('streaming-fallback-switched-emit', () => {
       primary: { name: primary.name, apiKey: 'k', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'k', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待；各用例另设所需的非零退避。
       events: sink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
@@ -1640,7 +1640,7 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       async call() { return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse; },
     };
     const orchestrator = makeOrchestrator(primary, sink, 2, fallback);
-    internalsOf(orchestrator).providerRuntime.config().retryDelayMs = 0;
+    internalsOf(orchestrator).providerRuntime.config().retryDelayMs = 0; // 立即重试哨兵，随后恢复非零抖动基值。
     await orchestrator.call({});
     expect(emitted.filter(e => e.type === 'retry_scheduled')).toHaveLength(0);
     internalsOf(orchestrator).providerRuntime.config().retryDelayMs = INVOCATION_BACKOFF_BASE_MS;

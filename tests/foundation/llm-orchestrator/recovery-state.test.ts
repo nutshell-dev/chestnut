@@ -21,7 +21,7 @@ import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/t
 import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/defaults.js';
+} from '../../../src/foundation/llm-orchestrator/index.js';
 import {
   createEmptyLLMInstanceState,
   LLM_INSTANCE_STATE_FILE,
@@ -106,6 +106,7 @@ describe('recovery state schema', () => {
     const { dir, fs } = await makeTrackedDir();
     const legacyPath = path.join(dir, 'status', 'llm-retry-state.json');
     fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    // 45_000/180_000ms 是旧磁盘 payload 的 round-trip fixture，不改成生产默认值。
     const legacyRaw = JSON.stringify({
       schema_version: 2,
       llmRetryCount: 2,
@@ -122,7 +123,7 @@ describe('recovery state schema', () => {
     expect(loaded.state).toMatchObject({
       revision: 1,
       schedule: { kind: 'ready', revision: 1 },
-      budget: { retryCount: 2, retryDelayMs: 45_000, quotaDelayMs: 180_000 },
+      budget: { retryCount: 2, retryDelayMs: 45_000, quotaDelayMs: 180_000 }, // time-fixture: configuration/payload round-trip input, not an independent wait budget
       importedSources: ['status/llm-retry-state.json#schema_version=2'],
     });
     expect(fsNative.readFileSync(legacyPath, 'utf8')).toBe(legacyRaw);
@@ -544,7 +545,7 @@ describe('Phase 2035 Step D/E: loss record and semantic validation', () => {
       detail: 'budget.retryDelayMs',
       change: (state: LLMRecoveryStateV1) => ({
         ...state,
-        budget: { ...state.budget, retryDelayMs: 0 },
+        budget: { ...state.budget, retryDelayMs: 0 }, // 非法零值哨兵：schema 必须拒绝。
       }),
     },
     {

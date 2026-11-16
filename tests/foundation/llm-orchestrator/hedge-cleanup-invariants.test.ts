@@ -22,7 +22,13 @@ type ProviderConfig = llmProviderConfigContract.ProviderConfig;
 import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { internalsOf, providerStatesOf, replaceProviderStates } from './test-internals.js';
 
-
+/** Named real-timer tracks used to construct each hedge winner/loser ordering. */
+const HEDGE_SLOW_CALL_DELAY_MS = 500;
+const HEDGE_FAST_CALL_DELAY_MS = 50;
+const HEDGE_SLOW_STREAM_DELAY_MS = 500;
+const HEDGE_PRIMARY_ERROR_STREAM_DELAY_MS = 50;
+const HEDGE_QUICK_STREAM_DELAY_MS = 10;
+const HEDGE_B_ERROR_STREAM_DELAY_MS = 20;
 
 /**
  * Hedge drain post-first-chunk failure — reverse test for phase 903 B2
@@ -89,7 +95,7 @@ describe('hedge-post-first-chunk-failure', () => {
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
@@ -140,7 +146,7 @@ describe('hedge-post-first-chunk-failure', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fallback]);
       forceProviderWaiting(service, 0, 'transient');
@@ -251,7 +257,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
@@ -303,7 +309,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
 
       const fb1 = createMockProvider('fb1', {
         callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
-        callDelayMs: 50,
+        callDelayMs: HEDGE_FAST_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
@@ -318,7 +324,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
     it('B-error → A-error 双失败 → primaryIter.return called', async () => {
       const primaryRaw = createMockProvider('primary', {
         streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
-        streamDelayMs: 50,
+        streamDelayMs: HEDGE_PRIMARY_ERROR_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
 
@@ -341,7 +347,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 10,
+        streamDelayMs: HEDGE_QUICK_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
 
@@ -350,7 +356,7 @@ describe('hedge-double-fail-generator-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
@@ -432,7 +438,7 @@ describe('hedge-bwins-cleanup', () => {
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
-      retryDelayMs: 0,
+      retryDelayMs: 0, // 禁用重试等待，保持清理竞态即时推进。
       events: noopSink,
       createProviderAdapter: (cfg) => findAdapter(cfg),
     });
@@ -482,7 +488,7 @@ describe('hedge-bwins-cleanup', () => {
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 500,
+        streamDelayMs: HEDGE_SLOW_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
 
@@ -491,7 +497,7 @@ describe('hedge-bwins-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 50,
+        callDelayMs: HEDGE_FAST_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
@@ -511,7 +517,7 @@ describe('hedge-bwins-cleanup', () => {
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 500,
+        streamDelayMs: HEDGE_SLOW_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
       returnSpy.mockImplementation(async () => {
@@ -523,7 +529,7 @@ describe('hedge-bwins-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 50,
+        callDelayMs: HEDGE_FAST_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
@@ -543,7 +549,7 @@ describe('hedge-bwins-cleanup', () => {
           { type: 'text_delta', delta: 'hello' },
           { type: 'done', stopReason: 'end_turn' },
         ],
-        streamDelayMs: 10,
+        streamDelayMs: HEDGE_QUICK_STREAM_DELAY_MS,
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
 
@@ -552,7 +558,7 @@ describe('hedge-bwins-cleanup', () => {
           content: [{ type: 'text', text: 'fb response' }],
           stop_reason: 'end_turn',
         },
-        callDelayMs: 500,
+        callDelayMs: HEDGE_SLOW_CALL_DELAY_MS,
       });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
@@ -577,7 +583,7 @@ describe('hedge-bwins-cleanup', () => {
       });
       const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
       const fb1 = createMockProvider('fb1', mode === 'A-first'
-        ? { callDelayMs: 500 }
+        ? { callDelayMs: HEDGE_SLOW_CALL_DELAY_MS }
         : { callError: new LLMNetworkError('fb1', new Error('offline')) });
       const service = createOrchestrator(primary, [fb1]);
       forceProviderWaiting(service, 0, 'transient');
