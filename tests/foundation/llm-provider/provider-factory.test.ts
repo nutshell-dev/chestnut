@@ -7,6 +7,7 @@ import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.
 import { toProviderConfig } from '../../../src/foundation/llm-provider/config-adapter.js';
 import { providerConnectionFromResolvedConfig } from '../../../src/foundation/llm-provider/provider-connection.js';
 import { llmProviderConfigSchema } from '../../../src/foundation/llm-provider/llm-provider-config-schema.js';
+import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 describe('createLLMProvider config boundary', () => {
   it('does not accept a prebuilt provider through duck-typed config', () => {
@@ -28,7 +29,7 @@ describe('createProviderFromConnection', () => {
       baseUrl: 'https://api.test.invalid/v1',
       apiFormat: 'openai',
       authentication: { kind: 'api_key', value: 'secret' },
-      defaults: { temperature: 0.2, timeoutMs: 1234, maxTokens: 99 },
+      defaults: { temperature: 0.2, timeoutMs: TEST_LLM_TIMEOUT_MS, maxTokens: 99 },
     });
     expect(provider).toMatchObject({ name: 'neutral', model: 'test-model' });
   });
