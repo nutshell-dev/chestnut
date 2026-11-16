@@ -24,6 +24,11 @@ export type {
   ProviderAdapter,
   AuditSink,
 } from '../types.js';
+export type {
+  ProviderAuthentication,
+  ProviderConnection,
+  ProviderFactory,
+} from '../provider-connection.js';
 export type ProviderCallConfig = ProviderConfig;
 export type ProviderFactoryOptions = PiAiAdapterOptions;
 export type LLMProviderCallCapability = Pick<LLMProvider, 'call' | 'stream'>;
@@ -45,7 +50,11 @@ export type LLMProviderFailureClass =
   | LLMStreamAbortedError
   | LLMInvalidRequestError;
 
-export { createLLMProvider } from '../provider-factory.js';
+export {
+  createProviderFromConnection,
+  createLLMProvider,
+  type ProviderConnectionFactoryOptions,
+} from '../provider-factory.js';
 export { LLMInvalidRequestError } from '../request-unicode.js';
 export {
   LLMError,

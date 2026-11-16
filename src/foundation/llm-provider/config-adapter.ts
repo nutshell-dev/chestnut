@@ -14,6 +14,10 @@ import {
 } from './catalog-strategy.js';
 import { resolveThinkingDefaults } from './thinking-defaults.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
+import {
+  providerConnectionFromResolvedConfig,
+  type ProviderConnection,
+} from './provider-connection.js';
 
 /** 派生身份不参与配置持久化/身份哈希；只在本次 runtime config 对象上保留。 */
 function attachCatalogResolution(
@@ -37,6 +41,11 @@ function assertNotBareEnvVar(apiKey: string | undefined, display: string): void 
       `Use \${${apiKey}} to reference it.`
     );
   }
+}
+
+/** Resolve persisted provider input into the neutral L4/L2 connection boundary. */
+export function toProviderConnection(p: LLMProviderConfig): ProviderConnection {
+  return providerConnectionFromResolvedConfig(toProviderConfig(p));
 }
 
 // Convert snake_case to camelCase, resolve preset

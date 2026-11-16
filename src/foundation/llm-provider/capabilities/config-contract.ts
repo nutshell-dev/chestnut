@@ -12,5 +12,5 @@ export type { ThinkingLevel } from '../thinking-levels.js';
 export { DEFAULT_LLM_TIMEOUT_MS } from '../defaults.js';
 export { llmProviderConfigSchema } from '../llm-provider-config-schema.js';
 export type { LLMProviderConfig } from '../llm-provider-config-schema.js';
-export { toProviderConfig } from '../config-adapter.js';
+export { toProviderConfig, toProviderConnection } from '../config-adapter.js';
 export type { ProviderConfig } from '../types.js';

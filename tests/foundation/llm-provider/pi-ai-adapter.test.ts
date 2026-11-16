@@ -10,7 +10,10 @@
  * dropThinkingBlocks、output budget 自动重试、Google 族退化（无注入 fetch）。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { createLLMProvider } from '../../../src/foundation/llm-provider/provider-factory.js';
+import {
+  createLLMProvider,
+  createProviderFromConnection,
+} from '../../../src/foundation/llm-provider/provider-factory.js';
 import { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 const { LLMAuthError, LLMModelNotFoundError, LLMRateLimitError, LLMQuotaError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMTimeoutError, LLMNetworkError, LLMError, LLMEmptyResponseError } = llmProviderCall;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
@@ -149,6 +152,50 @@ describe('PiAiAdapter — openai-completions 协议', () => {
     const headers = new Headers(init.headers);
     expect(headers.get('authorization')).toBe('Bearer sk-test-key');
     expect(headers.get('x-custom')).toBe('yes');
+  });
+
+  it('capability authentication resolves lazily for each request', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse(openaiSse(openaiTextFrames('one'))))
+      .mockResolvedValueOnce(sseResponse(openaiSse(openaiTextFrames('two'))));
+    vi.stubGlobal('fetch', fetchMock);
+    const resolve = vi.fn()
+      .mockResolvedValueOnce({ accessToken: 'token-one' })
+      .mockResolvedValueOnce({ accessToken: 'token-two' });
+    const adapter = createProviderFromConnection({
+      providerId: 'capability-provider',
+      model: 'test-model',
+      baseUrl: 'https://api.test.invalid/v1',
+      apiFormat: 'openai',
+      authentication: { kind: 'capability', identity: 'credential:v1', resolve },
+    });
+    await adapter.prepareInputMeter();
+    expect(resolve).not.toHaveBeenCalled();
+    await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    await adapter.call({ messages: [{ role: 'user', content: 'hi' }] });
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('authorization')).toBe('Bearer token-one');
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('authorization')).toBe('Bearer token-two');
+  });
+
+  it('capability authentication failures stay typed and never fall back to a request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = createProviderFromConnection({
+      providerId: 'capability-provider',
+      model: 'test-model',
+      baseUrl: 'https://api.test.invalid/v1',
+      apiFormat: 'openai',
+      authentication: {
+        kind: 'capability',
+        identity: 'credential:v1',
+        resolve: () => Promise.reject(new Error('secret resolver detail')),
+      },
+    });
+    const error = await adapter.call({ messages: [{ role: 'user', content: 'hi' }] }).catch(reason => reason);
+    expect(error).toBeInstanceOf(LLMAuthError);
+    expect(JSON.stringify(error)).not.toContain('secret resolver detail');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('401 → LLMAuthError（status+body 来自注入 fetch 截获）', async () => {

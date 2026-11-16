@@ -29,6 +29,7 @@ import type {
 } from './types.js';
 import {
   LLMError,
+  LLMAuthError,
   LLMEmptyResponseError,
   LLMContextExceededError,
   LLMNetworkError,
@@ -79,11 +80,14 @@ import {
   type InputArtifactOwner,
 } from './input-artifact.js';
 import type { InputMeasurement } from './input-meter-types.js';
+import type { ProviderAuthentication } from './provider-connection.js';
 
 /** Phase 1927 Step E：adapter 实例级注入面（装配根传入固定 CredentialStore）。 */
 export interface PiAiAdapterOptions {
   credentialStore?: PiAiCredentialStore;
   inputArtifactOwner?: InputArtifactOwner;
+  /** @internal Lazy neutral-connection authentication; not a legacy config field. */
+  authentication?: Extract<ProviderAuthentication, { kind: 'capability' }>;
 }
 
 export class PiAiAdapter implements ProviderAdapter {
@@ -106,6 +110,22 @@ export class PiAiAdapter implements ProviderAdapter {
       ...(this.options?.credentialStore && { credentials: this.options.credentialStore }),
     });
     return this.endpointPromise;
+  }
+
+  private async requestApiKey(): Promise<string | undefined> {
+    const authentication = this.options?.authentication;
+    if (!authentication) return this.config.apiKey;
+    try {
+      const result = await authentication.resolve();
+      if (!result.accessToken.trim()) throw new Error('empty access token');
+      return result.accessToken;
+    } catch {
+      throw new LLMAuthError(
+        this.name,
+        0,
+        `Provider authentication capability "${authentication.identity}" could not resolve an access token`,
+      );
+    }
   }
 
   async prepareInputMeter(options: Pick<LLMCallOptions, 'maxTokens' | 'temperature'> = {}): Promise<ModelInputMeter> {
@@ -340,9 +360,10 @@ export class PiAiAdapter implements ProviderAdapter {
     const [abortHandle, cleanup] = withCombinedAbortSignal(options.signal, timeout);
 
     try {
+      const requestApiKey = await this.requestApiKey();
       const stream = models.streamSimple(model, context, {
         signal: abortHandle.signal,
-        apiKey: this.config.apiKey,
+        apiKey: requestApiKey,
         ...(googleFamily ? {} : { fetch: createCapturingFetch(capture) }),
         ...(this.config.extraHeaders && { headers: this.config.extraHeaders }),
         ...buildEffectiveCallOptions(this.config, options, maxTokensOverride),
