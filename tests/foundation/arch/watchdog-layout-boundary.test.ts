@@ -1,7 +1,7 @@
 /**
  * Phase 1287 Step C: Watchdog 布局 owner ratchet，冻结：
  *  - WATCHDOG_PATHS production 定义恰在 watchdog/layout.ts 一处；键值与
- *    Phase 1286 + Phase 2153 B1 raw process_output 逐项一致、不缺不溢；
+ *    Phase 1286 + Phase 2153 B1 raw process_output + Phase 2178 recovery 逐项一致、不缺不溢；
  *  - layout 模块零 import、零 IO；ownership 四目录常量均自 WATCHDOG_PATHS 派生；
  *  - Watchdog 外 production 模块不得消费 layout 符号/deep-import layout；
  *  - state/log 生产 IO 走 target 布局、零路径字面直写。
@@ -29,7 +29,7 @@ const TARGET_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ['state', 'watchdog/state.json'], ['log', 'watchdog/watchdog.log'],
   ['process_output', 'watchdog/process-output.log'],
   ['subscriptions', 'watchdog/subscriptions'], ['candidates', 'watchdog/candidates'],
-  ['active', 'watchdog/active'], ['retired', 'watchdog/retired'],
+  ['recovery', 'watchdog/recovery'], ['active', 'watchdog/active'], ['retired', 'watchdog/retired'],
   ['quarantine', 'watchdog/quarantine'],
 ];
 
@@ -73,7 +73,7 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     expect(definitions).toEqual(['src/watchdog/layout.ts']);
   });
 
-  it('目标路径键值与 Phase 1286 + Phase 2153 B1 逐项一致、无缺项无额外项', () => {
+  it('目标路径键值与 Phase 1286 + Phase 2153 B1 + Phase 2178 逐项一致、无缺项无额外项', () => {
     const text = fs.readFileSync(LAYOUT_FILE, 'utf8');
     expect(text).toContain('export const WATCHDOG_LAYOUT_SCHEMA_VERSION = 1;');
     for (const [key, value] of TARGET_ENTRIES) expect(text).toContain(`${key}: '${value}'`);
