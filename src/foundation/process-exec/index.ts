@@ -98,6 +98,7 @@ export {
 } from './errors.js';
 export type {
   ProcessListErrorEvidence,
+  ProcessListEvidence,
   ProcessListFailureClassification,
   ProcessListOperation,
 } from './errors.js';

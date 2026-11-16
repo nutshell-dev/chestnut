@@ -38,6 +38,9 @@ describe('Phase 2146 B8 process-list synchronization boundary', () => {
       ['find', 'ByLiteralPattern'].join(''),
     ];
     const offenders = productionFiles.filter((file) => {
+      // ProcessExec owns the backend-neutral async contract with a similar name;
+      // this guard targets legacy consumers outside that L1 implementation.
+      if (relative(file).startsWith('foundation/process-exec/')) return false;
       const source = readFileSync(file, 'utf8');
       return legacyNames.some((name) => new RegExp(`\\b${name}\\b`).test(source));
     }).map(relative);

@@ -214,13 +214,20 @@ describe('ProcessManager', () => {
     it('should return empty array when pgrep exits 1 (no match)', async () => {
       const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
-      vi.mocked(spawnSync).mockImplementation(() => ({
-        status: 1,
-        stdout: '',
-        stderr: '',
-      } as any));
+      vi.mocked(spawnSync).mockClear();
+      vi.mocked(spawnSync)
+        // Capability probe: pgrep executed successfully, with no probe match.
+        .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' } as any)
+        .mockReturnValueOnce({
+          status: 0,
+          stdout: `${process.pid} node self\n`,
+          stderr: '',
+        } as any)
+        // Actual query: status 1 is the successful no-match result.
+        .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' } as any);
 
       expect(pm.findProcessesSyncForCli('test-pattern')).toEqual([]);
+      expect(spawnSync).toHaveBeenCalledTimes(3);
     });
   });
 });

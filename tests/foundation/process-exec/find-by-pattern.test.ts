@@ -232,4 +232,53 @@ describe('bounded process listing', () => {
     finish(pgrep, 1);
     await expect(pending).resolves.toEqual([]);
   });
+
+  it('rejects malformed pgrep output instead of dropping unreadable PIDs', async () => {
+    const pgrep = makeChild();
+    const spawnMock = vi.fn().mockReturnValue(asSpawn(pgrep));
+    const pending = unavailableFrom(findAsync('daemon', spawnMock));
+    finish(pgrep, 0, '123\nnot-a-pid\n');
+
+    const err = await pending;
+    expect(err).toMatchObject({
+      backendId: 'posix-ps',
+      operation: 'pgrep',
+      classification: 'parse_error',
+    });
+    expect(err.evidenceChain).toEqual([err.evidence]);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects empty pgrep success output instead of treating it as no-match', async () => {
+    const pgrep = makeChild();
+    const spawnMock = vi.fn().mockReturnValue(asSpawn(pgrep));
+    const pending = unavailableFrom(findAsync('daemon', spawnMock));
+    finish(pgrep, 0, ' \n');
+
+    const err = await pending;
+    expect(err).toMatchObject({
+      backendId: 'posix-ps',
+      operation: 'pgrep',
+      classification: 'parse_error',
+    });
+  });
+
+  it('rejects malformed ps rows instead of returning partial process information', async () => {
+    const spawnMock = vi.fn().mockImplementation((command: string) => {
+      const child = makeChild();
+      queueMicrotask(() => {
+        if (command === 'pgrep') finish(child, 0, '123\n');
+        else finish(child, 0, '123 node daemon.js\nmalformed-row\n');
+      });
+      return asSpawn(child);
+    });
+
+    const err = await unavailableFrom(findAsync('daemon', spawnMock));
+    expect(err).toMatchObject({
+      backendId: 'posix-ps',
+      operation: 'ps',
+      classification: 'parse_error',
+    });
+    expect((err.cause as Error).message).toContain('malformed-row');
+  });
 });

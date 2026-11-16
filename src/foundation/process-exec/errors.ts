@@ -84,7 +84,7 @@ export class UnsupportedHostScriptError extends Error {
 }
 
 /** Process-list operation and stable failure taxonomy for diagnostics/recovery. */
-export type ProcessListOperation = 'backend' | 'pgrep' | 'ps';
+export type ProcessListOperation = 'backend' | 'probe' | 'parse' | 'pgrep' | 'ps';
 export type ProcessListFailureClassification =
   | 'unsupported'
   | 'spawn_error'
@@ -92,18 +92,24 @@ export type ProcessListFailureClassification =
   | 'signal'
   | 'timeout'
   | 'abort'
-  | 'max_buffer';
+  | 'max_buffer'
+  | 'parse_error';
 
-/** Serializable OS evidence; the original exception remains available as `cause`. */
-export interface ProcessListErrorEvidence {
+/** Serializable capability/OS evidence across probe, selection and query. */
+export interface ProcessListEvidence {
   readonly backendId: string;
   readonly operation: ProcessListOperation;
-  readonly classification: ProcessListFailureClassification;
+  readonly classification: ProcessListFailureClassification | 'available';
   readonly status: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly stderr: string;
   /** Original errno-style code (ENOENT, ENOBUFS, ABORT_ERR, ...), when known. */
   readonly code?: string;
+}
+
+/** Failure evidence retains its narrower legacy classification contract. */
+export interface ProcessListErrorEvidence extends ProcessListEvidence {
+  readonly classification: ProcessListFailureClassification;
 }
 
 /**
@@ -121,11 +127,14 @@ export class ProcessListUnavailable extends Error {
   readonly stderr: string;
   readonly causeCode?: string;
   readonly evidence: ProcessListErrorEvidence;
+  /** Ordered probe/fallback/query facts; the legacy fields mirror the final failure. */
+  readonly evidenceChain: readonly ProcessListEvidence[];
 
   constructor(
     public readonly pattern: string,
     public readonly cause: unknown,
     evidence: Partial<ProcessListErrorEvidence> = {},
+    options: { evidenceChain?: readonly ProcessListEvidence[] } = {},
   ) {
     const normalized: ProcessListErrorEvidence = {
       backendId: evidence.backendId ?? 'posix-ps',
@@ -147,5 +156,6 @@ export class ProcessListUnavailable extends Error {
     this.stderr = normalized.stderr;
     this.causeCode = normalized.code;
     this.evidence = normalized;
+    this.evidenceChain = options.evidenceChain ?? [normalized];
   }
 }

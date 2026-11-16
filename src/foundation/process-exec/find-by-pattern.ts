@@ -11,17 +11,20 @@ import {
 } from './constants.js';
 import {
   ProcessListUnavailable,
+  type ProcessListEvidence,
   type ProcessListFailureClassification,
   type ProcessListOperation,
 } from './errors.js';
+import {
+  findByPatternWithBackends,
+  findByPatternWithBackendsSyncForCli,
+  type BackendProbe,
+  type ProcessListBackend,
+  type ProcessListOptions,
+} from './process-list-backend.js';
 import type { ProcessInfo } from './types.js';
 
-export interface FindByPatternOptions {
-  /** Bound applied independently to each process-list child process. */
-  timeoutMs?: number;
-  signal?: AbortSignal;
-  /** Combined stdout + stderr byte limit for each child process. */
-  maxBuffer?: number;
+export interface FindByPatternOptions extends ProcessListOptions {
   /** Deterministic test seam; production callers use the L1 child_process owner. */
   spawnProcess?: typeof spawn;
 }
@@ -88,21 +91,32 @@ function escapeLiteral(pattern: string): string {
   return pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');
 }
 
-function parsePids(stdout: string): number[] {
-  return stdout
-    .split('\n')
-    .map(s => s.trim())
-    .filter(s => s.length > 0)
-    .map(s => parseInt(s, 10))
-    .filter(n => !isNaN(n));
+function parseFailure(pattern: string, operation: ProcessListOperation, line: string): ProcessListUnavailable {
+  return unavailable(
+    pattern,
+    operation,
+    'parse_error',
+    new Error(`Malformed ${operation} response line: ${JSON.stringify(line)}`),
+  );
 }
 
-function parseProcessList(stdout: string): ProcessInfo[] {
-  return stdout.split('\n').filter(l => l.trim().length > 0).map(line => {
+function parsePids(stdout: string, pattern: string): number[] {
+  const lines = stdout.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  if (lines.length === 0) throw parseFailure(pattern, 'pgrep', '<empty>');
+  return lines.map(line => {
+    if (!/^\d+$/.test(line)) throw parseFailure(pattern, 'pgrep', line);
+    return parseInt(line, 10);
+  });
+}
+
+function parseProcessList(stdout: string, pattern: string): ProcessInfo[] {
+  const lines = stdout.split('\n').filter(l => l.trim().length > 0);
+  if (lines.length === 0) throw parseFailure(pattern, 'ps', '<empty>');
+  return lines.map(line => {
     const m = line.trim().match(/^(\d+)\s+(.*)$/);
-    if (!m) return null;
+    if (!m) throw parseFailure(pattern, 'ps', line);
     return { pid: parseInt(m[1]!, 10), command: m[2]!.trim() };
-  }).filter((x): x is ProcessInfo => x !== null);
+  });
 }
 
 /**
@@ -132,7 +146,7 @@ function findPosixByPatternSync(pattern: string): ProcessInfo[] {
     if (result.status !== 0) {
       throw nonzeroExit(pattern, 'pgrep', result.status, result.stderr, result.signal);
     }
-    pids = parsePids(result.stdout);
+    pids = parsePids(result.stdout, pattern);
   } catch (err) {
     if (err instanceof ProcessListUnavailable) throw err;
     throw unavailable(pattern, 'pgrep', spawnFailureClassification(err), err, { code: errnoCode(err) });
@@ -153,7 +167,7 @@ function findPosixByPatternSync(pattern: string): ProcessInfo[] {
     if (psResult.status !== 0) {
       throw nonzeroExit(pattern, 'ps', psResult.status, psResult.stderr, psResult.signal);
     }
-    return parseProcessList(psResult.stdout);
+    return parseProcessList(psResult.stdout, pattern);
   } catch (err) {
     if (err instanceof ProcessListUnavailable) throw err;
     throw unavailable(pattern, 'ps', spawnFailureClassification(err), err, { code: errnoCode(err) });
@@ -341,7 +355,7 @@ async function findPosixByPatternAsync(
   if (pgrep.status === 1) return [];
   if (pgrep.status !== 0) throw nonzeroExit(pattern, 'pgrep', pgrep.status, pgrep.stderr);
 
-  const pids = parsePids(pgrep.stdout);
+  const pids = parsePids(pgrep.stdout, pattern);
   if (pids.length === 0) return [];
 
   const ps = await runListingProcess(
@@ -351,60 +365,164 @@ async function findPosixByPatternAsync(
     options,
   );
   if (ps.status !== 0) throw nonzeroExit(pattern, 'ps', ps.status, ps.stderr);
-  return parseProcessList(ps.stdout);
+  return parseProcessList(ps.stdout, pattern);
 }
 
-interface ProcessListBackend {
-  readonly id: string;
-  find(pattern: string, options: FindByPatternOptions): Promise<ProcessInfo[]>;
-  findSync(pattern: string): ProcessInfo[];
+function availableEvidence(
+  operation: ProcessListOperation,
+  status: number | null,
+  stderr: string,
+): ProcessListEvidence {
+  return { backendId: 'posix-ps', operation, classification: 'available', status, signal: null, stderr };
+}
+
+function probeFailure(
+  cause: unknown,
+  priorEvidence: readonly ProcessListEvidence[] = [],
+): BackendProbe {
+  const error = cause instanceof ProcessListUnavailable
+    ? cause
+    : unavailable('', 'probe', 'spawn_error', cause, { code: errnoCode(cause) });
+  return {
+    kind: 'unavailable',
+    backendId: 'posix-ps',
+    evidence: [...priorEvidence, ...error.evidenceChain],
+    error,
+  };
 }
 
 class PosixPsProcessListBackend implements ProcessListBackend {
   readonly id = 'posix-ps';
+  private cachedAvailableProbe?: BackendProbe;
 
-  find(pattern: string, options: FindByPatternOptions): Promise<ProcessInfo[]> {
+  async probe(options: ProcessListOptions = {}): Promise<BackendProbe> {
+    // Cache only a successful capability result; failures remain retryable.
+    if (this.cachedAvailableProbe) return this.cachedAvailableProbe;
+    const probe = await this.probeHost(options);
+    if (probe.kind === 'available') this.cachedAvailableProbe = probe;
+    return probe;
+  }
+
+  private async probeHost(options: ProcessListOptions): Promise<BackendProbe> {
+    const evidence: ProcessListEvidence[] = [];
+    try {
+      const pgrep = await runListingProcess(
+        'pgrep',
+        ['-f', 'chestnut_process_list_capability_probe'],
+        '',
+        options,
+      );
+      if (pgrep.status !== 0 && pgrep.status !== 1) {
+        throw nonzeroExit('', 'pgrep', pgrep.status, pgrep.stderr);
+      }
+      evidence.push(availableEvidence('pgrep', pgrep.status, pgrep.stderr));
+      const ps = await runListingProcess(
+        'ps',
+        ['-o', 'pid=,command=', '-p', String(process.pid)],
+        '',
+        options,
+      );
+      if (ps.status !== 0) throw nonzeroExit('', 'ps', ps.status, ps.stderr);
+      const processes = parseProcessList(ps.stdout, '');
+      if (!processes.some(item => item.pid === process.pid)) {
+        throw parseFailure('', 'parse', `self pid ${process.pid} missing`);
+      }
+      evidence.push(availableEvidence('ps', ps.status, ps.stderr));
+      return { kind: 'available', backendId: this.id, evidence };
+    } catch (cause) {
+      // silent: host failure becomes structured unavailable probe evidence.
+      return probeFailure(cause, evidence);
+    }
+  }
+
+  probeSyncForCli(): BackendProbe {
+    let operation: ProcessListOperation = 'pgrep';
+    const evidence: ProcessListEvidence[] = [];
+    try {
+      const pgrep = spawnSync('pgrep', ['-f', 'chestnut_process_list_capability_probe'], { encoding: 'utf-8' });
+      if (pgrep.error) {
+        throw unavailable('', 'pgrep', spawnFailureClassification(pgrep.error), pgrep.error, {
+          status: pgrep.status,
+          signal: pgrep.signal,
+          stderr: pgrep.stderr,
+          code: errnoCode(pgrep.error),
+        });
+      }
+      if (pgrep.status !== 0 && pgrep.status !== 1) {
+        throw nonzeroExit('', 'pgrep', pgrep.status, pgrep.stderr, pgrep.signal);
+      }
+      evidence.push(availableEvidence('pgrep', pgrep.status, pgrep.stderr));
+      operation = 'ps';
+      const ps = spawnSync(
+        'ps',
+        ['-o', 'pid=,command=', '-p', String(process.pid)],
+        { encoding: 'utf-8' },
+      );
+      if (ps.error) {
+        throw unavailable('', 'ps', spawnFailureClassification(ps.error), ps.error, {
+          status: ps.status,
+          signal: ps.signal,
+          stderr: ps.stderr,
+          code: errnoCode(ps.error),
+        });
+      }
+      if (ps.status !== 0) throw nonzeroExit('', 'ps', ps.status, ps.stderr, ps.signal);
+      const processes = parseProcessList(ps.stdout, '');
+      if (!processes.some(item => item.pid === process.pid)) {
+        throw parseFailure('', 'parse', `self pid ${process.pid} missing`);
+      }
+      evidence.push(availableEvidence('ps', ps.status, ps.stderr));
+      return { kind: 'available', backendId: this.id, evidence };
+    } catch (cause) {
+      // silent: sync CLI host failure uses the same unavailable probe evidence.
+      return probeFailure(cause instanceof ProcessListUnavailable
+        ? cause
+        : unavailable('', operation, spawnFailureClassification(cause), cause, { code: errnoCode(cause) }), evidence);
+    }
+  }
+
+  findByPattern(pattern: string, options: ProcessListOptions): Promise<ProcessInfo[]> {
     return findPosixByPatternAsync(pattern, options);
   }
 
-  findSync(pattern: string): ProcessInfo[] {
+  findByPatternSyncForCli(pattern: string): ProcessInfo[] {
     return findPosixByPatternSync(pattern);
   }
 }
 
-class UnsupportedProcessListBackend implements ProcessListBackend {
-  readonly id = 'unsupported';
-
-  constructor(private readonly platform: NodeJS.Platform) {}
-
-  find(pattern: string): Promise<ProcessInfo[]> {
-    return Promise.reject(this.failure(pattern));
+export function createProcessListBackends(
+  platform = process.platform,
+): readonly ProcessListBackend[] {
+  if (platform === 'darwin' || platform === 'linux' || platform === 'freebsd') {
+    return [new PosixPsProcessListBackend()];
   }
-
-  findSync(pattern: string): ProcessInfo[] {
-    throw this.failure(pattern);
-  }
-
-  private failure(pattern: string): ProcessListUnavailable {
-    return unavailable(
-      pattern,
-      'backend',
-      'unsupported',
-      new Error(`Unsupported process-list backend on ${this.platform}`),
-      { backendId: this.id },
-    );
-  }
+  return [];
 }
 
-function createProcessListBackend(platform = process.platform): ProcessListBackend {
-  if (platform === 'darwin' || platform === 'linux' || platform === 'freebsd') {
-    return new PosixPsProcessListBackend();
-  }
-  return new UnsupportedProcessListBackend(platform);
+const productionRegistries = new Map<NodeJS.Platform, readonly ProcessListBackend[]>();
+
+function productionProcessListBackends(platform = process.platform): readonly ProcessListBackend[] {
+  const cached = productionRegistries.get(platform);
+  if (cached) return cached;
+  const backends = createProcessListBackends(platform);
+  productionRegistries.set(platform, backends);
+  return backends;
+}
+
+function unsupportedHost(pattern: string, platform: NodeJS.Platform): ProcessListUnavailable {
+  return unavailable(
+    pattern,
+    'backend',
+    'unsupported',
+    new Error(`Unsupported process-list backend on ${platform}`),
+    { backendId: 'unsupported' },
+  );
 }
 
 export function findByPatternSyncForCli(pattern: string): ProcessInfo[] {
-  return createProcessListBackend().findSync(pattern);
+  const backends = productionProcessListBackends();
+  if (backends.length === 0) throw unsupportedHost(pattern, process.platform);
+  return findByPatternWithBackendsSyncForCli(pattern, backends);
 }
 
 /** Bounded, interruptible process query; listing failures never degrade to no-match. */
@@ -412,5 +530,14 @@ export async function findByPatternAsync(
   pattern: string,
   options: FindByPatternOptions = {},
 ): Promise<ProcessInfo[]> {
-  return createProcessListBackend().find(pattern, options);
+  if (options.spawnProcess) {
+    // Deterministic low-level query seam: tests drive child events synchronously.
+    // Production callers never take this branch and always use capability probes.
+    const backends = createProcessListBackends();
+    if (backends.length === 0) throw unsupportedHost(pattern, process.platform);
+    return backends[0]!.findByPattern(pattern, options);
+  }
+  const backends = productionProcessListBackends();
+  if (backends.length === 0) throw unsupportedHost(pattern, process.platform);
+  return findByPatternWithBackends(pattern, options, backends);
 }
