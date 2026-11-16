@@ -16,27 +16,38 @@ import {
   LEGACY_CL100K_METHOD,
   LEGACY_CL100K_UNSUPPORTED_REASON,
 } from './token-estimator.js';
-import { createDeepseekV41Meter } from './deepseek-v41-meter.js';
 import type { CatalogResolution } from './catalog-strategy.js';
-import {
-  createDeepseekInputProjection,
-  DEEPSEEK_PROJECTION_REVISION,
-  DEEPSEEK_V41_ASSET_REVISION,
-} from './deepseek-input-projection.js';
+import { deepseekV41InputProfile } from './deepseek-input-profile.js';
 export type { CompleteInput, InputMeterDescriptor, InputMeasurement, InputMeasurementCapability, MeterQualification, ModelInputMeter } from './input-meter-types.js';
+
+interface InputMeterProfile {
+  readonly id: string;
+  readonly matches: (model: PiAi.Model<PiAi.Api>, resolution: CatalogResolution) => boolean;
+  readonly descriptor: () => MeterQualification;
+  readonly create: (input: {
+    readonly descriptor: Readonly<InputMeterDescriptor>;
+    readonly config: ProviderConfig;
+    readonly model: PiAi.Model<PiAi.Api>;
+    readonly effective: Pick<PiAi.SimpleStreamOptions, 'maxTokens' | 'temperature' | 'reasoning' | 'thinkingBudgets'>;
+  }) => ModelInputMeter;
+}
+
+/** Counted profiles are explicit evidence bundles; provider names never imply membership. */
+const INPUT_METER_PROFILES = [deepseekV41InputProfile] as const satisfies readonly InputMeterProfile[];
+
+function matchingProfile(
+  resolution: CatalogResolution,
+  model: PiAi.Model<PiAi.Api>,
+): InputMeterProfile | undefined {
+  return INPUT_METER_PROFILES.find(profile => profile.matches(model, resolution));
+}
 
 /** Exact resolved identity required for the fixed DeepSeek template; names alone never qualify. */
 export function isDeepseekV41MeterProfile(
   model: PiAi.Model<PiAi.Api>,
   resolution: CatalogResolution,
 ): boolean {
-  return resolution.kind === 'metadata_only'
-    && resolution.providerId === 'deepseek'
-    && resolution.modelId === 'deepseek-flash'
-    && String(model.api) === 'anthropic-messages'
-    && (model.id === 'deepseek-flash' || model.id === 'deepseek-flash[1m]')
-    && resolution.wire.model === model.id
-    && resolution.wire.api === String(model.api);
+  return deepseekV41InputProfile.matches(model, resolution);
 }
 
 /** Stable audit reason with resolved identity; no credentials or request content are included. */
@@ -47,20 +58,10 @@ function unsupportedMeterReason(
   return `${LEGACY_CL100K_UNSUPPORTED_REASON}:catalog=${resolution.kind};provider=${resolution.providerId ?? 'unresolved'};model=${resolution.modelId};wireModel=${model.id};api=${String(model.api)}`;
 }
 
-/** Only a resolved identity with final-wire projection and bound assets may be counted. */
-export function qualifyMeter(
+function legacyQualification(
   resolution: CatalogResolution,
   model: PiAi.Model<PiAi.Api>,
 ): MeterQualification {
-  if (isDeepseekV41MeterProfile(model, resolution)) {
-    return {
-      kind: 'counted',
-      method: 'deepseek-v41-template',
-      projection: DEEPSEEK_PROJECTION_REVISION,
-      assetRevision: DEEPSEEK_V41_ASSET_REVISION,
-      limits: Object.freeze({ supportedTools: 'client' }),
-    };
-  }
   return {
     kind: 'estimated',
     method: LEGACY_CL100K_METHOD,
@@ -69,6 +70,15 @@ export function qualifyMeter(
     reason: unsupportedMeterReason(resolution, model),
     limits: Object.freeze({ supportedTools: 'declared' }),
   };
+}
+
+/** Only a resolved identity with final-wire projection and bound assets may be counted. */
+export function qualifyMeter(
+  resolution: CatalogResolution,
+  model: PiAi.Model<PiAi.Api>,
+): MeterQualification {
+  return matchingProfile(resolution, model)?.descriptor()
+    ?? legacyQualification(resolution, model);
 }
 
 /** Metadata and effective request options, never credentials, define the counting revision. */
@@ -82,8 +92,9 @@ export function createInputMeter(
     ...effective,
     ...(effective.thinkingBudgets && { thinkingBudgets: Object.freeze({ ...effective.thinkingBudgets }) }),
   });
-  const qualification = qualifyMeter(resolution, model);
-  const profile = qualification.kind === 'counted' ? 'deepseek-v41-flash-1017-v1' : 'legacy-cl100k-v2';
+  const meterProfile = matchingProfile(resolution, model);
+  const qualification = meterProfile?.descriptor() ?? legacyQualification(resolution, model);
+  const profile = meterProfile?.id ?? 'legacy-cl100k-v2';
   const { method, projection, assetRevision, limits } = qualification;
   const effectiveMaxTokens = effectiveOptions.maxTokens ?? model.maxTokens;
   const descriptor: Readonly<InputMeterDescriptor> = Object.freeze({
@@ -110,11 +121,8 @@ export function createInputMeter(
       dropThinkingBlocks: config.dropThinkingBlocks === true, effective: effectiveOptions,
     })),
   });
-  if (qualification.kind === 'counted') {
-    return createDeepseekV41Meter(
-      descriptor,
-      createDeepseekInputProjection(config, model, effectiveOptions),
-    );
+  if (meterProfile) {
+    return meterProfile.create({ descriptor, config, model, effective: effectiveOptions });
   }
   const capability: MessageAdditiveInputCounter = {
     kind: 'message_additive',
