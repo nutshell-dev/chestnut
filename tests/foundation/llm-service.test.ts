@@ -8,10 +8,8 @@ import type { llmProviderCall } from '../../src/foundation/llm-provider/index.js
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type ProviderStreamChunk = llmProviderCall.ProviderStreamChunk;
 import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
-import {
-  DEFAULT_LLM_TIMEOUT_MS,
-  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_LLM_TIMEOUT_MS } from '../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../src/foundation/llm-orchestrator/defaults.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMNetworkError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 import { pauseAutonomousProbe, providerStatesOf, replaceProviderStates } from './llm-orchestrator/test-internals.js';

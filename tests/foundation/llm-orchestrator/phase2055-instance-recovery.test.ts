@@ -17,7 +17,7 @@ import { providerStatesOf, replaceProviderStates } from './test-internals.js';
 import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+} from '../../../src/foundation/llm-orchestrator/defaults.js';
 
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
 /** Immediate retry scheduling keeps recovery tests deterministic without changing persisted fixtures. */

@@ -31,7 +31,7 @@ import type {
   LLMResponse,
   RecoveryFailureInput,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import {
   LLMAuthError,
   LLMContextExceededError,

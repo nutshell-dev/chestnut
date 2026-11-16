@@ -13,6 +13,26 @@ const TIME_FIELDS = new Set([
 ]);
 const DEADLINE_FIELDS = new Set(['deadlineAtMs', 'migratedDeadlineMs', 'bootDeadlineMs']);
 const FIXTURE_MARKER = 'time-fixture:';
+const NUMERIC_FIELD_CANDIDATE = new RegExp(
+  `\\b(?:${[...TIME_FIELDS, ...DEADLINE_FIELDS].join('|')})\\s*:\\s*(\\d[\\d_]*)`, 'g',
+);
+const DEADLINE_CANDIDATE = new RegExp(
+  `\\b(?:${[...DEADLINE_FIELDS].join('|')})\\s*:\\s*Date\\.now\\(\\)\\s*[+-]\\s*(\\d[\\d_]*)`, 'g',
+);
+const PARAMETER_CANDIDATE = new RegExp(
+  `\\b(?:${[...TIME_FIELDS].join('|')})\\s*=\\s*(\\d[\\d_]*)`, 'g',
+);
+const DIRECT_CALL_CANDIDATE = /\b(?:setTimeout|setInterval|waitFor)\s*\([\s\S]*?,\s*\d[\d_]*\s*[,)]/;
+const RUNNER_CANDIDATE = /\}\s*,\s*\d[\d_]*\s*\)\s*;/;
+const INLINE_RUNNER_CANDIDATE = /\b(?:it|test|describe|beforeEach|afterEach|beforeAll|afterAll)\s*\([^\n]*,\s*\d[\d_]*\s*\)\s*;/;
+
+function hasNumericAboveSentinel(source, pattern) {
+  pattern.lastIndex = 0;
+  for (let match = pattern.exec(source); match; match = pattern.exec(source)) {
+    if (Number(match[1].replaceAll('_', '')) > 1) return true;
+  }
+  return false;
+}
 
 function callName(expression) {
   if (ts.isIdentifier(expression)) return expression.text;
@@ -30,9 +50,8 @@ function numericValue(node) {
   return Number(node.text.replaceAll('_', ''));
 }
 
-function hasFixtureMarker(sourceFile, node) {
+function hasFixtureMarker(sourceFile, lines, node) {
   const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line;
-  const lines = sourceFile.text.split('\n');
   return lines.slice(Math.max(0, line - 1), line + 1).some(text => text.includes(FIXTURE_MARKER));
 }
 
@@ -57,6 +76,7 @@ function dateNowOffset(node) {
 /** Return direct numeric time budgets; explicit per-site fixtures remain visible through their marker. */
 export function detectMagicTestTimeBudgets(source, file = 'fixture.ts') {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const lines = source.split('\n');
   const violations = [];
   const add = (node, shape) => {
     const position = sourceFile.getLineAndCharacterOfPosition(node.getStart());
@@ -68,12 +88,12 @@ export function detectMagicTestTimeBudgets(source, file = 'fixture.ts') {
       const name = propertyName(node);
       const value = numericValue(node.initializer);
       if (TIME_FIELDS.has(name) && value !== undefined && value > 1
-        && !hasNamedConstantOwner(node) && !hasFixtureMarker(sourceFile, node)) {
+        && !hasNamedConstantOwner(node) && !hasFixtureMarker(sourceFile, lines, node)) {
         add(node, `time-field:${name}`);
       }
       const offset = dateNowOffset(node.initializer);
       if (DEADLINE_FIELDS.has(name) && offset !== undefined && offset > 1
-        && !hasNamedConstantOwner(node) && !hasFixtureMarker(sourceFile, node)) {
+        && !hasNamedConstantOwner(node) && !hasFixtureMarker(sourceFile, lines, node)) {
         add(node, `deadline:${name}`);
       }
     }
@@ -109,7 +129,14 @@ export function scanTestTimeBudgets(repoRoot) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (/\.(?:ts|tsx|js)$/.test(entry.name)) {
-        violations.push(...detectMagicTestTimeBudgets(fs.readFileSync(full, 'utf8'), path.relative(repoRoot, full)));
+        const source = fs.readFileSync(full, 'utf8');
+        // Avoid parsing the overwhelmingly clean test tree under shared-worker load.
+        if (!hasNumericAboveSentinel(source, NUMERIC_FIELD_CANDIDATE)
+          && !hasNumericAboveSentinel(source, DEADLINE_CANDIDATE)
+          && !hasNumericAboveSentinel(source, PARAMETER_CANDIDATE)
+          && !DIRECT_CALL_CANDIDATE.test(source) && !RUNNER_CANDIDATE.test(source)
+          && !INLINE_RUNNER_CANDIDATE.test(source)) continue;
+        violations.push(...detectMagicTestTimeBudgets(source, path.relative(repoRoot, full)));
       }
     }
   }

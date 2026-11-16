@@ -23,14 +23,14 @@ import {
 import { legacyProviderIdentity } from '../../../src/foundation/llm-orchestrator/provider-identity.js';
 import { LLMAllProvidersFailedError, LLMOrchestratorClosedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type { LLMEvent, LLMEventSink, LLMOrchestratorConfig, LLMRecoveryFacts } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import {
   LLM_RECOVERY_COOLDOWN_MS,
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_QUOTA_MAX_DELAY_MS,
-  LLM_RECOVERY_RATE_LIMIT_BACKOFF_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_MAX_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+} from '../../../src/foundation/llm-orchestrator/defaults.js';
 import type { llmProviderCall } from '../../../src/foundation/llm-provider/index.js';
 type ProviderAdapter = llmProviderCall.ProviderAdapter;
 type LLMResponse = llmProviderCall.LLMResponse;

@@ -15,10 +15,8 @@ import type { LLMEvent, LLMInstanceLifecycle } from '../../../src/foundation/llm
 import { LLM_INSTANCE_STATE_FILE } from '../../../src/foundation/llm-orchestrator/instance-state.js';
 import { cleanupTempDir, createTrackedTempDir } from '../../utils/temp.js';
 import { internalsOf, lastSuccessProviderOf } from './test-internals.js';
-import {
-  DEFAULT_RESET_TIMEOUT_MS,
-  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 
 const CALL = { messages: [{ role: 'user' as const, content: 'hi' }] };
 const OK: LLMResponse = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };

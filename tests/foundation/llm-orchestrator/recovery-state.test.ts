@@ -21,7 +21,7 @@ import type { AtomicWriteResult, FileSystem } from '../../../src/foundation/fs/t
 import {
   LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS,
   LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+} from '../../../src/foundation/llm-orchestrator/defaults.js';
 import {
   createEmptyLLMInstanceState,
   LLM_INSTANCE_STATE_FILE,

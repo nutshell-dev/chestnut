@@ -17,10 +17,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import {
-  LLM_PROVIDER_SELECTION_TTL_MS,
-  LLM_RECOVERY_RETRY_INITIAL_DELAY_MS,
-} from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLM_PROVIDER_SELECTION_TTL_MS } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLM_RECOVERY_RETRY_INITIAL_DELAY_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 import type {
   LLMEvent,
   LLMEventSink,
